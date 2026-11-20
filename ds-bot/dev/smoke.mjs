@@ -452,6 +452,36 @@ await step('detached capabilities disappear from Chief', () => send(chief().id, 
   return expect(report?.endsWith(seesNothing), `Chief reported ${report}`)
 })
 
+await step('Chief runs a background task forked from its own chat and receives the report', async () => {
+  await send(chief().id, '调用 task_start {"title":"后台冒烟","brief":"检查上下文并回报"}')
+  const deadline = Date.now() + 25_000
+  let task
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    task = (chiefView?.tasks ?? []).find(item => item.title === '后台冒烟')
+    if (task?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const page = task === undefined ? null : await api('bot-task-read', { botId: chief().id, taskId: task.id })
+  const swapBlocked = task === undefined ? false : await api('bot-open-part', { botId: chief().id, sessionId: task.sessionId }).then(() => false, () => true)
+  return { task, page, swapBlocked }
+}, ({ task, page, swapBlocked }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const taskLine = outputs.find(line => line.includes('后台任务已完成，共继承'))
+  const inherited = Number(/共继承 (\d+) 条消息/.exec(taskLine ?? '')?.[1] ?? 0)
+  const fgReport = outputs.find(line => line.includes('已收到后台任务汇报'))
+  return expect(
+    task?.status === 'completed'
+      && inherited > 5
+      && fgReport !== undefined
+      && page?.sessionId === task.sessionId
+      && swapBlocked === true,
+    `task=${JSON.stringify(task)} inherited=${inherited} fgReport=${fgReport} page=${page?.sessionId} swapBlocked=${swapBlocked}`,
+  )
+})
+
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)
 console.log(failures.length === 0 ? `\nsmoke: all ${transcript.length} steps passed` : `\nsmoke: ${failures.length} failed\n${failures.join('\n')}`)
 process.exit(failures.length === 0 ? 0 : 1)

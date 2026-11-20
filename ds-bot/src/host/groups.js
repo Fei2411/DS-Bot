@@ -2240,16 +2240,21 @@ export function install(rt) {
   // Lines a member writes close together reach the group as one message, so a burst of
   // steps does not come out as a string of messages. Its first line on work it was asked
   // for and a line that calls a member go at once; lines still held when the turn ends
-  // open its result. Per group Session.
+  // open its result. The same status line twice in one turn is stored once. A line that
+  // names a member is kept: that call is why it was written, and the turn calls each
+  // member once. Per group Session.
   const held = new Map()
   ctx.effect(() => () => { for (const entry of held.values()) clearTimeout(entry.timer) }, 'ds-bot: group step lines')
+  const stepKey = (sessionId, info) => `${info?.exchangeId ?? ''}:${rt.live?.get(sessionId)?.turn ?? ''}`
   const flushSteps = (sessionId) => {
     const entry = held.get(sessionId)
     clearTimeout(entry.timer)
     entry.timer = undefined
     if (entry.lines.length === 0) return undefined
     entry.last = Date.now()
-    return postStep(sessionId, entry.info, entry.lines.splice(0).join('\n\n'))
+    const text = entry.lines.splice(0).join('\n\n')
+    entry.posted = text
+    return postStep(sessionId, entry.info, text)
   }
   rt.roomStepText = async (sessionId, info, raw, first) => {
     const { room, member } = memberIn(sessionId, info) ?? {}
@@ -2258,7 +2263,16 @@ export function install(rt) {
     if (isPass(text)) return
     const entry = held.get(sessionId) ?? { last: 0, lines: [] }
     held.set(sessionId, entry)
+    const key = stepKey(sessionId, info)
+    if (entry.key !== key) {
+      entry.key = key
+      entry.lastLine = undefined
+      entry.posted = undefined
+    }
     entry.info = info
+    const line = text.trim()
+    if (line === entry.lastLine && !callsIn(room, member, text)) return
+    entry.lastLine = line
     entry.lines.push(text)
     if ((first && info?.role === 'room') || callsIn(room, member, text) || Date.now() - entry.last >= ROOM_STEP_GAP_MS) return flushSteps(sessionId)
     entry.timer ??= setTimeout(() => void flushSteps(sessionId)?.catch(error => rt.warn('ds-bot: step lines from %s not posted: %s', member.name, error)), entry.last + ROOM_STEP_GAP_MS - Date.now())
@@ -2271,7 +2285,30 @@ export function install(rt) {
     entry.last = Date.now()
     return entry.lines.splice(0).join('\n\n')
   }
-  rt.withRoomSteps = (lines, reply) => (lines === '' ? reply : isPass(reply) ? lines : `${lines}\n\n${reply}`)
+  // The closing reply repeats a line already in the group when it matches the line
+  // still held, or the text just posted when nothing newer is held. A final that
+  // matches an older flush while a newer line is still held is a different line.
+  rt.withRoomSteps = (sessionId, lines, reply) => {
+    const entry = held.get(sessionId)
+    const text = typeof reply === 'string' ? reply : ''
+    const repeated = text !== '' && (text === entry?.lastLine || (lines === '' && text === entry?.posted))
+    if (entry !== undefined) {
+      entry.lastLine = undefined
+      entry.posted = undefined
+    }
+    if (lines === '') return repeated ? '' : reply
+    if (isPass(reply) || repeated) return lines
+    return `${lines}\n\n${reply}`
+  }
+  // withRoomSteps is what forgets the line just shown. A turn that fails or stops
+  // never calls it; the next turn then has only its final, and that final is dropped
+  // when it repeats the line.
+  rt.dropRoomStepEcho = (sessionId) => {
+    const entry = held.get(sessionId)
+    if (entry === undefined) return
+    entry.lastLine = undefined
+    entry.posted = undefined
+  }
 
   // The user stops a member's work in this group from the group's details, including
   // any running DSH subagents it spawned (#701). Messages still waiting for that

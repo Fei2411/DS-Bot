@@ -539,10 +539,11 @@ export function install(rt) {
   }
 
   // Activity is tracked per Session; a Bot's mascot shows its own chat's, else a group's.
+  // Background tasks keep their own status in bot.tasks and never overwrite the foreground mascot.
   const activityView = () => {
     const merged = {}
     for (const [id, value] of Object.entries(activity)) {
-      if (!rt.groupOwners.has(id)) merged[rt.chatOwners.get(id) ?? id] = value
+      if (!rt.groupOwners.has(id) && !rt.taskOwners?.has(id)) merged[rt.chatOwners.get(id) ?? id] = value
     }
     for (const [id, value] of Object.entries(activity)) {
       const owner = rt.groupOwners.get(id)
@@ -589,7 +590,7 @@ export function install(rt) {
   const workView = () => {
     const bots = {}
     for (const [id, entry] of live) {
-      if (entry.turn === undefined) continue
+      if (entry.turn === undefined || rt.taskOwners?.has(id)) continue
       const owner = rt.groupOwners.get(id)
       const botId = owner?.botId ?? rt.chatOwners.get(id)
       if (botId === undefined || (owner !== undefined && bots[botId] !== undefined)) continue
@@ -882,6 +883,8 @@ export function install(rt) {
         entry.suppressedSubagent = false
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
+        entry.lastSwitched = false
+        entry.retrying = false
         entry.answers = false
         entry.opened = false
         entry.joined = []
@@ -1069,7 +1072,7 @@ export function install(rt) {
             queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}), ...(viaOf(source) ? { via: viaOf(source) } : {}) })
           }
           const own = rt.chatOwners.get(id)
-          if (own !== undefined) rt.userWrote(own)
+          if (own !== undefined && !rt.taskOwners?.has(id)) rt.userWrote(own)
           // Any user message answers or supersedes the open question card and view card.
           let dropped = false
           if (state.questions[id] !== undefined) {
@@ -1156,6 +1159,7 @@ export function install(rt) {
         entry.toolCount = 0
         entry.suppressedSubagent = false
         entry.switched = false
+        entry.lastSwitched = switched
         entry.joined = []
         entry.since = undefined
         entry.steeredAt = undefined
@@ -1166,7 +1170,10 @@ export function install(rt) {
         entry.usage = undefined
         const later = entry.later ?? []
         entry.later = []
-        if (steerCut || suppressedSubagent) break
+        if (steerCut || suppressedSubagent) {
+          rt.dropRoomStepEcho?.(id)
+          break
+        }
         for (const result of later) {
           const targetSessionId = laterTarget(id)
           if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
@@ -1181,6 +1188,8 @@ export function install(rt) {
             replyTo: result.info.replyTo,
             work: result.info.work,
             ...(result.info.roomId ? { roomId: result.info.roomId } : {}),
+            ...(result.info.taskId ? { taskId: result.info.taskId } : {}),
+            ...(result.info.imOrigin ? { imOrigin: result.info.imOrigin } : {}),
             deferred: true,
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
@@ -1195,7 +1204,10 @@ export function install(rt) {
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
-        if (switched) break
+        if (switched) {
+          rt.dropRoomStepEcho?.(id)
+          break
+        }
         const owner = rt.chatOwners.get(id)
         const groupOwner = rt.groupOwners.get(id)
         // A turn cut off at the output limit is not a finish: whoever reads its answer
@@ -1221,7 +1233,7 @@ export function install(rt) {
           if (groupOwner !== undefined && info?.resumed === true) rt.blockTasks?.(groupOwner.roomId, groupOwner.botId, { cause: 'restarted' }, since)
           else if (groupOwner !== undefined) rt.unblockTasks?.(groupOwner.roomId, groupOwner.botId)
           // A turn the user opened, or the Retry that answers the user.
-          if (owner !== undefined && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
+          if (owner !== undefined && !rt.taskOwners?.has(id) && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
         }
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
@@ -1232,6 +1244,7 @@ export function install(rt) {
           && toolCount === 0 && lastCalled !== true && info?.role === 'room'
           && promisesWork(lastText) && !rt.callsRoomMember?.(id, info, lastText)
         const retry = (wroteCall || promisedOnly) && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
+        entry.retrying = retry
         if (retry) {
           if (promisedOnly) {
             const opening = stripWrittenCalls(lastText ?? '')
@@ -1251,7 +1264,11 @@ export function install(rt) {
           if (cutOff) return reply === '' && wroteText ? CUT_OFF_NOTE : cutOffText(reply)
           return reply
         }
-        const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
+        let echoed = false
+        const groupReply = () => {
+          echoed = true
+          return rt.withRoomSteps?.(id, held, replyText()) ?? replyText()
+        }
         // Whoever the turn answers gets the same three-way rule: a failure notice,
         // the turn's text (or a stopped-before-answer line), or nothing.
         const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
@@ -1327,6 +1344,8 @@ export function install(rt) {
             deferred: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
+        // A retry keeps the line it just showed, so its own final can still fold into it.
+        if (!echoed && !retry) rt.dropRoomStepEcho?.(id)
         if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', id, error))
         break
       }

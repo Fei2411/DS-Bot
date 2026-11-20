@@ -165,8 +165,11 @@ export function install(rt) {
       const label = imageLabel(attachment)
       const path = imagePath(attachment)
       const saved = path === undefined ? '' : ` (read-only copy saved at ${JSON.stringify(path)})`
+      // Keep the log line neutral when OCR is unavailable: vision-capable members still
+      // receive the raw image block alongside this line, and text-only members get their
+      // own "you cannot see images" fallback from withImagesAsText().
       return reading === null
-        ? `[Image ${label}${saved}: it could not be read right now. Ask the user what it shows if it matters.]`
+        ? `[Image ${label}${saved} attached]`
         : `[Image ${label}${saved}, read by ${reading.model}:]\n${reading.text}\n[End of image ${label}]`
     }))
   }
