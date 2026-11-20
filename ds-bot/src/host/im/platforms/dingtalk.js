@@ -6,6 +6,10 @@
 // numbers choices. Wire details ported from dingtalk-stream (MIT, see
 // NOTICE).
 import { chunkMarkdown } from '../format.js'
+import {
+  createChatQueue, detectImageMediaType, discardBody,
+  FILE_LIMIT, IMAGE_LIMIT, isHttpUrl, mediaSignal, readCappedBytes,
+} from './media.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const GATEWAY = 'https://api.dingtalk.com'
@@ -28,6 +32,7 @@ export default {
   connect(fields, env, handlers) {
     const clientId = String(fields.clientId ?? '').trim()
     let stopped = false
+    const stopping = new AbortController()
     let socket
     let generation = 0
     let reconnectTimer
@@ -35,15 +40,21 @@ export default {
     let idleTimer
     let token
     let tokenExpiresAt = 0
-    const ensureToken = async () => {
+    let tokenRefresh
+    const ensureToken = async (signal) => {
       if (token !== undefined && tokenExpiresAt > Date.now() + 30_000) return token
-      const answer = await appToken(fields, env)
-      token = answer.accessToken
-      tokenExpiresAt = Date.now() + (Number(answer.expiresIn ?? 7200) * 1000)
-      return token
+      tokenRefresh ??= appToken(fields, env, signal)
+        .then((answer) => {
+          token = answer.accessToken
+          tokenExpiresAt = answer.expiresAt
+          return token
+        })
+        .finally(() => { tokenRefresh = undefined })
+      return tokenRefresh
     }
     // Passive replies reuse the inbound sessionWebhook while it lives.
     const sessionWebhooks = new Map()
+    const inOrder = createChatQueue()
 
     const sendFrame = packet => { if (socket?.readyState === 1) socket.send(JSON.stringify(packet)) }
     const ack = (headers, data = {}) => sendFrame({
@@ -87,25 +98,98 @@ export default {
       return { messageId }
     }
 
+    const downloadCodeBytes = async (downloadCode, limit, robotCode = clientId) => {
+      const signal = mediaSignal(stopping.signal)
+      const answer = await robot(env, await ensureToken(signal), clientId, '/v1.0/robot/messageFiles/download', {
+        downloadCode: String(downloadCode),
+        robotCode: String(robotCode || clientId),
+      }, signal)
+      const url = String(answer?.downloadUrl ?? '').trim()
+      if (!isHttpUrl(url)) return undefined
+      const response = await env.fetch(url, { signal })
+      if (!response.ok) {
+        await discardBody(response)
+        env.log?.warn?.('ds-bot im: dingtalk attachment download answered %s', response.status)
+        return undefined
+      }
+      const got = await readCappedBytes(response, limit)
+      if (got.overLimit) {
+        env.log?.warn?.('ds-bot im: dingtalk attachment over %d byte cap, skipped', limit)
+        return undefined
+      }
+      return got.bytes === undefined || got.bytes.length === 0 ? undefined : { bytes: got.bytes }
+    }
+
     const onCallback = async (headers, raw) => {
       let data
       try { data = JSON.parse(raw) } catch { return }
-      if (data.text === undefined && data.msgtype !== 'text' && data.msgtype !== 'richText' && data.msgtype !== 'picture') { ack(headers, { ok: true }); return }
+      if (data.text === undefined && !['text', 'richText', 'picture', 'file'].includes(data.msgtype)) { ack(headers, { ok: true }); return }
       const direct = data.conversationType === '1'
       const mentioned = direct ? false : data.isInAtList === true
       const key = String(direct ? data.senderStaffId ?? data.senderId ?? '' : data.conversationId ?? '')
       if (data.sessionWebhook !== undefined) {
         sessionWebhooks.set(key, { url: String(data.sessionWebhook), until: Date.now() + 20 * 60_000 })
       }
-      // A picture message's content carries the download code, not text.
-      const text = String(data.text?.content ?? '').trim()
       const sender = String(data.senderStaffId ?? data.senderId ?? '')
+      const robotCode = String(data.robotCode || clientId)
+      // ACK promptly before downloading media so DingTalk does not redeliver the frame.
       ack(headers, { ok: true })
-      await handlers.onMessage({
-        chat: { key, kind: direct ? 'direct' : 'group', title: '' },
-        sender: { id: sender, name: String(data.senderNick ?? sender) },
-        text, images: [], files: [],
-        mentioned, messageId: String(data.msgId ?? ''),
+      await inOrder(key, async () => {
+        if (stopped) return
+        const texts = []
+        if (typeof data.text?.content === 'string' && data.text.content.trim() !== '') texts.push(data.text.content.trim())
+        const content = typeof data.content === 'string'
+          ? (() => { try { return JSON.parse(data.content) } catch { return {} } })()
+          : (data.content ?? {})
+        const pictureCodes = []
+        const fileEntries = []
+        if (data.msgtype === 'picture') {
+          const code = content?.downloadCode ?? content?.pictureDownloadCode
+          if (code) pictureCodes.push(String(code))
+        } else if (data.msgtype === 'file') {
+          const code = content?.downloadCode
+          if (code) fileEntries.push({ code: String(code), name: String(content?.fileName ?? 'file') })
+        } else if (data.msgtype === 'richText' && Array.isArray(content?.richText)) {
+          for (const part of content.richText) {
+            if (!part || typeof part !== 'object') continue
+            if (typeof part.text === 'string' && part.text.trim() !== '') texts.push(part.text.trim())
+            const code = part.downloadCode ?? part.pictureDownloadCode
+            if (code && (part.type === 'picture' || part.pictureDownloadCode !== undefined)) pictureCodes.push(String(code))
+            else if (code && part.type === 'file') fileEntries.push({ code: String(code), name: String(part.fileName ?? 'file') })
+          }
+        }
+        const images = []
+        const files = []
+        for (const code of pictureCodes) {
+          if (stopped) return
+          try {
+            const got = await downloadCodeBytes(code, IMAGE_LIMIT, robotCode)
+            if (stopped) return
+            if (got !== undefined) {
+              const mediaType = detectImageMediaType(got.bytes)
+              if (mediaType !== undefined) images.push({ mediaType, data: got.bytes.toString('base64') })
+              else files.push({ name: 'image', data: got.bytes })
+            }
+          } catch (error) {
+            if (!stopped) env.log?.warn?.('ds-bot im: dingtalk image download failed: %s', error?.message ?? error)
+          }
+        }
+        for (const item of fileEntries) {
+          if (stopped) return
+          try {
+            const got = await downloadCodeBytes(item.code, FILE_LIMIT, robotCode)
+            if (stopped) return
+            if (got !== undefined) files.push({ name: item.name, data: got.bytes })
+          } catch (error) {
+            if (!stopped) env.log?.warn?.('ds-bot im: dingtalk file download failed: %s', error?.message ?? error)
+          }
+        }
+        await handlers.onMessage({
+          chat: { key, kind: direct ? 'direct' : 'group', title: '' },
+          sender: { id: sender, name: String(data.senderNick ?? sender) },
+          text: texts.join('\n').trim(), images, files,
+          mentioned, messageId: String(data.msgId ?? ''),
+        })
       })
     }
 
@@ -239,6 +323,7 @@ export default {
       send: async (chat, { text }) => markdown(chat, text),
       stop: () => {
         stopped = true
+        stopping.abort()
         generation += 1
         clearTimeout(reconnectTimer)
         clearSocketTimers()
@@ -252,9 +337,9 @@ export default {
 
 // The app-level access token for OpenAPI sends (oapi gettoken, cached until
 // it expires).
-async function appToken(fields, env) {
+async function appToken(fields, env, signal) {
   const url = `${oapiBase(env)}/gettoken?appkey=${encodeURIComponent(String(fields.clientId ?? '').trim())}&appsecret=${encodeURIComponent(String(fields.clientSecret ?? '').trim())}`
-  const response = await env.fetch(url)
+  const response = await env.fetch(url, signal !== undefined ? { signal } : undefined)
   const body = await response.json().catch(() => ({}))
   if (body.errcode !== 0 || body.access_token === undefined) {
     const error = new Error(String(body.errmsg ?? 'DingTalk refused these credentials'))
@@ -265,12 +350,13 @@ async function appToken(fields, env) {
   return { accessToken: body.access_token, expiresAt: Date.now() + Math.max(60, Number(body.expires_in ?? 7200) - 300) * 1000 }
 }
 
-async function robot(env, token, clientId, path, body) {
+async function robot(env, token, clientId, path, body, signal) {
   if (token === undefined) throw Object.assign(new Error('DingTalk has no access token yet'), { permanent: false })
   const response = await env.fetch(`${gatewayBase(env)}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-acs-dingtalk-access-token': token },
     body: JSON.stringify(body),
+    ...(signal !== undefined ? { signal } : {}),
   })
   const json = await response.json().catch(() => ({}))
   if (!response.ok) {
