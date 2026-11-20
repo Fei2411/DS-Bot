@@ -19,7 +19,7 @@ import { LlmError, createUserMessage, isContextWindowExceededError } from '@deep
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
-import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
@@ -1869,7 +1869,10 @@ export function install(rt) {
         const text = textOf(message?.content)
         const range = relayRange(text)
         const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
-        const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
+        const preview = compressedRelayPreview(text)
+        const replies = range === undefined
+          ? (preview === undefined ? null : rt.groupRelayReplies(partId, preview)) ?? parseReplies(text).replies
+          : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
         for (const { reply, texts, time, duration, claims, changes } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.

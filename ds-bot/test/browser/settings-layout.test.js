@@ -8,7 +8,7 @@ import { chromium } from 'playwright-core'
 const { outputFiles } = await build({
   stdin: {
     contents: "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
-    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+    resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
@@ -49,15 +49,27 @@ const fullHeightPage = `<div class="plugin-page">
   <div class="plugin-actions"><button>Save</button><button>Discard</button></div>
 </div>`
 
+async function launchBrowser() {
+  const options = {
+    headless: true,
+    ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}),
+  }
+  try {
+    return await chromium.launch(options)
+  } catch (error) {
+    if (process.env.BROWSER_EXECUTABLE_PATH) throw error
+    // Local contributors who have Chrome installed but did not run playwright install.
+    return chromium.launch({ channel: 'chrome', headless: true }).catch(() => { throw error })
+  }
+}
+
 test('DSH settings pages keep usable height and scrolling (#1359)', async (t) => {
   let browser
   try {
-    browser = await chromium.launch({ channel: 'chrome', headless: true })
+    browser = await launchBrowser()
   } catch (error) {
-    // GitHub's Linux and Windows runners include Chrome. Local contributors
-    // without it can still run the non-browser suite.
     if (!process.env.CI && /not found|doesn't exist|not installed/i.test(error.message)) {
-      t.skip('Chrome is required for the settings layout regression')
+      t.skip('Chromium or Chrome is required for the settings layout regression')
       return
     }
     throw error
