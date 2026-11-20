@@ -10505,8 +10505,9 @@ state==="needs-sign-in"?actionsNode=[button(t("Sign in again"),signIn),button(t(
 on?actionsNode=button(connector.custom?t("Remove"):t("Disconnect"),()=>{run2(actions.connectorDisconnect(connector.id))}):actionsNode=[connector.auth?.kind==="oauth"&&connector.auth.
 token===!0&&connector.auth.client?.id?(0,import_react29.createElement)("button",{key:"token",type:"button",className:"bt-connector-link",disabled:busy,onClick:()=>setForm("token")},
 t("Use a token instead")):null,(0,import_react29.createElement)("button",{key:"connect",type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick:connect},busy?t("Connecti\
-ng…"):t("Connect"))],(0,import_react29.createElement)("div",{ref:row,className:"bt-connector","data-state":connector.state},(0,import_react29.createElement)("div",{className:"bt-\
-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector})),(0,import_react29.createElement)(
+ng…"):t("Connect")),connector.custom?(0,import_react29.createElement)("button",{key:"remove",type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick:()=>{run2(actions.
+connectorDisconnect(connector.id))}},t("Remove")):null],(0,import_react29.createElement)("div",{ref:row,className:"bt-connector","data-state":connector.state},(0,import_react29.createElement)(
+"div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector})),(0,import_react29.createElement)(
 "span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-connector-name"},connector.name,connector.custom?(0,import_react29.createElement)("spa\
 n",{className:"bt-tag"},t("Added")):null),(0,import_react29.createElement)("span",{className:"bt-connector-status"},statusText2(connector))),actionsNode?(0,import_react29.createElement)(
 "span",{className:"bt-connector-actions"},actionsNode):null),connector.readOnly!==void 0&&on&&connector.state==="ready"?(0,import_react29.createElement)("div",{className:"bt-connec\
@@ -10567,71 +10568,72 @@ className:"bt-connector","data-state":"off"},(0,import_react29.createElement)("d
 "span",{className:"bt-connector-name"},t("Mailbox")),(0,import_react29.createElement)("span",{className:"bt-connector-status"},t("QQ, 163, 126, Gmail, iCloud, and other IMAP mail"))),
 open?null:(0,import_react29.createElement)("span",{className:"bt-connector-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>setOpen(
 !0)},(mail?.accounts?.length??0)>0?t("Add another"):t("Connect")))),open?(0,import_react29.createElement)(MailForm,{mail,actions,onClose:()=>setOpen(!1)}):null)}function AddMenu({actions,
-run:run2}){let[kind,setKind]=(0,import_react29.useState)(null),[name,setName]=(0,import_react29.useState)(""),[url,setUrl]=(0,import_react29.useState)(""),[command,setCommand]=(0,import_react29.useState)(
-""),[found,setFound]=(0,import_react29.useState)(null),[picked,setPicked]=(0,import_react29.useState)([]),row=(0,import_react29.useRef)(null);useMorph(row,`${kind}:${found===null}`);
-let reset=()=>{setKind(null),setName(""),setUrl(""),setCommand(""),setFound(null),setPicked([])},choose=next=>{setKind(next),next==="import"&&found===null&&Promise.resolve(actions.
-connectorImportScan()).then(list=>setFound(Array.isArray(list)?list:list?.items??[]),()=>setFound([]))},key=item=>`${item.source}:${item.name}`,ready=name.trim()!==""&&(kind==="url"?
-url.trim()!=="":command.trim()!=="");return(0,import_react29.createElement)("div",{ref:row,className:"bt-connector","data-state":"off"},(0,import_react29.createElement)("div",{className:"\
-bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector:{id:"custom",name:"+"}})),(0,import_react29.createElement)(
-"span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-connector-name"},t("Other MCP server")),(0,import_react29.createElement)("span",{className:"\
-bt-connector-status"},t("An address, a command, or one from Claude Desktop, Cursor, or VS Code"))),kind===null?(0,import_react29.createElement)("span",{className:"bt-connector-acti\
-ons"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>choose("url")},t("Add"))):null),kind===null?null:(0,import_react29.createElement)(
-"div",{className:"bt-connector-form"},(0,import_react29.createElement)(Segmented,{label:t("Kind of server"),value:kind},[["url",t("Address")],["command",t("Command")],["import",t("\
-Import from other apps")]].map(([id,label])=>(0,import_react29.createElement)("button",{key:id,type:"button","aria-pressed":kind===id,onClick:()=>choose(id)},label))),kind==="impor\
-t"?found===null?(0,import_react29.createElement)("span",{className:"bt-set-hint"},t("Scanning…")):found.length===0?(0,import_react29.createElement)("span",{className:"bt-set-hint"},
-t("No MCP servers found in Claude Desktop, Cursor, or VS Code settings.")):(0,import_react29.createElement)("div",{className:"bt-mail-rules"},found.map(item=>(0,import_react29.createElement)(
-"div",{key:key(item),className:"bt-mail-rule"},(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-mail-r\
-ule-name"},item.name),(0,import_react29.createElement)("span",{className:"bt-connector-status"},`${item.source} · ${item.url??item.command}`)),(0,import_react29.createElement)(Switch,
-{label:item.name,on:picked.some(p=>key(p)===key(item)),onChange:on=>setPicked(list=>on?[...list,{source:item.source,name:item.name}]:list.filter(p=>key(p)!==key(item)))})))):[(0,import_react29.createElement)(
-"input",{key:"name",className:"bt-input","aria-label":t("Name"),placeholder:t("Name"),value:name,onChange:e=>setName(e.target.value)}),kind==="url"?(0,import_react29.createElement)(
-"input",{key:"url",className:"bt-input","aria-label":t("Server address"),placeholder:"https://…",value:url,spellCheck:!1,onChange:e=>setUrl(e.target.value)}):(0,import_react29.createElement)(
-"input",{key:"cmd",className:"bt-input","aria-label":t("Command"),placeholder:t("Command, e.g. npx -y some-mcp"),value:command,spellCheck:!1,onChange:e=>setCommand(e.target.value)})],
-(0,import_react29.createElement)("div",{className:"bt-secret-row-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:reset},t(
-"Cancel")),kind==="import"?(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:picked.length===0,onClick:()=>{run2(actions.connectorImport(
-picked),reset)}},t("Import {count}",{count:picked.length})):(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:!ready,onClick:()=>{run2(
-kind==="url"?actions.connectorAdd({name:name.trim(),url:url.trim()}):actions.connectorAdd({name:name.trim(),command:command.trim()}),reset)}},t("Add")))))}function BotConnectors({bot,
-roster,actions,run:run2}){let data=roster?.connectors,list=(data?.connectors??[]).filter(c=>c.state==="ready"),mailOn=(data?.mail?.accounts??[]).length>0;if(list.length===0&&!mailOn)
-return null;let rows2=[...list,...mailOn?[{id:"mail",name:t("Mailbox"),offFor:data.mail?.offFor??[]}]:[]];return(0,import_react29.createElement)("div",{className:"bt-drawer-model"},
-(0,import_react29.createElement)("div",{key:"t",className:"bt-section-title"},t("Connectors")),rows2.map(connector=>{let off=(connector.offFor??[]).includes(bot.id);return(0,import_react29.createElement)(
-SwitchRow,{key:connector.id,label:connector.name,on:!off,onChange:checked=>{let next=checked?(connector.offFor??[]).filter(id=>id!==bot.id):[...connector.offFor??[],bot.id];run2(actions.
-connectorSet(connector.id,{offFor:next}))}})}))}var literal=text=>String(text??"").replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g,"\\$&"),MailIcon=()=>(0,import_react29.createElement)("svg",
-{width:14,height:14,viewBox:"0 0 20 20",fill:"none",stroke:"currentColor",strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":!0},(0,import_react29.createElement)(
-"rect",{x:2.5,y:4.5,width:15,height:11,rx:2}),(0,import_react29.createElement)("path",{d:"M3 5.5l7 5 7-5"}));function RequestView2({sessionId,kind,request,actions,inline,title,icon:icon2,
-footStart,view,onAnswer,busy=!1}){let hold=useDockHold(sessionId,kind,request.id,actions,inline);return(0,import_react29.createElement)("div",{style:{display:"contents"},onFocusCapture:hold,
-onPointerDownCapture:hold},(0,import_react29.createElement)(ViewCard,{title,icon:icon2,footStart,view,busy,raised:!inline,onSubmit:(_,values)=>{hold(),onAnswer(values)},onDismiss:()=>{
-hold(),onAnswer({canceled:!0})}}))}var connectorView=(request,settled=!1)=>({type:"stack",children:[request.purpose?{type:"text",text:literal(request.purpose)}:null,{type:"confirm",
-id:"connect",confirmLabel:settled?t("Connected"):t("Connect"),cancelLabel:settled?t("Canceled"):t("Dismiss")}].filter(Boolean)});function ConnectorCard({sessionId,bot,request,actions,
-inline=!1}){let name=request.name??request.connectorId;return(0,import_react29.createElement)(RequestView2,{sessionId,kind:"connector",request,actions,inline,title:t("{bot} needs {\
-name}",{bot:bot.name,name}),view:connectorView(request),onAnswer:values=>{values?.confirmed===!0?actions.openConnectors():actions.connectorRequestCancel(request.id)}})}function SettledConnector({
-bot,request}){return(0,import_react29.createElement)(ViewCard,{title:t("{bot} needs {name}",{bot:bot.name,name:request.name??request.connectorId}),view:connectorView(request,!0),settled:!0,
-answer:{action:"connect",values:{confirmed:request.status==="connected"}}})}var humanSize=bytes=>bytes>=1024*1024?`${(bytes/(1024*1024)).toFixed(1)} MB`:bytes>=1024?`${Math.round(bytes/
-1024)} KB`:`${bytes} B`,NONE2={};function ConnectorToolCell({sessionId,callId,done,content,roster,actions,heldCards=NONE2}){let bot=roster.byId[sessionId];if(!bot)return(0,import_react29.createElement)(
-CellEmpty);let request=(roster.connectorRequests?.[bot.id]??[]).find(entry=>entry.callId===callId&&(entry.sessionId??sessionId)===sessionId);return request?.status==="pending"&&heldCards[heldCardKey(
-"connector",request.id)]>0?(0,import_react29.createElement)(CellEmpty):request?request.status==="pending"?(0,import_react29.createElement)("div",{className:"bt-q-inline"},(0,import_react29.createElement)(
-ConnectorCard,{sessionId,bot,request,actions,inline:!0})):(0,import_react29.createElement)("div",{className:"bt-q-inline"},(0,import_react29.createElement)(SettledConnector,{bot,request})):
-done&&/already connected/.test(contentText(content))?(0,import_react29.createElement)(CellEmpty):(0,import_react29.createElement)(CellEmpty)}function ConnectorDock({sessionId,useRoster,
-useCards,useHeldCards,actions}){let roster=useRoster(value=>value),shown=useCards?.(state=>state[sessionId])??NONE2,held=useHeldCards?.(state=>state[sessionId])??NONE2,bot=roster.byId[sessionId];
-if(!bot||currentPart(bot)!==sessionId)return null;let drawn=entry=>entry.callId&&entry.sessionId===sessionId&&shown[entry.callId]>0&&!(held[heldCardKey("connector",entry.id)]>0),waiting=(roster.
-connectorRequests?.[bot.id]??[]).filter(entry=>entry.status==="pending"&&!drawn(entry));return waiting.length===0?null:(0,import_react29.createElement)("div",{className:"bt-q-dock \
-bt-secret-dock"},waiting.map(request=>(0,import_react29.createElement)(ConnectorCard,{key:request.id,sessionId,bot,request,actions})))}var RULE_LABELS={"allow-recipient":"Allow rec\
-ipient","require-approval":"Needs approval","no-draft":"Allow this Bot to send directly"};function MailApprovalMenu({bot,request,rule,onPick,actions,disabled=!1}){let[open,setOpen]=(0,import_react29.useState)(
-!1),root=(0,import_react29.useRef)(null);useEscape(()=>setOpen(!1),open),(0,import_react29.useEffect)(()=>{if(!open)return;let away=event=>{root.current?.contains(event.target)||setOpen(
-!1)};return document.addEventListener("pointerdown",away,!0),()=>{document.removeEventListener("pointerdown",away,!0)}},[open]);let choose=mode=>{setOpen(!1),onPick(mode),Promise.resolve(
-actions.mailRuleSet?.({mode,botId:bot.id,recipients:[request.to,request.cc,request.bcc].filter(Boolean).join(", ")})).catch(()=>{})};return(0,import_react29.createElement)("div",{ref:root,
-className:"bt-mail-rule-wrap"},(0,import_react29.createElement)("button",{type:"button",className:"bt-mail-rule-btn",disabled,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(
-v=>!v)},t(RULE_LABELS[rule]??"Needs approval"),(0,import_react29.createElement)(ChevronDownIcon)),open?(0,import_react29.createElement)("div",{className:"bt-menu bt-menu-up bt-mail\
--rule-menu",role:"menu"},["allow-recipient","require-approval","no-draft"].map(mode=>(0,import_react29.createElement)("button",{key:mode,type:"button",role:"menuitemradio","aria-ch\
-ecked":rule===mode,onClick:()=>choose(mode)},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t(RULE_LABELS[mode])),rule===mode?(0,import_react29.createElement)(
-CheckIcon):null)),(0,import_react29.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react29.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{
-setOpen(!1),actions.openConnectors?.()}},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t("Manage rules")))):null)}function mailFrom(request,roster){return(roster?.
-connectors?.mail?.accounts??[]).find(entry=>entry.id===request.account)?.address??request.account??""}function mailView(request,roster,settled=!1){let from=mailFrom(request,roster),
-attachments=request.attachmentDetails?.length?t("Attachments: {names}",{names:request.attachmentDetails.map(a=>a.size!==void 0?`${a.name} (${humanSize(a.size)})`:a.name).join(", ")}):
-"",done=request.status==="sent"?t("Sent"):request.status==="failed"?t("Failed"):t("Send"),fields=[{id:"subject",label:"",value:String(request.subject??""),placeholder:t("Subject")},
-{id:"from",label:t("From"),value:String(from),readOnly:!0},{id:"to",label:t("To"),value:String(request.to??""),placeholder:"name@example.com"},...settled&&!request.cc?[]:[{id:"cc",
-label:t("Cc"),value:String(request.cc??""),placeholder:"name@example.com"}],...request.bcc?[{id:"bcc",label:t("Bcc"),value:String(request.bcc??""),placeholder:"name@example.com"}]:
-[],{id:"body",label:"",value:String(request.body??""),multiline:!0,placeholder:t("Write a message…")}];return{type:"stack",children:[{type:"form",id:"send",submitLabel:settled?done:
-t("Send"),cancelLabel:settled?t("Discarded"):t("Discard"),fields},attachments?{type:"text",tone:"muted",text:literal(attachments)}:null].filter(Boolean)}}function MailSendCard({sessionId,
-bot,request,roster,actions,inline=!1}){let[busy,setBusy]=(0,import_react29.useState)(!1),[rule,setRule]=(0,import_react29.useState)("require-approval"),busyRef=(0,import_react29.useRef)(
+run:run2}){let[kind,setKind]=(0,import_react29.useState)(null),[name,setName]=(0,import_react29.useState)(""),[url,setUrl]=(0,import_react29.useState)(""),[oauth,setOauth]=(0,import_react29.useState)(
+!1),[command,setCommand]=(0,import_react29.useState)(""),[found,setFound]=(0,import_react29.useState)(null),[picked,setPicked]=(0,import_react29.useState)([]),row=(0,import_react29.useRef)(
+null);useMorph(row,`${kind}:${found===null}`);let reset=()=>{setKind(null),setName(""),setUrl(""),setOauth(!1),setCommand(""),setFound(null),setPicked([])},choose=next=>{setKind(next),
+next!=="url"&&setOauth(!1),next==="import"&&found===null&&Promise.resolve(actions.connectorImportScan()).then(list=>setFound(Array.isArray(list)?list:list?.items??[]),()=>setFound(
+[]))},key=item=>`${item.source}:${item.name}`,ready=name.trim()!==""&&(kind==="url"?url.trim()!=="":command.trim()!=="");return(0,import_react29.createElement)("div",{ref:row,className:"\
+bt-connector","data-state":"off"},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(
+ConnectorMark,{connector:{id:"custom",name:"+"}})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-co\
+nnector-name"},t("Other MCP server")),(0,import_react29.createElement)("span",{className:"bt-connector-status"},t("An address, a command, or one from Claude Desktop, Cursor, or VS \
+Code"))),kind===null?(0,import_react29.createElement)("span",{className:"bt-connector-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-\
+sm",onClick:()=>choose("url")},t("Add"))):null),kind===null?null:(0,import_react29.createElement)("div",{className:"bt-connector-form"},(0,import_react29.createElement)(Segmented,{
+label:t("Kind of server"),value:kind},[["url",t("Address")],["command",t("Command")],["import",t("Import from other apps")]].map(([id,label])=>(0,import_react29.createElement)("but\
+ton",{key:id,type:"button","aria-pressed":kind===id,onClick:()=>choose(id)},label))),kind==="import"?found===null?(0,import_react29.createElement)("span",{className:"bt-set-hint"},
+t("Scanning…")):found.length===0?(0,import_react29.createElement)("span",{className:"bt-set-hint"},t("No MCP servers found in Claude Desktop, Cursor, or VS Code settings.")):(0,import_react29.createElement)(
+"div",{className:"bt-mail-rules"},found.map(item=>(0,import_react29.createElement)("div",{key:key(item),className:"bt-mail-rule"},(0,import_react29.createElement)("span",{className:"\
+bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-mail-rule-name"},item.name),(0,import_react29.createElement)("span",{className:"bt-connector-status"},`${item.
+source} · ${item.url??item.command}`)),(0,import_react29.createElement)(Switch,{label:item.name,on:picked.some(p=>key(p)===key(item)),onChange:on=>setPicked(list=>on?[...list,{source:item.
+source,name:item.name}]:list.filter(p=>key(p)!==key(item)))})))):[(0,import_react29.createElement)("input",{key:"name",className:"bt-input","aria-label":t("Name"),placeholder:t("Na\
+me"),value:name,onChange:e=>setName(e.target.value)}),kind==="url"?(0,import_react29.createElement)("input",{key:"url",className:"bt-input","aria-label":t("Server address"),placeholder:"\
+https://…",value:url,spellCheck:!1,onChange:e=>setUrl(e.target.value)}):(0,import_react29.createElement)("input",{key:"cmd",className:"bt-input","aria-label":t("Command"),placeholder:t(
+"Command, e.g. npx -y some-mcp"),value:command,spellCheck:!1,onChange:e=>setCommand(e.target.value)}),kind==="url"?(0,import_react29.createElement)(SwitchRow,{key:"oauth",label:t("\
+Sign in"),on:oauth,onChange:setOauth}):null],(0,import_react29.createElement)("div",{className:"bt-secret-row-actions"},(0,import_react29.createElement)("button",{type:"button",className:"\
+bt-soft bt-soft-sm",onClick:reset},t("Cancel")),kind==="import"?(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:picked.length===0,onClick:()=>{
+run2(actions.connectorImport(picked),reset)}},t("Import {count}",{count:picked.length})):(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:!ready,
+onClick:()=>{run2(kind==="url"?actions.connectorAdd({name:name.trim(),url:url.trim(),...oauth?{oauth:!0}:{}}):actions.connectorAdd({name:name.trim(),command:command.trim()}),reset)}},
+t("Add")))))}function BotConnectors({bot,roster,actions,run:run2}){let data=roster?.connectors,list=(data?.connectors??[]).filter(c=>c.state==="ready"),mailOn=(data?.mail?.accounts??
+[]).length>0;if(list.length===0&&!mailOn)return null;let rows2=[...list,...mailOn?[{id:"mail",name:t("Mailbox"),offFor:data.mail?.offFor??[]}]:[]];return(0,import_react29.createElement)(
+"div",{className:"bt-drawer-model"},(0,import_react29.createElement)("div",{key:"t",className:"bt-section-title"},t("Connectors")),rows2.map(connector=>{let off=(connector.offFor??
+[]).includes(bot.id);return(0,import_react29.createElement)(SwitchRow,{key:connector.id,label:connector.name,on:!off,onChange:checked=>{let next=checked?(connector.offFor??[]).filter(
+id=>id!==bot.id):[...connector.offFor??[],bot.id];run2(actions.connectorSet(connector.id,{offFor:next}))}})}))}var literal=text=>String(text??"").replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g,
+"\\$&"),MailIcon=()=>(0,import_react29.createElement)("svg",{width:14,height:14,viewBox:"0 0 20 20",fill:"none",stroke:"currentColor",strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"\
+round","aria-hidden":!0},(0,import_react29.createElement)("rect",{x:2.5,y:4.5,width:15,height:11,rx:2}),(0,import_react29.createElement)("path",{d:"M3 5.5l7 5 7-5"}));function RequestView2({
+sessionId,kind,request,actions,inline,title,icon:icon2,footStart,view,onAnswer,busy=!1}){let hold=useDockHold(sessionId,kind,request.id,actions,inline);return(0,import_react29.createElement)(
+"div",{style:{display:"contents"},onFocusCapture:hold,onPointerDownCapture:hold},(0,import_react29.createElement)(ViewCard,{title,icon:icon2,footStart,view,busy,raised:!inline,onSubmit:(_,values)=>{
+hold(),onAnswer(values)},onDismiss:()=>{hold(),onAnswer({canceled:!0})}}))}var connectorView=(request,settled=!1)=>({type:"stack",children:[request.purpose?{type:"text",text:literal(
+request.purpose)}:null,{type:"confirm",id:"connect",confirmLabel:settled?t("Connected"):t("Connect"),cancelLabel:settled?t("Canceled"):t("Dismiss")}].filter(Boolean)});function ConnectorCard({
+sessionId,bot,request,actions,inline=!1}){let name=request.name??request.connectorId;return(0,import_react29.createElement)(RequestView2,{sessionId,kind:"connector",request,actions,
+inline,title:t("{bot} needs {name}",{bot:bot.name,name}),view:connectorView(request),onAnswer:values=>{values?.confirmed===!0?actions.openConnectors():actions.connectorRequestCancel(
+request.id)}})}function SettledConnector({bot,request}){return(0,import_react29.createElement)(ViewCard,{title:t("{bot} needs {name}",{bot:bot.name,name:request.name??request.connectorId}),
+view:connectorView(request,!0),settled:!0,answer:{action:"connect",values:{confirmed:request.status==="connected"}}})}var humanSize=bytes=>bytes>=1024*1024?`${(bytes/(1024*1024)).toFixed(
+1)} MB`:bytes>=1024?`${Math.round(bytes/1024)} KB`:`${bytes} B`,NONE2={};function ConnectorToolCell({sessionId,callId,done,content,roster,actions,heldCards=NONE2}){let bot=roster.byId[sessionId];
+if(!bot)return(0,import_react29.createElement)(CellEmpty);let request=(roster.connectorRequests?.[bot.id]??[]).find(entry=>entry.callId===callId&&(entry.sessionId??sessionId)===sessionId);
+return request?.status==="pending"&&heldCards[heldCardKey("connector",request.id)]>0?(0,import_react29.createElement)(CellEmpty):request?request.status==="pending"?(0,import_react29.createElement)(
+"div",{className:"bt-q-inline"},(0,import_react29.createElement)(ConnectorCard,{sessionId,bot,request,actions,inline:!0})):(0,import_react29.createElement)("div",{className:"bt-q-i\
+nline"},(0,import_react29.createElement)(SettledConnector,{bot,request})):done&&/already connected/.test(contentText(content))?(0,import_react29.createElement)(CellEmpty):(0,import_react29.createElement)(
+CellEmpty)}function ConnectorDock({sessionId,useRoster,useCards,useHeldCards,actions}){let roster=useRoster(value=>value),shown=useCards?.(state=>state[sessionId])??NONE2,held=useHeldCards?.(
+state=>state[sessionId])??NONE2,bot=roster.byId[sessionId];if(!bot||currentPart(bot)!==sessionId)return null;let drawn=entry=>entry.callId&&entry.sessionId===sessionId&&shown[entry.
+callId]>0&&!(held[heldCardKey("connector",entry.id)]>0),waiting=(roster.connectorRequests?.[bot.id]??[]).filter(entry=>entry.status==="pending"&&!drawn(entry));return waiting.length===
+0?null:(0,import_react29.createElement)("div",{className:"bt-q-dock bt-secret-dock"},waiting.map(request=>(0,import_react29.createElement)(ConnectorCard,{key:request.id,sessionId,bot,
+request,actions})))}var RULE_LABELS={"allow-recipient":"Allow recipient","require-approval":"Needs approval","no-draft":"Allow this Bot to send directly"};function MailApprovalMenu({
+bot,request,rule,onPick,actions,disabled=!1}){let[open,setOpen]=(0,import_react29.useState)(!1),root=(0,import_react29.useRef)(null);useEscape(()=>setOpen(!1),open),(0,import_react29.useEffect)(
+()=>{if(!open)return;let away=event=>{root.current?.contains(event.target)||setOpen(!1)};return document.addEventListener("pointerdown",away,!0),()=>{document.removeEventListener("\
+pointerdown",away,!0)}},[open]);let choose=mode=>{setOpen(!1),onPick(mode),Promise.resolve(actions.mailRuleSet?.({mode,botId:bot.id,recipients:[request.to,request.cc,request.bcc].filter(
+Boolean).join(", ")})).catch(()=>{})};return(0,import_react29.createElement)("div",{ref:root,className:"bt-mail-rule-wrap"},(0,import_react29.createElement)("button",{type:"button",
+className:"bt-mail-rule-btn",disabled,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(v=>!v)},t(RULE_LABELS[rule]??"Needs approval"),(0,import_react29.createElement)(
+ChevronDownIcon)),open?(0,import_react29.createElement)("div",{className:"bt-menu bt-menu-up bt-mail-rule-menu",role:"menu"},["allow-recipient","require-approval","no-draft"].map(mode=>(0,import_react29.createElement)(
+"button",{key:mode,type:"button",role:"menuitemradio","aria-checked":rule===mode,onClick:()=>choose(mode)},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-tex\
+t"},t(RULE_LABELS[mode])),rule===mode?(0,import_react29.createElement)(CheckIcon):null)),(0,import_react29.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react29.createElement)(
+"button",{type:"button",role:"menuitem",onClick:()=>{setOpen(!1),actions.openConnectors?.()}},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t("Manage\
+ rules")))):null)}function mailFrom(request,roster){return(roster?.connectors?.mail?.accounts??[]).find(entry=>entry.id===request.account)?.address??request.account??""}function mailView(request,roster,settled=!1){
+let from=mailFrom(request,roster),attachments=request.attachmentDetails?.length?t("Attachments: {names}",{names:request.attachmentDetails.map(a=>a.size!==void 0?`${a.name} (${humanSize(
+a.size)})`:a.name).join(", ")}):"",done=request.status==="sent"?t("Sent"):request.status==="failed"?t("Failed"):t("Send"),fields=[{id:"subject",label:"",value:String(request.subject??
+""),placeholder:t("Subject")},{id:"from",label:t("From"),value:String(from),readOnly:!0},{id:"to",label:t("To"),value:String(request.to??""),placeholder:"name@example.com"},...settled&&
+!request.cc?[]:[{id:"cc",label:t("Cc"),value:String(request.cc??""),placeholder:"name@example.com"}],...request.bcc?[{id:"bcc",label:t("Bcc"),value:String(request.bcc??""),placeholder:"\
+name@example.com"}]:[],{id:"body",label:"",value:String(request.body??""),multiline:!0,placeholder:t("Write a message…")}];return{type:"stack",children:[{type:"form",id:"send",submitLabel:settled?
+done:t("Send"),cancelLabel:settled?t("Discarded"):t("Discard"),fields},attachments?{type:"text",tone:"muted",text:literal(attachments)}:null].filter(Boolean)}}function MailSendCard({
+sessionId,bot,request,roster,actions,inline=!1}){let[busy,setBusy]=(0,import_react29.useState)(!1),[rule,setRule]=(0,import_react29.useState)("require-approval"),busyRef=(0,import_react29.useRef)(
 !1),answer=values=>{if(busyRef.current)return;busyRef.current=!0,setBusy(!0);let send=values?.canceled!==!0&&values?.fields!==void 0;Promise.resolve(actions.mailSendAnswer(request.
 id,send?"send":"cancel",send?{fields:values.fields,rule}:{rule})).catch(()=>{}).finally(()=>{busyRef.current=!1,setBusy(!1)})};return(0,import_react29.createElement)(RequestView2,{
 sessionId,kind:"mail",request,actions,inline,busy,title:t("Mail"),icon:(0,import_react29.createElement)(MailIcon),footStart:(0,import_react29.createElement)(MailApprovalMenu,{bot,request,
@@ -10647,6 +10649,7 @@ NONE2,held=useHeldCards?.(state=>state[sessionId])??NONE2,bot=roster.byId[sessio
 sessionId&&shown[entry.callId]>0&&!(held[heldCardKey("mail",entry.id)]>0),waiting=(roster.mailRequests?.[bot.id]??[]).filter(entry=>entry.status==="pending"&&!drawn(entry));return waiting.
 length===0?null:(0,import_react29.createElement)("div",{className:"bt-q-dock bt-secret-dock"},waiting.map(request=>(0,import_react29.createElement)(MailSendCard,{key:request.id,sessionId,
 bot,request,roster,actions})))}var CONNECTOR_CSS=`
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size\
 :12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
@@ -12300,7 +12303,8 @@ account,actions,run:run2})),(mail.pending??[]).map(p=>(0,import_react42.createEl
 trim()!=="",found=apps.filter(app=>(category===""||app.category===category)&&matches(query.trim(),app.name,app.about??"")),body;if(searching||category!=="")body=found.length===0?(0,import_react42.createElement)(
 "p",{className:"bt-app-empty"},t("Nothing matches")):(0,import_react42.createElement)(Grid,{apps:found,actions,open,signInPlaces});else{let featured=FEATURED.map(id=>apps.find(app=>app.
 id===id)).filter(Boolean);body=[(0,import_react42.createElement)(Section,{key:"featured",place:"featured",signInPlaces,title:t("Recommended"),apps:featured,actions,open}),...CATEGORIES.
-map(([id,label])=>(0,import_react42.createElement)(Section,{key:id,place:id,signInPlaces,title:t(label),apps:inCategory(id),actions,open,onAll:()=>setCategory(id)}))]}return(0,import_react42.createElement)(
+map(([id,label])=>(0,import_react42.createElement)(Section,{key:id,place:id,signInPlaces,title:t(label),apps:inCategory(id),actions,open,onAll:()=>setCategory(id)})),(0,import_react42.createElement)(
+Section,{key:"custom",place:"custom",signInPlaces,title:t("Other MCP server"),apps:inCategory("custom"),actions,open,onAll:()=>setCategory("custom")})]}return(0,import_react42.createElement)(
 "div",{className:"bt-apps"},banner,(0,import_react42.createElement)("div",{className:"bt-app-bar"},(0,import_react42.createElement)("label",{className:"bt-app-search"},(0,import_react42.createElement)(
 SearchIcon),(0,import_react42.createElement)("input",{type:"search","aria-label":t("Search connectors"),placeholder:t("Search connectors"),value:query,onChange:e=>setQuery(e.target.
 value)})),(0,import_react42.createElement)("button",{type:"button",className:"bt-app-pill",onClick:()=>setView("custom")},(0,import_react42.createElement)(PlusIcon),t("Custom")),(0,import_react42.createElement)(

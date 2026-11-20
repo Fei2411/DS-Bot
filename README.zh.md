@@ -111,7 +111,7 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ### 连接器与能力
 
-在 设置 → 连接器 里，可以登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入已有配置。凭据保存在 ds bot 的密钥里，bot 看不到明文，写的邮件默认也要你确认后才发。
+在 设置 → 连接器 里，可以登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入已有配置。凭据保存在 ds bot 的密钥里，bot 看不到明文，写的邮件默认也要你确认后才发。自己的 MCP 服务器也可以添加：地址填好后打开「Sign in」，就能走浏览器授权（服务不发布 OAuth 元数据时，改用固定 header 或密钥）。
 
 在 设置 → 能力 里，可以管理团队共享的 MCP 服务、技能和能力包，并在每个 bot 的设置里按需开启；bot 自己添加的本地命令需要先经你批准才能运行。
 
