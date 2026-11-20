@@ -237,10 +237,8 @@ export function install(rt) {
     const place = placeOf(agent.id)
     const taskEntry = rt.taskBySession?.(agent.id)?.task
     const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
-    const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
     // A background part makes room within its own thread, like the foreground chat.
-    const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
-    const parts = partsOf(place.botId, place.roomId, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
     const previous = parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -402,11 +400,18 @@ export function install(rt) {
     if (bot === undefined) return []
     const thread = sessionId === undefined ? undefined : threadOfPart(bot, sessionId)
     if (thread === undefined) return partsOf(bot.id)
+    if (thread.thread === 'task') {
+      const task = bot.tasks[thread.index]
+      // A foreground turn moved into a background task keeps read_own_chat access to the
+      // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
+      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
+      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      return partsOf(bot.id, undefined, segments, task.sessionId)
+    }
     const current = thread.thread === 'current'
       ? rt.chatOf(bot.id)
-      : thread.thread === 'open'
-        ? bot.openParts[thread.index].sessionId
-        : bot.tasks[thread.index].sessionId
+      : bot.openParts[thread.index].sessionId
     return partsOf(bot.id, undefined, thread.segments, current)
   }
 
@@ -1272,7 +1277,8 @@ export function install(rt) {
     const session = agent.session
     const tokens = sizeOf(session)
     const lines = await contextLines(session).catch(() => undefined)
-    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = bot === undefined ? partsOf(undefined, room.id)
+      : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, agent.id)
     const number = parts.length
     const taskEntry = rt.taskBySession?.(agent.id)?.task
     const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined

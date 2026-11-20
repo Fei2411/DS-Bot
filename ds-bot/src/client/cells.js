@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
-import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
+import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
@@ -97,7 +97,7 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
   // closes them. Interactive targets keep their own meaning.

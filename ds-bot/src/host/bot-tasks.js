@@ -259,7 +259,10 @@ export function install(rt) {
       // answer the asking Bot once here and clear `liveEntry.info` so any ensuing
       // `turn/end (aborted)` from `agent.cancel()` can never emit a duplicate reply.
       if (task.origin === 'bot-handoff') {
-        if (task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+        // On `completed`, `turns.js` owns the reply delivery (including async `attachLong`
+        // for >20k replies); only send the fallback notice on non-completed outcomes so we
+        // never race `attachLong` with a false "stopped" reply.
+        if (outcome !== 'completed' && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
           const asker = rt.workAsker?.(task.exchangeId)
           if (asker !== undefined) {
             const liveEntry = rt.live.get(task.sessionId)
@@ -288,7 +291,11 @@ export function install(rt) {
           return
         }
       } else {
-        targetSession = threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id)
+        // Keep moved-foreground reports targeting the latest foreground chat even if
+        // `task.from` was later moved into a second successive background task.
+        targetSession = task.origin === 'fg-handoff' || threadOfPart(bot, task.from)?.thread === 'task'
+          ? rt.chatOf(bot.id)
+          : (threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id))
       }
       let body
       let note
@@ -668,18 +675,30 @@ export function install(rt) {
     }
   }
 
-  // Delivers pulled user messages onto a target foreground Session.
+  // Delivers pulled user messages onto a target foreground Session, retrying transient
+  // destination failures without duplicating already-admitted items.
   const forwardPulledMessages = async (targetSid, items, botName) => {
     if (items.length === 0) return
-    try {
-      await rt.ensureCapabilities(targetSid)
-      const freshAgent = await rt.resolveAgent(targetSid)
-      for (const item of items) {
-        freshAgent.followup(createUserMessage({ content: item.msg.content, source: item.msg.source }))
+    let nextIndex = 0
+    const delays = [50, 250]
+    for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+      try {
+        await rt.ensureCapabilities(targetSid)
+        const freshAgent = await rt.resolveAgent(targetSid)
+        while (nextIndex < items.length) {
+          const item = items[nextIndex]
+          freshAgent.followup(createUserMessage({ content: item.msg.content, source: item.msg.source }))
+          nextIndex += 1
+        }
+        await ctx.sessions.flush(freshAgent.session)
+        return
+      } catch (error) {
+        if (attempt < delays.length) {
+          await new Promise(resolve => setTimeout(resolve, delays[attempt]))
+          continue
+        }
+        rt.warn('ds-bot: forwarding queued input to new foreground %s for %s failed: %s', targetSid, botName ?? '?', error)
       }
-      await ctx.sessions.flush(freshAgent.session)
-    } catch (error) {
-      rt.warn('ds-bot: forwarding queued input to new foreground %s for %s failed: %s', targetSid, botName ?? '?', error)
     }
   }
 
@@ -741,6 +760,7 @@ export function install(rt) {
         from: newSid,
         sessionId: oldSid,
         segments: [],
+        ...(bot.segments?.length ? { inheritedSegments: bot.segments.map(seg => ({ ...seg })) } : {}),
         origin,
         status: 'running',
         startedAt: entry?.since ?? now,
@@ -769,6 +789,8 @@ export function install(rt) {
       const liveOld = rt.live.get(oldSid)
       if (liveOld !== undefined) liveOld.steeredAt = undefined
       await rt.save()
+      await rt.moveSchedules?.(oldSid, newSid)
+        .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
       await syncRoute?.().catch(error => rt.warn('ds-bot: route sync for foreground part of %s failed: %s', bot.name, error))
       emitTaskEvent('task.started', bot, task, { origin })
 

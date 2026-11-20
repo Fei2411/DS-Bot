@@ -370,6 +370,24 @@ export function install(rt) {
       // Its input was consumed before the reload; a later request joins this turn.
       entry.opened = true
       entry.since ??= Date.now()
+      // Restore routing info for an adopted `bot-handoff` task so its completion
+      // still delivers the real reply (including async `attachLong` for >20k outputs).
+      const adoptedTask = rt.taskBySession?.(sessionId)?.task
+      if (adoptedTask?.origin === 'bot-handoff' && adoptedTask.exchangeId !== undefined && rt.ownsWork?.(rt.selfOf(sessionId), adoptedTask.exchangeId)) {
+        const asker = rt.workAsker?.(adoptedTask.exchangeId)
+        if (asker !== undefined) {
+          entry.info = asker
+          if (entry.texts.length === 0 && typeof agent.session?.snapshotEvents === 'function') {
+            const events = agent.session.snapshotEvents()
+            const startAt = events.findLastIndex(ev => ev?.type === 'turn/start')
+            for (const ev of events.slice(startAt + 1)) {
+              if (ev?.type !== 'assistant/message') continue
+              const said = textOf(ev.data?.message?.content).trim()
+              if (said !== '') entry.texts.push(said)
+            }
+          }
+        }
+      }
       setActivity(sessionId, 'thinking')
     }
   }

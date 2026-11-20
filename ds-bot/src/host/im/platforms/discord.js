@@ -45,6 +45,28 @@ export default {
     let generation = 0
     let reconnectTimer
     const self = { id: undefined, name: '' }
+    // MESSAGE_CREATE carries a `channel_id`, not a channel object, so a guild
+    // message has no name in the payload. Read it once per channel through REST
+    // and keep it for the life of the connection. The cache holds the pending
+    // read too, so two messages of the same channel arriving back to back share
+    // one lookup; a read that yields no name is forgotten so the next message
+    // tries again.
+    const channelTitles = new Map()
+    const channelTitle = async (id) => {
+      if (!id) return ''
+      const known = channelTitles.get(id)
+      if (known) return known
+      const pending = rest(`/channels/${id}`, { method: 'GET' }).then((channel) => {
+        const name = typeof channel?.name === 'string' ? channel.name : ''
+        if (!name) channelTitles.delete(id)
+        return name
+      }, () => {
+        channelTitles.delete(id)
+        return ''
+      })
+      channelTitles.set(id, pending)
+      return pending
+    }
 
     const rest = async (path, options = {}) => {
       const response = await env.fetch(`${apiBase(env)}${path}`, {
@@ -81,7 +103,12 @@ export default {
       const chat = {
         key: String(data.channel_id),
         kind: direct ? 'direct' : 'group',
-        title: data.channel?.name ?? direct ? String(data.author?.username ?? '') : '',
+        // A group is named after its channel, a DM after the person. The
+        // message payload has no channel object, so the name is looked up by
+        // `channel_id`; a DM has no channel name to look up.
+        title: direct
+          ? String(data.author?.username ?? '')
+          : String(data.channel?.name ?? '') || await channelTitle(String(data.channel_id ?? '')),
       }
       const images = []
       const files = []

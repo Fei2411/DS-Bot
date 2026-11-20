@@ -103,20 +103,24 @@ function ClientPanel({ connector, actions, run }) {
     // The app on the service side has to know the address the browser comes back
     // to, and its own MCP features, before the pasted client can sign in.
     h('div', { className: 'bt-connector-setup' },
-      h('p', null, setup?.kind === 'slack'
-        ? t('In OAuth & Permissions at {app}, add this redirect URL:', { app })
-        : t('In the app settings, add this redirect URL:')),
-      uri ? h('div', { className: 'bt-connector-setup-uri' },
-        h('code', { className: 'bt-connector-uri' }, uri),
-        h('button', { type: 'button', className: 'bt-connector-link', onClick: () => void copyCode(uri) }, t('Copy')),
-        copies > 0 ? h('span', { className: 'bt-connector-copied', role: 'status' },
-          h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard'))) : null) : null,
-      setup?.kind === 'slack' ? h('p', null, t('Turn on the MCP features and scopes the app needs.')) : null,
-      h('p', null, t('Copy the Client ID and Client Secret here.')),
-      setup?.appUrl ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(setup.appUrl) }, t('Open app settings')) : null),
+      h('ol', { className: 'bt-connector-steps' },
+        h('li', null,
+          h('span', null, setup?.kind === 'slack'
+            ? t('In OAuth & Permissions at {app}, add this redirect URL:', { app })
+            : t('In the app settings, add this redirect URL:')),
+          uri ? h('div', { className: 'bt-connector-setup-uri' },
+            h('code', { className: 'bt-connector-uri' }, uri),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void copyCode(uri) }, t('Copy')),
+            copies > 0 ? h('span', { className: 'bt-connector-copied', role: 'status' },
+              h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard'))) : null) : null),
+        setup?.kind === 'slack' ? h('li', null, t('Turn on the MCP features and scopes the app needs.')) : null,
+        h('li', null, t('Copy the Client ID and Client Secret here.')))),
     h('input', { className: 'bt-input', 'aria-label': t('Client ID'), placeholder: t('Client ID'), value: clientId, spellCheck: false, autoComplete: 'off', onChange: e => setClientId(e.target.value) }),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t('Client secret (optional)') })),
     h('div', { className: 'bt-connector-form-row' },
+      setup?.appUrl
+        ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(setup.appUrl) }, t('Open app settings'))
+        : h('span', { className: 'bt-connector-wait' }),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: clientId.trim() === '', onClick: () => void run(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || undefined)) }, t('Continue'))))
 }
@@ -173,7 +177,7 @@ export function ConnectorRow({ connector, actions }) {
   }
   const button = (label, onClick) => h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick }, label)
   let actionsNode = null
-  if (pending || form) actionsNode = null
+  if (pending || form || connector.state === 'needs-client') actionsNode = null
   else if (connector.state === 'needs-sign-in') actionsNode = [button(t('Sign in again'), signIn), button(t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (connector.state === 'error') actionsNode = [button(t('Try again'), () => void run(actions.connectorRetry(connector.id))), button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (on) actionsNode = button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))
