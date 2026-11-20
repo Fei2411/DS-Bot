@@ -93,7 +93,7 @@ There are a few limits to keep in mind: a local agent uses the CLI's own tools a
 
 ### Browser
 
-Each bot has its own isolated browser with separate sign-ins, and can import cookies from a file or from your local browsers. Turn on a browser plugin in Settings → Browser to let bots open and operate web pages on their own; posting, uploading, downloading and deleting need your approval, and sign-in, captchas or payments hand back to you with a card so you can take over and hand back at any time.
+Each bot has its own isolated browser with separate sign-ins, and can import cookies from a file or from your local browsers. In Settings → Browser you can hot-switch the team's browser backend between read-only, the built-in Playwright plugins (`refs`, `script`, `task`), external DSH browser plugins (such as ego lite), MCP browser servers (such as Playwright MCP or Chrome DevTools MCP), or custom providers. With the built-in backend, posting, uploading, downloading and deleting need your approval, and sign-in, captchas or payments hand back to you with a card so you can take over and hand back at any time.
 
 The browser feature is available in the desktop app and DSH Desktop only (not in DSH Web), and only the desktop app keeps browser sign-ins after you quit and supports cookie import. On Windows, new Chrome and Edge cookies encrypted with v20 cannot be read directly — export them to a file with a browser extension first.
 

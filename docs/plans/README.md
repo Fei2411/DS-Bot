@@ -49,6 +49,7 @@
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | 可选的 `secrets.json` 口令加密：同一文件原子切换成 scrypt + AES-256-GCM 信封；无人值守用环境变量或口令文件解锁；锁定时的行为和回滚 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
+| [浏览器操控插件化](2026-11-20-browser-pluginization.md) | 浏览器后端彻底插件化与热切换：内置 Playwright、社区 DSH 浏览器插件（如 ego lite）、MCP 浏览器服务与原生 Provider 契约 |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
 | [一个 Bot 同时跑两个会话](2026-11-13-parallel-sessions.md) | Bot 忙的时候新开会话：新的一段在前台开始，原来那段留在后台继续跑；详情面板列出每个 Bot 的会话和「运行中」标记；打开运行中的后台段是只读的（英文文档） |
