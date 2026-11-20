@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ComputerPage, BotComputerCard, ComputerView, PendingAppAccess, ComputerIndicator, ComputerCallRow } from './src/client/computer.js'",
+      "export { ComputerPage, BotComputerCard, ComputerView, PendingAppAccess, AppAccessDock, ComputerIndicator, ComputerCallRow } from './src/client/computer.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -71,6 +71,22 @@ test('the app-access card orders its buttons Deny, This time, Always', () => {
   const ask = { id: 'a1', sessionId: 'w1', botName: 'Writer', appName: 'Notes' }
   const tree = render('PendingAppAccess', { ask, actions, inline: true })
   assert.deepEqual(buttons(tree), ['Deny', 'This time', 'Always'])
+})
+
+test('AppAccessDock in a Bot own chat skips group-session asks and shows own-chat asks (#1623)', () => {
+  const roster = { byId: { w1: { id: 'w1', name: 'Writer' } } }
+  const actions = { computerAppAnswer: async () => true }
+  const dock = asks => render('AppAccessDock', {
+    sessionId: 'w1',
+    useRoster: pick => pick(roster),
+    useCards: pick => pick({}),
+    useHeldCards: pick => pick({}),
+    useComputer: pick => pick({ asks }),
+    actions,
+  })
+  assert.equal(dock({ g1: { id: 'g1', botId: 'w1', sessionId: 'r1-w1', roomId: 'r1', appName: 'Notes' } }), null)
+  const own = dock({ o1: { id: 'o1', botId: 'w1', sessionId: 'w1', appName: 'Notes' } })
+  assert.ok(own !== null)
 })
 
 test('the settings page draws the switch, the provider line and one level picker per Bot', () => {
