@@ -15621,6 +15621,16 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       });
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
     }),
+    // Files put back into a draft get new attachment ids: the cards of `from` wait for
+    // their files again in `to`, and bind by name as on a paste.
+    reopenPastes: (from, to) => ui2.set((state) => {
+      const blocks = state.paste?.[from] ?? [];
+      if (blocks.length === 0) return state;
+      const waiting = blocks.map((block) => ({ ...block, attachmentId: null }));
+      if (from === to) return pasteState(state, to, waiting);
+      const { [from]: _left, ...rest } = state.paste;
+      return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
+    }),
     removePaste: (sessionId, blockIds) => ui2.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const kept = blocks.filter((block) => !blockIds.includes(block.id));
@@ -16852,7 +16862,8 @@ var STORAGE = {
   browserWidth: "ds-bot:browser-width",
   browserImportSource: "ds-bot:browser-import-source",
   sidebar: "ds-bot:sidebar",
-  browsers: "ds-bot.browser.v2"
+  browsers: "ds-bot.browser.v2",
+  drafts: "ds-bot:drafts"
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
@@ -40796,6 +40807,67 @@ var steerQueued = async (session) => {
   }
 };
 
+// src/client/draft-keep.js
+var NO_FILES = [];
+var keptFiles = /* @__PURE__ */ new Map();
+var readTexts = (storage) => {
+  try {
+    const value = JSON.parse(storage?.getItem(STORAGE.drafts) ?? "{}");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+var writeTexts = (storage, value) => {
+  try {
+    storage?.setItem(STORAGE.drafts, JSON.stringify(value));
+  } catch {
+  }
+};
+var textEntry = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string";
+function chatOfSession(roster, sessionId) {
+  if (typeof sessionId !== "string" || sessionId === "") return void 0;
+  const bots = Object.values(roster?.byId ?? {});
+  const rooms = Object.values(roster?.roomsById ?? {});
+  const bot = roster?.byId?.[sessionId] ?? bots.find((item) => currentPart(item) === sessionId || item.parts?.includes(sessionId));
+  if (bot !== void 0) return { id: bot.id, part: currentPart(bot) };
+  const room2 = roster?.roomsById?.[sessionId] ?? rooms.find((item) => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId));
+  if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
+  return void 0;
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+  if (files.length === 0) keptFiles.delete(chatId);
+  else keptFiles.set(chatId, { part, files: [...files] });
+  const texts2 = readTexts(storage);
+  const before = texts2[chatId];
+  if (text === "") {
+    if (before === void 0) return;
+    delete texts2[chatId];
+  } else {
+    if (before?.part === part && before?.text === text) return;
+    texts2[chatId] = { part, text };
+  }
+  writeTexts(storage, texts2);
+}
+function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
+  const kept = keptFiles.get(chatId);
+  const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
+  const entry = readTexts(storage)[chatId];
+  const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
+  return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
+}
+function pruneDrafts(exists, storage = globalThis.localStorage) {
+  for (const chatId of keptFiles.keys()) if (!exists(chatId)) keptFiles.delete(chatId);
+  const texts2 = readTexts(storage);
+  const gone = Object.keys(texts2).filter((chatId) => !exists(chatId));
+  if (gone.length === 0) return;
+  for (const chatId of gone) delete texts2[chatId];
+  writeTexts(storage, texts2);
+}
+function forgetKeptFiles() {
+  keptFiles.clear();
+}
+
 // src/client/composer.js
 var import_react58 = require("react");
 var import_react_dom11 = require("react-dom");
@@ -41044,6 +41116,45 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       (0, import_react58.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react58.createElement)(ClockIcon), (0, import_react58.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
     ), document.body) : null
   );
+}
+var NO_IDS = [];
+function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+  const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
+  const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
+  const draft = useInput?.((state) => state.draft) ?? "";
+  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
+  const restored = (0, import_react58.useRef)("");
+  const pending = (0, import_react58.useRef)({ text: false, files: false });
+  (0, import_react58.useEffect)(() => {
+    if (!current2 || inputActions === void 0) return;
+    const key = `${chatId}:${sessionId}`;
+    if (restored.current === key) return;
+    restored.current = key;
+    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    try {
+      if (back.text !== "") {
+        inputActions.setDraft(back.text);
+        pending.current.text = true;
+      }
+      if (back.files.length > 0) {
+        const added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
+        if (added.length > 0 && inputActions.addAttachments(added) !== false) {
+          pending.current.files = true;
+          actions.reopenPastes(back.from, sessionId);
+        }
+      }
+    } catch (error) {
+      console.warn("[ds-bot] could not put the draft back", error);
+    }
+  }, [current2, chatId, sessionId, inputActions]);
+  (0, import_react58.useEffect)(() => {
+    if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (pending.current.text && draft === "") return;
+    if (pending.current.files && ids.length === 0) return;
+    pending.current = { text: false, files: false };
+    keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
+  }, [current2, chatId, sessionId, draft, ids]);
+  return null;
 }
 
 // src/client/at-menu.js
@@ -42476,7 +42587,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
 var import_react64 = require("react");
 var PASTE_LIMIT = 1500;
 var NO_BLOCKS = [];
-var NO_IDS = [];
+var NO_IDS2 = [];
 var ORPHAN_MS = 3e3;
 var foldPastedText = (text) => typeof text === "string" && text.length > PASTE_LIMIT ? text : null;
 var pastedName = (text) => `Pasted text (${text.length} characters).txt`;
@@ -42569,7 +42680,7 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
 function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = (0, import_react64.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
+  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS2;
   const draft = useInput?.((state) => state.draft) ?? "";
   const latest = (0, import_react64.useRef)({ blocks, ids, draft });
   latest.current = { blocks, ids, draft };
@@ -42588,8 +42699,10 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [ids, blocks]);
+  const shown = (0, import_react64.useRef)(/* @__PURE__ */ new Set());
   (0, import_react64.useEffect)(() => {
-    const gone = latest.current.blocks.filter((block) => !blockLives(block, ids));
+    const gone = latest.current.blocks.filter((block) => !blockLives(block, ids) && shown.current.has(block.attachmentId));
+    for (const id of ids) shown.current.add(id);
     if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
   }, [ids]);
   (0, import_react64.useEffect)(() => {
@@ -49565,6 +49678,17 @@ function apply(ctx) {
     updateQueue: async (itemId, action) => await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment)
   });
+  ctx.effect(() => {
+    let chats = "";
+    return roster.subscribe(() => {
+      const snapshot = roster.getSnapshot();
+      if (!snapshot.ready) return;
+      const now = [...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)].join(" ");
+      if (now === chats) return;
+      chats = now;
+      pruneDrafts((id) => snapshot.byId[id] !== void 0 || snapshot.roomsById[id] !== void 0);
+    });
+  }, "ds-bot: drafts of removed chats");
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -49622,6 +49746,16 @@ function apply(ctx) {
     if (await steerQueued(session) === "failed") {
       actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
     }
+  };
+  actions.draftFiles = (ids) => {
+    const conversation = ctx.get("conversation");
+    if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== "function") return [];
+    return conversation.resolveDraftAttachments(ids).map((item) => ({ kind: item.kind, file: item.file }));
+  };
+  actions.restoreDraftFiles = (sessionId, files) => {
+    const conversation = ctx.get("conversation");
+    if (typeof conversation?.createDrafts !== "function") return [];
+    return conversation.createDrafts(sessionId, files, true).map((item) => item.id);
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
   actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));
@@ -49858,6 +49992,7 @@ function apply(ctx) {
     () => shadow("conversation.composer.dock", { id: "activity", order: 0, priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.composer.dock", { id: "usage", order: 1, priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.composer.dock", { id: "btw", order: 2, priority: BOT_PRIORITY, inject: face }, BtwDock),
+    () => shadow("conversation.input.left", { id: "bot-draft", order: -120, inject: face }, DraftKeeper),
     () => shadow("conversation.input.left", { id: "bot-paste", order: -110, inject: face }, PasteGuard),
     () => shadow("conversation.input.left", { id: "bot-plus", order: -100, inject: face }, ComposerPlus),
     () => shadow("conversation.input.right", { id: "bot-voice", order: 100, inject: face }, ComposerVoice),

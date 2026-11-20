@@ -1,0 +1,148 @@
+import assert from 'node:assert/strict'
+import { test, beforeEach } from 'node:test'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { chatOfSession, forgetKeptFiles, keepDraft, pruneDrafts, takeDraft } from '../src/client/draft-keep.js'
+import { createSource } from '../src/client/sources.js'
+import { teamActions } from '../src/client/team-actions.js'
+import { STORAGE } from '../src/client/storage.js'
+
+const memoryStorage = () => {
+  const values = new Map()
+  return {
+    getItem: key => (values.has(key) ? values.get(key) : null),
+    setItem: (key, value) => { values.set(key, String(value)) },
+    removeItem: (key) => { values.delete(key) },
+  }
+}
+
+const image = name => ({ kind: 'image', file: { name } })
+
+let storage
+beforeEach(() => {
+  storage = memoryStorage()
+  forgetKeptFiles()
+})
+
+const roster = {
+  byId: {
+    bee: { id: 'bee', sessionId: 'bee-2', parts: ['bee', 'bee-2'] },
+    'bee-2': { id: 'bee', sessionId: 'bee-2', parts: ['bee', 'bee-2'] },
+    chief: { id: 'chief', parts: ['chief'] },
+  },
+  roomsById: {
+    room: { id: 'room', sessionId: 'room-3', ownParts: ['room', 'room-3'] },
+  },
+}
+
+test('a Session finds its chat and the part the chat is on', () => {
+  assert.deepEqual(chatOfSession(roster, 'bee'), { id: 'bee', part: 'bee-2' })
+  assert.deepEqual(chatOfSession(roster, 'bee-2'), { id: 'bee', part: 'bee-2' })
+  assert.deepEqual(chatOfSession(roster, 'chief'), { id: 'chief', part: 'chief' })
+  assert.deepEqual(chatOfSession(roster, 'room-3'), { id: 'room', part: 'room-3' })
+  assert.deepEqual(chatOfSession(roster, 'room'), { id: 'room', part: 'room-3' })
+  assert.equal(chatOfSession(roster, 'agent-session'), undefined, 'a DSH Agent Session is not a chat')
+  assert.equal(chatOfSession(roster, ''), undefined)
+})
+
+test('coming back to the same part gets the files back; the shell keeps the text itself', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, storage)
+  const back = takeDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', attached: 0 }, storage)
+  assert.equal(back.text, '')
+  assert.deepEqual(back.files.map(item => item.file.name), ['red.png'])
+  assert.equal(back.from, 'bee-2')
+})
+
+test('a newer part gets the text and the files when its box is empty', () => {
+  keepDraft({ chatId: 'bee', part: 'bee', text: 'hello', files: [image('red.png')] }, storage)
+  const back = takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage)
+  assert.equal(back.text, 'hello')
+  assert.equal(back.files.length, 1)
+  assert.equal(back.from, 'bee')
+})
+
+test('a box that already has its own text or files keeps them', () => {
+  keepDraft({ chatId: 'bee', part: 'bee', text: 'old', files: [image('red.png')] }, storage)
+  const back = takeDraft({ chatId: 'bee', part: 'bee-2', text: 'typed here', attached: 1 }, storage)
+  assert.equal(back.text, '')
+  assert.deepEqual(back.files, [])
+  assert.equal(back.from, undefined)
+})
+
+test('a send or an emptied box leaves nothing to take back', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, storage)
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: '', files: [] }, storage)
+  assert.equal(storage.getItem(STORAGE.drafts), '{}')
+  const back = takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, storage)
+  assert.deepEqual(back, { text: '', files: [], from: undefined })
+})
+
+test('a removed image stays removed', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: '', files: [image('green.png'), image('blue.png')] }, storage)
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: '', files: [image('blue.png')] }, storage)
+  const back = takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage)
+  assert.deepEqual(back.files.map(item => item.file.name), ['blue.png'])
+})
+
+test('each chat keeps its own draft', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'for Bee', files: [image('bee.png')] }, storage)
+  keepDraft({ chatId: 'chief', part: 'chief', text: 'for Chief', files: [] }, storage)
+  assert.deepEqual(takeDraft({ chatId: 'chief', part: 'chief', text: 'for Chief', attached: 0 }, storage).files, [])
+  assert.deepEqual(takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage).files.map(item => item.file.name), ['bee.png'])
+})
+
+test('the text is kept in browser storage, the files are not', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'hello' } })
+  forgetKeptFiles()
+  const back = takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, storage)
+  assert.equal(back.text, 'hello', 'a reload still carries the text to a newer part')
+  assert.deepEqual(back.files, [])
+})
+
+test('broken or missing storage keeps nothing and breaks nothing', () => {
+  storage.setItem(STORAGE.drafts, 'not json')
+  assert.deepEqual(takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage), { text: '', files: [], from: undefined })
+  const throwing = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [] }, throwing)
+  assert.equal(takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, throwing).text, '')
+})
+
+test('a deleted chat takes its draft with it', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, storage)
+  keepDraft({ chatId: 'chief', part: 'chief', text: 'stay', files: [] }, storage)
+  pruneDrafts(id => id === 'chief', storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { chief: { part: 'chief', text: 'stay' } })
+  assert.deepEqual(takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage).files, [])
+})
+
+test('paste cards wait for their files again, in the part the draft went to', () => {
+  const ui = createSource({ paste: {} })
+  const actions = teamActions({ call: async () => ({}), after: value => value, partFor: id => id, roster: createSource({}), ui, live: createSource({}), cards: createSource({}), heldCards: createSource({}), turnClock: createSource({}), panelFolded: () => false })
+  const id = actions.addPaste('bee', 'long text', 'Pasted text (9 characters).txt')
+  actions.linkPastes('bee', [{ blockId: id, attachmentId: 'draft-1' }])
+  actions.reopenPastes('bee', 'bee')
+  assert.deepEqual(ui.getSnapshot().paste.bee.map(block => block.attachmentId), [null])
+  actions.linkPastes('bee', [{ blockId: id, attachmentId: 'draft-2' }])
+  actions.reopenPastes('bee', 'bee-2')
+  assert.equal(ui.getSnapshot().paste.bee, undefined)
+  assert.deepEqual(ui.getSnapshot().paste['bee-2'].map(block => [block.text, block.attachmentId]), [['long text', null]])
+  actions.reopenPastes(undefined, 'bee-2')
+  assert.equal(ui.getSnapshot().paste['bee-2'].length, 1, 'a draft with no cards moves none')
+})
+
+// The files go back through the shell's own draft intake; a DSH that renames it must
+// fail here, not silently in a Bot chat.
+test('the pinned DSH conversation service has the draft intake the keeper uses', async () => {
+  const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
+  const harness = process.env.DSH_HARNESS ?? join(PLUGIN, 'dev', 'harness')
+  const require = createRequire(join(harness, 'package.json'))
+  const types = require.resolve('@deepseek-ai/dsh-client-ui-conversation/package.json')
+  const { readFile } = await import('node:fs/promises')
+  const service = await readFile(join(dirname(types), 'lib', 'types', 'client', 'service.d.ts'), 'utf8')
+  assert.match(service, /createDrafts\(sessionId: SessionId, files: readonly File\[\], uploadImages: boolean\): readonly ComposerAttachment\[\];/)
+  assert.match(service, /resolveDraftAttachments\(ids: readonly DraftAttachmentId\[\]\): readonly ComposerAttachment\[\];/)
+  const input = await readFile(join(dirname(types), 'lib', 'types', 'client', 'contract', 'input.d.ts'), 'utf8')
+  assert.match(input, /addAttachments\(ids: readonly DraftAttachmentId\[\]\): boolean;/)
+})

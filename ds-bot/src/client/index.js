@@ -14,7 +14,7 @@ import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from 
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
 import { watchAgentTerminals } from './agent-terminals.js'
-import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
+import { ComposerPlus, ComposerVoice, DraftKeeper, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
@@ -66,6 +66,7 @@ import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, ins
 import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
+import { pruneDrafts } from './draft-keep.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -985,6 +986,18 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
+  // A deleted Bot or group takes its kept draft with it.
+  ctx.effect(() => {
+    let chats = ''
+    return roster.subscribe(() => {
+      const snapshot = roster.getSnapshot()
+      if (!snapshot.ready) return
+      const now = [...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)].join(' ')
+      if (now === chats) return
+      chats = now
+      pruneDrafts(id => snapshot.byId[id] !== undefined || snapshot.roomsById[id] !== undefined)
+    })
+  }, 'ds-bot: drafts of removed chats')
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1042,6 +1055,17 @@ export function apply(ctx) {
     if (await steerQueued(session) === 'failed') {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
+  }
+  // The shell's own draft intake, for files a chat's draft gets back (draft-keep.js).
+  actions.draftFiles = (ids) => {
+    const conversation = ctx.get('conversation')
+    if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== 'function') return []
+    return conversation.resolveDraftAttachments(ids).map(item => ({ kind: item.kind, file: item.file }))
+  }
+  actions.restoreDraftFiles = (sessionId, files) => {
+    const conversation = ctx.get('conversation')
+    if (typeof conversation?.createDrafts !== 'function') return []
+    return conversation.createDrafts(sessionId, files, true).map(item => item.id)
   }
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
@@ -1296,6 +1320,7 @@ export function apply(ctx) {
     () => shadow('conversation.composer.dock', { id: 'activity', order: 0, priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.composer.dock', { id: 'usage', order: 1, priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.composer.dock', { id: 'btw', order: 2, priority: BOT_PRIORITY, inject: face }, BtwDock),
+    () => shadow('conversation.input.left', { id: 'bot-draft', order: -120, inject: face }, DraftKeeper),
     () => shadow('conversation.input.left', { id: 'bot-paste', order: -110, inject: face }, PasteGuard),
     () => shadow('conversation.input.left', { id: 'bot-plus', order: -100, inject: face }, ComposerPlus),
     () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),

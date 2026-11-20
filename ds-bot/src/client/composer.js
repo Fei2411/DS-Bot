@@ -7,6 +7,7 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
+import { chatOfSession, keepDraft, takeDraft } from './draft-keep.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -219,4 +220,53 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
     canSetGoal(room, roster) ? h('button', { type: 'button', role: 'menuitem', onClick: goal }, h(GoalIcon), h('span', { className: 'bt-menu-label' }, t('Set a goal'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
+}
+
+const NO_IDS = []
+
+// An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
+// and group Session and renders nothing.
+export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+  const chatId = useRoster(roster => chatOfSession(roster, sessionId)?.id)
+  const current = useRoster(roster => chatOfSession(roster, sessionId)?.part === sessionId)
+  const draft = useInput?.(state => state.draft) ?? ''
+  const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
+  const restored = useRef('')
+  // What was just put back and has not reached the input state yet.
+  const pending = useRef({ text: false, files: false })
+  // Take back first, so the empty box of a composer that just opened is not kept over
+  // the draft it is about to get.
+  useEffect(() => {
+    if (!current || inputActions === undefined) return
+    const key = `${chatId}:${sessionId}`
+    if (restored.current === key) return
+    restored.current = key
+    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
+    // The shell refuses while a send is in flight; the draft then stays kept.
+    try {
+      if (back.text !== '') {
+        inputActions.setDraft(back.text)
+        pending.current.text = true
+      }
+      if (back.files.length > 0) {
+        const added = actions.restoreDraftFiles(sessionId, back.files.map(item => item.file))
+        if (added.length > 0 && inputActions.addAttachments(added) !== false) {
+          pending.current.files = true
+          actions.reopenPastes(back.from, sessionId)
+        }
+      }
+    } catch (error) {
+      console.warn('[ds-bot] could not put the draft back', error)
+    }
+  }, [current, chatId, sessionId, inputActions])
+  useEffect(() => {
+    if (!current || restored.current !== `${chatId}:${sessionId}`) return
+    // What was put back lands in the input state a render later; keeping the empty box
+    // in between would drop it.
+    if (pending.current.text && draft === '') return
+    if (pending.current.files && ids.length === 0) return
+    pending.current = { text: false, files: false }
+    keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) })
+  }, [current, chatId, sessionId, draft, ids])
+  return null
 }
