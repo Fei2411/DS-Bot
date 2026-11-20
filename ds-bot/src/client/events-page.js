@@ -24,7 +24,9 @@ export function parseCommandArgs(input) {
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]
     if (quote !== null) {
-      if (ch === '\\' && quote === '"' && i + 1 < text.length) {
+      // Only escape embedded quotes or doubled backslashes inside double quotes so
+      // Windows paths ("D:\data\report.csv") and regexes ("\d+") keep literal backslashes.
+      if (ch === '\\' && quote === '"' && i + 1 < text.length && (text[i + 1] === '"' || text[i + 1] === '\\')) {
         current += text[++i]
       } else if (ch === quote) {
         quote = null
@@ -33,9 +35,6 @@ export function parseCommandArgs(input) {
       }
     } else if (ch === '"' || ch === "'") {
       quote = ch
-      inToken = true
-    } else if (ch === '\\' && i + 1 < text.length) {
-      current += text[++i]
       inToken = true
     } else if (/\s/.test(ch)) {
       if (inToken) {

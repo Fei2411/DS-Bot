@@ -671,6 +671,31 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
     assert.match(env.delivered[0].msg.content[0].text, /Queued overnight/)
     router2.dispose()
 
+    // Lock handover A -> B -> A: after router2 flushed pending.json, env.rt.eventRouter regaining
+    // lock via dispose() + recoverPending() must NOT re-deliver the stale in-memory deferred event.
+    env.rt.eventRouter.dispose()
+    const recoveredAgain = await env.rt.eventRouter.recoverPending(Date.UTC(2026, 10, 20, 9, 5))
+    assert.equal(recoveredAgain.deferred, 0)
+    assert.equal(env.delivered.length, 1, 'stale deferredQueue must not re-deliver after another host already flushed')
+
+    // Virtual delivery rate-limit retains rejected delivery in dead-letters + surfaces alert in Inbox.
+    const vSub = {
+      id: 'direct_bot:m1',
+      name: 'Direct burst',
+      enabled: true,
+      target: { kind: 'bot', botId: 'm1' },
+      mode: 'drive',
+      speculative: false,
+      fastPath: { maxPerHour: 1, coalesceMs: 0 },
+      mandate: { scope: '', allowExternalWrite: false },
+    }
+    const evV1 = await env.rt.eventLedger.recordEvent({ source: { kind: 'push', id: 'p', name: 'P' }, trust: 'external', threadKey: 'v:1', summary: 'v1' })
+    const evV2 = await env.rt.eventLedger.recordEvent({ source: { kind: 'push', id: 'p', name: 'P' }, trust: 'external', threadKey: 'v:2', summary: 'v2 over limit' })
+    assert.equal((await env.rt.eventRouter.deliverToVirtual(evV1, vSub)).outcome, 'delivered')
+    assert.equal((await env.rt.eventRouter.deliverToVirtual(evV2, vSub)).outcome, 'paused_rate_limit')
+    assert.ok(env.rt.eventRouter.listDeadLetters().some(d => d.eventId === evV2.id), 'virtual rate-limit must retain rejected delivery in dead-letters')
+    assert.ok(env.rt.inboxView().items.some(i => i.kind === 'rate_limit'), 'virtual rate-limit must surface visible alert in Inbox')
+
     // P1-3 & P1-5: mode: 'context' injects through the real agent/pre-step listener even when config.memory === false.
     const envNoMem = setupTeam({}, {}, { memory: false })
     try {
@@ -688,9 +713,17 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
         summary: 'Minor doc typo PR',
       })
       assert.equal(envNoMem.delivered.length, 0, 'context-only must not wake Bot')
+      // A background task session belonging to m1 must NOT steal foreground context buffered for m1.
+      envNoMem.rt.botOf('m1').openParts = [{ sessionId: 'm1-task-9', segments: [], startedAt: 1, task: { id: 'k_9', title: 'BG', from: 'm1', status: 'running', startedAt: 1 } }]
       const preStepHooks = envNoMem.ctx.listeners.get('agent/pre-step') ?? []
       const eventPreStep = preStepHooks.find(fn => /takeEventContextMessage/.test(String(fn)))
       assert.ok(eventPreStep, 'events must register its own agent/pre-step listener independent of memory.js')
+      const taskDecision = await eventPreStep(
+        { agent: envNoMem.ensureAgent('m1-task-9'), signal: AbortSignal.timeout(10_000) },
+        async () => ({ kind: 'continue', messages: [{ role: 'user', content: [{ type: 'text', text: 'bg step' }] }] }),
+      )
+      assert.equal(taskDecision.messages.length, 1, 'background task must not steal foreground context')
+
       const decision1 = await eventPreStep(
         { agent: envNoMem.ensureAgent('m1'), signal: AbortSignal.timeout(10_000) },
         async () => ({ kind: 'continue', messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }] }),
@@ -772,6 +805,11 @@ test('P0-1, P0-10 & P2: WatchersTab Switch toggles on->off cleanly, TriggerCell 
 
   const { TriggerCell, parseCommandArgs, WatchersTab } = mod.exports
   assert.deepEqual([...parseCommandArgs(`-e "console.log('a b')" --flag 'two words'`)], ['-e', "console.log('a b')", '--flag', 'two words'])
+  assert.deepEqual(
+    [...parseCommandArgs(`--input "D:\\data\\report.csv" --re "\\d+"`)],
+    ['--input', 'D:\\data\\report.csv', '--re', '\\d+'],
+    'parseCommandArgs must preserve Windows backslashes and regex escapes',
+  )
 
   // P0-1: Real Switch component inside WatchersTab renders aria-checked=true when push.enabled=true and passes { enabled: false } on click.
   const pushCalls = []

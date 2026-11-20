@@ -95,7 +95,7 @@ export function InboxDialog({ roster, actions, leaving }) {
                   ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.subscriptionToggle?.(item.subId, true)) }, t('Resume')) : null,
                 item.kind === 'dead_letter' && item.deadLetterId
                   ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.eventDeadLetterReplay?.(item.deadLetterId)) }, t('Replay')) : null,
-                item.kind === 'stalled_turn'
+                (item.kind === 'stalled_turn' || item.kind === 'rate_limit')
                   ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.eventAlertDismiss?.(item.id)) }, t('Dismiss')) : null,
                 canOpen(item)
                   ? h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => openItem(item) }, t('Open')) : null)))))))

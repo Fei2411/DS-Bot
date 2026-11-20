@@ -392,6 +392,27 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         sub.pausedReason = reason
         sub.updatedAt = now
         saveSubs()
+      } else {
+        // Never silently drop virtual watcher / direct Push deliveries on rate limit:
+        // retain them in dead-letters so the user sees them in Inbox and can replay.
+        const dlqEntry = {
+          id: newDlqId(),
+          eventId: event.id,
+          subId: sub.id,
+          subName: sub.name || '',
+          target: sub.target,
+          mode: sub.mode,
+          speculative: Boolean(sub.speculative),
+          mandate: sub.mandate ?? null,
+          isVirtual: true,
+          privateBotId: decisionPrivateBotId ?? null,
+          summary: event.summary,
+          reason,
+          time: now,
+        }
+        deadLetters.unshift(dlqEntry)
+        if (deadLetters.length > DEAD_LETTERS_MAX) deadLetters.length = DEAD_LETTERS_MAX
+        saveDlq()
       }
       await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'paused_rate_limit', reason, target: sub.target }, { privateBotId: decisionPrivateBotId })
       await onCircuitBreak?.(sub, event, reason)
@@ -591,8 +612,13 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   }
 
   // Reload persisted state + deferred/coalescing deliveries on startup or lock takeover.
+  // Always rebuild runtime queues strictly from the persisted snapshot so lock handovers
+  // (A -> B -> A) never replay stale in-memory items already flushed by another host.
   async function recoverPending(nowMs = Date.now()) {
     if (!writes()) return { deferred: 0, coalesced: 0 }
+    for (const entry of coalesceMap.values()) clearTimeout(entry.timer)
+    coalesceMap.clear()
+    deferredQueue.clear()
     reloadStateFromDisk()
     const saved = readJson(pendingPath, null)
     if (!saved || typeof saved !== 'object') return { deferred: 0, coalesced: 0 }
@@ -692,6 +718,7 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   function dispose() {
     for (const entry of coalesceMap.values()) clearTimeout(entry.timer)
     coalesceMap.clear()
+    deferredQueue.clear()
   }
 
   return {

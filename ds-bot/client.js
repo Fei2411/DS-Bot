@@ -25224,7 +25224,7 @@ function parseCommandArgs(input) {
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
     if (quote !== null) {
-      if (ch === "\\" && quote === '"' && i + 1 < text.length) {
+      if (ch === "\\" && quote === '"' && i + 1 < text.length && (text[i + 1] === '"' || text[i + 1] === "\\")) {
         current2 += text[++i];
       } else if (ch === quote) {
         quote = null;
@@ -25233,9 +25233,6 @@ function parseCommandArgs(input) {
       }
     } else if (ch === '"' || ch === "'") {
       quote = ch;
-      inToken = true;
-    } else if (ch === "\\" && i + 1 < text.length) {
-      current2 += text[++i];
       inToken = true;
     } else if (/\s/.test(ch)) {
       if (inToken) {
@@ -31347,7 +31344,7 @@ function InboxDialog({ roster, actions, leaving }) {
             item.kind === "watcher_paused" && item.watcherId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.watcherToggle?.(item.watcherId, true)) }, t("Resume")) : null,
             item.kind === "subscription_paused" && item.subId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.subscriptionToggle?.(item.subId, true)) }, t("Resume")) : null,
             item.kind === "dead_letter" && item.deadLetterId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.eventDeadLetterReplay?.(item.deadLetterId)) }, t("Replay")) : null,
-            item.kind === "stalled_turn" ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.eventAlertDismiss?.(item.id)) }, t("Dismiss")) : null,
+            item.kind === "stalled_turn" || item.kind === "rate_limit" ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.eventAlertDismiss?.(item.id)) }, t("Dismiss")) : null,
             canOpen(item) ? (0, import_react37.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => openItem(item) }, t("Open")) : null
           )
         )))

@@ -37,6 +37,22 @@ export function install(rt) {
         body: `Triggered while routing event ${event.id} (${event.summary}). Resume it in Schedules & Triggers after checking the source.`,
         meta: { subId: sub.id, eventId: event.id },
       }, { privateBotId: sub.target?.kind !== 'room' && rt.botOf(sub.target?.botId)?.private === true ? sub.target.botId : undefined })
+      if (sub.id?.startsWith('auto_') && watchers) {
+        const watcherId = sub.id.slice('auto_'.length)
+        try {
+          watchers.toggleWatcher(watcherId, false, { isUser: true })
+        } catch { /* watcher already gone */ }
+      }
+      if (watchdog && (sub.id?.startsWith('auto_') || sub.id?.startsWith('direct_'))) {
+        watchdog.addAlert({
+          kind: 'rate_limit',
+          dedupeKey: `rate_limit:${sub.id}`,
+          title: `Event source "${sub.name || sub.id}" paused`,
+          reason,
+          botId: sub.target?.botId ?? null,
+          roomId: sub.target?.roomId ?? null,
+        })
+      }
       publishUpdate()
     },
   })
@@ -150,7 +166,8 @@ export function install(rt) {
     }, { privateBotId })
   }
 
-  // Drain context-only buffered events for a Bot/task/group when its next turn starts.
+  // Drain context-only buffered events for the exact target session (room, task, or foreground chat)
+  // so a background task never steals context buffered for the Bot's foreground chat.
   function takeEventContextMessage(sessionId, bot, roomId) {
     if (!bot) return undefined
     const items = []
@@ -160,8 +177,9 @@ export function install(rt) {
       const taskPart = (bot.openParts ?? []).find(p => p.sessionId === sessionId && p.task !== undefined)
       if (taskPart) {
         items.push(...router.takeContextBuffer({ kind: 'task', botId: bot.id, taskId: taskPart.task.id }))
+      } else if (sessionId === rt.chatOf(bot.id)) {
+        items.push(...router.takeContextBuffer({ kind: 'bot', botId: bot.id }))
       }
-      items.push(...router.takeContextBuffer({ kind: 'bot', botId: bot.id }))
     }
     if (items.length === 0) return undefined
     const hasExternal = items.some(item => item.trust !== 'team' && item.trust !== 'user')
