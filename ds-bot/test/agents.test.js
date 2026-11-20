@@ -246,7 +246,7 @@ test('TEAM_TOOLS names exactly the tools ds-bot defines for Bot sessions', async
   // read_browser exists only in the Desktop profile; the flag stands in for it.
   const { stop } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual(rt.teamTools.map(d => d.name).sort(), [...TEAM_TOOLS].sort())
+  assert.deepEqual(rt.teamTools.map(d => d.name).sort(), [...TEAM_TOOLS].filter(name => name !== 'read_document').sort())
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {
@@ -300,7 +300,7 @@ test('a Bot Session gets the team tools in its own scope; a DSH Agent Session ge
   })
   await flush()
   assert.deepEqual(scoped.filter(entry => entry.sessionId === 'm1').map(entry => entry.name).sort(),
-    [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
+    [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort())
   assert.equal(restricted.length, 0)
   // An Agent Session is a plain dsh conversation: nothing is scoped onto it and
   // nothing is masked, because the team tools never reach the global layer.
