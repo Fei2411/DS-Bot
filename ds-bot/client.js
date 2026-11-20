@@ -734,6 +734,9 @@ var JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Models and providers…": "モデルとプロバイダー…",
+  "Search models": "モデルを検索",
+  "Search models…": "モデルを検索…",
+  "No matching models.": "一致するモデルがありません。",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",
@@ -3253,6 +3256,9 @@ var KO = {
   "Model for {name}": "{name}의 모델",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness에 아직 설정된 모델이 없습니다.",
   "Models and providers…": "모델 및 제공자…",
+  "Search models": "모델 검색",
+  "Search models…": "모델 검색…",
+  "No matching models.": "일치하는 모델이 없습니다.",
   Models: "모델",
   "Harness default": "Harness 기본값",
   Saving: "저장 중",
@@ -5802,6 +5808,9 @@ var ES = {
   "Model for {name}": "Modelo para {name}",
   "No models are set up in DeepSeek Harness yet.": "Aún no hay modelos configurados en DeepSeek Harness.",
   "Models and providers…": "Modelos y proveedores…",
+  "Search models": "Buscar modelos",
+  "Search models…": "Buscar modelos…",
+  "No matching models.": "No hay modelos coincidentes.",
   Models: "Modelos",
   "Harness default": "Predeterminado de Harness",
   Saving: "Guardando",
@@ -8336,6 +8345,9 @@ var FR = {
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
   "Models and providers…": "Modèles et fournisseurs…",
+  "Search models": "Rechercher des modèles",
+  "Search models…": "Rechercher des modèles…",
+  "No matching models.": "Aucun modèle correspondant.",
   "Models": "Modèles",
   "Harness default": "Par défaut de Harness",
   "Saving": "Enregistrement",
@@ -10855,6 +10867,9 @@ var DE = {
   "Model for {name}": "Modell für {name}",
   "No models are set up in DeepSeek Harness yet.": "In DeepSeek Harness sind noch keine Modelle eingerichtet.",
   "Models and providers…": "Modelle und Anbieter…",
+  "Search models": "Modelle suchen",
+  "Search models…": "Modelle suchen…",
+  "No matching models.": "Keine passenden Modelle.",
   Models: "Modelle",
   "Harness default": "Harness-Standard",
   Saving: "Wird gespeichert",
@@ -13377,6 +13392,9 @@ var ZH = {
   "Model for {name}": "{name} 的模型",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness 里还没有设置模型。",
   "Models and providers…": "模型和服务商…",
+  "Search models": "搜索模型",
+  "Search models…": "搜索模型…",
+  "No matching models.": "没有匹配的模型。",
   Models: "模型",
   "Harness default": "Harness 默认",
   Saving: "保存中",
@@ -15139,7 +15157,8 @@ function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
     const open = (bot.openParts ?? []).flatMap((part) => [part.sessionId, ...part.parts ?? []]);
-    for (const id of [...bot.parts ?? [], ...open, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
+    const tasks = (bot.tasks ?? []).flatMap((task) => [task.sessionId, ...task.parts ?? []]);
+    for (const id of [...bot.parts ?? [], ...open, ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
   for (const room2 of value.rooms) {
@@ -15813,6 +15832,203 @@ function linkMentions(text, bots, selfId) {
   }
   return cursor === 0 ? text : out + text.slice(cursor);
 }
+var DRIVE_BACKSLASH_PATH = /^[A-Za-z]:\\/;
+var isEscaped = (text, index) => {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) slashes += 1;
+  return (slashes & 1) === 1;
+};
+var lineEnd = (text, from) => {
+  const nl = text.indexOf("\n", from);
+  return nl === -1 ? text.length : nl + 1;
+};
+var isBlankLine = (text, start, end) => /^[ \t]*\r?\n?$/.test(text.slice(start, end));
+function fenceOpen(line) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?\n?$/.exec(line);
+  if (!match) return null;
+  const marker = match[1];
+  if (marker[0] === "`" && match[2].includes("`")) return null;
+  return { char: marker[0], length: marker.length };
+}
+function fenceClose(line, fence) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*\r?\n?$/.exec(line);
+  return Boolean(match && match[1][0] === fence.char && match[1].length >= fence.length);
+}
+function findCodeSpanEnd(text, from, ticks) {
+  let i = from;
+  while (i < text.length) {
+    if (text[i] === "\n") {
+      const next = i + 1;
+      const nextEnd = lineEnd(text, next);
+      if (next < text.length && isBlankLine(text, next, nextEnd)) return -1;
+      i = next;
+      continue;
+    }
+    if (text[i] === "`") {
+      let end = i;
+      while (end < text.length && text[end] === "`") end += 1;
+      if (end - i === ticks) return end;
+      i = end;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function skipLinkWs(text, from) {
+  let i = from;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  if (text[i] === "\r" && text[i + 1] === "\n") i += 2;
+  else if (text[i] === "\n") i += 1;
+  else return i;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  return i;
+}
+function skipOptionalTitleAndClose(text, from) {
+  let i = skipLinkWs(text, from);
+  if (i >= text.length) return -1;
+  if (text[i] === ")") return i + 1;
+  const open = text[i];
+  if (open !== '"' && open !== "'" && open !== "(") return -1;
+  if (i === from) return -1;
+  const close = open === "(" ? ")" : open;
+  i += 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "\n") {
+      const nextEnd = lineEnd(text, i + 1);
+      if (i + 1 < text.length && isBlankLine(text, i + 1, nextEnd)) return -1;
+      i += 1;
+      continue;
+    }
+    if (open === "(" && ch === "(") return -1;
+    if (ch === close) {
+      const after = skipLinkWs(text, i + 1);
+      return text[after] === ")" ? after + 1 : -1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function normalizeFileLinks(text) {
+  if (typeof text !== "string" || !text.includes("](") || !text.includes("\\")) return text;
+  let out = "";
+  let cursor = 0;
+  let i = 0;
+  let atLineStart = true;
+  let canIndentCode = true;
+  let fence = null;
+  while (i < text.length) {
+    if (atLineStart) {
+      const end = lineEnd(text, i);
+      const line = text.slice(i, end);
+      if (fence !== null) {
+        if (fenceClose(line, fence)) fence = null;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (isBlankLine(text, i, end)) {
+        i = end;
+        canIndentCode = true;
+        continue;
+      }
+      const opened = fenceOpen(line);
+      if (opened !== null) {
+        fence = opened;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (canIndentCode && /^(?: {4}|\t)/.test(line)) {
+        i = end;
+        continue;
+      }
+      atLineStart = false;
+      canIndentCode = false;
+    }
+    const ch = text[i];
+    if (ch === "\n") {
+      atLineStart = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`" && !isEscaped(text, i)) {
+      let ticksEnd = i;
+      while (ticksEnd < text.length && text[ticksEnd] === "`") ticksEnd += 1;
+      const spanEnd = findCodeSpanEnd(text, ticksEnd, ticksEnd - i);
+      if (spanEnd !== -1) {
+        i = spanEnd;
+        atLineStart = text[i - 1] === "\n";
+        continue;
+      }
+      i = ticksEnd;
+      continue;
+    }
+    if (ch === "]" && text[i + 1] === "(" && !isEscaped(text, i)) {
+      const destStart = skipLinkWs(text, i + 2);
+      let destInnerStart = destStart;
+      let destInnerEnd = -1;
+      let afterDest = -1;
+      if (text[destStart] === "<") {
+        destInnerStart = destStart + 1;
+        let j = destInnerStart;
+        while (j < text.length && text[j] !== ">" && text[j] !== "\n" && text[j] !== "\r") {
+          if (text[j] === "\\" && j + 1 < text.length && !DRIVE_BACKSLASH_PATH.test(text.slice(destInnerStart, destInnerStart + 3))) {
+            j += 2;
+            continue;
+          }
+          j += 1;
+        }
+        if (text[j] === ">") {
+          destInnerEnd = j;
+          afterDest = j + 1;
+        }
+      } else {
+        const isWinDrive = DRIVE_BACKSLASH_PATH.test(text.slice(destStart, destStart + 3));
+        let j = destStart;
+        let depth = 0;
+        while (j < text.length) {
+          const c = text[j];
+          if (c === " " || c === "	" || c === "\n" || c === "\r") break;
+          if (!isWinDrive && c === "\\" && j + 1 < text.length) {
+            j += 2;
+            continue;
+          }
+          if (c === "(") depth += 1;
+          else if (c === ")") {
+            if (depth === 0) break;
+            depth -= 1;
+          }
+          j += 1;
+        }
+        if (j > destStart && depth === 0) {
+          destInnerEnd = j;
+          afterDest = j;
+        }
+      }
+      if (afterDest !== -1) {
+        const linkEnd = skipOptionalTitleAndClose(text, afterDest);
+        if (linkEnd !== -1) {
+          const dest = text.slice(destInnerStart, destInnerEnd);
+          if (DRIVE_BACKSLASH_PATH.test(dest)) {
+            out += text.slice(cursor, destInnerStart) + dest.replace(/\\/g, "/");
+            cursor = destInnerEnd;
+          }
+          i = linkEnd;
+          atLineStart = text[i - 1] === "\n";
+          continue;
+        }
+      }
+    }
+    i += 1;
+  }
+  return cursor === 0 ? text : out + text.slice(cursor);
+}
 function mentionTarget(event) {
   const anchor = event.target instanceof Element ? event.target.closest(`a[href^="${MENTION_ORIGIN}"]`) : null;
   return anchor ? anchor.getAttribute("href").slice(MENTION_ORIGIN.length) : null;
@@ -16304,6 +16520,7 @@ var STORAGE = {
   prefs: "ds-bot:prefs",
   surface: "ds-bot:surface",
   agentSessions: "ds-bot:agent-sessions",
+  agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
@@ -17147,10 +17364,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup p{margin:0}
-.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
+.bt-connector-setup{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-connector-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.bt-connector-steps li::marker{color:var(--bt-ink-3);font-weight:500}
+.bt-connector-setup-uri{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:180px;padding:5px 8px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:var(--bt-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;color:var(--bt-ink);word-break:break-all;user-select:all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -17375,6 +17593,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
+/* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
+body[data-ds-dark-theme] .bt-select{color-scheme:dark}
+.bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -17585,8 +17806,10 @@ var CONVERSATION_CSS = `
 /* The menus above the composer ("@", "/", and the picker a command such as /model
    opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
    behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. */
-[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
+   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
+   needs naming too (issue 1698). */
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 /* DSH's row spans share no semantic hooks beyond the option; keep descriptions
    beside their labels without changing their flex sizing or overflow. */
 [data-trigger-menu] [role=option]>span{text-align:left}
@@ -23901,9 +24124,20 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
 }
 var NO_MANUAL = {};
 var manualFor = (state, opening) => state.opening === opening ? state.manual : NO_MANUAL;
-function ModelRows({ roster, current: current2, onPick, filtering = false, opening = 0 }) {
-  const groups = groupModels(roster.models);
+function filterModelGroups(models, query) {
+  const tokens = typeof query === "string" ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const groups = groupModels(models);
+  if (tokens.length === 0) return groups;
+  return groups.map(([provider, list]) => [provider, list.filter((model) => {
+    const hay = `${model.name ?? ""} ${nameOf(model) ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
+    return tokens.every((token) => hay.includes(token));
+  })]).filter(([, list]) => list.length > 0);
+}
+function ModelRows({ roster, current: current2, onPick, query = "", filtering = false, opening = 0 }) {
+  const trimmed2 = typeof query === "string" ? query.trim() : "";
+  const groups = filterModelGroups(roster.models, trimmed2);
   const [state, setState] = (0, import_react20.useState)({ opening, manual: NO_MANUAL });
+  if (groups.length === 0) return (0, import_react20.createElement)("div", { className: "bt-model-none", role: "status" }, t("No matching models."));
   const manual = manualFor(state, opening);
   return (0, import_react20.createElement)(ModelGroupList, {
     groups,
@@ -23911,7 +24145,7 @@ function ModelRows({ roster, current: current2, onPick, filtering = false, openi
     currentId: currentGroupId(groups, current2),
     defaultModel: roster.defaultModel,
     onPick,
-    filtering,
+    filtering: filtering || trimmed2.length > 0,
     manual,
     onToggle: (id, open) => setState((previous) => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) }))
   });
@@ -24030,6 +24264,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
   const [opening, setOpening] = (0, import_react20.useState)(0);
+  const [query, setQuery] = (0, import_react20.useState)("");
   const models = modelsFor(roster.models, current2);
   return {
     bot,
@@ -24042,6 +24277,8 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     effortLabel,
     models,
     opening,
+    query,
+    setQuery,
     reading,
     withEfforts,
     manage: local ? void 0 : manageModels(actions),
@@ -24050,6 +24287,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     opened: () => {
       if (local) readModels(routeOf(current2));
       else void actions?.refreshModels?.();
+      setQuery("");
       setOpening((count) => count + 1);
     },
     choose: (ref) => {
@@ -24084,10 +24322,32 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
     (0, import_react20.createElement)(Caret)
   );
 };
-var modelScroll = ({ roster, models, current: current2, local, reading, opening }, pick2) => (0, import_react20.createElement)(
+var modelSearch = ({ models, query, setQuery }, menu) => {
+  const field = (0, import_react20.useRef)(null);
+  return models.length > 0 ? (0, import_react20.createElement)(
+    "div",
+    { className: "bt-model-search", role: "presentation" },
+    (0, import_react20.createElement)("input", {
+      ref: field,
+      type: "search",
+      className: "bt-input bt-model-search-input",
+      placeholder: t("Search models…"),
+      "aria-label": t("Search models"),
+      value: query,
+      autoFocus: true,
+      autoComplete: "off",
+      spellCheck: false,
+      onChange: (event) => setQuery(event.target.value),
+      onKeyDown: (event) => {
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) stepMenuFocus(menu.current, event, field.current);
+      }
+    })
+  ) : null;
+};
+var modelScroll = ({ roster, models, current: current2, local, reading, opening, query }, pick2) => (0, import_react20.createElement)(
   "div",
   { className: "bt-model-scroll" },
-  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, query, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
   reading ? (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
 );
 var manageButton = (manage, close) => (0, import_react20.createElement)(
@@ -24126,6 +24386,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react20.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
+      modelSearch(picker, menu),
       modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react20.createElement)(
         "div",
@@ -24164,6 +24425,7 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
       (0, import_react20.createElement)(
         "div",
         { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
+        modelSearch(picker, menu),
         modelScroll(picker, pick2),
         manage ? (0, import_react20.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
       )
@@ -24322,6 +24584,11 @@ var MODEL_CSS = `
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-model-inline{display:flex;flex-direction:column;min-width:0}
@@ -26865,27 +27132,35 @@ function ClientPanel({ connector, actions, run: run2 }) {
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-setup" },
-      (0, import_react29.createElement)("p", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
-      uri ? (0, import_react29.createElement)(
-        "div",
-        { className: "bt-connector-setup-uri" },
-        (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
-        (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void copyCode(uri) }, t("Copy")),
-        copies > 0 ? (0, import_react29.createElement)(
-          "span",
-          { className: "bt-connector-copied", role: "status" },
-          (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
-        ) : null
-      ) : null,
-      setup?.kind === "slack" ? (0, import_react29.createElement)("p", null, t("Turn on the MCP features and scopes the app needs.")) : null,
-      (0, import_react29.createElement)("p", null, t("Copy the Client ID and Client Secret here.")),
-      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : null
+      (0, import_react29.createElement)(
+        "ol",
+        { className: "bt-connector-steps" },
+        (0, import_react29.createElement)(
+          "li",
+          null,
+          (0, import_react29.createElement)("span", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
+          uri ? (0, import_react29.createElement)(
+            "div",
+            { className: "bt-connector-setup-uri" },
+            (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
+            (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void copyCode(uri) }, t("Copy")),
+            copies > 0 ? (0, import_react29.createElement)(
+              "span",
+              { className: "bt-connector-copied", role: "status" },
+              (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
+            ) : null
+          ) : null
+        ),
+        setup?.kind === "slack" ? (0, import_react29.createElement)("li", null, t("Turn on the MCP features and scopes the app needs.")) : null,
+        (0, import_react29.createElement)("li", null, t("Copy the Client ID and Client Secret here."))
+      )
     ),
     (0, import_react29.createElement)("input", { className: "bt-input", "aria-label": t("Client ID"), placeholder: t("Client ID"), value: clientId, spellCheck: false, autoComplete: "off", onChange: (e) => setClientId(e.target.value) }),
     (0, import_react29.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react29.createElement)(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t("Client secret (optional)") })),
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-form-row" },
+      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : (0, import_react29.createElement)("span", { className: "bt-connector-wait" }),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.connectorCancel(connector.id)) }, t("Cancel")),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: clientId.trim() === "", onClick: () => void run2(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || void 0)) }, t("Continue"))
     )
@@ -26952,7 +27227,7 @@ function ConnectorRow({ connector, actions }) {
   };
   const button = (label, onClick) => (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick }, label);
   let actionsNode = null;
-  if (pending || form) actionsNode = null;
+  if (pending || form || connector.state === "needs-client") actionsNode = null;
   else if (connector.state === "needs-sign-in") actionsNode = [button(t("Sign in again"), signIn), button(t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (connector.state === "error") actionsNode = [button(t("Try again"), () => void run2(actions.connectorRetry(connector.id))), button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (on) actionsNode = button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)));
@@ -28707,7 +28982,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
+  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
@@ -29348,7 +29623,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   function triggerBody() {
     if (source.kind === "bot") {
       if (source.handoff === true) return (0, import_react34.createElement)(EarlierParts, { sessionId, roster, actions });
-      if (source.role === "kickoff" || source.role === "room" || source.role === "goal") return null;
+      if (source.role === "kickoff" || source.role === "room" || source.role === "goal" || source.role === "task-handoff") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Profile updated"));
       if (source.role === "post") {
@@ -38839,16 +39114,17 @@ function ApprovalCard({ approval, bot, actions, showBot = false }) {
     setBusy(true);
     void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
   };
+  const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool;
   return (0, import_react54.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": t("{name} is waiting for your approval", { name: bot.name }) },
-    showBot ? cardHead(bot, approval.at, approval.tool) : (0, import_react54.createElement)("div", { className: "bt-mw-tool" }, approval.tool),
+    showBot ? cardHead(bot, approval.at, label) : (0, import_react54.createElement)("div", { className: "bt-mw-tool" }, label),
     approval.detail?.text ? (0, import_react54.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
     approval.reason ? (0, import_react54.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
     approval.detail?.code ? (0, import_react54.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
-    // Own-chat approvals are answerable for IM and the phone app; here the Bot's
-    // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== void 0 ? (0, import_react54.createElement)(
+    // Group and background-task approvals are answered directly through DS Bot;
+    // foreground own-chat approvals still use DSH's own inline card.
+    approval.answerable && (approval.roomId !== void 0 || approval.taskId !== void 0) ? (0, import_react54.createElement)(
       "div",
       { className: "bt-mw-actions" },
       (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
@@ -38928,7 +39204,7 @@ function approvalSummary(approvals) {
   const label = bots.length === 0 ? t("Waiting for your approval") : bots.length === 1 ? t("{name} is waiting for your approval", { name: bots[0].name }) : bots.length === 2 ? t("{first} and {second} are waiting for your approval", { first: bots[0].name, second: bots[1].name }) : t("{first}, {second} and {count} more are waiting for your approval", { first: bots[0].name, second: bots[1].name, count: bots.length - 2, total: bots.length });
   return { bots, label };
 }
-function ApprovalIslandPod({ approvals, open, room: room2, actions }) {
+function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id, actions }) {
   if (!approvals || approvals.length === 0) return null;
   const { bots, label } = approvalSummary(approvals);
   return (0, import_react54.createElement)(
@@ -38940,7 +39216,7 @@ function ApprovalIslandPod({ approvals, open, room: room2, actions }) {
         type: "button",
         className: "bt-apv-bar",
         "aria-expanded": open,
-        onClick: () => actions.toggleApproval?.(room2.id)
+        onClick: () => actions.toggleApproval?.(targetId)
       },
       (0, import_react54.createElement)("span", { className: "bt-apv-dot", "aria-hidden": true }),
       (0, import_react54.createElement)("span", { className: "bt-apv-label" }, label),
@@ -39088,12 +39364,13 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
   const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
-  const approvalOpen = useUi((state) => room2 !== void 0 && state.approvalOpen === room2.id);
+  const approvalTargetId = room2?.id ?? bot?.id;
+  const approvalOpen = useUi((state) => approvalTargetId !== void 0 && state.approvalOpen === approvalTargetId);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
-  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : [];
+  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
   const detailsOpen = useUi((state) => state.details === sessionId);
@@ -39121,7 +39398,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   }, [Boolean(room2)]);
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false;
   const showGoal = room2 !== void 0 && !away && (goal !== void 0 || goalCompose);
-  const showApprovals = room2 !== void 0 && !away && approvals.length > 0;
+  const showApprovals = approvalTargetId !== void 0 && !away && approvals.length > 0;
   const showIsland = showGoal || showApprovals;
   (0, import_react55.useEffect)(() => {
     if (approvalOpen && !showApprovals) actions.closeApproval?.();
@@ -39156,7 +39433,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react55.createElement)(MemoryNotice, { shown: memoryNotice }),
     (0, import_react55.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react55.createElement)(GoArrow))
   );
-  const approvalPod = showApprovals ? (0, import_react55.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, actions }) : null;
+  const approvalPod = showApprovals ? (0, import_react55.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
   return (0, import_react55.createElement)(
     "div",
     { className: "bt-head" },
@@ -46253,6 +46530,143 @@ var ANNOTATION_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-selection-actions,.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `;
 
+// src/client/agent-fork.js
+var readJournal = (storage) => {
+  const map = /* @__PURE__ */ new Map();
+  try {
+    const saved = JSON.parse(storage?.getItem(STORAGE.agentForks) ?? "[]");
+    if (Array.isArray(saved)) {
+      for (const entry of saved) {
+        if (typeof entry?.sessionId === "string" && typeof entry?.agentId === "string") {
+          map.set(entry.sessionId, { agentId: entry.agentId, sessionId: entry.sessionId });
+        }
+      }
+    }
+  } catch {
+  }
+  return map;
+};
+var mutateJournal = (storage, update) => {
+  if (!storage) return;
+  try {
+    const map = readJournal(storage);
+    const changed = update(map);
+    if (changed !== false) storage.setItem(STORAGE.agentForks, JSON.stringify([...map.values()]));
+  } catch {
+  }
+};
+function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+  const localJournal = readJournal(storage);
+  const inFlight = /* @__PURE__ */ new Map();
+  const forks = /* @__PURE__ */ new Set();
+  let stopped = false;
+  const remember = (agentId, sessionId) => {
+    const entry = { agentId, sessionId };
+    localJournal.set(sessionId, entry);
+    pending.set(sessionId, agentId);
+    mutateJournal(storage, (map) => {
+      map.set(sessionId, entry);
+    });
+    return entry;
+  };
+  const forget = (sessionId) => {
+    localJournal.delete(sessionId);
+    mutateJournal(storage, (map) => map.delete(sessionId));
+  };
+  const persist = (entry) => {
+    const running = inFlight.get(entry.sessionId);
+    if (running !== void 0) return running;
+    pending.set(entry.sessionId, entry.agentId);
+    const task = Promise.resolve().then(() => adopt(entry.agentId, entry.sessionId)).then(async () => {
+      forget(entry.sessionId);
+      if (!stopped) {
+        try {
+          await refresh();
+        } catch (error) {
+          report(error, "agent-fork-refresh");
+        }
+      }
+    }).catch((error) => {
+      if (pending.get(entry.sessionId) === entry.agentId) pending.delete(entry.sessionId);
+      if (!stopped) report(error, "agent-fork-adopt");
+    }).finally(() => {
+      inFlight.delete(entry.sessionId);
+    });
+    inFlight.set(entry.sessionId, task);
+    return task;
+  };
+  const original = sessions.fork;
+  const descriptor = Object.getOwnPropertyDescriptor(sessions, "fork");
+  const wrapped = function(options) {
+    if (stopped) return Reflect.apply(original, this, [options]);
+    const receiver = this;
+    const captured = ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+    const task = (async () => {
+      if (captured === void 0) {
+        try {
+          await ready();
+        } catch {
+        }
+      }
+      const agentId = captured ?? ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+      if (agentId === void 0) return Reflect.apply(original, receiver, [options]);
+      let created;
+      let adoption;
+      const onCreated = (sessionId) => {
+        created = sessionId;
+        adoption = persist(remember(agentId, sessionId));
+        options.onCreated?.(sessionId);
+      };
+      try {
+        const child = await Reflect.apply(original, receiver, [{ ...options, onCreated }]);
+        if (created === void 0 && typeof child === "string") onCreated(child);
+        if (adoption !== void 0) await adoption;
+        return child;
+      } catch (error) {
+        const rpc = error?.rpcError;
+        const partial = rpc?.code === "session/workspace-attach-failed" ? rpc.details?.sessionId : void 0;
+        if (created === void 0 && typeof partial === "string") adoption = persist(remember(agentId, partial));
+        if (adoption !== void 0) await adoption;
+        throw error;
+      }
+    })();
+    forks.add(task);
+    const settle = () => {
+      forks.delete(task);
+    };
+    task.then(settle, settle);
+    return task;
+  };
+  sessions.fork = wrapped;
+  const reconcile = async () => {
+    if (stopped) return;
+    const listed = sessions.list.getSnapshot().byId ?? {};
+    const entries2 = storage ? readJournal(storage) : new Map(localJournal);
+    for (const [id, entry] of localJournal) if (!entries2.has(id)) entries2.set(id, entry);
+    for (const entry of entries2.values()) {
+      if (stopped) return;
+      if (!hasAgent(entry.agentId)) continue;
+      if (ownerOf(entry.sessionId) === entry.agentId) {
+        forget(entry.sessionId);
+        continue;
+      }
+      if (listed[entry.sessionId] === void 0) continue;
+      await persist(entry);
+    }
+  };
+  return {
+    reconcile,
+    async dispose() {
+      stopped = true;
+      if (sessions.fork === wrapped) {
+        if (descriptor === void 0) delete sessions.fork;
+        else Object.defineProperty(sessions, "fork", descriptor);
+      }
+      await Promise.allSettled([...forks, ...inFlight.values()]);
+    }
+  };
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -47453,6 +47867,34 @@ function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: (id) => roster.getSnapshot().agentOf[id],
+      hasAgent: (id) => roster.getSnapshot().agentsById[id] !== void 0,
+      pending: pendingAdopt,
+      ready: async () => {
+        if (!roster.getSnapshot().ready) await pull();
+      },
+      adopt: (agentId, sessionId) => call("agent-adopt", { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage
+    });
+    const reconcile = () => {
+      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile"));
+    };
+    const offRoster = roster.subscribe(reconcile);
+    const offList = ctx.sessions.list.subscribe(reconcile);
+    const timer = setInterval(reconcile, 5e3);
+    reconcile();
+    return () => {
+      offRoster();
+      offList();
+      clearInterval(timer);
+      return forks.dispose();
+    };
+  }, "ds-bot: Agent forks");
+  ctx.effect(() => {
     let previous;
     const sync = () => {
       const list = ctx.sessions.list.getSnapshot();
@@ -47473,9 +47915,7 @@ function apply(ctx) {
       if (snapshot.byId[main] !== void 0 || snapshot.roomsById[main] !== void 0 || agentOfSession(main) !== void 0) return;
       const row = list.byId[main];
       if (row?.origin === "subagent") return;
-      const parent = row?.parentId ?? row?.parentSessionId;
-      const forkedFromAgent = parent !== void 0 && agentOfSession(parent) === agentId;
-      if (row?.blank !== true && !forkedFromAgent) return;
+      if (row?.blank !== true) return;
       pendingAdopt.set(main, agentId);
       setPlain(true);
       void call("agent-adopt", { agentId, sessionId: main }).then(() => pull()).catch((error) => {
