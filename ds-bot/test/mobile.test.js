@@ -18,7 +18,7 @@ import { shrink } from '../src/host/preview-worker.js'
 // each Session's page reads, oldest first.
 function start(config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
-  const ctx = fakeContext({ services: { attachments: fakeAttachments() } })
+  const ctx = fakeContext({ services: { attachments: fakeAttachments(config.attachmentDirectory) } })
   const sent = []
   const history = {}
   const inboxes = new Map()
@@ -842,6 +842,61 @@ test('file attachment chunks round-trip through the same client iterator', async
     return result.value
   }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
   assert.deepEqual(Buffer.concat(chunks), bytes)
+  assert.ok(ctx.get('attachments').stats.streamBytes > bytes.length)
+})
+
+test('file attachment ranges read each byte once and locate history once', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-attachment-ranges-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { call, ctx, history, rt, stop } = start({ attachmentDirectory: dir })
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const attachments = ctx.get('attachments')
+  const bytes = randomBytes(3 * 512 * 1024 + 7)
+  const ref = await attachments.saveFile({ data: bytes, name: 'ranges.bin' })
+  history[sessionId] = [{ seq: 1, type: 'user/message', data: { content: [{ type: 'file', attachment: ref }] } }]
+  let pages = 0
+  const page = ctx.sessionController.page
+  ctx.sessionController.page = (...args) => { pages++; return page(...args) }
+  const chunks = []
+  for await (const part of fileChunks(async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true, JSON.stringify(result.error))
+    return result.value
+  }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
+  assert.deepEqual(Buffer.concat(chunks), bytes)
+  assert.equal(pages, 1)
+  assert.equal(attachments.stats.streamBytes, 0)
+  const ask = offset => call('file-download', { sessionId, attachmentId: ref.attachmentId, offset })
+  assert.equal((await ask(bytes.length)).value.done, true)
+  assert.equal((await ask(bytes.length + 1)).error.code, 'bot/not-found')
+  writeFileSync(attachments.fileHostPath(ref), 'truncated')
+  assert.equal((await ask(0)).error.code, 'bot/not-found')
+  rmSync(attachments.fileHostPath(ref))
+  assert.equal((await ask(0)).error.code, 'bot/not-found')
+  writeFileSync(attachments.fileHostPath(ref), bytes)
+  // Keep the requested session recognizable but remove the cached target from its owned parts.
+  rt.chatOf = () => 'replacement-session'
+  rt.partsOf = () => []
+  assert.equal((await ask(0)).error.code, 'bot/not-found')
+  rt.chatOwners.delete(sessionId)
+  rt.botOf = () => undefined
+  assert.equal((await ask(0)).error.code, 'bot/not-found')
+})
+
+test('empty disk attachments return an empty final chunk', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-empty-attachment-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { call, ctx, history, stop } = start({ attachmentDirectory: dir })
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.alloc(0), name: 'empty.bin' })
+  history[sessionId] = [{ seq: 1, type: 'user/message', data: { content: [{ type: 'file', attachment: ref }] } }]
+  const result = await call('file-download', { sessionId, attachmentId: ref.attachmentId, offset: 0 })
+  assert.equal(result.ok, true)
+  assert.deepEqual([result.value.bytes, result.value.size, result.value.nextOffset, result.value.done], ['', 0, 0, true])
 })
 
 test('chat with steps computes thinking time from the loaded page without re-reading the session tail', async t => {

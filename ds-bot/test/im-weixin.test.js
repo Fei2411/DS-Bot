@@ -44,7 +44,7 @@ async function fakeIlink() {
         return
       }
       if (req.url === '/ilink/bot/msg/notifystart') {
-        const scripted = replies.notifystartQueue?.shift() ?? { ret: 0 }
+        const scripted = typeof replies.notifystart === 'function' ? replies.notifystart() : (replies.notifystartQueue?.shift() ?? { ret: 0 })
         const status = scripted.http ?? 200
         if (status === 200) state.notified = true
         res.writeHead(status, { 'content-type': 'application/json' })
@@ -92,7 +92,7 @@ async function fakeIlink() {
 const env = (fake, runtime = {}) => ({
   fetch: globalThis.fetch,
   WebSocket: globalThis.WebSocket,
-  config: { api: fake.base, qr: fake.base, cdn: `${fake.base}cdn` },
+  config: { api: fake.base, qr: fake.base, cdn: `${fake.base}cdn`, startRetryDelaysMs: [10, 10, 10] },
   runtime: { get: () => runtime, set: patch => Object.assign(runtime, patch) },
   log: { warn: (...args) => console.error('[im-weixin]', ...args) },
 })
@@ -327,17 +327,20 @@ test('a transient session start failure is retried before polling', async (t) =>
 
 test('a session start that keeps failing is shown once and still retried until it works', async (t) => {
   const fake = await fakeIlink()
-  fake.replies.notifystartQueue = [{ http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { ret: 0 }]
+  let allowStart = false
+  fake.replies.notifystart = () => (allowStart ? { ret: 0 } : { http: 500 })
   const { env: watched, statuses, warns } = tracked(fake)
   const handle = weixin.connect(FIELDS, watched, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => statuses.some(status => status.state === 'error'), 200)
+  await until(() => fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length >= 5, 200)
   const failed = statuses.find(status => status.state === 'error')
   assert.ok(failed, 'the connection reports the failure')
   assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/getupdates').length, 0, 'no poll before the session starts')
+  allowStart = true
   await until(() => statuses.some(status => status.state === 'ready'), 400)
   assert.ok(statuses.some(status => status.state === 'ready'), 'the session started once the network came back')
-  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length, 6)
+  assert.ok(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length >= 6)
   assert.ok(fake.calls.some(call => call.path === '/ilink/bot/getupdates'), 'polling starts after the session')
   assert.equal(statuses.filter(status => status.state === 'error').length, 1, 'the failure is shown once')
   assert.equal(warns.filter(line => /could not start the session/.test(line)).length, 1)
