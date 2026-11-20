@@ -1711,9 +1711,37 @@ export function install(rt) {
         } else if (isTaskReport) {
           // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
           // and post-restart resends (inflight.json) never lose the IM chat claim.
+          // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
+          // the group's own Session without clobbering an unrelated live group origin.
           const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-          if (originFromSaved(saved) === undefined) dropOrigin(session.id)
-          else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          if (typeof source.roomId === 'string' && source.roomId !== '') {
+            const room = rt.roomOf(source.roomId)
+            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
+              const live = origins.get(roomSid)
+              const memberId = rt.groupOwners.get(session.id)?.botId
+              const activeRound = rt.roomActive?.(room.id) === true
+              const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
+              if (live === undefined && !activeRound && !(mixed.has(roomSid) && otherWorking)) {
+                // Restore after restart even while sibling group tasks run, and clear stale
+                // `mixed` left by an already-finished desktop/Web round; stay blocked while
+                // a live non-IM round is active or a mixed round still has working members.
+                resetOrigin(roomSid)
+                claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+                // A different IM chat currently owns the room; mix so neither chat sees the other's report.
+                dropOrigin(roomSid)
+              }
+            } else if (roomSid !== undefined) {
+              // A desktop/Web-started group task has no IM origin: drop any restored room
+              // origin so its report is never forwarded to an IM group chat.
+              dropOrigin(roomSid)
+            }
+          } else if (originFromSaved(saved) === undefined) {
+            dropOrigin(session.id)
+          } else {
+            claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
           // The chat this message came from is the one its turn answers. A message this

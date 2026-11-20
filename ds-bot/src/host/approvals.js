@@ -31,11 +31,12 @@ export function install(rt) {
     if (botId === undefined) return next()
     const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.title
     const id = randomUUID()
+    const roomId = owner?.roomId ?? taskOwner?.roomId
     const entry = {
       id,
       sessionId,
       botId,
-      ...(owner ? { roomId: owner.roomId } : {}),
+      ...(roomId ? { roomId } : {}),
       ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''),
       reason: String(request.reason ?? '').slice(0, 500),
@@ -88,6 +89,10 @@ export function install(rt) {
       })
     }
     if (owner !== undefined) rt.yieldRoomTurn?.(sessionId)
+    else if (taskOwner?.roomId !== undefined) {
+      const groupSid = rt.roomOf(taskOwner.roomId)?.sessions?.[botId]
+      if (groupSid !== undefined) rt.yieldRoomTurn?.(groupSid)
+    }
     return new Promise((resolve) => {
       entry.answer = (outcome) => {
         if (!settle(outcome)) return
