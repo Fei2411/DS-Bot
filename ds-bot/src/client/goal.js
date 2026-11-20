@@ -270,27 +270,42 @@ function GoalCompose({ room, roster, actions }) {
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: text.trim() === '' || sending, onClick: submit }, t('Start'))))
 }
 
-// The surface that wraps the pill: pod with the bar (or the draft form) while
-// closed, the panel while open. The pod hangs off the header over the transcript.
-export function GoalIsland({ room, goal, view, open, composing, roomWork, roster, actions, pill }) {
+// The surface that wraps the pill: pod with pending group approvals and/or the
+// goal bar (or draft form) while closed, the active panel while open. The pod
+// hangs off the header over the transcript.
+export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, roomWork, roster, actions, pill }) {
   const island = useRef(null)
-  useMorph(island, open)
+  const hasApprovals = approvalPod !== null
+  const apvExpanded = approvalOpen && hasApprovals
+  const goalExpanded = open && !apvExpanded
+  const expanded = goalExpanded || apvExpanded
+  const morphKey = apvExpanded ? `apv:${approvalsCount}` : goalExpanded ? 'goal' : composing ? 'compose' : 'closed'
+  useMorph(island, morphKey)
   const working = new Set((roomWork ?? []).map(entry => entry.botId))
-  // While the draft form is up, Escape and outside clicks cancel it like Cancel.
-  const close = composing ? () => { actions.closeGoalCompose(); actions.closeGoal() } : () => actions.closeGoal()
+  // While any pod panel or the draft form is up, Escape and outside clicks close it.
+  const close = () => {
+    if (composing) actions.closeGoalCompose?.()
+    if (open) actions.closeGoal?.()
+    if (approvalOpen) actions.closeApproval?.()
+  }
+  const hasGoalRow = composing || view !== null
   return h('div', {
     ref: island, className: 'bt-island',
     'data-goal': view?.status ?? (composing ? 'compose' : undefined),
-    'data-idle': view?.idle || undefined, 'data-open': open || undefined,
+    'data-idle': view?.idle || undefined,
+    'data-approval': hasApprovals || undefined,
+    'data-open': expanded || undefined,
   },
-  open || composing ? h(GoalOutside, { island, close }) : null,
+  expanded || composing ? h(GoalOutside, { island, close }) : null,
   pill,
   h('div', { className: 'bt-goal-pod' },
+    approvalPod,
+    hasApprovals && hasGoalRow ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
     composing ? h(GoalCompose, { room, roster, actions })
       : view === null ? null
         : h(Fragment, null,
-          h(GoalBar, { view, open, room, actions }),
-          open ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
+          h(GoalBar, { view, open: goalExpanded, room, actions }),
+          goalExpanded ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
 }
 
 export const GOAL_CSS = `
@@ -319,7 +334,17 @@ export const GOAL_CSS = `
 .bt-goal-pod::before{content:"";flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
 .bt-goal-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;text-align:left;transition:background-color .12s ease}
 .bt-goal-bar:hover{background:var(--bt-hover)}
-.bt-island:not([data-open]) .bt-goal-bar{border-radius:0 0 20px 20px}
+.bt-goal-bar:focus-visible,.bt-apv-bar:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-apv-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:color-mix(in srgb,var(--bt-star) 7%,transparent);color:var(--bt-warn);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;text-align:left;transition:background-color .12s ease}
+.bt-apv-bar:hover{background:color-mix(in srgb,var(--bt-star) 13%,transparent)}
+.bt-apv-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--bt-star)}
+.bt-apv-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-apv-count{flex:none;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:color-mix(in srgb,var(--bt-star) 18%,transparent);font-size:11px;line-height:16px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.bt-apv-bar[aria-expanded=true] .bt-goal-chev svg{transform:rotate(180deg)}
+.bt-apv-panel{display:flex;flex-direction:column;gap:8px;padding:8px 10px 10px;max-height:min(62vh,520px);overflow-y:auto;overflow-x:hidden;border-radius:0 0 18px 18px;animation:bt-veil-in .22s ease-out backwards}
+.bt-island-sep{flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
+.bt-island:not([data-open]) .bt-goal-pod>*:last-child{border-radius:0 0 20px 20px}
+.bt-island[data-open] .bt-goal-pod>*:last-child{border-radius:0 0 18px 18px}
 .bt-goal-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--bt-green)}
 .bt-island[data-goal=drafting] .bt-goal-dot{background:var(--bt-accent)}
 .bt-island[data-goal=paused] .bt-goal-dot,.bt-island[data-idle] .bt-goal-dot{background:var(--bt-star)}
@@ -343,8 +368,8 @@ export const GOAL_CSS = `
 .bt-goal-chev svg{width:14px;height:14px;transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-goal-bar[aria-expanded=true] .bt-goal-chev svg{transform:rotate(180deg)}
 /* The bar's extras hand off to the open panel and give their room to the label. */
-.bt-island[data-open] .bt-goal-segs,.bt-island[data-open] .bt-goal-faces{display:none}
-.bt-island[data-open] .bt-goal-chev{margin-left:auto}
+.bt-goal-bar[aria-expanded=true] .bt-goal-segs,.bt-goal-bar[aria-expanded=true] .bt-goal-faces,.bt-apv-bar[aria-expanded=true] .bt-goal-faces{display:none}
+.bt-goal-bar[aria-expanded=true] .bt-goal-chev,.bt-apv-bar[aria-expanded=true] .bt-goal-chev{margin-left:auto}
 .bt-goal-panel{display:flex;flex-direction:column;max-height:min(62vh,520px);overflow:hidden;border-radius:0 0 18px 18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
 /* The stepper: one shrinking node per stage on a hairline. */
@@ -399,5 +424,5 @@ export const GOAL_CSS = `
 .bt-goal-chint{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-goal-cbtns{display:flex;justify-content:flex-end;gap:6px}
 .bt-event .bt-event-ico{display:inline-flex;width:14px;height:14px;color:var(--bt-accent)}
-@media (prefers-reduced-motion:reduce){.bt-island,.bt-pill-swap>*,.bt-goal-segs i,.bt-goal-chev svg{transition:none!important}.bt-goal-panel{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-island,.bt-pill-swap>*,.bt-goal-segs i,.bt-goal-chev svg{transition:none!important}.bt-goal-panel,.bt-apv-panel{animation:none}}
 `

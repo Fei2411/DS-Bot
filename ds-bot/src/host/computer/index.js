@@ -682,16 +682,23 @@ export function install(rt) {
     bot.computer.apps[app.key] = { name: app.name, ...(app.id !== undefined ? { id: app.id } : {}), grantedAt: Date.now() }
     await rt.save()
   }
-  // The card in the Bot's own chat. Resolves 'always' | 'once' | 'deny'.
+  // App-access prompt card. Group-session asks carry `roomId` so the group header
+  // island and details panel can answer them in place instead of sending the user to
+  // the Bot's own chat (#1623). Resolves 'always' | 'once' | 'deny'.
   const askAppAccess = ({ botId, sessionId, callId, app, signal }) => new Promise((resolve) => {
+    if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
+    const roomId = rt.groupOwners?.get(sessionId)?.roomId
     const entry = {
-      id, botId, sessionId, appName: app.name, ...(app.icon !== undefined ? { icon: app.icon } : {}),
+      id, botId, sessionId, appName: app.name, at: Date.now(),
+      ...(roomId !== undefined ? { roomId } : {}),
+      ...(app.icon !== undefined ? { icon: app.icon } : {}),
       ...(callId !== undefined ? { callId } : {}),
       resolve: (answer) => {
-        pendingAsks.delete(id)
+        if (!pendingAsks.delete(id)) return
         const ctl = controlOf(botId)
-        if (ctl.waitingFor === 'app-access') ctl.waitingFor = undefined
+        const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
+        if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
         settleControl(botId)
         resolve(answer)
       },
@@ -702,7 +709,8 @@ export function install(rt) {
       ctl.state = 'waiting'
       ctl.waitingFor = 'app-access'
     }
-    signal?.addEventListener?.('abort', () => { if (pendingAsks.has(id)) entry.resolve('deny') }, { once: true })
+    if (roomId !== undefined) rt.yieldRoomTurn?.(sessionId)
+    signal?.addEventListener?.('abort', () => { entry.resolve('deny') }, { once: true })
   })
   const answerAppAccess = (id, answer) => {
     const entry = pendingAsks.get(String(id ?? ''))
@@ -1291,7 +1299,8 @@ export function install(rt) {
     cursors: [...cursors.values()],
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,
-      botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName,
+      botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName, at: ask.at,
+      ...(ask.roomId !== undefined ? { roomId: ask.roomId } : {}),
       ...(ask.icon !== undefined ? { icon: ask.icon } : {}),
       ...(ask.callId !== undefined ? { callId: ask.callId } : {}),
     }])),
@@ -1299,10 +1308,18 @@ export function install(rt) {
   })
   rt.computerEndpoint = computerEndpoint
   // A member whose turn waits on the app-access card shows 'waiting for approval'
-  // in its group, the same as a DSH approval does.
+  // in its group, the same as a DSH approval does; cancelling that Session denies
+  // its pending asks so removed members or retired group Sessions never leave stale cards.
   const baseWaits = rt.waitsForApproval
   rt.waitsForApproval = (sessionId) => baseWaits?.(sessionId) === true
     || [...pendingAsks.values()].some(ask => ask.sessionId === sessionId)
+  const baseCancel = rt.cancelApprovals
+  rt.cancelApprovals = (sessionId) => {
+    baseCancel?.(sessionId)
+    for (const ask of [...pendingAsks.values()]) {
+      if (ask.sessionId === sessionId) ask.resolve('deny')
+    }
+  }
 
   ctx.effect(() => () => {
     stopped = true
