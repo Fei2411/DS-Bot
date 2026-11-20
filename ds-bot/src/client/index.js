@@ -13,6 +13,7 @@ import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
+import { watchAgentTerminals } from './agent-terminals.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
@@ -1045,6 +1046,8 @@ export function apply(ctx) {
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
   actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
+  // The tabs of the terminals a shown Bot starts, as DSH's own header opens them.
+  actions.watchAgentTerminals = sessionId => watchAgentTerminals(ctx.slots, sessionId, error => actions.reportError(error, 'right-sidebar'))
   actions.newTerminal = () => {
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
