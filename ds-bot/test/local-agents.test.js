@@ -199,7 +199,27 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.ok(env.PATH.startsWith(process.env.PATH))
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH')
+  assert.ok(pathKey)
+  assert.ok(env[pathKey].startsWith(process.env[pathKey]))
+})
+
+test('env sanitization matches the explicit denylist and host prefixes case-insensitively', () => {
+  const keys = ['openai_api_key', 'anthropic_auth_token', 'acp_backend', 'ds_bot_fixture_variable', 'dsh_fixture_variable', 'antigravity_fixture_variable', 'agy_fixture_variable', 'deepseek_fixture_variable']
+  const before = keys.map(key => [key, process.env[key]])
+  try {
+    for (const key of keys) process.env[key] = 'fake-env-value'
+    const env = cleanEnv({ OPENAI_API_KEY: 'fake-explicit-value', DSH_FIXTURE_VARIABLE: 'fake-explicit-host-value' })
+    for (const key of keys) assert.equal(Object.hasOwn(env, key), false, key)
+    // An engine's explicit environment is passed in, not inherited, so it stays.
+    assert.equal(env.OPENAI_API_KEY, 'fake-explicit-value')
+    assert.equal(env.DSH_FIXTURE_VARIABLE, 'fake-explicit-host-value')
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
 
 // A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
