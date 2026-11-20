@@ -127,6 +127,8 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Background work": "バックグラウンド作業",
+  "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
@@ -2629,6 +2631,8 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Background work": "백그라운드 작업",
+  "Background commands after (seconds)": "명령 백그라운드 전환(초)",
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
@@ -5176,6 +5180,8 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Background work": "Trabajo en segundo plano",
+  "Background commands after (seconds)": "Pasar comandos a segundo plano tras (segundos)",
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
@@ -7723,6 +7729,8 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Background work": "Travail en arrière-plan",
+  "Background commands after (seconds)": "Passer les commandes en arrière-plan après (secondes)",
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
@@ -10225,6 +10233,8 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Background work": "Hintergrundarbeit",
+  "Background commands after (seconds)": "Befehle in den Hintergrund nach (Sekunden)",
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
@@ -13441,6 +13451,8 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Background work": "后台工作",
+  "Background commands after (seconds)": "命令转后台（秒）",
   "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
@@ -37458,6 +37470,19 @@ function MemorySize({ label, value, save }) {
     if (event.key === "Enter") event.target.blur();
   } });
 }
+var BACKGROUND_AFTER_SEC = 5;
+function SecondsField({ label, value, save }) {
+  const [text, setText] = (0, import_react51.useState)(String(value));
+  (0, import_react51.useEffect)(() => setText(String(value)), [value]);
+  const commit = () => {
+    const number = Number(text);
+    if (text.trim() !== "" && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number);
+    else setText(String(value));
+  };
+  return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+    if (event.key === "Enter") event.target.blur();
+  } });
+}
 function SetSection({ title, action = null, className = "", children }) {
   return (0, import_react51.createElement)(
     "section",
@@ -37615,6 +37640,15 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         SetRow,
         { label: t("Enter sends message") },
         (0, import_react51.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+      )
+    ),
+    (0, import_react51.createElement)(
+      SetSection,
+      { key: "background", title: t("Background work") },
+      (0, import_react51.createElement)(
+        SetRow,
+        { label: t("Background commands after (seconds)") },
+        (0, import_react51.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
       )
     ),
     (0, import_react51.createElement)(
@@ -38128,6 +38162,111 @@ function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } });
 }
 
+// src/client/connection-feedback.js
+var CONNECTION_GRACE_MS = 2e3;
+var CONNECTING_MIN_VISIBLE_MS = 800;
+var RECOVERY_CONFIRMATION_MS = 2e3;
+var OUTAGE_STATES = /* @__PURE__ */ new Set(["connecting", "disconnected"]);
+function createConnectionFeedback(onChange, {
+  graceMs = CONNECTION_GRACE_MS,
+  minimumVisibleMs = CONNECTING_MIN_VISIBLE_MS,
+  recoveryMs = RECOVERY_CONFIRMATION_MS,
+  now = Date.now,
+  schedule = setTimeout,
+  clear = clearTimeout
+} = {}) {
+  let state;
+  let received = false;
+  let view;
+  let outageAt;
+  let visibleAt;
+  let timer;
+  let generation = 0;
+  let suspended = false;
+  const publish2 = (next) => {
+    if (next === view) return;
+    view = next;
+    onChange?.(next);
+  };
+  const cancel = () => {
+    generation += 1;
+    if (timer === void 0) return;
+    clear(timer);
+    timer = void 0;
+  };
+  const later = (run2, wait) => {
+    const active = generation;
+    timer = schedule(() => {
+      if (active !== generation) return;
+      timer = void 0;
+      run2();
+    }, wait);
+  };
+  const reset = () => {
+    outageAt = void 0;
+    visibleAt = void 0;
+    publish2(void 0);
+  };
+  const showOutage = () => {
+    if (suspended || !OUTAGE_STATES.has(state)) return;
+    visibleAt = now();
+    publish2(state);
+  };
+  const recover = () => {
+    if (suspended || state !== "connected") return;
+    visibleAt = void 0;
+    publish2("recovered");
+    later(() => {
+      if (suspended || state !== "connected") return;
+      publish2(void 0);
+    }, recoveryMs);
+  };
+  const reconcile = () => {
+    const current2 = now();
+    if (state === "connected") {
+      if (visibleAt === void 0) {
+        reset();
+        return;
+      }
+      outageAt = void 0;
+      const remaining2 = minimumVisibleMs - (current2 - visibleAt);
+      if (remaining2 > 0) later(recover, remaining2);
+      else recover();
+      return;
+    }
+    if (!OUTAGE_STATES.has(state)) {
+      reset();
+      return;
+    }
+    if (visibleAt !== void 0) {
+      publish2(state);
+      return;
+    }
+    if (outageAt === void 0) {
+      outageAt = current2;
+      if (view === "recovered") publish2(void 0);
+    }
+    const remaining = graceMs - (current2 - outageAt);
+    if (remaining > 0) later(showOutage, remaining);
+    else showOutage();
+  };
+  return {
+    update(next) {
+      if (!suspended && received && next === state) return;
+      cancel();
+      suspended = false;
+      state = next;
+      received = true;
+      reconcile();
+    },
+    suspend() {
+      suspended = true;
+      cancel();
+    },
+    getView: () => view
+  };
+}
+
 // src/client/settings-shell.js
 var import_react53 = require("react");
 var import_react_dom8 = require("react-dom");
@@ -38145,8 +38284,6 @@ var SETTINGS_CHILDREN = {
 };
 var SKIPPED_STEPS = /* @__PURE__ */ new Set(["welcome-notice"]);
 var DIALOG_EXIT_MS = 160;
-var RECOVERY_CONFIRMATION_MS = 2e3;
-var CONNECTING_MIN_VISIBLE_MS = 800;
 var BUSY_PHASES = /* @__PURE__ */ new Set(["checking", "downloading", "verifying", "installing"]);
 function snapshotStore(initial) {
   let value = initial;
@@ -38237,44 +38374,14 @@ function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find((step) => !completed.has(step.id)) : void 0;
 }
 function useConnectionView(state) {
-  const [recovered, setRecovered] = (0, import_react53.useState)(false);
-  const [holdConnecting, setHoldConnecting] = (0, import_react53.useState)(false);
-  const previous = (0, import_react53.useRef)(state);
-  const connectingAt = (0, import_react53.useRef)(void 0);
+  const [view, setView] = (0, import_react53.useState)();
+  const feedback = (0, import_react53.useRef)();
+  if (feedback.current === void 0) feedback.current = createConnectionFeedback(setView);
   (0, import_react53.useLayoutEffect)(() => {
-    const before = previous.current;
-    previous.current = state;
-    if (state !== "connected") {
-      setRecovered(false);
-      return;
-    }
-    if (before === "disconnected" || before === "connecting") setRecovered(true);
+    feedback.current.update(state);
+    return () => feedback.current.suspend();
   }, [state]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (!recovered || holdConnecting) return void 0;
-    const timer = setTimeout(() => setRecovered(false), RECOVERY_CONFIRMATION_MS);
-    return () => clearTimeout(timer);
-  }, [recovered, holdConnecting]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (state === "connecting") {
-      connectingAt.current = Date.now();
-      return void 0;
-    }
-    const shownAt = connectingAt.current;
-    if (shownAt === void 0) return void 0;
-    connectingAt.current = void 0;
-    const remaining = CONNECTING_MIN_VISIBLE_MS - (Date.now() - shownAt);
-    if (remaining <= 0) return void 0;
-    setHoldConnecting(true);
-    const timer = setTimeout(() => setHoldConnecting(false), remaining);
-    return () => {
-      clearTimeout(timer);
-      setHoldConnecting(false);
-    };
-  }, [state]);
-  if (state === "connecting" || holdConnecting) return "connecting";
-  if (state === "disconnected") return "disconnected";
-  return recovered ? "recovered" : void 0;
+  return view;
 }
 var FAILURES2 = {
   check: "Could not check for updates. Try again later.",
