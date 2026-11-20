@@ -136,33 +136,34 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   }
   return h('div', { className: 'bt-pane', style: { left: paneLeft } },
     h('div', { className: 'bt-newchat', role: 'dialog', 'aria-label': mode === 'search' ? t('Search') : t('New chat') },
-      h('div', { className: 'bt-to' },
-        h('span', { className: 'bt-to-label' }, t('To:')),
-        adminBot ? h('span', { key: adminBot.id, className: 'bt-token bt-token-admin', title: t('Admin') },
-          h(BotMark, { bot: adminBot, size: 16 }), adminBot.name, h(AdminStar),
-          h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: adminBot.name }), onClick: () => setAdmin(null) }, '×')) : null,
-        choosingAdmin ? h('span', { className: 'bt-to-star', 'aria-hidden': true }, h(AdminStar)) : null,
-        pickedBots.map(bot => h('span', { key: bot.id, className: 'bt-token' },
-          h(BotMark, { bot: bot, size: 16 }), bot.name,
-          h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: bot.name }), onClick: () => setPicked(current => current.filter(id => id !== bot.id)) }, '×'))),
-        h('input', {
-          ref: inputRef, autoFocus: true, value: query, 'aria-label': t('Recipient'),
-          placeholder: mode === 'search' ? t('Search Bots…') : choosingAdmin ? t('Choose the group admin') : group ? t('Who to chat with…') : t('Start a chat with…'),
-          onChange: (event) => { setQuery(event.target.value); setCursor(0) },
-          onKeyDown: (event) => {
-            if (event.nativeEvent.isComposing) return
-            if (event.key === 'ArrowDown') { event.preventDefault(); setCursor(Math.min(active + 1, options.length - 1)) }
-            else if (event.key === 'ArrowUp') { event.preventDefault(); setCursor(Math.max(active - 1, 0)) }
-            else if (event.key === 'Enter' && options[active]) { event.preventDefault(); options[active].run() }
-            else if (event.key === 'Backspace' && query === '') unpick()
-          },
-        }),
-        group && admin !== null ? h('button', {
-          type: 'button', className: 'bt-send bt-to-create', disabled: busy || picked.length === 0,
-          title: picked.length === 0 ? t('Add at least one more Bot') : undefined, onClick: createGroup,
-        }, t('Create group chat')) : null,
-        h('button', { type: 'button', className: 'bt-x', 'aria-label': t('Close new chat'), onClick: close }, '×')),
-      h('div', { ref: drop, className: 'bt-drop' }, h('div', { ref: glide.box, role: 'listbox', 'aria-label': t('Recipients'), className: 'bt-drop-list' },
+      h('div', { className: 'bt-to-wrap' },
+        h('div', { className: 'bt-to' },
+          h('span', { className: 'bt-to-label' }, t('To:')),
+          adminBot ? h('span', { key: adminBot.id, className: 'bt-token bt-token-admin', title: t('Admin') },
+            h(BotMark, { bot: adminBot, size: 16 }), adminBot.name, h(AdminStar),
+            h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: adminBot.name }), onClick: () => setAdmin(null) }, '×')) : null,
+          choosingAdmin ? h('span', { className: 'bt-to-star', 'aria-hidden': true }, h(AdminStar)) : null,
+          pickedBots.map(bot => h('span', { key: bot.id, className: 'bt-token' },
+            h(BotMark, { bot: bot, size: 16 }), bot.name,
+            h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: bot.name }), onClick: () => setPicked(current => current.filter(id => id !== bot.id)) }, '×'))),
+          h('input', {
+            ref: inputRef, autoFocus: true, value: query, 'aria-label': t('Recipient'),
+            placeholder: mode === 'search' ? t('Search Bots…') : choosingAdmin ? t('Choose the group admin') : group ? t('Who to chat with…') : t('Start a chat with…'),
+            onChange: (event) => { setQuery(event.target.value); setCursor(0) },
+            onKeyDown: (event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return
+              if (event.key === 'ArrowDown') { event.preventDefault(); setCursor(Math.min(active + 1, options.length - 1)) }
+              else if (event.key === 'ArrowUp') { event.preventDefault(); setCursor(Math.max(active - 1, 0)) }
+              else if (event.key === 'Enter' && options[active]) { event.preventDefault(); options[active].run() }
+              else if (event.key === 'Backspace' && query === '') unpick()
+            },
+          }),
+          group && admin !== null ? h('button', {
+            type: 'button', className: 'bt-send bt-to-create', disabled: busy || picked.length === 0,
+            title: picked.length === 0 ? t('Add at least one more Bot') : undefined, onClick: createGroup,
+          }, t('Create group chat')) : null,
+          h('button', { type: 'button', className: 'bt-x', 'aria-label': t('Close new chat'), onClick: close }, '×')),
+        h('div', { ref: drop, className: 'bt-drop' }, h('div', { ref: glide.box, role: 'listbox', 'aria-label': t('Recipients'), className: 'bt-drop-list' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
         options.length === 0 ? h('div', { className: 'bt-hint' }, mode === 'search' ? t('No Bots match') : t('Type a name to create a Bot'))
           : options.map((option, index) => h('button', {
@@ -171,7 +172,7 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
             },
             option.bot ? h(BotMark, { bot: option.bot, size: 22 }) : h('span', { className: 'bt-option-icon' }, option.icon),
             h('span', { className: 'bt-option-label' }, option.label),
-            option.hint && index === active ? h('span', { className: 'bt-option-hint' }, option.hint) : null)))),
+            option.hint && index === active ? h('span', { className: 'bt-option-hint' }, option.hint) : null))))),
       h('div', { className: 'bt-nc-spacer' }),
       error ? h('div', { className: 'bt-error' }, error) : null,
       h('div', { className: 'bt-nc-compose' },

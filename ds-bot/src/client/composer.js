@@ -28,7 +28,7 @@ export function useDictation(onText) {
     const timer = setTimeout(() => setNote(''), 2600)
     return () => clearTimeout(timer)
   }, [note])
-  const start = ({ continuous = true, onEnd } = {}) => {
+  const start = ({ continuous = true, onEnd, onError } = {}) => {
     const Api = speechApi()
     if (!Api) { setNote(t('Dictation is not available in this browser')); return false }
     const engine = new Api()
@@ -47,6 +47,7 @@ export function useDictation(onText) {
     engine.onerror = (event) => {
       if (event.error === 'aborted' || event.error === 'no-speech') return
       setNote(event.error === 'not-allowed' || event.error === 'service-not-allowed' ? t('Microphone access is blocked') : t("Couldn't hear that"))
+      onError?.(event.error)
     }
     engine.onend = () => { setListening(false); recognition.current = null; onEnd?.() }
     recognition.current = engine

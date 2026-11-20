@@ -12,15 +12,15 @@ target,mod)),__toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:!0})
 "重新整理"],["视频","影片"],["音频","音訊"],["发送","傳送"],["撤销","復原"],["字符","字元"],["插件","外掛"],["软件","軟體"],["硬盘","硬碟"],["磁盘",
 "磁碟"],["内存","記憶體"],["终端","終端機"],["激活","啟用"],["归档","封存"],["只读","唯讀"],["密钥","金鑰"],["缓存","快取"],["调用","呼叫"],["信息",
 "資訊"],["复制","複製"],["重复","重複"],["回复","回覆"],["答复","答覆"],["反复","反覆"],["录制","錄製"],["制作","製作"],["定制","自訂"],["自定义",
-"自訂"],["准备","準備"],["标准","標準"],["为准","為準"],["关系","關係"],["折叠","摺疊"]],HANS="与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别办务动势区协单占历压参双发变叠号叹后\
-吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规\
-视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余",
-HANT="與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備復夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛\
-燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預\
-頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘",CHAR_MAP=new Map;for(let i=0;i<HANS.length;i++)CHAR_MAP.set(HANS[i],HANT[i]);function toTraditional(text){if(typeof text!=
-"string"||!text)return text;let out=text;for(let[src,dst]of PHRASES)out.includes(src)&&(out=out.replaceAll(src,dst));let res="";for(let ch of out)res+=CHAR_MAP.get(ch)??ch;return res}
-function convertDict(dict){let out={};for(let[k,v]of Object.entries(dict))out[k]=toTraditional(v);return out}function convertHostErrors(pairs){return pairs.map(([re,replacement])=>[
-re,toTraditional(replacement)])}var JA={"Background work":"バックグラウンド作業","Background commands after (seconds)":"コマンドをバックグラウンドへ（秒後）","A new reply is waiting":"\
+"自訂"],["准备","準備"],["标准","標準"],["为准","為準"],["关系","關係"],["折叠","摺疊"]],HANS="与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹\
+后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观\
+规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余",
+HANT="與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿\
+潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須\
+預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘",CHAR_MAP=new Map;for(let i=0;i<HANS.length;i++)CHAR_MAP.set(HANS[i],HANT[i]);var DICT_OVERRIDES={Revoke:"撤銷"};function toTraditional(text){
+if(typeof text!="string"||!text)return text;let out=text;for(let[src,dst]of PHRASES)out.includes(src)&&(out=out.replaceAll(src,dst));let res="";for(let ch of out)res+=CHAR_MAP.get(
+ch)??ch;return res}function convertDict(dict){let out={};for(let[k,v]of Object.entries(dict))out[k]=DICT_OVERRIDES[k]??toTraditional(v);return out}function convertHostErrors(pairs){
+return pairs.map(([re,replacement])=>[re,toTraditional(replacement)])}var JA={"Background work":"バックグラウンド作業","Background commands after (seconds)":"コマンドをバックグラウンドへ（秒後）","A new reply is waiting":"\
 新しい返信があります","Opening…":"開いています…","Still opening…":"まだ開いています…","Android beta":"Android ベータ版","Cannot reach the Server\
 . Trying again…":"サーバーに接続できません。再試行しています…","No phones yet":"スマートフォンはまだありません","Off. Phones cannot reach th\
 is computer.":"オフ。スマートフォンからこのコンピューターに接続できません。","On. Paired phones can use DS Bot here.":"オン。ペアリング済みのスマートフォンからここで DS Bot \
@@ -5609,32 +5609,34 @@ size)return null;let out={};for(let[key,value]of values)out[key]=value.to;return
 {stiffness:k,damping:c}=curves[key];!value||jump?(values.set(key,{x:to,v:0,to,k,c}),current2[key]=to):Object.assign(value,{to,k,c})}if(jump){cancelAnimationFrame(frame2),frame2=0,apply2(
 current2);return}frame2||(last=performance.now(),frame2=requestAnimationFrame(step))},stop:()=>cancelAnimationFrame(frame2)}}var CHOSEN='[aria-pressed="true"],[aria-selected="true"\
 ],[aria-current="page"]';function useGlide(key,{axis="x",selector=CHOSEN,lead=SPRING_LEAD,trail=SPRING_TRAIL,box:given}={}){let ownBox=(0,import_react.useRef)(null),box=given??ownBox,
-thumb=(0,import_react.useRef)(null),own=(0,import_react.useRef)(null);own.current===null&&(own.current={key:void 0,node:null,observer:null,springs:liveSprings(({start,end})=>{let knob=thumb.
-current;knob&&(knob.style.transform=axis==="x"?`translateX(${start}px)`:`translateY(${start}px)`,knob.style[axis==="x"?"width":"height"]=`${Math.max(0,end-start)}px`)})});let place=jump=>{
-let container=box.current,knob=thumb.current;if(!container||!knob)return;let chosen=container.querySelector(selector);if(!chosen){knob.dataset.hidden="";return}let start=axis==="x"?
-chosen.offsetLeft:chosen.offsetTop,end=start+(axis==="x"?chosen.offsetWidth:chosen.offsetHeight),{springs}=own.current,before=springs.target(),hidden=knob.dataset.hidden!==void 0;if(jump&&
-!hidden&&before?.start===start&&before?.end===end&&container.dataset.glide!==void 0)return;delete knob.dataset.hidden;let forward=before===null||start>=before.start;springs.set({start,
-end},forward?{start:trail,end:lead}:{start:lead,end:trail},jump||hidden||before===null||reducedMotion()),container.dataset.glide=""};return(0,import_react.useLayoutEffect)(()=>{let state=own.
-current,node=box.current;if(node===state.node&&key===state.key)return;let fresh=node!==state.node;state.key=key,fresh&&(state.observer?.disconnect(),state.node=node,state.observer=
-node&&typeof ResizeObserver=="function"?new ResizeObserver(()=>place(!0)):null,state.observer?.observe(node)),place(fresh)}),(0,import_react.useEffect)(()=>()=>{own.current.observer?.
-disconnect(),own.current.springs.stop()},[]),{box,thumb}}function Segmented({label,value,className,children}){let glide2=useGlide(value);return(0,import_react.createElement)("div",
-{ref:glide2.box,className:className?`bt-seg ${className}`:"bt-seg",role:"group","aria-label":label},(0,import_react.createElement)("span",{ref:glide2.thumb,className:"bt-thumb","ar\
-ia-hidden":!0}),children)}function useFlip(list,key,selector,id=node=>node.dataset.flip){let tops=(0,import_react.useRef)(null);(0,import_react.useLayoutEffect)(()=>{let container=list.
-current;if(!container)return;let next=new Map,moving=tops.current!==null&&!reducedMotion();for(let node of container.querySelectorAll(selector)){let name=id(node),top=node.offsetTop;
-if(next.set(name,top),!moving)continue;let before=tops.current.get(name);if(before===void 0){let noBlur=reducedEffects();node.animate([noBlur?{opacity:0}:{opacity:0,filter:"blur(4p\
-x)"},noBlur?{opacity:1}:{opacity:1,filter:"blur(0)"}],{duration:180,easing:"ease-out"})}else Math.abs(before-top)>.5&&node.animate([{transform:`translateY(${before-top}px)`},{transform:"\
-none"}],{duration:SPRING_LIST.duration,easing:SPRING_LIST.easing})}tops.current=next},[key])}function useMorph(box,key){let last=(0,import_react.useRef)({key,height:null,node:null,
-observer:null});(0,import_react.useLayoutEffect)(()=>{let node=box.current,state=last.current;if(node!==state.node){if(state.observer?.disconnect(),Object.assign(state,{key,height:null,
-node,observer:null}),!node||typeof ResizeObserver!="function")return;state.observer=new ResizeObserver(([entry])=>{node.dataset.morph===void 0&&(state.height=entry.borderBoxSize?.[0]?.
-blockSize??node.offsetHeight)}),state.observer.observe(node);return}if(!node||key===state.key)return;let running=node.getAnimations().filter(animation2=>animation2.id==="bt-morph"),
-from=running.length?node.offsetHeight:state.height;for(let animation2 of running)animation2.cancel();let to=node.offsetHeight;if(Object.assign(state,{key,height:to}),from===null||Math.
-abs(from-to)<1||reducedEffects())return;node.dataset.morph="";let animation=node.animate([{height:`${from}px`},{height:`${to}px`}],{duration:SPRING_SHAPE.duration,easing:SPRING_SHAPE.
-easing,id:"bt-morph"});animation.onfinish=()=>{delete node.dataset.morph},animation.oncancel=()=>{node.getAnimations().some(other=>other.id==="bt-morph"&&other!==animation)||delete node.
-dataset.morph}}),(0,import_react.useEffect)(()=>()=>last.current.observer?.disconnect(),[])}function useLinger(value,ms){let[kept,setKept]=(0,import_react.useState)(value);return(0,import_react.useEffect)(
-()=>{if(value){setKept(value);return}let timer=setTimeout(()=>setKept(value),reducedMotion()?0:ms);return()=>clearTimeout(timer)},[value]),[value||kept,!value&&!!kept]}function stepMenuFocus(menu,event,trigger){
-if(!menu||!["ArrowDown","ArrowUp","Home","End"].includes(event.key))return!1;let items=Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'));if(items.length===
-0)return!1;let target=document.activeElement,current2=items.indexOf(target);if(current2===-1&&target!==menu&&target!==trigger)return!1;event.preventDefault(),event.stopPropagation();
-let next=event.key==="Home"?0:event.key==="End"?items.length-1:event.key==="ArrowDown"?(current2+1)%items.length:current2<=0?items.length-1:current2-1;return items[next]?.focus(),!0}var STORAGE={unread:"ds-bot:unread",reactions:"ds-bot:reactions",seen:"ds-bot:seen",prefs:"ds-bot:prefs",surface:"ds-bot:surface",agentSessions:"ds-bot:agent-sessions",agentForks:"\
+thumb=(0,import_react.useRef)(null),own=(0,import_react.useRef)(null);own.current===null&&(own.current={key:void 0,axis,node:null,observer:null,springs:liveSprings(({start,end})=>{
+let knob=thumb.current;if(!knob)return;let currentAxis=own.current.axis;knob.style.transform=currentAxis==="x"?`translateX(${start}px)`:`translateY(${start}px)`,knob.style[currentAxis===
+"x"?"width":"height"]=`${Math.max(0,end-start)}px`})});let place=jump=>{let container=box.current,knob=thumb.current;if(!container||!knob)return;let currentAxis=own.current.axis,chosen=container.
+querySelector(selector);if(!chosen){knob.dataset.hidden="";return}let start=currentAxis==="x"?chosen.offsetLeft:chosen.offsetTop,end=start+(currentAxis==="x"?chosen.offsetWidth:chosen.
+offsetHeight),{springs}=own.current,before=springs.target(),hidden=knob.dataset.hidden!==void 0;if(jump&&!hidden&&before?.start===start&&before?.end===end&&container.dataset.glide!==
+void 0)return;delete knob.dataset.hidden;let forward=before===null||start>=before.start;springs.set({start,end},forward?{start:trail,end:lead}:{start:lead,end:trail},jump||hidden||
+before===null||reducedMotion()),container.dataset.glide=""};return(0,import_react.useLayoutEffect)(()=>{let state=own.current,node=box.current,axisChanged=axis!==state.axis;if(node===
+state.node&&key===state.key&&!axisChanged)return;let fresh=node!==state.node||axisChanged;state.key=key,axisChanged&&(state.axis=axis,thumb.current&&(thumb.current.style.width="",thumb.
+current.style.height="")),node!==state.node&&(state.observer?.disconnect(),state.node=node,state.observer=node&&typeof ResizeObserver=="function"?new ResizeObserver(()=>place(!0)):
+null,state.observer?.observe(node)),place(fresh)}),(0,import_react.useEffect)(()=>()=>{own.current.observer?.disconnect(),own.current.springs.stop()},[]),{box,thumb}}function Segmented({
+label,value,className,children}){let glide2=useGlide(value);return(0,import_react.createElement)("div",{ref:glide2.box,className:className?`bt-seg ${className}`:"bt-seg",role:"grou\
+p","aria-label":label},(0,import_react.createElement)("span",{ref:glide2.thumb,className:"bt-thumb","aria-hidden":!0}),children)}function useFlip(list,key,selector,id=node=>node.dataset.
+flip){let tops=(0,import_react.useRef)(null);(0,import_react.useLayoutEffect)(()=>{let container=list.current;if(!container)return;let next=new Map,moving=tops.current!==null&&!reducedMotion();
+for(let node of container.querySelectorAll(selector)){let name=id(node),top=node.offsetTop;if(next.set(name,top),!moving)continue;let before=tops.current.get(name);if(before===void 0){
+let noBlur=reducedEffects();node.animate([noBlur?{opacity:0}:{opacity:0,filter:"blur(4px)"},noBlur?{opacity:1}:{opacity:1,filter:"blur(0)"}],{duration:180,easing:"ease-out"})}else Math.
+abs(before-top)>.5&&node.animate([{transform:`translateY(${before-top}px)`},{transform:"none"}],{duration:SPRING_LIST.duration,easing:SPRING_LIST.easing})}tops.current=next},[key])}
+function useMorph(box,key){let last=(0,import_react.useRef)({key,height:null,node:null,observer:null});(0,import_react.useLayoutEffect)(()=>{let node=box.current,state=last.current;
+if(node!==state.node){if(state.observer?.disconnect(),Object.assign(state,{key,height:null,node,observer:null}),!node||typeof ResizeObserver!="function")return;state.observer=new ResizeObserver(
+([entry])=>{node.dataset.morph===void 0&&(state.height=entry.borderBoxSize?.[0]?.blockSize??node.offsetHeight)}),state.observer.observe(node);return}if(!node||key===state.key)return;
+let running=node.getAnimations().filter(animation2=>animation2.id==="bt-morph"),from=running.length?node.offsetHeight:state.height;for(let animation2 of running)animation2.cancel();
+let to=node.offsetHeight;if(Object.assign(state,{key,height:to}),from===null||Math.abs(from-to)<1||reducedEffects())return;node.dataset.morph="";let animation=node.animate([{height:`${from}\
+px`},{height:`${to}px`}],{duration:SPRING_SHAPE.duration,easing:SPRING_SHAPE.easing,id:"bt-morph"});animation.onfinish=()=>{delete node.dataset.morph},animation.oncancel=()=>{node.
+getAnimations().some(other=>other.id==="bt-morph"&&other!==animation)||delete node.dataset.morph}}),(0,import_react.useEffect)(()=>()=>last.current.observer?.disconnect(),[])}function useLinger(value,ms){
+let[kept,setKept]=(0,import_react.useState)(value);return(0,import_react.useEffect)(()=>{if(value){setKept(value);return}let timer=setTimeout(()=>setKept(value),reducedMotion()?0:ms);
+return()=>clearTimeout(timer)},[value]),[value||kept,!value&&!!kept]}function stepMenuFocus(menu,event,trigger){if(!menu||!["ArrowDown","ArrowUp","Home","End"].includes(event.key))
+return!1;let items=Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'));if(items.length===0)return!1;let target=document.activeElement,current2=items.indexOf(
+target);if(current2===-1&&target!==menu&&target!==trigger)return!1;event.preventDefault(),event.stopPropagation();let next=event.key==="Home"?0:event.key==="End"?items.length-1:event.
+key==="ArrowDown"?(current2+1)%items.length:current2<=0?items.length-1:current2-1;return items[next]?.focus(),!0}var STORAGE={unread:"ds-bot:unread",reactions:"ds-bot:reactions",seen:"ds-bot:seen",prefs:"ds-bot:prefs",surface:"ds-bot:surface",agentSessions:"ds-bot:agent-sessions",agentForks:"\
 ds-bot:pending-agent-forks",browserWidth:"ds-bot:browser-width",sidebar:"ds-bot:sidebar",browsers:"ds-bot.browser.v2"},LEGACY_PREFIXES=["dsh-bot:","dsh-bot-team:"],LEGACY_BROWSER_KEYS=[
 "ds-bot.browser.v1","dsh-bot.browser.v1"],LEGACY_THEMES={grok:"mono"};function legacyKeys(key){if(key===STORAGE.browsers)return LEGACY_BROWSER_KEYS;let name=key.slice(key.indexOf("\
 :")+1);return LEGACY_PREFIXES.map(prefix=>`${prefix}${name}`)}var migrateBrowsers=storage=>{if(storage.getItem(STORAGE.browsers)!==null){for(let key of LEGACY_BROWSER_KEYS)storage.
@@ -5666,13 +5668,14 @@ color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1
 xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='roun\
 d'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transpa\
 rent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-ap\
-ple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+ple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt\
 -ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-tas\
 k-remove){touch-action:manipulation}
-:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){c\
-orner-shape:round}
+:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.b\
+t-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-bt\
+n,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6\
 e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt\
 -main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2\
@@ -5898,7 +5901,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 ackdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-\
 family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.
 easing}}
-.bt-pill:hover{background:color-mix(in srgb,var(--bt-main),#777 9%)}
+.bt-pill:hover{background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-glass-bg))}
 .bt-pill:active{transform:scale(.965)}
 .bt-pill-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .bt-pill-mem{flex:none;display:inline-flex;width:0;margin-left:-8px;overflow:hidden;transition:${spring(SPRING_SHAPE,"width","margin-left")}}
@@ -5926,7 +5929,6 @@ ms ${SPRING_SHAPE.easing},opacity .18s ease,filter .18s ease}
 
 /* The width settings: the share of the column a bubble may take, and the flat text. */
 body{--bt-msg-w:.8;--bt-flat-w:1}
-body{--bt-qr-paper:#fff;--bt-qr-ink:#000}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
 .bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-con\
 tent-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
@@ -5966,8 +5968,9 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .\
-12s ease,color .12s ease,${spring(SPRING_TAP,"scale")}}
+.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:\
+background-color .12s ease,color .12s ease,${spring(SPRING_TAP,"scale")}}
+.bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
 .bt-q{margin:0 auto 8px;width:100%;max-width:var(--dsh-chat-content-width,748px);display:flex;flex-direction:column;gap:12px;--bt-q-edge:color-mix(in srgb,var(--bt-ink) 10%,transpa\
@@ -5981,8 +5984,9 @@ body[data-ds-dark-theme] .bt-q{--bt-q-edge:rgba(255,255,255,.16);--bt-q-rule:rgb
 .bt-q-text{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
 .bt-q-title{margin:0;font-size:15px;line-height:22px;font-weight:600;overflow-wrap:anywhere}
 .bt-q-detail{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-q-x{flex:none;width:20px;height:20px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cu\
-rsor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP,"scale")}}
+.bt-q-x{position:relative;flex:none;width:20px;height:20px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify\
+-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP,"scale")}}
+.bt-q-x::after{content:"";position:absolute;inset:-4px}
 .bt-q-x svg{width:14px;height:14px}
 .bt-q-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-q-x:focus-visible,.bt-q-opt:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -6093,6 +6097,7 @@ in srgb,var(--bt-ink) 5%,transparent)}
 {transition:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
+.bt-to-wrap{position:relative;flex:none}
 .bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line)\
 ;font-size:14px;box-sizing:border-box}
 .bt-to-label{color:var(--bt-ink-2)}
@@ -6104,9 +6109,10 @@ duration}ms ${SPRING_POP.easing}}
 --bt-star) 82%,var(--bt-sidebar));vertical-align:-1px}
 .bt-to-star{display:inline-flex;margin-right:-2px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-to .bt-to-create{flex:none;height:28px;padding:0 12px;font-size:13px;animation:bt-q-submit-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
-.bt-drop{position:absolute;top:48px;left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;backgroun\
-d:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow\
-:var(--bt-glass-shadow);box-sizing:border-box;z-index:1;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
+.bt-drop{position:absolute;top:calc(100% + 4px);left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:au\
+to;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12p\
+x;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:10;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s eas\
+e-out}
 .bt-option{display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;font-size:13px;line-height:18px\
 ;color:var(--bt-ink);cursor:pointer;text-align:left;width:100%}
 .bt-option[aria-selected=true]{background:var(--bt-active)}
@@ -6204,6 +6210,7 @@ nsition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-panel[data-leaving]{transform:translateX(100%);transition:transform .3s cubic-bezier(.2,0,0,1);pointer-events:none}
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
 /* The conversation's margins glide with the Bot panel's slide and with our left
    column's slide in and out. */
 [class*="_centerCol"]{transition:margin-right ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -6329,8 +6336,8 @@ t-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
-@keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
-@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:var(--bt-fx-blur-3,blur(3px))}}
+@keyframes bt-dialog-rise{from{translate:0 12px;scale:.96}}
+@keyframes bt-dialog-sink{to{opacity:0;translate:0 6px;scale:.975;filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 10px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:color-mix(in\
  srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
@@ -6660,10 +6667,10 @@ r:var(--bt-ink-2);box-shadow:inset 0 0 0 1px var(--bt-line);transition:backgroun
 button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 .bt-you-wrap{display:inline-flex;padding:0}
 
-.bt-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;padding:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%\
-);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:colu\
-mn;gap:2px;transform-origin:var(--bt-origin,top left);animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out;font-family:var(--bt-font);box-si\
-zing:border-box}
+.bt-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;padd\
+ing:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glas\
+s-rim);box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:column;gap:2px;transform-origin:var(--bt-origin,top left);animation:bt-pop-drop\
+ ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out;font-family:var(--bt-font);box-sizing:border-box}
 .bt-menu button{display:flex;align-items:center;gap:4px;width:100%;min-height:30px;text-align:left;border:0;background:none;border-radius:6px;padding:6px 8px;font:inherit;font-size\
 :13px;line-height:18px;color:var(--bt-ink);cursor:pointer;box-sizing:border-box}
 .bt-menu button:hover{background:var(--bt-hover)}
@@ -6687,8 +6694,9 @@ den;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPR
 .bt-palette-glyph{display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;color:var(--bt-ink-3);margin-right:4px}
 .bt-palette-head input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:15px;line-height:22px;padding:0}
 .bt-palette-head input::placeholder{color:var(--bt-ink-3)}
-.bt-palette-clear{width:18px;height:18px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cu\
-rsor:pointer}
+.bt-palette-clear{position:relative;width:18px;height:18px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify\
+-content:center;cursor:pointer}
+.bt-palette-clear::after{content:"";position:absolute;inset:-5px}
 .bt-palette-clear:hover{color:var(--bt-ink)}
 .bt-palette-clear svg{width:12px;height:12px}
 .bt-palette-list{position:relative;height:402px;height:min(402px,54vh);height:min(402px,54dvh);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;box-sizing:bor\
@@ -6740,7 +6748,7 @@ g:2px 4px;border-radius:6px;cursor:pointer}
 .bt-gs mark{background:color-mix(in srgb,var(--bt-star) 32%,transparent);color:inherit;border-radius:4px;padding:0 1px}
 .bt-gs-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-gs-foot-side{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
-@media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
+@media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}.bt-palette-layer[data-leaving] .bt-palette{animation:bt-fade .1s ease-in reverse forwards}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}
 .bt-account:hover .bt-you,.bt-account[aria-expanded=true] .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
@@ -6763,9 +6771,13 @@ background-color:var(--bt-hover);background-image:var(--bt-select-arrow);backgro
 /* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
 body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
+:where([class^="bt-"],[class*=" bt-"]):where(button,a,[tabindex],[role="button"],[role="tab"],[role="menuitem"]):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px\
+}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt\
--swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-browser-duration-choice,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-check\
+s,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-off\
+set:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline\
 -offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
@@ -6905,6 +6917,11 @@ px 16px rgba(0,0,0,.06);box-sizing:border-box;transition:border-color .15s ease,
 .bt-mem-send>*{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-mem-spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;box-sizing:border-box;animation:bt-mem-spin .7s linear infinite}
 @keyframes bt-mem-spin{to{transform:rotate(360deg)}}
+/* Follow the visible viewport, not the layout one: dvh where the browser knows
+   it (the earlier vh value is the fallback). Kept before the <=640px rules so
+   narrow viewports keep full-screen heights. */
+.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
+.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 @media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li\
  svg{animation:none}}
@@ -6943,6 +6960,7 @@ r .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP,"scale"
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(\
 --bt-line);scrollbar-width:thin;box-sizing:border-box}
+  .bt-settings-nav>.bt-thumb{left:0;right:auto;top:8px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
@@ -6959,11 +6977,7 @@ r .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP,"scale"
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
-/* Follow the visible viewport, not the layout one: dvh where the browser knows
-   it (the earlier vh value is the fallback), and safe-area padding where
-   full-screen layers and bottom regions meet the device's own bars. */
-.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
+/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
 .bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
 .bt-settings-scroll{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
@@ -6977,7 +6991,7 @@ r .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP,"scale"
 body[data-bt-effects=reduced],body[data-bt-effects=off]{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;--dsw-specific-menu:var(--bt-main);--dsw-menu-surface-fill:var(--bt-mai\
 n);--bt-glass-bg:var(--bt-card);--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pme\
-nu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+nu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip,.bt-reading){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-bcard-x{background:var(--bt-main)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-us-tip{background:var(--bt-card)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
@@ -7211,6 +7225,7 @@ color .15s ease,${spring(SPRING_TAP,"scale")}}
 .bt-mic:hover{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
 .bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
 @keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
+@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]{animation:none}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-voice:hover{background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)}
 .bt-mic:active,.bt-voice:active{scale:.9}
@@ -7277,6 +7292,7 @@ ity:visible}
 .bt-q-dock .bt-q{margin:0 auto 8px}
 .bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}
 @keyframes bt-dock-out{to{opacity:0;transform:translateY(6px) scale(.985)}}
+[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off
@@ -7285,7 +7301,6 @@ ity:visible}
 .bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
 .bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
-[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
 .bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
@@ -7320,8 +7335,9 @@ bt-veil-in .16s ease-out}
 .bt-news-ico svg{width:16px;height:16px}
 .bt-news-x{position:absolute;right:4px;top:50%;z-index:1;transform:translateY(-50%);width:20px;height:20px;padding:0;border:0;border-radius:999px;background:transparent;color:inher\
 it;opacity:.75;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bt-news-x::after{content:"";position:absolute;inset:-4px}
 .bt-news-x svg{width:12px;height:12px}
-.bt-news-x:hover{opacity:1;background:rgba(20,20,20,.5)}
+.bt-news-x:hover{opacity:1;background:color-mix(in srgb,currentColor 18%,transparent)}
 @media (prefers-reduced-motion:reduce){.bt-news,[class*="_toBottomSlot"]>button{animation:none}}
 /* The pill over a long reply whose start has scrolled away (reading.js). */
 .bt-reading{position:fixed;z-index:29;display:inline-flex;align-items:center;max-width:min(360px,calc(100vw - 32px));height:28px;padding:0 2px;box-sizing:border-box;border-radius:9\
@@ -7351,34 +7367,35 @@ lor:var(--bt-accent);font-family:var(--bt-font)}
 .bt-earlier-top:empty{display:none}
 .bt-earlier-top .bt-soft{height:28px;font-size:12px;padding:0 12px}
 .bt-urow{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin:6px 0}
-.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:14px;line-height:24px;box-sizing\
-:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px\
+);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-ububble [class*="_markdown"],.bt-ububble a{color:inherit!important}
-.bt-ububble p{margin:0;line-height:24px}
+.bt-ububble p{margin:0;line-height:inherit}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
 .bt-agent-sessions-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-agent-sessions-new{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:2px 6px;border-radius:6px;font-size:12px;color:var(--bt-ink-2);cursor:pointer\
 }
-.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink-1,inherit)}
+.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sessions-new svg{width:12px;height:12px}
 .bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
 .bt-agent-sessions-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--bt-warn) 40%,transparent);border-left:\
 3px solid var(--bt-warn);border-radius:10px;background:color-mix(in srgb,var(--bt-warn) 13%,var(--bt-card));color:var(--bt-warn);font-size:13px;line-height:17px;font-weight:500}
 .bt-agent-sessions-warn svg{flex:none;width:15px;height:15px;margin-top:1px}
 .bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;\
-text-align:left;font-size:13px;color:var(--bt-ink-1,inherit);cursor:pointer}
+text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
 .bt-agent-session:first-child{border-top:0}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3,var(--bt-ink-2))}
+.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3)}
+.bt-agent-session-run{color:var(--bt-accent);font-weight:500}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
-.bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:var(--bt-ink-3,currentColor);opacity:.55}
+.bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bt-agent-act code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink-1,inherit)}
+.bt-agent-act code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
 /* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */
@@ -7420,13 +7437,21 @@ trim()).filter(part=>part.startsWith("--"));custom.length>0&&(out+=`${head}{${cu
 head.appendChild(style),style}var FRAGMENT_SELECTOR=/\[class\*="(_[\w-]+)"\]/g,CLASS_TOKEN=/\.((?:\\.|[\w-])+)/g;function sheetClassNames(sheet){let names=[],visit=rules=>{for(let rule of rules){
 if(rule.selectorText)for(let match of rule.selectorText.matchAll(CLASS_TOKEN))names.push(match[1]);rule.cssRules&&visit(rule.cssRules)}};try{visit(sheet.cssRules)}catch{}return names}
 function compileFragmentSelectors(text,names){let compiled2=new Map;return text.replace(FRAGMENT_SELECTOR,(whole,fragment)=>{if(!compiled2.has(fragment)){let exact=[];for(let name of names)
-name.includes(fragment)&&exact.push(`.${name}`);compiled2.set(fragment,exact.length?`:is(${exact.join(",")})`:whole)}return compiled2.get(fragment)})}function installCompiledStyles(text,tag){
-let style=installStyles("",tag),disposed=!1,cache=new WeakMap,render=()=>{if(disposed)return;style.isConnected||document.head.appendChild(style);let names=new Set;for(let sheet of document.
-styleSheets){if(sheet.ownerNode?.dataset?.dshBot)continue;let list=cache.get(sheet);list||(list=sheetClassNames(sheet),cache.set(sheet,list));for(let name of list)names.add(name)}let next=compileFragmentSelectors(
-text,names);style.textContent!==next&&(style.textContent=next)};render();let timer,schedule=()=>{clearTimeout(timer),timer=setTimeout(render,120)},onLoad=event=>{event.target instanceof
-HTMLLinkElement&&schedule()},shell=node=>node.dataset?.dshBot===void 0,observer=new MutationObserver(records=>{records.some(record=>[...record.removedNodes].includes(style))&&render(),
-records.some(record=>[...record.addedNodes,...record.removedNodes].some(shell))&&schedule()});return observer.observe(document.head,{childList:!0}),document.addEventListener("load",
-onLoad,!0),()=>{disposed=!0,observer.disconnect(),document.removeEventListener("load",onLoad,!0),clearTimeout(timer),style.remove()}}var RETURN_TOKENS=`
+name.includes(fragment)&&exact.push(`.${name}`);compiled2.set(fragment,exact.length?`:is(${exact.join(",")})`:whole)}return compiled2.get(fragment)})}var compiledEntries=new Set,sheetCache=new WeakMap,
+headObserver=null,headTimer=0,headLoadAttached=!1;function collectSheetNames(){let names=new Set;for(let sheet of document.styleSheets){if(sheet.ownerNode?.dataset?.dshBot)continue;
+let list=sheetCache.get(sheet);list||(list=sheetClassNames(sheet),sheetCache.set(sheet,list));for(let name of list)names.add(name)}return names}function flushCompiledStyles(onlyMissing=!1){
+let names=null;for(let entry of compiledEntries){if(entry.disposed||(entry.style.isConnected||document.head.appendChild(entry.style),onlyMissing||!entry.needsCompile))continue;names===
+null&&(names=collectSheetNames());let next=compileFragmentSelectors(entry.text,names);entry.style.textContent!==next&&(entry.style.textContent=next)}}var scheduleCompiledFlush=()=>{
+clearTimeout(headTimer),headTimer=setTimeout(()=>flushCompiledStyles(!1),120)},onStyleLinkLoad=event=>{event.target instanceof HTMLLinkElement&&scheduleCompiledFlush()};function syncHeadWatchers(){
+if(compiledEntries.size===0){headObserver?.disconnect(),headObserver=null,headLoadAttached&&(document.removeEventListener("load",onStyleLinkLoad,!0),headLoadAttached=!1),clearTimeout(
+headTimer);return}if(headObserver===null){let shell=node=>node?.dataset?.dshBot===void 0;headObserver=new MutationObserver(records=>{let missing=!1,shellChanged=!1;for(let record of records){
+for(let removed of record.removedNodes){for(let entry of compiledEntries)if(entry.style===removed){missing=!0;break}shell(removed)&&(shellChanged=!0)}for(let added of record.addedNodes)
+shell(added)&&(shellChanged=!0)}missing&&flushCompiledStyles(!0),shellChanged&&[...compiledEntries].some(entry=>entry.needsCompile)&&scheduleCompiledFlush()}),headObserver.observe(
+document.head,{childList:!0})}let anyCompile=[...compiledEntries].some(entry=>entry.needsCompile);anyCompile&&!headLoadAttached?(document.addEventListener("load",onStyleLinkLoad,!0),
+headLoadAttached=!0):!anyCompile&&headLoadAttached&&(document.removeEventListener("load",onStyleLinkLoad,!0),headLoadAttached=!1)}function installCompiledStyles(text,tag){let needsCompile=/\[class\*="_[\w-]+"\]/.
+test(text),style=installStyles(needsCompile?"":text,tag),entry={style,text,needsCompile,disposed:!1};if(compiledEntries.add(entry),needsCompile){let next=compileFragmentSelectors(text,
+collectSheetNames());style.textContent!==next&&(style.textContent=next)}return syncHeadWatchers(),()=>{entry.disposed=!0,compiledEntries.delete(entry),syncHeadWatchers(),style.remove()}}
+var RETURN_TOKENS=`
 body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
 `;var import_react2=require("react"),STATES=["idle","thinking","searching","working","sending","orbit","waiting","alert","done"],botState=(running,activity,alert)=>running?STATES.includes(
 activity)&&activity!=="waiting"?activity:"working":alert?"alert":activity==="waiting"?"waiting":"idle",toolState=name=>/^(message_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.
@@ -7437,37 +7462,38 @@ style.setProperty("--bt-gx",clamp((point.x-box.left-box.width/2)/160).toFixed(2)
 reducedEffects()||document.body?.dataset.btMotion==="quiet"||(point={x:event.clientX,y:event.clientY},frame2||(frame2=requestAnimationFrame(place)))},onLeave=()=>{point=null,ref.current?.
 style.setProperty("--bt-gx","0"),ref.current?.style.setProperty("--bt-gy","0")},attach=()=>{active||(active=!0,window.addEventListener("pointermove",onMove,{passive:!0}),document.documentElement.
 addEventListener("pointerleave",onLeave))},detach=()=>{active&&(active=!1,window.removeEventListener("pointermove",onMove),document.documentElement.removeEventListener("pointerleav\
-e",onLeave),clear())},sync=()=>{reducedEffects()?detach():attach()};sync();let observer=typeof MutationObserver=="function"&&document.body?new MutationObserver(sync):null;observer?.
-observe(document.body,{attributes:!0,attributeFilter:["data-bt-effects"]});let media=window.matchMedia?.("(prefers-reduced-motion: reduce)");return media?.addEventListener?.("chang\
-e",sync),()=>{observer?.disconnect(),media?.removeEventListener?.("change",sync),detach()}},[enabled])}var FIDGETS=["hop","sway","stretch","look"];function BotMark({bot,look:given,
-size=36,state="idle",live=!1,gaze=!1,pokeable=!1,label}){let look=given??lookOf(bot),ref=(0,import_react2.useRef)(null),maskId=(0,import_react2.useRef)("");maskId.current===""&&(maskId.
-current=`bt-mark-${nextMarkSerial()}`);let[poked,setPoked]=(0,import_react2.useState)(!1),[broken,setBroken]=(0,import_react2.useState)(""),image=look.image&&look.image!==broken?look.
-image:void 0;useGaze(ref,gaze);let common={ref,className:poked?"bt-mark bt-mark-poke":"bt-mark","data-shape":image?"image":shapeId(look.shape),"data-state":STATES.includes(state)?state:
-"idle","data-live":live?"":void 0,"data-fidget":live?FIDGETS[fnv1a(`${bot?.id??""}:fidget`)%FIDGETS.length]:void 0,"data-gaze":gaze?"":void 0,"data-poke":pokeable?"":void 0,style:{
-width:size,height:size,...live?{"--bt-delay":`${-(fnv1a(String(bot?.id??""))%5e3)/1e3}s`,"--bt-fidget-delay":`${-(fnv1a(`${bot?.id??""}:when`)%9e3)/1e3}s`}:{}},role:label?"img":void 0,
-"aria-label":label,"aria-hidden":label?void 0:!0,onClick:pokeable?()=>{!reducedMotion()&&document.body?.dataset.btMotion!=="quiet"&&setPoked(!0)}:void 0,onAnimationEnd:poked?event=>{
-/^bt-poke/.test(event.animationName)&&setPoked(!1)}:void 0};if(image)return(0,import_react2.createElement)("span",common,(0,import_react2.createElement)("img",{className:"bt-mark-i\
-mg",src:image,alt:"",draggable:!1,onError:()=>setBroken(image)}));let box=shapeOf(look.shape).size;return(0,import_react2.createElement)("span",common,(0,import_react2.createElement)(
-"svg",{viewBox:`0 0 ${box} ${box}`,dangerouslySetInnerHTML:{__html:characterMarkup(look.shape,look.color).replaceAll(MASK_ID,maskId.current)}}))}function StarIcon({size=8}){return(0,import_react2.createElement)(
-"svg",{width:size,height:size,viewBox:"0 0 10 10","aria-hidden":!0},(0,import_react2.createElement)("path",{d:"M5 .6l1.3 2.8 3 .3-2.3 2 .7 3L5 7.2 2.3 8.7l.7-3L.7 3.7l3-.3z",fill:"\
-#fff"}))}function AdminStar(){return(0,import_react2.createElement)("span",{className:"bt-admin-star",role:"img","aria-label":t("Admin")},(0,import_react2.createElement)(StarIcon,{
-size:7}))}function MainStar(){return(0,import_react2.createElement)("svg",{viewBox:"0 0 20 20","aria-hidden":!0},(0,import_react2.createElement)("path",{d:"M10 2.4l2.29 5.04 5.51.6\
-3-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z"}))}function useSettled(state){let prev=(0,import_react2.useRef)(state),[settled,setSettled]=(0,import_react2.useState)(
-!1);return(0,import_react2.useEffect)(()=>{let was=prev.current;if(prev.current=state,state!=="idle"){setSettled(!1);return}if(was==="idle"||was==="alert")return;setSettled(!0);let timer=setTimeout(
-()=>setSettled(!1),1800);return()=>clearTimeout(timer)},[state]),settled}function BotAvatar({bot,size,state="idle",main,admin,badge=!0,live=!0,gaze=!1,pokeable=!1}){let settled=useSettled(
-state);if(bot===void 0)return(0,import_react2.createElement)(BotMark,{size});let badgeKind=badge?state==="alert"?"alert":state!=="idle"&&state!=="waiting"?"working":admin?"admin":main?
-"main":null:null;return(0,import_react2.createElement)("span",{className:"bt-mark",style:{width:size,height:size,"--bt-size":`${size}px`}},(0,import_react2.createElement)(BotMark,{
-bot,size,state:settled?"done":state,live,gaze,pokeable}),badgeKind==="working"?(0,import_react2.createElement)("span",{className:"bt-badge bt-badge-working","aria-label":t("Working"),
-role:"img"}):null,badgeKind==="alert"?(0,import_react2.createElement)("span",{className:"bt-badge bt-badge-alert","aria-label":t("Waiting for your answer"),role:"img"},"?"):null,badgeKind===
-"admin"?(0,import_react2.createElement)("span",{className:"bt-badge bt-badge-admin","aria-label":t("Admin"),role:"img"},(0,import_react2.createElement)(StarIcon)):null,badgeKind===
-"main"?(0,import_react2.createElement)("span",{className:"bt-badge bt-badge-main","aria-label":t("Main Bot"),role:"img"},(0,import_react2.createElement)(MainStar)):null)}function clusterSeats(count,frame2){
-if(count===1)return[[0,0,frame2]];if(count===2)return[[0,0,frame2*2/3],[frame2/3,frame2/3,frame2*2/3]];if(count===3){let size=frame2*5/9,rest=frame2-size;return[[rest/2,0,size],[0,
-rest,size],[rest,rest,size]]}let half=frame2/2;return[[0,0,half],[half,0,half],[0,half,half],[half,half,half]]}function RoomAvatar({room:room2,roster,size=36}){let members=room2.members.
-map(id=>roster.byId[id]).filter(Boolean),people=members.length===1?[members[0],null]:members,seat=(bot,seatSize,key)=>bot?(0,import_react2.createElement)(BotMark,{key,bot,size:seatSize}):
-(0,import_react2.createElement)("span",{key,className:"bt-cluster-you",style:{width:seatSize*.92,height:seatSize*.92,margin:seatSize*.04}});if(people.length===0)return(0,import_react2.createElement)(
-BotMark,{size});if(size<=20&&people.length>1)return(0,import_react2.createElement)("span",{className:"bt-stack",style:{"--bt-stack-size":`${size}px`}},people.slice(0,3).map((bot,index)=>seat(
-bot,size,bot?.id??`you-${index}`)),people.length>3?(0,import_react2.createElement)("span",{className:"bt-stack-more"},`+${people.length-3}`):null);let seats=clusterSeats(Math.min(people.
-length,4),size),overflow=people.length>4?people.length-3:0,gap=size/14,rings=seats.map(([x,y,s])=>({cx:x+s/2,cy:y+s/2,r:s*.48+gap}));return(0,import_react2.createElement)("span",{className:"\
+e",onLeave),clear())},sync=()=>{reducedEffects()||document.body?.dataset.btMotion==="quiet"?detach():attach()};sync();let observer=typeof MutationObserver=="function"&&document.body?
+new MutationObserver(sync):null;observer?.observe(document.body,{attributes:!0,attributeFilter:["data-bt-effects","data-bt-motion"]});let media=window.matchMedia?.("(prefers-reduce\
+d-motion: reduce)");return media?.addEventListener?.("change",sync),()=>{observer?.disconnect(),media?.removeEventListener?.("change",sync),detach()}},[enabled])}var FIDGETS=["hop",
+"sway","stretch","look"];function BotMark({bot,look:given,size=36,state="idle",live=!1,gaze=!1,pokeable=!1,label}){let look=given??lookOf(bot),ref=(0,import_react2.useRef)(null),maskId=(0,import_react2.useRef)(
+"");maskId.current===""&&(maskId.current=`bt-mark-${nextMarkSerial()}`);let[poked,setPoked]=(0,import_react2.useState)(!1),[broken,setBroken]=(0,import_react2.useState)(""),image=look.
+image&&look.image!==broken?look.image:void 0;useGaze(ref,gaze&&!image);let common={ref,className:poked?"bt-mark bt-mark-poke":"bt-mark","data-shape":image?"image":shapeId(look.shape),
+"data-state":STATES.includes(state)?state:"idle","data-live":live?"":void 0,"data-fidget":live?FIDGETS[fnv1a(`${bot?.id??""}:fidget`)%FIDGETS.length]:void 0,"data-gaze":gaze&&!image?
+"":void 0,"data-poke":pokeable?"":void 0,style:{width:size,height:size,...live?{"--bt-delay":`${-(fnv1a(String(bot?.id??""))%5e3)/1e3}s`,"--bt-fidget-delay":`${-(fnv1a(`${bot?.id??
+""}:when`)%9e3)/1e3}s`}:{}},role:label?"img":void 0,"aria-label":label,"aria-hidden":label?void 0:!0,onClick:pokeable?()=>{!reducedMotion()&&document.body?.dataset.btMotion!=="quie\
+t"&&setPoked(!0)}:void 0,onAnimationEnd:poked?event=>{event.animationName.startsWith("bt-poke")&&setPoked(!1)}:void 0,onAnimationCancel:poked?()=>setPoked(!1):void 0};if(image)return(0,import_react2.createElement)(
+"span",common,(0,import_react2.createElement)("img",{className:"bt-mark-img",src:image,alt:"",draggable:!1,onError:()=>setBroken(image)}));let box=shapeOf(look.shape).size;return(0,import_react2.createElement)(
+"span",common,(0,import_react2.createElement)("svg",{viewBox:`0 0 ${box} ${box}`,dangerouslySetInnerHTML:{__html:characterMarkup(look.shape,look.color).replaceAll(MASK_ID,maskId.current)}}))}
+function StarIcon({size=8}){return(0,import_react2.createElement)("svg",{width:size,height:size,viewBox:"0 0 10 10","aria-hidden":!0},(0,import_react2.createElement)("path",{d:"M5 \
+.6l1.3 2.8 3 .3-2.3 2 .7 3L5 7.2 2.3 8.7l.7-3L.7 3.7l3-.3z",fill:"#fff"}))}function AdminStar(){return(0,import_react2.createElement)("span",{className:"bt-admin-star",role:"img","\
+aria-label":t("Admin")},(0,import_react2.createElement)(StarIcon,{size:7}))}function MainStar(){return(0,import_react2.createElement)("svg",{viewBox:"0 0 20 20","aria-hidden":!0},(0,import_react2.createElement)(
+"path",{d:"M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z"}))}function useSettled(state,id){let prev=(0,import_react2.useRef)({state,
+id}),[settled,setSettled]=(0,import_react2.useState)(!1);return(0,import_react2.useEffect)(()=>{let was=prev.current;if(prev.current={state,id},was.id!==id||state!=="idle"){setSettled(
+!1);return}if(was.state==="idle"||was.state==="alert")return;setSettled(!0);let timer=setTimeout(()=>setSettled(!1),1800);return()=>clearTimeout(timer)},[state,id]),settled}function BotAvatar({
+bot,size,state="idle",main,admin,badge=!0,live=!0,gaze=!1,pokeable=!1}){let settled=useSettled(state,bot?.id);if(bot===void 0)return(0,import_react2.createElement)(BotMark,{size});
+let badgeKind=badge?state==="alert"?"alert":state!=="idle"&&state!=="waiting"?"working":admin?"admin":main?"main":null:null;return(0,import_react2.createElement)("span",{className:"\
+bt-mark",style:{width:size,height:size,"--bt-size":`${size}px`}},(0,import_react2.createElement)(BotMark,{bot,size,state:settled?"done":state,live,gaze,pokeable}),badgeKind==="work\
+ing"?(0,import_react2.createElement)("span",{className:"bt-badge bt-badge-working","aria-label":t("Working"),role:"img"}):null,badgeKind==="alert"?(0,import_react2.createElement)("\
+span",{className:"bt-badge bt-badge-alert","aria-label":t("Waiting for your answer"),role:"img"},"?"):null,badgeKind==="admin"?(0,import_react2.createElement)("span",{className:"bt\
+-badge bt-badge-admin","aria-label":t("Admin"),role:"img"},(0,import_react2.createElement)(StarIcon)):null,badgeKind==="main"?(0,import_react2.createElement)("span",{className:"bt-\
+badge bt-badge-main","aria-label":t("Main Bot"),role:"img"},(0,import_react2.createElement)(MainStar)):null)}function clusterSeats(count,frame2){if(count===1)return[[0,0,frame2]];if(count===
+2)return[[0,0,frame2*2/3],[frame2/3,frame2/3,frame2*2/3]];if(count===3){let size=frame2*5/9,rest=frame2-size;return[[rest/2,0,size],[0,rest,size],[rest,rest,size]]}let half=frame2/
+2;return[[0,0,half],[half,0,half],[0,half,half],[half,half,half]]}function RoomAvatar({room:room2,roster,size=36}){let members=room2.members.map(id=>roster.byId[id]).filter(Boolean),
+people=members.length===1?[members[0],null]:members,seat=(bot,seatSize,key)=>bot?(0,import_react2.createElement)(BotMark,{key,bot,size:seatSize}):(0,import_react2.createElement)("s\
+pan",{key,className:"bt-cluster-you",style:{width:seatSize*.92,height:seatSize*.92,margin:seatSize*.04}});if(people.length===0)return(0,import_react2.createElement)(BotMark,{size});
+if(size<=20&&people.length>1)return(0,import_react2.createElement)("span",{className:"bt-stack",style:{"--bt-stack-size":`${size}px`}},people.slice(0,3).map((bot,index)=>seat(bot,size,
+bot?.id??`you-${index}`)),people.length>3?(0,import_react2.createElement)("span",{className:"bt-stack-more"},`+${people.length-3}`):null);let seats=clusterSeats(Math.min(people.length,
+4),size),overflow=people.length>4?people.length-3:0,gap=size/14,rings=seats.map(([x,y,s])=>({cx:x+s/2,cy:y+s/2,r:s*.48+gap}));return(0,import_react2.createElement)("span",{className:"\
 bt-cluster",style:{width:size,height:size}},seats.map(([x,y,s],index)=>{let holes2=rings.slice(index+1).filter(ring=>Math.hypot(ring.cx-x-s/2,ring.cy-y-s/2)<ring.r+s*.46).map(ring=>`\
 radial-gradient(circle at ${ring.cx-x}px ${ring.cy-y}px,transparent ${ring.r}px,#000 ${ring.r+.5}px)`),style={left:x,top:y,width:s,height:s};if(holes2.length>0&&Object.assign(style,
 {WebkitMaskImage:holes2.join(","),maskImage:holes2.join(","),WebkitMaskComposite:"source-in",maskComposite:"intersect"}),overflow>0&&index===3)return(0,import_react2.createElement)(
@@ -7687,9 +7713,11 @@ d:var(--bt-card);color:var(--bt-ink);font-size:12px;line-height:17px;text-align:
 .bt-changes-more{font-family:inherit}
 [data-bt-layout=flat] .bt-changes{margin-left:0}
 @media (max-width:640px){.bt-changes{margin-left:0}}
-`;var import_react6=require("react"),escapeLayers=[],onEscapeKey=event=>{event.key==="Escape"&&escapeLayers.at(-1)?.current()};function useEscape(onClose){let ref=(0,import_react6.useRef)(
-onClose);ref.current=onClose,(0,import_react6.useEffect)(()=>(escapeLayers.length===0&&window.addEventListener("keydown",onEscapeKey),escapeLayers.push(ref),()=>{escapeLayers.splice(
-escapeLayers.indexOf(ref),1),escapeLayers.length===0&&window.removeEventListener("keydown",onEscapeKey)}),[])}var import_react7=require("react"),REPORTED=new Set(["reported","done"]),RUNNING=new Set(["active","paused"]),FACES_MAX=4,hasGoalAdmin=(room2,roster)=>room2!==void 0&&room2.members?.
+`;var import_react6=require("react"),escapeLayers=[],topEscapeLayer=()=>{let top=null;for(let layer of escapeLayers)(top===null||layer.priority>=top.priority)&&(top=layer);return top},
+onEscapeKey=event=>{event.defaultPrevented||event.key!=="Escape"||event.isComposing||event.keyCode===229||topEscapeLayer()?.ref.current()};function useEscape(onClose,active=!0,{priority=0}={}){
+let ref=(0,import_react6.useRef)(onClose);ref.current=onClose,(0,import_react6.useEffect)(()=>{if(!active)return;let layer={ref,priority};return escapeLayers.length===0&&window.addEventListener(
+"keydown",onEscapeKey),escapeLayers.push(layer),()=>{let index=escapeLayers.indexOf(layer);index!==-1&&escapeLayers.splice(index,1),escapeLayers.length===0&&window.removeEventListener(
+"keydown",onEscapeKey)}},[active,priority])}var import_react7=require("react"),REPORTED=new Set(["reported","done"]),RUNNING=new Set(["active","paused"]),FACES_MAX=4,hasGoalAdmin=(room2,roster)=>room2!==void 0&&room2.members?.
 includes(room2.admin)===!0&&roster.byId?.[room2.admin]!==void 0,canSetGoal=(room2,roster)=>hasGoalAdmin(room2,roster)&&room2.goal?.status!=="active"&&room2.goal?.status!=="paused";
 function goalView(goal,{roster={},roomWork=[]}={}){if(goal==null)return null;let stages=goal.stages??[],count=stages.length,at=goal.current,current2=RUNNING.has(goal.status)?stages[at]:
 void 0,checking=current2!==void 0&&(current2.tasks??[]).every(task=>REPORTED.has(task.status)),number=goal.status==="drafting"?void 0:goal.status==="stopped"?stages.filter(stage=>stage.
@@ -7757,19 +7785,19 @@ admin=roster.byId?.[room2.admin]?.name??t("a Bot"),close=()=>{actions.closeGoalC
 Promise.resolve(actions.goalDraft(room2.id,brief)).then(()=>{actions.closeGoalCompose(),actions.closeGoal()},error=>{actions.reportError(error,"goal"),setSending(!1)}))};return(0,import_react7.createElement)(
 "div",{className:"bt-goal-compose"},(0,import_react7.createElement)("label",{className:"bt-goal-clabel",htmlFor:"bt-goal-brief"},t("What should this group achieve?")),(0,import_react7.createElement)(
 "textarea",{id:"bt-goal-brief",className:"bt-input bt-input-area bt-goal-input",rows:2,value:text,onChange:event=>{setText(event.target.value);let box=event.currentTarget;box.style.
-height="auto",box.style.height=`${box.scrollHeight}px`},onKeyDown:event=>{event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing&&(event.preventDefault(),submit()),event.
-key==="Escape"&&(event.stopPropagation(),close())},autoFocus:!0}),(0,import_react7.createElement)("div",{className:"bt-goal-chint"},t("{admin} asks what is still open, then writes \
-the goal with its checks and stages.",{admin})),(0,import_react7.createElement)("div",{className:"bt-goal-cbtns"},(0,import_react7.createElement)("button",{type:"button",className:"\
-bt-soft bt-soft-sm",onClick:close},t("Cancel")),(0,import_react7.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:text.trim()===""||sending,onClick:submit},
-t("Start"))))}function GoalIsland({room:room2,goal,view,open,composing,approvalPod=null,approvalOpen=!1,approvalsCount=0,roomWork,roster,actions,pill}){let island=(0,import_react7.useRef)(
-null),hasApprovals=approvalPod!==null,apvExpanded=approvalOpen&&hasApprovals,goalExpanded=open&&!apvExpanded,expanded=goalExpanded||apvExpanded,morphKey=apvExpanded?`apv:${approvalsCount}`:
-goalExpanded?"goal":composing?"compose":"closed";useMorph(island,morphKey);let working=new Set((roomWork??[]).map(entry=>entry.botId)),close=()=>{composing&&actions.closeGoalCompose?.(),
-open&&actions.closeGoal?.(),approvalOpen&&actions.closeApproval?.()},hasGoalRow=composing||view!==null;return(0,import_react7.createElement)("div",{ref:island,className:"bt-island",
-"data-goal":view?.status??(composing?"compose":void 0),"data-idle":view?.idle||void 0,"data-approval":hasApprovals||void 0,"data-open":expanded||void 0},expanded||composing?(0,import_react7.createElement)(
-GoalOutside,{island,close}):null,pill,(0,import_react7.createElement)("div",{className:"bt-goal-pod"},approvalPod,hasApprovals&&hasGoalRow?(0,import_react7.createElement)("span",{className:"\
-bt-island-sep","aria-hidden":!0}):null,composing?(0,import_react7.createElement)(GoalCompose,{room:room2,roster,actions}):view===null?null:(0,import_react7.createElement)(import_react7.Fragment,
-null,(0,import_react7.createElement)(GoalBar,{view,open:goalExpanded,room:room2,actions}),goalExpanded?(0,import_react7.createElement)(GoalPanel,{goal,view,room:room2,roster,actions,
-working}):null)))}var GOAL_CSS=`
+height="auto",box.style.height=`${box.scrollHeight}px`},onKeyDown:event=>{event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229&&(event.preventDefault(),
+submit()),event.key==="Escape"&&!event.nativeEvent.isComposing&&event.keyCode!==229&&(event.stopPropagation(),close())},autoFocus:!0}),(0,import_react7.createElement)("div",{className:"\
+bt-goal-chint"},t("{admin} asks what is still open, then writes the goal with its checks and stages.",{admin})),(0,import_react7.createElement)("div",{className:"bt-goal-cbtns"},(0,import_react7.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:close},t("Cancel")),(0,import_react7.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:text.
+trim()===""||sending,onClick:submit},t("Start"))))}function GoalIsland({room:room2,goal,view,open,composing,approvalPod=null,approvalOpen=!1,approvalsCount=0,roomWork,roster,actions,
+pill}){let island=(0,import_react7.useRef)(null),hasApprovals=approvalPod!==null,apvExpanded=approvalOpen&&hasApprovals,goalExpanded=open&&!apvExpanded,expanded=goalExpanded||apvExpanded,
+morphKey=apvExpanded?`apv:${approvalsCount}`:goalExpanded?"goal":composing?"compose":"closed";useMorph(island,morphKey);let working=new Set((roomWork??[]).map(entry=>entry.botId)),
+close=()=>{composing&&actions.closeGoalCompose?.(),open&&actions.closeGoal?.(),approvalOpen&&actions.closeApproval?.()},hasGoalRow=composing||view!==null;return(0,import_react7.createElement)(
+"div",{ref:island,className:"bt-island","data-goal":view?.status??(composing?"compose":void 0),"data-idle":view?.idle||void 0,"data-approval":hasApprovals||void 0,"data-open":expanded||
+void 0},expanded||composing?(0,import_react7.createElement)(GoalOutside,{island,close}):null,pill,(0,import_react7.createElement)("div",{className:"bt-goal-pod"},approvalPod,hasApprovals&&
+hasGoalRow?(0,import_react7.createElement)("span",{className:"bt-island-sep","aria-hidden":!0}):null,composing?(0,import_react7.createElement)(GoalCompose,{room:room2,roster,actions}):
+view===null?null:(0,import_react7.createElement)(import_react7.Fragment,null,(0,import_react7.createElement)(GoalBar,{view,open:goalExpanded,room:room2,actions}),goalExpanded?(0,import_react7.createElement)(
+GoalPanel,{goal,view,room:room2,roster,actions,working}):null)))}var GOAL_CSS=`
 /* One surface: the pill's own background, border and shadow. The pill row is
    40px, the pod bar 30px; the surface reshapes on SPRING_SHAPE. */
 .bt-island{position:relative;z-index:6;align-self:flex-start;display:flex;flex-direction:column;pointer-events:auto;width:min(380px,calc(100% - 120px));background:var(--bt-glass-bg\
@@ -7846,8 +7874,8 @@ d-color .12s ease}
 .bt-goal-step::before{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:1px;background:var(--bt-line-2)}
 .bt-goal-step:first-child::before{left:50%}
 .bt-goal-step:last-child::before{right:50%}
-.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;overflo\
-w:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
+.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-con\
+tent:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
 .bt-goal-node>svg{flex:none;width:min(12px,70%);height:auto}
 .bt-goal-step[data-step=passed]>.bt-goal-node{background:var(--bt-green);border-color:var(--bt-green);color:var(--bt-main)}
 .bt-goal-step[data-step=current]>.bt-goal-node{border-color:var(--bt-accent);color:var(--bt-accent);font-weight:600}
@@ -7874,21 +7902,22 @@ ow:hidden}
 .bt-goal-task{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .bt-goal-task[data-task=pending]{opacity:.55}
 .bt-goal-tav{position:relative;flex:none;display:inline-flex;margin-top:1px}
-.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:var(--bt-green);color:var(--bt-main);display:inline-flex;align-items:cen\
-ter;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;corner-shape:round;background:var(--bt-green);color:var(--bt-main);display:inline-f\
+lex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-goal-tdone svg{width:9px;height:9px}
 .bt-goal-ttext{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
 .bt-goal-tname{font-weight:500}
 .bt-goal-ckbody{display:flex;flex-direction:column;gap:10px;padding:0 14px 10px;font-size:13px;line-height:18px;text-align:left}
 /* The bottom row: disclosure on the left, controls on the right. */
-.bt-goal-foot{display:flex;align-items:center;gap:8px;height:40px;flex:none;padding:0 8px 0 14px;border-top:.5px solid var(--bt-line)}
+.bt-goal-foot{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-height:40px;flex:none;padding:6px 8px 6px 14px;box-sizing:border-box;border-top:.5px solid var(--bt-lin\
+e)}
 .bt-goal-checks{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:4px 6px;margin-left:-6px;border-radius:6px;font:inherit;font-size:12px;line-height:1\
 6px;color:var(--bt-ink-2);cursor:pointer}
 .bt-goal-checks:hover{background:var(--bt-hover)}
 .bt-goal-mchev{display:inline-flex;width:14px;height:14px;color:var(--bt-ink-3)}
 .bt-goal-mchev svg{width:14px;height:14px;transition:${spring(SPRING_SHAPE,"transform")}}
 .bt-goal-checks[aria-expanded=true] .bt-goal-mchev svg{transform:rotate(180deg)}
-.bt-goal-facts{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.bt-goal-facts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;flex:0 1 auto;margin-left:auto}
 .bt-goal-danger{color:var(--bt-danger)}
 .bt-goal-danger[data-armed]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
 .bt-goal-compose{display:flex;flex-direction:column;gap:8px;padding:12px 14px}
@@ -7902,10 +7931,11 @@ ter;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
 marks+=1}return marks>0};function CellEmpty({className}){let ref=(0,import_react8.useRef)(null);return(0,import_react8.useLayoutEffect)(()=>{let marker=ref.current,slot=marker?.closest(
 "[data-slot]");if(!slot)return;let sync=gone=>emptied(slot,gone)?slot.dataset.btEmptied="":delete slot.dataset.btEmptied;sync();let observer=typeof MutationObserver=="function"?new MutationObserver(
 ()=>sync()):null;return observer?.observe(slot,{childList:!0}),()=>{observer?.disconnect(),sync(marker)}},[]),(0,import_react8.createElement)("span",{ref,className,hidden:!0,"data-\
-bt-empty":!0})}var sendsOnEnter=prefs=>prefs?.enterToSend!==!1;function insertComposerNewline(event,inputActions){if(event.key!=="Enter"||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||
-event.isComposing||event.keyCode===229||event.getModifierState?.("AltGraph"))return!1;let target=event.target;return typeof target?.closest!="function"||!target.closest('[data-comp\
-oser-card] [role="textbox"]')||target.closest("[data-composer-composing]")||target.ownerDocument?.querySelector('[role="listbox"]')||typeof inputActions?.captureInsertion!="functio\
-n"||typeof inputActions?.insertText!="function"?!1:(event.preventDefault(),event.stopImmediatePropagation(),inputActions.insertText(`
+bt-empty":!0})}var sendsOnEnter=prefs=>prefs?.enterToSend!==!1,isImeComposing=event=>!!(event?.isComposing||event?.nativeEvent?.isComposing||event?.keyCode===229||event?.nativeEvent?.keyCode===229);
+function insertComposerNewline(event,inputActions){if(event.key!=="Enter"||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey||isImeComposing(event)||event.getModifierState?.(
+"AltGraph"))return!1;let target=event.target;return typeof target?.closest!="function"||!target.closest('[data-composer-card] [role="textbox"]')||target.closest("[data-composer-com\
+posing]")||target.ownerDocument?.querySelector('[role="listbox"]')||typeof inputActions?.captureInsertion!="function"||typeof inputActions?.insertText!="function"?!1:(event.preventDefault(),
+event.stopImmediatePropagation(),inputActions.insertText(`
 `,inputActions.captureInsertion()),!0)}var import_react9=require("react");function useDockHold(sessionId,kind,requestId,actions,inline){let release=(0,import_react9.useRef)(null),note=actions.noteHeldCard;return(0,import_react9.useLayoutEffect)(
 ()=>()=>{let stop=release.current;release.current=null,stop?.()},[sessionId,kind,requestId,note,inline]),()=>{inline||release.current||!note||(release.current=()=>note(sessionId,kind,
 requestId,-1),note(sessionId,kind,requestId,1))}}var import_react10=require("react"),keyLetter=index=>String.fromCharCode(65+index),optionsOf=question=>(question?.options??[]).map(option=>typeof option=="string"?{label:option}:option),
@@ -7922,15 +7952,15 @@ current2=>current2.includes(label)?current2.filter(item=>item!==label):[...curre
 {selected:multi?picked:[],...custom?{custom}:{}}))},hints=useOptionKeys(busy?0:options.length,index=>choose(options[index].label),ownRef),ownLetter=options.length>0?keyLetter(options.
 length):void 0,field=ownAnswer?(0,import_react10.createElement)("textarea",{ref:ownRef,rows:1,value:own,readOnly:busy,autoComplete:"off",spellCheck:!1,className:"bt-q-input","aria-\
 label":t("Your own answer"),placeholder:t("Type your own answer"),"aria-keyshortcuts":hints?ownLetter?.toLowerCase():void 0,onChange:event=>{busy||(onInteract?.(),setOwn(event.target.
-value))},onKeyDown:event=>{event.key!=="Enter"||!enterToSend||event.shiftKey||event.nativeEvent.isComposing||(event.preventDefault(),submit())}}):null,rows2=options.map((option,optionIndex)=>{
-let selected=multi&&picked.includes(option.label);return(0,import_react10.createElement)("button",{key:option.label,type:"button",className:"bt-q-opt",disabled:busy,"aria-pressed":multi?
-selected:void 0,"aria-keyshortcuts":hints?keyLetter(optionIndex).toLowerCase():void 0,onClick:()=>choose(option.label)},hints?(0,import_react10.createElement)("span",{className:"bt\
--key","aria-hidden":!0},keyLetter(optionIndex)):null,(0,import_react10.createElement)("span",{className:"bt-q-body"},(0,import_react10.createElement)("span",{className:"bt-q-label"},
-option.label),option.description?(0,import_react10.createElement)("span",{className:"bt-q-desc"},option.description):null),selected&&!raised?(0,import_react10.createElement)("span",
-{className:"bt-q-check",title:t("Selected")},(0,import_react10.createElement)(CheckIcon)):null)});raised&&field&&rows2.push((0,import_react10.createElement)("label",{key:"own",className:"\
-bt-q-opt bt-q-ownrow","data-filled":custom!==""?"":void 0},hints&&ownLetter?(0,import_react10.createElement)("span",{className:"bt-key","aria-hidden":!0},ownLetter):null,(0,import_react10.createElement)(
-"span",{className:"bt-q-body"},field)));let foot=null;return raised&&multi?foot=(0,import_react10.createElement)("div",{className:"bt-q-foot"},(0,import_react10.createElement)("but\
-ton",{type:"button",className:"bt-q-btn",onClick:onDismiss,disabled:busy},t("Skip")),(0,import_react10.createElement)("button",{type:"submit",className:"bt-q-submit",disabled:!canSubmit||
+value))},onKeyDown:event=>{event.key!=="Enter"||!enterToSend||event.shiftKey||event.nativeEvent?.isComposing||event.keyCode===229||(event.preventDefault(),submit())}}):null,rows2=options.
+map((option,optionIndex)=>{let selected=multi&&picked.includes(option.label);return(0,import_react10.createElement)("button",{key:option.label,type:"button",className:"bt-q-opt",disabled:busy,
+"aria-pressed":multi?selected:void 0,"aria-keyshortcuts":hints?keyLetter(optionIndex).toLowerCase():void 0,onClick:()=>choose(option.label)},hints?(0,import_react10.createElement)(
+"span",{className:"bt-key","aria-hidden":!0},keyLetter(optionIndex)):null,(0,import_react10.createElement)("span",{className:"bt-q-body"},(0,import_react10.createElement)("span",{className:"\
+bt-q-label"},option.label),option.description?(0,import_react10.createElement)("span",{className:"bt-q-desc"},option.description):null),selected&&(!raised||!hints)?(0,import_react10.createElement)(
+"span",{className:"bt-q-check",title:t("Selected")},(0,import_react10.createElement)(CheckIcon)):null)});raised&&field&&rows2.push((0,import_react10.createElement)("label",{key:"ow\
+n",className:"bt-q-opt bt-q-ownrow","data-filled":custom!==""?"":void 0},hints&&ownLetter?(0,import_react10.createElement)("span",{className:"bt-key","aria-hidden":!0},ownLetter):null,
+(0,import_react10.createElement)("span",{className:"bt-q-body"},field)));let foot=null;return raised&&multi?foot=(0,import_react10.createElement)("div",{className:"bt-q-foot"},(0,import_react10.createElement)(
+"button",{type:"button",className:"bt-q-btn",onClick:onDismiss,disabled:busy},t("Skip")),(0,import_react10.createElement)("button",{type:"submit",className:"bt-q-submit",disabled:!canSubmit||
 busy},t("Submit"))):(raised||multi)&&canSubmit&&(foot=(0,import_react10.createElement)("div",{className:"bt-q-foot"},(0,import_react10.createElement)("button",{type:"submit",className:"\
 bt-q-submit",disabled:busy},t("Submit")))),(0,import_react10.createElement)("form",{className:raised?"bt-q bt-q-raised":"bt-q","aria-labelledby":titleId,"aria-busy":busy||void 0,onFocusCapture:onInteract,
 onPointerDownCapture:onInteract,onSubmit:event=>{event.preventDefault(),submit()}},(0,import_react10.createElement)("div",{className:"bt-q-head"},(0,import_react10.createElement)("\
@@ -8080,42 +8110,42 @@ r"?(0,import_react12.createElement)("button",{type:"button",className:"bt-soft b
 Boolean).join(" · ")),step.ok===!1?(0,import_react12.createElement)("span",{className:"bt-cview-step-err",title:step.error},t("failed")):null))):null)}function PendingAppAccess({ask,
 actions,inline}){let[closed,setClosed]=(0,import_react12.useState)(!1),busyRef=(0,import_react12.useRef)(!1),titleId=(0,import_react12.useId)(),keep=useDockHold(ask.sessionId,"comp\
 uter-app",ask.id,actions,inline),answer=choice=>{busyRef.current||(busyRef.current=!0,keep(),setClosed(!0),Promise.resolve(actions.computerAppAnswer(ask.id,choice)).catch(error=>{setClosed(
-!1),actions.reportError?.(error,"computer")}))};return(0,import_react12.createElement)("div",{className:inline?"bt-q-inline":"bt-q-dock",style:closed?{display:"none"}:void 0,onFocusCapture:keep,
-onPointerDownCapture:keep},(0,import_react12.createElement)("section",{className:inline?"bt-q":"bt-q bt-q-raised",role:"group","aria-labelledby":titleId},(0,import_react12.createElement)(
-"div",{className:"bt-q-head"},(0,import_react12.createElement)("div",{className:"bt-q-text"},(0,import_react12.createElement)("p",{className:"bt-q-title",id:titleId},t("Allow {name\
-} to use {app}?",{name:ask.botName??"a Bot",app:ask.appName})))),(0,import_react12.createElement)("div",{className:"bt-q-foot"},(0,import_react12.createElement)("button",{type:"but\
-ton",className:"bt-q-btn",onClick:()=>answer("deny")},t("Deny")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-btn",onClick:()=>answer("once")},t("This t\
-ime")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-submit",onClick:()=>answer("always")},t("Always")))))}var ACTION_NAMES={click:"Click",doubleClick:"D\
-ouble click",rightClick:"Right click",drag:"Drag",typeText:"Type",pressKey:"Key",hotkey:"Hotkey",scroll:"Scroll",screenshot:"Screenshot",getScreenSize:"Screen size",getCapabilities:"\
-Capabilities",listApps:"List apps",listWindows:"List windows",getState:"State",getAccessibilityTree:"Accessibility tree",launchApp:"Launch",killApp:"Kill",bringToFront:"Bring to fr\
-ont",invokeMenu:"Menu",setValue:"Set value",getWindowState:"Window state",verifyState:"Verify state"},actionName=method=>{let known=ACTION_NAMES[method];if(known!==void 0)return known;
-let words=String(method??"").replace(/^cua_driver_native__/,"").replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ").trim();return words===""?"Computer":words[0].toUpperCase()+words.
-slice(1)};function ComputerCallRow({sessionId,call:call2,roster,actions,hooks}){let{value:argValue}=toolArgs(call2),method=argValue("method")??String(call2?.name??"").replace(/^cua_driver_native__/,
-""),stepApp=hooks?.useComputer?.(map=>(map.bots?.[roster.byId[sessionId]?.id]?.steps??[]).find(step=>step.callId===call2?.callId)?.app),selector=argValue("params")?.selector,app=stepApp??
-(method==="getApp"&&typeof selector=="string"&&selector!==""?selector:void 0),shot=(call2?.content??[]).find(block=>(block?.type==="image"||block?.type==="file")&&block.attachment!==
-void 0)?.attachment,[url,setUrl]=(0,import_react12.useState)(null),[open,setOpen]=(0,import_react12.useState)(!1);return(0,import_react12.useEffect)(()=>{let id=shot?.attachmentId;
-if(id===void 0||!actions.computerShot){setUrl(null);return}let current2=!0;return Promise.resolve(actions.computerShot(id)).then(value=>{current2&&setUrl(value?.dataUrl??null)},()=>{}),
-()=>{current2=!1}},[shot?.attachmentId]),(0,import_react12.createElement)("div",{className:"bt-cstep"},(0,import_react12.createElement)("span",{className:"bt-cstep-label"},app!==void 0?
-`${app} · ${actionName(method)}`:actionName(method)),url!==null?(0,import_react12.createElement)("button",{type:"button",className:open?"bt-cstep-shot bt-cstep-shot-open":"bt-cste\
-p-shot",onClick:()=>setOpen(value=>!value)},(0,import_react12.createElement)("img",{src:url,alt:actionName(method)})):null)}function AppAccessCall({sessionId,callId,roster,actions,
-heldCards,hooks}){let bot=roster.byId[sessionId],ask=hooks.useComputer?.(map=>Object.values(map.asks??{}).find(item=>item.callId===callId));return!bot||ask===void 0||!actions.computerAppAnswer?
-(0,import_react12.createElement)(CellEmpty):heldCards?.[heldCardKey("computer-app",ask.id)]>0?(0,import_react12.createElement)(CellEmpty):(0,import_react12.createElement)(PendingAppAccess,
-{key:ask.id,ask:{...ask,botName:bot.name},actions,inline:!0})}function AppAccessDock({sessionId,useRoster,useCards,useHeldCards,useComputer,actions}){let bot=useRoster(value=>value.
-byId[sessionId]),ask=useComputer?.(map=>bot?Object.values(map.asks??{}).find(item=>item.botId===bot.id&&item.roomId===void 0):void 0),drawn=useCards?.(state=>ask?.callId!==void 0&&
-state[sessionId]?.[ask.callId]>0)===!0,held=useHeldCards?.(state=>state[sessionId]?.[heldCardKey("computer-app",ask?.id)]>0)===!0;return!bot||ask===void 0||!actions.computerAppAnswer||
+!1),actions.reportError?.(error,"computer")}).finally(()=>{busyRef.current=!1}))};return(0,import_react12.createElement)("div",{className:inline?"bt-q-inline":"bt-q-dock",style:closed?
+{display:"none"}:void 0,onFocusCapture:keep,onPointerDownCapture:keep},(0,import_react12.createElement)("section",{className:inline?"bt-q":"bt-q bt-q-raised",role:"group","aria-lab\
+elledby":titleId},(0,import_react12.createElement)("div",{className:"bt-q-head"},(0,import_react12.createElement)("div",{className:"bt-q-text"},(0,import_react12.createElement)("p",
+{className:"bt-q-title",id:titleId},t("Allow {name} to use {app}?",{name:ask.botName??"a Bot",app:ask.appName})))),(0,import_react12.createElement)("div",{className:"bt-q-foot"},(0,import_react12.createElement)(
+"button",{type:"button",className:"bt-q-btn",onClick:()=>answer("deny")},t("Deny")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-btn",onClick:()=>answer(
+"once")},t("This time")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-submit",onClick:()=>answer("always")},t("Always")))))}var ACTION_NAMES={click:"Cli\
+ck",doubleClick:"Double click",rightClick:"Right click",drag:"Drag",typeText:"Type",pressKey:"Key",hotkey:"Hotkey",scroll:"Scroll",screenshot:"Screenshot",getScreenSize:"Screen siz\
+e",getCapabilities:"Capabilities",listApps:"List apps",listWindows:"List windows",getState:"State",getAccessibilityTree:"Accessibility tree",launchApp:"Launch",killApp:"Kill",bringToFront:"\
+Bring to front",invokeMenu:"Menu",setValue:"Set value",getWindowState:"Window state",verifyState:"Verify state"},actionName=method=>{let known=ACTION_NAMES[method];if(known!==void 0)
+return known;let words=String(method??"").replace(/^cua_driver_native__/,"").replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ").trim();return words===""?"Computer":words[0].toUpperCase()+
+words.slice(1)};function ComputerCallRow({sessionId,call:call2,roster,actions,hooks}){let{value:argValue}=toolArgs(call2),method=argValue("method")??String(call2?.name??"").replace(
+/^cua_driver_native__/,""),stepApp=hooks?.useComputer?.(map=>(map.bots?.[roster.byId[sessionId]?.id]?.steps??[]).find(step=>step.callId===call2?.callId)?.app),selector=argValue("pa\
+rams")?.selector,app=stepApp??(method==="getApp"&&typeof selector=="string"&&selector!==""?selector:void 0),shot=(call2?.content??[]).find(block=>(block?.type==="image"||block?.type===
+"file")&&block.attachment!==void 0)?.attachment,[url,setUrl]=(0,import_react12.useState)(null),[open,setOpen]=(0,import_react12.useState)(!1);return(0,import_react12.useEffect)(()=>{
+let id=shot?.attachmentId;if(id===void 0||!actions.computerShot){setUrl(null);return}let current2=!0;return Promise.resolve(actions.computerShot(id)).then(value=>{current2&&setUrl(
+value?.dataUrl??null)},()=>{}),()=>{current2=!1}},[shot?.attachmentId]),(0,import_react12.createElement)("div",{className:"bt-cstep"},(0,import_react12.createElement)("span",{className:"\
+bt-cstep-label"},app!==void 0?`${app} · ${actionName(method)}`:actionName(method)),url!==null?(0,import_react12.createElement)("button",{type:"button",className:open?"bt-cstep-sho\
+t bt-cstep-shot-open":"bt-cstep-shot",onClick:()=>setOpen(value=>!value)},(0,import_react12.createElement)("img",{src:url,alt:actionName(method)})):null)}function AppAccessCall({sessionId,
+callId,roster,actions,heldCards,hooks}){let bot=roster.byId[sessionId],ask=hooks.useComputer?.(map=>Object.values(map.asks??{}).find(item=>item.callId===callId));return!bot||ask===
+void 0||!actions.computerAppAnswer?(0,import_react12.createElement)(CellEmpty):heldCards?.[heldCardKey("computer-app",ask.id)]>0?(0,import_react12.createElement)(CellEmpty):(0,import_react12.createElement)(
+PendingAppAccess,{key:ask.id,ask:{...ask,botName:bot.name},actions,inline:!0})}function AppAccessDock({sessionId,useRoster,useCards,useHeldCards,useComputer,actions}){let bot=useRoster(
+value=>value.byId[sessionId]),ask=useComputer?.(map=>bot?Object.values(map.asks??{}).find(item=>item.botId===bot.id&&item.roomId===void 0):void 0),drawn=useCards?.(state=>ask?.callId!==
+void 0&&state[sessionId]?.[ask.callId]>0)===!0,held=useHeldCards?.(state=>state[sessionId]?.[heldCardKey("computer-app",ask?.id)]>0)===!0;return!bot||ask===void 0||!actions.computerAppAnswer||
 drawn&&!held?null:(0,import_react12.createElement)(PendingAppAccess,{key:ask.id,ask:{...ask,botName:bot.name},actions,inline:!1})}var HANDOFF_TITLES={login:"Sign-in needed",payment:"\
 Payment needed",captcha:"Verification needed",confirm:"Needs your confirmation",other:"Help needed on the computer"},handoffTitle=hold=>t(HANDOFF_TITLES[hold.reason]??HANDOFF_TITLES.
 other);function PendingComputerHandoff({sessionId,bot,hold,actions,inline}){let[closed,setClosed]=(0,import_react12.useState)(!1),busyRef=(0,import_react12.useRef)(!1),titleId=(0,import_react12.useId)(),
 keep=useDockHold(sessionId,"handoff",hold.callId??hold.id,actions,inline),taken=hold.by==="user",run2=(make,close)=>{busyRef.current||(busyRef.current=!0,keep(),close&&setClosed(!0),
 Promise.resolve().then(make).catch(error=>{setClosed(!1),actions.reportError?.(error,"handoff")}).finally(()=>{busyRef.current=!1}))},answer=outcome=>run2(()=>actions.computerHoldAnswer(
-bot.id,{callId:hold.callId??hold.id,outcome}),!0),takeOver=()=>run2(async()=>{await actions.computerTakeover(bot.id),actions.openDetails?.(sessionId,"computer")},!1);return(0,import_react12.createElement)(
+bot.id,{callId:hold.callId??hold.id,outcome}),!0),takeOver=()=>run2(async()=>{await actions.computerTakeover(bot.id),actions.showDetails?.(sessionId,"computer")},!1);return(0,import_react12.createElement)(
 "div",{className:inline?"bt-q-inline":"bt-q-dock",style:closed?{display:"none"}:void 0,onFocusCapture:keep,onPointerDownCapture:keep},(0,import_react12.createElement)("section",{className:inline?
 "bt-q bt-handoff":"bt-q bt-q-raised bt-handoff",role:"group","aria-labelledby":titleId},(0,import_react12.createElement)("div",{className:"bt-q-head"},(0,import_react12.createElement)(
 "div",{className:"bt-q-text"},(0,import_react12.createElement)("p",{className:"bt-q-title",id:titleId},handoffTitle(hold)),hold.note?(0,import_react12.createElement)("div",{className:"\
 bt-q-detail"},hold.note):null,taken?(0,import_react12.createElement)("div",{className:"bt-handoff-state",role:"status"},(0,import_react12.createElement)("span",{className:"bt-hando\
-ff-dot","aria-hidden":!0}),t("You control the computer")):null))),(0,import_react12.createElement)("div",{className:"bt-q-foot"},(0,import_react12.createElement)("button",{type:"bu\
-tton",className:"bt-q-btn",onClick:()=>answer("skip")},t("Skip")),taken?null:(0,import_react12.createElement)("button",{type:"button",className:"bt-q-btn",onClick:takeOver},t("Take\
- over")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-submit",onClick:()=>answer("done")},t("I'm done"))))}function ComputerHandoffCall({sessionId,callId,
+ff-dot","aria-hidden":!0}),t("You control the computer")):null)),(0,import_react12.createElement)("div",{className:"bt-q-foot"},(0,import_react12.createElement)("button",{type:"but\
+ton",className:"bt-q-btn",onClick:()=>answer("skip")},t("Skip")),taken?null:(0,import_react12.createElement)("button",{type:"button",className:"bt-q-btn",onClick:takeOver},t("Take \
+over")),(0,import_react12.createElement)("button",{type:"button",className:"bt-q-submit",onClick:()=>answer("done")},t("I'm done")))))}function ComputerHandoffCall({sessionId,callId,
 roster,actions,heldCards,hooks}){let bot=roster.byId[sessionId],hold=hooks.useComputer?.(map=>bot?map.holds?.[bot.id]:void 0);return!bot||hold?.callId!==callId||!actions.computerHoldAnswer?
 (0,import_react12.createElement)(CellEmpty,{className:"bt-q-gone"}):heldCards?.[heldCardKey("handoff",callId)]>0?(0,import_react12.createElement)(CellEmpty):(0,import_react12.createElement)(
 PendingComputerHandoff,{key:callId,sessionId,bot,hold,actions,inline:!0})}function ComputerHandoffDock({sessionId,useRoster,useCards,useHeldCards,useComputer,actions}){let bot=useRoster(
@@ -8129,7 +8159,7 @@ t(skipped?"Skipped":"Returned")):(0,import_react12.createElement)("span",{classN
 useComputer,useRoster,actions}){let live=useComputer?.(map=>map)??{},roster=useRoster(value=>value),leases=live.leases??[],waiting=Object.entries(live.bots??{}).filter(([,entry])=>entry.
 waitingFor==="user-idle");if(leases.length===0&&waiting.length===0)return null;let botOf=id=>roster.byId[id],nameOf2=id=>botOf(id)?.name??t("a Bot"),avatarOf=id=>{let look=lookOf(botOf(
 id));return typeof look.image=="string"&&look.image.startsWith("data:image/")?(0,import_react12.createElement)("img",{className:"bt-cbar-ava",src:look.image,alt:""}):(0,import_react12.createElement)(
-"span",{className:"bt-cbar-ava bt-cbar-ava-dot",style:{background:look.color}},String(nameOf2(id)).slice(0,1))},entries2=[...leases.map(entry=>({key:`l:${entry.botId}`,botId:entry.
+"span",{className:"bt-cbar-ava bt-cbar-ava-dot",style:{background:inkFill(look.color)}},String(nameOf2(id)).slice(0,1))},entries2=[...leases.map(entry=>({key:`l:${entry.botId}`,botId:entry.
 botId,waiting:!1,app:entry.kind==="foreground"?t("In the foreground"):entry.appName})),...waiting.map(([botId])=>({key:`w:${botId}`,botId,waiting:!0,app:t("waits for the computer")}))];
 return(0,import_react12.createElement)("div",{className:"bt-cbar",role:"status"},(0,import_react12.createElement)("span",{className:"bt-cbar-live",title:t("Computer use")}),...entries2.
 flatMap((entry,index)=>[index>0?(0,import_react12.createElement)("span",{key:`s${index}`,className:"bt-cbar-sep"}):null,(0,import_react12.createElement)("span",{key:entry.key,className:entry.
@@ -8155,18 +8185,19 @@ length>1?(0,import_react12.createElement)("button",{type:"button",className:"bt-
 .bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(760px,calc(100vw - 32px));padding:6px 12px;b\
 order-radius:999px;background:var(--bt-glass-bg);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14p\
 x);font-size:12.5px}
-.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
 .bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
 .bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
-.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-mark-ink);font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;corner-shape:round;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-accent-ink);font-size:9px;font-weight:600;line-height:1}
 .bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
 .bt-cbar-name{flex:none;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
-.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;jus\
-tify-content:center}
+.bt-cbar-stop{flex:none;position:relative;width:22px;height:22px;border:0;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;displ\
+ay:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop::after{content:"";position:absolute;inset:-4px}
 .bt-cbar-stopsq{width:8px;height:8px;border-radius:4px;background:currentColor}
-.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-accent-ink)}
 .bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid var(--bt-line-2)}
 .bt-cbar-go{background:var(--bt-accent-soft);color:var(--bt-accent);border-color:var(--bt-accent-soft)}
 .bt-cbar-all{background:var(--bt-danger-soft);color:var(--bt-danger);border-color:var(--bt-danger-soft)}
@@ -9056,99 +9087,99 @@ byId[id]?.name).filter(Boolean);return names.length===0?t("No Bot"):names.join(t
 t",day:"numeric",hour:"2-digit",minute:"2-digit"}):"";function MaskedInput({value,onChange,onEnter,label,autoFocus=!1,disabled=!1}){return(0,import_react19.createElement)("input",{
 className:"bt-secret-input",type:MASK_BY_CSS?"text":"password",disabled,"data-masked":MASK_BY_CSS?"":void 0,value,autoFocus,autoComplete:MASK_BY_CSS?"off":"new-password",autoCorrect:"\
 off",autoCapitalize:"off",spellCheck:!1,"data-1p-ignore":"","data-lpignore":"true","data-bwignore":"","data-form-type":"other","aria-label":label,placeholder:label??t("Paste or typ\
-e the key"),onChange:event=>onChange(event.target.value),onKeyDown:event=>{event.key!=="Enter"||event.nativeEvent.isComposing||(event.preventDefault(),onEnter?.())}})}function ScopeSwitch({
-value,onChange,bot}){let options=[["all",t("All Bots")],["bot",t("Only {name}",{name:bot.name})]];return(0,import_react19.createElement)("div",{className:"bt-secret-scope",role:"ra\
-diogroup","aria-label":t("Who may use it")},(0,import_react19.createElement)("span",{className:"bt-secret-glide","data-at":value==="all"?0:1,"aria-hidden":!0}),options.map(([id,text])=>(0,import_react19.createElement)(
-"button",{key:id,type:"button",role:"radio","aria-checked":value===id,className:"bt-secret-seg",onClick:()=>onChange(id)},text)))}function SecretHead({bot,title,detail,name,onClose}){
-return(0,import_react19.createElement)("div",{className:"bt-q-head bt-secret-head"},(0,import_react19.createElement)("span",{className:"bt-secret-who"},(0,import_react19.createElement)(
-BotMark,{bot,size:28}),(0,import_react19.createElement)("span",{className:"bt-secret-lock"},(0,import_react19.createElement)(LockIcon))),(0,import_react19.createElement)("div",{className:"\
-bt-q-text"},(0,import_react19.createElement)("p",{className:"bt-q-title"},title),(0,import_react19.createElement)("div",{className:"bt-q-detail"},(0,import_react19.createElement)("\
-code",{className:"bt-secret-name"},name),detail?` · ${detail}`:"")),onClose?(0,import_react19.createElement)("button",{type:"button",className:"bt-q-x","aria-label":t("Cancel the \
-request"),title:t("Cancel"),onClick:onClose},(0,import_react19.createElement)(CloseIcon)):null)}function SecretCard({sessionId,bot,request,roster,actions,inline=!1}){let[value,setValue]=(0,import_react19.useState)(
-""),[scope,setScope]=(0,import_react19.useState)("all"),[replacing,setReplacing]=(0,import_react19.useState)(!1),[busy,setBusy]=(0,import_react19.useState)(!1),[error,setError]=(0,import_react19.useState)(
-""),busyRef=(0,import_react19.useRef)(!1),hold=useDockHold(sessionId,"secret",request.id,actions,inline),noteId=(0,import_react19.useId)(),secret=(roster.secrets??[]).find(entry=>entry.
-name===request.name),run2=make=>{if(!busyRef.current)return hold(),busyRef.current=!0,setBusy(!0),setError(""),Promise.resolve().then(make).then(()=>setValue(""),failure=>setError(
-failure?.message??String(failure))).finally(()=>{busyRef.current=!1,setBusy(!1)})},cancel=()=>run2(()=>actions.secretCancel(request.id)),long=value.trim().length>=MIN_VALUE,save=()=>{
-long&&!busy&&run2(()=>actions.secretSet({requestId:request.id,value,scope}))},allow=()=>{busy||run2(()=>actions.secretAllow(request.id))},filling=request.kind==="fill"||replacing,warn=insecure()?
-(0,import_react19.createElement)("div",{className:"bt-secret-warn",role:"note"},(0,import_react19.createElement)(WarnIcon),t("This page is not on HTTPS: the key crosses the network\
- unencrypted.")):null;return(0,import_react19.createElement)("div",{className:"bt-q bt-secret",role:"group","aria-describedby":noteId,"data-kind":request.kind,onFocusCapture:hold,onPointerDownCapture:hold},
-(0,import_react19.createElement)(SecretHead,{bot,title:request.kind==="allow"?t("Let {bot} use {name}?",{bot:bot.name,name:request.name}):t("{name} needs a key",{name:bot.name}),detail:request.
-purpose,name:request.name,onClose:busy?void 0:cancel}),request.kind==="allow"?(0,import_react19.createElement)("div",{className:"bt-secret-saved"},(0,import_react19.createElement)(
-KeyIcon),t("Saved for {scope}",{scope:scopeLabel(secret?.scope,roster)})):null,filling?(0,import_react19.createElement)("div",{className:"bt-secret-body"},(0,import_react19.createElement)(
-"label",{className:"bt-q-field bt-secret-field"},(0,import_react19.createElement)(MaskedInput,{value,onChange:next=>{hold(),setValue(next)},onEnter:save,label:t("Value of {name}",{
-name:request.name}),autoFocus:replacing})),request.kind==="fill"?(0,import_react19.createElement)(ScopeSwitch,{value:scope,onChange:next=>{hold(),setScope(next)},bot}):null):null,(0,import_react19.createElement)(
-"div",{className:"bt-secret-note",id:noteId},t("{bot} never sees the value. It reaches {bot}'s shell as ",{bot:bot.name}),(0,import_react19.createElement)("code",null,`$DSH_SECRET_${request.
-name}`),".",filling&&value!==""&&!long?t(" At least {count} characters.",{count:MIN_VALUE}):""),warn,error?(0,import_react19.createElement)("div",{className:"bt-secret-error",role:"\
-alert"},error):null,(0,import_react19.createElement)("div",{className:"bt-q-foot"},request.kind==="allow"&&!replacing?(0,import_react19.createElement)("button",{type:"button",className:"\
-bt-q-btn",disabled:busy,onClick:()=>{hold(),setReplacing(!0)}},t("Replace value")):null,(0,import_react19.createElement)("button",{type:"button",className:"bt-q-btn",disabled:busy,
-onClick:cancel},t("Cancel")),filling?(0,import_react19.createElement)("button",{type:"button",className:"bt-q-submit",disabled:!long||busy,onClick:save},busy?t("Saving…"):t("Save")):
-(0,import_react19.createElement)("button",{type:"button",className:"bt-q-submit",disabled:busy,onClick:allow},busy?t("Allowing…"):t("Allow"))))}function SettledSecret({bot,request,
-roster}){let canceled=request.status==="canceled",text=canceled?t("{bot} asked for {name}",{bot:bot.name,name:request.name}):request.status==="allowed"?t("Allowed {bot} to use {nam\
-e}",{bot:bot.name,name:request.name}):t("Saved {name}",{name:request.name});return(0,import_react19.createElement)("div",{className:"bt-q bt-q-settled bt-secret bt-secret-done",role:"\
-group","aria-label":text,"data-status":request.status},(0,import_react19.createElement)("div",{className:"bt-q-head"},(0,import_react19.createElement)("span",{className:"bt-secret-\
-who"},(0,import_react19.createElement)(BotMark,{bot,size:22})),(0,import_react19.createElement)("div",{className:"bt-q-text"},(0,import_react19.createElement)("p",{className:"bt-q-\
-title"},text,canceled?null:(0,import_react19.createElement)("span",{className:"bt-secret-scope-tag"},` · ${scopeLabel(request.scope,roster)}`))),canceled?(0,import_react19.createElement)(
-"span",{className:"bt-q-badge"},t("Canceled")):(0,import_react19.createElement)("span",{className:"bt-q-check bt-secret-check",title:t("Done")},(0,import_react19.createElement)(CheckIcon))))}
-function RequestView({sessionId,bot,request,roster,actions}){return request.status==="pending"?(0,import_react19.createElement)(SecretCard,{key:JSON.stringify([sessionId,request.id,
-request.kind]),sessionId,bot,request,roster,actions,inline:!0}):(0,import_react19.createElement)(SettledSecret,{bot,request,roster})}function SecretToolCell({sessionId,callId,name,
-done,content,roster,actions,heldCards=NONE}){let bot=roster.byId[sessionId];if(!bot)return(0,import_react19.createElement)(CellEmpty);let request=(roster.secretRequests?.[bot.id]??
-[]).find(entry=>entry.callId===callId&&(entry.sessionId??sessionId)===sessionId);return request?.status==="pending"&&heldCards[heldCardKey("secret",request.id)]>0?(0,import_react19.createElement)(
-CellEmpty):request?(0,import_react19.createElement)("div",{className:"bt-q-inline"},(0,import_react19.createElement)(RequestView,{sessionId,bot,request,roster,actions})):done&&/already saved/.
-test(contentText(content))?(0,import_react19.createElement)("div",{className:"bt-event"},(0,import_react19.createElement)("span",{className:"bt-secret-event"},(0,import_react19.createElement)(
-KeyIcon),t("{bot} is using {name}",{bot:bot.name,name:name??t("a saved key")}))):done&&contentText(content).startsWith("No card can be shown now")?(0,import_react19.createElement)(
-"div",{className:"bt-event"},(0,import_react19.createElement)("span",{className:"bt-secret-event"},(0,import_react19.createElement)(KeyIcon),t("{bot} could not ask for a key: this \
-window can only view the team",{bot:bot.name}))):(0,import_react19.createElement)(CellEmpty)}function SecretDock({sessionId,useRoster,useCards,useHeldCards,actions}){let roster=useRoster(
-value=>value),shown=useCards?.(state=>state[sessionId])??NONE,held=useHeldCards?.(state=>state[sessionId])??NONE,bot=roster.byId[sessionId];if(!bot||currentPart(bot)!==sessionId)return null;
-let drawn=entry=>entry.callId&&entry.sessionId===sessionId&&shown[entry.callId]>0&&!(held[heldCardKey("secret",entry.id)]>0),waiting=(roster.secretRequests?.[bot.id]??[]).filter(entry=>entry.
-status==="pending"&&!drawn(entry));return waiting.length===0?null:(0,import_react19.createElement)("div",{className:"bt-q-dock bt-secret-dock"},waiting.map(request=>(0,import_react19.createElement)(
-SecretCard,{key:JSON.stringify([sessionId,request.id,request.kind]),sessionId,bot,request,roster,actions})))}function ScopeEditor({secret,roster,onSave}){let[mode,setMode]=(0,import_react19.useState)(
-secret.scope==="all"?"all":"some"),[picked,setPicked]=(0,import_react19.useState)(secret.scope==="all"?[]:secret.scope),toggle=id=>setPicked(list=>list.includes(id)?list.filter(item=>item!==
-id):[...list,id]),same=mode==="all"?secret.scope==="all":secret.scope!=="all"&&[...picked].sort().join()===[...secret.scope].sort().join();return(0,import_react19.createElement)("d\
-iv",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",{className:"bt-secret-edit-label"},t("Who may use it")),(0,import_react19.createElement)("div",{className:"\
-bt-secret-radios",role:"radiogroup","aria-label":t("Who may use {name}",{name:secret.name})},[["all",t("All Bots")],["some",t("Chosen Bots")]].map(([id,text])=>(0,import_react19.createElement)(
-"label",{key:id,className:"bt-secret-radio"},(0,import_react19.createElement)("input",{type:"radio",name:`scope-${secret.name}`,checked:mode===id,onChange:()=>setMode(id)}),text))),
-mode==="some"?(0,import_react19.createElement)("div",{className:"bt-secret-bots"},roster.bots.map(bot=>(0,import_react19.createElement)("button",{key:bot.id,type:"button",className:"\
-bt-secret-bot","aria-pressed":picked.includes(bot.id),onClick:()=>toggle(bot.id)},(0,import_react19.createElement)(BotAvatar,{bot,size:20,badge:!1,live:!1}),bot.name,picked.includes(
-bot.id)?(0,import_react19.createElement)(CheckIcon):null))):null,(0,import_react19.createElement)("div",{className:"bt-secret-row-actions"},(0,import_react19.createElement)("button",
-{type:"button",className:"bt-soft bt-soft-sm",disabled:same,onClick:()=>onSave(mode==="all"?"all":picked)},t("Save access"))))}function PurposeEditor({secret,onSave}){let[purpose,setPurpose]=(0,import_react19.useState)(
-secret.purpose??""),same=purpose.trim()===(secret.purpose??"");return(0,import_react19.createElement)("div",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",
-{className:"bt-secret-edit-label"},t("What it is for")),(0,import_react19.createElement)("div",{className:"bt-secret-inline"},(0,import_react19.createElement)("input",{className:"b\
-t-input","aria-label":t("What it is for"),placeholder:t("What it is for"),value:purpose,spellCheck:!1,autoComplete:"off",onChange:event=>setPurpose(event.target.value)}),(0,import_react19.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",disabled:same,onClick:()=>onSave(purpose.trim())},t("Save"))))}function ValueEditor({secret,onSave}){let[value,setValue]=(0,import_react19.useState)(
-""),[replaced,setReplaced]=(0,import_react19.useState)(!1),long=value.trim().length>=MIN_VALUE,save=()=>{long&&Promise.resolve(onSave(value)).then(ok=>{ok&&(setValue(""),setReplaced(
-!0))})},edit=next=>{setValue(next),setReplaced(!1)};return(0,import_react19.createElement)("div",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",{className:"\
-bt-secret-edit-label"},t("Replace the value")),(0,import_react19.createElement)("div",{className:"bt-secret-inline"},(0,import_react19.createElement)("label",{className:"bt-q-field\
- bt-secret-field"},(0,import_react19.createElement)(MaskedInput,{value,onChange:edit,onEnter:save,label:t("New value of {name}",{name:secret.name})})),(0,import_react19.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",disabled:!long,onClick:save},t("Replace"))),value!==""&&!long?(0,import_react19.createElement)("div",{className:"bt-set-hint"},
-t("At least {count} characters.",{count:MIN_VALUE})):replaced?(0,import_react19.createElement)("div",{className:"bt-set-hint bt-secret-ok",role:"status"},(0,import_react19.createElement)(
-CheckIcon),t("Replaced. Bots get the new value from their next command.")):null)}function SecretRow({secret,roster,actions,run:run2,open,onToggle}){let[confirm,setConfirm]=(0,import_react19.useState)(
-!1);(0,import_react19.useEffect)(()=>{open||setConfirm(!1)},[open]);let asker=secret.requestedBy?roster.byId[secret.requestedBy]?.name??t("a deleted Bot"):t("you"),allowed2=secret.
-scope==="all"?[]:secret.scope.map(id=>roster.byId[id]).filter(Boolean),meta=[t("Asked by {name}",{name:asker}),t("added {time}",{time:when(secret.createdAt)}),secret.lastUsedAt?t("\
-last used {time}",{time:when(secret.lastUsedAt)}):t("not used yet")].join(" · ");return(0,import_react19.createElement)("div",{className:"bt-secret-item","data-open":open?"":void 0},
-(0,import_react19.createElement)("button",{type:"button",className:"bt-set-row bt-secret-summary","aria-expanded":open,onClick:onToggle},(0,import_react19.createElement)("span",{className:"\
-bt-set-copy"},(0,import_react19.createElement)("span",{className:"bt-secret-title"},(0,import_react19.createElement)(KeyIcon),(0,import_react19.createElement)("code",{className:"bt\
--secret-name"},secret.name),secret.purpose?(0,import_react19.createElement)("span",{className:"bt-secret-purpose"},secret.purpose):null),(0,import_react19.createElement)("span",{className:"\
-bt-set-hint"},meta)),(0,import_react19.createElement)("span",{className:"bt-set-control"},secret.scope==="all"?(0,import_react19.createElement)("span",{className:"bt-tag"},t("All B\
-ots")):allowed2.length===0?(0,import_react19.createElement)("span",{className:"bt-tag"},t("No Bot")):(0,import_react19.createElement)("span",{className:"bt-secret-faces",title:allowed2.
-map(bot=>bot.name).join(", ")},allowed2.slice(0,5).map(bot=>(0,import_react19.createElement)(BotAvatar,{key:bot.id,bot,size:20,badge:!1,live:!1}))))),open?(0,import_react19.createElement)(
-"div",{className:"bt-secret-edit"},(0,import_react19.createElement)(ScopeEditor,{key:JSON.stringify(secret.scope),secret,roster,onSave:scope=>run2(actions.secretUpdate(secret.name,
-{scope}))}),(0,import_react19.createElement)(PurposeEditor,{key:secret.purpose??"",secret,onSave:purpose=>run2(actions.secretUpdate(secret.name,{purpose}))}),(0,import_react19.createElement)(
-ValueEditor,{secret,onSave:value=>run2(actions.secretSet({name:secret.name,value}))}),(0,import_react19.createElement)("div",{className:"bt-secret-row-actions"},confirm?[(0,import_react19.createElement)(
-"span",{key:"q",className:"bt-set-hint"},t("Delete {name}? Bots lose it at once.",{name:secret.name})),(0,import_react19.createElement)("button",{key:"no",type:"button",className:"\
-bt-soft bt-soft-sm",onClick:()=>setConfirm(!1)},t("Keep")),(0,import_react19.createElement)("button",{key:"yes",type:"button",className:"bt-soft bt-soft-sm bt-secret-danger",onClick:()=>run2(
-actions.secretDelete(secret.name))},t("Delete"))]:(0,import_react19.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm bt-secret-danger",onClick:()=>setConfirm(!0)},
-(0,import_react19.createElement)(TrashIcon),t("Delete")))):null)}function AddSecret({actions,run:run2,onDone}){let[name,setName]=(0,import_react19.useState)(""),[purpose,setPurpose]=(0,import_react19.useState)(
-""),[value,setValue]=(0,import_react19.useState)(""),ready=/^[A-Za-z][\w-]{0,63}$/.test(name.trim())&&value.trim().length>=MIN_VALUE,save=()=>{ready&&run2(actions.secretSet({name,purpose,
-value,scope:"all"})).then(ok=>{ok&&(setValue(""),onDone())})};return(0,import_react19.createElement)("div",{className:"bt-set-row bt-set-paste bt-secret-add"},(0,import_react19.createElement)(
-"input",{className:"bt-input","aria-label":t("Key name"),placeholder:t("NAME, e.g. GITHUB_TOKEN"),value:name,spellCheck:!1,autoComplete:"off",autoFocus:!0,onChange:event=>setName(event.
-target.value.toUpperCase())}),(0,import_react19.createElement)("input",{className:"bt-input","aria-label":t("What it is for"),placeholder:t("What it is for"),value:purpose,autoComplete:"\
-off",onChange:event=>setPurpose(event.target.value)}),(0,import_react19.createElement)("label",{className:"bt-q-field bt-secret-field"},(0,import_react19.createElement)(MaskedInput,
-{value,onChange:setValue,onEnter:save,label:t("Value")})),(0,import_react19.createElement)("div",{className:"bt-secret-row-actions"},(0,import_react19.createElement)("span",{className:"\
-bt-set-hint"},t("New keys are for all Bots; narrow it down afterwards.")),(0,import_react19.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onDone},t(
-"Cancel")),(0,import_react19.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:!ready,onClick:save},t("Save key"))))}function SecretStoreCard({store,actions,
-run:run2,Section:Section2}){let mode=store?.mode??"plaintext",locked=store?.locked===!0,[passphrase,setPassphrase]=(0,import_react19.useState)(""),[confirm,setConfirm]=(0,import_react19.useState)(
-""),[form,setForm]=(0,import_react19.useState)(null),[busy,setBusy]=(0,import_react19.useState)(!1),reset=()=>{setPassphrase(""),setConfirm(""),setForm(null)},submit=action=>{busy||
-passphrase.length<8||(setBusy(!0),run2(action(passphrase)).then(ok=>{ok&&reset()}).finally(()=>setBusy(!1)))},field=(label,value,onChange,autoFocus)=>(0,import_react19.createElement)(
+e the key"),onChange:event=>onChange(event.target.value),onKeyDown:event=>{event.key!=="Enter"||event.nativeEvent.isComposing||event.keyCode===229||(event.preventDefault(),onEnter?.())}})}
+function ScopeSwitch({value,onChange,bot}){let options=[["all",t("All Bots")],["bot",t("Only {name}",{name:bot.name})]];return(0,import_react19.createElement)("div",{className:"bt-\
+secret-scope",role:"radiogroup","aria-label":t("Who may use it")},(0,import_react19.createElement)("span",{className:"bt-secret-glide","data-at":value==="all"?0:1,"aria-hidden":!0}),
+options.map(([id,text])=>(0,import_react19.createElement)("button",{key:id,type:"button",role:"radio","aria-checked":value===id,className:"bt-secret-seg",onClick:()=>onChange(id)},
+text)))}function SecretHead({bot,title,detail,name,onClose}){return(0,import_react19.createElement)("div",{className:"bt-q-head bt-secret-head"},(0,import_react19.createElement)("s\
+pan",{className:"bt-secret-who"},(0,import_react19.createElement)(BotMark,{bot,size:28}),(0,import_react19.createElement)("span",{className:"bt-secret-lock"},(0,import_react19.createElement)(
+LockIcon))),(0,import_react19.createElement)("div",{className:"bt-q-text"},(0,import_react19.createElement)("p",{className:"bt-q-title"},title),(0,import_react19.createElement)("di\
+v",{className:"bt-q-detail"},(0,import_react19.createElement)("code",{className:"bt-secret-name"},name),detail?` · ${detail}`:"")),onClose?(0,import_react19.createElement)("button",
+{type:"button",className:"bt-q-x","aria-label":t("Cancel the request"),title:t("Cancel"),onClick:onClose},(0,import_react19.createElement)(CloseIcon)):null)}function SecretCard({sessionId,
+bot,request,roster,actions,inline=!1}){let[value,setValue]=(0,import_react19.useState)(""),[scope,setScope]=(0,import_react19.useState)("all"),[replacing,setReplacing]=(0,import_react19.useState)(
+!1),[busy,setBusy]=(0,import_react19.useState)(!1),[error,setError]=(0,import_react19.useState)(""),busyRef=(0,import_react19.useRef)(!1),hold=useDockHold(sessionId,"secret",request.
+id,actions,inline),noteId=(0,import_react19.useId)(),secret=(roster.secrets??[]).find(entry=>entry.name===request.name),run2=make=>{if(!busyRef.current)return hold(),busyRef.current=
+!0,setBusy(!0),setError(""),Promise.resolve().then(make).then(()=>setValue(""),failure=>setError(failure?.message??String(failure))).finally(()=>{busyRef.current=!1,setBusy(!1)})},
+cancel=()=>run2(()=>actions.secretCancel(request.id)),long=value.trim().length>=MIN_VALUE,save=()=>{long&&!busy&&run2(()=>actions.secretSet({requestId:request.id,value,scope}))},allow=()=>{
+busy||run2(()=>actions.secretAllow(request.id))},filling=request.kind==="fill"||replacing,warn=insecure()?(0,import_react19.createElement)("div",{className:"bt-secret-warn",role:"n\
+ote"},(0,import_react19.createElement)(WarnIcon),t("This page is not on HTTPS: the key crosses the network unencrypted.")):null;return(0,import_react19.createElement)("div",{className:"\
+bt-q bt-secret",role:"group","aria-describedby":noteId,"data-kind":request.kind,onFocusCapture:hold,onPointerDownCapture:hold},(0,import_react19.createElement)(SecretHead,{bot,title:request.
+kind==="allow"?t("Let {bot} use {name}?",{bot:bot.name,name:request.name}):t("{name} needs a key",{name:bot.name}),detail:request.purpose,name:request.name,onClose:busy?void 0:cancel}),
+request.kind==="allow"?(0,import_react19.createElement)("div",{className:"bt-secret-saved"},(0,import_react19.createElement)(KeyIcon),t("Saved for {scope}",{scope:scopeLabel(secret?.
+scope,roster)})):null,filling?(0,import_react19.createElement)("div",{className:"bt-secret-body"},(0,import_react19.createElement)("label",{className:"bt-q-field bt-secret-field"},
+(0,import_react19.createElement)(MaskedInput,{value,onChange:next=>{hold(),setValue(next)},onEnter:save,label:t("Value of {name}",{name:request.name}),autoFocus:replacing})),request.
+kind==="fill"?(0,import_react19.createElement)(ScopeSwitch,{value:scope,onChange:next=>{hold(),setScope(next)},bot}):null):null,(0,import_react19.createElement)("div",{className:"b\
+t-secret-note",id:noteId},t("{bot} never sees the value. It reaches {bot}'s shell as ",{bot:bot.name}),(0,import_react19.createElement)("code",null,`$DSH_SECRET_${request.name}`),"\
+.",filling&&value!==""&&!long?t(" At least {count} characters.",{count:MIN_VALUE}):""),warn,error?(0,import_react19.createElement)("div",{className:"bt-secret-error",role:"alert"},
+error):null,(0,import_react19.createElement)("div",{className:"bt-q-foot"},request.kind==="allow"&&!replacing?(0,import_react19.createElement)("button",{type:"button",className:"bt\
+-q-btn",disabled:busy,onClick:()=>{hold(),setReplacing(!0)}},t("Replace value")):null,(0,import_react19.createElement)("button",{type:"button",className:"bt-q-btn",disabled:busy,onClick:cancel},
+t("Cancel")),filling?(0,import_react19.createElement)("button",{type:"button",className:"bt-q-submit",disabled:!long||busy,onClick:save},busy?t("Saving…"):t("Save")):(0,import_react19.createElement)(
+"button",{type:"button",className:"bt-q-submit",disabled:busy,onClick:allow},busy?t("Allowing…"):t("Allow"))))}function SettledSecret({bot,request,roster}){let canceled=request.status===
+"canceled",text=canceled?t("{bot} asked for {name}",{bot:bot.name,name:request.name}):request.status==="allowed"?t("Allowed {bot} to use {name}",{bot:bot.name,name:request.name}):t(
+"Saved {name}",{name:request.name});return(0,import_react19.createElement)("div",{className:"bt-q bt-q-settled bt-secret bt-secret-done",role:"group","aria-label":text,"data-status":request.
+status},(0,import_react19.createElement)("div",{className:"bt-q-head"},(0,import_react19.createElement)("span",{className:"bt-secret-who"},(0,import_react19.createElement)(BotMark,
+{bot,size:22})),(0,import_react19.createElement)("div",{className:"bt-q-text"},(0,import_react19.createElement)("p",{className:"bt-q-title"},text,canceled?null:(0,import_react19.createElement)(
+"span",{className:"bt-secret-scope-tag"},` · ${scopeLabel(request.scope,roster)}`))),canceled?(0,import_react19.createElement)("span",{className:"bt-q-badge"},t("Canceled")):(0,import_react19.createElement)(
+"span",{className:"bt-q-check bt-secret-check",title:t("Done")},(0,import_react19.createElement)(CheckIcon))))}function RequestView({sessionId,bot,request,roster,actions}){return request.
+status==="pending"?(0,import_react19.createElement)(SecretCard,{key:JSON.stringify([sessionId,request.id,request.kind]),sessionId,bot,request,roster,actions,inline:!0}):(0,import_react19.createElement)(
+SettledSecret,{bot,request,roster})}function SecretToolCell({sessionId,callId,name,done,content,roster,actions,heldCards=NONE}){let bot=roster.byId[sessionId];if(!bot)return(0,import_react19.createElement)(
+CellEmpty);let request=(roster.secretRequests?.[bot.id]??[]).find(entry=>entry.callId===callId&&(entry.sessionId??sessionId)===sessionId);return request?.status==="pending"&&heldCards[heldCardKey(
+"secret",request.id)]>0?(0,import_react19.createElement)(CellEmpty):request?(0,import_react19.createElement)("div",{className:"bt-q-inline"},(0,import_react19.createElement)(RequestView,
+{sessionId,bot,request,roster,actions})):done&&/already saved/.test(contentText(content))?(0,import_react19.createElement)("div",{className:"bt-event"},(0,import_react19.createElement)(
+"span",{className:"bt-secret-event"},(0,import_react19.createElement)(KeyIcon),t("{bot} is using {name}",{bot:bot.name,name:name??t("a saved key")}))):done&&contentText(content).startsWith(
+"No card can be shown now")?(0,import_react19.createElement)("div",{className:"bt-event"},(0,import_react19.createElement)("span",{className:"bt-secret-event"},(0,import_react19.createElement)(
+KeyIcon),t("{bot} could not ask for a key: this window can only view the team",{bot:bot.name}))):(0,import_react19.createElement)(CellEmpty)}function SecretDock({sessionId,useRoster,
+useCards,useHeldCards,actions}){let roster=useRoster(value=>value),shown=useCards?.(state=>state[sessionId])??NONE,held=useHeldCards?.(state=>state[sessionId])??NONE,bot=roster.byId[sessionId];
+if(!bot||currentPart(bot)!==sessionId)return null;let drawn=entry=>entry.callId&&entry.sessionId===sessionId&&shown[entry.callId]>0&&!(held[heldCardKey("secret",entry.id)]>0),waiting=(roster.
+secretRequests?.[bot.id]??[]).filter(entry=>entry.status==="pending"&&!drawn(entry));return waiting.length===0?null:(0,import_react19.createElement)("div",{className:"bt-q-dock bt-\
+secret-dock"},waiting.map(request=>(0,import_react19.createElement)(SecretCard,{key:JSON.stringify([sessionId,request.id,request.kind]),sessionId,bot,request,roster,actions})))}function ScopeEditor({
+secret,roster,onSave}){let[mode,setMode]=(0,import_react19.useState)(secret.scope==="all"?"all":"some"),[picked,setPicked]=(0,import_react19.useState)(secret.scope==="all"?[]:secret.
+scope),toggle=id=>setPicked(list=>list.includes(id)?list.filter(item=>item!==id):[...list,id]),same=mode==="all"?secret.scope==="all":secret.scope!=="all"&&[...picked].sort().join()===
+[...secret.scope].sort().join();return(0,import_react19.createElement)("div",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",{className:"bt-secret-edit-la\
+bel"},t("Who may use it")),(0,import_react19.createElement)("div",{className:"bt-secret-radios",role:"radiogroup","aria-label":t("Who may use {name}",{name:secret.name})},[["all",t(
+"All Bots")],["some",t("Chosen Bots")]].map(([id,text])=>(0,import_react19.createElement)("label",{key:id,className:"bt-secret-radio"},(0,import_react19.createElement)("input",{type:"\
+radio",name:`scope-${secret.name}`,checked:mode===id,onChange:()=>setMode(id)}),text))),mode==="some"?(0,import_react19.createElement)("div",{className:"bt-secret-bots"},roster.bots.
+map(bot=>(0,import_react19.createElement)("button",{key:bot.id,type:"button",className:"bt-secret-bot","aria-pressed":picked.includes(bot.id),onClick:()=>toggle(bot.id)},(0,import_react19.createElement)(
+BotAvatar,{bot,size:20,badge:!1,live:!1}),bot.name,picked.includes(bot.id)?(0,import_react19.createElement)(CheckIcon):null))):null,(0,import_react19.createElement)("div",{className:"\
+bt-secret-row-actions"},(0,import_react19.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:same,onClick:()=>onSave(mode==="all"?"all":picked)},t("Save\
+ access"))))}function PurposeEditor({secret,onSave}){let[purpose,setPurpose]=(0,import_react19.useState)(secret.purpose??""),same=purpose.trim()===(secret.purpose??"");return(0,import_react19.createElement)(
+"div",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",{className:"bt-secret-edit-label"},t("What it is for")),(0,import_react19.createElement)("div",{className:"\
+bt-secret-inline"},(0,import_react19.createElement)("input",{className:"bt-input","aria-label":t("What it is for"),placeholder:t("What it is for"),value:purpose,spellCheck:!1,autoComplete:"\
+off",onChange:event=>setPurpose(event.target.value)}),(0,import_react19.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:same,onClick:()=>onSave(purpose.
+trim())},t("Save"))))}function ValueEditor({secret,onSave}){let[value,setValue]=(0,import_react19.useState)(""),[replaced,setReplaced]=(0,import_react19.useState)(!1),long=value.trim().
+length>=MIN_VALUE,save=()=>{long&&Promise.resolve(onSave(value)).then(ok=>{ok&&(setValue(""),setReplaced(!0))})},edit=next=>{setValue(next),setReplaced(!1)};return(0,import_react19.createElement)(
+"div",{className:"bt-secret-edit-block"},(0,import_react19.createElement)("div",{className:"bt-secret-edit-label"},t("Replace the value")),(0,import_react19.createElement)("div",{className:"\
+bt-secret-inline"},(0,import_react19.createElement)("label",{className:"bt-q-field bt-secret-field"},(0,import_react19.createElement)(MaskedInput,{value,onChange:edit,onEnter:save,
+label:t("New value of {name}",{name:secret.name})})),(0,import_react19.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:!long,onClick:save},t("Replace"))),
+value!==""&&!long?(0,import_react19.createElement)("div",{className:"bt-set-hint"},t("At least {count} characters.",{count:MIN_VALUE})):replaced?(0,import_react19.createElement)("d\
+iv",{className:"bt-set-hint bt-secret-ok",role:"status"},(0,import_react19.createElement)(CheckIcon),t("Replaced. Bots get the new value from their next command.")):null)}function SecretRow({
+secret,roster,actions,run:run2,open,onToggle}){let[confirm,setConfirm]=(0,import_react19.useState)(!1);(0,import_react19.useEffect)(()=>{open||setConfirm(!1)},[open]);let asker=secret.
+requestedBy?roster.byId[secret.requestedBy]?.name??t("a deleted Bot"):t("you"),allowed2=secret.scope==="all"?[]:secret.scope.map(id=>roster.byId[id]).filter(Boolean),meta=[t("Asked\
+ by {name}",{name:asker}),t("added {time}",{time:when(secret.createdAt)}),secret.lastUsedAt?t("last used {time}",{time:when(secret.lastUsedAt)}):t("not used yet")].join(" · ");return(0,import_react19.createElement)(
+"div",{className:"bt-secret-item","data-open":open?"":void 0},(0,import_react19.createElement)("button",{type:"button",className:"bt-set-row bt-secret-summary","aria-expanded":open,
+onClick:onToggle},(0,import_react19.createElement)("span",{className:"bt-set-copy"},(0,import_react19.createElement)("span",{className:"bt-secret-title"},(0,import_react19.createElement)(
+KeyIcon),(0,import_react19.createElement)("code",{className:"bt-secret-name"},secret.name),secret.purpose?(0,import_react19.createElement)("span",{className:"bt-secret-purpose"},secret.
+purpose):null),(0,import_react19.createElement)("span",{className:"bt-set-hint"},meta)),(0,import_react19.createElement)("span",{className:"bt-set-control"},secret.scope==="all"?(0,import_react19.createElement)(
+"span",{className:"bt-tag"},t("All Bots")):allowed2.length===0?(0,import_react19.createElement)("span",{className:"bt-tag"},t("No Bot")):(0,import_react19.createElement)("span",{className:"\
+bt-secret-faces",title:allowed2.map(bot=>bot.name).join(", ")},allowed2.slice(0,5).map(bot=>(0,import_react19.createElement)(BotAvatar,{key:bot.id,bot,size:20,badge:!1,live:!1}))))),
+open?(0,import_react19.createElement)("div",{className:"bt-secret-edit"},(0,import_react19.createElement)(ScopeEditor,{key:JSON.stringify(secret.scope),secret,roster,onSave:scope=>run2(
+actions.secretUpdate(secret.name,{scope}))}),(0,import_react19.createElement)(PurposeEditor,{key:secret.purpose??"",secret,onSave:purpose=>run2(actions.secretUpdate(secret.name,{purpose}))}),
+(0,import_react19.createElement)(ValueEditor,{secret,onSave:value=>run2(actions.secretSet({name:secret.name,value}))}),(0,import_react19.createElement)("div",{className:"bt-secret-\
+row-actions"},confirm?[(0,import_react19.createElement)("span",{key:"q",className:"bt-set-hint"},t("Delete {name}? Bots lose it at once.",{name:secret.name})),(0,import_react19.createElement)(
+"button",{key:"no",type:"button",className:"bt-soft bt-soft-sm",onClick:()=>setConfirm(!1)},t("Keep")),(0,import_react19.createElement)("button",{key:"yes",type:"button",className:"\
+bt-soft bt-soft-sm bt-secret-danger",onClick:()=>run2(actions.secretDelete(secret.name))},t("Delete"))]:(0,import_react19.createElement)("button",{type:"button",className:"bt-soft \
+bt-soft-sm bt-secret-danger",onClick:()=>setConfirm(!0)},(0,import_react19.createElement)(TrashIcon),t("Delete")))):null)}function AddSecret({actions,run:run2,onDone}){let[name,setName]=(0,import_react19.useState)(
+""),[purpose,setPurpose]=(0,import_react19.useState)(""),[value,setValue]=(0,import_react19.useState)(""),ready=/^[A-Za-z][\w-]{0,63}$/.test(name.trim())&&value.trim().length>=MIN_VALUE,
+save=()=>{ready&&run2(actions.secretSet({name,purpose,value,scope:"all"})).then(ok=>{ok&&(setValue(""),onDone())})};return(0,import_react19.createElement)("div",{className:"bt-set-\
+row bt-set-paste bt-secret-add"},(0,import_react19.createElement)("input",{className:"bt-input","aria-label":t("Key name"),placeholder:t("NAME, e.g. GITHUB_TOKEN"),value:name,spellCheck:!1,
+autoComplete:"off",autoFocus:!0,onChange:event=>setName(event.target.value.toUpperCase())}),(0,import_react19.createElement)("input",{className:"bt-input","aria-label":t("What it i\
+s for"),placeholder:t("What it is for"),value:purpose,autoComplete:"off",onChange:event=>setPurpose(event.target.value)}),(0,import_react19.createElement)("label",{className:"bt-q-\
+field bt-secret-field"},(0,import_react19.createElement)(MaskedInput,{value,onChange:setValue,onEnter:save,label:t("Value")})),(0,import_react19.createElement)("div",{className:"bt\
+-secret-row-actions"},(0,import_react19.createElement)("span",{className:"bt-set-hint"},t("New keys are for all Bots; narrow it down afterwards.")),(0,import_react19.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onDone},t("Cancel")),(0,import_react19.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:!ready,
+onClick:save},t("Save key"))))}function SecretStoreCard({store,actions,run:run2,Section:Section2}){let mode=store?.mode??"plaintext",locked=store?.locked===!0,[passphrase,setPassphrase]=(0,import_react19.useState)(
+""),[confirm,setConfirm]=(0,import_react19.useState)(""),[form,setForm]=(0,import_react19.useState)(null),[busy,setBusy]=(0,import_react19.useState)(!1),reset=()=>{setPassphrase(""),
+setConfirm(""),setForm(null)},submit=action=>{busy||passphrase.length<8||(setBusy(!0),run2(action(passphrase)).then(ok=>{ok&&reset()}).finally(()=>setBusy(!1)))},field=(label,value,onChange,autoFocus)=>(0,import_react19.createElement)(
 "label",{className:"bt-q-field bt-secret-field"},(0,import_react19.createElement)(MaskedInput,{value,onChange,label,autoFocus})),row=children=>(0,import_react19.createElement)("div",
 {className:"bt-secret-row-actions"},children),hint=key=>(0,import_react19.createElement)("div",{className:"bt-set-row"},(0,import_react19.createElement)("span",{className:"bt-set-h\
 int"},t(key)));if(locked){let reason=store?.reason,why=reason==="passphrase-source"?t("The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read."):reason==="wr\
@@ -9179,8 +9210,8 @@ name,onToggle:()=>setOpen(open===secret.name?null:secret.name)})),adding?(0,impo
 
 .bt-secret-head{align-items:center;gap:10px}
 .bt-secret-who{position:relative;flex:none;display:inline-flex}
-.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:ce\
-nter;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
+.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--bt-main);color:var(--bt-ink-2);display:inline-\
+flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
 .bt-secret-lock svg{width:11px;height:11px}
 .bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:\
 var(--bt-ink)}
@@ -9204,19 +9235,19 @@ rap;cursor:pointer;transition:color .16s ease}
 [data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-\
 image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
-.bt-secret-ok svg{width:13px;height:13px;color:#16a34a}
+.bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
-.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:#b25e09;background:color-mix(in srgb,#f59e0b 12%,tr\
-ansparent)}
+.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--b\
+t-warn) 14%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
 .bt-secret-done .bt-q-head{align-items:center}
 .bt-secret-done .bt-q-title{font-size:13px;line-height:18px;color:var(--bt-ink-2);font-weight:500}
 .bt-secret-scope-tag{font-weight:400;color:var(--bt-ink-3)}
-.bt-secret-check{color:var(--bt-green,#22a06b);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-secret-check{color:var(--bt-green);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 .bt-secret-done{animation:bt-secret-settle .32s cubic-bezier(.22,1,.36,1) backwards}
 @keyframes bt-secret-pop{from{opacity:0;transform:scale(.4)}}
 @keyframes bt-secret-settle{from{opacity:.4;transform:scale(.985)}}
@@ -9309,37 +9340,38 @@ previous,opening),id,open)}))})}var Caret=()=>(0,import_react20.createElement)("
 olor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":!0},(0,import_react20.createElement)("path",{d:"M5.5 8l4.5 4.5L14.5 8"}));function useAnchoredMenu(){
 let[anchor,setAnchor]=(0,import_react20.useState)(null),[place,setPlace]=(0,import_react20.useState)(null),[shownPlace,leaving]=useLinger(place,MENU_EXIT_MS),button=(0,import_react20.useRef)(
 null),menu=(0,import_react20.useRef)(null),tick=useViewport(),close=()=>{setAnchor(null),setPlace(null)};(0,import_react20.useEffect)(()=>{if(place===null)return;let onDown=event=>{
-menu.current?.contains(event.target)||button.current?.contains(event.target)||close()},onKey=event=>{stepMenuFocus(menu.current,event,button.current)||event.key==="Escape"&&(event.
-stopPropagation(),close(),button.current?.focus())},onScroll=event=>{menu.current?.contains(event.target)||close()};return window.addEventListener("mousedown",onDown),window.addEventListener(
-"keydown",onKey,!0),window.addEventListener("scroll",onScroll,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0),window.removeEventListener(
-"scroll",onScroll,!0)}},[place]);let open=()=>setAnchor({});return(0,import_react20.useLayoutEffect)(()=>{if(anchor===null||!button.current)return;let rect=button.current.getBoundingClientRect(),
-width=Math.max(240,rect.width),left=Math.max(8,Math.min(rect.right-width,window.innerWidth-width-8)),below=viewBottom()-rect.bottom;setPlace(below>=260||below>=rect.top?{left,width,
-top:rect.bottom+4,maxHeight:below-16,"--bt-origin":"top right"}:{left,width,bottom:viewBottom()-rect.top+4,maxHeight:rect.top-16,"--bt-origin":"bottom right"})},[anchor,tick]),{isOpen:place!==
-null,shownPlace,leaving,button,menu,open,close}}function useInlineMenu(){let[isOpen,setOpen]=(0,import_react20.useState)(!1),root=(0,import_react20.useRef)(null),button=(0,import_react20.useRef)(
-null),menu=(0,import_react20.useRef)(null),close=()=>setOpen(!1);return(0,import_react20.useEffect)(()=>{if(!isOpen)return;let onDown=event=>{root.current?.contains(event.target)||
-close()},onKey=event=>{stepMenuFocus(menu.current,event,button.current)||event.key==="Escape"&&(event.stopPropagation(),close(),button.current?.focus())};return window.addEventListener(
-"mousedown",onDown),window.addEventListener("keydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[isOpen]),{isOpen,
-root,button,menu,open:()=>setOpen(!0),close}}function Collapse({open,children}){let[shown]=useLinger(open,SPRING_SHAPE.duration),[expanded,setExpanded]=(0,import_react20.useState)(
-open),box=(0,import_react20.useRef)(null),last=(0,import_react20.useRef)(children);return open&&(last.current=children),(0,import_react20.useLayoutEffect)(()=>{open&&box.current?.offsetHeight,
-setExpanded(open)},[open]),shown?(0,import_react20.createElement)("div",{ref:box,className:"bt-collapse","data-open":expanded||void 0},(0,import_react20.createElement)("div",{className:"\
-bt-collapse-in"},open?children:last.current)):null}function useAgentModels(actions){let[reading,setReading]=(0,import_react20.useState)(!1);return[reading,route=>{actions?.agentModels!==
-void 0&&(setReading(!0),Promise.resolve(actions.agentModels(route)).finally(()=>setReading(!1)))}]}function useModelPicker({bot,roster,actions,run:run2,onPick,onPickEffort,withEfforts}){
-let[reading,readModels]=useAgentModels(actions),shown=modelOf(bot,roster),current2=bot.model??bot.appliedModel,local=isLocalRoute(current2),served=servedOf(roster,current2),reasoning=useEfforts(
-served,withEfforts?current2:void 0,actions),picked=reasoning?.efforts?.some(effort=>effort.id===bot.effort)?bot.effort:void 0,currentEffort=picked??reasoning?.defaultEffort,effortLabel=currentEffort===
-void 0?reasoning?.efforts?.length>0?t("Default"):void 0:reasoning.efforts.find(effort=>effort.id===currentEffort)?.name??currentEffort,[opening,setOpening]=(0,import_react20.useState)(
-0),[query,setQuery]=(0,import_react20.useState)(""),models=modelsFor(roster.models,current2);return{bot,roster,shown,current:current2,local,reasoning,picked,effortLabel,models,opening,
-query,setQuery,reading,withEfforts,manage:local?void 0:manageModels(actions),hasEfforts:withEfforts&&effortStops(reasoning).length>0,opened:()=>{local?readModels(routeOf(current2)):
-actions?.refreshModels?.(),setQuery(""),setOpening(count=>count+1)},choose:ref=>{onPick?onPick(ref):(ref!==current2||!bot.model)&&run2(actions.updateBot(bot.id,{model:ref}))},chooseEffort:effort=>onPickEffort?
-onPickEffort(effort):run2(actions.updateBot(bot.id,{effort:effort??null}))}}var modelTrigger=(picker,{wide,button,isOpen,onClick})=>{let{shown,models,withEfforts,effortLabel}=picker;
-return(0,import_react20.createElement)("button",{ref:button,type:"button",className:"bt-model-trigger","data-wide":wide||void 0,"aria-haspopup":"menu","aria-expanded":isOpen,"aria-\
-label":t("Model: {model}",{model:shown?.name??t("none")}),"data-missing":shown!==void 0&&!shown.served&&models.length>0?"":void 0,onClick},(0,import_react20.createElement)("span",{
-className:"bt-model-copy"},(0,import_react20.createElement)("span",{className:"bt-model-name"},shown?.name??t("Choose a model")),shown?(0,import_react20.createElement)("span",{className:"\
-bt-model-provider"},shown.served||models.length===0?!withEfforts||effortLabel===void 0?shown.provider:`${shown.provider} · ${effortLabel}`:t("{provider} · not available",{provider:shown.
-provider})):null),(0,import_react20.createElement)(Caret))},modelSearch=({models,query,setQuery},menu)=>{let field=(0,import_react20.useRef)(null);return models.length>0?(0,import_react20.createElement)(
-"div",{className:"bt-model-search",role:"presentation"},(0,import_react20.createElement)("input",{ref:field,type:"search",className:"bt-input bt-model-search-input",placeholder:t("\
-Search models…"),"aria-label":t("Search models"),value:query,autoFocus:!0,autoComplete:"off",spellCheck:!1,onChange:event=>setQuery(event.target.value),onKeyDown:event=>{["ArrowD\
-own","ArrowUp","Home","End"].includes(event.key)&&stepMenuFocus(menu.current,event,field.current)}})):null},modelScroll=({roster,models,current:current2,local,reading,opening,query},pick2)=>(0,import_react20.createElement)(
-"div",{className:"bt-model-scroll"},models.length>0?(0,import_react20.createElement)(ModelRows,{roster:{...roster,models},current:current2,onPick:pick2,query,opening}):local?null:(0,import_react20.createElement)(
+menu.current?.contains(event.target)||button.current?.contains(event.target)||close()},onKey=event=>{stepMenuFocus(menu.current,event,button.current)||event.key==="Escape"&&!event.
+isComposing&&event.keyCode!==229&&(event.stopPropagation(),close(),button.current?.focus())},onScroll=event=>{menu.current?.contains(event.target)||close()};return window.addEventListener(
+"mousedown",onDown),window.addEventListener("keydown",onKey,!0),window.addEventListener("scroll",onScroll,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener(
+"keydown",onKey,!0),window.removeEventListener("scroll",onScroll,!0)}},[place]);let open=()=>setAnchor({});return(0,import_react20.useLayoutEffect)(()=>{if(anchor===null||!button.current)
+return;let rect=button.current.getBoundingClientRect(),width=Math.max(240,rect.width),left=Math.max(8,Math.min(rect.right-width,window.innerWidth-width-8)),below=viewBottom()-rect.
+bottom;setPlace(below>=260||below>=rect.top?{left,width,top:rect.bottom+4,maxHeight:below-16,"--bt-origin":"top right"}:{left,width,bottom:viewBottom()-rect.top+4,maxHeight:rect.top-
+16,"--bt-origin":"bottom right"})},[anchor,tick]),{isOpen:place!==null,shownPlace,leaving,button,menu,open,close}}function useInlineMenu(){let[isOpen,setOpen]=(0,import_react20.useState)(
+!1),root=(0,import_react20.useRef)(null),button=(0,import_react20.useRef)(null),menu=(0,import_react20.useRef)(null),close=()=>setOpen(!1);return(0,import_react20.useEffect)(()=>{if(!isOpen)
+return;let onDown=event=>{root.current?.contains(event.target)||close()},onKey=event=>{stepMenuFocus(menu.current,event,button.current)||event.key==="Escape"&&!event.isComposing&&event.
+keyCode!==229&&(event.stopPropagation(),close(),button.current?.focus())};return window.addEventListener("mousedown",onDown),window.addEventListener("keydown",onKey,!0),()=>{window.
+removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[isOpen]),{isOpen,root,button,menu,open:()=>setOpen(!0),close}}function Collapse({open,children}){
+let[shown]=useLinger(open,SPRING_SHAPE.duration),[expanded,setExpanded]=(0,import_react20.useState)(open),box=(0,import_react20.useRef)(null),last=(0,import_react20.useRef)(children);
+return open&&(last.current=children),(0,import_react20.useLayoutEffect)(()=>{open&&box.current?.offsetHeight,setExpanded(open)},[open]),shown?(0,import_react20.createElement)("div",
+{ref:box,className:"bt-collapse","data-open":expanded||void 0},(0,import_react20.createElement)("div",{className:"bt-collapse-in"},open?children:last.current)):null}function useAgentModels(actions){
+let[reading,setReading]=(0,import_react20.useState)(!1);return[reading,route=>{actions?.agentModels!==void 0&&(setReading(!0),Promise.resolve(actions.agentModels(route)).finally(()=>setReading(
+!1)))}]}function useModelPicker({bot,roster,actions,run:run2,onPick,onPickEffort,withEfforts}){let[reading,readModels]=useAgentModels(actions),shown=modelOf(bot,roster),current2=bot.
+model??bot.appliedModel,local=isLocalRoute(current2),served=servedOf(roster,current2),reasoning=useEfforts(served,withEfforts?current2:void 0,actions),picked=reasoning?.efforts?.some(
+effort=>effort.id===bot.effort)?bot.effort:void 0,currentEffort=picked??reasoning?.defaultEffort,effortLabel=currentEffort===void 0?reasoning?.efforts?.length>0?t("Default"):void 0:
+reasoning.efforts.find(effort=>effort.id===currentEffort)?.name??currentEffort,[opening,setOpening]=(0,import_react20.useState)(0),[query,setQuery]=(0,import_react20.useState)(""),
+models=modelsFor(roster.models,current2);return{bot,roster,shown,current:current2,local,reasoning,picked,effortLabel,models,opening,query,setQuery,reading,withEfforts,manage:local?
+void 0:manageModels(actions),hasEfforts:withEfforts&&effortStops(reasoning).length>0,opened:()=>{local?readModels(routeOf(current2)):actions?.refreshModels?.(),setQuery(""),setOpening(
+count=>count+1)},choose:ref=>{onPick?onPick(ref):(ref!==current2||!bot.model)&&run2(actions.updateBot(bot.id,{model:ref}))},chooseEffort:effort=>onPickEffort?onPickEffort(effort):run2(
+actions.updateBot(bot.id,{effort:effort??null}))}}var modelTrigger=(picker,{wide,button,isOpen,onClick})=>{let{shown,models,withEfforts,effortLabel}=picker;return(0,import_react20.createElement)(
+"button",{ref:button,type:"button",className:"bt-model-trigger","data-wide":wide||void 0,"aria-haspopup":"menu","aria-expanded":isOpen,"aria-label":t("Model: {model}",{model:shown?.
+name??t("none")}),"data-missing":shown!==void 0&&!shown.served&&models.length>0?"":void 0,onClick},(0,import_react20.createElement)("span",{className:"bt-model-copy"},(0,import_react20.createElement)(
+"span",{className:"bt-model-name"},shown?.name??t("Choose a model")),shown?(0,import_react20.createElement)("span",{className:"bt-model-provider"},shown.served||models.length===0?!withEfforts||
+effortLabel===void 0?shown.provider:`${shown.provider} · ${effortLabel}`:t("{provider} · not available",{provider:shown.provider})):null),(0,import_react20.createElement)(Caret))},
+modelSearch=({models,query,setQuery},menu)=>{let field=(0,import_react20.useRef)(null);return models.length>0?(0,import_react20.createElement)("div",{className:"bt-model-search",role:"\
+presentation"},(0,import_react20.createElement)("input",{ref:field,type:"search",className:"bt-input bt-model-search-input",placeholder:t("Search models…"),"aria-label":t("Search\
+ models"),value:query,autoFocus:!0,autoComplete:"off",spellCheck:!1,onChange:event=>setQuery(event.target.value),onKeyDown:event=>{["ArrowDown","ArrowUp","Home","End"].includes(event.
+key)&&stepMenuFocus(menu.current,event,field.current)}})):null},modelScroll=({roster,models,current:current2,local,reading,opening,query},pick2)=>(0,import_react20.createElement)("\
+div",{className:"bt-model-scroll"},models.length>0?(0,import_react20.createElement)(ModelRows,{roster:{...roster,models},current:current2,onPick:pick2,query,opening}):local?null:(0,import_react20.createElement)(
 "div",{className:"bt-model-none"},t("No models are set up in DeepSeek Harness yet.")),reading?(0,import_react20.createElement)("div",{className:"bt-model-none"},t("Reading models…")):
 null),manageButton=(manage,close)=>(0,import_react20.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{close(),manage()}},(0,import_react20.createElement)(SlidersIcon),
 (0,import_react20.createElement)("span",{className:"bt-menu-label"},t("Models and providers…"))),modelMenuLabel=bot=>t("Model for {name}",{name:bot.name});function ModelMenu(props){
@@ -9477,8 +9509,8 @@ border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}
-.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-surface,tr\
-ansparent);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
+.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-card);colo\
+r:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
 .bt-model-chip:hover:not(:disabled){background:var(--bt-hover)}
 .bt-model-chip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-chip-quiet{color:var(--bt-ink-2)}
@@ -9661,10 +9693,13 @@ Date.now()+36e5);return date.setMinutes(0,0,0),`${date.getFullYear()}-${pad(date
 let[target,setTarget]=(0,import_react23.useState)(start??roster.bots[0]?.id??""),[title,setTitle]=(0,import_react23.useState)(""),[prompt,setPrompt]=(0,import_react23.useState)(""),
 [kind,setKind]=(0,import_react23.useState)("daily"),[at,setAt]=(0,import_react23.useState)(inAnHour),[time,setTime]=(0,import_react23.useState)("09:00"),[weekdays,setWeekdays]=(0,import_react23.useState)(
 [1,2,3,4,5]),[count,setCount]=(0,import_react23.useState)(1),[unit,setUnit]=(0,import_react23.useState)("hours"),[busy,setBusy]=(0,import_react23.useState)(!1),[error,setError]=(0,import_react23.useState)(
-""),timing=()=>kind==="at"?{kind,at:new Date(at).toISOString()}:kind==="every"?{kind,minutes:Math.round(Number(count)*UNITS.find(([id])=>id===unit)[1])}:{kind,time,timeZone:localZone(),
-...kind==="weekly"?{weekdays}:{}},submit=event=>{if(event.preventDefault(),busy)return;setBusy(!0),setError("");let when3;try{when3=timing()}catch{setError(t("Pick a date and time")),
-setBusy(!1);return}actions.scheduleCreate({target,title,prompt,when:when3}).then(onDone,failure=>{setError(hostText(failure?.message??String(failure))),setBusy(!1)})},toggleDay=day=>setWeekdays(
-days=>days.includes(day)?days.filter(item=>item!==day):[...days,day].sort());return(0,import_react23.createElement)("form",{className:"bt-set-card bt-task-form",onSubmit:submit},(0,import_react23.createElement)(
+""),validAt=kind!=="at"||at!==""&&Number.isFinite(Date.parse(at)),validDays=kind!=="weekly"||weekdays.length>0,validEvery=kind!=="every"||Number.isFinite(Number(count))&&Number(count)>=
+1,timing=()=>{if(kind==="at"){let parsed=new Date(at);if(!Number.isFinite(parsed.getTime()))throw new Error("invalid date");return{kind,at:parsed.toISOString()}}if(kind==="every"){
+let minutes=Math.round(Number(count)*UNITS.find(([id])=>id===unit)[1]);if(!Number.isFinite(minutes)||minutes<1)throw new Error("invalid interval");return{kind,minutes}}if(kind==="w\
+eekly"&&weekdays.length===0)throw new Error("pick a day");return{kind,time,timeZone:localZone(),...kind==="weekly"?{weekdays}:{}}},submit=event=>{if(event.preventDefault(),busy)return;
+setBusy(!0),setError("");let when3;try{when3=timing()}catch{setError(kind==="weekly"?t("Pick at least one day"):t("Pick a date and time")),setBusy(!1);return}actions.scheduleCreate(
+{target,title,prompt,when:when3}).then(onDone,failure=>{setError(hostText(failure?.message??String(failure))),setBusy(!1)})},toggleDay=day=>setWeekdays(days=>days.includes(day)?days.
+filter(item=>item!==day):[...days,day].sort());return(0,import_react23.createElement)("form",{className:"bt-set-card bt-task-form",onSubmit:submit},(0,import_react23.createElement)(
 "label",{className:"bt-set-row bt-bs-row"},(0,import_react23.createElement)("span",{className:"bt-set-copy"},(0,import_react23.createElement)("span",{className:"bt-bs-label"},t("Se\
 nd to"))),(0,import_react23.createElement)("select",{className:"bt-select bt-task-bot",value:target,onChange:event=>setTarget(event.target.value)},(0,import_react23.createElement)(
 "optgroup",{label:t("Bots")},roster.bots.map(bot=>(0,import_react23.createElement)("option",{key:bot.id,value:bot.id},bot.name))),roster.rooms.length>0?(0,import_react23.createElement)(
@@ -9686,36 +9721,37 @@ value:count,"aria-label":t("How many"),onChange:event=>setCount(event.target.val
 -label":t("Unit"),onChange:event=>setUnit(event.target.value)},UNITS.map(([id,,label])=>(0,import_react23.createElement)("option",{key:id,value:id},t(label))))):null)),error?(0,import_react23.createElement)(
 "div",{className:"bt-set-row"},(0,import_react23.createElement)("span",{className:"bt-danger bt-set-hint"},error)):null,(0,import_react23.createElement)("div",{className:"bt-set-ro\
 w bt-task-foot"},(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onCancel},t("Cancel")),(0,import_react23.createElement)("button",{type:"\
-submit",className:"bt-send bt-soft-sm",disabled:busy||!target||title.trim()===""||prompt.trim()===""},busy?t("Creating…"):t("Create task"))))}function AutomationOff({actions}){return(0,import_react23.createElement)(
-"div",{className:"bt-set-card bt-task-off"},(0,import_react23.createElement)("span",{className:"bt-task-off-mark"},(0,import_react23.createElement)(ClockIcon)),(0,import_react23.createElement)(
-"span",{className:"bt-task-off-title"},t("Turn on Automation tasks in DSH")),(0,import_react23.createElement)("span",{className:"bt-set-hint"},t("Switch on Automation tasks on the \
-Plugins page in Settings.")),(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.openSettings("dsh","plugins")},t("Open Plug\
-ins")))}function SchedulesPage({roster,actions,start}){let view=useSchedules(actions),owner=start?.startsWith("bot:")?start.slice(4):start?.startsWith("room:")?start.slice(5):null,
-[adding,setAdding]=(0,import_react23.useState)(!!start&&owner===null);if(view===null)return(0,import_react23.createElement)("div",{className:"bt-set-hint"},t("Loading…"));if(!view.
-available)return(0,import_react23.createElement)(AutomationOff,{actions});let shown=next=>{publish(next),setAdding(!1)},byChat=[...roster.bots.map(bot=>[bot.id,(0,import_react23.createElement)(
-BotAvatar,{bot,size:18,badge:!1,live:!1}),bot.name,view.tasks.filter(task=>task.botId===bot.id)]),...roster.rooms.map(room2=>[room2.id,(0,import_react23.createElement)(RoomAvatar,{
-room:room2,roster,size:18}),room2.name,view.tasks.filter(task=>task.botId===void 0&&task.roomId===room2.id)])].filter(([id,,,tasks])=>tasks.length>0&&(owner===null||id===owner)),addBar=adding?
-null:(0,import_react23.createElement)("div",{className:"bt-actions"},(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm bt-with-icon",onClick:()=>setAdding(
-!0)},(0,import_react23.createElement)(PlusIcon),t("New task")),owner!==null?(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.
-openSettings("schedules")},t("Show all")):null);return[adding?(0,import_react23.createElement)(TaskForm,{key:"form",roster,actions,start:owner??start,onDone:shown,onCancel:()=>setAdding(
-!1)}):null,byChat.length===0?adding?null:(0,import_react23.createElement)("section",{key:"none",className:"bt-set-section"},(0,import_react23.createElement)("div",{className:"bt-la\
--sec-head"},(0,import_react23.createElement)("h3",null,t("Scheduled tasks")),addBar),(0,import_react23.createElement)("div",{className:"bt-set-card"},(0,import_react23.createElement)(
-"div",{className:"bt-set-row"},(0,import_react23.createElement)("span",{className:"bt-set-hint"},t("No scheduled tasks yet."))))):byChat.map(([id,avatar,name,tasks],index)=>(0,import_react23.createElement)(
-"section",{key:id,className:"bt-set-section"},index===0?(0,import_react23.createElement)("div",{className:"bt-la-sec-head"},(0,import_react23.createElement)("h3",{className:"bt-tas\
-k-head"},avatar,name),addBar):(0,import_react23.createElement)("h3",{className:"bt-task-head"},avatar,name),(0,import_react23.createElement)("div",{className:"bt-set-card"},tasks.map(
-task=>(0,import_react23.createElement)(TaskRow2,{key:task.id,task,actions,roster,onView:publish})))))]}function BotSchedules({bot,roster,actions}){let view=useSchedules(actions);if(view===
-null)return null;let tasks=view.available?view.tasks.filter(task=>task.botId===bot.id):[];return(0,import_react23.createElement)("section",{className:"bt-set-section"},(0,import_react23.createElement)(
-"h3",null,t("Scheduled tasks")),(0,import_react23.createElement)("div",{className:"bt-set-card"},view.available?[...tasks.map(task=>(0,import_react23.createElement)(TaskRow2,{key:task.
-id,task,actions,roster,onView:publish})),(0,import_react23.createElement)("button",{key:"new",type:"button",className:"bt-set-row bt-bs-row bt-gs-add",onClick:()=>actions.openSettings(
-"schedules",bot.id)},(0,import_react23.createElement)(PlusIcon),t("New task"))]:(0,import_react23.createElement)("div",{className:"bt-set-row bt-bs-row"},(0,import_react23.createElement)(
-"span",{className:"bt-set-copy"},(0,import_react23.createElement)("span",{className:"bt-set-hint"},t("Switch on Automation tasks on the Plugins page in Settings."))),(0,import_react23.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.openSettings("dsh","plugins")},t("Open Plugins")))))}function ScheduleSummary({bot,actions}){let view=useSchedules(
-actions),tasks=view?.available?view.tasks.filter(task=>task.botId===bot.id&&task.status==="active"):[];return(0,import_react23.createElement)("div",null,(0,import_react23.createElement)(
-"div",{className:"bt-section-title"},tasks.length===0?t("Scheduled tasks"):t("Scheduled tasks · {count}",{count:tasks.length})),tasks.length===0?(0,import_react23.createElement)("\
-button",{type:"button",className:"bt-more",onClick:()=>actions.openSettings("schedules",bot.id)},view?.available===!1?t("Switch on Automation tasks on the Plugins page in Settings."):
-t("No scheduled tasks yet. Add one")):(0,import_react23.createElement)("div",{className:"bt-task-list"},tasks.slice(0,3).map(task=>(0,import_react23.createElement)("button",{key:task.
-id,type:"button",className:"bt-task-line",onClick:()=>actions.openSettings("schedules",`bot:${bot.id}`)},(0,import_react23.createElement)(ClockIcon),(0,import_react23.createElement)(
-"span",{className:"bt-task-line-title"},task.title),(0,import_react23.createElement)("span",{className:"bt-task-line-when"},timingText(task))))))}var SCHEDULE_CSS=`
+submit",className:"bt-send bt-soft-sm",disabled:busy||!target||title.trim()===""||prompt.trim()===""||!validAt||!validDays||!validEvery},busy?t("Creating…"):t("Create task"))))}function AutomationOff({
+actions}){return(0,import_react23.createElement)("div",{className:"bt-set-card bt-task-off"},(0,import_react23.createElement)("span",{className:"bt-task-off-mark"},(0,import_react23.createElement)(
+ClockIcon)),(0,import_react23.createElement)("span",{className:"bt-task-off-title"},t("Turn on Automation tasks in DSH")),(0,import_react23.createElement)("span",{className:"bt-set\
+-hint"},t("Switch on Automation tasks on the Plugins page in Settings.")),(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.
+openSettings("dsh","plugins")},t("Open Plugins")))}function SchedulesPage({roster,actions,start}){let view=useSchedules(actions),owner=start?.startsWith("bot:")?start.slice(4):start?.
+startsWith("room:")?start.slice(5):null,[adding,setAdding]=(0,import_react23.useState)(!!start&&owner===null);if(view===null)return(0,import_react23.createElement)("div",{className:"\
+bt-set-hint"},t("Loading…"));if(!view.available)return(0,import_react23.createElement)(AutomationOff,{actions});let shown=next=>{publish(next),setAdding(!1)},byChat=[...roster.bots.
+map(bot=>[bot.id,(0,import_react23.createElement)(BotAvatar,{bot,size:18,badge:!1,live:!1}),bot.name,view.tasks.filter(task=>task.botId===bot.id)]),...roster.rooms.map(room2=>[room2.
+id,(0,import_react23.createElement)(RoomAvatar,{room:room2,roster,size:18}),room2.name,view.tasks.filter(task=>task.botId===void 0&&task.roomId===room2.id)])].filter(([id,,,tasks])=>tasks.
+length>0&&(owner===null||id===owner)),addBar=adding?null:(0,import_react23.createElement)("div",{className:"bt-actions"},(0,import_react23.createElement)("button",{type:"button",className:"\
+bt-soft bt-soft-sm bt-with-icon",onClick:()=>setAdding(!0)},(0,import_react23.createElement)(PlusIcon),t("New task")),owner!==null?(0,import_react23.createElement)("button",{type:"\
+button",className:"bt-soft bt-soft-sm",onClick:()=>actions.openSettings("schedules")},t("Show all")):null);return[adding?(0,import_react23.createElement)(TaskForm,{key:"form",roster,
+actions,start:owner??start,onDone:shown,onCancel:()=>setAdding(!1)}):null,byChat.length===0?adding?null:(0,import_react23.createElement)("section",{key:"none",className:"bt-set-sec\
+tion"},(0,import_react23.createElement)("div",{className:"bt-la-sec-head"},(0,import_react23.createElement)("h3",null,t("Scheduled tasks")),addBar),(0,import_react23.createElement)(
+"div",{className:"bt-set-card"},(0,import_react23.createElement)("div",{className:"bt-set-row"},(0,import_react23.createElement)("span",{className:"bt-set-hint"},t("No scheduled ta\
+sks yet."))))):byChat.map(([id,avatar,name,tasks],index)=>(0,import_react23.createElement)("section",{key:id,className:"bt-set-section"},index===0?(0,import_react23.createElement)(
+"div",{className:"bt-la-sec-head"},(0,import_react23.createElement)("h3",{className:"bt-task-head"},avatar,name),addBar):(0,import_react23.createElement)("h3",{className:"bt-task-h\
+ead"},avatar,name),(0,import_react23.createElement)("div",{className:"bt-set-card"},tasks.map(task=>(0,import_react23.createElement)(TaskRow2,{key:task.id,task,actions,roster,onView:publish})))))]}
+function BotSchedules({bot,roster,actions}){let view=useSchedules(actions);if(view===null)return null;let tasks=view.available?view.tasks.filter(task=>task.botId===bot.id):[];return(0,import_react23.createElement)(
+"section",{className:"bt-set-section"},(0,import_react23.createElement)("h3",null,t("Scheduled tasks")),(0,import_react23.createElement)("div",{className:"bt-set-card"},view.available?
+[...tasks.map(task=>(0,import_react23.createElement)(TaskRow2,{key:task.id,task,actions,roster,onView:publish})),(0,import_react23.createElement)("button",{key:"new",type:"button",
+className:"bt-set-row bt-bs-row bt-gs-add",onClick:()=>actions.openSettings("schedules",bot.id)},(0,import_react23.createElement)(PlusIcon),t("New task"))]:(0,import_react23.createElement)(
+"div",{className:"bt-set-row bt-bs-row"},(0,import_react23.createElement)("span",{className:"bt-set-copy"},(0,import_react23.createElement)("span",{className:"bt-set-hint"},t("Swit\
+ch on Automation tasks on the Plugins page in Settings."))),(0,import_react23.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.openSettings(
+"dsh","plugins")},t("Open Plugins")))))}function ScheduleSummary({bot,actions}){let view=useSchedules(actions),tasks=view?.available?view.tasks.filter(task=>task.botId===bot.id&&task.
+status==="active"):[];return(0,import_react23.createElement)("div",null,(0,import_react23.createElement)("div",{className:"bt-section-title"},tasks.length===0?t("Scheduled tasks"):
+t("Scheduled tasks · {count}",{count:tasks.length})),tasks.length===0?(0,import_react23.createElement)("button",{type:"button",className:"bt-more",onClick:()=>actions.openSettings(
+"schedules",bot.id)},view?.available===!1?t("Switch on Automation tasks on the Plugins page in Settings."):t("No scheduled tasks yet. Add one")):(0,import_react23.createElement)("d\
+iv",{className:"bt-task-list"},tasks.slice(0,3).map(task=>(0,import_react23.createElement)("button",{key:task.id,type:"button",className:"bt-task-line",onClick:()=>actions.openSettings(
+"schedules",`bot:${bot.id}`)},(0,import_react23.createElement)(ClockIcon),(0,import_react23.createElement)("span",{className:"bt-task-line-title"},task.title),(0,import_react23.createElement)(
+"span",{className:"bt-task-line-when"},timingText(task))))))}var SCHEDULE_CSS=`
 .bt-task{gap:10px}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}
@@ -9934,58 +9970,60 @@ text.length>120?`${row.text.slice(0,120)}…`:row.text;return row.op==="remove"?
 bt-mem-entry-meta"},meta)),row.restored?(0,import_react26.createElement)("span",{className:"bt-mem-undone"},t("Undone")):(0,import_react26.createElement)("button",{type:"button",className:"\
 bt-mem-remove","data-confirm":confirming||void 0,disabled:busy,"aria-label":confirming?t("Click again to undo"):t("Undo this change"),title:confirming?void 0:t("Undo this change"),
 onClick:click},t("Undo")))}function History({owner,actions,undo,now}){let[rows2,setRows]=(0,import_react26.useState)(null),[more,setMore]=(0,import_react26.useState)(null),[paging,
-setPaging]=(0,import_react26.useState)(!1),load=(0,import_react26.useCallback)(async before=>{let page=await actions.memoryHistory(owner.id,before);setRows(before===void 0?page.rows:
-[...rows2??[],...page.rows]),setMore(page.more)},[owner.id,rows2]);(0,import_react26.useEffect)(()=>{load()},[owner.id]);let reload=async()=>{setRows(null),setMore(null),await load()},
-undoRow=async row=>await undo(row)?reload():!1,moreClick=async()=>{setPaging(!0);try{await load(more)}finally{setPaging(!1)}};return rows2===null?(0,import_react26.createElement)(Skeleton):
-rows2.length===0?(0,import_react26.createElement)("div",{className:"bt-mem-none"},t("No changes yet")):(0,import_react26.createElement)("div",{className:"bt-mem-entries"},(0,import_react26.createElement)(
-"ul",{className:"bt-mem-list"},rows2.map(row=>(0,import_react26.createElement)(HistoryRow,{key:row.id,row,undo:undoRow,now}))),more?(0,import_react26.createElement)("button",{type:"\
-button",className:"bt-soft bt-soft-sm",disabled:paging,onClick:()=>{moreClick()}},t("Load more")):null)}function Reply({answer,dismiss}){return(0,import_react26.createElement)("div",
-{className:"bt-mem-reply",role:"status"},(0,import_react26.createElement)("div",{className:"bt-mem-reply-head"},(0,import_react26.createElement)("span",{className:"bt-mem-reply-ask\
-ed"},answer.asked),answer.pending?null:(0,import_react26.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Dismiss"),onClick:dismiss},(0,import_react26.createElement)(
-CloseIcon))),answer.pending?(0,import_react26.createElement)("div",{className:"bt-mem-reply-text bt-shimmer"},t("Thinking…")):answer.error?(0,import_react26.createElement)("div",
-{className:"bt-mem-reply-text bt-danger"},hostText(answer.error)):(0,import_react26.createElement)(import_react26.Fragment,null,answer.reply?(0,import_react26.createElement)("div",
-{className:"bt-mem-reply-text"},answer.reply):null,answer.changes.length>0?(0,import_react26.createElement)("ul",{className:"bt-mem-changes"},answer.changes.map((change,index)=>(0,import_react26.createElement)(
-"li",{key:index,"data-ok":change.ok||void 0},change.ok?(0,import_react26.createElement)(CheckIcon):(0,import_react26.createElement)(CloseIcon),(0,import_react26.createElement)("spa\
-n",null,changeLine(change))))):null))}function useMemoryView(id,actions){let[view,setView]=(0,import_react26.useState)(null),[error,setError]=(0,import_react26.useState)(""),timer=(0,import_react26.useRef)(
-0),latest=(0,import_react26.useRef)(0),alive=(0,import_react26.useRef)(!0),show2=(0,import_react26.useCallback)(next=>{setView(next),setError(""),noteCount(id,next.entries.length)},
-[id]),load=(0,import_react26.useCallback)(async(flags={})=>{clearTimeout(timer.current);let ticket=++latest.current;try{let next=await actions.memoryView(id,flags);if(!alive.current||
-ticket!==latest.current)return;show2(next),next.summarizing&&(timer.current=setTimeout(()=>{load({summarize:flags.summarize||flags.regenerate})},POLL_MS2))}catch(failure){alive.current&&
-ticket===latest.current&&setError(failure?.message??String(failure))}},[id]);return(0,import_react26.useEffect)(()=>(alive.current=!0,load({summarize:!0}),()=>{alive.current=!1,clearTimeout(
-timer.current)}),[id]),{view,error,load,show:show2}}function useNow(every){let[now,setNow]=(0,import_react26.useState)(Date.now());return(0,import_react26.useEffect)(()=>{let id=setInterval(
-()=>setNow(Date.now()),every);return()=>clearInterval(id)},[every]),now}function MemoryDialog({owner,actions,leaving=!1}){let{view,error,load,show:show2}=useMemoryView(owner.id,actions),
-[page,setPage]=(0,import_react26.useState)("summary"),[menu,setMenu]=(0,import_react26.useState)(!1),[menuShown,menuLeaving]=useLinger(menu,MENU_EXIT_MS2),[moving,setMoving]=(0,import_react26.useState)(
-null),[moveOpen,setMoveOpen]=(0,import_react26.useState)(!1),[moveShown,moveLeaving]=useLinger(moveOpen,MENU_EXIT_MS2),moveRef=(0,import_react26.useRef)(null),moveAnchor=(0,import_react26.useRef)(
-null),[text,setText]=(0,import_react26.useState)(""),[answer,setAnswer]=(0,import_react26.useState)(null),menuRef=(0,import_react26.useRef)(null),dotsRef=(0,import_react26.useRef)(
-null),inputRef=(0,import_react26.useRef)(null),now=useNow(3e4),close=(0,import_react26.useCallback)(()=>actions.closeMemory(),[]);useEscape(close),useMenuDismiss(menu,menuRef,dotsRef,
-()=>setMenu(!1)),useMenuDismiss(moveOpen,moveRef,moveAnchor,()=>setMoveOpen(!1)),(0,import_react26.useEffect)(()=>{if(!moveOpen)return;let onScroll=event=>{moveRef.current?.contains(
-event.target)||setMoveOpen(!1)};return window.addEventListener("scroll",onScroll,!0),()=>window.removeEventListener("scroll",onScroll,!0)},[moveOpen]);let openMove=(entry,button)=>{
-if(moveOpen&&moveAnchor.current===button){setMoveOpen(!1);return}moveAnchor.current=button;let rect=button.getBoundingClientRect(),below=window.innerHeight-rect.bottom-MOVE_MENU_GAP,
-above=rect.top-MOVE_MENU_GAP,right=Math.max(MOVE_MENU_GAP,window.innerWidth-rect.right);setMoving({entry,box:above>below?{right,bottom:window.innerHeight-rect.top+4,maxHeight:above}:
-{right,top:rect.bottom+4,maxHeight:below}}),setMoveOpen(!0)},regenerate=()=>{setMenu(!1),setPage("summary"),load({regenerate:!0})},openEntries=()=>{setMenu(!1),setPage("entries")},
-openHistory=()=>{setMenu(!1),setPage("history")},backToSummary=()=>{setPage("summary"),load({summarize:!0})},remove=async entry=>{try{return show2(await actions.memoryForget(owner.
-id,entry)),!0}catch(failure){return setAnswer({asked:entry.text,error:failure?.message??String(failure)}),!1}},undoTidy=async tidy=>{try{show2(await actions.memoryTidyUndo(owner.id,
-tidy.scope,tidy.batch))}catch(failure){setAnswer({asked:t("Undo"),error:failure?.message??String(failure)})}},move=async(entry,to)=>{setMoveOpen(!1);try{show2(await actions.memoryMove(
-owner.id,entry,to))}catch(failure){setAnswer({asked:entry.text,error:failure?.message??String(failure)})}},layer=async(entry,always)=>{try{show2(await actions.memoryLayer(owner.id,
-entry,always))}catch(failure){setAnswer({asked:entry.text,error:failure?.message??String(failure)})}},pin=async(entry,on)=>{try{show2(await actions.memoryPin(owner.id,entry,on))}catch(failure){
-setAnswer({asked:entry.text,error:failure?.message??String(failure)})}},undo=async row=>{try{return show2(await actions.memoryRestore(owner.id,row.id)),!0}catch(failure){return setAnswer(
-{asked:row.text,error:failure?.message??String(failure)}),!1}},ask=async event=>{event.preventDefault();let asked=text.trim();if(!(asked===""||answer?.pending)){setText(""),setAnswer(
-{asked,pending:!0});try{let result=await actions.memoryAsk(owner.id,asked);setAnswer({asked,reply:result.reply,changes:result.changes}),show2(result.view),result.changes.some(change=>change.
-ok)&&load({summarize:page==="summary"})}catch(failure){setAnswer({asked,error:failure?.message??String(failure)})}inputRef.current?.focus()}},count=view?.entries.length??0,when3=view?.
-summary?ago(view.summary.at,now):null,status=view===null?"":page==="entries"?count===1?t("1 entry"):t("{count} entries",{count}):view.summarizing&&view.summary?t("Updating…"):view.
-summary&&view.fresh?when3?t("Updated {time}",{time:when3}):t("Updated just now"):"",busy=answer?.pending===!0;return(0,import_react26.createElement)("div",{className:"bt-mem-layer",
-"data-leaving":leaving||void 0},(0,import_react26.createElement)("div",{className:"bt-scrim bt-mem-scrim",onMouseDown:close}),(0,import_react26.createElement)("div",{className:"bt-\
-mem",role:"dialog","aria-modal":!0,"aria-label":t("{name}'s memory",{name:owner.name})},(0,import_react26.createElement)("div",{className:"bt-mem-head"},page==="summary"?null:(0,import_react26.createElement)(
-"button",{type:"button",className:"bt-icon-btn","aria-label":t("Back to the summary"),onClick:backToSummary},(0,import_react26.createElement)(ChevronLeftIcon)),(0,import_react26.createElement)(
-"h2",null,page==="entries"?t("All entries"):page==="history"?t("Change history"):t("Memory summary")),(0,import_react26.createElement)("span",{className:"bt-mem-status"},page==="su\
-mmary"?[owner.name,status].filter(Boolean).join(" · "):page==="entries"?status:""),(0,import_react26.createElement)("span",{className:"bt-mem-head-gap"}),(0,import_react26.createElement)(
-"button",{ref:dotsRef,type:"button",className:"bt-icon-btn","aria-label":t("Memory options"),"aria-haspopup":"menu","aria-expanded":menu,onClick:()=>setMenu(value=>!value)},(0,import_react26.createElement)(
-DotsIcon)),(0,import_react26.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Close memory"),onClick:close},(0,import_react26.createElement)(CloseIcon)),
-menuShown?(0,import_react26.createElement)("div",{ref:menuRef,className:"bt-menu bt-mem-menu",role:"menu","aria-label":t("Memory options"),"data-leaving":menuLeaving||void 0},(0,import_react26.createElement)(
-"button",{type:"button",role:"menuitem",onClick:openEntries},(0,import_react26.createElement)("span",{className:"bt-menu-label"},t("All entries")),(0,import_react26.createElement)(
-"span",{className:"bt-menu-hint"},String(count))),(0,import_react26.createElement)("button",{type:"button",role:"menuitem",onClick:openHistory},(0,import_react26.createElement)("sp\
-an",{className:"bt-menu-label"},t("Change history"))),(0,import_react26.createElement)("button",{type:"button",role:"menuitem",disabled:count===0||view?.summarizing,onClick:regenerate},
-(0,import_react26.createElement)("span",{className:"bt-menu-label"},t("Regenerate summary")))):null),(0,import_react26.createElement)("div",{className:"bt-mem-body"},error?(0,import_react26.createElement)(
-"div",{className:"bt-error",role:"alert",style:{padding:0}},hostText(error)):null,view===null?error?null:(0,import_react26.createElement)(Skeleton):page==="entries"?(0,import_react26.createElement)(
+setPaging]=(0,import_react26.useState)(!1),[loadError,setLoadError]=(0,import_react26.useState)(""),load=(0,import_react26.useCallback)(async before=>{try{setLoadError("");let page=await actions.
+memoryHistory(owner.id,before);setRows(prev=>before===void 0?page.rows:[...prev??[],...page.rows]),setMore(page.more)}catch(failure){setLoadError(failure?.message??String(failure)),
+setRows(prev=>prev??[])}},[owner.id]);(0,import_react26.useEffect)(()=>{load()},[owner.id]);let reload=async()=>{setRows(null),setMore(null),await load()},undoRow=async row=>await undo(
+row)?reload():!1,moreClick=async()=>{setPaging(!0);try{await load(more)}finally{setPaging(!1)}};return rows2===null?(0,import_react26.createElement)(Skeleton):loadError?(0,import_react26.createElement)(
+"div",{className:"bt-error",role:"alert"},hostText(loadError)):rows2.length===0?(0,import_react26.createElement)("div",{className:"bt-mem-none"},t("No changes yet")):(0,import_react26.createElement)(
+"div",{className:"bt-mem-entries"},(0,import_react26.createElement)("ul",{className:"bt-mem-list"},rows2.map(row=>(0,import_react26.createElement)(HistoryRow,{key:row.id,row,undo:undoRow,
+now}))),more?(0,import_react26.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:paging,onClick:()=>{moreClick()}},t("Load more")):null)}function Reply({
+answer,dismiss}){return(0,import_react26.createElement)("div",{className:"bt-mem-reply",role:"status"},(0,import_react26.createElement)("div",{className:"bt-mem-reply-head"},(0,import_react26.createElement)(
+"span",{className:"bt-mem-reply-asked"},answer.asked),answer.pending?null:(0,import_react26.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Dismiss"),
+onClick:dismiss},(0,import_react26.createElement)(CloseIcon))),answer.pending?(0,import_react26.createElement)("div",{className:"bt-mem-reply-text bt-shimmer"},t("Thinking…")):answer.
+error?(0,import_react26.createElement)("div",{className:"bt-mem-reply-text bt-danger"},hostText(answer.error)):(0,import_react26.createElement)(import_react26.Fragment,null,answer.
+reply?(0,import_react26.createElement)("div",{className:"bt-mem-reply-text"},answer.reply):null,answer.changes.length>0?(0,import_react26.createElement)("ul",{className:"bt-mem-cha\
+nges"},answer.changes.map((change,index)=>(0,import_react26.createElement)("li",{key:index,"data-ok":change.ok||void 0},change.ok?(0,import_react26.createElement)(CheckIcon):(0,import_react26.createElement)(
+CloseIcon),(0,import_react26.createElement)("span",null,changeLine(change))))):null))}function useMemoryView(id,actions){let[view,setView]=(0,import_react26.useState)(null),[error,
+setError]=(0,import_react26.useState)(""),timer=(0,import_react26.useRef)(0),latest=(0,import_react26.useRef)(0),alive=(0,import_react26.useRef)(!0),show2=(0,import_react26.useCallback)(
+next=>{setView(next),setError(""),noteCount(id,next.entries.length)},[id]),load=(0,import_react26.useCallback)(async(flags={})=>{clearTimeout(timer.current);let ticket=++latest.current;
+try{let next=await actions.memoryView(id,flags);if(!alive.current||ticket!==latest.current)return;show2(next),next.summarizing&&(timer.current=setTimeout(()=>{load({summarize:flags.
+summarize||flags.regenerate})},POLL_MS2))}catch(failure){alive.current&&ticket===latest.current&&setError(failure?.message??String(failure))}},[id]);return(0,import_react26.useEffect)(
+()=>(alive.current=!0,load({summarize:!0}),()=>{alive.current=!1,clearTimeout(timer.current)}),[id]),{view,error,load,show:show2}}function useNow(every){let[now,setNow]=(0,import_react26.useState)(
+Date.now());return(0,import_react26.useEffect)(()=>{let id=setInterval(()=>setNow(Date.now()),every);return()=>clearInterval(id)},[every]),now}function MemoryDialog({owner,actions,
+leaving=!1}){let{view,error,load,show:show2}=useMemoryView(owner.id,actions),[page,setPage]=(0,import_react26.useState)("summary"),[menu,setMenu]=(0,import_react26.useState)(!1),[menuShown,
+menuLeaving]=useLinger(menu,MENU_EXIT_MS2),[moving,setMoving]=(0,import_react26.useState)(null),[moveOpen,setMoveOpen]=(0,import_react26.useState)(!1),[moveShown,moveLeaving]=useLinger(
+moveOpen,MENU_EXIT_MS2),moveRef=(0,import_react26.useRef)(null),moveAnchor=(0,import_react26.useRef)(null),[text,setText]=(0,import_react26.useState)(""),[answer,setAnswer]=(0,import_react26.useState)(
+null),menuRef=(0,import_react26.useRef)(null),dotsRef=(0,import_react26.useRef)(null),inputRef=(0,import_react26.useRef)(null),now=useNow(3e4),close=(0,import_react26.useCallback)(
+()=>actions.closeMemory(),[]);useEscape(close,!leaving),useMenuDismiss(menu,menuRef,dotsRef,()=>setMenu(!1)),useMenuDismiss(moveOpen,moveRef,moveAnchor,()=>setMoveOpen(!1)),(0,import_react26.useEffect)(
+()=>{if(!moveOpen)return;let onScroll=event=>{moveRef.current?.contains(event.target)||setMoveOpen(!1)};return window.addEventListener("scroll",onScroll,!0),()=>window.removeEventListener(
+"scroll",onScroll,!0)},[moveOpen]);let openMove=(entry,button)=>{if(moveOpen&&moveAnchor.current===button){setMoveOpen(!1);return}moveAnchor.current=button;let rect=button.getBoundingClientRect(),
+below=window.innerHeight-rect.bottom-MOVE_MENU_GAP,above=rect.top-MOVE_MENU_GAP,right=Math.max(MOVE_MENU_GAP,window.innerWidth-rect.right);setMoving({entry,box:above>below?{right,bottom:window.
+innerHeight-rect.top+4,maxHeight:above,"--bt-origin":"bottom right"}:{right,top:rect.bottom+4,maxHeight:below,"--bt-origin":"top right"}}),setMoveOpen(!0)},regenerate=()=>{setMenu(
+!1),setPage("summary"),load({regenerate:!0})},openEntries=()=>{setMenu(!1),setPage("entries")},openHistory=()=>{setMenu(!1),setPage("history")},backToSummary=()=>{setPage("summary"),
+load({summarize:!0})},remove=async entry=>{try{return show2(await actions.memoryForget(owner.id,entry)),!0}catch(failure){return setAnswer({asked:entry.text,error:failure?.message??
+String(failure)}),!1}},undoTidy=async tidy=>{try{show2(await actions.memoryTidyUndo(owner.id,tidy.scope,tidy.batch))}catch(failure){setAnswer({asked:t("Undo"),error:failure?.message??
+String(failure)})}},move=async(entry,to)=>{setMoveOpen(!1);try{show2(await actions.memoryMove(owner.id,entry,to))}catch(failure){setAnswer({asked:entry.text,error:failure?.message??
+String(failure)})}},layer=async(entry,always)=>{try{show2(await actions.memoryLayer(owner.id,entry,always))}catch(failure){setAnswer({asked:entry.text,error:failure?.message??String(
+failure)})}},pin=async(entry,on)=>{try{show2(await actions.memoryPin(owner.id,entry,on))}catch(failure){setAnswer({asked:entry.text,error:failure?.message??String(failure)})}},undo=async row=>{
+try{return show2(await actions.memoryRestore(owner.id,row.id)),!0}catch(failure){return setAnswer({asked:row.text,error:failure?.message??String(failure)}),!1}},ask=async event=>{event.
+preventDefault();let asked=text.trim();if(!(asked===""||answer?.pending)){setText(""),setAnswer({asked,pending:!0});try{let result=await actions.memoryAsk(owner.id,asked);setAnswer(
+{asked,reply:result.reply,changes:result.changes}),show2(result.view),result.changes.some(change=>change.ok)&&load({summarize:page==="summary"})}catch(failure){setAnswer({asked,error:failure?.
+message??String(failure)})}inputRef.current?.focus()}},count=view?.entries.length??0,when3=view?.summary?ago(view.summary.at,now):null,status=view===null?"":page==="entries"?count===
+1?t("1 entry"):t("{count} entries",{count}):view.summarizing&&view.summary?t("Updating…"):view.summary&&view.fresh?when3?t("Updated {time}",{time:when3}):t("Updated just now"):"",
+busy=answer?.pending===!0;return(0,import_react26.createElement)("div",{className:"bt-mem-layer","data-leaving":leaving||void 0},(0,import_react26.createElement)("div",{className:"\
+bt-scrim bt-mem-scrim",onMouseDown:close}),(0,import_react26.createElement)("div",{className:"bt-mem",role:"dialog","aria-modal":!0,"aria-label":t("{name}'s memory",{name:owner.name})},
+(0,import_react26.createElement)("div",{className:"bt-mem-head"},page==="summary"?null:(0,import_react26.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t(
+"Back to the summary"),onClick:backToSummary},(0,import_react26.createElement)(ChevronLeftIcon)),(0,import_react26.createElement)("h2",null,page==="entries"?t("All entries"):page===
+"history"?t("Change history"):t("Memory summary")),(0,import_react26.createElement)("span",{className:"bt-mem-status"},page==="summary"?[owner.name,status].filter(Boolean).join(" ·\
+ "):page==="entries"?status:""),(0,import_react26.createElement)("span",{className:"bt-mem-head-gap"}),(0,import_react26.createElement)("button",{ref:dotsRef,type:"button",className:"\
+bt-icon-btn","aria-label":t("Memory options"),"aria-haspopup":"menu","aria-expanded":menu,onClick:()=>setMenu(value=>!value)},(0,import_react26.createElement)(DotsIcon)),(0,import_react26.createElement)(
+"button",{type:"button",className:"bt-icon-btn","aria-label":t("Close memory"),onClick:close},(0,import_react26.createElement)(CloseIcon)),menuShown?(0,import_react26.createElement)(
+"div",{ref:menuRef,className:"bt-menu bt-mem-menu",role:"menu","aria-label":t("Memory options"),"data-leaving":menuLeaving||void 0},(0,import_react26.createElement)("button",{type:"\
+button",role:"menuitem",onClick:openEntries},(0,import_react26.createElement)("span",{className:"bt-menu-label"},t("All entries")),(0,import_react26.createElement)("span",{className:"\
+bt-menu-hint"},String(count))),(0,import_react26.createElement)("button",{type:"button",role:"menuitem",onClick:openHistory},(0,import_react26.createElement)("span",{className:"bt-\
+menu-label"},t("Change history"))),(0,import_react26.createElement)("button",{type:"button",role:"menuitem",disabled:count===0||view?.summarizing,onClick:regenerate},(0,import_react26.createElement)(
+"span",{className:"bt-menu-label"},t("Regenerate summary")))):null),(0,import_react26.createElement)("div",{className:"bt-mem-body"},error?(0,import_react26.createElement)("div",{className:"\
+bt-error",role:"alert",style:{padding:0}},hostText(error)):null,view===null?error?null:(0,import_react26.createElement)(Skeleton):page==="entries"?(0,import_react26.createElement)(
 Entries,{owner,view,remove,pin,layer,openMove,undoTidy}):page==="history"?(0,import_react26.createElement)(History,{owner,actions,undo,now}):(0,import_react26.createElement)(Summary,
 {owner,view,regenerate})),(0,import_react26.createElement)("div",{className:"bt-mem-foot"},answer?(0,import_react26.createElement)(Reply,{answer,dismiss:()=>setAnswer(null)}):null,
 (0,import_react26.createElement)("form",{className:"bt-mem-ask",onSubmit:ask},(0,import_react26.createElement)("input",{ref:inputRef,className:"bt-mem-input",value:text,maxLength:2e3,
@@ -9998,13 +10036,14 @@ onSave,onDone}){let[draft,setDraft]=(0,import_react27.useState)(null),reverting=
 "input",{ref:field,className:className??(multiline?"bt-bs-input bt-bs-area":"bt-bs-input"),value:draft??value??"",placeholder,maxLength,required,"aria-label":label,spellCheck:!1,onChange:event=>setDraft(
 event.target.value),onBlur:()=>{let next=draft?.trim();if(reverting.current){reverting.current=!1,setDraft(null),onDone?.();return}if(next===void 0||next===(value??"")||required&&next===
 ""){setDraft(null),onDone?.();return}let finish=ok=>{ok!==!1&&(setDraft(null),onDone?.())},outcome=onSave(next);outcome&&typeof outcome.then=="function"?outcome.then(finish,()=>{}):
-finish(outcome)},onKeyDown:event=>{event.key==="Escape"&&(event.stopPropagation(),reverting.current=!0,event.currentTarget.blur()),event.key==="Enter"&&!multiline&&!event.nativeEvent.
-isComposing&&event.currentTarget.blur()}})}function Row({label,hint,stack=!1,children}){return(0,import_react27.createElement)("label",{className:stack?"bt-set-row bt-bs-row bt-bs-\
-stack":"bt-set-row bt-bs-row"},(0,import_react27.createElement)("span",{className:"bt-set-copy"},(0,import_react27.createElement)("span",{className:"bt-bs-label"},label),hint?(0,import_react27.createElement)(
-"span",{className:"bt-set-hint"},hint):null),children)}function Card2({title,children}){return(0,import_react27.createElement)("section",{className:"bt-set-section"},title?(0,import_react27.createElement)(
-"h3",null,title):null,(0,import_react27.createElement)("div",{className:"bt-set-card"},children))}function Switch({on,label,disabled,onChange}){return(0,import_react27.createElement)(
-"button",{type:"button",role:"switch",className:"bt-switch","aria-checked":on,"aria-label":label,disabled,onClick:()=>onChange(!on)},(0,import_react27.createElement)("span",{className:"\
-bt-switch-knob","aria-hidden":!0}))}function SwitchRow({label,hint,on,disabled,onChange}){return(0,import_react27.createElement)("div",{className:"bt-set-row bt-bs-row"},(0,import_react27.createElement)(
+finish(outcome)},onKeyDown:event=>{event.key==="Escape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault?.(),event.stopPropagation?.(),event.nativeEvent?.
+stopPropagation?.(),reverting.current=!0,event.currentTarget.blur()),event.key==="Enter"&&!multiline&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&event.currentTarget.blur()}})}
+function Row({label,hint,stack=!1,children}){return(0,import_react27.createElement)("label",{className:stack?"bt-set-row bt-bs-row bt-bs-stack":"bt-set-row bt-bs-row"},(0,import_react27.createElement)(
+"span",{className:"bt-set-copy"},(0,import_react27.createElement)("span",{className:"bt-bs-label"},label),hint?(0,import_react27.createElement)("span",{className:"bt-set-hint"},hint):
+null),children)}function Card2({title,children}){return(0,import_react27.createElement)("section",{className:"bt-set-section"},title?(0,import_react27.createElement)("h3",null,title):
+null,(0,import_react27.createElement)("div",{className:"bt-set-card"},children))}function Switch({on,label,disabled,onChange}){return(0,import_react27.createElement)("button",{type:"\
+button",role:"switch",className:"bt-switch","aria-checked":on,"aria-label":label,disabled,onClick:()=>onChange(!on)},(0,import_react27.createElement)("span",{className:"bt-switch-k\
+nob","aria-hidden":!0}))}function SwitchRow({label,hint,on,disabled,onChange}){return(0,import_react27.createElement)("div",{className:"bt-set-row bt-bs-row"},(0,import_react27.createElement)(
 "span",{className:"bt-set-copy"},(0,import_react27.createElement)("span",{className:"bt-bs-label"},label),hint?(0,import_react27.createElement)("span",{className:"bt-set-hint"},hint):
 null),(0,import_react27.createElement)(Switch,{on,label,disabled,onChange}))}function modelHint(bot,roster){let shown=modelOf(bot,roster);return shown===void 0?t("Pick the model th\
 is Bot runs on."):!shown.served&&(roster.models??[]).length>0?t("This model is not available now. Pick another one."):bot.appliedModel&&bot.appliedModel===bot.model?t("Every messag\
@@ -10109,8 +10148,8 @@ d:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:
 .bt-switch[aria-checked=true]{background:var(--bt-accent)}
 .bt-switch:disabled{opacity:.45;cursor:default}
 .bt-switch:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE,"\
-transform")},${spring(SPRING_TAP,"width")}}
+.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--bt-knob);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE,
+"transform")},${spring(SPRING_TAP,"width")}}
 .bt-switch[aria-checked=true] .bt-switch-knob{transform:translateX(16px)}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}
@@ -10446,23 +10485,23 @@ if(!bot||currentPart(bot)!==sessionId)return null;let drawn=entry=>entry.callId&
 connectorRequests?.[bot.id]??[]).filter(entry=>entry.status==="pending"&&!drawn(entry));return waiting.length===0?null:(0,import_react29.createElement)("div",{className:"bt-q-dock \
 bt-secret-dock"},waiting.map(request=>(0,import_react29.createElement)(ConnectorCard,{key:request.id,sessionId,bot,request,actions})))}var RULE_LABELS={"allow-recipient":"Allow rec\
 ipient","require-approval":"Needs approval","no-draft":"Allow this Bot to send directly"};function MailApprovalMenu({bot,request,rule,onPick,actions,disabled=!1}){let[open,setOpen]=(0,import_react29.useState)(
-!1),root=(0,import_react29.useRef)(null);(0,import_react29.useEffect)(()=>{if(!open)return;let away=event=>{root.current?.contains(event.target)||setOpen(!1)},key=event=>{event.key===
-"Escape"&&setOpen(!1)};return document.addEventListener("pointerdown",away,!0),document.addEventListener("keydown",key),()=>{document.removeEventListener("pointerdown",away,!0),document.
-removeEventListener("keydown",key)}},[open]);let choose=mode=>{setOpen(!1),onPick(mode),Promise.resolve(actions.mailRuleSet?.({mode,botId:bot.id,recipients:[request.to,request.cc,request.
-bcc].filter(Boolean).join(", ")})).catch(()=>{})};return(0,import_react29.createElement)("div",{ref:root,className:"bt-mail-rule-wrap"},(0,import_react29.createElement)("button",{type:"\
-button",className:"bt-mail-rule-btn",disabled,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(v=>!v)},t(RULE_LABELS[rule]??"Needs approval"),(0,import_react29.createElement)(
-ChevronDownIcon)),open?(0,import_react29.createElement)("div",{className:"dv-menu bt-mail-rule-menu",role:"menu"},["allow-recipient","require-approval","no-draft"].map(mode=>(0,import_react29.createElement)(
-"button",{key:mode,type:"button",role:"menuitemradio","aria-checked":rule===mode,onClick:()=>choose(mode)},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-tex\
-t"},t(RULE_LABELS[mode])),rule===mode?(0,import_react29.createElement)(CheckIcon):null)),(0,import_react29.createElement)("div",{className:"dv-menu-sep",role:"separator"}),(0,import_react29.createElement)(
-"button",{type:"button",role:"menuitem",onClick:()=>{setOpen(!1),actions.openConnectors?.()}},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t("Manage\
- rules")))):null)}function mailFrom(request,roster){return(roster?.connectors?.mail?.accounts??[]).find(entry=>entry.id===request.account)?.address??request.account??""}function mailView(request,roster,settled=!1){
-let from=mailFrom(request,roster),attachments=request.attachmentDetails?.length?t("Attachments: {names}",{names:request.attachmentDetails.map(a=>a.size!==void 0?`${a.name} (${humanSize(
-a.size)})`:a.name).join(", ")}):"",done=request.status==="sent"?t("Sent"):request.status==="failed"?t("Failed"):t("Send"),fields=[{id:"subject",label:"",value:String(request.subject??
-""),placeholder:t("Subject")},{id:"from",label:t("From"),value:String(from),readOnly:!0},{id:"to",label:t("To"),value:String(request.to??""),placeholder:"name@example.com"},...settled&&
-!request.cc?[]:[{id:"cc",label:t("Cc"),value:String(request.cc??""),placeholder:"name@example.com"}],...request.bcc?[{id:"bcc",label:t("Bcc"),value:String(request.bcc??""),placeholder:"\
-name@example.com"}]:[],{id:"body",label:"",value:String(request.body??""),multiline:!0,placeholder:t("Write a message…")}];return{type:"stack",children:[{type:"form",id:"send",submitLabel:settled?
-done:t("Send"),cancelLabel:settled?t("Discarded"):t("Discard"),fields},attachments?{type:"text",tone:"muted",text:literal(attachments)}:null].filter(Boolean)}}function MailSendCard({
-sessionId,bot,request,roster,actions,inline=!1}){let[busy,setBusy]=(0,import_react29.useState)(!1),[rule,setRule]=(0,import_react29.useState)("require-approval"),busyRef=(0,import_react29.useRef)(
+!1),root=(0,import_react29.useRef)(null);useEscape(()=>setOpen(!1),open),(0,import_react29.useEffect)(()=>{if(!open)return;let away=event=>{root.current?.contains(event.target)||setOpen(
+!1)};return document.addEventListener("pointerdown",away,!0),()=>{document.removeEventListener("pointerdown",away,!0)}},[open]);let choose=mode=>{setOpen(!1),onPick(mode),Promise.resolve(
+actions.mailRuleSet?.({mode,botId:bot.id,recipients:[request.to,request.cc,request.bcc].filter(Boolean).join(", ")})).catch(()=>{})};return(0,import_react29.createElement)("div",{ref:root,
+className:"bt-mail-rule-wrap"},(0,import_react29.createElement)("button",{type:"button",className:"bt-mail-rule-btn",disabled,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(
+v=>!v)},t(RULE_LABELS[rule]??"Needs approval"),(0,import_react29.createElement)(ChevronDownIcon)),open?(0,import_react29.createElement)("div",{className:"bt-menu bt-menu-up bt-mail\
+-rule-menu",role:"menu"},["allow-recipient","require-approval","no-draft"].map(mode=>(0,import_react29.createElement)("button",{key:mode,type:"button",role:"menuitemradio","aria-ch\
+ecked":rule===mode,onClick:()=>choose(mode)},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t(RULE_LABELS[mode])),rule===mode?(0,import_react29.createElement)(
+CheckIcon):null)),(0,import_react29.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react29.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{
+setOpen(!1),actions.openConnectors?.()}},(0,import_react29.createElement)("span",{className:"bt-mail-rule-item-text"},t("Manage rules")))):null)}function mailFrom(request,roster){return(roster?.
+connectors?.mail?.accounts??[]).find(entry=>entry.id===request.account)?.address??request.account??""}function mailView(request,roster,settled=!1){let from=mailFrom(request,roster),
+attachments=request.attachmentDetails?.length?t("Attachments: {names}",{names:request.attachmentDetails.map(a=>a.size!==void 0?`${a.name} (${humanSize(a.size)})`:a.name).join(", ")}):
+"",done=request.status==="sent"?t("Sent"):request.status==="failed"?t("Failed"):t("Send"),fields=[{id:"subject",label:"",value:String(request.subject??""),placeholder:t("Subject")},
+{id:"from",label:t("From"),value:String(from),readOnly:!0},{id:"to",label:t("To"),value:String(request.to??""),placeholder:"name@example.com"},...settled&&!request.cc?[]:[{id:"cc",
+label:t("Cc"),value:String(request.cc??""),placeholder:"name@example.com"}],...request.bcc?[{id:"bcc",label:t("Bcc"),value:String(request.bcc??""),placeholder:"name@example.com"}]:
+[],{id:"body",label:"",value:String(request.body??""),multiline:!0,placeholder:t("Write a message…")}];return{type:"stack",children:[{type:"form",id:"send",submitLabel:settled?done:
+t("Send"),cancelLabel:settled?t("Discarded"):t("Discard"),fields},attachments?{type:"text",tone:"muted",text:literal(attachments)}:null].filter(Boolean)}}function MailSendCard({sessionId,
+bot,request,roster,actions,inline=!1}){let[busy,setBusy]=(0,import_react29.useState)(!1),[rule,setRule]=(0,import_react29.useState)("require-approval"),busyRef=(0,import_react29.useRef)(
 !1),answer=values=>{if(busyRef.current)return;busyRef.current=!0,setBusy(!0);let send=values?.canceled!==!0&&values?.fields!==void 0;Promise.resolve(actions.mailSendAnswer(request.
 id,send?"send":"cancel",send?{fields:values.fields,rule}:{rule})).catch(()=>{}).finally(()=>{busyRef.current=!1,setBusy(!1)})};return(0,import_react29.createElement)(RequestView2,{
 sessionId,kind:"mail",request,actions,inline,busy,title:t("Mail"),icon:(0,import_react29.createElement)(MailIcon),footStart:(0,import_react29.createElement)(MailApprovalMenu,{bot,request,
@@ -10498,8 +10537,8 @@ bot,request,roster,actions})))}var CONNECTOR_CSS=`
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
 .bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
-.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--bt-origin:bottom left}
+.bt-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}
@@ -10566,33 +10605,34 @@ t of this message is kept here");return{shown:loaded?.text??text,control:(0,impo
 from(root.querySelectorAll(HEADINGS)).filter(node=>!node.closest("blockquote,table,details")&&node.textContent.trim()!=="")}function outlineOf(headings){if(headings.length<2)return[];
 let levels=headings.map(node=>Number(node.tagName.slice(1))),top=Math.min(...levels);return headings.map((node,index)=>({text:node.textContent.trim().replace(/\s+/g," "),depth:Math.
 min(levels[index]-top,2)}))}function sectionAt(tops,line){let at=-1;for(let index=0;index<tops.length&&!(tops[index]>line);index+=1)at=index;return at}function readingBand(scroller){
-let box=scroller.getBoundingClientRect(),head=Array.from(document.querySelectorAll(".bt-head"),node=>node.getBoundingClientRect()).find(rect=>rect.height>0&&rect.left<box.right&&rect.
-right>box.left),top=head&&head.bottom>box.top&&head.bottom<box.bottom?head.bottom:box.top,composer=parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height"))||
-0;return{top:top+GAP,bottom:box.bottom-composer,left:box.left,right:box.right}}function pillPlace(rect,band,above){if(rect.height<=band.bottom-band.top)return null;let left=Math.max(
-rect.left,band.left+GAP),top=above&&above.left<left+MAX_WIDTH&&above.right>left&&above.bottom>band.top?above.bottom+GAP:band.top;return rect.top>=band.top-GAP||rect.bottom<top+PILL+
-TAIL?null:{top:Math.round(top),left:Math.round(left)}}var fillsBand=(height,band)=>height>(band.bottom-band.top)*.75,sizes=null,sized=new WeakMap;function watchSize(node,onSize){if(typeof ResizeObserver!=
-"function")return()=>{};sizes??=new ResizeObserver(entries2=>{for(let entry of entries2)sized.get(entry.target)?.forEach(listener=>listener())});let listeners3=sized.get(node)??new Set;
-return sized.set(node,listeners3),listeners3.add(onSize),listeners3.size===1&&sizes.observe(node),()=>{listeners3.delete(onSize),listeners3.size===0&&(sized.delete(node),sizes.unobserve(
-node))}}var followers=new Map,frame=0;function measureScroll(){frame=0;let news=document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();for(let[scroller,listeners3]of followers){
-let band=readingBand(scroller);listeners3.forEach(listener=>{try{listener(band,news)}catch(error){reportError(error)}})}}function scheduleScroll(){frame||(frame=requestAnimationFrame(
-measureScroll))}function followScroll(scroller,onFrame){followers.size===0&&window.addEventListener("resize",scheduleScroll);let listeners3=followers.get(scroller)??new Set;return followers.
-set(scroller,listeners3),listeners3.add(onFrame),listeners3.size===1&&scroller.addEventListener("scroll",scheduleScroll,{passive:!0}),scheduleScroll(),()=>{listeners3.delete(onFrame),
-listeners3.size===0&&(followers.delete(scroller),scroller.removeEventListener("scroll",scheduleScroll)),followers.size===0&&(window.removeEventListener("resize",scheduleScroll),cancelAnimationFrame(
-frame),frame=0)}}var glide=(scroller,by)=>scroller.scrollTo({top:Math.max(0,scroller.scrollTop+by),behavior:reducedMotion()?"auto":"smooth"});function ReplyGuide({box,active}){let[
-scroller,setScroller]=(0,import_react31.useState)(null),[long,setLong]=(0,import_react31.useState)(!1),[view,setView]=(0,import_react31.useState)(null),[menu,setMenu]=(0,import_react31.useState)(
-!1),pop=(0,import_react31.useRef)(null),trigger=(0,import_react31.useRef)(null);(0,import_react31.useEffect)(()=>{let node=box.current,own=active&&node?node.closest("[data-conversa\
-tion-scroll]"):null;if(setScroller(own),!own){setLong(!1);return}let check=()=>setLong(fillsBand(node.getBoundingClientRect().height,readingBand(own))),stops=[watchSize(node,check),
-watchSize(own,check)];return()=>stops.forEach(stop=>stop())},[active]),(0,import_react31.useEffect)(()=>{if(!long||!scroller){setView(null);return}return followScroll(scroller,(band,news)=>{
-let node=box.current;if(!node)return;let place=pillPlace(node.getBoundingClientRect(),band,news),headings2=place?headingsIn(node):[],current2=sectionAt(headings2.map(heading=>heading.
-getBoundingClientRect().top),place?place.top+PILL+SLACK:0),next=place&&{...place,current:current2};setView(prev=>prev&&next&&Object.keys(next).every(key=>prev[key]===next[key])?prev:
-next)})},[long,scroller]),(0,import_react31.useEffect)(()=>{view===null&&setMenu(!1)},[view===null]),(0,import_react31.useEffect)(()=>{if(!menu)return;let onDown=event=>{pop.current?.
+let box=scroller.getBoundingClientRect(),heads=Array.from(document.querySelectorAll(".bt-head, .bt-island"),node=>node.getBoundingClientRect()).filter(rect=>rect.height>0&&rect.left<
+box.right&&rect.right>box.left&&rect.bottom>box.top&&rect.bottom<box.bottom),top=heads.length>0?Math.max(...heads.map(rect=>rect.bottom)):box.top,composer=parseFloat(getComputedStyle(
+scroller).getPropertyValue("--dsh-composer-height"))||0;return{top:top+GAP,bottom:box.bottom-composer,left:box.left,right:box.right}}function pillPlace(rect,band,above){if(rect.height<=
+band.bottom-band.top)return null;let left=Math.max(rect.left,band.left+GAP),top=above&&above.left<left+MAX_WIDTH&&above.right>left&&above.bottom>band.top?above.bottom+GAP:band.top;
+return rect.top>=band.top-GAP||rect.bottom<top+PILL+TAIL?null:{top:Math.round(top),left:Math.round(left)}}var fillsBand=(height,band)=>height>(band.bottom-band.top)*.75,sizes=null,
+sized=new WeakMap;function watchSize(node,onSize){if(typeof ResizeObserver!="function")return()=>{};sizes??=new ResizeObserver(entries2=>{for(let entry of entries2)sized.get(entry.
+target)?.forEach(listener=>listener())});let listeners3=sized.get(node)??new Set;return sized.set(node,listeners3),listeners3.add(onSize),listeners3.size===1&&sizes.observe(node),()=>{
+listeners3.delete(onSize),listeners3.size===0&&(sized.delete(node),sizes.unobserve(node))}}var followers=new Map,frame=0;function measureScroll(){frame=0;let news=document.querySelector(
+".bt-news[data-direction=up]")?.getBoundingClientRect();for(let[scroller,listeners3]of followers){let band=readingBand(scroller);listeners3.forEach(listener=>{try{listener(band,news)}catch(error){
+reportError(error)}})}}function scheduleScroll(){frame||(frame=requestAnimationFrame(measureScroll))}function followScroll(scroller,onFrame){followers.size===0&&window.addEventListener(
+"resize",scheduleScroll);let listeners3=followers.get(scroller)??new Set;return followers.set(scroller,listeners3),listeners3.add(onFrame),listeners3.size===1&&scroller.addEventListener(
+"scroll",scheduleScroll,{passive:!0}),scheduleScroll(),()=>{listeners3.delete(onFrame),listeners3.size===0&&(followers.delete(scroller),scroller.removeEventListener("scroll",scheduleScroll)),
+followers.size===0&&(window.removeEventListener("resize",scheduleScroll),cancelAnimationFrame(frame),frame=0)}}var glide=(scroller,by)=>scroller.scrollTo({top:Math.max(0,scroller.scrollTop+
+by),behavior:reducedMotion()?"auto":"smooth"});function ReplyGuide({box,active}){let[scroller,setScroller]=(0,import_react31.useState)(null),[long,setLong]=(0,import_react31.useState)(
+!1),[view,setView]=(0,import_react31.useState)(null),[menu,setMenu]=(0,import_react31.useState)(!1),pop=(0,import_react31.useRef)(null),trigger=(0,import_react31.useRef)(null);(0,import_react31.useEffect)(
+()=>{let node=box.current,own=active&&node?node.closest("[data-conversation-scroll]"):null;if(setScroller(own),!own){setLong(!1);return}let check=()=>setLong(fillsBand(node.getBoundingClientRect().
+height,readingBand(own))),stops=[watchSize(node,check),watchSize(own,check)];return()=>stops.forEach(stop=>stop())},[active]),(0,import_react31.useEffect)(()=>{if(!long||!scroller){
+setView(null);return}return followScroll(scroller,(band,news)=>{let node=box.current;if(!node)return;let place=pillPlace(node.getBoundingClientRect(),band,news),headings2=place?headingsIn(
+node):[],current2=sectionAt(headings2.map(heading=>heading.getBoundingClientRect().top),place?place.top+PILL+SLACK:0),maxWidth=place&&Number.isFinite(band.right)?Math.max(120,Math.
+min(MAX_WIDTH,Math.round(band.right-place.left-GAP))):void 0,next=place&&{...place,current:current2,maxWidth};setView(prev=>prev&&next&&Object.keys(next).every(key=>prev[key]===next[key])?
+prev:next)})},[long,scroller]),(0,import_react31.useEffect)(()=>{view===null&&setMenu(!1)},[view===null]),(0,import_react31.useEffect)(()=>{if(!menu)return;let onDown=event=>{pop.current?.
 contains(event.target)||trigger.current?.contains(event.target)||setMenu(!1)},onKey=event=>{event.key==="Escape"&&(event.stopPropagation(),setMenu(!1),trigger.current?.focus())};return window.
 addEventListener("mousedown",onDown),window.addEventListener("touchstart",onDown),window.addEventListener("keydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.
 removeEventListener("touchstart",onDown),window.removeEventListener("keydown",onKey,!0)}},[menu]),(0,import_react31.useLayoutEffect)(()=>{menu&&(pop.current?.querySelector("[aria-c\
 urrent=true]")??pop.current?.querySelector("button"))?.focus()},[menu]);let[shown,leaving]=useLinger(view,120);if(!shown||!scroller)return null;let headings=box.current?headingsIn(
 box.current):[],outline=outlineOf(headings),toStart=()=>{setMenu(!1),box.current&&glide(scroller,box.current.getBoundingClientRect().top-readingBand(scroller).top+GAP)},toSection=index=>{
 setMenu(!1);let heading=headings[index];heading&&glide(scroller,heading.getBoundingClientRect().top-shown.top-PILL-GAP)},label=outline[shown.current]?.text??t("Contents");return(0,import_react_dom3.createPortal)(
-(0,import_react31.createElement)("div",{className:"bt-reading","data-leaving":leaving||void 0,style:{top:shown.top,left:shown.left}},outline.length===0?(0,import_react31.createElement)(
+(0,import_react31.createElement)("div",{className:"bt-reading","data-leaving":leaving||void 0,style:{top:shown.top,left:shown.left,maxWidth:shown.maxWidth}},outline.length===0?(0,import_react31.createElement)(
 "button",{type:"button",className:"bt-reading-start",onClick:toStart},(0,import_react31.createElement)(ArrowUpIcon),t("Start of reply")):[(0,import_react31.createElement)("button",
 {key:"start",type:"button",className:"bt-reading-up","aria-label":t("Back to the start of this reply"),title:t("Back to the start of this reply"),onClick:toStart},(0,import_react31.createElement)(
 ArrowUpIcon)),(0,import_react31.createElement)("button",{key:"sections",ref:trigger,type:"button",className:"bt-reading-section","aria-haspopup":"menu","aria-expanded":menu,"aria-l\
@@ -10883,48 +10923,49 @@ WidgetCell,{key,sessionId,callId:row.callId,args:{text:name=>name==="title"?row.
 let bubbles=(0,import_react34.createElement)(Bubbles,{key,texts:row.texts,roster,selfId,actions,sessionId:useUi?sessionId:void 0,msgKey:useUi?`${sessionId}:${row.time}`:void 0,useUi,
 fold:FOLD_HUGE,textInteractionSource:!0}),speaker=layoutOf(roster.prefs)==="flat"?roster.byId[selfId]:void 0;return speaker?(0,import_react34.createElement)(import_react34.Fragment,
 {key},(0,import_react34.createElement)(SpeakerHead,{bot:speaker,time:row.time}),bubbles):bubbles}case"btw":return(0,import_react34.createElement)(BtwCardView,{key,card:row.card,sessionId,
-actions,onDeleted:onBtwDelete});case"post":{let poster=roster.byId[row.botId]??{id:row.botId,name:row.name??t("a Bot"),color:"gray"};return(0,import_react34.createElement)(GroupMessage,
-{key,bot:poster,text:row.file?stripLongNote(row.text):row.text,texts:row.texts,room:roster.roomsById[sessionId],sessionId,roster,actions,msgKey:`${sessionId}:post:${row.seq??row.time}`,
-time:row.time,duration:row.duration,claims:row.claims,changes:row.changes,whole:row.file?{length:row.length,load:()=>actions.fileText(row.file)}:void 0})}case"relay":{let reply=row.
-reply,speaker=roster.byId[reply.botId]??{id:reply.botId,name:reply.name??t("a Bot"),color:reply.color??"gray"};return(0,import_react34.createElement)(RelayEvent,{key,reply,bot:speaker,
-sessionId,actions})}case"event":{if(row.role==="report")return(0,import_react34.createElement)(GroupEvent,{key,prefix:t("Replies from"),room:roster.roomsById[row.roomId],name:t("a \
-group chat"),roster,actions});let other=roster.byId[row.botId]??{id:row.botId,name:row.name??t("a Bot"),color:"gray"},prefix={stopped:t("Stopped by"),reply:t("Reply from")}[row.role]??
-t("Message from");return(0,import_react34.createElement)(EventLine,{key,prefix,bots:[other],onOpen:()=>{selfId&&other.id&&actions.openExchange(selfId,other.id)},whole:!0})}default:
-return null}}function TriggerCell({node,sessionId,useRoster,useSessions,useTurnClock,useUi,actions}){let roster=useRoster(value=>value),data=node.data,source=data.source!==null&&typeof data.
-source=="object"?data.source:{},selfId=roster.byId[sessionId]?.id??sessionId,deferred=source.kind==="bot"&&source.deferred===!0,relayed=isRelayContext(data),turn=node.location?.turn?.
-turn??data.turn;(0,import_react34.useLayoutEffect)(()=>{relayed&&actions.noteTurnPeer(sessionId,turn,source.senderSessionId)},[relayed,sessionId,turn,source.senderSessionId]);let order=useSessions(
-list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.turnOutline;return Array.isArray(outline)?outline.map(entry=>entry.
-turn).join(","):""}),peers=useTurnClock(state=>{if(!relayed)return"";let turns=state[sessionId]??{};return Object.keys(turns).filter(key=>turns[key].peer!==void 0).map(key=>`${key}\
-:${turns[key].peer}`).join(",")}),visit=useUi(state=>state.visits?.[sessionId]),hiddenTurns=roster.exchangeTurns[sessionId],unreadOpening=useTurnClock(state=>{let first=openingTurn(
-state[sessionId],order,hiddenTurns);return first?.turn===turn&&unseenSince(visit,first.start)?clockLabel(first.start):""}),body=triggerBody();return unreadOpening?(0,import_react34.createElement)(
-import_react34.Fragment,null,(0,import_react34.createElement)("div",{className:"bt-open-new"},(0,import_react34.createElement)(NewDivider),(0,import_react34.createElement)("div",{className:"\
-bt-time-sep",role:"separator"},unreadOpening)),body):body??(0,import_react34.createElement)(CellEmpty);function triggerBody(){if(source.kind==="bot"){if(source.handoff===!0)return(0,import_react34.createElement)(
-EarlierParts,{sessionId,roster,actions});if(source.role==="kickoff"||source.role==="room"||source.role==="goal"||source.role==="task-handoff"||source.role==="secret"||deferred)return null;
-if(source.role==="update")return(0,import_react34.createElement)("div",{className:"bt-event"},t("Profile updated"));if(source.role==="post"){if(source.logged!==void 0||source.failed!==
-void 0||source.resumed===!0||source.stopped===!0||source.done===!0)return null;let room2=roster.roomsById[sessionId],poster=roster.byId[source.senderSessionId]??{id:source.senderSessionId,
-name:source.senderName??t("a Bot"),color:"gray"},file=source.length===void 0?void 0:(data.content??[]).find(block=>block?.type==="file")?.attachment,text=stripHeader(contentText(data.
-content));return(0,import_react34.createElement)(GroupMessage,{bot:poster,text:file?stripLongNote(text):text,room:room2,sessionId,roster,actions,msgKey:`${sessionId}:post:${data.seq??
-node.key}`,useUi,time:data.time,claims:source.claims,changes:source.changes,whole:file?{length:source.length,load:()=>actions.fileText(file)}:void 0})}if(source.role==="report")return(0,import_react34.createElement)(
-GroupEvent,{prefix:t("Replies from"),room:roster.roomsById[source.roomId],name:t("a group chat"),roster,actions});if(source.role==="resume"||source.resumed===!0)return(0,import_react34.createElement)(
-"div",{className:"bt-event"},t("Picked up its work after a restart"));if(source.role==="retry"||source.retried===!0)return(0,import_react34.createElement)("div",{className:"bt-even\
-t"},t("Asked to make the tool call it wrote as text"));if(source.role==="continue")return(0,import_react34.createElement)("div",{className:"bt-event"},t("Went on after the failed t\
-urn"));let run2=relayed?commRunOf(order.split(",").filter(Boolean).map(Number),Object.fromEntries(peers.split(",").filter(Boolean).map(pair=>[Number(pair.slice(0,pair.indexOf(":"))),
-pair.slice(pair.indexOf(":")+1)])),turn,hiddenTurns):null;if(run2==="folded")return null;let sender=roster.byId[source.senderSessionId]??{id:source.senderSessionId,name:source.senderName??
-t("a Bot"),color:"gray"},count=run2?.count??(isHiddenTurn(roster,sessionId,turn)?2:1),bots=[sender];for(let peer of(run2?.peerIds??[]).map(id=>roster.byId[id]).filter(Boolean))bots.
-some(bot=>bot.id===peer.id)||bots.push(peer);return(0,import_react34.createElement)(EventLine,{prefix:source.role==="stopped"?t("Stopped by"):count>1?t("{count} messages with",{count}):
-t("Message from"),bots,onOpen:bot=>actions.openExchange(selfId,bot.id),whole:!0})}if(source.kind==="schedule"){let prompts=reminderPrompts(contentText(data.content));return(0,import_react34.createElement)(
-"div",{className:"bt-event"},prompts.length>0?t("Scheduled task: {text}",{text:prompts.join(" · ").slice(0,80)}):t("Routine started"))}return source.kind==="user-question-reply"||
-source.kind==="goal"?null:(0,import_react34.createElement)("div",{className:"bt-event"},contentText(data.content).slice(0,80)||t("Update"))}}function NewDivider(){return(0,import_react34.createElement)(
-"div",{className:"bt-new-sep",role:"separator","aria-label":t("New messages")},(0,import_react34.createElement)("span",null,t("New")))}function TurnProcessCell({node,sessionId,turnProcess,
-useRoster,useUi,useTurnClock,actions}){let open=turnProcess===void 0||!turnProcess.foldable||turnProcess.open;(0,import_react34.useEffect)(()=>{open||turnProcess.setOpen(!0)},[open,
-turnProcess]);let turn=node?.location?.turn?.turn??node?.data?.turn,start=node?.location?.turn?.start?.time,hidden=useRoster(roster=>isHiddenTurn(roster,sessionId,turn));(0,import_react34.useEffect)(
-()=>{actions.noteTurnTime(sessionId,turn,"first",start)},[sessionId,turn,start]);let visit=useUi(state=>state.visits?.[sessionId]);return useTurnClock(state=>{let own=state[sessionId]?.[turn];
-return!hidden&&typeof visit?.seen=="number"&&own?.first!==void 0&&own.first<=visit.seen&&own.end!==void 0&&own.end>visit.seen&&own.end<=visit.entered})?(0,import_react34.createElement)(
-NewDivider):(0,import_react34.createElement)(CellEmpty)}function Nothing(){return null}var SEPARATOR_GAP_MS=1800*1e3;function nextTurnStart(turns,turn){let next;for(let key in turns){
-let candidate=Number(key);candidate>turn&&turns[key].first!==void 0&&(next===void 0||candidate<next)&&(next=candidate)}return next===void 0?void 0:turns[next].first}function openingTurn(turns,firstTurns,hiddenTurns){
-if(!turns||!firstTurns)return null;let start=nextTurnStart(turns,-1/0);if(start===void 0)return null;let turn=Number(Object.keys(turns).filter(key=>turns[key].first===start)[0]),listed=firstTurns.
-split(",").map(Number),earlier=listed.filter(entry=>entry<turn);return listed.includes(turn)&&earlier.every(entry=>hiddenTurns?.includes(entry))?{turn,start}:null}var unseenSince=(visit,time)=>typeof visit?.
-seen=="number"&&time>visit.seen&&time<=visit.entered;function TurnTailCell({turn:location2,sessionId,useTurnClock,useUi,actions}){let turn=location2.turn,time=location2.end.time;(0,import_react34.useEffect)(
+actions,onDeleted:onBtwDelete});case"post":{let poster=roster.byId[row.botId]??{id:row.botId,name:row.name??t("a Bot"),color:row.color??"gray"};return(0,import_react34.createElement)(
+GroupMessage,{key,bot:poster,text:row.file?stripLongNote(row.text):row.text,texts:row.texts,room:roster.roomsById[sessionId],sessionId,roster,actions,msgKey:`${sessionId}:post:${row.
+seq??row.time}`,time:row.time,duration:row.duration,claims:row.claims,changes:row.changes,useUi,whole:row.file?{length:row.length,load:()=>actions.fileText(row.file)}:void 0})}case"\
+relay":{let reply=row.reply,speaker=roster.byId[reply.botId]??{id:reply.botId,name:reply.name??t("a Bot"),color:reply.color??"gray"};return(0,import_react34.createElement)(RelayEvent,
+{key,reply,bot:speaker,sessionId,actions})}case"event":{if(row.role==="report")return(0,import_react34.createElement)(GroupEvent,{key,prefix:t("Replies from"),room:roster.roomsById[row.
+roomId],name:t("a group chat"),roster,actions});let other=roster.byId[row.botId]??{id:row.botId,name:row.name??t("a Bot"),color:"gray"},prefix={stopped:t("Stopped by"),reply:t("Rep\
+ly from")}[row.role]??t("Message from");return(0,import_react34.createElement)(EventLine,{key,prefix,bots:[other],onOpen:()=>{selfId&&other.id&&actions.openExchange(selfId,other.id)},
+whole:!0})}default:return null}}function TriggerCell({node,sessionId,useRoster,useSessions,useTurnClock,useUi,actions}){let roster=useRoster(value=>value),data=node.data,source=data.
+source!==null&&typeof data.source=="object"?data.source:{},selfId=roster.byId[sessionId]?.id??sessionId,deferred=source.kind==="bot"&&source.deferred===!0,relayed=isRelayContext(data),
+turn=node.location?.turn?.turn??data.turn;(0,import_react34.useLayoutEffect)(()=>{relayed&&actions.noteTurnPeer(sessionId,turn,source.senderSessionId)},[relayed,sessionId,turn,source.
+senderSessionId]);let order=useSessions(list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.turnOutline;return Array.
+isArray(outline)?outline.map(entry=>entry.turn).join(","):""}),peers=useTurnClock(state=>{if(!relayed)return"";let turns=state[sessionId]??{};return Object.keys(turns).filter(key=>turns[key].
+peer!==void 0).map(key=>`${key}:${turns[key].peer}`).join(",")}),visit=useUi(state=>state.visits?.[sessionId]),hiddenTurns=roster.exchangeTurns[sessionId],unreadOpening=useTurnClock(
+state=>{let first=openingTurn(state[sessionId],order,hiddenTurns);return first?.turn===turn&&unseenSince(visit,first.start)?clockLabel(first.start):""}),body=triggerBody();return unreadOpening?
+(0,import_react34.createElement)(import_react34.Fragment,null,(0,import_react34.createElement)("div",{className:"bt-open-new"},(0,import_react34.createElement)(NewDivider),(0,import_react34.createElement)(
+"div",{className:"bt-time-sep",role:"separator"},unreadOpening)),body):body??(0,import_react34.createElement)(CellEmpty);function triggerBody(){if(source.kind==="bot"){if(source.handoff===
+!0)return(0,import_react34.createElement)(EarlierParts,{sessionId,roster,actions});if(source.role==="kickoff"||source.role==="room"||source.role==="goal"||source.role==="task-hando\
+ff"||source.role==="secret"||deferred)return null;if(source.role==="update")return(0,import_react34.createElement)("div",{className:"bt-event"},t("Profile updated"));if(source.role===
+"post"){if(source.logged!==void 0||source.failed!==void 0||source.resumed===!0||source.stopped===!0||source.done===!0)return null;let room2=roster.roomsById[sessionId],poster=roster.
+byId[source.senderSessionId]??{id:source.senderSessionId,name:source.senderName??t("a Bot"),color:"gray"},file=source.length===void 0?void 0:(data.content??[]).find(block=>block?.type===
+"file")?.attachment,text=stripHeader(contentText(data.content));return(0,import_react34.createElement)(GroupMessage,{bot:poster,text:file?stripLongNote(text):text,room:room2,sessionId,
+roster,actions,msgKey:`${sessionId}:post:${data.seq??node.key}`,useUi,time:data.time,claims:source.claims,changes:source.changes,whole:file?{length:source.length,load:()=>actions.fileText(
+file)}:void 0})}if(source.role==="report")return(0,import_react34.createElement)(GroupEvent,{prefix:t("Replies from"),room:roster.roomsById[source.roomId],name:t("a group chat"),roster,
+actions});if(source.role==="resume"||source.resumed===!0)return(0,import_react34.createElement)("div",{className:"bt-event"},t("Picked up its work after a restart"));if(source.role===
+"retry"||source.retried===!0)return(0,import_react34.createElement)("div",{className:"bt-event"},t("Asked to make the tool call it wrote as text"));if(source.role==="continue")return(0,import_react34.createElement)(
+"div",{className:"bt-event"},t("Went on after the failed turn"));let run2=relayed?commRunOf(order.split(",").filter(Boolean).map(Number),Object.fromEntries(peers.split(",").filter(
+Boolean).map(pair=>[Number(pair.slice(0,pair.indexOf(":"))),pair.slice(pair.indexOf(":")+1)])),turn,hiddenTurns):null;if(run2==="folded")return null;let sender=roster.byId[source.senderSessionId]??
+{id:source.senderSessionId,name:source.senderName??t("a Bot"),color:"gray"},count=run2?.count??(isHiddenTurn(roster,sessionId,turn)?2:1),bots=[sender];for(let peer of(run2?.peerIds??
+[]).map(id=>roster.byId[id]).filter(Boolean))bots.some(bot=>bot.id===peer.id)||bots.push(peer);return(0,import_react34.createElement)(EventLine,{prefix:source.role==="stopped"?t("S\
+topped by"):count>1?t("{count} messages with",{count}):t("Message from"),bots,onOpen:bot=>actions.openExchange(selfId,bot.id),whole:!0})}if(source.kind==="schedule"){let prompts=reminderPrompts(
+contentText(data.content));return(0,import_react34.createElement)("div",{className:"bt-event"},prompts.length>0?t("Scheduled task: {text}",{text:prompts.join(" · ").slice(0,80)}):
+t("Routine started"))}return source.kind==="user-question-reply"||source.kind==="goal"?null:(0,import_react34.createElement)("div",{className:"bt-event"},contentText(data.content).
+slice(0,80)||t("Update"))}}function NewDivider(){return(0,import_react34.createElement)("div",{className:"bt-new-sep",role:"separator","aria-label":t("New messages")},(0,import_react34.createElement)(
+"span",null,t("New")))}function TurnProcessCell({node,sessionId,turnProcess,useRoster,useUi,useTurnClock,actions}){let open=turnProcess===void 0||!turnProcess.foldable||turnProcess.
+open;(0,import_react34.useEffect)(()=>{open||turnProcess.setOpen(!0)},[open,turnProcess]);let turn=node?.location?.turn?.turn??node?.data?.turn,start=node?.location?.turn?.start?.time,
+hidden=useRoster(roster=>isHiddenTurn(roster,sessionId,turn));(0,import_react34.useEffect)(()=>{actions.noteTurnTime(sessionId,turn,"first",start)},[sessionId,turn,start]);let visit=useUi(
+state=>state.visits?.[sessionId]);return useTurnClock(state=>{let own=state[sessionId]?.[turn];return!hidden&&typeof visit?.seen=="number"&&own?.first!==void 0&&own.first<=visit.seen&&
+own.end!==void 0&&own.end>visit.seen&&own.end<=visit.entered})?(0,import_react34.createElement)(NewDivider):(0,import_react34.createElement)(CellEmpty)}function Nothing(){return null}
+var SEPARATOR_GAP_MS=1800*1e3;function nextTurnStart(turns,turn){let next;for(let key in turns){let candidate=Number(key);candidate>turn&&turns[key].first!==void 0&&(next===void 0||
+candidate<next)&&(next=candidate)}return next===void 0?void 0:turns[next].first}function openingTurn(turns,firstTurns,hiddenTurns){if(!turns||!firstTurns)return null;let start=nextTurnStart(
+turns,-1/0);if(start===void 0)return null;let turn=Number(Object.keys(turns).filter(key=>turns[key].first===start)[0]),listed=firstTurns.split(",").map(Number),earlier=listed.filter(
+entry=>entry<turn);return listed.includes(turn)&&earlier.every(entry=>hiddenTurns?.includes(entry))?{turn,start}:null}var unseenSince=(visit,time)=>typeof visit?.seen=="number"&&time>
+visit.seen&&time<=visit.entered;function TurnTailCell({turn:location2,sessionId,useTurnClock,useUi,actions}){let turn=location2.turn,time=location2.end.time;(0,import_react34.useEffect)(
 ()=>{actions.noteTurnTime(sessionId,turn,"end",time)},[sessionId,turn,time]);let label=useTurnClock(state=>{let start=nextTurnStart(state[sessionId]??{},turn);return start!==void 0&&
 start-time>=SEPARATOR_GAP_MS?clockLabel(start):""}),visit=useUi(state=>state.visits?.[sessionId]),fresh=useTurnClock(state=>{if(typeof visit?.seen!="number"||time>visit.seen)return!1;
 let start=nextTurnStart(state[sessionId]??{},turn);return start!==void 0&&start>visit.seen&&start<=visit.entered});return!label&&!fresh?null:(0,import_react34.createElement)(import_react34.Fragment,
@@ -10964,7 +11005,8 @@ off by a restart and picked its work back up",{name:bot.name}));if(reply.kind===
  restart again and stopped",{name:bot.name}));if(reply.kind==="approval"||reply.kind==="working")return(0,import_react34.createElement)("div",{className:"bt-event"},(0,import_react34.createElement)(
 "button",{type:"button",className:"bt-event-whole",onClick:()=>actions.showDetails(sessionId)},(0,import_react34.createElement)(BotMark,{bot,size:16}),(0,import_react34.createElement)(
 "span",{className:"bt-event-name"},t(reply.kind==="working"?"{name} started on it":"{name} paused for your approval",{name:bot.name}))));if(reply.kind==="folder")return(0,import_react34.createElement)(
-"div",{className:"bt-event"},reply.text);if(reply.kind==="stopped")return(0,import_react34.createElement)("div",{className:"bt-event"},t("You stopped {name}'s work",{name:bot.name}));
+"div",{className:"bt-event"},reply.text);if(reply.kind==="schedule")return(0,import_react34.createElement)("div",{className:"bt-event"},reply.text?t("Scheduled task: {text}",{text:reply.
+text.slice(0,80)}):t("Routine started"));if(reply.kind==="stopped")return(0,import_react34.createElement)("div",{className:"bt-event"},t("You stopped {name}'s work",{name:bot.name}));
 if(reply.kind==="done"){let line=(0,import_react34.createElement)("div",{className:"bt-event"},t("{name} finished its work",{name:bot.name}));return reply.changes===void 0?line:(0,import_react34.createElement)(
 import_react34.Fragment,null,line,(0,import_react34.createElement)(ChangesCard,{changes:reply.changes,actions}))}return null}var settledRows=new Map;function GroupReplies({sessionId,
 callId,done,content,roster,actions,useUi,useWork}){let[live,setLive]=(0,import_react34.useState)({replies:[],speaking:[]});(0,import_react34.useEffect)(()=>{if(done)return;let stop=!1,
@@ -10986,43 +11028,43 @@ let room2=roster.roomsById[sessionId];return(0,import_react34.createElement)("di
 claims,changes})=>{let bot=roster.byId[reply.botId]??{id:reply.botId,name:reply.name,color:reply.color??"gray"};return reply.kind==="user"?(0,import_react34.createElement)("div",{key:`\
 user-${index}`,className:"bt-urow"},(0,import_react34.createElement)("div",{className:"bt-ububble","data-text-interaction-source":""},(0,import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText,
 {text:reply.text,labels:mdLabels(),variant:"compact"})),reply.via!==void 0||Number.isFinite(time)?(0,import_react34.createElement)("div",{className:"bt-utime",title:clockLabel(time)},
-...reply.via!==void 0?[(0,import_react34.createElement)(ViaTag,{key:"via",via:reply.via})]:[],Number.isFinite(time)?messageClock(time):null):null):reply.kind!==void 0?(0,import_react34.createElement)(
-RelayEvent,{key:`${reply.botId??reply.kind}-${index}`,reply,bot,sessionId,actions}):reply.kind==="goal"?(0,import_react34.createElement)("div",{key:`goal-${index}`,className:"bt-ev\
-ent",title:reply.text||void 0},(0,import_react34.createElement)("span",{className:"bt-event-ico","aria-hidden":!0},(0,import_react34.createElement)(GoalIcon)),goalEventText(reply)):
-(0,import_react34.createElement)(GroupMessage,{key:`${reply.botId}-${index}`,bot,texts:texts2,room:room2,sessionId,roster,actions,msgKey:callId?`${sessionId}:${callId}:${index}`:void 0,
-useUi,time,duration,claims,changes})}),pending.map((id,at)=>{let bot=roster.byId[id];if(!bot)return null;let[tool,phrase]=doing[at]??[];return(0,import_react34.createElement)("div",
-{key:`pending-${id}`,className:"bt-activity"},(0,import_react34.createElement)(BotMark,{bot,size:22,state:tool?toolState(tool):"thinking"}),(0,import_react34.createElement)(Shimmer,
-null,phrase?`${bot.name} · ${phrase}…`:t("{name} is typing…",{name:bot.name})))}))}var isComputerCall=name=>name==="cua"||name?.startsWith("cua_driver_native__")===!0,DRAWN=new Set(
-["message_bot","stop_bot","create_bot","update_bot","group_relay","create_group","update_group","delete_group","post_to_group","ask_user","request_secret","request_connector","mail\
-_send","ask_user_question","show_view","browser_handoff","read_group_chat","bot_remember","bot_forget","remember","forget"]),CARDS=new Set(["ask_user","request_secret","request_con\
-nector","mail_send","show_view","browser_handoff","computer_handoff"]);function callTree(root){let calls=[],seen=new Set,visit=call2=>{let id=call2.callId??call2;if(!seen.has(id)){
-seen.add(id),calls.push(call2);for(let child of call2.subCalls??[])visit(child)}};return visit(root),calls}function useShownCards(actions,sessionId,callIds){let key=JSON.stringify(
-callIds);(0,import_react34.useLayoutEffect)(()=>{let ids=JSON.parse(key);if(!(ids.length===0||!actions.noteCards))return actions.noteCards(sessionId,ids,1),()=>actions.noteCards(sessionId,
-ids,-1)},[sessionId,key])}function renderCall(call2,{sessionId,roster,actions,useUi,useWork,findBot,heldCards,hooks}){let tool=toolName(call2),done=call2.kind==="tool-result",{text:arg,
-value:argValue}=toolArgs(call2),self=roster.byId[sessionId];switch(tool){case"message_bot":{let target=findBot(arg("to"))??{name:arg("to")??"…",color:"gray"};return done&&call2.isError?
-(0,import_react34.createElement)("div",{className:"bt-event"},t("Couldn't message {name}",{name:target.name})):(0,import_react34.createElement)(EventLine,{prefix:t("Messaged"),bots:[
-target],onOpen:bot=>bot.id&&actions.openExchange(self?.id??sessionId,bot.id),whole:!0})}case"stop_bot":{let target=findBot(arg("bot"))??{name:arg("bot")??"…",color:"gray"};return done&&
-call2.isError?(0,import_react34.createElement)("div",{className:"bt-event"},t("Couldn't stop {name}",{name:target.name})):(0,import_react34.createElement)(EventLine,{prefix:t("Stop\
-ped"),bots:[target],onOpen:bot=>bot.id&&actions.openExchange(self?.id??sessionId,bot.id),whole:!0})}case"create_bot":{let created=findBot(arg("name"));return!done||created===void 0?
-(0,import_react34.createElement)(CellEmpty):(0,import_react34.createElement)(EventLine,{prefix:t("Created"),bots:[created],onOpen:bot=>actions.openSession(bot.id)})}case"update_bot":{
-let target=findBot(arg("name"))??findBot(arg("bot"))??(arg("bot")?void 0:self);return done&&target?(0,import_react34.createElement)(EventLine,{prefix:t("Updated"),bots:[target],onOpen:bot=>actions.
-openSession(bot.id)}):(0,import_react34.createElement)(CellEmpty)}case"group_relay":return(0,import_react34.createElement)(GroupReplies,{sessionId,callId:call2.callId,done,content:call2.
-content,roster,actions,useUi,useWork});case"create_group":case"update_group":case"delete_group":case"post_to_group":{let verbs={create_group:["Created group","Couldn't create the g\
-roup"],update_group:["Updated group","Couldn't update the group"],delete_group:["Deleted group","Couldn't delete the group"],post_to_group:["Posted in","Couldn't post in the group"]}[tool];
-if(!done)return(0,import_react34.createElement)(CellEmpty);let result=contentText(call2.content),named=/^(Created group|Updated|Nothing changed in|Deleted|Posted in) "([^"]+)"/.exec(
-result);if(call2.isError||!named)return(0,import_react34.createElement)("div",{className:"bt-event",title:result},t(verbs[1]));let name=named[2],room2=roster.rooms.find(entry=>entry.
-name===name);return(0,import_react34.createElement)(GroupEvent,{prefix:t(verbs[0]),room:tool==="delete_group"?void 0:room2,name,roster,actions})}case"ask_user":return(0,import_react34.createElement)(
-AskUserCell,{sessionId,callId:call2.callId,arg,argValue,roster,actions,heldCards});case"show_view":return(0,import_react34.createElement)(WidgetCell,{sessionId,callId:call2.callId,
-args:{text:arg,value:argValue},done,isError:call2.isError,roster,actions,heldCards});case"request_secret":return(0,import_react34.createElement)(SecretToolCell,{sessionId,callId:call2.
-callId,name:arg("name"),done,content:call2.content,roster,actions,heldCards});case"request_connector":return(0,import_react34.createElement)(ConnectorToolCell,{sessionId,callId:call2.
-callId,done,content:call2.content,roster,actions,heldCards});case"mail_send":return(0,import_react34.createElement)(MailToolCell,{sessionId,callId:call2.callId,done,content:call2.content,
-roster,actions,heldCards});case"browser_handoff":return(0,import_react34.createElement)(HandoffCall,{sessionId,callId:call2.callId,roster,actions,heldCards,hooks});case"computer_ha\
-ndoff":return(0,import_react34.createElement)(ComputerHandoffCall,{sessionId,callId:call2.callId,roster,actions,heldCards,hooks});case"ask_user_question":{if(!done)return(0,import_react34.createElement)(
-CellEmpty);let parsed=null;try{parsed=JSON.parse(contentText(call2.content))}catch{parsed=null}let answer=parsed?.answers?.[0],question=argValue("questions")?.[0];return answer?(0,import_react34.createElement)(
-"div",{className:"bt-q-inline"},(0,import_react34.createElement)(SettledQuestion,{question,answer})):(0,import_react34.createElement)(CellEmpty)}case"read_group_chat":{if(!done)return(0,import_react34.createElement)(
-CellEmpty);let room2=roster.rooms.find(entry=>entry.name===arg("group"));return room2?(0,import_react34.createElement)(GroupEvent,{prefix:t("Read"),room:room2,roster,actions}):(0,import_react34.createElement)(
-CellEmpty)}case"bot_remember":case"remember":case"bot_forget":case"forget":return done?(0,import_react34.createElement)(MemoryEvent,{sessionId,scope:arg("scope"),tool,result:contentText(
-call2.content),failed:call2.isError===!0,code:call2.error?.code,roster,actions,findBot}):(0,import_react34.createElement)(CellEmpty);default:return isComputerCall(tool)?(0,import_react34.createElement)(
+...reply.via!==void 0?[(0,import_react34.createElement)(ViaTag,{key:"via",via:reply.via})]:[],Number.isFinite(time)?messageClock(time):null):null):reply.kind==="goal"?(0,import_react34.createElement)(
+"div",{key:`goal-${index}`,className:"bt-event",title:reply.text||void 0},(0,import_react34.createElement)("span",{className:"bt-event-ico","aria-hidden":!0},(0,import_react34.createElement)(
+GoalIcon)),goalEventText(reply)):reply.kind!==void 0?(0,import_react34.createElement)(RelayEvent,{key:`${reply.botId??reply.kind}-${index}`,reply,bot,sessionId,actions}):(0,import_react34.createElement)(
+GroupMessage,{key:`${reply.botId}-${index}`,bot,texts:texts2,room:room2,sessionId,roster,actions,msgKey:callId?`${sessionId}:${callId}:${index}`:void 0,useUi,time,duration,claims,changes})}),
+pending.map((id,at)=>{let bot=roster.byId[id];if(!bot)return null;let[tool,phrase]=doing[at]??[];return(0,import_react34.createElement)("div",{key:`pending-${id}`,className:"bt-act\
+ivity"},(0,import_react34.createElement)(BotMark,{bot,size:22,state:tool?toolState(tool):"thinking"}),(0,import_react34.createElement)(Shimmer,null,phrase?`${bot.name} · ${phrase}\
+…`:t("{name} is typing…",{name:bot.name})))}))}var isComputerCall=name=>name==="cua"||name?.startsWith("cua_driver_native__")===!0,DRAWN=new Set(["message_bot","stop_bot","crea\
+te_bot","update_bot","group_relay","create_group","update_group","delete_group","post_to_group","ask_user","request_secret","request_connector","mail_send","ask_user_question","sho\
+w_view","browser_handoff","read_group_chat","bot_remember","bot_forget","remember","forget"]),CARDS=new Set(["ask_user","request_secret","request_connector","mail_send","show_view",
+"browser_handoff","computer_handoff"]);function callTree(root){let calls=[],seen=new Set,visit=call2=>{let id=call2.callId??call2;if(!seen.has(id)){seen.add(id),calls.push(call2);for(let child of call2.
+subCalls??[])visit(child)}};return visit(root),calls}function useShownCards(actions,sessionId,callIds){let key=JSON.stringify(callIds);(0,import_react34.useLayoutEffect)(()=>{let ids=JSON.
+parse(key);if(!(ids.length===0||!actions.noteCards))return actions.noteCards(sessionId,ids,1),()=>actions.noteCards(sessionId,ids,-1)},[sessionId,key])}function renderCall(call2,{sessionId,
+roster,actions,useUi,useWork,findBot,heldCards,hooks}){let tool=toolName(call2),done=call2.kind==="tool-result",{text:arg,value:argValue}=toolArgs(call2),self=roster.byId[sessionId];
+switch(tool){case"message_bot":{let target=findBot(arg("to"))??{name:arg("to")??"…",color:"gray"};return done&&call2.isError?(0,import_react34.createElement)("div",{className:"bt\
+-event"},t("Couldn't message {name}",{name:target.name})):(0,import_react34.createElement)(EventLine,{prefix:t("Messaged"),bots:[target],onOpen:bot=>bot.id&&actions.openExchange(self?.
+id??sessionId,bot.id),whole:!0})}case"stop_bot":{let target=findBot(arg("bot"))??{name:arg("bot")??"…",color:"gray"};return done&&call2.isError?(0,import_react34.createElement)("\
+div",{className:"bt-event"},t("Couldn't stop {name}",{name:target.name})):(0,import_react34.createElement)(EventLine,{prefix:t("Stopped"),bots:[target],onOpen:bot=>bot.id&&actions.
+openExchange(self?.id??sessionId,bot.id),whole:!0})}case"create_bot":{let created=findBot(arg("name"));return!done||created===void 0?(0,import_react34.createElement)(CellEmpty):(0,import_react34.createElement)(
+EventLine,{prefix:t("Created"),bots:[created],onOpen:bot=>actions.openSession(bot.id)})}case"update_bot":{let target=findBot(arg("name"))??findBot(arg("bot"))??(arg("bot")?void 0:self);
+return done&&target?(0,import_react34.createElement)(EventLine,{prefix:t("Updated"),bots:[target],onOpen:bot=>actions.openSession(bot.id)}):(0,import_react34.createElement)(CellEmpty)}case"\
+group_relay":return(0,import_react34.createElement)(GroupReplies,{sessionId,callId:call2.callId,done,content:call2.content,roster,actions,useUi,useWork});case"create_group":case"up\
+date_group":case"delete_group":case"post_to_group":{let verbs={create_group:["Created group","Couldn't create the group"],update_group:["Updated group","Couldn't update the group"],
+delete_group:["Deleted group","Couldn't delete the group"],post_to_group:["Posted in","Couldn't post in the group"]}[tool];if(!done)return(0,import_react34.createElement)(CellEmpty);
+let result=contentText(call2.content),named=/^(Created group|Updated|Nothing changed in|Deleted|Posted in) "([^"]+)"/.exec(result);if(call2.isError||!named)return(0,import_react34.createElement)(
+"div",{className:"bt-event",title:result},t(verbs[1]));let name=named[2],room2=roster.rooms.find(entry=>entry.name===name);return(0,import_react34.createElement)(GroupEvent,{prefix:t(
+verbs[0]),room:tool==="delete_group"?void 0:room2,name,roster,actions})}case"ask_user":return(0,import_react34.createElement)(AskUserCell,{sessionId,callId:call2.callId,arg,argValue,
+roster,actions,heldCards});case"show_view":return(0,import_react34.createElement)(WidgetCell,{sessionId,callId:call2.callId,args:{text:arg,value:argValue},done,isError:call2.isError,
+roster,actions,heldCards});case"request_secret":return(0,import_react34.createElement)(SecretToolCell,{sessionId,callId:call2.callId,name:arg("name"),done,content:call2.content,roster,
+actions,heldCards});case"request_connector":return(0,import_react34.createElement)(ConnectorToolCell,{sessionId,callId:call2.callId,done,content:call2.content,roster,actions,heldCards});case"\
+mail_send":return(0,import_react34.createElement)(MailToolCell,{sessionId,callId:call2.callId,done,content:call2.content,roster,actions,heldCards});case"browser_handoff":return(0,import_react34.createElement)(
+HandoffCall,{sessionId,callId:call2.callId,roster,actions,heldCards,hooks});case"computer_handoff":return(0,import_react34.createElement)(ComputerHandoffCall,{sessionId,callId:call2.
+callId,roster,actions,heldCards,hooks});case"ask_user_question":{if(!done)return(0,import_react34.createElement)(CellEmpty);let parsed=null;try{parsed=JSON.parse(contentText(call2.
+content))}catch{parsed=null}let answer=parsed?.answers?.[0],question=argValue("questions")?.[0];return answer?(0,import_react34.createElement)("div",{className:"bt-q-inline"},(0,import_react34.createElement)(
+SettledQuestion,{question,answer})):(0,import_react34.createElement)(CellEmpty)}case"read_group_chat":{if(!done)return(0,import_react34.createElement)(CellEmpty);let room2=roster.rooms.
+find(entry=>entry.name===arg("group"));return room2?(0,import_react34.createElement)(GroupEvent,{prefix:t("Read"),room:room2,roster,actions}):(0,import_react34.createElement)(CellEmpty)}case"\
+bot_remember":case"remember":case"bot_forget":case"forget":return done?(0,import_react34.createElement)(MemoryEvent,{sessionId,scope:arg("scope"),tool,result:contentText(call2.content),
+failed:call2.isError===!0,code:call2.error?.code,roster,actions,findBot}):(0,import_react34.createElement)(CellEmpty);default:return isComputerCall(tool)?(0,import_react34.createElement)(
 import_react34.Fragment,null,(0,import_react34.createElement)(ComputerCallRow,{sessionId,call:call2,roster,actions,hooks}),(0,import_react34.createElement)(AppAccessCall,{sessionId,
 callId:call2.callId,roster,actions,heldCards,hooks})):(0,import_react34.createElement)(CellEmpty)}}function ToolCell({node,sessionId,useRoster,useUi,useWork,useHeldCards,useBrowserHolds,
 useBrowserTabs,useBrowserPages,useComputer,actions}){let roster=useRoster(value=>value),heldCards=useHeldCards?.(state=>state[sessionId]),root=node.data.root,turn=node.location?.turn?.
@@ -11040,19 +11082,20 @@ w] [data-chat-running]")?.closest("[data-chat-flow]")??document.querySelector("[
 null);return}let frame2=0,find=()=>{frame2=0,setHost(prev=>{let node=findHost();return prev===node?prev:node})},observer=new MutationObserver(()=>{frame2||(frame2=requestAnimationFrame(
 find))});return observer.observe(document.querySelector("[data-conversation-scroll]")??document.body,{childList:!0,subtree:!0}),find(),()=>{cancelAnimationFrame(frame2),observer.disconnect()}},
 [active]),host}function useRowEntrances(replacing){let check=(0,import_react35.useRef)(replacing);check.current=replacing,(0,import_react35.useEffect)(()=>{let seen=new WeakSet,started=Date.
-now(),column=null,frame2=0,settle=event=>{event.target!==event.currentTarget||!/^bt-row/.test(event.animationName)||(delete event.currentTarget.dataset.btEnter,event.currentTarget.
-removeEventListener("animationend",settle))},scan=()=>{frame2=0;let next=document.querySelector("[data-chat-flow]");if(next!==column&&(observer.disconnect(),column=next,column&&observer.
-observe(column,{childList:!0,subtree:!0})),!column)return;let items=[...column.querySelectorAll(":scope > [data-chat-flow-key]")],last=-1;if(items.forEach((item,index)=>{seen.has(item)&&
-(last=index)}),reducedEffects())return;let fresh=items.filter(item=>!seen.has(item)&&item.offsetHeight>0);for(let item of fresh)seen.add(item);if(!(last<0||Date.now()-started<800||
-fresh.length>3))for(let item of fresh){if(items.indexOf(item)<last)continue;let reply=[void 0,"assistant-step","tool-call"].includes(item.dataset.chatFlowKind);item.dataset.btEnter=
-reply&&check.current()?"after-collapse":"new",item.addEventListener("animationend",settle)}},observer=new MutationObserver(()=>{frame2||(frame2=requestAnimationFrame(scan))});return scan(),
-()=>{cancelAnimationFrame(frame2),observer.disconnect()}},[])}function ActivityIndicator({sessionId,useRoster,useSessionStatus,useLive,useSession,useWork,actions}){let roster=useRoster(
-value=>value),running=useSessionStatus(map=>map.get(sessionId)?.running===!0),turnAt=useWork?.(work=>work.turns?.[sessionId]),runAt=(0,import_react35.useRef)(0);running?runAt.current===
-0&&(runAt.current=Date.now()):runAt.current=0;let liveKey=useLive(state=>JSON.stringify(state[sessionId]??{})),steeredAt=useWork?.(work=>work.steered?.[sessionId]),pendingInput=useSession(
-snapshot=>freshInputAt(snapshot?.pendingSubmissions,steeredAt)),bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],moveAt=useWork?.(work=>{let entry=bot!==void 0?work.bots?.[bot.
-id]:room2!==void 0?work.rooms?.[room2.id]?.find(item=>item.self===!0):void 0;return entry?.switching===!0&&entry.folder===!0&&entry.roomId===void 0?entry.since:0})??0,entries2=(0,import_react35.useMemo)(
-()=>Object.values(JSON.parse(liveKey)),[liveKey]),streaming=entries2.some(entry=>entry.text),tools=entries2.filter(entry=>!entry.text).sort((a,b)=>a.at-b.at),relaying=tools.some(entry=>entry.
-relay),visible=moveAt!==0||rowVisible({running,streaming,tools,relaying,bot,room:room2}),tool=tools.at(-1),inputRef=(0,import_react35.useRef)(0),inputAt=Math.max(inputRef.current,pendingInput);
+now(),column=null,frame2=0,waiting=!1,settle=event=>{event.target!==event.currentTarget||!event.animationName.startsWith("bt-row")||(delete event.currentTarget.dataset.btEnter,event.
+currentTarget.removeEventListener("animationend",settle))},scan=()=>{frame2=0;let next=document.querySelector("[data-chat-flow]");if(next!==column&&(observer.disconnect(),column=next,
+column&&(waiting=!1,observer.observe(column,{childList:!0}))),!column){waiting||(waiting=!0,observer.observe(document.querySelector("[data-conversation-scroll]")??document.body,{childList:!0,
+subtree:!0}));return}let items=[...column.querySelectorAll(":scope > [data-chat-flow-key]")],last=-1;if(items.forEach((item,index)=>{seen.has(item)&&(last=index)}),reducedEffects())
+return;let fresh=items.filter(item=>!seen.has(item)&&item.offsetHeight>0);for(let item of fresh)seen.add(item);if(!(last<0||Date.now()-started<800||fresh.length>3))for(let item of fresh){
+if(items.indexOf(item)<last)continue;let reply=[void 0,"assistant-step","tool-call"].includes(item.dataset.chatFlowKind);item.dataset.btEnter=reply&&check.current()?"after-collapse":
+"new",item.addEventListener("animationend",settle)}},observer=new MutationObserver(()=>{frame2||(frame2=requestAnimationFrame(scan))});return scan(),()=>{cancelAnimationFrame(frame2),
+observer.disconnect()}},[])}function ActivityIndicator({sessionId,useRoster,useSessionStatus,useLive,useSession,useWork,actions}){let roster=useRoster(value=>value),running=useSessionStatus(
+map=>map.get(sessionId)?.running===!0),turnAt=useWork?.(work=>work.turns?.[sessionId]),runAt=(0,import_react35.useRef)(0);running?runAt.current===0&&(runAt.current=Date.now()):runAt.
+current=0;let liveKey=useLive(state=>JSON.stringify(state[sessionId]??{})),steeredAt=useWork?.(work=>work.steered?.[sessionId]),pendingInput=useSession(snapshot=>freshInputAt(snapshot?.
+pendingSubmissions,steeredAt)),bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],moveAt=useWork?.(work=>{let entry=bot!==void 0?work.bots?.[bot.id]:room2!==void 0?work.rooms?.[room2.
+id]?.find(item=>item.self===!0):void 0;return entry?.switching===!0&&entry.folder===!0&&entry.roomId===void 0?entry.since:0})??0,entries2=(0,import_react35.useMemo)(()=>Object.values(
+JSON.parse(liveKey)),[liveKey]),streaming=entries2.some(entry=>entry.text),tools=entries2.filter(entry=>!entry.text).sort((a,b)=>a.at-b.at),relaying=tools.some(entry=>entry.relay),
+visible=moveAt!==0||rowVisible({running,streaming,tools,relaying,bot,room:room2}),tool=tools.at(-1),inputRef=(0,import_react35.useRef)(0),inputAt=Math.max(inputRef.current,pendingInput);
 inputRef.current=inputAt;let want=visible?moveAt!==0?{key:"move",label:t("Switching working folder"),state:"thinking"}:inputAt>(tool?.at??0)?{key:`input:${inputAt}`,pool:PHRASES2.thinking,
 state:"thinking"}:tool?{key:tool.label?`tool:${tool.label}`:"working",label:tool.label,pool:PHRASES2.working,state:tool.state??"working"}:{key:"thinking",pool:PHRASES2.thinking,state:"\
 thinking"}:null,[shown,setShown]=(0,import_react35.useState)(null),wantKey=want?.key??null,markState=(0,import_react35.useRef)("thinking");want&&(markState.current=want.state),(0,import_react35.useEffect)(
@@ -11081,13 +11124,14 @@ null?style.removeProperty(`margin-${side}`):style.setProperty(`margin-${side}`,`
 tant"):style.removeProperty("width")},roomHold=0,chatRoom={setRight(width){margin("right",width,roomRule().style)},setLeft(width){margin("left",width,roomRule().style)},hold(on){if(cancelAnimationFrame(
 roomHold),on){roomRule().style.setProperty("transition","none","important");return}roomHold=requestAnimationFrame(()=>{roomHold=requestAnimationFrame(()=>roomRule().style.removeProperty(
 "transition"))})},columns(){return roomRule(),room.selector?[...document.querySelectorAll(room.selector)]:[]}};function installFrameWatch(frame2){let collapsedWidth=collapsedTrackWidth(),
-raf=0,watched=new Set,observer=typeof ResizeObserver=="function"?new ResizeObserver(()=>schedule()):null,read=()=>{let animating=document.querySelector('[class*="_sidebarCol"]')?.closest(
-"[data-animating]")!=null,width=animating?null:sidebarTrackWidth(),collapsed=dshCollapsed();collapsedWidth=nextCollapsedWidth({measured:width,collapsed,animating,last:collapsedWidth}),
+raf=0,watched=new WeakSet,observer=typeof ResizeObserver=="function"?new ResizeObserver(()=>schedule()):null,read=()=>{let animating=document.querySelector('[class*="_sidebarCol"]')?.
+closest("[data-animating]")!=null,width=animating?null:sidebarTrackWidth(),collapsed=dshCollapsed();collapsedWidth=nextCollapsedWidth({measured:width,collapsed,animating,last:collapsedWidth}),
 frame2.set(state=>{let next={...state,viewport:window.innerWidth,collapsedWidth,collapsed:collapsed===!0};return state.viewport===next.viewport&&state.collapsedWidth===next.collapsedWidth&&
 state.collapsed===next.collapsed?state:next})},measure=()=>{for(let selector of['[class*="_sidebarCol"]','[class*="_centerCol"]'])for(let column of document.querySelectorAll(selector))
-watched.has(column)||(watched.add(column),observer?.observe(column));read()},schedule=()=>{raf===0&&(raf=requestAnimationFrame(()=>{raf=0,measure()}))};measure();let mutations=new MutationObserver(
-schedule);return mutations.observe(document.documentElement,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["data-sidebar-collapsed","data-animating"]}),window.addEventListener(
-"resize",schedule),()=>{cancelAnimationFrame(raf),mutations.disconnect(),observer?.disconnect(),window.removeEventListener("resize",schedule)}}var import_react36=require("react"),import_react_dom6=require("react-dom");function useMarkedUnread(id,active,marked2,actions){(0,import_react36.useEffect)(()=>{active&&marked2&&actions.
+watched.has(column)||(watched.add(column),observer?.observe(column));read()},schedule=()=>{raf===0&&(raf=requestAnimationFrame(()=>{raf=0,measure()}))},relevant=records=>records.some(
+record=>{if(record.type==="attributes")return!0;let target=record.target;return!(target instanceof Element&&target.closest("[data-chat-flow],[data-composer-card]"))});measure();let mutations=new MutationObserver(
+records=>{relevant(records)&&schedule()});return mutations.observe(document.documentElement,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["data-sidebar-collapsed","data-a\
+nimating"]}),window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),mutations.disconnect(),observer?.disconnect(),window.removeEventListener("resize",schedule)}}var import_react36=require("react"),import_react_dom6=require("react-dom");function useMarkedUnread(id,active,marked2,actions){(0,import_react36.useEffect)(()=>{active&&marked2&&actions.
 clearUnread(id)},[active,marked2])}var PinMark=()=>(0,import_react36.createElement)("span",{className:"bt-pin","aria-hidden":!0},(0,import_react36.createElement)(PinMarkIcon)),nameIfCut=event=>{
 let row=event.currentTarget,name=row.querySelector(".bt-row-title");name&&name.scrollWidth>name.clientWidth?row.title=name.textContent:row.removeAttribute("title")},useApproval=(useWork,useComputer,matchApproval,matchAsk)=>{
 let tool=useWork?useWork(work=>(work.approvals??[]).some(matchApproval)):!1,app=useComputer?useComputer(comp=>Object.values(comp?.asks??{}).some(matchAsk)):!1;return tool||app},useGroupWork=(useWork,pick2)=>{
@@ -11223,114 +11267,114 @@ props.useFrame(value=>value):{viewport:typeof window>"u"?0:window.innerWidth,sid
 null),mode=drag?.left??layout.left,[held,leaving]=useLinger(mode==="hidden"?null:mode,SPRING_SHAPE.duration),shown=held??mode,wideContent=shown!=="rail",updated=useSessions(list=>{
 let stamps={};for(let id of list.ids)stamps[id]=list.byId[id]?.updatedAt??0;return JSON.stringify(stamps)}),order=(0,import_react36.useMemo)(()=>{let stamps=JSON.parse(updated);return[
 ...roster.bots.filter(bot=>bot.id!==roster.mainBotId).map(bot=>({kind:"bot",item:bot,at:stamps[currentPart(bot)]??bot.createdAt})),...roster.rooms.map(room2=>({kind:"room",item:room2,
-at:stamps[room2.id]??room2.createdAt})),...(roster.agents??[]).map(agent=>({kind:"agent",item:agent,at:Math.max(0,...agent.sessions.map(id=>stamps[id]??0))||agent.createdAt}))].sort(
-(a,b)=>+!!b.item.pinned-+!!a.item.pinned||b.at-a.at)},[roster,updated]),sections=roster.sections??[],sectionSet=(0,import_react36.useMemo)(()=>new Set(sections.map(sec=>sec.id)),[sections]),
-ungrouped=(0,import_react36.useMemo)(()=>order.filter(entry=>!entry.item.sectionId||!sectionSet.has(entry.item.sectionId)),[order,sectionSet]),main=roster.byId[roster.mainBotId],glideKey=(0,import_react36.useMemo)(
-()=>`${sections.map(s=>`${s.id}:${s.collapsed?1:0}`).join(",")}|${order.map(entry=>`${entry.item.id}:${entry.item.sectionId??""}`).join(",")}`,[sections,order]);useListGlide(listRef,
-wideContent,glideKey),useLandOnMainBot(roster,useSessions,actions),useReportReady(roster.ready,roster);let[dragId,setDragId]=(0,import_react36.useState)(null),[dropTarget,setDropTarget]=(0,import_react36.useState)(
-null),onDragStart=(event,id)=>{setDragId(id),event.dataTransfer?.setData?.("text/plain",id),event.dataTransfer&&(event.dataTransfer.effectAllowed="move")},onDragOverSec=(event,secId)=>{
-dragId&&(event.preventDefault(),dropTarget!==secId&&setDropTarget(secId))},onDropSec=(event,secId)=>{event.preventDefault();let id=dragId;setDragId(null),setDropTarget(null),id&&(Promise.
-resolve(actions.setFlags(id,{sectionId:secId})).catch(error=>actions.reportError(error,"section")),secId&&sections.find(s=>s.id===secId)?.collapsed&&Promise.resolve(actions.saveSection(
-{id:secId,collapsed:!1})).catch(()=>{}))},createNewSection=()=>{Promise.resolve(actions.saveSection({})).then(sec=>{sec?.id&&actions.beginSectionRename(sec.id)}).catch(error=>actions.
-reportError(error,"section"))},openWidth=drag?.width??frameSnap.sidebarWidth,ourWidth=shown==="rail"?RAIL_WIDTH:openWidth,pushed=mode==="open"?openWidth:mode==="hidden"?0:RAIL_WIDTH;
-(0,import_react36.useLayoutEffect)(()=>{typeof document>"u"||chatRoom.setLeft(Math.max(0,pushed-(frameSnap.collapsedWidth??0)))},[pushed,frameSnap.collapsedWidth]),(0,import_react36.useEffect)(
-()=>()=>{typeof document<"u"&&chatRoom.setLeft(null)},[]);let settleTimer=(0,import_react36.useRef)(0),springTimer=(0,import_react36.useRef)(0),startDrag=event=>{if(event.button!==
-0)return;event.preventDefault(),clearTimeout(settleTimer.current),clearTimeout(springTimer.current);let grip=event.currentTarget,column=grip.parentElement;delete column.dataset.folding,
-grip.setPointerCapture?.(event.pointerId),chatRoom.hold(!0);let columns2=chatRoom.columns();for(let col of columns2)col.style.setProperty("transition","none","important");let panes=[
-...document.querySelectorAll(".bt-pane")],offLeft=frameSnap.collapsedWidth??0,last=null,liveLeft=mode,done=!1,write=at=>{let width=at.left==="rail"?RAIL_WIDTH:at.width;column.style.
-width=`${width}px`,column.style.setProperty("--bt-lc-w",`${width}px`);let occupied=at.left==="open"?width:RAIL_WIDTH,push=Math.max(0,occupied-offLeft);for(let col of columns2)col.style.
-setProperty("margin-left",`${push}px`,"important");for(let pane of panes)pane.style.left=`${occupied}px`},springUntil=0,springOff=()=>{springUntil=0,delete column.dataset.folding;for(let col of columns2)
-col.style.setProperty("transition","none","important")},springOn=()=>{column.dataset.folding="";for(let col of columns2)col.style.setProperty("transition",`margin-left ${SPRING_SHAPE.
-duration}ms ${SPRING_SHAPE.easing}`,"important");springUntil=performance.now()+SPRING_SHAPE.duration,clearTimeout(springTimer.current),springTimer.current=setTimeout(springOff,SPRING_SHAPE.
-duration)},track=x=>{last=dragColumn(x,window.innerWidth),last.left!==liveLeft&&(liveLeft=last.left,reducedMotion()||springOn(),setDrag(last)),write(last)},onMove=move=>track(move.
-clientX),finish=()=>{clearTimeout(springTimer.current),column.isConnected&&last!==null&&chatRoom.setLeft(Math.max(0,(last.left==="open"?last.width:RAIL_WIDTH)-offLeft));for(let col of columns2)
-col.style.removeProperty("margin-left"),col.style.removeProperty("transition");column.style.removeProperty("--bt-lc-w"),delete column.dataset.folding,chatRoom.hold(!1)},ends=["poin\
-terup","pointercancel","lostpointercapture"],onEnd=end=>{if(!done){done=!0,end.type==="pointerup"&&track(end.clientX),grip.removeEventListener("pointermove",onMove);for(let name of ends)
-grip.removeEventListener(name,onEnd);if(setDrag(null),last===null){finish();return}actions.setPanelYield?.(!1),last.left==="rail"?(actions.setLeftDrawer?.(!1),actions.setSidebarPref?.(
-"rail")):(actions.setSidebarWidth?.(last.width),actions.setSidebarPref?.("open"),actions.setLeftDrawer?.(last.left==="drawer")),springUntil===0?finish():settleTimer.current=setTimeout(
-finish,Math.max(0,springUntil-performance.now())+60)}};grip.addEventListener("pointermove",onMove);for(let name of ends)grip.addEventListener(name,onEnd)},dsh=(0,import_react36.useRef)(
-null),requested=(0,import_react36.useRef)(!1),requestLapse=(0,import_react36.useRef)(0),[lapsed,setLapsed]=(0,import_react36.useState)(0);(0,import_react36.useEffect)(()=>()=>clearTimeout(
-requestLapse.current),[]);let resizedAt=(0,import_react36.useRef)(0);(0,import_react36.useEffect)(()=>{let onResize=()=>{resizedAt.current=performance.now()};return window.addEventListener(
-"resize",onResize),()=>window.removeEventListener("resize",onResize)},[]);let quiet=on=>{on?document.documentElement.setAttribute("data-bt-collapsing",""):document.documentElement.
-removeAttribute("data-bt-collapsing")};(0,import_react36.useEffect)(()=>()=>quiet(!1),[]),(0,import_react36.useLayoutEffect)(()=>{if(typeof document>"u"||typeof actions.toggleSidebar!=
-"function")return;let collapsed=dshCollapsed()??!wide,prev=dsh.current,viewport=window.innerWidth;if(dsh.current={collapsed,viewport},prev!==null&&collapsed!==prev.collapsed&&(requested.
-current?requested.current=!1:!collapsed&&userSidebarToggle({before:prev,after:{collapsed,viewport},sinceResize:performance.now()-resizedAt.current})&&toggleRef.current()),collapsed){
-clearTimeout(requestLapse.current),requested.current=!1,quiet(!1);return}requested.current||(requested.current=!0,quiet(!0),actions.toggleSidebar(),clearTimeout(requestLapse.current),
-requestLapse.current=setTimeout(()=>{requested.current=!1,quiet(!1),setLapsed(value=>value+1)},300))},[wide,frameSnap.viewport,frameSnap.collapsed,lapsed]),(0,import_react36.useEffect)(
-()=>{if(mode!=="drawer")return;let onDown=event=>{event.target instanceof Element&&event.target.closest(".bt-leftcol")||actions.setLeftDrawer?.(!1)},onKey=event=>{event.key==="Esca\
-pe"&&(event.stopPropagation(),actions.setLeftDrawer?.(!1))};return window.addEventListener("mousedown",onDown),window.addEventListener("keydown",onKey,!0),()=>{window.removeEventListener(
-"mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[mode]);let navigate=(open,id)=>{let result=open(id);return leftDrawer&&actions.setLeftDrawer?.(!1),result},rowActions={
-...actions,openSession:id=>navigate(actions.openSession,id),openAgent:id=>navigate(actions.openAgent,id),openAgentSession:id=>navigate(actions.openAgentSession,id),newAgentSession:id=>navigate(
-actions.newAgentSession,id)},rowProps={roster,actions:rowActions,useSessions,useUi,useSessionStatus:props.useSessionStatus,useSessionRetainInfo:props.useSessionRetainInfo,useActivity:props.
-useActivity,useWork:props.useWork,useComputer:props.useComputer,wide:wideContent},typeToSearch=event=>{event.defaultPrevented||event.key.length!==1||event.key===" "||event.metaKey||
-event.ctrlKey||event.altKey||event.nativeEvent.isComposing||event.target instanceof Element&&event.target.closest("input,textarea,[contenteditable]")||(event.preventDefault(),actions.
-openPalette(event.key))},onToggle=()=>actions.toggleLeftHidden?.(),toggleRef=(0,import_react36.useRef)(onToggle);toggleRef.current=onToggle,(0,import_react36.useEffect)(()=>{let onKey=event=>{
-event.defaultPrevented||event.isComposing||!pressesShellShortcut(event,"sidebar.left.toggle")||event.target instanceof Element&&event.target.closest(".xterm")||document.querySelector(
-'[aria-modal="true"]')||(event.preventDefault(),event.stopPropagation(),toggleRef.current())};return document.addEventListener("keydown",onKey,!0),()=>document.removeEventListener(
-"keydown",onKey,!0)},[]);let top=wideContent?(0,import_react36.createElement)("div",{className:"bt-side-top"},(0,import_react36.createElement)("span",{className:"bt-brand"},(0,import_react36.createElement)(
-BrandName)),(0,import_react36.createElement)(UpdateButton,{useUpdate:props.useUpdate,actions}),(0,import_react36.createElement)("button",{type:"button",className:"bt-round","aria-l\
-abel":t("New section"),title:t("New section"),onClick:createNewSection},(0,import_react36.createElement)(FolderIcon)),(0,import_react36.createElement)("button",{type:"button",className:"\
-bt-round","aria-label":t("Search"),title:t("Search"),onClick:()=>actions.openPalette()},(0,import_react36.createElement)(SearchIcon)),(0,import_react36.createElement)("button",{type:"\
-button",className:"bt-round","aria-label":t("New…"),title:t("New…"),onClick:()=>actions.openNewChat("new")},(0,import_react36.createElement)(PlusIcon)),(0,import_react36.createElement)(
-"button",{type:"button",className:"bt-round bt-side-collapse","aria-label":t("Collapse sidebar"),title:t("Collapse sidebar"),onClick:onToggle},(0,import_react36.createElement)(SidebarIcon))):
-(0,import_react36.createElement)("div",{className:"bt-rail-top"},(0,import_react36.createElement)(UpdateButton,{useUpdate:props.useUpdate,actions}),(0,import_react36.createElement)(
-"button",{type:"button",className:"bt-round bt-side-collapse","aria-label":t("Collapse sidebar"),title:t("Collapse sidebar"),onClick:onToggle},(0,import_react36.createElement)(SidebarIcon)),
-main?(0,import_react36.createElement)(BotRow,{...rowProps,bot:main,marked:markedUnread[main.id]===!0}):roster.ready?null:bootFailed?(0,import_react36.createElement)(BootFailed,{actions}):
-(0,import_react36.createElement)("div",{className:"bt-hint"},t("Setting up your Main Bot…")),(0,import_react36.createElement)("span",{className:"bt-rail-sep","aria-hidden":!0})),
-foot=wideContent?(0,import_react36.createElement)("div",{className:"bt-leftcol-foot"},(0,import_react36.createElement)(AccountLauncher,{seat:!1,actions}),(0,import_react36.createElement)(
-PluginsButton,{actions})):(0,import_react36.createElement)("div",{className:"bt-leftcol-foot bt-leftcol-foot-rail"},(0,import_react36.createElement)("button",{type:"button",className:"\
-bt-round","aria-label":t("New…"),title:t("New…"),onClick:()=>actions.openNewChat("new")},(0,import_react36.createElement)(PlusIcon)),(0,import_react36.createElement)(AccountLauncher,
-{seat:!1,actions}),(0,import_react36.createElement)(PluginsButton,{actions})),content=(0,import_react36.createElement)("div",{className:wideContent?"bt-side":"bt-side bt-rail",onKeyDown:typeToSearch},
-top,wideContent&&roster.readOnly?(0,import_react36.createElement)("div",{className:"bt-hint bt-read-only",role:"status"},hostText(roster.readOnly)):null,(0,import_react36.createElement)(
-"div",{ref:listRef,className:"bt-list",role:"region","aria-label":t("Bot list"),onDragEnd:()=>{setDragId(null),setDropTarget(null)},onDragLeave:event=>{event.currentTarget.contains(
-event.relatedTarget)||setDropTarget(null)}},wideContent?main?(0,import_react36.createElement)(BotRow,{...rowProps,bot:main,marked:markedUnread[main.id]===!0}):roster.ready?null:bootFailed?
-(0,import_react36.createElement)(BootFailed,{actions}):(0,import_react36.createElement)("div",{className:"bt-hint"},t("Setting up your Main Bot…")):null,sections.length>0&&wideContent?
-(0,import_react36.createElement)("div",{className:"bt-sec-ungrouped","data-dragging":dragId?"true":void 0,"data-drop":dropTarget==="__none__"?"true":void 0,onDragOver:event=>onDragOverSec(
-event,"__none__"),onDrop:event=>onDropSec(event,null)},ungrouped.map(entry=>renderSidebarEntry(entry,rowProps,markedUnread,onDragStart))):ungrouped.map(entry=>renderSidebarEntry(entry,
-rowProps,markedUnread,onDragStart)),sections.map(section=>(0,import_react36.createElement)(SectionBlock,{key:section.id,section,entries:order.filter(entry=>entry.item.sectionId===section.
-id),rowProps,markedUnread,renaming:renameSection===section.id,dropTarget,onDragStart,onDragOverSec,onDropSec}))),foot);return(0,import_react36.createElement)(import_react36.Fragment,
-null,(0,import_react36.createElement)(TitleToggle,{hidden:mode==="hidden",onToggle}),shown==="hidden"?null:(0,import_react36.createElement)(LeftColumn,{mode:shown,width:ourWidth,onGrip:startDrag,
-leaving},content))}function UpdateButton({useUpdate,actions}){let update=useUpdate(value=>value),[open,setOpen]=(0,import_react36.useState)(!1),[shown,leaving]=useLinger(open,120),
-[box,setBox]=(0,import_react36.useState)(null),[error,setError]=(0,import_react36.useState)(""),[dshError,setDshError]=(0,import_react36.useState)(""),button=(0,import_react36.useRef)(
-null);(0,import_react36.useEffect)(()=>{if(!open)return;let onDown=event=>{event.target instanceof Element&&(event.target.closest(".bt-update-pop")||button.current?.contains(event.
-target))||setOpen(!1)},onKey=event=>{event.key==="Escape"&&(event.stopPropagation(),setOpen(!1),button.current?.focus())};return window.addEventListener("mousedown",onDown),window.
-addEventListener("keydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[open]);let phase=update?.phase??"idle",dsh=update?.
-dsh,dshPhase=dsh?.phase??"idle",dshRow=showsDshRow(dsh,update?.app),tick=useViewport();if((0,import_react36.useLayoutEffect)(()=>{if(!open)return;let rect=button.current?.getBoundingClientRect();
-rect&&setBox({left:Math.max(8,Math.min(rect.left,window.innerWidth-288)),top:rect.bottom+6})},[open,tick]),!update?.available&&!dshRow&&phase==="idle"&&dshPhase==="idle")return null;
-let cloudPhase=phase==="installing"||dshPhase==="installing"?"installing":phase!=="idle"?phase:dshPhase,toggle=()=>setOpen(value=>!value),start=()=>{setError(""),actions.installUpdate().
-catch(failure=>setError(hostText(failure?.message??String(failure))))},startDsh=()=>{setDshError(""),actions.installDshUpdate().catch(failure=>setDshError(hostText(failure?.message??
-String(failure))))},label=phase==="installing"?t("Updating DS Bot…"):dshPhase==="installing"?t("Updating DSH…"):phase==="installed"?t("DS Bot {version} is installed. Restart DS\
-H to use it.",{version:update.installed??update.latest}):phase==="updated"?t("DS Bot {version} is installed.",{version:update.installed??update.latest}):dshPhase==="installed"?t("R\
-estart DSH to start using DSH {version}.",{version:dsh.installed??dsh.verified}):update?.available?t("DS Bot {version} is available",{version:update.latest}):t("DSH {version} is av\
-ailable",{version:dsh?.verified}),message=error||(phase==="failed"?update.error:""),dshMessage=dshError||(dshPhase==="failed"?dsh?.error:""),dshText=dshPhase==="installed"?t("Resta\
-rt DSH to start using DSH {version}.",{version:dsh.installed??dsh.verified}):dsh?.available===!1&&dsh?.blockedBy?t("Update DS Bot {version} first.",{version:dsh.blockedBy}):t("You \
-have {version}.",{version:dsh?.current});return(0,import_react36.createElement)(import_react36.Fragment,null,(0,import_react36.createElement)("button",{ref:button,type:"button",className:"\
-bt-round bt-update","data-phase":cloudPhase,"aria-label":label,title:label,"aria-haspopup":"dialog","aria-expanded":open,onClick:toggle},(0,import_react36.createElement)(CloudDownloadIcon,
-{done:phase==="installed"||phase==="updated"}),phase==="failed"||dshPhase==="failed"?(0,import_react36.createElement)("span",{className:"bt-update-dot","aria-hidden":!0}):null),shown&&
-box?(0,import_react_dom6.createPortal)((0,import_react36.createElement)("div",{className:"bt-update-pop",role:"dialog","aria-label":update?.available||phase!=="idle"?t("DS Bot upda\
-te"):t("DSH update"),style:box,"data-leaving":leaving||void 0},update?.available||phase!=="idle"?(0,import_react36.createElement)(import_react36.Fragment,null,(0,import_react36.createElement)(
-"div",{className:"bt-update-title"},phase==="installed"||phase==="updated"?t("Update installed"):t("DS Bot {version}",{version:update.latest})),(0,import_react36.createElement)("di\
-v",{className:"bt-update-text"},phase==="installed"?t("Restart DSH to start using DS Bot {version}.",{version:update.installed??update.latest}):phase==="updated"?t("DS Bot {version\
-} is installed.",{version:update.installed??update.latest}):t("You have {version}.",{version:update.current})),message?(0,import_react36.createElement)("div",{className:"bt-update-\
-error",role:"alert"},t("The update did not finish: {reason}",{reason:message})):null,(0,import_react36.createElement)("div",{className:"bt-update-actions"},update.notesUrl?(0,import_react36.createElement)(
-"a",{className:"bt-update-notes",href:update.notesUrl,target:"_blank",rel:"noopener noreferrer"},t("What's new")):null,phase==="installed"||phase==="updated"?null:(0,import_react36.createElement)(
-"button",{type:"button",className:"bt-update-go",disabled:phase==="installing",onClick:start},phase==="installing"?t("Updating…"):phase==="failed"?t("Try again"):t("Update")))):null,
-dshRow?(0,import_react36.createElement)("div",{className:"bt-update-dsh"},(0,import_react36.createElement)("div",{className:"bt-update-title"},t("DSH {version}",{version:dsh.verified})),
-(0,import_react36.createElement)("div",{className:"bt-update-text"},dshText),dshMessage?(0,import_react36.createElement)("div",{className:"bt-update-error",role:"alert"},t("The upd\
-ate did not finish: {reason}",{reason:dshMessage})):null,(0,import_react36.createElement)("div",{className:"bt-update-actions"},dsh.kind==="app"?dsh.available?(0,import_react36.createElement)(
-"button",{type:"button",className:"bt-update-go",onClick:()=>{actions.openAppUpdates(dsh.verified).catch(()=>{})}},t("Open updates")):null:!dsh.available&&dshPhase==="idle"||dshPhase===
-"installed"?null:(0,import_react36.createElement)("button",{type:"button",className:"bt-update-go",disabled:dshPhase==="installing",onClick:startDsh},dshPhase==="installing"?t("Upd\
-ating…"):dshPhase==="failed"?t("Try again"):t("Update")))):null),document.body):null)}function YouAvatar(){return(0,import_react36.createElement)("span",{className:"bt-you-wrap"},
-(0,import_react36.createElement)("span",{className:"bt-you","aria-hidden":!0},(0,import_react36.createElement)(GearIcon)),(0,import_react36.createElement)("span",{style:{position:"\
-absolute",width:1,height:1,overflow:"hidden",clip:"rect(0 0 0 0)"}},t("Settings")))}var shellShortcuts=null;function holdShellShortcuts(shortcuts){return shellShortcuts=shortcuts,()=>{
-shellShortcuts===shortcuts&&(shellShortcuts=null)}}function pressesShellShortcut(event,id){let binding=shellShortcuts?.catalog.getSnapshot().find(row=>row.id===id)?.binding;if(!binding)
-return!1;let held=new Set(binding.modifiers);return event.code===binding.code&&event.ctrlKey===held.has("control")&&event.altKey===held.has("alt")&&event.shiftKey===held.has("shift")&&
-event.metaKey===held.has("meta")}var NO_SUBSCRIBE=()=>()=>{},NO_SNAPSHOT=()=>null;function AccountLauncher({seat=!0,settingsOpen,actions}){let[open,setOpen]=(0,import_react36.useState)(
-!1);(0,import_react36.useLayoutEffect)(()=>{if(seat)return actions.seatAccount(!0),()=>actions.seatAccount(!1)},[seat]);let[box,setBox]=(0,import_react36.useState)(null),button=(0,import_react36.useRef)(
-null),menuRef=(0,import_react36.useRef)(null);(0,import_react36.useEffect)(()=>{settingsOpen&&setOpen(!1)},[settingsOpen]),(0,import_react36.useEffect)(()=>{if(!open)return;let onDown=event=>{
-event.target instanceof Element&&(event.target.closest(".bt-account-menu")||button.current?.contains(event.target))||setOpen(!1)},onKey=event=>{stepMenuFocus(menuRef.current,event,
-button.current)||event.key==="Escape"&&(event.stopPropagation(),setOpen(!1),button.current?.focus())};return window.addEventListener("mousedown",onDown),window.addEventListener("ke\
-ydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[open]);let signIn=actions.signInEntry?.()??null,ops=(0,import_react36.useMemo)(
+at:stamps[currentPart(room2)]??room2.createdAt})),...(roster.agents??[]).map(agent=>({kind:"agent",item:agent,at:Math.max(0,...agent.sessions.map(id=>stamps[id]??0))||agent.createdAt}))].
+sort((a,b)=>+!!b.item.pinned-+!!a.item.pinned||b.at-a.at)},[roster,updated]),sections=roster.sections??[],sectionSet=(0,import_react36.useMemo)(()=>new Set(sections.map(sec=>sec.id)),
+[sections]),ungrouped=(0,import_react36.useMemo)(()=>order.filter(entry=>!entry.item.sectionId||!sectionSet.has(entry.item.sectionId)),[order,sectionSet]),main=roster.byId[roster.mainBotId],
+glideKey=(0,import_react36.useMemo)(()=>`${sections.map(s=>`${s.id}:${s.collapsed?1:0}`).join(",")}|${order.map(entry=>`${entry.item.id}:${entry.item.sectionId??""}`).join(",")}`,[
+sections,order]);useListGlide(listRef,wideContent,glideKey),useLandOnMainBot(roster,useSessions,actions),useReportReady(roster.ready,roster);let[dragId,setDragId]=(0,import_react36.useState)(
+null),[dropTarget,setDropTarget]=(0,import_react36.useState)(null),onDragStart=(event,id)=>{setDragId(id),event.dataTransfer?.setData?.("text/plain",id),event.dataTransfer&&(event.
+dataTransfer.effectAllowed="move")},onDragOverSec=(event,secId)=>{dragId&&(event.preventDefault(),dropTarget!==secId&&setDropTarget(secId))},onDropSec=(event,secId)=>{event.preventDefault();
+let id=dragId;setDragId(null),setDropTarget(null),id&&(Promise.resolve(actions.setFlags(id,{sectionId:secId})).catch(error=>actions.reportError(error,"section")),secId&&sections.find(
+s=>s.id===secId)?.collapsed&&Promise.resolve(actions.saveSection({id:secId,collapsed:!1})).catch(()=>{}))},createNewSection=()=>{Promise.resolve(actions.saveSection({})).then(sec=>{
+sec?.id&&actions.beginSectionRename(sec.id)}).catch(error=>actions.reportError(error,"section"))},openWidth=drag?.width??frameSnap.sidebarWidth,ourWidth=shown==="rail"?RAIL_WIDTH:openWidth,
+pushed=mode==="open"?openWidth:mode==="hidden"?0:RAIL_WIDTH;(0,import_react36.useLayoutEffect)(()=>{typeof document>"u"||chatRoom.setLeft(Math.max(0,pushed-(frameSnap.collapsedWidth??
+0)))},[pushed,frameSnap.collapsedWidth]),(0,import_react36.useEffect)(()=>()=>{typeof document<"u"&&chatRoom.setLeft(null)},[]);let settleTimer=(0,import_react36.useRef)(0),springTimer=(0,import_react36.useRef)(
+0),startDrag=event=>{if(event.button!==0)return;event.preventDefault(),clearTimeout(settleTimer.current),clearTimeout(springTimer.current);let grip=event.currentTarget,column=grip.
+parentElement;delete column.dataset.folding,grip.setPointerCapture?.(event.pointerId),chatRoom.hold(!0);let columns2=chatRoom.columns();for(let col of columns2)col.style.setProperty(
+"transition","none","important");let panes=[...document.querySelectorAll(".bt-pane")],offLeft=frameSnap.collapsedWidth??0,last=null,liveLeft=mode,done=!1,write=at=>{let width=at.left===
+"rail"?RAIL_WIDTH:at.width;column.style.width=`${width}px`,column.style.setProperty("--bt-lc-w",`${width}px`);let occupied=at.left==="open"?width:RAIL_WIDTH,push=Math.max(0,occupied-
+offLeft);for(let col of columns2)col.style.setProperty("margin-left",`${push}px`,"important");for(let pane of panes)pane.style.left=`${occupied}px`},springUntil=0,springOff=()=>{springUntil=
+0,delete column.dataset.folding;for(let col of columns2)col.style.setProperty("transition","none","important")},springOn=()=>{column.dataset.folding="";for(let col of columns2)col.
+style.setProperty("transition",`margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`,"important");springUntil=performance.now()+SPRING_SHAPE.duration,clearTimeout(springTimer.
+current),springTimer.current=setTimeout(springOff,SPRING_SHAPE.duration)},track=x=>{last=dragColumn(x,window.innerWidth),last.left!==liveLeft&&(liveLeft=last.left,reducedMotion()||
+springOn(),setDrag(last)),write(last)},onMove=move=>track(move.clientX),finish=()=>{clearTimeout(springTimer.current),column.isConnected&&last!==null&&chatRoom.setLeft(Math.max(0,(last.
+left==="open"?last.width:RAIL_WIDTH)-offLeft));for(let col of columns2)col.style.removeProperty("margin-left"),col.style.removeProperty("transition");column.style.removeProperty("-\
+-bt-lc-w"),delete column.dataset.folding,chatRoom.hold(!1)},ends=["pointerup","pointercancel","lostpointercapture"],onEnd=end=>{if(!done){done=!0,end.type==="pointerup"&&track(end.
+clientX),grip.removeEventListener("pointermove",onMove);for(let name of ends)grip.removeEventListener(name,onEnd);if(setDrag(null),last===null){finish();return}actions.setPanelYield?.(
+!1),last.left==="rail"?(actions.setLeftDrawer?.(!1),actions.setSidebarPref?.("rail")):(actions.setSidebarWidth?.(last.width),actions.setSidebarPref?.("open"),actions.setLeftDrawer?.(
+last.left==="drawer")),springUntil===0?finish():settleTimer.current=setTimeout(finish,Math.max(0,springUntil-performance.now())+60)}};grip.addEventListener("pointermove",onMove);for(let name of ends)
+grip.addEventListener(name,onEnd)},dsh=(0,import_react36.useRef)(null),requested=(0,import_react36.useRef)(!1),requestLapse=(0,import_react36.useRef)(0),[lapsed,setLapsed]=(0,import_react36.useState)(
+0);(0,import_react36.useEffect)(()=>()=>clearTimeout(requestLapse.current),[]);let resizedAt=(0,import_react36.useRef)(0);(0,import_react36.useEffect)(()=>{let onResize=()=>{resizedAt.
+current=performance.now()};return window.addEventListener("resize",onResize),()=>window.removeEventListener("resize",onResize)},[]);let quiet=on=>{on?document.documentElement.setAttribute(
+"data-bt-collapsing",""):document.documentElement.removeAttribute("data-bt-collapsing")};(0,import_react36.useEffect)(()=>()=>quiet(!1),[]),(0,import_react36.useLayoutEffect)(()=>{
+if(typeof document>"u"||typeof actions.toggleSidebar!="function")return;let collapsed=dshCollapsed()??!wide,prev=dsh.current,viewport=window.innerWidth;if(dsh.current={collapsed,viewport},
+prev!==null&&collapsed!==prev.collapsed&&(requested.current?requested.current=!1:!collapsed&&userSidebarToggle({before:prev,after:{collapsed,viewport},sinceResize:performance.now()-
+resizedAt.current})&&toggleRef.current()),collapsed){clearTimeout(requestLapse.current),requested.current=!1,quiet(!1);return}requested.current||(requested.current=!0,quiet(!0),actions.
+toggleSidebar(),clearTimeout(requestLapse.current),requestLapse.current=setTimeout(()=>{requested.current=!1,quiet(!1),setLapsed(value=>value+1)},300))},[wide,frameSnap.viewport,frameSnap.
+collapsed,lapsed]),useEscape(()=>actions.setLeftDrawer?.(!1),mode==="drawer"),(0,import_react36.useEffect)(()=>{if(mode!=="drawer")return;let onDown=event=>{event.target instanceof
+Element&&event.target.closest(".bt-leftcol")||actions.setLeftDrawer?.(!1)};return window.addEventListener("mousedown",onDown),()=>{window.removeEventListener("mousedown",onDown)}},
+[mode]);let navigate=(open,id)=>{let result=open(id);return leftDrawer&&actions.setLeftDrawer?.(!1),result},rowActions={...actions,openSession:id=>navigate(actions.openSession,id),
+openAgent:id=>navigate(actions.openAgent,id),openAgentSession:id=>navigate(actions.openAgentSession,id),newAgentSession:id=>navigate(actions.newAgentSession,id)},rowProps={roster,actions:rowActions,
+useSessions,useUi,useSessionStatus:props.useSessionStatus,useSessionRetainInfo:props.useSessionRetainInfo,useActivity:props.useActivity,useWork:props.useWork,useComputer:props.useComputer,
+wide:wideContent},typeToSearch=event=>{event.defaultPrevented||event.key.length!==1||event.key===" "||event.metaKey||event.ctrlKey||event.altKey||event.nativeEvent.isComposing||event.
+target instanceof Element&&event.target.closest("input,textarea,[contenteditable]")||(event.preventDefault(),actions.openPalette(event.key))},onToggle=()=>actions.toggleLeftHidden?.(),
+toggleRef=(0,import_react36.useRef)(onToggle);toggleRef.current=onToggle,(0,import_react36.useEffect)(()=>{let onKey=event=>{event.defaultPrevented||event.isComposing||!pressesShellShortcut(
+event,"sidebar.left.toggle")||event.target instanceof Element&&event.target.closest(".xterm")||document.querySelector('[aria-modal="true"]')||(event.preventDefault(),event.stopPropagation(),
+toggleRef.current())};return document.addEventListener("keydown",onKey,!0),()=>document.removeEventListener("keydown",onKey,!0)},[]);let top=wideContent?(0,import_react36.createElement)(
+"div",{className:"bt-side-top"},(0,import_react36.createElement)("span",{className:"bt-brand"},(0,import_react36.createElement)(BrandName)),(0,import_react36.createElement)(UpdateButton,
+{useUpdate:props.useUpdate,actions}),(0,import_react36.createElement)("button",{type:"button",className:"bt-round","aria-label":t("New section"),title:t("New section"),onClick:createNewSection},
+(0,import_react36.createElement)(FolderIcon)),(0,import_react36.createElement)("button",{type:"button",className:"bt-round","aria-label":t("Search"),title:t("Search"),onClick:()=>actions.
+openPalette()},(0,import_react36.createElement)(SearchIcon)),(0,import_react36.createElement)("button",{type:"button",className:"bt-round","aria-label":t("New…"),title:t("New…"),
+onClick:()=>actions.openNewChat("new")},(0,import_react36.createElement)(PlusIcon)),(0,import_react36.createElement)("button",{type:"button",className:"bt-round bt-side-collapse","\
+aria-label":t("Collapse sidebar"),title:t("Collapse sidebar"),onClick:onToggle},(0,import_react36.createElement)(SidebarIcon))):(0,import_react36.createElement)("div",{className:"b\
+t-rail-top"},(0,import_react36.createElement)(UpdateButton,{useUpdate:props.useUpdate,actions}),(0,import_react36.createElement)("button",{type:"button",className:"bt-round bt-side\
+-collapse","aria-label":t("Collapse sidebar"),title:t("Collapse sidebar"),onClick:onToggle},(0,import_react36.createElement)(SidebarIcon)),main?(0,import_react36.createElement)(BotRow,
+{...rowProps,bot:main,marked:markedUnread[main.id]===!0}):roster.ready?null:bootFailed?(0,import_react36.createElement)(BootFailed,{actions}):(0,import_react36.createElement)("div",
+{className:"bt-hint"},t("Setting up your Main Bot…")),(0,import_react36.createElement)("span",{className:"bt-rail-sep","aria-hidden":!0})),foot=wideContent?(0,import_react36.createElement)(
+"div",{className:"bt-leftcol-foot"},(0,import_react36.createElement)(AccountLauncher,{seat:!1,actions}),(0,import_react36.createElement)(PluginsButton,{actions})):(0,import_react36.createElement)(
+"div",{className:"bt-leftcol-foot bt-leftcol-foot-rail"},(0,import_react36.createElement)("button",{type:"button",className:"bt-round","aria-label":t("New…"),title:t("New…"),onClick:()=>actions.
+openNewChat("new")},(0,import_react36.createElement)(PlusIcon)),(0,import_react36.createElement)(AccountLauncher,{seat:!1,actions}),(0,import_react36.createElement)(PluginsButton,{
+actions})),content=(0,import_react36.createElement)("div",{className:wideContent?"bt-side":"bt-side bt-rail",onKeyDown:typeToSearch},top,wideContent&&roster.readOnly?(0,import_react36.createElement)(
+"div",{className:"bt-hint bt-read-only",role:"status"},hostText(roster.readOnly)):null,(0,import_react36.createElement)("div",{ref:listRef,className:"bt-list",role:"region","aria-l\
+abel":t("Bot list"),onDragEnd:()=>{setDragId(null),setDropTarget(null)},onDragLeave:event=>{event.currentTarget.contains(event.relatedTarget)||setDropTarget(null)}},wideContent?main?
+(0,import_react36.createElement)(BotRow,{...rowProps,bot:main,marked:markedUnread[main.id]===!0}):roster.ready?null:bootFailed?(0,import_react36.createElement)(BootFailed,{actions}):
+(0,import_react36.createElement)("div",{className:"bt-hint"},t("Setting up your Main Bot…")):null,sections.length>0&&wideContent?(0,import_react36.createElement)("div",{className:"\
+bt-sec-ungrouped","data-dragging":dragId?"true":void 0,"data-drop":dropTarget==="__none__"?"true":void 0,onDragOver:event=>onDragOverSec(event,"__none__"),onDrop:event=>onDropSec(event,
+null)},ungrouped.map(entry=>renderSidebarEntry(entry,rowProps,markedUnread,onDragStart))):ungrouped.map(entry=>renderSidebarEntry(entry,rowProps,markedUnread,onDragStart)),sections.
+map(section=>(0,import_react36.createElement)(SectionBlock,{key:section.id,section,entries:order.filter(entry=>entry.item.sectionId===section.id),rowProps,markedUnread,renaming:renameSection===
+section.id,dropTarget,onDragStart,onDragOverSec,onDropSec}))),foot);return(0,import_react36.createElement)(import_react36.Fragment,null,(0,import_react36.createElement)(TitleToggle,
+{hidden:mode==="hidden",onToggle}),shown==="hidden"?null:(0,import_react36.createElement)(LeftColumn,{mode:shown,width:ourWidth,onGrip:startDrag,leaving},content))}function UpdateButton({
+useUpdate,actions}){let update=useUpdate(value=>value),[open,setOpen]=(0,import_react36.useState)(!1),[shown,leaving]=useLinger(open,120),[box,setBox]=(0,import_react36.useState)(null),
+[error,setError]=(0,import_react36.useState)(""),[dshError,setDshError]=(0,import_react36.useState)(""),button=(0,import_react36.useRef)(null);(0,import_react36.useEffect)(()=>{if(!open)
+return;let onDown=event=>{event.target instanceof Element&&(event.target.closest(".bt-update-pop")||button.current?.contains(event.target))||setOpen(!1)},onKey=event=>{event.key===
+"Escape"&&!event.isComposing&&event.keyCode!==229&&(event.stopPropagation(),setOpen(!1),button.current?.focus())};return window.addEventListener("mousedown",onDown),window.addEventListener(
+"keydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[open]);let phase=update?.phase??"idle",dsh=update?.dsh,dshPhase=dsh?.
+phase??"idle",dshRow=showsDshRow(dsh,update?.app),tick=useViewport();if((0,import_react36.useLayoutEffect)(()=>{if(!open)return;let rect=button.current?.getBoundingClientRect();rect&&
+setBox({left:Math.max(8,Math.min(rect.left,window.innerWidth-288)),top:rect.bottom+6})},[open,tick]),!update?.available&&!dshRow&&phase==="idle"&&dshPhase==="idle")return null;let cloudPhase=phase===
+"installing"||dshPhase==="installing"?"installing":phase!=="idle"?phase:dshPhase,toggle=()=>setOpen(value=>!value),start=()=>{setError(""),actions.installUpdate().catch(failure=>setError(
+hostText(failure?.message??String(failure))))},startDsh=()=>{setDshError(""),actions.installDshUpdate().catch(failure=>setDshError(hostText(failure?.message??String(failure))))},label=phase===
+"installing"?t("Updating DS Bot…"):dshPhase==="installing"?t("Updating DSH…"):phase==="installed"?t("DS Bot {version} is installed. Restart DSH to use it.",{version:update.installed??
+update.latest}):phase==="updated"?t("DS Bot {version} is installed.",{version:update.installed??update.latest}):dshPhase==="installed"?t("Restart DSH to start using DSH {version}.",
+{version:dsh.installed??dsh.verified}):update?.available?t("DS Bot {version} is available",{version:update.latest}):t("DSH {version} is available",{version:dsh?.verified}),message=error||
+(phase==="failed"?update.error:""),dshMessage=dshError||(dshPhase==="failed"?dsh?.error:""),dshText=dshPhase==="installed"?t("Restart DSH to start using DSH {version}.",{version:dsh.
+installed??dsh.verified}):dsh?.available===!1&&dsh?.blockedBy?t("Update DS Bot {version} first.",{version:dsh.blockedBy}):t("You have {version}.",{version:dsh?.current});return(0,import_react36.createElement)(
+import_react36.Fragment,null,(0,import_react36.createElement)("button",{ref:button,type:"button",className:"bt-round bt-update","data-phase":cloudPhase,"aria-label":label,title:label,
+"aria-haspopup":"dialog","aria-expanded":open,onClick:toggle},(0,import_react36.createElement)(CloudDownloadIcon,{done:phase==="installed"||phase==="updated"}),phase==="failed"||dshPhase===
+"failed"?(0,import_react36.createElement)("span",{className:"bt-update-dot","aria-hidden":!0}):null),shown&&box?(0,import_react_dom6.createPortal)((0,import_react36.createElement)(
+"div",{className:"bt-update-pop",role:"dialog","aria-label":update?.available||phase!=="idle"?t("DS Bot update"):t("DSH update"),style:box,"data-leaving":leaving||void 0},update?.available||
+phase!=="idle"?(0,import_react36.createElement)(import_react36.Fragment,null,(0,import_react36.createElement)("div",{className:"bt-update-title"},phase==="installed"||phase==="upda\
+ted"?t("Update installed"):t("DS Bot {version}",{version:update.latest})),(0,import_react36.createElement)("div",{className:"bt-update-text"},phase==="installed"?t("Restart DSH to \
+start using DS Bot {version}.",{version:update.installed??update.latest}):phase==="updated"?t("DS Bot {version} is installed.",{version:update.installed??update.latest}):t("You hav\
+e {version}.",{version:update.current})),message?(0,import_react36.createElement)("div",{className:"bt-update-error",role:"alert"},t("The update did not finish: {reason}",{reason:message})):
+null,(0,import_react36.createElement)("div",{className:"bt-update-actions"},update.notesUrl?(0,import_react36.createElement)("a",{className:"bt-update-notes",href:update.notesUrl,target:"\
+_blank",rel:"noopener noreferrer"},t("What's new")):null,phase==="installed"||phase==="updated"?null:(0,import_react36.createElement)("button",{type:"button",className:"bt-update-g\
+o",disabled:phase==="installing",onClick:start},phase==="installing"?t("Updating…"):phase==="failed"?t("Try again"):t("Update")))):null,dshRow?(0,import_react36.createElement)("d\
+iv",{className:"bt-update-dsh"},(0,import_react36.createElement)("div",{className:"bt-update-title"},t("DSH {version}",{version:dsh.verified})),(0,import_react36.createElement)("di\
+v",{className:"bt-update-text"},dshText),dshMessage?(0,import_react36.createElement)("div",{className:"bt-update-error",role:"alert"},t("The update did not finish: {reason}",{reason:dshMessage})):
+null,(0,import_react36.createElement)("div",{className:"bt-update-actions"},dsh.kind==="app"?dsh.available?(0,import_react36.createElement)("button",{type:"button",className:"bt-up\
+date-go",onClick:()=>{actions.openAppUpdates(dsh.verified).catch(()=>{})}},t("Open updates")):null:!dsh.available&&dshPhase==="idle"||dshPhase==="installed"?null:(0,import_react36.createElement)(
+"button",{type:"button",className:"bt-update-go",disabled:dshPhase==="installing",onClick:startDsh},dshPhase==="installing"?t("Updating…"):dshPhase==="failed"?t("Try again"):t("U\
+pdate")))):null),document.body):null)}function YouAvatar(){return(0,import_react36.createElement)("span",{className:"bt-you-wrap"},(0,import_react36.createElement)("span",{className:"\
+bt-you","aria-hidden":!0},(0,import_react36.createElement)(GearIcon)),(0,import_react36.createElement)("span",{style:{position:"absolute",width:1,height:1,overflow:"hidden",clip:"r\
+ect(0 0 0 0)"}},t("Settings")))}var shellShortcuts=null;function holdShellShortcuts(shortcuts){return shellShortcuts=shortcuts,()=>{shellShortcuts===shortcuts&&(shellShortcuts=null)}}
+function pressesShellShortcut(event,id){let binding=shellShortcuts?.catalog.getSnapshot().find(row=>row.id===id)?.binding;if(!binding)return!1;let held=new Set(binding.modifiers);return event.
+code===binding.code&&event.ctrlKey===held.has("control")&&event.altKey===held.has("alt")&&event.shiftKey===held.has("shift")&&event.metaKey===held.has("meta")}var NO_SUBSCRIBE=()=>()=>{},
+NO_SNAPSHOT=()=>null;function AccountLauncher({seat=!0,settingsOpen,actions}){let[open,setOpen]=(0,import_react36.useState)(!1);(0,import_react36.useLayoutEffect)(()=>{if(seat)return actions.
+seatAccount(!0),()=>actions.seatAccount(!1)},[seat]);let[box,setBox]=(0,import_react36.useState)(null),button=(0,import_react36.useRef)(null),menuRef=(0,import_react36.useRef)(null);
+(0,import_react36.useEffect)(()=>{settingsOpen&&setOpen(!1)},[settingsOpen]),(0,import_react36.useEffect)(()=>{if(!open)return;let onDown=event=>{event.target instanceof Element&&(event.
+target.closest(".bt-account-menu")||button.current?.contains(event.target))||setOpen(!1)},onKey=event=>{stepMenuFocus(menuRef.current,event,button.current)||event.key==="Escape"&&!event.
+isComposing&&event.keyCode!==229&&(event.stopPropagation(),setOpen(!1),button.current?.focus())};return window.addEventListener("mousedown",onDown),window.addEventListener("keydown",
+onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[open]);let signIn=actions.signInEntry?.()??null,ops=(0,import_react36.useMemo)(
 ()=>signIn?.inject?.()??{},[signIn]),accountSource=ops.hooks?.account,account=(0,import_react36.useSyncExternalStore)(accountSource?.subscribe??NO_SUBSCRIBE,accountSource?()=>accountSource.
 getSnapshot():NO_SNAPSHOT),signedIn=signIn!==null&&typeof ops.signOut=="function"&&account?.view?.status==="credential-stored",signedOut=signIn!==null&&typeof actions.signIn=="func\
 tion"&&account?.view?.status==="signed-out",accountT=actions.accountT?.()??(key=>key),[confirm,setConfirm]=(0,import_react36.useState)(null),[busy,setBusy]=(0,import_react36.useState)(
@@ -11395,7 +11439,7 @@ inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:b
 .bt-return-swap svg{width:16px;height:16px}
 `;function BrandMark({size=24}){return(0,import_react36.createElement)("span",{className:"bt-brand-whale"},(0,import_react36.createElement)(BotMark,{look:MAIN_LOOK,size}))}function BrandName(){
 return(0,import_react36.createElement)("span",{style:{fontWeight:600,fontSize:14}},"DS Bot")}var SIDEBAR_CSS=`
-.bt-confirm{width:260px;max-width:72vw;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.bt-confirm{width:100%;max-width:260px;box-sizing:border-box;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
 .bt-confirm-text{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
 .bt-confirm-error{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
 .bt-confirm-row{display:flex;justify-content:flex-end;gap:8px}
@@ -11446,7 +11490,8 @@ t-family:var(--bt-font);animation:bt-update-pop ${SPRING_SHAPE.duration}ms ${SPR
 
 /* The DSH Agent row and its expanding Session list. The black whale is the
    harness's own mark, so the row reads as "plain dsh" next to the Bot marks. */
-.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:v\
+ar(--bt-ink)}
 .bt-agent-ava.bt-run{animation:bt-agent-pulse 1.4s ease-in-out infinite}
 @keyframes bt-agent-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -11489,9 +11534,9 @@ easing},color .12s ease}
 .bt-sec-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none}
 .bt-sec-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .bt-sec-count{font-size:11px;line-height:16px;font-weight:500;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-count-hide{display:none}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-count-hide{display:none}
 .bt-sec-tail{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-tail{padding-right:44px}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-tail{padding-right:44px}
 .bt-sec-pile{display:inline-flex;align-items:center;animation:bt-sec-pile-in ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 @keyframes bt-sec-pile-in{from{opacity:0;transform:translateX(6px) scale(.82)}to{opacity:1;transform:none}}
 .bt-sec-pile-item{display:inline-flex;border-radius:50%;corner-shape:round;background:var(--bt-sidebar);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -11502,10 +11547,12 @@ easing},color .12s ease}
 .bt-sec-status[data-kind=alert]{width:12px;height:12px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:8.5px;line-height:12px;font-weight:600;display:inline-flex;a\
 lign-items:center;justify-content:center}
 .bt-sec-status[data-kind=unread]{background:var(--bt-accent)}
-.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:none;align-items:center;gap:2px}
-.bt-sec-head-wrap:hover .bt-sec-acts,.bt-sec-acts:focus-within{display:inline-flex}
-.bt-sec-act{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);c\
-ursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:2px;opacity:0;pointer-events:none;transition:opacity .12s eas\
+e}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-acts{opacity:1;pointer-events:auto}
+.bt-sec-act{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color\
+:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-act::after{content:"";position:absolute;inset:-4px}
 .bt-sec-act:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-sec-act:active{transform:scale(.9)}
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -11540,7 +11587,7 @@ ms ${SPRING_TAP.easing}}
 .bt-menu-color-dot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `;var import_react37=require("react"),LABELS={"read-only":"Read only","workspace-write":"Workspace","danger-full-access":"Full access"},DANGER=new Set(["danger-full-access"]),presetDanger=value=>DANGER.
 has(value),presetName=(value,catalog)=>LABELS[value]?t(LABELS[value]):catalog?.options?.find(option=>option.value===value)?.name??value;function PermissionPicker({catalog,saved,onPick,
 repick=!1}){let[pending,setPending]=(0,import_react37.useState)(null),flight=(0,import_react37.useRef)({value:void 0,latest:void 0});(0,import_react37.useEffect)(()=>{let flying=flight.
@@ -11720,31 +11767,32 @@ return String(Math.round(count))}function percent2(part,whole){if(!(whole>0)||!(
 weeks"),"12m":t("12 months")})[id],unitLabel=unit=>({hour:t("Per hour"),day:t("Per day"),week:t("Per week"),month:t("Per month")})[unit],MODEL_INKS=["deepseek","tangerine","green",
 "violet","sky","rose","yellow","cyan","magenta","brown"],PARTS=[["output",1],["input",.6],["cacheRead",.32]],partLabel=part=>({output:t("Output"),input:t("Input"),cacheRead:t("Cach\
 e hit")})[part],soften=(paint,strength=1)=>{let mix=color=>`color-mix(in srgb, ${color} ${Math.round(88*strength)}%, var(--bt-card))`;return paint.startsWith("linear-gradient(")?paint.
-replace(/#[0-9a-f]{6}/gi,mix):mix(paint)},full=count=>new Intl.NumberFormat(dateLocale()).format(Math.round(count)),hitRate=sum=>percent2(sum.cacheRead,sum.input+sum.cacheRead),dates=options=>new Intl.
-DateTimeFormat(dateLocale(),{timeZone:"UTC",...options}),hourText=ms=>`${String(new Date(ms).getUTCHours()).padStart(2,"0")}:00`,yearOf=ms=>new Date(ms).getUTCFullYear();function spanText(from,to){
-let start=hourMs(from),end=hourMs(to),year=new Date().getFullYear(),format=dates(yearOf(start)!==year||yearOf(end)!==year?{year:"numeric",month:"short",day:"numeric"}:{month:"short",
-day:"numeric"});return from===to?format.format(start):`${format.format(start)} – ${format.format(end)}`}var daysText=count=>count===1?t("1 day"):t("{count} days",{count}),lastText=range=>range.
-from?spanText(range.from,range.to):t("Last {range}",{range:rangeLabel(range.id)});function compareText(range){return range.from?range.days===1?t("Compared with the day before"):t("\
-Compared with the {count} days before",{count:range.days}):t("Compared with the {range} before",{range:rangeLabel(range.id)})}function tickOf(range,bucket){return range.unit==="hou\
-r"?range.days>1&&new Date(bucket.start).getUTCHours()===0?dates({month:"numeric",day:"numeric"}).format(bucket.start):hourText(bucket.start):range.unit==="month"?dates({month:"shor\
-t"}).format(bucket.start):dates({month:"numeric",day:"numeric"}).format(bucket.start)}function titleOf2(range,bucket){return range.unit==="hour"?`${dates({month:"short",day:"numeri\
-c"}).format(bucket.start)} ${hourText(bucket.start)}–${hourText(bucket.start+36e5)}`:range.unit==="day"?dates({month:"long",day:"numeric",weekday:"short"}).format(bucket.start):range.
-unit==="week"?spanText(dayKey(bucket.start),dayKey((bucket.end??bucket.start+7*864e5)-864e5)):bucket.end&&(new Date(bucket.start).getUTCDate()!==1||new Date(bucket.end).getUTCDate()!==
-1)?spanText(dayKey(bucket.start),dayKey(bucket.end-864e5)):dates({year:"numeric",month:"long"}).format(bucket.start)}function useTween(value){let[shown,setShown]=(0,import_react41.useState)(
-0),from=(0,import_react41.useRef)(0);return(0,import_react41.useEffect)(()=>{if(reducedMotion()||typeof requestAnimationFrame!="function"){from.current=value,setShown(value);return}
-let begin=from.current,started=performance.now(),frame2,step=now=>{let progress=Math.min(1,(now-started)/650);from.current=begin+(value-begin)*(1-(1-progress)**3),setShown(from.current),
-progress<1&&(frame2=requestAnimationFrame(step))};return frame2=requestAnimationFrame(step),()=>cancelAnimationFrame(frame2)},[value]),shown}var glyphBox=(size,icon2)=>(0,import_react41.createElement)(
-"span",{className:"bt-us-glyph",style:{width:size,height:size}},(0,import_react41.createElement)(icon2));function ModelGlyph({name,paint,size}){return(0,import_react41.createElement)(
-"span",{className:"bt-us-model","aria-hidden":!0,style:{width:size,height:size,fontSize:Math.round(size*.42),background:`color-mix(in srgb, ${paint} 20%, var(--bt-card))`,color:`co\
-lor-mix(in srgb, ${paint} 72%, var(--bt-ink))`}},(name.match(/[\p{L}\p{N}]/u)?.[0]??"?").toUpperCase())}function ownerFace(owner,roster){if(owner.kind==="bot"){let bot=roster.byId[owner.
-id]??{id:owner.id,name:owner.name},name=bot.name||owner.name||t("Deleted Bot"),role=bot.role?.trim()??"";return{kind:"bot",name,sub:owner.deleted?t("Deleted"):role.toLowerCase()===
-name.toLowerCase()?"":role,paint:paintCss(colorOf(bot)),stops:GRADIENTS[colorOf(bot)],glyph:size=>(0,import_react41.createElement)(BotAvatar,{bot,size,badge:!1,live:!1})}}if(owner.
-kind==="room"){let room2=roster.roomsById[owner.id];return{kind:"room",name:owner.name||t("Deleted group chat"),sub:owner.deleted?t("Deleted"):t("Group chat"),paint:"var(--bt-us-re\
-st)",glyph:size=>room2?(0,import_react41.createElement)(RoomAvatar,{room:room2,roster,size}):glyphBox(size,ChatsIcon)}}return owner.kind==="agent"?{kind:"agent",name:owner.name||"D\
-SH Agent",sub:owner.deleted?t("Deleted"):"",paint:"var(--bt-us-rest)",glyph:size=>glyphBox(size,ChatsIcon)}:{kind:"other",name:t("Other"),sub:"",paint:"var(--bt-us-rest)",glyph:size=>glyphBox(
-size,ChatsIcon)}}function kindLabel(kind,botFocus){return{chat:botFocus?t("Own chat"):t("Conversations"),group:t("Group chats"),compaction:t("Compaction and handoff"),image:t("Imag\
-e reading"),memory:t("Memory"),"session-title":t("Titles"),btw:t("Side chat"),side:t("Side chat"),other:t("Other")}[kind]??kind}function Tabs({label,value,options,onChange,boxRef}){
-let names=options.map(([,text])=>text).join(`
+replace(/#[0-9a-f]{6}/gi,mix):mix(paint)},numberCache=new Map,full=count=>{let locale=dateLocale(),fmt=numberCache.get(locale);return fmt||(fmt=new Intl.NumberFormat(locale),numberCache.
+set(locale,fmt)),fmt.format(Math.round(count))},hitRate=sum=>percent2(sum.cacheRead,sum.input+sum.cacheRead),dateCache=new Map,dates=options=>{let locale=dateLocale(),key=`${locale}\
+|${JSON.stringify(options)}`,fmt=dateCache.get(key);return fmt||(fmt=new Intl.DateTimeFormat(locale,{timeZone:"UTC",...options}),dateCache.set(key,fmt)),fmt},hourText=ms=>`${String(
+new Date(ms).getUTCHours()).padStart(2,"0")}:00`,yearOf=ms=>new Date(ms).getUTCFullYear();function spanText(from,to){let start=hourMs(from),end=hourMs(to),year=new Date().getFullYear(),
+format=dates(yearOf(start)!==year||yearOf(end)!==year?{year:"numeric",month:"short",day:"numeric"}:{month:"short",day:"numeric"});return from===to?format.format(start):`${format.format(
+start)} – ${format.format(end)}`}var daysText=count=>count===1?t("1 day"):t("{count} days",{count}),lastText=range=>range.from?spanText(range.from,range.to):t("Last {range}",{range:rangeLabel(
+range.id)});function compareText(range){return range.from?range.days===1?t("Compared with the day before"):t("Compared with the {count} days before",{count:range.days}):t("Compared\
+ with the {range} before",{range:rangeLabel(range.id)})}function tickOf(range,bucket){return range.unit==="hour"?range.days>1&&new Date(bucket.start).getUTCHours()===0?dates({month:"\
+numeric",day:"numeric"}).format(bucket.start):hourText(bucket.start):range.unit==="month"?dates({month:"short"}).format(bucket.start):dates({month:"numeric",day:"numeric"}).format(
+bucket.start)}function titleOf2(range,bucket){return range.unit==="hour"?`${dates({month:"short",day:"numeric"}).format(bucket.start)} ${hourText(bucket.start)}–${hourText(bucket.
+start+36e5)}`:range.unit==="day"?dates({month:"long",day:"numeric",weekday:"short"}).format(bucket.start):range.unit==="week"?spanText(dayKey(bucket.start),dayKey((bucket.end??bucket.
+start+7*864e5)-864e5)):bucket.end&&(new Date(bucket.start).getUTCDate()!==1||new Date(bucket.end).getUTCDate()!==1)?spanText(dayKey(bucket.start),dayKey(bucket.end-864e5)):dates({year:"\
+numeric",month:"long"}).format(bucket.start)}function useTween(value){let[shown,setShown]=(0,import_react41.useState)(0),from=(0,import_react41.useRef)(0);return(0,import_react41.useEffect)(
+()=>{if(reducedMotion()||typeof requestAnimationFrame!="function"){from.current=value,setShown(value);return}let begin=from.current,started=performance.now(),frame2,step=now=>{let progress=Math.
+min(1,(now-started)/650);from.current=begin+(value-begin)*(1-(1-progress)**3),setShown(from.current),progress<1&&(frame2=requestAnimationFrame(step))};return frame2=requestAnimationFrame(
+step),()=>cancelAnimationFrame(frame2)},[value]),shown}var glyphBox=(size,icon2)=>(0,import_react41.createElement)("span",{className:"bt-us-glyph",style:{width:size,height:size}},(0,import_react41.createElement)(
+icon2));function ModelGlyph({name,paint,size}){return(0,import_react41.createElement)("span",{className:"bt-us-model","aria-hidden":!0,style:{width:size,height:size,fontSize:Math.round(
+size*.42),background:`color-mix(in srgb, ${paint} 20%, var(--bt-card))`,color:`color-mix(in srgb, ${paint} 72%, var(--bt-ink))`}},(name.match(/[\p{L}\p{N}]/u)?.[0]??"?").toUpperCase())}
+function ownerFace(owner,roster){if(owner.kind==="bot"){let bot=roster.byId[owner.id]??{id:owner.id,name:owner.name},name=bot.name||owner.name||t("Deleted Bot"),role=bot.role?.trim()??
+"";return{kind:"bot",name,sub:owner.deleted?t("Deleted"):role.toLowerCase()===name.toLowerCase()?"":role,paint:paintCss(colorOf(bot)),stops:GRADIENTS[colorOf(bot)],glyph:size=>(0,import_react41.createElement)(
+BotAvatar,{bot,size,badge:!1,live:!1})}}if(owner.kind==="room"){let room2=roster.roomsById[owner.id];return{kind:"room",name:owner.name||t("Deleted group chat"),sub:owner.deleted?t(
+"Deleted"):t("Group chat"),paint:"var(--bt-us-rest)",glyph:size=>room2?(0,import_react41.createElement)(RoomAvatar,{room:room2,roster,size}):glyphBox(size,ChatsIcon)}}return owner.
+kind==="agent"?{kind:"agent",name:owner.name||"DSH Agent",sub:owner.deleted?t("Deleted"):"",paint:"var(--bt-us-rest)",glyph:size=>glyphBox(size,ChatsIcon)}:{kind:"other",name:t("Ot\
+her"),sub:"",paint:"var(--bt-us-rest)",glyph:size=>glyphBox(size,ChatsIcon)}}function kindLabel(kind,botFocus){return{chat:botFocus?t("Own chat"):t("Conversations"),group:t("Group \
+chats"),compaction:t("Compaction and handoff"),image:t("Image reading"),memory:t("Memory"),"session-title":t("Titles"),btw:t("Side chat"),side:t("Side chat"),other:t("Other")}[kind]??
+kind}function Tabs({label,value,options,onChange,boxRef}){let names=options.map(([,text])=>text).join(`
 `),glide2=useGlide(`${value}
 ${names}`,{box:boxRef});return(0,import_react41.createElement)("div",{ref:glide2.box,className:"bt-us-tabs",role:"group","aria-label":label},(0,import_react41.createElement)("span",
 {ref:glide2.thumb,className:"bt-thumb","aria-hidden":!0}),options.map(([id,text,icon2])=>(0,import_react41.createElement)("button",{key:id,type:"button","aria-pressed":value===id,onClick:()=>onChange(
@@ -11812,43 +11860,46 @@ dialog","aria-label":t("Custom range")},(0,import_react41.createElement)("div",{
 button",{key:id,type:"button","aria-pressed":span?.from===from&&span?.to===to,onClick:()=>onPick(from,to)},label))),(0,import_react41.createElement)("div",{className:"bt-us-pick-mo\
 nths"},month(addMonths(right,-1),"left"),month(right,"right")),(0,import_react41.createElement)("div",{className:"bt-us-pick-foot",role:"status"},(0,import_react41.createElement)("\
 span",null,anchor?t("Pick the last day"):t("Pick the first day")),low===null?null:(0,import_react41.createElement)("span",null,(0,import_react41.createElement)("b",null,spanText(low,
-high)),` · ${daysText(count)}`)))}function Heat({view,keep,paint,index}){let[hover,setHover]=(0,import_react41.useState)(null),today=hourMs(`${view.now.slice(0,10)} 00`),first=mondayOf(
-today)-(HEAT_WEEKS-1)*7*864e5,from=dayKey(first),daily=new Map;for(let row of view.rows){let day=row[0].slice(0,10);day>=from&&keep(row)&&daily.set(day,(daily.get(day)??0)+tokensOf(
-row))}let most=Math.max(0,...daily.values()),levels=[.3,.52,.76,1],months=[],cells=[];for(let week=0;week<HEAT_WEEKS;week+=1){let monday=first+week*7*864e5;week>0&&new Date(monday).
-getUTCMonth()!==new Date(monday-7*864e5).getUTCMonth()&&months.push((0,import_react41.createElement)("span",{key:week,style:{gridColumn:week+1}},dates({month:"short"}).format(monday)));
-for(let day=0;day<7;day+=1){let ms=monday+day*864e5,value=daily.get(dayKey(ms))??0,level=value>0?Math.max(1,Math.ceil(4*Math.sqrt(value/most))):0;cells.push((0,import_react41.createElement)(
-"span",{key:ms,className:"bt-us-cell",style:{"--w":week},"data-on":hover?.ms===ms?"":void 0,"data-future":ms>today?"":void 0,"data-today":ms===today?"":void 0,onMouseEnter:ms>today?
-void 0:()=>setHover({ms,week,day})},level>0?(0,import_react41.createElement)("i",{style:{background:soften(paint,levels[level-1])}}):null))}}let tipSide=hover?{...hover.week>=HEAT_WEEKS/
-2?{right:`calc(${(HEAT_WEEKS-hover.week)/HEAT_WEEKS*100}% + 8px)`}:{left:`calc(${(hover.week+1)/HEAT_WEEKS*100}% + 8px)`},...hover.day<4?{top:`calc(${hover.day/7*100}% - 2px)`}:{top:"\
-auto",bottom:`calc(${(6-hover.day)/7*100}% - 2px)`}}:null,active=[...daily.values()].filter(value=>value>0).length,summary=active===1?t("Active on 1 day in the last year"):t("Activ\
-e on {count} days in the last year",{count:active});return(0,import_react41.createElement)("section",{className:"bt-us-card bt-us-heat",style:{"--i":index}},(0,import_react41.createElement)(
-"div",{className:"bt-us-card-head"},(0,import_react41.createElement)("h3",null,t("Activity")),(0,import_react41.createElement)("span",{className:"bt-us-head-note"},summary)),(0,import_react41.createElement)(
-"div",{className:"bt-us-heat-months","aria-hidden":!0},months),(0,import_react41.createElement)("div",{className:"bt-us-heat-plot",onMouseLeave:()=>setHover(null)},(0,import_react41.createElement)(
-"div",{className:"bt-us-heat-grid",role:"img","aria-label":summary},cells),hover?(0,import_react41.createElement)("div",{className:"bt-us-tip bt-us-heat-tip",style:tipSide},(0,import_react41.createElement)(
-"div",{className:"bt-us-tip-title"},dates({month:"long",day:"numeric",weekday:"short"}).format(hover.ms)),(0,import_react41.createElement)("div",{className:"bt-us-tip-total"},t("{c\
-ount} tokens",{count:full(daily.get(dayKey(hover.ms))??0)}))):null),(0,import_react41.createElement)("div",{className:"bt-us-heat-scale","aria-hidden":!0},t("Light"),levels.map(level=>(0,import_react41.createElement)(
-"span",{key:level,className:"bt-us-cell"},(0,import_react41.createElement)("i",{style:{background:soften(paint,level)}}))),t("Heavy")))}function Skeleton2(){return(0,import_react41.createElement)(
-"div",{className:"bt-us","aria-busy":!0},(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:32,width:320,borderRadius:999}}),(0,import_react41.createElement)(
-"div",{className:"bt-us-sheet bt-us-skel-sheet"},(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:94}}),(0,import_react41.createElement)("div",{className:"\
-bt-us-skel",style:{height:318}}),(0,import_react41.createElement)("div",{className:"bt-us-pair"},(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:200}}),
-(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:200}}))))}var focusOf=id=>typeof id!="string"?null:id.startsWith("model:")?{kind:"model",key:id.slice(6)}:
-id.startsWith("owner:")?{kind:"owner",key:id.slice(6)}:null;function UsagePage({roster,actions,focusId}){let[view,setView]=(0,import_react41.useState)(null),[error,setError]=(0,import_react41.useState)(
-""),[rangeId,setRangeId]=(0,import_react41.useState)("7d"),[span,setSpan]=(0,import_react41.useState)(null),[picking,setPicking]=(0,import_react41.useState)(!1),[by,setBy]=(0,import_react41.useState)(
-"bot"),tabs=(0,import_react41.useRef)(null),focus=focusOf(focusId);(0,import_react41.useEffect)(()=>{let stopped=!1,timer,load=async()=>{try{let value=await actions.usage();if(stopped)
-return;(0,import_react41.startTransition)(()=>setView(value)),setError(""),timer=setTimeout(load,value.scanning?3e3:2e4)}catch(failure){if(stopped)return;setError(failure?.message??
-String(failure)),timer=setTimeout(load,1e4)}};return load(),()=>{stopped=!0,clearTimeout(timer)}},[]);let today=view?.now.slice(0,10),range=rangeId==="custom"&&span?{...spanRange(span.
-from,span.to),ends:span.to>=today}:RANGES.find(item=>item.id===rangeId),shaped=(0,import_react41.useMemo)(()=>{if(!view)return null;let faces2=view.owners.map(owner=>ownerFace(owner,
-roster)),lifetime=new Map;for(let row of view.rows)lifetime.set(row[2],(lifetime.get(row[2])??0)+tokensOf(row));let modelPaint=new Map([...lifetime].sort((a,b)=>b[1]-a[1]).map(([model],rank)=>[
-model,`var(--bt-ink-${MODEL_INKS[rank%MODEL_INKS.length]})`])),models2=view.models.map((model,at)=>{let name=model.name||model.model||t("Unknown model"),paint=modelPaint.get(at)??"\
-var(--bt-us-rest)";return{kind:"model",name,sub:model.providerName??model.provider,paint,glyph:size=>(0,import_react41.createElement)(ModelGlyph,{name,paint,size})}}),ownerAt2=focus?.
-kind==="owner"?view.owners.findIndex(owner=>owner.key===focus.key):-1,modelAt=focus?.kind==="model"?view.models.findIndex(model=>model.key===focus.key):-1,isBot2=at=>["bot","agent"].
-includes(view.owners[at]?.kind),all2=summarize(view,range,void 0,row=>by==="bot"?isBot2(row[1])?`o${row[1]}`:"rest":`m${row[2]}`),keep2=ownerAt2>=0?row=>row[1]===ownerAt2:modelAt>=
-0?row=>row[2]===modelAt:()=>!0,face2=ownerAt2>=0?faces2[ownerAt2]:modelAt>=0?models2[modelAt]:null,part2=face2?summarize(view,range,keep2):all2,activeDays2=new Set,first=view.now;for(let row of view.
-rows)row[0]<first&&(first=row[0]),keep2(row)&&tokensOf(row)>0&&activeDays2.add(row[0].slice(0,10));let oldest2=Math.min(monthOf(hourMs(first)),addMonths(monthOf(hourMs(view.now)),-12)),
-ranked2=map=>[...map].filter(([,sum])=>sum.total>0).sort((a,b)=>b[1].total-a[1].total),series2;if(face2)series2=[{key:"all",name:face2.name,fill:soften(face2.paint)}];else{if(by===
-"bot"){let bots=ranked2(all2.owners).filter(([at])=>isBot2(at));series2=bots.slice(0,TOP_SERIES).map(([at])=>({key:`o${at}`,name:faces2[at].name,paint:faces2[at].paint,pick:{kind:"\
-owner",key:view.owners[at].key}})),bots.length>TOP_SERIES&&series2.push({key:"more",name:t("More Bots"),paint:"var(--bt-us-more)"}),ranked2(all2.owners).some(([at])=>!isBot2(at))&&
-series2.push({key:"rest",name:t("Other"),paint:"var(--bt-us-rest)"})}else{let used=ranked2(all2.models);series2=used.slice(0,TOP_SERIES).map(([at])=>({key:`m${at}`,name:models2[at].
+high)),` · ${daysText(count)}`)))}function Heat({view,keep,paint,index}){let[hover,setHover]=(0,import_react41.useState)(null),{today,daily,most,months,gridData,active}=(0,import_react41.useMemo)(
+()=>{let day=hourMs(`${view.now.slice(0,10)} 00`),first=mondayOf(day)-(HEAT_WEEKS-1)*7*864e5,from=dayKey(first),map=new Map;for(let row of view.rows){let k=row[0].slice(0,10);k>=from&&
+keep(row)&&map.set(k,(map.get(k)??0)+tokensOf(row))}let peak=Math.max(0,...map.values()),monthLabels=[],items=[];for(let week=0;week<HEAT_WEEKS;week+=1){let monday=first+week*7*864e5;
+week>0&&new Date(monday).getUTCMonth()!==new Date(monday-7*864e5).getUTCMonth()&&monthLabels.push((0,import_react41.createElement)("span",{key:week,style:{gridColumn:week+1}},dates(
+{month:"short"}).format(monday)));for(let d=0;d<7;d+=1){let ms=monday+d*864e5,value=map.get(dayKey(ms))??0,level=value>0?Math.max(1,Math.ceil(4*Math.sqrt(value/peak))):0;items.push(
+{ms,week,day:d,level})}}let count=[...map.values()].filter(value=>value>0).length;return{today:day,daily:map,most:peak,months:monthLabels,gridData:items,active:count}},[view.now,view.
+rows,keep]),levels=[.3,.52,.76,1],cells=gridData.map(({ms,week,day,level})=>(0,import_react41.createElement)("span",{key:ms,className:"bt-us-cell",style:{"--w":week},"data-on":hover?.
+ms===ms?"":void 0,"data-future":ms>today?"":void 0,"data-today":ms===today?"":void 0,onMouseEnter:ms>today?void 0:()=>setHover({ms,week,day})},level>0?(0,import_react41.createElement)(
+"i",{style:{background:soften(paint,levels[level-1])}}):null)),tipSide=hover?{...hover.week>=HEAT_WEEKS/2?{right:`calc(${(HEAT_WEEKS-hover.week)/HEAT_WEEKS*100}% + 8px)`}:{left:`ca\
+lc(${(hover.week+1)/HEAT_WEEKS*100}% + 8px)`},...hover.day<4?{top:`calc(${hover.day/7*100}% - 2px)`}:{top:"auto",bottom:`calc(${(6-hover.day)/7*100}% - 2px)`}}:null,summary=active===
+1?t("Active on 1 day in the last year"):t("Active on {count} days in the last year",{count:active});return(0,import_react41.createElement)("section",{className:"bt-us-card bt-us-he\
+at",style:{"--i":index}},(0,import_react41.createElement)("div",{className:"bt-us-card-head"},(0,import_react41.createElement)("h3",null,t("Activity")),(0,import_react41.createElement)(
+"span",{className:"bt-us-head-note"},summary)),(0,import_react41.createElement)("div",{className:"bt-us-heat-months","aria-hidden":!0},months),(0,import_react41.createElement)("div",
+{className:"bt-us-heat-plot",onMouseLeave:()=>setHover(null)},(0,import_react41.createElement)("div",{className:"bt-us-heat-grid",role:"img","aria-label":summary},cells),hover?(0,import_react41.createElement)(
+"div",{className:"bt-us-tip bt-us-heat-tip",style:tipSide},(0,import_react41.createElement)("div",{className:"bt-us-tip-title"},dates({month:"long",day:"numeric",weekday:"short"}).
+format(hover.ms)),(0,import_react41.createElement)("div",{className:"bt-us-tip-total"},t("{count} tokens",{count:full(daily.get(dayKey(hover.ms))??0)}))):null),(0,import_react41.createElement)(
+"div",{className:"bt-us-heat-scale","aria-hidden":!0},t("Light"),levels.map(level=>(0,import_react41.createElement)("span",{key:level,className:"bt-us-cell"},(0,import_react41.createElement)(
+"i",{style:{background:soften(paint,level)}}))),t("Heavy")))}function Skeleton2(){return(0,import_react41.createElement)("div",{className:"bt-us","aria-busy":!0},(0,import_react41.createElement)(
+"div",{className:"bt-us-skel",style:{height:32,width:320,borderRadius:999}}),(0,import_react41.createElement)("div",{className:"bt-us-sheet bt-us-skel-sheet"},(0,import_react41.createElement)(
+"div",{className:"bt-us-skel",style:{height:94}}),(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:318}}),(0,import_react41.createElement)("div",{className:"\
+bt-us-pair"},(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:200}}),(0,import_react41.createElement)("div",{className:"bt-us-skel",style:{height:200}}))))}
+var focusOf=id=>typeof id!="string"?null:id.startsWith("model:")?{kind:"model",key:id.slice(6)}:id.startsWith("owner:")?{kind:"owner",key:id.slice(6)}:null;function UsagePage({roster,
+actions,focusId}){let[view,setView]=(0,import_react41.useState)(null),[error,setError]=(0,import_react41.useState)(""),[rangeId,setRangeId]=(0,import_react41.useState)("7d"),[span,
+setSpan]=(0,import_react41.useState)(null),[picking,setPicking]=(0,import_react41.useState)(!1),[by,setBy]=(0,import_react41.useState)("bot"),tabs=(0,import_react41.useRef)(null),focus=focusOf(
+focusId);(0,import_react41.useEffect)(()=>{let stopped=!1,timer,schedule=ms=>{clearTimeout(timer),!(stopped||typeof document<"u"&&document.visibilityState==="hidden")&&(timer=setTimeout(
+load,ms))},load=async()=>{try{let value=await actions.usage();if(stopped)return;(0,import_react41.startTransition)(()=>setView(value)),setError(""),schedule(value.scanning?3e3:2e4)}catch(failure){
+if(stopped)return;setError(failure?.message??String(failure)),schedule(1e4)}},onVisibility=()=>{document.visibilityState==="hidden"?clearTimeout(timer):stopped||load()};return typeof document<
+"u"&&document.addEventListener("visibilitychange",onVisibility),load(),()=>{stopped=!0,clearTimeout(timer),typeof document<"u"&&document.removeEventListener("visibilitychange",onVisibility)}},
+[]);let today=view?.now.slice(0,10),range=rangeId==="custom"&&span?{...spanRange(span.from,span.to),ends:span.to>=today}:RANGES.find(item=>item.id===rangeId),shaped=(0,import_react41.useMemo)(
+()=>{if(!view)return null;let faces2=view.owners.map(owner=>ownerFace(owner,roster)),lifetime=new Map;for(let row of view.rows)lifetime.set(row[2],(lifetime.get(row[2])??0)+tokensOf(
+row));let modelPaint=new Map([...lifetime].sort((a,b)=>b[1]-a[1]).map(([model],rank)=>[model,`var(--bt-ink-${MODEL_INKS[rank%MODEL_INKS.length]})`])),models2=view.models.map((model,at)=>{
+let name=model.name||model.model||t("Unknown model"),paint=modelPaint.get(at)??"var(--bt-us-rest)";return{kind:"model",name,sub:model.providerName??model.provider,paint,glyph:size=>(0,import_react41.createElement)(
+ModelGlyph,{name,paint,size})}}),ownerAt2=focus?.kind==="owner"?view.owners.findIndex(owner=>owner.key===focus.key):-1,modelAt=focus?.kind==="model"?view.models.findIndex(model=>model.
+key===focus.key):-1,isBot2=at=>["bot","agent"].includes(view.owners[at]?.kind),all2=summarize(view,range,void 0,row=>by==="bot"?isBot2(row[1])?`o${row[1]}`:"rest":`m${row[2]}`),keep2=ownerAt2>=
+0?row=>row[1]===ownerAt2:modelAt>=0?row=>row[2]===modelAt:()=>!0,face2=ownerAt2>=0?faces2[ownerAt2]:modelAt>=0?models2[modelAt]:null,part2=face2?summarize(view,range,keep2):all2,activeDays2=new Set,
+first=view.now;for(let row of view.rows)row[0]<first&&(first=row[0]),keep2(row)&&tokensOf(row)>0&&activeDays2.add(row[0].slice(0,10));let oldest2=Math.min(monthOf(hourMs(first)),addMonths(
+monthOf(hourMs(view.now)),-12)),ranked2=map=>[...map].filter(([,sum])=>sum.total>0).sort((a,b)=>b[1].total-a[1].total),series2;if(face2)series2=[{key:"all",name:face2.name,fill:soften(
+face2.paint)}];else{if(by==="bot"){let bots=ranked2(all2.owners).filter(([at])=>isBot2(at));series2=bots.slice(0,TOP_SERIES).map(([at])=>({key:`o${at}`,name:faces2[at].name,paint:faces2[at].
+paint,pick:{kind:"owner",key:view.owners[at].key}})),bots.length>TOP_SERIES&&series2.push({key:"more",name:t("More Bots"),paint:"var(--bt-us-more)"}),ranked2(all2.owners).some(([at])=>!isBot2(
+at))&&series2.push({key:"rest",name:t("Other"),paint:"var(--bt-us-rest)"})}else{let used=ranked2(all2.models);series2=used.slice(0,TOP_SERIES).map(([at])=>({key:`m${at}`,name:models2[at].
 name,paint:models2[at].paint,pick:{kind:"model",key:view.models[at].key}})),used.length>TOP_SERIES&&series2.push({key:"more",name:t("More models"),paint:"var(--bt-us-more)"})}let repeats=new Map;
 for(let entry of series2){let seen=repeats.get(entry.paint)??0;repeats.set(entry.paint,seen+1),entry.fill=soften(entry.paint,[1,.6,.36][seen%3])}}let tipSeries2=face2?PARTS.map(([key,
 strength])=>({key,name:partLabel(key),fill:soften(face2.paint,strength)})):series2,fillOf2=new Map(series2.map(entry=>[entry.key,entry.fill])),shownKeys=new Set(series2.map(entry=>entry.
@@ -11894,8 +11945,9 @@ lay:flex;flex-direction:column;gap:14px;padding-bottom:4px}
 .bt-us-tabs button{position:relative;z-index:1;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--bt\
 -ink-2);font:inherit;font-size:12px;line-height:26px;white-space:nowrap;cursor:pointer;transition:color .15s ease}
 .bt-us-tabs button svg{flex:none;width:13px;height:13px;margin-left:-2px}
-.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);backgrou\
-nd:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
+.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;max-height:min(520px,calc(100vh - 150px));max-height:min(520px,calc(100dvh - 150px));overflow-y:auto;box-si\
+zing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0\
+,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
 .bt-us-pick-quick{display:flex;gap:6px;margin-bottom:12px}
 .bt-us-pick-quick button{height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transit\
 ion:background-color .12s ease,color .12s ease}
@@ -11914,11 +11966,12 @@ stify-content:center;cursor:pointer;transition:background-color .12s ease}
 .bt-us-weekdays span{height:24px;font-size:11px;line-height:24px;text-align:center;color:var(--bt-ink-3)}
 .bt-us-day{position:relative;height:36px;padding:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
 .bt-us-day::before{content:'';position:absolute;top:4px;bottom:4px;left:0;right:0;transition:background-color .12s ease}
-.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;font-weight:400;transition:backgroun\
-d-color .12s ease,color .12s ease}
+.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;corner-shape:round;font-weight:400;t\
+ransition:background-color .12s ease,color .12s ease}
 .bt-us-day:hover:not(:disabled)>b{background:var(--bt-hover)}
 .bt-us-day[data-today]>b{color:var(--bt-accent);font-weight:600}
-.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:var(--bt-ink-3)}
+.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;corner-shape:round;background:var(-\
+-bt-ink-3)}
 .bt-us-day[data-in]::before{background:color-mix(in srgb,var(--bt-accent) 13%,transparent)}
 .bt-us-day[data-in][data-l]::before{left:4px;border-radius:14px 0 0 14px}
 .bt-us-day[data-in][data-r]::before{right:4px;border-radius:0 14px 14px 0}
@@ -11937,7 +11990,7 @@ ht:16px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-us-tabs:not([data-glide]) button[aria-pressed=true]{background:var(--bt-card)}
 .bt-us-tabs>.bt-thumb{top:3px;bottom:3px;border-radius:999px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 .5px var(--bt-line-2)}
 .bt-us-note{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
+.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
 .bt-us-sheet{display:flex;flex-direction:column;gap:4px}
 .bt-us-sheet>.bt-us-stats,.bt-us-sheet>.bt-us-card,.bt-us-sheet>.bt-us-pair>.bt-us-card{border-radius:0}
 .bt-us-sheet>:first-child{border-radius:16px 16px 0 0}
@@ -11969,7 +12022,7 @@ etter-spacing:0}
 s;animation-delay:calc(var(--i,0) * 14ms);transition:height .45s var(--bt-us-ease),opacity .18s ease}
 .bt-us-stack>i{flex:1 1 0;min-height:2px;border-radius:5px;transition:flex-grow .45s var(--bt-us-ease)}
 .bt-us-plot[data-hover] .bt-us-col:not([data-on]) .bt-us-stack{opacity:.3}
-.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;background:var(--bt-line-2)}
+.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;corner-shape:round;background:var(--bt-line-2)}
 .bt-us-ticks{display:flex;margin-left:40px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-us-ticks span{flex:1 1 0;min-width:0;text-align:center;white-space:nowrap}
 .bt-us-ticks span[data-now]{color:var(--bt-ink);font-weight:500}
@@ -11988,7 +12041,7 @@ vents:none;animation:bt-us-pop .16s var(--bt-us-ease)}
 ;font:inherit;font-size:12px;line-height:24px}
 button.bt-us-key{cursor:pointer;transition:background-color .12s ease,color .12s ease}
 button.bt-us-key:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%}
+.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round}
 .bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px}
 .bt-us-rows{display:flex;flex-direction:column;margin:0 -8px}
 .bt-us-row{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:8px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;text-a\
@@ -12008,7 +12061,7 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-row-num small{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-split{height:1px;margin:6px 8px;background:var(--bt-line)}
 .bt-us-none{padding:18px 8px;font-size:12px;color:var(--bt-ink-3);text-align:center}
-.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-us-model{display:inline-flex;align-items:center;justify-content:center;border-radius:30%;font-weight:600;line-height:1}
 .bt-us-profile{display:flex;align-items:center;gap:20px;padding:6px 4px 2px;animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-ring{position:relative;flex:none;width:96px;height:96px}
@@ -12055,9 +12108,8 @@ ase-in-out infinite}
 @keyframes bt-us-pulse{50%{opacity:.25}}
 @keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
-/* Phone-width viewports: the page is full width but its fixed parts are not —
-   stats take two columns, the calendar and heat map shrink or scroll. */
-@media (max-width:640px){
+/* Narrow and mid-width viewports: stats take two columns, the calendar and heat map shrink or scroll. */
+@media (max-width:780px){
   .bt-us-stats{grid-template-columns:repeat(2,1fr)}
   .bt-us-stat{padding:12px}
   .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}
@@ -12644,12 +12696,14 @@ ia-hidden":!0}),(0,import_react46.createElement)("div",{className:"bt-set-copy"}
 "span",{className:"bt-tag bt-fb-code"},entry.status?`${entry.code} ${entry.status}`:entry.code):null)),(0,import_react46.createElement)(Row4,{label:t("Error log"),hint:t("Kept on t\
 his computer across restarts, up to about 1 MB.")},(0,import_react46.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:downloadLog},t("Download")),(0,import_react46.createElement)(
 "button",{type:"button",className:"bt-soft bt-soft-sm",onClick:clearLog,disabled:!report||total===0},t("Clear"))))]}var TOAST_MS=6e3;function ErrorToast({useUi,actions}){let toast=useUi(
-state=>state.toast),[leaving,setLeaving]=(0,import_react46.useState)(!1);return(0,import_react46.useEffect)(()=>{if(!toast)return;setLeaving(!1);let fade=setTimeout(()=>setLeaving(
-!0),TOAST_MS),gone=setTimeout(()=>actions.dismissToast(toast.token),TOAST_MS+200);return()=>{clearTimeout(fade),clearTimeout(gone)}},[toast?.token]),toast?(0,import_react46.createElement)(
-"div",{className:"bt-toast",role:"alert","data-leaving":leaving||void 0},(0,import_react46.createElement)("span",{className:"bt-toast-text"},toast.text),(0,import_react46.createElement)(
-"button",{type:"button",className:"bt-toast-link",onClick:()=>{actions.dismissToast(toast.token),actions.openSettings("feedback")}},t("Details")),(0,import_react46.createElement)("\
-button",{type:"button",className:"bt-icon-btn bt-toast-close","aria-label":t("Dismiss"),onClick:()=>actions.dismissToast(toast.token)},(0,import_react46.createElement)(CloseIcon))):
-null}var FEEDBACK_CSS=`
+state=>state.toast),[leaving,setLeaving]=(0,import_react46.useState)(!1),[paused,setPaused]=(0,import_react46.useState)(!1);return(0,import_react46.useEffect)(()=>{toast&&(setLeaving(
+!1),setPaused(!1))},[toast?.token]),(0,import_react46.useEffect)(()=>{if(!toast||paused||leaving)return;let fade=setTimeout(()=>setLeaving(!0),TOAST_MS);return()=>clearTimeout(fade)},
+[toast?.token,paused,leaving]),(0,import_react46.useEffect)(()=>{if(!toast||!leaving)return;let gone=setTimeout(()=>actions.dismissToast(toast.token),190);return()=>clearTimeout(gone)},
+[toast?.token,leaving]),toast?(0,import_react46.createElement)("div",{className:"bt-toast",role:"alert","data-leaving":leaving||void 0,onMouseEnter:()=>setPaused(!0),onMouseLeave:()=>setPaused(
+!1),onFocus:()=>setPaused(!0),onBlur:event=>{event.currentTarget.contains(event.relatedTarget)||setPaused(!1)}},(0,import_react46.createElement)("span",{className:"bt-toast-text"},
+toast.text),(0,import_react46.createElement)("button",{type:"button",className:"bt-toast-link",onClick:()=>{actions.dismissToast(toast.token),actions.openSettings("feedback")}},t("\
+Details")),(0,import_react46.createElement)("button",{type:"button",className:"bt-icon-btn bt-toast-close","aria-label":t("Dismiss"),onClick:()=>setLeaving(!0)},(0,import_react46.createElement)(
+CloseIcon))):null}var FEEDBACK_CSS=`
 .bt-fb-what{cursor:default}
 .bt-fb-what:hover,.bt-fb-entry:hover,.bt-fb-preview:hover{background:none}
 .bt-fb-what .bt-input-area{min-height:80px}
@@ -12662,8 +12716,8 @@ lor:var(--bt-ink-2);white-space:pre-wrap;word-break:break-word;outline:none}
 .bt-fb-primary:active{filter:brightness(.94)}
 .bt-fb-note{margin:-8px 4px 0}
 .bt-fb-entry{cursor:default;align-items:flex-start}
-.bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;margin-top:6px;background:var(--bt-danger,#e02135)}
-.bt-fb-dot[data-level=warn]{background:#e3a008}
+.bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;margin-top:6px;background:var(--bt-danger,#e02135)}
+.bt-fb-dot[data-level=warn]{background:var(--bt-warn)}
 .bt-fb-text{overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
 .bt-fb-code{flex:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-event-error{color:var(--bt-danger,#e02135)}
@@ -12673,7 +12727,7 @@ x;transform:translateX(-50%);animation:bt-toast-in ${SPRING_SHAPE.duration}ms ${
 .bt-toast{bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 .bt-toast[data-leaving]{opacity:0;transform:translate(-50%,6px) scale(.98);filter:blur(3px);transition:opacity .18s ease-in,transform .18s ease-in,filter .18s ease-in}
 .bt-toast-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-.bt-toast-text::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bt-danger,#e02135);margin:0 8px 1px 0}
+.bt-toast-text::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-danger,#e02135);margin:0 8px 1px 0}
 .bt-toast-link{flex:none;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;padding:4px 6px;border-radius:6px}
 .bt-toast-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-toast-close{flex:none}
@@ -12734,12 +12788,12 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 .bt-about-ask{margin:-10px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-star{flex:none;display:inline-flex;align-items:stretch;height:30px;border-radius:999px;border:1px solid var(--bt-line-2,var(--bt-line));overflow:hidden;color:var(--bt-ink);text\
 -decoration:none;font-size:12px;line-height:28px;transition:transform .12s ease,border-color .15s ease}
-.bt-star:hover{border-color:color-mix(in srgb,#e3a008 55%,var(--bt-line))}
+.bt-star:hover{border-color:color-mix(in srgb,var(--bt-star) 55%,var(--bt-line))}
 .bt-star:active{transform:scale(.96)}
 .bt-star-main{display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;background:var(--bt-hover);font-weight:500}
 .bt-star-icon{display:inline-flex;color:var(--bt-ink-2);transition:color .15s ease}
 .bt-star-icon path{transition:fill .15s ease}
-.bt-star:hover .bt-star-icon{color:#e3a008;animation:bt-star-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-star:hover .bt-star-icon{color:var(--bt-star);animation:bt-star-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-star:hover .bt-star-icon path{fill:currentColor}
 .bt-star-count{display:inline-flex;align-items:center;padding:0 11px;border-left:1px solid var(--bt-line-2,var(--bt-line));color:var(--bt-ink-2);font-variant-numeric:tabular-nums;a\
 nimation:bt-star-count-in ${SPRING_POP.duration}ms ${SPRING_POP.easing},bt-veil-in .2s ease-out}
@@ -12914,24 +12968,26 @@ bt-cli-logo bt-la-logo"}),(0,import_react49.createElement)("div",{className:"bt-
 {className:"bt-la-path"},agent.path):null,message),status!==null||canSignIn?(0,import_react49.createElement)("div",{className:"bt-set-control bt-la-actions"},status!==null?(0,import_react49.createElement)(
 "span",{className:"bt-la-state","data-state":String(agent.signedIn)},(0,import_react49.createElement)("i",{className:"bt-cli-dot","aria-hidden":!0}),status):null,canSignIn?(0,import_react49.createElement)(
 "button",{type:"button",className:"bt-soft bt-soft-sm",title:t("Copies the sign-in command"),onClick:copy2},t("Sign in")):null):null)}function LocalAgentsPage({run:run2,Row:Row4}){
-let[view,setView]=(0,import_react49.useState)(null),[editing,setEditing]=(0,import_react49.useState)(null),load=endpoint=>run2(call(endpoint).then(setView)),refresh=()=>load("local\
--agent-refresh");return(0,import_react49.useEffect)(()=>{load("local-agents")},[]),view===null?null:view.available===!1?(0,import_react49.createElement)("p",{className:"bt-set-hint"},
-t("This DSH cannot register local agent routes.")):[(0,import_react49.createElement)("section",{key:"found",className:"bt-set-section"},(0,import_react49.createElement)("div",{className:"\
-bt-la-sec-head"},(0,import_react49.createElement)("h3",null,t("Detected agents")),(0,import_react49.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:refresh},
-t("Refresh"))),(0,import_react49.createElement)("div",{className:"bt-set-card"},view.detected.length===0?(0,import_react49.createElement)(Row4,{label:t("No agent CLIs found")}):null,
-view.detected.map(agent=>(0,import_react49.createElement)(AgentSignInRow,{key:agent.route,agent,Row:Row4})))),(0,import_react49.createElement)("section",{key:"custom",className:"bt\
--set-section"},(0,import_react49.createElement)("div",{className:"bt-la-sec-head"},(0,import_react49.createElement)("h3",null,t("Custom agents")),editing==="new"?null:(0,import_react49.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm bt-with-icon","aria-label":t("Add agent"),onClick:()=>setEditing("new")},(0,import_react49.createElement)(PlusIcon),t("Add age\
-nt"))),(0,import_react49.createElement)("div",{className:"bt-set-card"},view.custom.length===0&&editing!=="new"?(0,import_react49.createElement)("div",{className:"bt-set-row"},(0,import_react49.createElement)(
-"span",{className:"bt-set-hint"},t("ACP-compatible agents, added by command."))):null,view.custom.map(agent=>editing===agent?(0,import_react49.createElement)(AgentForm,{key:agent.id,
-initial:agent,close:()=>setEditing(null),submit:payload=>call("local-agent-update",{id:agent.id,...payload}).then(()=>load("local-agents"))}):(0,import_react49.createElement)("div",
-{key:agent.id,className:"bt-set-row bt-la-row"},(0,import_react49.createElement)(AgentLogo,{route:agent.route,name:agent.name,size:32,className:"bt-cli-logo bt-la-logo"}),(0,import_react49.createElement)(
-"div",{className:"bt-set-copy bt-la-copy"},(0,import_react49.createElement)("span",{className:"bt-la-head"},(0,import_react49.createElement)("span",{className:"bt-la-name"},agent.name)),
-(0,import_react49.createElement)("span",{className:"bt-la-path"},[agent.command,...agent.args??[]].join(" "))),(0,import_react49.createElement)("div",{className:"bt-set-control bt-\
-la-actions"},(0,import_react49.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>setEditing(agent)},t("Edit")),(0,import_react49.createElement)("but\
-ton",{type:"button",className:"bt-soft bt-soft-sm bt-danger","aria-label":t("Remove"),onClick:()=>run2(call("local-agent-remove",{id:agent.id})).then(()=>load("local-agents"))},(0,import_react49.createElement)(
-TrashIcon))))),editing==="new"?(0,import_react49.createElement)(AgentForm,{key:"new",close:()=>setEditing(null),submit:payload=>call("local-agent-add",payload).then(()=>load("local\
--agents"))}):null))]}var SKIP_LOCAL_AGENT="local-agent",SKIP_UNAVAILABLE="unavailable",modelRefOf=bot=>bot?.model??bot?.appliedModel;function planModelChange(bots,ref,models){let served=(models??[]).some(
+let[view,setView]=(0,import_react49.useState)(null),[editing,setEditing]=(0,import_react49.useState)(null),[armedRemove,setArmedRemove]=(0,import_react49.useState)(null),load=endpoint=>run2(
+call(endpoint).then(setView)),refresh=()=>load("local-agent-refresh");return(0,import_react49.useEffect)(()=>{load("local-agents")},[]),view===null?null:view.available===!1?(0,import_react49.createElement)(
+"p",{className:"bt-set-hint"},t("This DSH cannot register local agent routes.")):[(0,import_react49.createElement)("section",{key:"found",className:"bt-set-section"},(0,import_react49.createElement)(
+"div",{className:"bt-la-sec-head"},(0,import_react49.createElement)("h3",null,t("Detected agents")),(0,import_react49.createElement)("button",{type:"button",className:"bt-soft bt-s\
+oft-sm",onClick:refresh},t("Refresh"))),(0,import_react49.createElement)("div",{className:"bt-set-card"},view.detected.length===0?(0,import_react49.createElement)(Row4,{label:t("No\
+ agent CLIs found")}):null,view.detected.map(agent=>(0,import_react49.createElement)(AgentSignInRow,{key:agent.route,agent,Row:Row4})))),(0,import_react49.createElement)("section",
+{key:"custom",className:"bt-set-section"},(0,import_react49.createElement)("div",{className:"bt-la-sec-head"},(0,import_react49.createElement)("h3",null,t("Custom agents")),editing===
+"new"?null:(0,import_react49.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm bt-with-icon","aria-label":t("Add agent"),onClick:()=>{setArmedRemove(null),setEditing(
+"new")}},(0,import_react49.createElement)(PlusIcon),t("Add agent"))),(0,import_react49.createElement)("div",{className:"bt-set-card"},view.custom.length===0&&editing!=="new"?(0,import_react49.createElement)(
+"div",{className:"bt-set-row"},(0,import_react49.createElement)("span",{className:"bt-set-hint"},t("ACP-compatible agents, added by command."))):null,view.custom.map(agent=>editing===
+agent.id?(0,import_react49.createElement)(AgentForm,{key:agent.id,initial:agent,close:()=>setEditing(null),submit:payload=>call("local-agent-update",{id:agent.id,...payload}).then(
+()=>load("local-agents"))}):(0,import_react49.createElement)("div",{key:agent.id,className:"bt-set-row bt-la-row"},(0,import_react49.createElement)(AgentLogo,{route:agent.route,name:agent.
+name,size:32,className:"bt-cli-logo bt-la-logo"}),(0,import_react49.createElement)("div",{className:"bt-set-copy bt-la-copy"},(0,import_react49.createElement)("span",{className:"bt\
+-la-head"},(0,import_react49.createElement)("span",{className:"bt-la-name"},agent.name)),(0,import_react49.createElement)("span",{className:"bt-la-path"},[agent.command,...agent.args??
+[]].join(" "))),(0,import_react49.createElement)("div",{className:"bt-set-control bt-la-actions"},(0,import_react49.createElement)("button",{type:"button",className:"bt-soft bt-sof\
+t-sm",onClick:()=>{setArmedRemove(null),setEditing(agent.id)}},t("Edit")),(0,import_react49.createElement)("button",{type:"button",className:armedRemove===agent.id?"bt-soft bt-soft\
+-sm bt-danger bt-la-armed":"bt-soft bt-soft-sm bt-danger","aria-label":armedRemove===agent.id?t("Click again to remove"):t("Remove"),onClick:()=>{if(armedRemove!==agent.id){setArmedRemove(
+agent.id);return}setArmedRemove(null),run2(call("local-agent-remove",{id:agent.id})).then(()=>load("local-agents"))},onBlur:()=>{armedRemove===agent.id&&setArmedRemove(null)}},armedRemove===
+agent.id?t("Remove?"):(0,import_react49.createElement)(TrashIcon))))),editing==="new"?(0,import_react49.createElement)(AgentForm,{key:"new",close:()=>setEditing(null),submit:payload=>call(
+"local-agent-add",payload).then(()=>load("local-agents"))}):null))]}var SKIP_LOCAL_AGENT="local-agent",SKIP_UNAVAILABLE="unavailable",modelRefOf=bot=>bot?.model??bot?.appliedModel;function planModelChange(bots,ref,models){let served=(models??[]).some(
 model=>model.ref===ref);return(bots??[]).map(bot=>{let current2=modelRefOf(bot);return isLocalRoute(current2)?{bot,action:"skip",reason:SKIP_LOCAL_AGENT}:served?bot.model===ref?{bot,
 action:"keep"}:{bot,action:"change"}:{bot,action:"skip",reason:SKIP_UNAVAILABLE}})}async function runModelChange({bots,ref,models,updateBot}){let results=[];for(let entry of planModelChange(
 bots,ref,models)){let{bot}=entry;if(entry.action==="skip"){results.push({id:bot.id,name:bot.name,status:"skipped",reason:entry.reason});continue}if(entry.action==="keep"){results.push(
@@ -13069,118 +13125,124 @@ timer.current=setTimeout(flush,350)},{min,max,step}=MESSAGE_WIDTH;return(0,impor
 %`}},(0,import_react52.createElement)("input",{type:"range",min,max,step,value:width,"aria-label":label,"aria-valuetext":`${width}%`,onChange:event=>pick2(Number(event.target.value))}),
 (0,import_react52.createElement)("output",null,`${width}%`))}function GeneralPage({roster,actions,run:run2,dsh}){let items=(dsh?.items??[]).map(row=>row.id).filter(id=>id!==""),look=LOOK_ITEMS.
 filter(id=>items.includes(id)),more=items.filter(id=>!LOOK_ITEMS.includes(id)),prefs=roster.prefs??{},themes=allThemes(),current2=themes[prefs.theme]?prefs.theme:"deepseek",[custom,
-setCustom]=(0,import_react52.useState)(prefs.accent??"#4d6bfe"),timer=(0,import_react52.useRef)(0);(0,import_react52.useEffect)(()=>()=>clearTimeout(timer.current),[]);let pickCustom=value=>{
-setCustom(value),clearTimeout(timer.current),timer.current=setTimeout(()=>run2(actions.setPrefs({accent:value})),350)};return[(0,import_react52.createElement)(SetSection,{key:"look",
-title:t("Appearance")},(0,import_react52.createElement)(SetRow,{label:t("Theme"),hint:t("Colors for the whole team, on every device.")},(0,import_react52.createElement)("select",{className:"\
-bt-select","aria-label":t("Theme"),value:current2,onChange:event=>run2(actions.setPrefs({theme:event.target.value}))},Object.entries(themes).map(([id,theme])=>(0,import_react52.createElement)(
-"option",{key:id,value:id},t(theme.label))))),(0,import_react52.createElement)(SetRow,{label:t("Accent"),hint:t("Unread marks, badges, and the brand mark.")},(0,import_react52.createElement)(
-"div",{className:"bt-swatches"},(0,import_react52.createElement)("button",{type:"button",className:"bt-swatch bt-swatch-default",title:t("Theme accent"),"aria-label":t("Theme accen\
-t"),"aria-pressed":!prefs.accent,onClick:()=>run2(actions.setPrefs({accent:null}))}),ACCENT_INKS.map(ink=>(0,import_react52.createElement)("button",{key:ink,type:"button",className:"\
-bt-swatch",title:t(capitalize2(ink)),"aria-label":t(capitalize2(ink)),"aria-pressed":prefs.accent===INKS[ink][0],style:{background:INKS[ink][0]},onClick:()=>run2(actions.setPrefs({
-accent:INKS[ink][0]}))})),(0,import_react52.createElement)("label",{className:"bt-swatch bt-swatch-custom",title:t("Custom accent"),"data-on":!!prefs.accent&&!ACCENT_INKS.some(ink=>INKS[ink][0]===
-prefs.accent)},(0,import_react52.createElement)("input",{type:"color",value:custom,"aria-label":t("Custom accent"),onChange:event=>pickCustom(event.target.value)})))),(0,import_react52.createElement)(
-SetRow,{label:t("Message layout")},(0,import_react52.createElement)(Choice,{label:t("Message layout"),value:layoutOf(prefs),options:LAYOUTS,pick:id=>run2(actions.setPrefs({layout:id}))})),
-layoutOf(prefs)==="flat"?(0,import_react52.createElement)(SetRow,{label:t("Text width")},(0,import_react52.createElement)(WidthSlider,{label:t("Text width"),value:flatWidthOf(prefs),
-save:flatWidth=>run2(actions.setPrefs({flatWidth}))})):null,(0,import_react52.createElement)(SetRow,{label:t("Bubble width")},(0,import_react52.createElement)(WidthSlider,{label:t(
-"Bubble width"),value:widthOf(prefs),save:width=>run2(actions.setPrefs({width}))})),(0,import_react52.createElement)(SetRow,{label:t("Interface motion")},(0,import_react52.createElement)(
-Choice,{label:t("Interface motion"),value:effectsOf(prefs),options:EFFECTS,pick:id=>run2(actions.setPrefs({effects:id}))})),(0,import_react52.createElement)(SetRow,{label:t("Show t\
-hinking")},(0,import_react52.createElement)(Switch,{label:t("Show thinking"),on:thinkingShown(prefs),onChange:thinking=>run2(actions.setPrefs({thinking}))})),look.map(id=>dshItem(dsh,
-id))),(0,import_react52.createElement)(SetSection,{key:"new",title:t("New Bots")},(0,import_react52.createElement)(SetRow,{label:t("Default model"),className:"bt-set-model"},(0,import_react52.createElement)(
-ModelMenu,{bot:{id:"new-bots",name:t("New Bots"),model:isLocalRoute(prefs.defaultBotModel)?void 0:prefs.defaultBotModel},roster,actions,run:run2,wide:!0,withEfforts:!1,onPick:ref=>run2(
-actions.setPrefs({defaultBotModel:ref}))}),prefs.defaultBotModel?(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>run2(actions.setPrefs(
-{defaultBotModel:null}))},t("Reset")):null)),(0,import_react52.createElement)(SetSection,{key:"input",title:t("Input")},(0,import_react52.createElement)(SetRow,{label:t("Enter send\
-s message")},(0,import_react52.createElement)(Switch,{label:t("Enter sends message"),on:prefs.enterToSend!==!1,onChange:enterToSend=>run2(actions.setPrefs({enterToSend}))}))),(0,import_react52.createElement)(
-SetSection,{key:"background",title:t("Background work")},(0,import_react52.createElement)(SetRow,{label:t("Background commands after (seconds)")},(0,import_react52.createElement)(SecondsField,
-{label:t("Background commands after (seconds)"),value:prefs.backgroundAfterSec??BACKGROUND_AFTER_SEC,save:backgroundAfterSec=>run2(actions.setPrefs({backgroundAfterSec}))}))),(0,import_react52.createElement)(
-SetSection,{key:"memory",title:t("Memory")},(0,import_react52.createElement)(SetRow,{label:t("Bring up related memory")},(0,import_react52.createElement)(Switch,{label:t("Bring up \
-related memory"),on:prefs.memoryAutoRecall!==!1,onChange:memoryAutoRecall=>run2(actions.setPrefs({memoryAutoRecall}))})),MEMORY_SIZES.map(({scope,label,size})=>(0,import_react52.createElement)(
-SetRow,{key:scope,label:t(label)},(0,import_react52.createElement)(MemorySize,{label:t(label),value:prefs.memoryLimits?.[scope]??size,save:value=>run2(actions.setPrefs({memoryLimits:{
-[scope]:value}}))})))),actions.setSurface?(0,import_react52.createElement)(SetSection,{key:"mode",title:t("Mode")},actions.surfaceMode?.()==="agent"?(0,import_react52.createElement)(
-SetRow,{label:t("Bot mode")},(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.setSurface("bot")},t("Switch"))):(0,import_react52.createElement)(
-SetRow,{label:t("Classic Agent mode")},(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.setSurface("agent")},t("Switch")))):
-null,(0,import_react52.createElement)(LocationsSection,{key:"places",actions,run:run2}),more.length>0?(0,import_react52.createElement)(SetSection,{key:"more",title:t("More"),className:"\
-bt-dsh-items"},more.map(id=>dshItem(dsh,id))):null]}function LocationsSection({actions,run:run2}){let app=globalThis.dsBotApp,[team,setTeam]=(0,import_react52.useState)(null),[data,
-setData]=(0,import_react52.useState)(null),[moving,setMoving]=(0,import_react52.useState)(!1),busy=(0,import_react52.useRef)(!1);(0,import_react52.useEffect)(()=>{Promise.resolve(actions.
-folders()).then(info=>setTeam(info?.team??null)).catch(()=>{}),app!==void 0&&Promise.resolve(app.dataLocation()).then(setData).catch(()=>{})},[]);let pickTeam=path2=>{if(!busy.current)
-return busy.current=!0,setMoving(!0),run2(Promise.resolve(actions.setTeamWorkspace(path2)).then(answer=>{setTeam(answer.team),app?.teamWorkspaceChanged(answer.team)}).finally(()=>{
-busy.current=!1,setMoving(!1)}))};return(0,import_react52.createElement)(SetSection,{title:t("Locations"),className:"bt-set-places"},(0,import_react52.createElement)(SetRow,{label:t(
-"Team workspace"),hint:t("Where Bots without a folder of their own work.")},team===null?null:(0,import_react52.createElement)(FolderMenu,{value:team,team:!0,actions,run:run2,onPick:pickTeam,
-disabled:moving})),data===null?null:(0,import_react52.createElement)(SetRow,{label:t("Data location"),hint:data.path},data.fixed?null:(0,import_react52.createElement)("button",{type:"\
-button",className:"bt-soft bt-soft-sm",disabled:moving,onClick:()=>{busy.current||run2(app.moveData(team??void 0))}},t("Change…"))))}function MainBotsSection({roster,actions,run:run2}){
-let mains=(roster.mainBotIds??[]).map(id=>roster.byId[id]).filter(Boolean),[first,...others]=mains,candidates=roster.bots.filter(bot=>!isMainOf(roster,bot.id));return(0,import_react52.createElement)(
-SetSection,{title:t("Main Bot")},(0,import_react52.createElement)(SetRow,{label:t("Main Bot"),hint:first?t("First in the sidebar. Pick another Bot to hand it the role; {name} then \
-stops being a Main Bot.",{name:first.name}):void 0},(0,import_react52.createElement)("select",{className:"bt-select","aria-label":t("Main Bot"),value:first?.id??"",onChange:event=>run2(
-actions.setMain(event.target.value,!0,first?{replace:first.id}:{}))},first?null:(0,import_react52.createElement)("option",{value:""},t("Choose a Bot…")),roster.bots.map(bot=>(0,import_react52.createElement)(
-"option",{key:bot.id,value:bot.id},bot.name)))),others.map(bot=>(0,import_react52.createElement)(SetRow,{key:bot.id,label:bot.name,hint:t("Also a Main Bot.")},(0,import_react52.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>run2(actions.setMain(bot.id,!0,{primary:!0}))},t("Move to first")),(0,import_react52.createElement)("button",{type:"\
-button",className:"bt-soft bt-soft-sm",onClick:()=>run2(actions.setMain(bot.id,!1))},t("Remove Main Bot role")))),candidates.length>0?(0,import_react52.createElement)(SetRow,{label:t(
-"Add a Main Bot"),hint:t("Main Bots can create and change Bots, and run every group chat.")},(0,import_react52.createElement)("select",{className:"bt-select","aria-label":t("Add a \
-Main Bot"),value:"",onChange:event=>{event.target.value&&run2(actions.setMain(event.target.value,!0))}},(0,import_react52.createElement)("option",{value:""},t("Choose a Bot…")),candidates.
-map(bot=>(0,import_react52.createElement)("option",{key:bot.id,value:bot.id},bot.name)))):null)}var MOTIONS=[["quiet","Quiet"],["normal","Normal"],["lively","Lively"]];function MotionSection({
-roster,actions,run:run2}){let motion=roster.prefs?.motion==="quiet"||roster.prefs?.motion==="lively"?roster.prefs.motion:"normal";return(0,import_react52.createElement)(SetSection,
-{title:t("Animation")},(0,import_react52.createElement)(SetRow,{label:t("Bot animation")},(0,import_react52.createElement)(Segmented,{label:t("Bot animation"),value:motion,className:"\
-bt-motion-seg"},MOTIONS.map(([id,label])=>(0,import_react52.createElement)("button",{key:id,type:"button","aria-pressed":motion===id,onClick:()=>{motion!==id&&run2(actions.setPrefs(
-{motion:id}))}},t(label))))))}function BotsPage({roster,actions,run:run2}){let[creating,setCreating]=(0,import_react52.useState)(!1),newBotBtn=creating?null:(0,import_react52.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm bt-with-icon",onClick:()=>setCreating(!0)},(0,import_react52.createElement)(PlusIcon),t("New Bot"));return[(0,import_react52.createElement)(
-MainBotsSection,{key:"main",roster,actions,run:run2}),(0,import_react52.createElement)(MotionSection,{key:"motion",roster,actions,run:run2}),creating?(0,import_react52.createElement)(
-CreateBot,{key:"create",roster,actions,inline:!0,onBack:()=>setCreating(!1),onCreated:bot=>actions.openSettings("bots",bot.id)}):null,(0,import_react52.createElement)(SetSection,{key:"\
-bots",title:t("Bots · {count}",{count:roster.bots.length}),action:newBotBtn},roster.bots.map(bot=>(0,import_react52.createElement)("button",{key:bot.id,type:"button",className:"bt\
--set-row",onClick:()=>actions.openSettings("bots",bot.id)},(0,import_react52.createElement)("span",{className:"bt-set-bot"},(0,import_react52.createElement)(BotAvatar,{bot,size:28,
-badge:!1,live:!1}),(0,import_react52.createElement)("span",{className:"bt-row-title"},bot.name),bot.role?(0,import_react52.createElement)("span",{className:"bt-tag"},bot.role):null,
-isMainOf(roster,bot.id)?(0,import_react52.createElement)("span",{className:"bt-tag"},t("Main Bot")):null,bot.hidden&&!isMainOf(roster,bot.id)?(0,import_react52.createElement)("span",
-{className:"bt-tag"},t("Hidden")):null),(0,import_react52.createElement)("span",{className:"bt-chevron"},(0,import_react52.createElement)(ChevronRightIcon))))),(0,import_react52.createElement)(
-KeptPrivateSection,{key:"kept",roster,actions,run:run2,Section:SetSection,Row:SetRow})]}function GroupsPage({roster,actions,run:run2}){let[creating,setCreating]=(0,import_react52.useState)(
-!1),newGroupBtn=creating?null:(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm bt-with-icon",disabled:roster.bots.length<2,title:roster.bots.length<
-2?t("A group chat needs at least two Bots"):void 0,onClick:()=>setCreating(!0)},(0,import_react52.createElement)(PlusIcon),t("Create group chat"));return[creating?(0,import_react52.createElement)(
-NewGroupForm,{key:"create",roster,actions,run:run2,onCancel:()=>setCreating(!1),onCreated:room2=>actions.openSettings("groups",room2.id)}):null,(0,import_react52.createElement)(SetSection,
-{key:"groups",title:t("Group chats · {count}",{count:roster.rooms.length}),action:newGroupBtn},roster.rooms.length===0?(0,import_react52.createElement)(SetRow,{label:t("No group c\
-hats yet."),hint:t("A group chat lets several Bots work on one thing with you.")}):roster.rooms.map(room2=>{let admin=roster.byId[room2.admin];return(0,import_react52.createElement)(
-"button",{key:room2.id,type:"button",className:"bt-set-row",onClick:()=>actions.openSettings("groups",room2.id)},(0,import_react52.createElement)("span",{className:"bt-set-bot"},(0,import_react52.createElement)(
-RoomAvatar,{room:room2,roster,size:28}),(0,import_react52.createElement)("span",{className:"bt-row-title"},room2.name),(0,import_react52.createElement)("span",{className:"bt-tag"},
-t("{count} members",{count:room2.members.length})),admin?(0,import_react52.createElement)("span",{className:"bt-tag bt-tag-admin"},(0,import_react52.createElement)(AdminStar),admin.
-name):null,room2.hidden?(0,import_react52.createElement)("span",{className:"bt-tag"},t("Hidden")):null),(0,import_react52.createElement)("span",{className:"bt-chevron"},(0,import_react52.createElement)(
-ChevronRightIcon)))}))]}var PageBoundary=class extends import_react52.Component{state={failed:!1};static getDerivedStateFromError(){return{failed:!0}}componentDidUpdate(previous){this.
-state.failed&&previous.reset!==this.props.reset&&this.setState({failed:!1})}componentDidCatch(error){console.error("ds-bot: a settings page failed",error)}render(){return this.state.
-failed?(0,import_react52.createElement)("div",{className:"bt-error",role:"alert"},t("This page could not be shown.")):this.props.children}};function SettingsDialog({page,id,roster,
-actions,useUpdate,leaving=!1,dsh}){let[error,setError]=(0,import_react52.useState)(""),close=(0,import_react52.useCallback)(()=>actions.closeSettings(),[]);useEscape(close);let run2=promise=>Promise.
+setCustom]=(0,import_react52.useState)(prefs.accent??"#4d6bfe"),timer=(0,import_react52.useRef)(0),pendingAccent=(0,import_react52.useRef)(null),saveAccent=(0,import_react52.useRef)(
+value=>run2(actions.setPrefs({accent:value})));saveAccent.current=value=>run2(actions.setPrefs({accent:value}));let flushAccent=()=>{clearTimeout(timer.current);let value=pendingAccent.
+current;value!==null&&(pendingAccent.current=null,saveAccent.current(value))};(0,import_react52.useEffect)(()=>flushAccent,[]);let pickCustom=value=>{setCustom(value),pendingAccent.
+current=value,clearTimeout(timer.current),timer.current=setTimeout(flushAccent,350)},pickPreset=value=>(clearTimeout(timer.current),pendingAccent.current=null,run2(actions.setPrefs(
+{accent:value})));return[(0,import_react52.createElement)(SetSection,{key:"look",title:t("Appearance")},(0,import_react52.createElement)(SetRow,{label:t("Theme"),hint:t("Colors for\
+ the whole team, on every device.")},(0,import_react52.createElement)("select",{className:"bt-select","aria-label":t("Theme"),value:current2,onChange:event=>run2(actions.setPrefs({
+theme:event.target.value}))},Object.entries(themes).map(([id,theme])=>(0,import_react52.createElement)("option",{key:id,value:id},t(theme.label))))),(0,import_react52.createElement)(
+SetRow,{label:t("Accent"),hint:t("Unread marks, badges, and the brand mark.")},(0,import_react52.createElement)("div",{className:"bt-swatches"},(0,import_react52.createElement)("bu\
+tton",{type:"button",className:"bt-swatch bt-swatch-default",title:t("Theme accent"),"aria-label":t("Theme accent"),"aria-pressed":!prefs.accent,onClick:()=>pickPreset(null)}),ACCENT_INKS.
+map(ink=>(0,import_react52.createElement)("button",{key:ink,type:"button",className:"bt-swatch",title:t(capitalize2(ink)),"aria-label":t(capitalize2(ink)),"aria-pressed":prefs.accent===
+INKS[ink][0],style:{background:`var(--bt-ink-${ink})`},onClick:()=>pickPreset(INKS[ink][0])})),(0,import_react52.createElement)("label",{className:"bt-swatch bt-swatch-custom",title:t(
+"Custom accent"),"data-on":!!prefs.accent&&!ACCENT_INKS.some(ink=>INKS[ink][0]===prefs.accent)},(0,import_react52.createElement)("input",{type:"color",value:custom,"aria-label":t("\
+Custom accent"),onChange:event=>pickCustom(event.target.value)})))),(0,import_react52.createElement)(SetRow,{label:t("Message layout")},(0,import_react52.createElement)(Choice,{label:t(
+"Message layout"),value:layoutOf(prefs),options:LAYOUTS,pick:id=>run2(actions.setPrefs({layout:id}))})),layoutOf(prefs)==="flat"?(0,import_react52.createElement)(SetRow,{label:t("T\
+ext width")},(0,import_react52.createElement)(WidthSlider,{label:t("Text width"),value:flatWidthOf(prefs),save:flatWidth=>run2(actions.setPrefs({flatWidth}))})):null,(0,import_react52.createElement)(
+SetRow,{label:t("Bubble width")},(0,import_react52.createElement)(WidthSlider,{label:t("Bubble width"),value:widthOf(prefs),save:width=>run2(actions.setPrefs({width}))})),(0,import_react52.createElement)(
+SetRow,{label:t("Interface motion")},(0,import_react52.createElement)(Choice,{label:t("Interface motion"),value:effectsOf(prefs),options:EFFECTS,pick:id=>run2(actions.setPrefs({effects:id}))})),
+(0,import_react52.createElement)(SetRow,{label:t("Show thinking")},(0,import_react52.createElement)(Switch,{label:t("Show thinking"),on:thinkingShown(prefs),onChange:thinking=>run2(
+actions.setPrefs({thinking}))})),look.map(id=>dshItem(dsh,id))),(0,import_react52.createElement)(SetSection,{key:"new",title:t("New Bots")},(0,import_react52.createElement)(SetRow,
+{label:t("Default model"),className:"bt-set-model"},(0,import_react52.createElement)(ModelMenu,{bot:{id:"new-bots",name:t("New Bots"),model:isLocalRoute(prefs.defaultBotModel)?void 0:
+prefs.defaultBotModel},roster,actions,run:run2,wide:!0,withEfforts:!1,onPick:ref=>run2(actions.setPrefs({defaultBotModel:ref}))}),prefs.defaultBotModel?(0,import_react52.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>run2(actions.setPrefs({defaultBotModel:null}))},t("Reset")):null)),(0,import_react52.createElement)(SetSection,{key:"\
+input",title:t("Input")},(0,import_react52.createElement)(SetRow,{label:t("Enter sends message")},(0,import_react52.createElement)(Switch,{label:t("Enter sends message"),on:prefs.enterToSend!==
+!1,onChange:enterToSend=>run2(actions.setPrefs({enterToSend}))}))),(0,import_react52.createElement)(SetSection,{key:"background",title:t("Background work")},(0,import_react52.createElement)(
+SetRow,{label:t("Background commands after (seconds)")},(0,import_react52.createElement)(SecondsField,{label:t("Background commands after (seconds)"),value:prefs.backgroundAfterSec??
+BACKGROUND_AFTER_SEC,save:backgroundAfterSec=>run2(actions.setPrefs({backgroundAfterSec}))}))),(0,import_react52.createElement)(SetSection,{key:"memory",title:t("Memory")},(0,import_react52.createElement)(
+SetRow,{label:t("Bring up related memory")},(0,import_react52.createElement)(Switch,{label:t("Bring up related memory"),on:prefs.memoryAutoRecall!==!1,onChange:memoryAutoRecall=>run2(
+actions.setPrefs({memoryAutoRecall}))})),MEMORY_SIZES.map(({scope,label,size})=>(0,import_react52.createElement)(SetRow,{key:scope,label:t(label)},(0,import_react52.createElement)(
+MemorySize,{label:t(label),value:prefs.memoryLimits?.[scope]??size,save:value=>run2(actions.setPrefs({memoryLimits:{[scope]:value}}))})))),actions.setSurface?(0,import_react52.createElement)(
+SetSection,{key:"mode",title:t("Mode")},actions.surfaceMode?.()==="agent"?(0,import_react52.createElement)(SetRow,{label:t("Bot mode")},(0,import_react52.createElement)("button",{type:"\
+button",className:"bt-soft bt-soft-sm",onClick:()=>actions.setSurface("bot")},t("Switch"))):(0,import_react52.createElement)(SetRow,{label:t("Classic Agent mode")},(0,import_react52.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>actions.setSurface("agent")},t("Switch")))):null,(0,import_react52.createElement)(LocationsSection,{key:"places",
+actions,run:run2}),more.length>0?(0,import_react52.createElement)(SetSection,{key:"more",title:t("More"),className:"bt-dsh-items"},more.map(id=>dshItem(dsh,id))):null]}function LocationsSection({
+actions,run:run2}){let app=globalThis.dsBotApp,[team,setTeam]=(0,import_react52.useState)(null),[data,setData]=(0,import_react52.useState)(null),[moving,setMoving]=(0,import_react52.useState)(
+!1),busy=(0,import_react52.useRef)(!1);(0,import_react52.useEffect)(()=>{Promise.resolve(actions.folders()).then(info=>setTeam(info?.team??null)).catch(()=>{}),app!==void 0&&Promise.
+resolve(app.dataLocation()).then(setData).catch(()=>{})},[]);let pickTeam=path2=>{if(!busy.current)return busy.current=!0,setMoving(!0),run2(Promise.resolve(actions.setTeamWorkspace(
+path2)).then(answer=>{setTeam(answer.team),app?.teamWorkspaceChanged(answer.team)}).finally(()=>{busy.current=!1,setMoving(!1)}))};return(0,import_react52.createElement)(SetSection,
+{title:t("Locations"),className:"bt-set-places"},(0,import_react52.createElement)(SetRow,{label:t("Team workspace"),hint:t("Where Bots without a folder of their own work.")},team===
+null?null:(0,import_react52.createElement)(FolderMenu,{value:team,team:!0,actions,run:run2,onPick:pickTeam,disabled:moving})),data===null?null:(0,import_react52.createElement)(SetRow,
+{label:t("Data location"),hint:data.path},data.fixed?null:(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:moving,onClick:()=>{busy.
+current||run2(app.moveData(team??void 0))}},t("Change…"))))}function MainBotsSection({roster,actions,run:run2}){let mains=(roster.mainBotIds??[]).map(id=>roster.byId[id]).filter(
+Boolean),[first,...others]=mains,candidates=roster.bots.filter(bot=>!isMainOf(roster,bot.id));return(0,import_react52.createElement)(SetSection,{title:t("Main Bot")},(0,import_react52.createElement)(
+SetRow,{label:t("Main Bot"),hint:first?t("First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.",{name:first.name}):void 0},(0,import_react52.createElement)(
+"select",{className:"bt-select","aria-label":t("Main Bot"),value:first?.id??"",onChange:event=>run2(actions.setMain(event.target.value,!0,first?{replace:first.id}:{}))},first?null:
+(0,import_react52.createElement)("option",{value:""},t("Choose a Bot…")),roster.bots.map(bot=>(0,import_react52.createElement)("option",{key:bot.id,value:bot.id},bot.name)))),others.
+map(bot=>(0,import_react52.createElement)(SetRow,{key:bot.id,label:bot.name,hint:t("Also a Main Bot.")},(0,import_react52.createElement)("button",{type:"button",className:"bt-soft \
+bt-soft-sm",onClick:()=>run2(actions.setMain(bot.id,!0,{primary:!0}))},t("Move to first")),(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>run2(
+actions.setMain(bot.id,!1))},t("Remove Main Bot role")))),candidates.length>0?(0,import_react52.createElement)(SetRow,{label:t("Add a Main Bot"),hint:t("Main Bots can create and ch\
+ange Bots, and run every group chat.")},(0,import_react52.createElement)("select",{className:"bt-select","aria-label":t("Add a Main Bot"),value:"",onChange:event=>{event.target.value&&
+run2(actions.setMain(event.target.value,!0))}},(0,import_react52.createElement)("option",{value:""},t("Choose a Bot…")),candidates.map(bot=>(0,import_react52.createElement)("opti\
+on",{key:bot.id,value:bot.id},bot.name)))):null)}var MOTIONS=[["quiet","Quiet"],["normal","Normal"],["lively","Lively"]];function MotionSection({roster,actions,run:run2}){let motion=roster.
+prefs?.motion==="quiet"||roster.prefs?.motion==="lively"?roster.prefs.motion:"normal";return(0,import_react52.createElement)(SetSection,{title:t("Animation")},(0,import_react52.createElement)(
+SetRow,{label:t("Bot animation")},(0,import_react52.createElement)(Segmented,{label:t("Bot animation"),value:motion,className:"bt-motion-seg"},MOTIONS.map(([id,label])=>(0,import_react52.createElement)(
+"button",{key:id,type:"button","aria-pressed":motion===id,onClick:()=>{motion!==id&&run2(actions.setPrefs({motion:id}))}},t(label))))))}function BotsPage({roster,actions,run:run2}){
+let[creating,setCreating]=(0,import_react52.useState)(!1),newBotBtn=creating?null:(0,import_react52.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm bt-with-ico\
+n",onClick:()=>setCreating(!0)},(0,import_react52.createElement)(PlusIcon),t("New Bot"));return[(0,import_react52.createElement)(MainBotsSection,{key:"main",roster,actions,run:run2}),
+(0,import_react52.createElement)(MotionSection,{key:"motion",roster,actions,run:run2}),creating?(0,import_react52.createElement)(CreateBot,{key:"create",roster,actions,inline:!0,onBack:()=>setCreating(
+!1),onCreated:bot=>actions.openSettings("bots",bot.id)}):null,(0,import_react52.createElement)(SetSection,{key:"bots",title:t("Bots · {count}",{count:roster.bots.length}),action:newBotBtn},
+roster.bots.map(bot=>(0,import_react52.createElement)("button",{key:bot.id,type:"button",className:"bt-set-row",onClick:()=>actions.openSettings("bots",bot.id)},(0,import_react52.createElement)(
+"span",{className:"bt-set-bot"},(0,import_react52.createElement)(BotAvatar,{bot,size:28,badge:!1,live:!1}),(0,import_react52.createElement)("span",{className:"bt-row-title"},bot.name),
+bot.role?(0,import_react52.createElement)("span",{className:"bt-tag"},bot.role):null,isMainOf(roster,bot.id)?(0,import_react52.createElement)("span",{className:"bt-tag"},t("Main Bo\
+t")):null,bot.hidden&&!isMainOf(roster,bot.id)?(0,import_react52.createElement)("span",{className:"bt-tag"},t("Hidden")):null),(0,import_react52.createElement)("span",{className:"b\
+t-chevron"},(0,import_react52.createElement)(ChevronRightIcon))))),(0,import_react52.createElement)(KeptPrivateSection,{key:"kept",roster,actions,run:run2,Section:SetSection,Row:SetRow})]}
+function GroupsPage({roster,actions,run:run2}){let[creating,setCreating]=(0,import_react52.useState)(!1),newGroupBtn=creating?null:(0,import_react52.createElement)("button",{type:"\
+button",className:"bt-soft bt-soft-sm bt-with-icon",disabled:roster.bots.length<2,title:roster.bots.length<2?t("A group chat needs at least two Bots"):void 0,onClick:()=>setCreating(
+!0)},(0,import_react52.createElement)(PlusIcon),t("Create group chat"));return[creating?(0,import_react52.createElement)(NewGroupForm,{key:"create",roster,actions,run:run2,onCancel:()=>setCreating(
+!1),onCreated:room2=>actions.openSettings("groups",room2.id)}):null,(0,import_react52.createElement)(SetSection,{key:"groups",title:t("Group chats · {count}",{count:roster.rooms.length}),
+action:newGroupBtn},roster.rooms.length===0?(0,import_react52.createElement)(SetRow,{label:t("No group chats yet."),hint:t("A group chat lets several Bots work on one thing with yo\
+u.")}):roster.rooms.map(room2=>{let admin=roster.byId[room2.admin];return(0,import_react52.createElement)("button",{key:room2.id,type:"button",className:"bt-set-row",onClick:()=>actions.
+openSettings("groups",room2.id)},(0,import_react52.createElement)("span",{className:"bt-set-bot"},(0,import_react52.createElement)(RoomAvatar,{room:room2,roster,size:28}),(0,import_react52.createElement)(
+"span",{className:"bt-row-title"},room2.name),(0,import_react52.createElement)("span",{className:"bt-tag"},t("{count} members",{count:room2.members.length})),admin?(0,import_react52.createElement)(
+"span",{className:"bt-tag bt-tag-admin"},(0,import_react52.createElement)(AdminStar),admin.name):null,room2.hidden?(0,import_react52.createElement)("span",{className:"bt-tag"},t("H\
+idden")):null),(0,import_react52.createElement)("span",{className:"bt-chevron"},(0,import_react52.createElement)(ChevronRightIcon)))}))]}var PageBoundary=class extends import_react52.Component{state={
+failed:!1};static getDerivedStateFromError(){return{failed:!0}}componentDidUpdate(previous){this.state.failed&&previous.reset!==this.props.reset&&this.setState({failed:!1})}componentDidCatch(error){
+console.error("ds-bot: a settings page failed",error)}render(){return this.state.failed?(0,import_react52.createElement)("div",{className:"bt-error",role:"alert"},t("This page coul\
+d not be shown.")):this.props.children}};function SettingsDialog({page,id,roster,actions,useUpdate,leaving=!1,dsh}){let[error,setError]=(0,import_react52.useState)(""),close=(0,import_react52.useCallback)(
+()=>actions.closeSettings(),[]);useEscape(close,!leaving);let[narrowNav,setNarrowNav]=(0,import_react52.useState)(()=>typeof window<"u"&&typeof window.matchMedia=="function"?window.
+matchMedia("(max-width: 640px)").matches:!1);(0,import_react52.useEffect)(()=>{if(typeof window>"u"||typeof window.matchMedia!="function")return;let query=window.matchMedia("(max-w\
+idth: 640px)"),sync=()=>setNarrowNav(query.matches);return sync(),query.addEventListener?.("change",sync),()=>query.removeEventListener?.("change",sync)},[]);let run2=promise=>Promise.
 resolve(promise).then(()=>(setError(""),!0)).catch(failure=>(setError(failure?.message??String(failure)),!1)),bot=page==="bots"&&id?roster.byId[id]:void 0,room2=page==="groups"&&id?
 roster.roomsById[id]:void 0,pages=SETTINGS_PAGES.filter(([key])=>key!=="models"||actions.providers!==void 0),extra=dshPages(dsh),section=page==="dsh"?extra.find(row=>row.id===id):void 0,
 advanced=page==="models"&&id==="advanced"&&hasSection(dsh,"models"),shown=section?"dsh":pages.some(([key])=>key===page)?page:"general",usageFocus=shown==="usage"&&id?id:null,label=section?
 section.label:advanced?t("Advanced settings"):t(pages.find(([key])=>key===shown)[1]),back=bot?t("Back to Bots"):room2?t("Back to group chats"):usageFocus?t("All usage"):advanced?t(
-"Back to models"):null,nav=useGlide(section?`dsh:${section.id}`:shown,{axis:"y"}),pageKey=`${shown}:${bot?.id??room2?.id??section?.id??(advanced?"advanced":"")}`,depth=bot||room2||
-advanced?1:0,last=(0,import_react52.useRef)({key:pageKey,depth,move:"up"});last.current.key!==pageKey&&(last.current={key:pageKey,depth,move:depth>last.current.depth?"in":depth<last.
-current.depth?"out":"up"});let[usageOpened,setUsageOpened]=(0,import_react52.useState)(shown==="usage");shown==="usage"&&!usageOpened&&setUsageOpened(!0);let errorLine=error?(0,import_react52.createElement)(
-"div",{className:"bt-error",role:"alert",style:{padding:0}},error):null,pageButton=(key,text)=>(0,import_react52.createElement)("button",{key,type:"button",className:"bt-settings-i\
-tem","aria-current":shown===key?"page":void 0,onClick:()=>actions.openSettings(key)},(0,import_react52.createElement)(PAGE_ICONS[key]),t(text),key==="phone"?(0,import_react52.createElement)(
-"span",{className:"bt-tag",style:{marginLeft:"auto"}},t("Beta")):null);return(0,import_react52.createElement)("div",{className:"bt-settings-layer","data-leaving":leaving||void 0},(0,import_react52.createElement)(
-"div",{className:"bt-scrim",onMouseDown:close}),(0,import_react52.createElement)("div",{className:"bt-settings",role:"dialog","aria-modal":!0,"aria-label":t("Settings"),"data-short\
-cut-modal":"settings"},(0,import_react52.createElement)("nav",{ref:nav.box,className:"bt-settings-nav","aria-label":t("Settings pages")},(0,import_react52.createElement)("span",{ref:nav.
-thumb,className:"bt-thumb","aria-hidden":!0}),pages.filter(([key])=>!LAST_PAGES.has(key)).map(([key,text])=>pageButton(key,text)),extra.length>0?(0,import_react52.createElement)("s\
-pan",{className:"bt-settings-rule","aria-hidden":!0}):null,extra.map(row=>(0,import_react52.createElement)("button",{key:`dsh:${row.id}`,type:"button",className:"bt-settings-item",
-"aria-current":section?.id===row.id?"page":void 0,onClick:()=>actions.openSettings("dsh",row.id)},(0,import_react52.createElement)("span",{className:"bt-settings-icon","aria-hidden":!0},
-dsh.renderSlot("settings.section.icon",{size:16,active:section?.id===row.id},{only:row.id,fallback:(0,import_react52.createElement)(DSH_ICONS[row.id]??import_dsh_client_ui_primitives3.IconSettingsOutlineMedium,
-{size:16})})),row.label)),(0,import_react52.createElement)("span",{className:"bt-settings-rule","aria-hidden":!0}),pages.filter(([key])=>LAST_PAGES.has(key)).map(([key,text])=>pageButton(
-key,text))),(0,import_react52.createElement)("div",{className:"bt-settings-main"},(0,import_react52.createElement)("div",{className:"bt-settings-head"},back?(0,import_react52.createElement)(
-"button",{type:"button",className:"bt-icon-btn","aria-label":back,title:back,onClick:()=>actions.openSettings(shown)},(0,import_react52.createElement)(ChevronLeftIcon)):null,(0,import_react52.createElement)(
-"h2",{key:bot?.id??room2?.id??section?.id??(advanced?"advanced":shown)},bot?.name??room2?.name??label),dsh?(0,import_react52.createElement)("div",{className:"bt-settings-actions"},
-dsh.renderSlot("settings.action",{})):null),shown==="usage"?null:(0,import_react52.createElement)("div",{key:pageKey,className:"bt-settings-scroll bt-settings-page","data-move":last.
-current.move},errorLine,(0,import_react52.createElement)(PageBoundary,null,shown==="computer"?(0,import_react52.createElement)(ComputerPage,{roster,actions,run:run2,Section:SetSection,
-Row:SetRow,Switch}):null,shown==="general"?(0,import_react52.createElement)(GeneralPage,{roster,actions,run:run2,dsh}):null,shown==="models"&&!advanced?(0,import_react52.createElement)(
-ProvidersPage,{actions,run:run2,roster,Section:SetSection,advanced:hasSection(dsh,"models")?()=>actions.openSettings("models","advanced"):null}):null,advanced?(0,import_react52.createElement)(
-"div",{className:"bt-dsh-section"},dsh.renderSlot("settings.section",{close},{only:"models"})):null,section?(0,import_react52.createElement)("div",{className:"bt-dsh-section"},dsh.
-renderSlot("settings.section",{close},{only:section.id})):null,shown==="local-agents"?(0,import_react52.createElement)(LocalAgentsPage,{run:run2,Section:SetSection,Row:SetRow}):null,
-bot?(0,import_react52.createElement)("div",{className:"bt-settings-form"},(0,import_react52.createElement)(BotSettingsForm,{key:bot.id,bot,roster,actions,run:run2})):null,shown==="\
-bots"&&!bot?(0,import_react52.createElement)(BotsPage,{roster,actions,run:run2}):null,shown==="bot-models"?(0,import_react52.createElement)(BotModelsPage,{roster,actions,run:run2,Section:SetSection}):
-null,room2?(0,import_react52.createElement)("div",{className:"bt-settings-form"},(0,import_react52.createElement)(GroupSettingsForm,{key:room2.id,room:room2,roster,actions,run:run2})):
-null,shown==="groups"&&!room2?(0,import_react52.createElement)(GroupsPage,{roster,actions,run:run2}):null,shown==="connectors"?(0,import_react52.createElement)(ConnectorsPage,{roster,
-actions}):null,shown==="im"?(0,import_react52.createElement)(ImPage,{roster,actions}):null,shown==="capabilities"?(0,import_react52.createElement)(CapabilitiesPage,{roster,actions,
-run:run2}):null,shown==="phone"?(0,import_react52.createElement)(PhonePage,{roster,actions,Section:SetSection,Row:SetRow}):null,shown==="browser"?(0,import_react52.createElement)(BrowserPage,
-{roster,actions,run:run2,Section:SetSection,Row:SetRow}):null,shown==="schedules"?(0,import_react52.createElement)(SchedulesPage,{roster,actions,start:id??void 0}):null,shown==="se\
-crets"?(0,import_react52.createElement)(SecretsPage,{roster,actions,run:run2,Section:SetSection}):null,shown==="feedback"?(0,import_react52.createElement)(FeedbackPage,{actions,run:run2,
-Section:SetSection,Row:SetRow}):null,shown==="about"?(0,import_react52.createElement)(AboutPage,{useUpdate,actions,run:run2,Section:SetSection,Row:SetRow}):null)),usageOpened?(0,import_react52.createElement)(
-"div",{key:"usage",className:"bt-settings-scroll bt-settings-usage","data-off":shown==="usage"?void 0:"","aria-hidden":shown==="usage"?void 0:!0},shown==="usage"?errorLine:null,(0,import_react52.createElement)(
-PageBoundary,{reset:shown},(0,import_react52.createElement)(UsagePage,{roster,actions,focusId:usageFocus}))):null),(0,import_react52.createElement)("button",{type:"button",className:"\
-bt-settings-close","aria-label":t("Close settings"),onClick:close},(0,import_react52.createElement)(CloseIcon))))}var NOTIFY_KEY="ds-bot:notify";function notifyKind({before,after,viewing,focused,enabled,muted,group}){if(before===void 0||enabled!==!0||muted===!0||viewing===!0&&focused===!0)return;
+"Back to models"):null,nav=useGlide(section?`dsh:${section.id}`:shown,{axis:narrowNav?"x":"y"}),pageKey=`${shown}:${bot?.id??room2?.id??section?.id??(advanced?"advanced":shown==="s\
+chedules"?id??"":"")}`;(0,import_react52.useEffect)(()=>{setError("")},[pageKey]);let depth=bot||room2||advanced?1:0,last=(0,import_react52.useRef)({key:pageKey,depth,move:"up"});last.
+current.key!==pageKey&&(last.current={key:pageKey,depth,move:depth>last.current.depth?"in":depth<last.current.depth?"out":"up"});let[usageOpened,setUsageOpened]=(0,import_react52.useState)(
+shown==="usage");shown==="usage"&&!usageOpened&&setUsageOpened(!0);let errorLine=error?(0,import_react52.createElement)("div",{className:"bt-error",role:"alert",style:{padding:0}},
+error):null,pageButton=(key,text)=>(0,import_react52.createElement)("button",{key,type:"button",className:"bt-settings-item","aria-current":shown===key?"page":void 0,onClick:()=>actions.
+openSettings(key)},(0,import_react52.createElement)(PAGE_ICONS[key]),t(text),key==="phone"?(0,import_react52.createElement)("span",{className:"bt-tag",style:{marginLeft:"auto"}},t(
+"Beta")):null);return(0,import_react52.createElement)("div",{className:"bt-settings-layer","data-leaving":leaving||void 0},(0,import_react52.createElement)("div",{className:"bt-scr\
+im",onMouseDown:close}),(0,import_react52.createElement)("div",{className:"bt-settings",role:"dialog","aria-modal":!0,"aria-label":t("Settings"),"data-shortcut-modal":"settings"},(0,import_react52.createElement)(
+"nav",{ref:nav.box,className:"bt-settings-nav","aria-label":t("Settings pages")},(0,import_react52.createElement)("span",{ref:nav.thumb,className:"bt-thumb","aria-hidden":!0}),pages.
+filter(([key])=>!LAST_PAGES.has(key)).map(([key,text])=>pageButton(key,text)),extra.length>0?(0,import_react52.createElement)("span",{className:"bt-settings-rule","aria-hidden":!0}):
+null,extra.map(row=>(0,import_react52.createElement)("button",{key:`dsh:${row.id}`,type:"button",className:"bt-settings-item","aria-current":section?.id===row.id?"page":void 0,onClick:()=>actions.
+openSettings("dsh",row.id)},(0,import_react52.createElement)("span",{className:"bt-settings-icon","aria-hidden":!0},dsh.renderSlot("settings.section.icon",{size:16,active:section?.
+id===row.id},{only:row.id,fallback:(0,import_react52.createElement)(DSH_ICONS[row.id]??import_dsh_client_ui_primitives3.IconSettingsOutlineMedium,{size:16})})),row.label)),(0,import_react52.createElement)(
+"span",{className:"bt-settings-rule","aria-hidden":!0}),pages.filter(([key])=>LAST_PAGES.has(key)).map(([key,text])=>pageButton(key,text))),(0,import_react52.createElement)("div",{
+className:"bt-settings-main"},(0,import_react52.createElement)("div",{className:"bt-settings-head"},back?(0,import_react52.createElement)("button",{type:"button",className:"bt-icon\
+-btn","aria-label":back,title:back,onClick:()=>actions.openSettings(shown)},(0,import_react52.createElement)(ChevronLeftIcon)):null,(0,import_react52.createElement)("h2",{key:bot?.
+id??room2?.id??section?.id??(advanced?"advanced":shown)},bot?.name??room2?.name??label),dsh?(0,import_react52.createElement)("div",{className:"bt-settings-actions"},dsh.renderSlot(
+"settings.action",{})):null),shown==="usage"?null:(0,import_react52.createElement)("div",{key:pageKey,className:"bt-settings-scroll bt-settings-page","data-move":last.current.move},
+errorLine,(0,import_react52.createElement)(PageBoundary,null,shown==="computer"?(0,import_react52.createElement)(ComputerPage,{roster,actions,run:run2,Section:SetSection,Row:SetRow,
+Switch}):null,shown==="general"?(0,import_react52.createElement)(GeneralPage,{roster,actions,run:run2,dsh}):null,shown==="models"&&!advanced?(0,import_react52.createElement)(ProvidersPage,
+{actions,run:run2,roster,Section:SetSection,advanced:hasSection(dsh,"models")?()=>actions.openSettings("models","advanced"):null}):null,advanced?(0,import_react52.createElement)("d\
+iv",{className:"bt-dsh-section"},dsh.renderSlot("settings.section",{close},{only:"models"})):null,section?(0,import_react52.createElement)("div",{className:"bt-dsh-section"},dsh.renderSlot(
+"settings.section",{close},{only:section.id})):null,shown==="local-agents"?(0,import_react52.createElement)(LocalAgentsPage,{run:run2,Section:SetSection,Row:SetRow}):null,bot?(0,import_react52.createElement)(
+"div",{className:"bt-settings-form"},(0,import_react52.createElement)(BotSettingsForm,{key:bot.id,bot,roster,actions,run:run2})):null,shown==="bots"&&!bot?(0,import_react52.createElement)(
+BotsPage,{roster,actions,run:run2}):null,shown==="bot-models"?(0,import_react52.createElement)(BotModelsPage,{roster,actions,run:run2,Section:SetSection}):null,room2?(0,import_react52.createElement)(
+"div",{className:"bt-settings-form"},(0,import_react52.createElement)(GroupSettingsForm,{key:room2.id,room:room2,roster,actions,run:run2})):null,shown==="groups"&&!room2?(0,import_react52.createElement)(
+GroupsPage,{roster,actions,run:run2}):null,shown==="connectors"?(0,import_react52.createElement)(ConnectorsPage,{roster,actions}):null,shown==="im"?(0,import_react52.createElement)(
+ImPage,{roster,actions}):null,shown==="capabilities"?(0,import_react52.createElement)(CapabilitiesPage,{roster,actions,run:run2}):null,shown==="phone"?(0,import_react52.createElement)(
+PhonePage,{roster,actions,Section:SetSection,Row:SetRow}):null,shown==="browser"?(0,import_react52.createElement)(BrowserPage,{roster,actions,run:run2,Section:SetSection,Row:SetRow}):
+null,shown==="schedules"?(0,import_react52.createElement)(SchedulesPage,{roster,actions,start:id??void 0}):null,shown==="secrets"?(0,import_react52.createElement)(SecretsPage,{roster,
+actions,run:run2,Section:SetSection}):null,shown==="feedback"?(0,import_react52.createElement)(FeedbackPage,{actions,run:run2,Section:SetSection,Row:SetRow}):null,shown==="about"?(0,import_react52.createElement)(
+AboutPage,{useUpdate,actions,run:run2,Section:SetSection,Row:SetRow}):null)),usageOpened?(0,import_react52.createElement)("div",{key:"usage",className:"bt-settings-scroll bt-settin\
+gs-usage","data-off":shown==="usage"?void 0:"","aria-hidden":shown==="usage"?void 0:!0},shown==="usage"?errorLine:null,(0,import_react52.createElement)(PageBoundary,{reset:shown},(0,import_react52.createElement)(
+UsagePage,{roster,actions,focusId:usageFocus}))):null),(0,import_react52.createElement)("button",{type:"button",className:"bt-settings-close","aria-label":t("Close settings"),onClick:close},
+(0,import_react52.createElement)(CloseIcon))))}var NOTIFY_KEY="ds-bot:notify";function notifyKind({before,after,viewing,focused,enabled,muted,group}){if(before===void 0||enabled!==!0||muted===!0||viewing===!0&&focused===!0)return;
 let wasPending=before?.pendingInteraction!==void 0;if(after?.pendingInteraction!==void 0&&(!wasPending||after.pendingInteraction!==before.pendingInteraction))return"question";if(group!==
 !0&&after?.completionUnread===!0&&before?.completionUnread!==!0)return"reply"}function noticeText({title,kind}){let name=String(title??"").trim().slice(0,60),body=t(kind==="questio\
 n"?"Waiting for your answer":"A new reply is waiting");return{title:name===""?"DS Bot":name,body}}function readNotifyPrefs(raw){try{let value=JSON.parse(raw??"null");if(value===null||
@@ -13198,14 +13260,15 @@ typeof localStorage>"u"?null:localStorage.getItem(NOTIFY_KEY)),savePrefs=next=>{
 function useNotifyPrefs(){let[,bump]=(0,import_react53.useState)(0);return(0,import_react53.useEffect)(()=>{let run2=()=>bump(value=>value+1);return listeners2.add(run2),()=>{listeners2.
 delete(run2)}},[]),current}function changeNotify(change){current=savePrefs(writeNotifyPrefs(current,change));for(let run2 of listeners2)run2();return current}function NotificationWatcher({
 useSessions,useSessionStatus,useRoster,useWork,actions}){let work=useWork(value=>value),roster=useRoster(value=>value),statuses=useSessionStatus(map=>map),viewing=useSessions(list=>Object.
-values(list.byId).find(session=>(session?.retainedBy?.mainView??0)>0)?.id??null),previous=(0,import_react53.useRef)(new Map);return(0,import_react53.useEffect)(()=>{bridge()?.onOpenSession?.(
-sessionId=>{actions.openSession?.(sessionId)})},[]),(0,import_react53.useEffect)(()=>{let prefs=prefsNow(),open=document.hasFocus?.()!==!1&&document.visibilityState!=="hidden",rows2=notificationRows(
-{statuses,roster,approvals:work.approvals}),next=new Map;for(let row of rows2){let{id,sessionId,name,group,status:after}=row,before=previous.current.get(id);next.set(id,after);let kind=notifyKind(
-{before,after,viewing:viewing===sessionId,focused:open,enabled:prefs.enabled,muted:prefs.muted[id]===!0,group});kind!==void 0&&shellNotify({sessionId:id,...noticeText({title:name,kind})})}
-previous.current=next,bridge()?.setBadge?.(badgeOf2(rows2))},[statuses,viewing,roster,work]),null}function NotificationsRow(){let prefs=useNotifyPrefs(),[permission,setPermission]=(0,import_react53.useState)(
-void 0);(0,import_react53.useEffect)(()=>{let stopped=!1;return Promise.resolve(bridge()?.notifyStatus?.()).then(value=>{stopped||setPermission(value)}).catch(()=>{}),()=>{stopped=
-!0}},[]);let denied=permission==="denied";return(0,import_react53.createElement)("div",{className:"bt-set-row"},(0,import_react53.createElement)("div",{className:"bt-set-copy"},(0,import_react53.createElement)(
-"span",null,t("Notifications")),(0,import_react53.createElement)("span",{className:"bt-set-hint"},t("Tell me when a Bot answers while I am looking elsewhere.")),denied?(0,import_react53.createElement)(
+values(list.byId).find(session=>(session?.retainedBy?.mainView??0)>0)?.id??null),previous=(0,import_react53.useRef)(new Map),seeded=(0,import_react53.useRef)(!1);return(0,import_react53.useEffect)(
+()=>{bridge()?.onOpenSession?.(sessionId=>{actions.openSession?.(sessionId)})},[]),(0,import_react53.useEffect)(()=>{let prefs=prefsNow(),open=document.hasFocus?.()!==!1&&document.
+visibilityState!=="hidden",rows2=notificationRows({statuses,roster,approvals:work.approvals}),next=new Map;for(let row of rows2){let{id,sessionId,name,group,status:after}=row,before=previous.
+current.get(id)??(seeded.current?{}:void 0);next.set(id,after);let kind=notifyKind({before,after,viewing:viewing===sessionId,focused:open,enabled:prefs.enabled,muted:prefs.muted[id]===
+!0,group});kind!==void 0&&shellNotify({sessionId:id,...noticeText({title:name,kind})})}roster.ready!==!1&&(seeded.current=!0),previous.current=next,bridge()?.setBadge?.(badgeOf2(rows2))},
+[statuses,viewing,roster,work]),null}function NotificationsRow(){let prefs=useNotifyPrefs(),[permission,setPermission]=(0,import_react53.useState)(void 0);(0,import_react53.useEffect)(
+()=>{let stopped=!1;return Promise.resolve(bridge()?.notifyStatus?.()).then(value=>{stopped||setPermission(value)}).catch(()=>{}),()=>{stopped=!0}},[]);let denied=permission==="den\
+ied";return(0,import_react53.createElement)("div",{className:"bt-set-row"},(0,import_react53.createElement)("div",{className:"bt-set-copy"},(0,import_react53.createElement)("span",
+null,t("Notifications")),(0,import_react53.createElement)("span",{className:"bt-set-hint"},t("Tell me when a Bot answers while I am looking elsewhere.")),denied?(0,import_react53.createElement)(
 "span",{className:"bt-set-hint bt-danger",role:"alert"},t("System notifications are turned off for DS Bot. Unread marks still show them.")):null),(0,import_react53.createElement)("\
 div",{className:"bt-set-control"},(0,import_react53.createElement)(Switch,{label:t("Notifications"),on:prefs.enabled===!0,onChange:next=>changeNotify({enabled:next})})))}function isMuted(id){
 return prefsNow().muted[id]===!0}function toggleMuted(id){return changeNotify({mute:{id,on:!isMuted(id)}})}var CONNECTION_GRACE_MS=2e3,CONNECTING_MIN_VISIBLE_MS=800,RECOVERY_CONFIRMATION_MS=2e3,OUTAGE_STATES=new Set(["connecting","disconnected"]);function createConnectionFeedback(onChange,{
@@ -13427,16 +13490,16 @@ SPRING_SHAPE,"width")},${spring(SPRING_TAP,"scale")}}
 .bt-mw-dock[data-leaving] .bt-mw-pill{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-mw-pill-in{display:inline-flex;align-items:center;gap:8px;flex:none;padding:0 13px 0 6px;white-space:nowrap}
 .bt-mw-faces{display:inline-flex;align-items:center;flex:none;line-height:0}
-.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.\
-34,1.56,.64,1) backwards}
+.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;corner-shape:round;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat \
+.26s cubic-bezier(.34,1.56,.64,1) backwards}
 .bt-mw-face+.bt-mw-face{margin-left:-5px}
-.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;background:#e3a008;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-star);box-shadow:0 0 \
+0 1.5px var(--bt-main)}
 .bt-mw-label{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:min(420px,58vw);animation:bt-mw-swap .22s ease-out backwards}
 .bt-mw-label>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-mw-ask{color:#b7791f;flex:none}
+.bt-mw-ask{color:var(--bt-warn);flex:none}
 .bt-mw-dot{flex:none;color:var(--bt-ink-3)}
 .bt-mw-doing{flex:0 1 auto}
-body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-in{from{transform:translateY(8px) scale(.94)}}
 @keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
@@ -13459,8 +13522,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-state{display:flex;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
-.bt-member-state.bt-mw-ask{color:#b7791f}
-body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
+.bt-member-state.bt-mw-ask{color:var(--bt-warn)}
 .bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:\
 inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP,"scale")}}
 .bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
@@ -13480,7 +13542,8 @@ space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:backg\
+round-color .12s ease}}
 `;var import_react56=require("react"),import_react_dom10=require("react-dom"),GoArrow=()=>(0,import_react56.createElement)("svg",{width:14,height:14,viewBox:"-12 -12 24 24",fill:"non\
 e",stroke:"currentColor",strokeWidth:2.2,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":!0},(0,import_react56.createElement)("path",{d:"M-7 0H7M2 -5L7 0L2 5"})),MEMORY_NOTICE_MS=3200,
 noNews=select=>select({});function useMemoryNotice(ids,useMemoryNews){let seen=useMemoryNews(map=>Math.max(0,...ids.map(id=>map?.[id]?.seen??0))),[shown,setShown]=(0,import_react56.useState)(
@@ -13556,13 +13619,13 @@ let result=await session.updateQueue(item.id,{kind:"steer"});if(!result.ok)retur
 "done":"failed"}return"done"}catch{return"failed"}};var import_react57=require("react"),import_react_dom11=require("react-dom"),speechApi=()=>window.SpeechRecognition??window.webkitSpeechRecognition,keepComposerFocus=event=>event.preventDefault();
 function useDictation(onText){let[listening,setListening]=(0,import_react57.useState)(!1),[note,setNote]=(0,import_react57.useState)(""),recognition=(0,import_react57.useRef)(null),
 latest=(0,import_react57.useRef)(onText);return latest.current=onText,(0,import_react57.useEffect)(()=>()=>recognition.current?.abort(),[]),(0,import_react57.useEffect)(()=>{if(!note)
-return;let timer=setTimeout(()=>setNote(""),2600);return()=>clearTimeout(timer)},[note]),{listening,note,start:({continuous=!0,onEnd}={})=>{let Api=speechApi();if(!Api)return setNote(
+return;let timer=setTimeout(()=>setNote(""),2600);return()=>clearTimeout(timer)},[note]),{listening,note,start:({continuous=!0,onEnd,onError}={})=>{let Api=speechApi();if(!Api)return setNote(
 t("Dictation is not available in this browser")),!1;let engine=new Api;engine.lang=navigator.language||"zh-CN",engine.interimResults=!0,engine.continuous=continuous,engine.onresult=
 event=>{let interim="";for(let index=event.resultIndex;index<event.results.length;index+=1){let result=event.results[index],text=result[0]?.transcript??"";result.isFinal?text.trim()&&
-latest.current(text,!0):interim+=text}interim&&latest.current(interim,!1)},engine.onerror=event=>{event.error==="aborted"||event.error==="no-speech"||setNote(event.error==="not-all\
-owed"||event.error==="service-not-allowed"?t("Microphone access is blocked"):t("Couldn't hear that"))},engine.onend=()=>{setListening(!1),recognition.current=null,onEnd?.()},recognition.
-current=engine;try{return engine.start(),setListening(!0),!0}catch{return setNote(t("Couldn't start dictation")),!1}},stop:()=>recognition.current?.stop()}}function ComposerVoice({
-sessionId,inputActions,actions,useUi,useRoster}){let enterToSend=useRoster(state=>sendsOnEnter(state.prefs)),composerRoot=(0,import_react57.useRef)(null);(0,import_react57.useEffect)(
+latest.current(text,!0):interim+=text}interim&&latest.current(interim,!1)},engine.onerror=event=>{event.error==="aborted"||event.error==="no-speech"||(setNote(event.error==="not-al\
+lowed"||event.error==="service-not-allowed"?t("Microphone access is blocked"):t("Couldn't hear that")),onError?.(event.error))},engine.onend=()=>{setListening(!1),recognition.current=
+null,onEnd?.()},recognition.current=engine;try{return engine.start(),setListening(!0),!0}catch{return setNote(t("Couldn't start dictation")),!1}},stop:()=>recognition.current?.stop()}}
+function ComposerVoice({sessionId,inputActions,actions,useUi,useRoster}){let enterToSend=useRoster(state=>sendsOnEnter(state.prefs)),composerRoot=(0,import_react57.useRef)(null);(0,import_react57.useEffect)(
 ()=>{let root=composerRoot.current?.closest("[data-composer-card]");if(enterToSend||!inputActions||!root)return;let onKey=event=>insertComposerNewline(event,inputActions);return root.
 addEventListener("keydown",onKey,!0),()=>root.removeEventListener("keydown",onKey,!0)},[enterToSend,inputActions]);let dictation=useDictation((text,final)=>{final&&inputActions&&inputActions.
 insertText(text,inputActions.captureInsertion())}),quote=useUi(state=>state.quote?.sessionId===sessionId?state.quote:null);if((0,import_react57.useEffect)(()=>{if(!quote||!inputActions)
@@ -13648,12 +13711,12 @@ compact"}):null))}function SideChatView({subject,chat,roster,actions}){let scrol
 null),entries2=Array.isArray(chat?.entries)?chat.entries:[],busy=entries2.some(entry=>entry?.status==="answering"),last=entries2.at(-1);if((0,import_react58.useEffect)(()=>{let node=scroll.
 current;node&&(node.scrollTop=node.scrollHeight)},[chat?.id,entries2.length,last?.status]),!chat)return null;let ask=()=>{let text=draft.trim();text===""||busy||typeof actions?.askSide!=
 "function"||(setDraft(""),setFail(null),Promise.resolve(actions.askSide(subject,chat.id,text)).catch(error=>{setDraft(value=>value===""?text:value),setFail(hostText(error?.message??
-""))}))};return(0,import_react58.createElement)("div",{className:"bt-side"},(0,import_react58.createElement)("p",{className:"bt-side-note"},t("Answered from progress so far; nothin\
-g was run")),(0,import_react58.createElement)("div",{className:"bt-side-scroll",ref:scroll},entries2.map(entry=>(0,import_react58.createElement)(SideEntry,{key:entry.id,chatId:chat.
-id,entry,actions}))),(0,import_react58.createElement)("div",{className:"bt-side-form"},(0,import_react58.createElement)("textarea",{className:"bt-side-input",rows:1,value:draft,disabled:busy,
+""))}))};return(0,import_react58.createElement)("div",{className:"bt-sidechat"},(0,import_react58.createElement)("p",{className:"bt-side-note"},t("Answered from progress so far; no\
+thing was run")),(0,import_react58.createElement)("div",{className:"bt-side-scroll",ref:scroll},entries2.map(entry=>(0,import_react58.createElement)(SideEntry,{key:entry.id,chatId:chat.
+id,entry,actions}))),(0,import_react58.createElement)("div",{className:"bt-side-form"},(0,import_react58.createElement)("textarea",{className:"bt-side-input",rows:1,value:draft,autoFocus:!0,
 placeholder:t("Ask about the work so far"),"aria-label":t("Ask about the work so far"),onChange:event=>{setDraft(event.target.value),fail2!==null&&setFail(null)},onKeyDown:event=>{
-event.key!=="Enter"||!sendsOnEnter(roster?.prefs)||event.shiftKey||event.nativeEvent?.isComposing||(event.preventDefault(),ask())}}),(0,import_react58.createElement)("button",{type:"\
-button",className:"bt-side-send","aria-label":t("Send message"),disabled:busy||draft.trim()===""||typeof actions?.askSide!="function",onClick:ask},(0,import_react58.createElement)(
+event.key!=="Enter"||!sendsOnEnter(roster?.prefs)||event.shiftKey||event.nativeEvent?.isComposing||event.keyCode===229||(event.preventDefault(),ask())}}),(0,import_react58.createElement)(
+"button",{type:"button",className:"bt-side-send","aria-label":t("Send message"),disabled:busy||draft.trim()===""||typeof actions?.askSide!="function",onClick:ask},(0,import_react58.createElement)(
 ArrowUpIcon)),fail2!==null?(0,import_react58.createElement)("p",{className:"bt-side-fail"},fail2):null))}function sideSource({roster,actions}){let claimFor=sessionId=>({name:"side",
 token:SIDE_TOKEN,hint:t("Ask about the work so far"),submit:(args,actx,attachments)=>submitSide({call:actions?.sideCall??call,roster:roster.getSnapshot(),sessionId,args,attachments,
 open:chatId=>actions?.openSideChat(sessionId,chatId)})});return{trigger:"/",name:SIDE_SOURCE,order:-50,showGroupTitle:!1,async candidates(session,req){return req?.position==="inlin\
@@ -13662,7 +13725,8 @@ if(pick2?.action!=="drill"&&sideSurface(roster.getSnapshot(),pick2.session.sessi
 roster.getSnapshot(),session.sessionId,token)===void 0?void 0:{claim:claimFor(session.sessionId)}},matchEnter(session,line,signal,envelope2){return matchSideEnter(roster,session.sessionId,
 line,envelope2,signal).then(outcome=>{if(outcome!==void 0)return{claim:claimFor(session.sessionId)}})},async matchClaim(session,token){return matchSideClaim(roster.getSnapshot(),session.
 sessionId,token)?claimFor(session.sessionId):void 0}}}var SIDE_CSS=`
-.bt-side{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+.bt-sidechat{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+@media (prefers-reduced-motion:reduce){.bt-sidechat,.bt-pmenu-pop{animation:none}}
 .bt-side-note{flex:none;margin:0;padding:10px 16px 8px;font-size:12px;line-height:17px;color:var(--bt-ink-3);border-bottom:.5px solid var(--bt-line)}
 .bt-side-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:14px 16px}
 .bt-side-pair{display:flex;flex-direction:column;gap:8px}
@@ -13674,8 +13738,8 @@ anywhere;white-space:pre-wrap}
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .bt-side-form>.bt-side-fail{flex-basis:100%}
-.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center\
-;cursor:pointer;flex:none}
+.bt-side-send{width:36px;height:36px;border-radius:50%;corner-shape:round;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;jus\
+tify-content:center;cursor:pointer;flex:none}
 .bt-side-send:disabled{opacity:.3;cursor:default}
 .bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;backgr\
 ound:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
@@ -13822,14 +13886,14 @@ shadow:inset 0 0 0 1px var(--bt-line);box-sizing:border-box;color:var(--bt-ink);
 .bt-fail-copy svg{width:13px;height:13px}
 `;var import_react61=require("react"),PALETTE_EXIT_MS=160;function CommandPalette({start,token,roster,actions,useSessions}){let[query,setQuery]=(0,import_react61.useState)(start??""),
 [cursor,setCursor]=(0,import_react61.useState)(0),[leaving,setLeaving]=(0,import_react61.useState)(!1),wanted=query.trim().toLowerCase(),close=()=>{leaving||(setLeaving(!0),setTimeout(
-()=>actions.closePalette(token),PALETTE_EXIT_MS))};useEscape(close);let ids=[...roster.bots.map(currentPart),...roster.rooms.map(item=>item.id)],found=useSessions(list=>{if(wanted.
-length<2)return"[]";let hits=[];for(let id of ids){let outline=list.projectionsBySession?.[id]?.values?.turnOutline??list.byId[id]?.projectionValues?.turnOutline;if(!Array.isArray(
-outline))continue;let hidden=roster.exchangeTurns[id]??[];for(let index2=outline.length-1;index2>=0&&hits.length<30;index2-=1){let entry=outline[index2];if(!hidden.includes(entry.turn))
-for(let raw of[entry.response,entry.prompt]){let text=stripHeader(raw??"").replace(/\s+/g," ").trim(),at=text.toLowerCase().indexOf(wanted);if(at<0)continue;let from=Math.max(0,at-
-24);hits.push([id,entry.turn,(from>0?"…":"")+text.slice(from,at+wanted.length+60)]);break}}}return JSON.stringify(hits)}),matchesName=(...fields)=>wanted===""||fields.some(field=>(field??
-"").toLowerCase().includes(wanted)),sections=[],people=[...roster.bots.filter(bot=>matchesName(bot.name,bot.role)).map(bot=>({key:bot.id,avatar:(0,import_react61.createElement)(BotAvatar,
-{bot,size:24,badge:!1,live:!1}),title:bot.name,subtitle:[bot.role,isMainOf(roster,bot.id)?t("Main Bot"):""].filter(Boolean).join(" · "),badge:bot.hidden?t("Hidden"):void 0,run:async()=>{
-bot.hidden&&await actions.setFlags(bot.id,{hidden:!1}),actions.openSession(bot.id)}})),...roster.rooms.filter(room2=>matchesName(room2.name)).map(room2=>({key:room2.id,avatar:(0,import_react61.createElement)(
+()=>actions.closePalette(token),PALETTE_EXIT_MS))};useEscape(close);let ids=[...roster.bots.map(currentPart),...roster.rooms.map(currentPart)],found=useSessions(list=>{if(wanted.length<
+2)return"[]";let hits=[];for(let id of ids){let outline=list.projectionsBySession?.[id]?.values?.turnOutline??list.byId[id]?.projectionValues?.turnOutline;if(!Array.isArray(outline))
+continue;let hidden=roster.exchangeTurns[id]??[];for(let index2=outline.length-1;index2>=0&&hits.length<30;index2-=1){let entry=outline[index2];if(!hidden.includes(entry.turn))for(let raw of[
+entry.response,entry.prompt]){let text=stripHeader(raw??"").replace(/\s+/g," ").trim(),at=text.toLowerCase().indexOf(wanted);if(at<0)continue;let from=Math.max(0,at-24);hits.push([
+id,entry.turn,(from>0?"…":"")+text.slice(from,at+wanted.length+60)]);break}}}return JSON.stringify(hits)}),matchesName=(...fields)=>wanted===""||fields.some(field=>(field??"").toLowerCase().
+includes(wanted)),sections=[],people=[...roster.bots.filter(bot=>matchesName(bot.name,bot.role)).map(bot=>({key:bot.id,avatar:(0,import_react61.createElement)(BotAvatar,{bot,size:24,
+badge:!1,live:!1}),title:bot.name,subtitle:[bot.role,isMainOf(roster,bot.id)?t("Main Bot"):""].filter(Boolean).join(" · "),badge:bot.hidden?t("Hidden"):void 0,run:async()=>{bot.hidden&&
+await actions.setFlags(bot.id,{hidden:!1}),actions.openSession(bot.id)}})),...roster.rooms.filter(room2=>matchesName(room2.name)).map(room2=>({key:room2.id,avatar:(0,import_react61.createElement)(
 RoomAvatar,{room:room2,roster,size:24}),title:room2.name,subtitle:t("{count} members",{count:room2.members.length}),badge:room2.hidden?t("Hidden"):void 0,run:async()=>{room2.hidden&&
 await actions.setFlags(room2.id,{hidden:!1}),actions.openSession(room2.id)}}))];people.length&&sections.push([t("Bots"),people]);let agents=(roster.agents??[]).filter(()=>matchesName(
 "DSH Agent")).map(agent=>({key:agent.id,avatar:(0,import_react61.createElement)("span",{className:"bt-palette-agent"},(0,import_react61.createElement)(import_dsh_client_ui_primitives.FishLogo,
@@ -13891,23 +13955,24 @@ setMoreError(failure))})},body=picked!==null?(0,import_react62.createElement)(De
 "div",{className:"bt-palette-empty"},(0,import_react62.createElement)("span",{className:"bt-palette-empty-icon","aria-hidden":!0},(0,import_react62.createElement)(SearchIcon)),(0,import_react62.createElement)(
 "span",{className:"bt-palette-empty-label"},t("Search this group’s messages")),(0,import_react62.createElement)("span",{className:"bt-palette-empty-hint"},t("Type at least two ch\
 aracters"))):error!==null?(0,import_react62.createElement)("div",{className:"bt-palette-empty"},(0,import_react62.createElement)("span",{className:"bt-palette-empty-label"},hostText(
-error?.message??error))):results.length===0?(0,import_react62.createElement)("div",{className:"bt-palette-empty"},busy?(0,import_react62.createElement)("span",{className:"bt-palett\
-e-empty-label"},t("Searching…")):[(0,import_react62.createElement)("span",{className:"bt-palette-empty-icon",key:"ico","aria-hidden":!0},(0,import_react62.createElement)(SearchIcon)),
-(0,import_react62.createElement)("span",{className:"bt-palette-empty-label",key:"label"},t("No messages found")),(0,import_react62.createElement)("span",{className:"bt-palette-empt\
-y-hint",key:"hint"},t("Try a different word"))]):results.map((hit,index)=>(0,import_react62.createElement)("button",{key:`${hit.seq??index}`,type:"button",className:"bt-gs-row",onClick:()=>setPicked(
-hit)},(0,import_react62.createElement)("div",{className:"bt-gs-meta"},(0,import_react62.createElement)("span",{className:"bt-gs-author"},authorOf(hit,roster)),Number.isFinite(hit.time)?
-(0,import_react62.createElement)("span",{className:"bt-gs-when"},clockLabel(hit.time)):null),(0,import_react62.createElement)("div",{className:"bt-gs-snippet"},marked(snippetOf(hit.
-text,terms),terms)))),current2=answer?.query===text,more=current2&&answer?.hasMore===!0?(0,import_react62.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:paging,
-onClick:()=>{loadMore()}},t("Load more")):null,footer=current2&&picked===null&&error===null&&text.length>=MIN_QUERY&&results.length>0?(0,import_react62.createElement)("div",{className:"\
-bt-gs-foot"},(0,import_react62.createElement)("span",null,results.length===1?t("1 match"):t("{count} matches",{count:results.length})),more!==null||moreError!==null?(0,import_react62.createElement)(
-"span",{className:"bt-gs-foot-side"},moreError!==null?(0,import_react62.createElement)("span",null,hostText(moreError?.message??moreError)):null,more):null):null;return(0,import_react62.createElement)(
-"div",{className:"bt-palette-layer","data-leaving":leaving||void 0},(0,import_react62.createElement)("div",{className:"bt-backdrop",onMouseDown:close}),(0,import_react62.createElement)(
-"div",{className:"bt-palette bt-gs",role:"dialog","aria-modal":!0,"aria-label":t("Search this group")},(0,import_react62.createElement)("div",{className:"bt-palette-head"},(0,import_react62.createElement)(
-"span",{className:"bt-palette-glyph","aria-hidden":!0},(0,import_react62.createElement)(SearchIcon)),(0,import_react62.createElement)("input",{ref:input,autoFocus:!0,value:query,"a\
-ria-label":t("Search this group"),placeholder:t("Search messages in {name}",{name:room2.name}),onChange:event=>setQuery(event.target.value)}),query!==""?(0,import_react62.createElement)(
-"button",{type:"button",className:"bt-palette-clear","aria-label":t("Clear search"),onClick:()=>{setQuery(""),setPicked(null),input.current?.focus()}},(0,import_react62.createElement)(
-CloseIcon)):(0,import_react62.createElement)("button",{type:"button",className:"bt-palette-clear","aria-label":t("Close"),onClick:close},(0,import_react62.createElement)(CloseIcon))),
-(0,import_react62.createElement)("div",{className:"bt-gs-body","aria-live":"polite"},body),footer))}var import_react63=require("react"),PASTE_LIMIT=1500,NO_BLOCKS=[],NO_IDS=[],ORPHAN_MS=3e3,foldPastedText=text=>typeof text=="string"&&text.length>PASTE_LIMIT?text:null,pastedName=text=>`\
+error?.message??error))):results.length===0?(0,import_react62.createElement)("div",{className:"bt-palette-empty"},busy||answer?.query!==text?(0,import_react62.createElement)("span",
+{className:"bt-palette-empty-label"},t("Searching…")):[(0,import_react62.createElement)("span",{className:"bt-palette-empty-icon",key:"ico","aria-hidden":!0},(0,import_react62.createElement)(
+SearchIcon)),(0,import_react62.createElement)("span",{className:"bt-palette-empty-label",key:"label"},t("No messages found")),(0,import_react62.createElement)("span",{className:"bt\
+-palette-empty-hint",key:"hint"},t("Try a different word"))]):results.map((hit,index)=>(0,import_react62.createElement)("button",{key:`${hit.seq??index}`,type:"button",className:"b\
+t-gs-row",onClick:()=>setPicked(hit)},(0,import_react62.createElement)("div",{className:"bt-gs-meta"},(0,import_react62.createElement)("span",{className:"bt-gs-author"},authorOf(hit,
+roster)),Number.isFinite(hit.time)?(0,import_react62.createElement)("span",{className:"bt-gs-when"},clockLabel(hit.time)):null),(0,import_react62.createElement)("div",{className:"b\
+t-gs-snippet"},marked(snippetOf(hit.text,terms),terms)))),current2=answer?.query===text,more=current2&&answer?.hasMore===!0?(0,import_react62.createElement)("button",{type:"button",
+className:"bt-soft bt-soft-sm",disabled:paging,onClick:()=>{loadMore()}},t("Load more")):null,footer=current2&&picked===null&&error===null&&text.length>=MIN_QUERY&&results.length>0?
+(0,import_react62.createElement)("div",{className:"bt-gs-foot"},(0,import_react62.createElement)("span",null,results.length===1?t("1 match"):t("{count} matches",{count:results.length})),
+more!==null||moreError!==null?(0,import_react62.createElement)("span",{className:"bt-gs-foot-side"},moreError!==null?(0,import_react62.createElement)("span",null,hostText(moreError?.
+message??moreError)):null,more):null):null;return(0,import_react62.createElement)("div",{className:"bt-palette-layer","data-leaving":leaving||void 0},(0,import_react62.createElement)(
+"div",{className:"bt-backdrop",onMouseDown:close}),(0,import_react62.createElement)("div",{className:"bt-palette bt-gs",role:"dialog","aria-modal":!0,"aria-label":t("Search this gr\
+oup")},(0,import_react62.createElement)("div",{className:"bt-palette-head"},(0,import_react62.createElement)("span",{className:"bt-palette-glyph","aria-hidden":!0},(0,import_react62.createElement)(
+SearchIcon)),(0,import_react62.createElement)("input",{ref:input,autoFocus:!0,value:query,"aria-label":t("Search this group"),placeholder:t("Search messages in {name}",{name:room2.
+name}),onChange:event=>setQuery(event.target.value)}),query!==""?(0,import_react62.createElement)("button",{type:"button",className:"bt-palette-clear","aria-label":t("Clear search"),
+onClick:()=>{setQuery(""),setPicked(null),input.current?.focus()}},(0,import_react62.createElement)(CloseIcon)):(0,import_react62.createElement)("button",{type:"button",className:"\
+bt-palette-clear","aria-label":t("Close"),onClick:close},(0,import_react62.createElement)(CloseIcon))),(0,import_react62.createElement)("div",{className:"bt-gs-body","aria-live":"p\
+olite"},body),footer))}var import_react63=require("react"),PASTE_LIMIT=1500,NO_BLOCKS=[],NO_IDS=[],ORPHAN_MS=3e3,foldPastedText=text=>typeof text=="string"&&text.length>PASTE_LIMIT?text:null,pastedName=text=>`\
 Pasted text (${text.length} characters).txt`,blockLives=(block,ids)=>block.attachmentId===null||ids.includes(block.attachmentId);function composerLabels(root){let group=root.querySelector(
 '[data-slot="conversation.input.attachments"] [role="group"]');return group===null?[]:[...group.children].map(item=>{let alt=item.querySelector("img[alt]")?.getAttribute("alt")??"";
 return alt!==""?alt:item.querySelector("[title]")?.getAttribute("title")??""})}function pasteLinks(blocks,ids,labels2){if(labels2.length!==ids.length)return[];let taken=new Set;for(let block of blocks)
@@ -13926,19 +13991,20 @@ onClick:onRemove},"×"))}function PasteDock({sessionId,inputActions,useUi,useInp
 draft)??"";if(blocks.length===0)return null;let drop=block=>{block.attachmentId&&typeof inputActions?.removeAttachment=="function"&&inputActions.removeAttachment(block.attachmentId),
 actions.removePaste(sessionId,[block.id])};return(0,import_react63.createElement)("div",{className:"bt-paste-dock"},blocks.map(block=>(0,import_react63.createElement)(PasteCard,{key:block.
 id,text:block.text,onPutBack:()=>{putBackText({block,inputActions,draft})&&actions.removePaste(sessionId,[block.id])},onRemove:()=>drop(block)})))}function PasteGuard({sessionId,inputActions,
-useInput,useUi,actions}){let anchor=(0,import_react63.useRef)(null),blocks=useUi(state=>state.paste?.[sessionId])??NO_BLOCKS,ids=useInput?.(state=>state.attachmentIds)??NO_IDS,latest=(0,import_react63.useRef)(
-{blocks,ids});return latest.current={blocks,ids},(0,import_react63.useEffect)(()=>{if(!blocks.some(block=>block.attachmentId===null))return;let card=anchor.current?.closest("[data-\
-composer-card]");if(card==null)return;let sync=()=>{let{blocks:now,ids:nowIds}=latest.current;if(!now.some(block=>block.attachmentId===null))return;let links=pasteLinks(now,nowIds,
-composerLabels(card));links.length>0&&actions.linkPastes(sessionId,links)};sync();let observer=new MutationObserver(sync);return observer.observe(card,{childList:!0,subtree:!0}),()=>observer.
-disconnect()},[ids,blocks]),(0,import_react63.useEffect)(()=>{let gone=latest.current.blocks.filter(block=>!blockLives(block,ids));gone.length>0&&actions.removePaste(sessionId,gone.
-map(block=>block.id))},[ids]),(0,import_react63.useEffect)(()=>{let waiting=blocks.filter(block=>block.attachmentId===null);if(waiting.length===0)return;let timer=setTimeout(()=>{for(let block of waiting){
-let now=latest.current.blocks.find(item=>item.id===block.id);now===void 0||now.attachmentId!==null||(inputActions?.insertText?.(block.text,inputActions?.captureInsertion?.()),actions.
-removePaste(sessionId,[block.id]))}},ORPHAN_MS);return()=>clearTimeout(timer)},[blocks]),(0,import_react63.useEffect)(()=>{let card=anchor.current?.closest("[data-composer-card]");
-if(card==null)return;let mark2=()=>{for(let block of blocks)if(block.attachmentId!==null)for(let node of card.querySelectorAll("[title]"))node.getAttribute("title")===block.name&&node.
-setAttribute("data-bt-paste","")};mark2();let observer=new MutationObserver(mark2);return observer.observe(card,{childList:!0,subtree:!0}),()=>observer.disconnect()},[blocks,ids]),
-(0,import_react63.useEffect)(()=>{let card=anchor.current?.closest("[data-composer-card]");if(card==null)return;let onPaste=event=>{handOffPaste({event,card,sessionId,actions})};return card.
-addEventListener("paste",onPaste,!0),()=>card.removeEventListener("paste",onPaste,!0)},[sessionId]),(0,import_react63.createElement)("span",{ref:anchor,className:"bt-paste-guard","\
-aria-hidden":!0})}var PASTE_CSS=`
+useInput,useUi,actions}){let anchor=(0,import_react63.useRef)(null),blocks=useUi(state=>state.paste?.[sessionId])??NO_BLOCKS,ids=useInput?.(state=>state.attachmentIds)??NO_IDS,draft=useInput?.(
+state=>state.draft)??"",latest=(0,import_react63.useRef)({blocks,ids,draft});return latest.current={blocks,ids,draft},(0,import_react63.useEffect)(()=>{if(!blocks.some(block=>block.
+attachmentId===null))return;let card=anchor.current?.closest("[data-composer-card]");if(card==null)return;let sync=()=>{let{blocks:now,ids:nowIds}=latest.current;if(!now.some(block=>block.
+attachmentId===null))return;let links=pasteLinks(now,nowIds,composerLabels(card));links.length>0&&actions.linkPastes(sessionId,links)};sync();let observer=new MutationObserver(sync);
+return observer.observe(card,{childList:!0,subtree:!0}),()=>observer.disconnect()},[ids,blocks]),(0,import_react63.useEffect)(()=>{let gone=latest.current.blocks.filter(block=>!blockLives(
+block,ids));gone.length>0&&actions.removePaste(sessionId,gone.map(block=>block.id))},[ids]),(0,import_react63.useEffect)(()=>{let waiting=blocks.filter(block=>block.attachmentId===
+null);if(waiting.length===0)return;let timer=setTimeout(()=>{let currentDraft=latest.current.draft;for(let block of waiting){let now=latest.current.blocks.find(item=>item.id===block.
+id);now===void 0||now.attachmentId!==null||(putBackText({block:now,inputActions,draft:currentDraft})&&(currentDraft=`${currentDraft}${now.text}`),actions.removePaste(sessionId,[block.
+id]))}},ORPHAN_MS);return()=>clearTimeout(timer)},[blocks]),(0,import_react63.useEffect)(()=>{if(!blocks.some(block=>block.attachmentId!==null))return;let card=anchor.current?.closest(
+"[data-composer-card]");if(card==null)return;let mark2=()=>{for(let block of blocks)if(block.attachmentId!==null)for(let node of card.querySelectorAll("[title]"))node.getAttribute(
+"title")===block.name&&node.setAttribute("data-bt-paste","")};mark2();let observer=new MutationObserver(mark2);return observer.observe(card,{childList:!0,subtree:!0}),()=>observer.
+disconnect()},[blocks,ids]),(0,import_react63.useEffect)(()=>{let card=anchor.current?.closest("[data-composer-card]");if(card==null)return;let onPaste=event=>{handOffPaste({event,
+card,sessionId,actions})};return card.addEventListener("paste",onPaste,!0),()=>card.removeEventListener("paste",onPaste,!0)},[sessionId]),(0,import_react63.createElement)("span",{ref:anchor,
+className:"bt-paste-guard","aria-hidden":!0})}var PASTE_CSS=`
 .bt-paste-guard{display:none}
 [data-composer-card] [data-bt-paste]{display:none!important}
 .bt-paste-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--\
@@ -13950,8 +14016,9 @@ nd:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18
 .bt-paste-label{min-width:0;flex:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-paste-put{flex:none;border:0;border-radius:8px;background:none;color:var(--bt-accent);font:inherit;font-size:13px;line-height:18px;padding:4px 6px;cursor:pointer}
 .bt-paste-put:hover{background:color-mix(in srgb,var(--bt-accent) 10%,transparent)}
-.bt-paste-x{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-heigh\
-t:1;cursor:pointer}
+.bt-paste-x{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-si\
+ze:15px;line-height:1;cursor:pointer}
+.bt-paste-x::after{content:"";position:absolute;inset:-4px}
 .bt-paste-x:hover{background:color-mix(in srgb,var(--bt-ink) 8%,transparent);color:var(--bt-ink)}
 `;var import_react64=require("react");function NewChat({mode,sectionId=null,paneLeft,roster,actions}){let[query,setQuery]=(0,import_react64.useState)(""),[picked,setPicked]=(0,import_react64.useState)(
 []),[group,setGroup]=(0,import_react64.useState)(mode==="group"),[admin,setAdmin]=(0,import_react64.useState)(null),[message,setMessage]=(0,import_react64.useState)(""),[pasted,setPasted]=(0,import_react64.useState)(
@@ -13981,25 +14048,26 @@ ${listed}`,{axis:"y",...QUICK_EDGES});useFlip(glide2.box,listed,"[data-flip]");l
 fromList?()=>{setDraft(null),setTimeout(()=>inputRef.current?.focus())}:close,onCreated:created}));let adminBot=admin===null?void 0:roster.byId[admin],recipients=adminBot?[adminBot,
 ...pickedBots]:pickedBots,placeholder=recipients.length>0?t("Message {name}",{name:recipients.map(bot=>bot.name).join(t(" and "))}):t("Message Bot"),unpick=()=>{picked.length>0?setPicked(
 current2=>current2.slice(0,-1)):admin!==null&&setAdmin(null)};return(0,import_react64.createElement)("div",{className:"bt-pane",style:{left:paneLeft}},(0,import_react64.createElement)(
-"div",{className:"bt-newchat",role:"dialog","aria-label":mode==="search"?t("Search"):t("New chat")},(0,import_react64.createElement)("div",{className:"bt-to"},(0,import_react64.createElement)(
-"span",{className:"bt-to-label"},t("To:")),adminBot?(0,import_react64.createElement)("span",{key:adminBot.id,className:"bt-token bt-token-admin",title:t("Admin")},(0,import_react64.createElement)(
-BotMark,{bot:adminBot,size:16}),adminBot.name,(0,import_react64.createElement)(AdminStar),(0,import_react64.createElement)("button",{type:"button","aria-label":t("Remove {name}",{name:adminBot.
-name}),onClick:()=>setAdmin(null)},"×")):null,choosingAdmin?(0,import_react64.createElement)("span",{className:"bt-to-star","aria-hidden":!0},(0,import_react64.createElement)(AdminStar)):
-null,pickedBots.map(bot=>(0,import_react64.createElement)("span",{key:bot.id,className:"bt-token"},(0,import_react64.createElement)(BotMark,{bot,size:16}),bot.name,(0,import_react64.createElement)(
-"button",{type:"button","aria-label":t("Remove {name}",{name:bot.name}),onClick:()=>setPicked(current2=>current2.filter(id=>id!==bot.id))},"×"))),(0,import_react64.createElement)(
-"input",{ref:inputRef,autoFocus:!0,value:query,"aria-label":t("Recipient"),placeholder:mode==="search"?t("Search Bots…"):choosingAdmin?t("Choose the group admin"):group?t("Who to\
- chat with…"):t("Start a chat with…"),onChange:event=>{setQuery(event.target.value),setCursor(0)},onKeyDown:event=>{event.nativeEvent.isComposing||(event.key==="ArrowDown"?(event.
-preventDefault(),setCursor(Math.min(active+1,options.length-1))):event.key==="ArrowUp"?(event.preventDefault(),setCursor(Math.max(active-1,0))):event.key==="Enter"&&options[active]?
-(event.preventDefault(),options[active].run()):event.key==="Backspace"&&query===""&&unpick())}}),group&&admin!==null?(0,import_react64.createElement)("button",{type:"button",className:"\
-bt-send bt-to-create",disabled:busy||picked.length===0,title:picked.length===0?t("Add at least one more Bot"):void 0,onClick:createGroup},t("Create group chat")):null,(0,import_react64.createElement)(
-"button",{type:"button",className:"bt-x","aria-label":t("Close new chat"),onClick:close},"×")),(0,import_react64.createElement)("div",{ref:drop,className:"bt-drop"},(0,import_react64.createElement)(
-"div",{ref:glide2.box,role:"listbox","aria-label":t("Recipients"),className:"bt-drop-list"},(0,import_react64.createElement)("span",{ref:glide2.thumb,className:"bt-thumb","aria-hid\
-den":!0}),options.length===0?(0,import_react64.createElement)("div",{className:"bt-hint"},mode==="search"?t("No Bots match"):t("Type a name to create a Bot")):options.map((option,index)=>(0,import_react64.createElement)(
-"button",{key:option.key,type:"button",role:"option",className:"bt-option","aria-selected":index===active,"data-flip":option.key,onMouseEnter:()=>setCursor(index),onClick:option.run},
-option.bot?(0,import_react64.createElement)(BotMark,{bot:option.bot,size:22}):(0,import_react64.createElement)("span",{className:"bt-option-icon"},option.icon),(0,import_react64.createElement)(
-"span",{className:"bt-option-label"},option.label),option.hint&&index===active?(0,import_react64.createElement)("span",{className:"bt-option-hint"},option.hint):null)))),(0,import_react64.createElement)(
-"div",{className:"bt-nc-spacer"}),error?(0,import_react64.createElement)("div",{className:"bt-error"},error):null,(0,import_react64.createElement)("div",{className:"bt-nc-compose"},
-pasted===null?null:(0,import_react64.createElement)("div",{className:"bt-paste-dock"},(0,import_react64.createElement)(PasteCard,{text:pasted.text,onPutBack:()=>{setMessage(current2=>`${current2}${pasted.
+"div",{className:"bt-newchat",role:"dialog","aria-label":mode==="search"?t("Search"):t("New chat")},(0,import_react64.createElement)("div",{className:"bt-to-wrap"},(0,import_react64.createElement)(
+"div",{className:"bt-to"},(0,import_react64.createElement)("span",{className:"bt-to-label"},t("To:")),adminBot?(0,import_react64.createElement)("span",{key:adminBot.id,className:"b\
+t-token bt-token-admin",title:t("Admin")},(0,import_react64.createElement)(BotMark,{bot:adminBot,size:16}),adminBot.name,(0,import_react64.createElement)(AdminStar),(0,import_react64.createElement)(
+"button",{type:"button","aria-label":t("Remove {name}",{name:adminBot.name}),onClick:()=>setAdmin(null)},"×")):null,choosingAdmin?(0,import_react64.createElement)("span",{className:"\
+bt-to-star","aria-hidden":!0},(0,import_react64.createElement)(AdminStar)):null,pickedBots.map(bot=>(0,import_react64.createElement)("span",{key:bot.id,className:"bt-token"},(0,import_react64.createElement)(
+BotMark,{bot,size:16}),bot.name,(0,import_react64.createElement)("button",{type:"button","aria-label":t("Remove {name}",{name:bot.name}),onClick:()=>setPicked(current2=>current2.filter(
+id=>id!==bot.id))},"×"))),(0,import_react64.createElement)("input",{ref:inputRef,autoFocus:!0,value:query,"aria-label":t("Recipient"),placeholder:mode==="search"?t("Search Bots…"):
+choosingAdmin?t("Choose the group admin"):group?t("Who to chat with…"):t("Start a chat with…"),onChange:event=>{setQuery(event.target.value),setCursor(0)},onKeyDown:event=>{event.
+nativeEvent.isComposing||event.keyCode===229||(event.key==="ArrowDown"?(event.preventDefault(),setCursor(Math.min(active+1,options.length-1))):event.key==="ArrowUp"?(event.preventDefault(),
+setCursor(Math.max(active-1,0))):event.key==="Enter"&&options[active]?(event.preventDefault(),options[active].run()):event.key==="Backspace"&&query===""&&unpick())}}),group&&admin!==
+null?(0,import_react64.createElement)("button",{type:"button",className:"bt-send bt-to-create",disabled:busy||picked.length===0,title:picked.length===0?t("Add at least one more Bot"):
+void 0,onClick:createGroup},t("Create group chat")):null,(0,import_react64.createElement)("button",{type:"button",className:"bt-x","aria-label":t("Close new chat"),onClick:close},"\
+×")),(0,import_react64.createElement)("div",{ref:drop,className:"bt-drop"},(0,import_react64.createElement)("div",{ref:glide2.box,role:"listbox","aria-label":t("Recipients"),className:"\
+bt-drop-list"},(0,import_react64.createElement)("span",{ref:glide2.thumb,className:"bt-thumb","aria-hidden":!0}),options.length===0?(0,import_react64.createElement)("div",{className:"\
+bt-hint"},mode==="search"?t("No Bots match"):t("Type a name to create a Bot")):options.map((option,index)=>(0,import_react64.createElement)("button",{key:option.key,type:"button",role:"\
+option",className:"bt-option","aria-selected":index===active,"data-flip":option.key,onMouseEnter:()=>setCursor(index),onClick:option.run},option.bot?(0,import_react64.createElement)(
+BotMark,{bot:option.bot,size:22}):(0,import_react64.createElement)("span",{className:"bt-option-icon"},option.icon),(0,import_react64.createElement)("span",{className:"bt-option-la\
+bel"},option.label),option.hint&&index===active?(0,import_react64.createElement)("span",{className:"bt-option-hint"},option.hint):null))))),(0,import_react64.createElement)("div",{
+className:"bt-nc-spacer"}),error?(0,import_react64.createElement)("div",{className:"bt-error"},error):null,(0,import_react64.createElement)("div",{className:"bt-nc-compose"},pasted===
+null?null:(0,import_react64.createElement)("div",{className:"bt-paste-dock"},(0,import_react64.createElement)(PasteCard,{text:pasted.text,onPutBack:()=>{setMessage(current2=>`${current2}${pasted.
 text}`),setPasted(null),messageRef.current?.focus()},onRemove:()=>setPasted(null)})),(0,import_react64.createElement)("div",{className:"bt-nc-card"},(0,import_react64.createElement)(
 "span",{className:"bt-nc-plus","aria-hidden":!0},(0,import_react64.createElement)(PlusIcon)),(0,import_react64.createElement)("textarea",{ref:messageRef,rows:1,value:message,placeholder,
 "aria-label":placeholder,onChange:event=>setMessage(event.target.value),onPaste:event=>{if((event.clipboardData?.files?.length??0)>0)return;let kept=foldPastedText(event.clipboardData?.
@@ -14026,101 +14094,107 @@ soft",onClick:close},t("Close Chat")))))}var import_react66=require("react"),pla
 " ").trim(),VOICE_LABELS={listening:"Listening",thinking:"Thinking",speaking:"Speaking",paused:"Paused",setup:"Voice input needs its speech model",preparing:"Preparing voice input…",
 unsupported:"Voice chat is not available in this browser"},CAPTURE_NOTES={blocked:"Microphone access is blocked",unavailable:"Voice chat is not available in this browser","too-long":"\
 That was too long to recognize"};function watchReply(read,watch,consume){let off=()=>{},consumed=!1,attempt=()=>{if(consumed)return;let text=read();text!==void 0&&(consumed=!0,off(),
-consume(text))};return off=watch(attempt),attempt(),()=>{consumed=!0,off()}}function useMicLevel(enabled){let[level,setLevel]=(0,import_react66.useState)(0);return(0,import_react66.useEffect)(
-()=>{if(!enabled||!navigator.mediaDevices?.getUserMedia)return;let stream=null,audio=null,frame2=0,stopped=!1;return navigator.mediaDevices.getUserMedia({audio:!0}).then(media=>{if(stopped){
-media.getTracks().forEach(track=>track.stop());return}stream=media,audio=new AudioContext;let analyser=audio.createAnalyser();analyser.fftSize=256,audio.createMediaStreamSource(media).
-connect(analyser);let data=new Uint8Array(analyser.frequencyBinCount),smooth=0,tick=()=>{analyser.getByteTimeDomainData(data);let sum=0;for(let value of data)sum+=((value-128)/128)**
-2;smooth=smooth*.8+Math.min(1,Math.sqrt(sum/data.length)*4)*.2,setLevel(Math.round(smooth*100)/100),frame2=requestAnimationFrame(tick)};tick()}).catch(()=>{}),()=>{stopped=!0,cancelAnimationFrame(
-frame2),stream?.getTracks().forEach(track=>track.stop()),audio?.close().catch(()=>{}),setLevel(0)}},[enabled]),level}function VoiceMode({sessionId,paneLeft,roster,actions,useSessions,
-useSessionStatus}){let bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],name=bot?.name??room2?.name??t("Bot"),running=useSessionStatus(map=>map.get(sessionId)?.running===
-!0),lastReply=useSessions(list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.turnOutline,entry=Array.isArray(outline)?
-outline[outline.length-1]:void 0;return entry?`${outline.length}|${entry.turn}`:"0|"}),[speech]=(0,import_react66.useState)(()=>actions.speech()),[phase,setPhase]=(0,import_react66.useState)(
-speech?"starting":speechApi()?"listening":"unsupported"),[catalog,setCatalog]=(0,import_react66.useState)(null),[heard,setHeard]=(0,import_react66.useState)(""),[said,setSaid]=(0,import_react66.useState)(
-""),[note,setNote]=(0,import_react66.useState)(""),[serviceLevel,setServiceLevel]=(0,import_react66.useState)(0),[cycle,setCycle]=(0,import_react66.useState)(0),waiting=(0,import_react66.useRef)(
-null),reply=(0,import_react66.useRef)(lastReply);reply.current=lastReply;let turn=(0,import_react66.useRef)(0),close=()=>{turn.current+=1,window.speechSynthesis?.cancel(),actions.closeVoice()};
+consume(text))};return off=watch(attempt),attempt(),()=>{consumed=!0,off()}}function useMicLevel(enabled,targetRef){(0,import_react66.useEffect)(()=>{if(!enabled||!navigator.mediaDevices?.
+getUserMedia)return;let stream=null,audio=null,frame2=0,stopped=!1,write=value=>{targetRef.current?.style.setProperty("--bt-level",String(value))};return navigator.mediaDevices.getUserMedia(
+{audio:!0}).then(media=>{if(stopped){media.getTracks().forEach(track=>track.stop());return}stream=media,audio=new AudioContext;let analyser=audio.createAnalyser();analyser.fftSize=
+256,audio.createMediaStreamSource(media).connect(analyser);let data=new Uint8Array(analyser.frequencyBinCount),smooth=0,tick=()=>{analyser.getByteTimeDomainData(data);let sum=0;for(let value of data)
+sum+=((value-128)/128)**2;smooth=smooth*.8+Math.min(1,Math.sqrt(sum/data.length)*4)*.2,write(Math.round(smooth*100)/100),frame2=requestAnimationFrame(tick)};tick()}).catch(()=>{}),
+()=>{stopped=!0,cancelAnimationFrame(frame2),stream?.getTracks().forEach(track=>track.stop()),audio?.close().catch(()=>{}),write(0)}},[enabled])}function VoiceMode({sessionId,paneLeft,
+roster,actions,useSessions,useSessionStatus}){let bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],name=bot?.name??room2?.name??t("Bot"),running=useSessionStatus(map=>map.
+get(sessionId)?.running===!0),lastReply=useSessions(list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.turnOutline,
+entry=Array.isArray(outline)?outline[outline.length-1]:void 0;return entry?`${outline.length}|${entry.turn}`:"0|"}),[speech]=(0,import_react66.useState)(()=>actions.speech()),[phase,
+setPhase]=(0,import_react66.useState)(speech?"starting":speechApi()?"listening":"unsupported"),[catalog,setCatalog]=(0,import_react66.useState)(null),[heard,setHeard]=(0,import_react66.useState)(
+""),[said,setSaid]=(0,import_react66.useState)(""),[note,setNote]=(0,import_react66.useState)(""),[cycle,setCycle]=(0,import_react66.useState)(0),orbRef=(0,import_react66.useRef)(null),
+transcribeAbort=(0,import_react66.useRef)(null),waiting=(0,import_react66.useRef)(null),reply=(0,import_react66.useRef)(lastReply);reply.current=lastReply;let turn=(0,import_react66.useRef)(
+0),cancelTranscribe=()=>{transcribeAbort.current?.abort(),transcribeAbort.current=null},close=()=>{turn.current+=1,cancelTranscribe(),window.speechSynthesis?.cancel(),actions.closeVoice()};
 useEscape(close);let submit=text=>{setHeard(text),setPhase("thinking"),waiting.current=reply.current.split("|")[0],actions.send(sessionId,text.trim()).catch(()=>setPhase("listening"))},
 dictation=useDictation((text,final)=>{setHeard(text),final&&(dictation.stop(),submit(text))});(0,import_react66.useEffect)(()=>{if(!note)return;let timer=setTimeout(()=>setNote(""),
 2600);return()=>clearTimeout(timer)},[note]),(0,import_react66.useEffect)(()=>{if(!speech)return;let live=!0;return speechCatalog(speech).then(({catalog:next,usable})=>{live&&(setCatalog(
 next),setPhase(usable?"listening":"setup"))},()=>{live&&setPhase("setup")}),()=>{live=!1}},[speech]);let listen=phase==="listening";(0,import_react66.useEffect)(()=>{if(speech||!listen||
-dictation.listening)return;let timer=setTimeout(()=>dictation.start({continuous:!1,onEnd:()=>{}}),250);return()=>clearTimeout(timer)},[listen,dictation.listening]),(0,import_react66.useEffect)(
+dictation.listening)return;let timer=setTimeout(()=>{dictation.start({continuous:!1,onEnd:()=>{},onError:code=>{(code==="not-allowed"||code==="service-not-allowed"||code==="audio-c\
+apture")&&(setNote(t(CAPTURE_NOTES.blocked)),setPhase("paused"))}})||setPhase("paused")},250);return()=>clearTimeout(timer)},[listen,dictation.listening]),(0,import_react66.useEffect)(
 ()=>{phase!=="listening"&&dictation.stop()},[phase]),(0,import_react66.useEffect)(()=>{if(!speech||!catalog||!listen)return;let own=turn.current,capture=null,frame2=0,stopped=!1,smooth=0,
-detect=turnDetector(),limit=Math.max(1,catalog.maxDurationSeconds-1)*1e3,finish=async current2=>{setPhase("transcribing");try{let wave=await current2.finish(catalog.maxDurationSeconds),
-text=wave?await transcribeWave(speech,catalog,wave,new AbortController().signal):"";if(turn.current!==own)return;text?submit(text):setPhase("listening")}catch(error){if(turn.current!==
-own)return;setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn't hear that")),setPhase("listening")}};return openCapture().then(opened=>{if(stopped){opened.cancel();return}capture=opened;
-let began=performance.now(),tick=()=>{let now=performance.now(),level2=capture.level();smooth=smooth*.8+level2*.2,setServiceLevel(Math.round(smooth*100)/100);let state=detect(level2,
-now);if(state==="done"||state==="speech"&&now-began>=limit){let current2=capture;capture=null,setServiceLevel(0),finish(current2);return}if(state==="waiting"&&now-began>=limit){setCycle(
-value=>value+1);return}frame2=requestAnimationFrame(tick)};tick()},error=>{stopped||(setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn't hear that")),setPhase("paused"))}),()=>{stopped=
-!0,cancelAnimationFrame(frame2),capture?.cancel(),setServiceLevel(0)}},[speech,catalog,listen,cycle]),(0,import_react66.useEffect)(()=>{if(phase!=="thinking"||running||waiting.current===
-null)return;let count=lastReply.slice(0,lastReply.indexOf("|")),turn2=Number(lastReply.slice(lastReply.indexOf("|")+1));if(count===waiting.current)return;let speak=text=>{waiting.current=
-null;let spoken=plainSpeech(text);if(setSaid(spoken),setHeard(""),!window.speechSynthesis||!spoken){setPhase("listening");return}let utterance=new SpeechSynthesisUtterance(spoken);
-utterance.lang=/[\u3400-\u9fff]/.test(spoken)?"zh-CN":"en-US",utterance.onend=()=>setPhase(current2=>current2==="speaking"?"listening":current2),utterance.onerror=utterance.onend,setPhase(
-"speaking"),window.speechSynthesis.cancel(),window.speechSynthesis.speak(utterance)};return watchReply(()=>actions.closingReply(sessionId,turn2),listener=>actions.watchTurns(sessionId,
-listener),text=>{if(text===null){waiting.current=null,setPhase("listening");return}speak(text)})},[phase,running,lastReply]),(0,import_react66.useEffect)(()=>()=>window.speechSynthesis?.
-cancel(),[]);let micLevel=useMicLevel(!speech&&phase==="listening"&&dictation.listening),level=speech?serviceLevel:micLevel,markState=phase==="thinking"||phase==="transcribing"?"th\
-inking":phase==="speaking"?"sending":"idle",blocked=phase==="unsupported"||phase==="setup"||phase==="starting"||phase==="preparing",togglePause=()=>{if(phase==="paused"){setPhase("\
-listening");return}turn.current+=1,window.speechSynthesis?.cancel(),setPhase("paused")};(0,import_react66.useEffect)(()=>{if(phase!=="preparing"||!speech)return;let stopped=!1,timer,
-tick=async()=>{try{let{catalog:next}=await speechCatalog(speech);if(stopped)return;setCatalog(next);let step=preparationStep(next);if(step.state==="usable"){setPhase("listening");return}
-if(step.state==="done"){setPhase("setup"),step.failed&&setNote(t("Couldn't prepare voice input"));return}setNote(step.pct===void 0?"":t("Downloading the speech model… {pct}%",{pct:step.
-pct}))}catch{if(!stopped){setPhase("setup");return}}timer=setTimeout(tick,1500)};return timer=setTimeout(tick,800),()=>{stopped=!0,clearTimeout(timer)}},[phase,speech]);let openSetup=phase===
-"setup"?actions.voiceSetup(catalog?.selection?.providerId):null,startSetup=()=>{if(openSetup?.navigate){close(),openSetup.navigate();return}turn.current+=1,setPhase("preparing"),Promise.
-resolve(openSetup.prepare()).then(started=>{started===!1&&(setPhase("setup"),setNote(t("Couldn't prepare voice input")))})},caption=phase==="speaking"?said:heard,shownNote=note||dictation.
-note;return(0,import_react66.createElement)("div",{className:"bt-pane bt-voice-pane",style:{left:paneLeft}},(0,import_react66.createElement)("div",{className:"bt-voice-stage",role:"\
-dialog","aria-label":t("Voice chat with {name}",{name}),"data-phase":phase==="transcribing"?"thinking":phase},(0,import_react66.createElement)("div",{className:"bt-voice-orb",style:{
-"--bt-level":level}},(0,import_react66.createElement)("span",{className:"bt-voice-ring","aria-hidden":!0}),(0,import_react66.createElement)("span",{className:"bt-voice-ring bt-voic\
-e-ring-2","aria-hidden":!0}),bot?(0,import_react66.createElement)(BotMark,{bot,size:112,state:markState,live:!0,gaze:phase==="listening"}):room2?(0,import_react66.createElement)(RoomAvatar,
-{room:room2,roster,size:112}):null),(0,import_react66.createElement)("div",{className:"bt-voice-name"},name),(0,import_react66.createElement)("div",{className:"bt-voice-status",role:"\
-status"},phase==="thinking"?(0,import_react66.createElement)(Shimmer,null,t("Thinking…")):phase==="transcribing"?(0,import_react66.createElement)(Shimmer,null,t("Recognizing…")):
-VOICE_LABELS[phase]?t(VOICE_LABELS[phase]):""),(0,import_react66.createElement)("div",{className:"bt-voice-caption",key:`${phase}:${caption.slice(0,12)}`},caption),openSetup?(0,import_react66.createElement)(
-"button",{type:"button",className:"bt-voice-setup",onClick:startSetup},t("Set up voice input")):null,shownNote?(0,import_react66.createElement)("div",{className:"bt-voice-note"},shownNote):
-null),(0,import_react66.createElement)("div",{className:"bt-voice-bar"},(0,import_react66.createElement)("button",{type:"button",className:"bt-voice-btn","aria-pressed":phase==="pa\
-used",disabled:blocked,"aria-label":phase==="paused"?t("Resume listening"):t("Pause"),onClick:togglePause},(0,import_react66.createElement)(MicIcon,{size:20}),phase==="paused"?(0,import_react66.createElement)(
-"span",{className:"bt-voice-slash","aria-hidden":!0}):null),(0,import_react66.createElement)("button",{type:"button",className:"bt-voice-btn bt-voice-end","aria-label":t("End voice\
- chat"),onClick:close},(0,import_react66.createElement)(CloseIcon))))}var import_react67=require("react"),SECTION_COLORS=["blue","orange","green","violet","rose"];function sectionMoveItems(entry,roster,actions){return[...(roster.sections??[]).map(sec=>[
+detect=turnDetector(),limit=Math.max(1,catalog.maxDurationSeconds-1)*1e3,writeLevel=value=>{orbRef.current?.style.setProperty("--bt-level",String(value))},finish=async current2=>{cancelTranscribe();
+let controller=new AbortController;transcribeAbort.current=controller,setPhase("transcribing");try{let wave=await current2.finish(catalog.maxDurationSeconds),text=wave?await transcribeWave(
+speech,catalog,wave,controller.signal):"";if(turn.current!==own)return;text?submit(text):setPhase("listening")}catch(error){if(turn.current!==own||error?.name==="AbortError")return;
+setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn't hear that")),setPhase("listening")}finally{transcribeAbort.current===controller&&(transcribeAbort.current=null)}};return openCapture().
+then(opened=>{if(stopped){opened.cancel();return}capture=opened;let began=performance.now(),tick=()=>{let now=performance.now(),level=capture.level();smooth=smooth*.8+level*.2,writeLevel(
+Math.round(smooth*100)/100);let state=detect(level,now);if(state==="done"||state==="speech"&&now-began>=limit){let current2=capture;capture=null,writeLevel(0),finish(current2);return}
+if(state==="waiting"&&now-began>=limit){setCycle(value=>value+1);return}frame2=requestAnimationFrame(tick)};tick()},error=>{stopped||(setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn'\
+t hear that")),setPhase("paused"))}),()=>{stopped=!0,cancelAnimationFrame(frame2),capture?.cancel(),writeLevel(0)}},[speech,catalog,listen,cycle]),(0,import_react66.useEffect)(()=>{
+if(phase!=="thinking"||running||waiting.current===null)return;let count=lastReply.slice(0,lastReply.indexOf("|")),turn2=Number(lastReply.slice(lastReply.indexOf("|")+1));if(count===
+waiting.current)return;let speak=text=>{waiting.current=null;let spoken=plainSpeech(text);if(setSaid(spoken),setHeard(""),!window.speechSynthesis||!spoken){setPhase("listening");return}
+let utterance=new SpeechSynthesisUtterance(spoken);utterance.lang=/[\u3400-\u9fff]/.test(spoken)?"zh-CN":"en-US",utterance.onend=()=>setPhase(current2=>current2==="speaking"?"liste\
+ning":current2),utterance.onerror=utterance.onend,setPhase("speaking"),window.speechSynthesis.cancel(),window.speechSynthesis.speak(utterance)};return watchReply(()=>actions.closingReply(
+sessionId,turn2),listener=>actions.watchTurns(sessionId,listener),text=>{if(text===null){waiting.current=null,setPhase("listening");return}speak(text)})},[phase,running,lastReply]),
+(0,import_react66.useEffect)(()=>()=>{cancelTranscribe(),window.speechSynthesis?.cancel()},[]),useMicLevel(!speech&&phase==="listening"&&dictation.listening,orbRef);let markState=phase===
+"thinking"||phase==="transcribing"?"thinking":phase==="speaking"?"sending":"idle",blocked=phase==="unsupported"||phase==="setup"||phase==="starting"||phase==="preparing",togglePause=()=>{
+if(phase==="paused"){setPhase("listening");return}turn.current+=1,cancelTranscribe(),window.speechSynthesis?.cancel(),setPhase("paused")};(0,import_react66.useEffect)(()=>{if(phase!==
+"preparing"||!speech)return;let stopped=!1,timer,tick=async()=>{try{let{catalog:next}=await speechCatalog(speech);if(stopped)return;setCatalog(next);let step=preparationStep(next);
+if(step.state==="usable"){setPhase("listening");return}if(step.state==="done"){setPhase("setup"),step.failed&&setNote(t("Couldn't prepare voice input"));return}setNote(step.pct===void 0?
+"":t("Downloading the speech model… {pct}%",{pct:step.pct}))}catch{if(!stopped){setPhase("setup");return}}timer=setTimeout(tick,1500)};return timer=setTimeout(tick,800),()=>{stopped=
+!0,clearTimeout(timer)}},[phase,speech]);let openSetup=phase==="setup"?actions.voiceSetup(catalog?.selection?.providerId):null,startSetup=()=>{if(openSetup?.navigate){close(),openSetup.
+navigate();return}turn.current+=1,cancelTranscribe(),setPhase("preparing"),Promise.resolve(openSetup.prepare()).then(started=>{started===!1&&(setPhase("setup"),setNote(t("Couldn't \
+prepare voice input")))})},caption=phase==="speaking"?said:heard,shownNote=note||dictation.note;return(0,import_react66.createElement)("div",{className:"bt-pane bt-voice-pane",style:{
+left:paneLeft}},(0,import_react66.createElement)("div",{className:"bt-voice-stage",role:"dialog","aria-label":t("Voice chat with {name}",{name}),"data-phase":phase==="transcribing"?
+"thinking":phase},(0,import_react66.createElement)("div",{ref:orbRef,className:"bt-voice-orb"},(0,import_react66.createElement)("span",{className:"bt-voice-ring","aria-hidden":!0}),
+(0,import_react66.createElement)("span",{className:"bt-voice-ring bt-voice-ring-2","aria-hidden":!0}),bot?(0,import_react66.createElement)(BotMark,{bot,size:112,state:markState,live:!0,
+gaze:phase==="listening"}):room2?(0,import_react66.createElement)(RoomAvatar,{room:room2,roster,size:112}):null),(0,import_react66.createElement)("div",{className:"bt-voice-name"},
+name),(0,import_react66.createElement)("div",{className:"bt-voice-status",role:"status"},phase==="thinking"?(0,import_react66.createElement)(Shimmer,null,t("Thinking…")):phase===
+"transcribing"?(0,import_react66.createElement)(Shimmer,null,t("Recognizing…")):VOICE_LABELS[phase]?t(VOICE_LABELS[phase]):""),(0,import_react66.createElement)("div",{className:"\
+bt-voice-caption",key:`${phase}:${caption.slice(0,12)}`},caption),openSetup?(0,import_react66.createElement)("button",{type:"button",className:"bt-voice-setup",onClick:startSetup},
+t("Set up voice input")):null,shownNote?(0,import_react66.createElement)("div",{className:"bt-voice-note"},shownNote):null),(0,import_react66.createElement)("div",{className:"bt-vo\
+ice-bar"},(0,import_react66.createElement)("button",{type:"button",className:"bt-voice-btn","aria-pressed":phase==="paused",disabled:blocked,"aria-label":phase==="paused"?t("Resume\
+ listening"):t("Pause"),onClick:togglePause},(0,import_react66.createElement)(MicIcon,{size:20}),phase==="paused"?(0,import_react66.createElement)("span",{className:"bt-voice-slash",
+"aria-hidden":!0}):null),(0,import_react66.createElement)("button",{type:"button",className:"bt-voice-btn bt-voice-end","aria-label":t("End voice chat"),onClick:close},(0,import_react66.createElement)(
+CloseIcon))))}var import_react67=require("react"),SECTION_COLORS=["blue","orange","green","violet","rose"];function sectionMoveItems(entry,roster,actions){return[...(roster.sections??[]).map(sec=>[
 sec.name,FolderIcon,()=>actions.setFlags(entry.id,{sectionId:entry.sectionId===sec.id?null:sec.id}),!1,entry.sectionId===sec.id]),entry.sectionId?[t("Remove from section"),FolderIcon,
 ()=>actions.setFlags(entry.id,{sectionId:null})]:null,[t("Move to new section…"),PlusIcon,async()=>{let sec=await actions.saveSection({items:[entry.id]});sec?.id&&actions.beginSectionRename(
-sec.id)}]].filter(Boolean)}function ContextMenu({menu,roster,actions,useWork,leaving=!1}){useEscape(()=>actions.closeMenu());let ref=(0,import_react67.useRef)(null),trigger=(0,import_react67.useRef)(
-typeof document>"u"?null:document.activeElement);(0,import_react67.useEffect)(()=>{let onDown=event=>{(!(event.target instanceof Element)||!event.target.closest(".bt-menu"))&&actions.
-closeMenu()},onKey=event=>{stepMenuFocus(ref.current,event,trigger.current)};return window.addEventListener("mousedown",onDown),window.addEventListener("keydown",onKey,!0),()=>{window.
-removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[]);let[place,setPlace]=(0,import_react67.useState)({left:menu.x,top:menu.y}),tick=useViewport();
-if((0,import_react67.useLayoutEffect)(()=>{let box=ref.current?.getBoundingClientRect();box&&setPlace({left:Math.max(8,Math.min(menu.x,window.innerWidth-box.width-8)),top:Math.max(
-8,Math.min(menu.y,viewBottom()-box.height-8))})},[menu.x,menu.y,tick]),menu.kind==="agent"||menu.kind==="agent-session")return(0,import_react67.createElement)(AgentMenu,{menu,roster,
-actions,leaving});if(menu.kind==="section"||menu.kind==="section-add")return(0,import_react67.createElement)(SectionMenu,{menu,roster,actions,leaving});let bot=roster.byId[menu.id],
-room2=roster.roomsById[menu.id],entry=bot??room2,waitsRaw=useWork&&bot?useWork(work=>JSON.stringify(work.waiting?.[bot.id]??null)):"null",waits=(0,import_react67.useMemo)(()=>JSON.
-parse(waitsRaw),[waitsRaw]);if(entry===void 0)return null;let isMainBot=isMainOf(roster,menu.id),isTile=roster.mainBotId===menu.id,mainCount=(roster.mainBotIds??[]).length,groups=[
-[isTile?null:[entry.pinned?t("Unpin"):t("Pin"),PinIcon,()=>actions.setFlags(menu.id,{pinned:!entry.pinned})],[t("Mark as Unread"),UnreadIcon,()=>actions.markUnread(menu.id)],[isMuted(
-entry.id)?t("Unmute notifications"):t("Mute notifications"),UnreadIcon,()=>toggleMuted(entry.id)]],isTile?[]:sectionMoveItems(entry,roster,actions),[bot?[t("Rename Bot"),PencilIcon,
-()=>actions.renameBot(bot.id)]:null,bot?[t("Edit Bot"),GearIcon,()=>actions.openSettings("bots",bot.id)]:null,room2?[t("Group settings"),GearIcon,()=>actions.openSettings("groups",
-room2.id)]:null,room2?[t("Rename group"),PencilIcon,()=>actions.renameBot(room2.id)]:null,bot?[t("Duplicate"),DuplicateIcon,async()=>{let copy2=await actions.duplicateBot(bot.id);actions.
-openSession(copy2.id)}]:null,bot&&!isMainBot?[t("Make Main Bot"),StarLineIcon,()=>actions.setMain(bot.id,!0)]:null,bot&&isMainBot&&mainCount>1?[t("Remove Main Bot role"),StarLineIcon,
-()=>actions.setMain(bot.id,!1)]:null],[[t("Copy conversation ID"),CopyIcon,()=>navigator.clipboard?.writeText(bot?currentPart(bot):menu.id)]],bot?(waits?.waits??[]).map(item=>[t("G\
-ive up waiting for {name}",{name:item.name??t("a Bot")}),SignOutIcon,()=>actions.abandonWork(item.id)]):[],[isMainBot?null:[t("Hide from sidebar"),HideIcon,()=>actions.setFlags(menu.
-id,{hidden:!0})],isMainBot?null:[room2?t("Delete group"):t("Delete"),TrashIcon,()=>bot?actions.deleteBot(bot.id):actions.deleteRoom(menu.id),!0]]].map(group=>group.filter(Boolean)).
-filter(group=>group.length>0);return(0,import_react67.createElement)("div",{ref,className:"bt-menu",role:"menu","aria-label":t("{name} actions",{name:bot?.name??room2.name}),style:place,
-"data-leaving":leaving||void 0},groups.map((group,index)=>(0,import_react67.createElement)(import_react67.Fragment,{key:index},index>0?(0,import_react67.createElement)("div",{className:"\
-bt-menu-sep",role:"separator"}):null,group.map(([label,Icon,run2,danger,checked])=>(0,import_react67.createElement)("button",{key:label,type:"button",role:"menuitem",className:danger?
-"bt-danger":void 0,onClick:()=>{actions.closeMenu(),Promise.resolve(run2()).catch(error=>actions.reportError(error,"menu"))}},(0,import_react67.createElement)(Icon),(0,import_react67.createElement)(
-"span",{className:"bt-menu-label"},label),checked?(0,import_react67.createElement)("span",{className:"bt-menu-check"},(0,import_react67.createElement)(CheckIcon)):null)))))}function SectionMenu({
-menu,roster,actions,leaving}){let ref=(0,import_react67.useRef)(null),trigger=(0,import_react67.useRef)(typeof document>"u"?null:document.activeElement);(0,import_react67.useEffect)(
-()=>{let onKey=event=>{stepMenuFocus(ref.current,event,trigger.current)};return window.addEventListener("keydown",onKey,!0),()=>window.removeEventListener("keydown",onKey,!0)},[]);
-let[place,setPlace]=(0,import_react67.useState)({left:menu.x,top:menu.y}),tick=useViewport();(0,import_react67.useLayoutEffect)(()=>{let box=ref.current?.getBoundingClientRect();box&&
-setPlace({left:Math.max(8,Math.min(menu.x,window.innerWidth-box.width-8)),top:Math.max(8,Math.min(menu.y,viewBottom()-box.height-8))})},[menu.x,menu.y,tick]);let sections=roster.sections??
-[],index=sections.findIndex(sec2=>sec2.id===menu.id),sec=sections[index];if(sec===void 0)return null;if(menu.kind==="section-add"){let candidates=[...roster.bots.filter(bot=>bot.id!==
-roster.mainBotId&&!bot.hidden).map(bot=>({kind:"bot",item:bot})),...roster.rooms.filter(room2=>!room2.hidden).map(room2=>({kind:"room",item:room2}))];return(0,import_react67.createElement)(
-"div",{ref,className:"bt-menu bt-sec-add-menu",role:"menu","aria-label":t("Add to {name}",{name:sec.name}),style:place,"data-leaving":leaving||void 0},(0,import_react67.createElement)(
-"button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat("create",sec.id)}},(0,import_react67.createElement)(PlusIcon),(0,import_react67.createElement)(
-"span",{className:"bt-menu-label"},t("Create new Bot"))),(0,import_react67.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat(
-"group",sec.id)}},(0,import_react67.createElement)(PeopleIcon),(0,import_react67.createElement)("span",{className:"bt-menu-label"},t("Create group chat"))),candidates.length>0?(0,import_react67.createElement)(
-import_react67.Fragment,null,(0,import_react67.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react67.createElement)("div",{className:"bt-menu-sub-head"},
-t("Add existing")),(0,import_react67.createElement)("div",{className:"bt-sec-add-list"},candidates.map(({kind,item})=>{let inside=item.sectionId===sec.id,otherSec=item.sectionId&&!inside?
-sections.find(s=>s.id===item.sectionId)?.name:void 0;return(0,import_react67.createElement)("button",{key:item.id,type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),Promise.
-resolve(actions.setFlags(item.id,{sectionId:inside?null:sec.id})).catch(error=>actions.reportError(error,"menu"))}},kind==="room"?(0,import_react67.createElement)(RoomAvatar,{room:item,
-roster,size:18}):(0,import_react67.createElement)(BotMark,{bot:item,size:18}),(0,import_react67.createElement)("span",{className:"bt-menu-label"},item.name),inside?(0,import_react67.createElement)(
-"span",{className:"bt-menu-check"},(0,import_react67.createElement)(CheckIcon)):otherSec?(0,import_react67.createElement)("span",{className:"bt-menu-hint"},otherSec):null)}))):null)}
-let move=delta=>{let next=sections.map(entry=>entry.id),target=index+delta;if(target<0||target>=next.length)return;let[picked]=next.splice(index,1);next.splice(target,0,picked),Promise.
-resolve(actions.reorderSections(next)).catch(error=>actions.reportError(error,"menu"))};return(0,import_react67.createElement)("div",{ref,className:"bt-menu",role:"menu","aria-labe\
-l":t("{name} actions",{name:sec.name}),style:place,"data-leaving":leaving||void 0},(0,import_react67.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),
-actions.beginSectionRename(sec.id)}},(0,import_react67.createElement)(PencilIcon),(0,import_react67.createElement)("span",{className:"bt-menu-label"},t("Rename section"))),(0,import_react67.createElement)(
-"button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat("create",sec.id)}},(0,import_react67.createElement)(PlusIcon),(0,import_react67.createElement)(
+sec.id)}]].filter(Boolean)}function ContextMenu({menu,roster,actions,useWork,leaving=!1}){useEscape(()=>actions.closeMenu(),!leaving);let ref=(0,import_react67.useRef)(null),trigger=(0,import_react67.useRef)(
+typeof document>"u"?null:document.activeElement),[armedDelete,setArmedDelete]=(0,import_react67.useState)(!1);(0,import_react67.useEffect)(()=>{let onDown=event=>{(!(event.target instanceof
+Element)||!event.target.closest(".bt-menu"))&&actions.closeMenu()},onKey=event=>{stepMenuFocus(ref.current,event,trigger.current)};return window.addEventListener("mousedown",onDown),
+window.addEventListener("keydown",onKey,!0),()=>{window.removeEventListener("mousedown",onDown),window.removeEventListener("keydown",onKey,!0)}},[]);let[place,setPlace]=(0,import_react67.useState)(
+{left:menu.x,top:menu.y}),tick=useViewport();(0,import_react67.useLayoutEffect)(()=>{let box=ref.current?.getBoundingClientRect();box&&setPlace({left:Math.max(8,Math.min(menu.x,window.
+innerWidth-box.width-8)),top:Math.max(8,Math.min(menu.y,viewBottom()-box.height-8))})},[menu.x,menu.y,tick]);let isSpecial=menu.kind==="agent"||menu.kind==="agent-session"||menu.kind===
+"section"||menu.kind==="section-add",bot=isSpecial?void 0:roster.byId[menu.id],room2=isSpecial?void 0:roster.roomsById[menu.id],waitsRaw=useWork?useWork(work=>JSON.stringify(bot?work.
+waiting?.[bot.id]??null:null)):"null",waits=(0,import_react67.useMemo)(()=>JSON.parse(waitsRaw),[waitsRaw]);if(menu.kind==="agent"||menu.kind==="agent-session")return(0,import_react67.createElement)(
+AgentMenu,{menu,roster,actions,leaving});if(menu.kind==="section"||menu.kind==="section-add")return(0,import_react67.createElement)(SectionMenu,{menu,roster,actions,leaving});let entry=bot??
+room2;if(entry===void 0)return null;let isMainBot=isMainOf(roster,menu.id),isTile=roster.mainBotId===menu.id,mainCount=(roster.mainBotIds??[]).length,deleteLabel=armedDelete?t("Cli\
+ck again to delete"):room2?t("Delete group"):t("Delete"),groups=[[isTile?null:[entry.pinned?t("Unpin"):t("Pin"),PinIcon,()=>actions.setFlags(menu.id,{pinned:!entry.pinned})],[t("Ma\
+rk as Unread"),UnreadIcon,()=>actions.markUnread(menu.id)],[isMuted(entry.id)?t("Unmute notifications"):t("Mute notifications"),UnreadIcon,()=>toggleMuted(entry.id)]],isTile?[]:sectionMoveItems(
+entry,roster,actions),[bot?[t("Rename Bot"),PencilIcon,()=>actions.renameBot(bot.id)]:null,bot?[t("Edit Bot"),GearIcon,()=>actions.openSettings("bots",bot.id)]:null,room2?[t("Group\
+ settings"),GearIcon,()=>actions.openSettings("groups",room2.id)]:null,room2?[t("Rename group"),PencilIcon,()=>actions.renameBot(room2.id)]:null,bot?[t("Duplicate"),DuplicateIcon,async()=>{
+let copy2=await actions.duplicateBot(bot.id);actions.openSession(copy2.id)}]:null,bot&&!isMainBot?[t("Make Main Bot"),StarLineIcon,()=>actions.setMain(bot.id,!0)]:null,bot&&isMainBot&&
+mainCount>1?[t("Remove Main Bot role"),StarLineIcon,()=>actions.setMain(bot.id,!1)]:null],[[t("Copy conversation ID"),CopyIcon,()=>navigator.clipboard?.writeText(bot?currentPart(bot):
+menu.id)]],bot?(waits?.waits??[]).map(item=>[t("Give up waiting for {name}",{name:item.name??t("a Bot")}),SignOutIcon,()=>actions.abandonWork(item.id)]):[],[isMainBot?null:[t("Hide\
+ from sidebar"),HideIcon,()=>actions.setFlags(menu.id,{hidden:!0})],isMainBot?null:[deleteLabel,TrashIcon,()=>bot?actions.deleteBot(bot.id):actions.deleteRoom(menu.id),!0,!1,!0]]].
+map(group=>group.filter(Boolean)).filter(group=>group.length>0);return(0,import_react67.createElement)("div",{ref,className:"bt-menu",role:"menu","aria-label":t("{name} actions",{name:bot?.
+name??room2.name}),style:place,"data-leaving":leaving||void 0},groups.map((group,index)=>(0,import_react67.createElement)(import_react67.Fragment,{key:index},index>0?(0,import_react67.createElement)(
+"div",{className:"bt-menu-sep",role:"separator"}):null,group.map(([label,Icon,run2,danger,checked,confirm])=>(0,import_react67.createElement)("button",{key:confirm?"delete":label,type:"\
+button",role:"menuitem",className:danger?"bt-danger":void 0,"data-confirm":confirm&&armedDelete?"":void 0,onClick:()=>{if(confirm&&!armedDelete){setArmedDelete(!0);return}actions.closeMenu(),
+Promise.resolve(run2()).catch(error=>actions.reportError(error,"menu"))}},(0,import_react67.createElement)(Icon),(0,import_react67.createElement)("span",{className:"bt-menu-label"},
+label),checked?(0,import_react67.createElement)("span",{className:"bt-menu-check"},(0,import_react67.createElement)(CheckIcon)):null)))))}function SectionMenu({menu,roster,actions,
+leaving}){let ref=(0,import_react67.useRef)(null),trigger=(0,import_react67.useRef)(typeof document>"u"?null:document.activeElement);(0,import_react67.useEffect)(()=>{let onKey=event=>{
+stepMenuFocus(ref.current,event,trigger.current)};return window.addEventListener("keydown",onKey,!0),()=>window.removeEventListener("keydown",onKey,!0)},[]);let[place,setPlace]=(0,import_react67.useState)(
+{left:menu.x,top:menu.y}),tick=useViewport();(0,import_react67.useLayoutEffect)(()=>{let box=ref.current?.getBoundingClientRect();box&&setPlace({left:Math.max(8,Math.min(menu.x,window.
+innerWidth-box.width-8)),top:Math.max(8,Math.min(menu.y,viewBottom()-box.height-8))})},[menu.x,menu.y,tick]);let sections=roster.sections??[],index=sections.findIndex(sec2=>sec2.id===
+menu.id),sec=sections[index];if(sec===void 0)return null;if(menu.kind==="section-add"){let candidates=[...roster.bots.filter(bot=>bot.id!==roster.mainBotId&&!bot.hidden).map(bot=>({
+kind:"bot",item:bot})),...roster.rooms.filter(room2=>!room2.hidden).map(room2=>({kind:"room",item:room2}))];return(0,import_react67.createElement)("div",{ref,className:"bt-menu bt-\
+sec-add-menu",role:"menu","aria-label":t("Add to {name}",{name:sec.name}),style:place,"data-leaving":leaving||void 0},(0,import_react67.createElement)("button",{type:"button",role:"\
+menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat("create",sec.id)}},(0,import_react67.createElement)(PlusIcon),(0,import_react67.createElement)("span",{className:"bt-\
+menu-label"},t("Create new Bot"))),(0,import_react67.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat("group",sec.id)}},(0,import_react67.createElement)(
+PeopleIcon),(0,import_react67.createElement)("span",{className:"bt-menu-label"},t("Create group chat"))),candidates.length>0?(0,import_react67.createElement)(import_react67.Fragment,
+null,(0,import_react67.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react67.createElement)("div",{className:"bt-menu-sub-head"},t("Add existing")),(0,import_react67.createElement)(
+"div",{className:"bt-sec-add-list"},candidates.map(({kind,item})=>{let inside=item.sectionId===sec.id,otherSec=item.sectionId&&!inside?sections.find(s=>s.id===item.sectionId)?.name:
+void 0;return(0,import_react67.createElement)("button",{key:item.id,type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),Promise.resolve(actions.setFlags(item.id,{sectionId:inside?
+null:sec.id})).catch(error=>actions.reportError(error,"menu"))}},kind==="room"?(0,import_react67.createElement)(RoomAvatar,{room:item,roster,size:18}):(0,import_react67.createElement)(
+BotMark,{bot:item,size:18}),(0,import_react67.createElement)("span",{className:"bt-menu-label"},item.name),inside?(0,import_react67.createElement)("span",{className:"bt-menu-check"},
+(0,import_react67.createElement)(CheckIcon)):otherSec?(0,import_react67.createElement)("span",{className:"bt-menu-hint"},otherSec):null)}))):null)}let move=delta=>{let next=sections.
+map(entry=>entry.id),target=index+delta;if(target<0||target>=next.length)return;let[picked]=next.splice(index,1);next.splice(target,0,picked),Promise.resolve(actions.reorderSections(
+next)).catch(error=>actions.reportError(error,"menu"))};return(0,import_react67.createElement)("div",{ref,className:"bt-menu",role:"menu","aria-label":t("{name} actions",{name:sec.
+name}),style:place,"data-leaving":leaving||void 0},(0,import_react67.createElement)("button",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.beginSectionRename(
+sec.id)}},(0,import_react67.createElement)(PencilIcon),(0,import_react67.createElement)("span",{className:"bt-menu-label"},t("Rename section"))),(0,import_react67.createElement)("b\
+utton",{type:"button",role:"menuitem",onClick:()=>{actions.closeMenu(),actions.openNewChat("create",sec.id)}},(0,import_react67.createElement)(PlusIcon),(0,import_react67.createElement)(
 "span",{className:"bt-menu-label"},t("Create new Bot"))),(0,import_react67.createElement)("div",{className:"bt-menu-sep",role:"separator"}),(0,import_react67.createElement)("div",{
 className:"bt-menu-sub-head"},t("Section color")),(0,import_react67.createElement)("div",{className:"bt-menu-colors"},(0,import_react67.createElement)("button",{type:"button",className:"\
 bt-menu-color-dot","aria-label":t("None"),title:t("None"),"aria-pressed":!sec.color,style:{background:"var(--bt-hover)"},onClick:()=>{actions.closeMenu(),Promise.resolve(actions.saveSection(
@@ -14177,16 +14251,16 @@ bt-task-reason"},task.reason):null,lastNote?(0,import_react68.createElement)("di
 value=>!value)},t("Add a note")),(0,import_react68.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm","data-confirm":confirming||void 0,disabled:busy,"aria-label":confirming?
 t("Click again to cancel"):t("Cancel task"),onClick:cancel},confirming?t("Cancel task"):t("Cancel"))):null,writing?(0,import_react68.createElement)("div",{className:"bt-task-write"},
 (0,import_react68.createElement)("input",{className:"bt-input bt-task-input",value:text,placeholder:t("What should change?"),"aria-label":t("What should change?"),onChange:event=>setText(
-event.target.value),onKeyDown:event=>{event.key==="Enter"&&!event.nativeEvent?.isComposing&&(event.preventDefault(),send()),event.key==="Escape"&&(event.stopPropagation(),setWriting(
-!1))}}),(0,import_react68.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:text.trim()===""||busy,onClick:send},t("Send"))):null)}function TaskBoard({
-room:room2,roster,actions}){let[historyOpen,setHistoryOpen]=(0,import_react68.useState)(!1),all=Object.values(room2.tasks??{}).sort((a,b)=>a.startedAt-b.startedAt),open=all.filter(
-task=>OPEN.includes(task.status)),past=all.filter(task=>!OPEN.includes(task.status)).reverse(),row=task=>(0,import_react68.createElement)(TaskRow3,{key:task.id,task,bot:roster.byId?.[task.
-botId],room:room2,actions});return(0,import_react68.createElement)("div",{className:"bt-tasks"},(0,import_react68.createElement)("div",{className:"bt-tasks-head"},(0,import_react68.createElement)(
-"div",{className:"bt-section-title"},t("Tasks")),open.length>0?(0,import_react68.createElement)("span",{className:"bt-tasks-count"},open.length):null),(0,import_react68.createElement)(
-"div",{className:"bt-task-list"},open.length===0?(0,import_react68.createElement)("div",{className:"bt-muted bt-tasks-empty"},t("No task is running in this group.")):open.map(row)),
-past.length>0?(0,import_react68.createElement)("button",{type:"button",className:"bt-more","aria-expanded":historyOpen,onClick:()=>setHistoryOpen(value=>!value)},historyOpen?t("Hid\
-e history"):t("History ({count})",{count:past.length})):null,historyOpen?(0,import_react68.createElement)("div",{className:"bt-task-list bt-task-history"},past.map(row)):null)}var TASK_CSS=`\
-
+event.target.value),onKeyDown:event=>{event.key==="Enter"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault(),send()),event.key==="Escape"&&!event.nativeEvent?.
+isComposing&&event.keyCode!==229&&(event.stopPropagation(),setWriting(!1))}}),(0,import_react68.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:text.
+trim()===""||busy,onClick:send},t("Send"))):null)}function TaskBoard({room:room2,roster,actions}){let[historyOpen,setHistoryOpen]=(0,import_react68.useState)(!1),all=Object.values(
+room2.tasks??{}).sort((a,b)=>a.startedAt-b.startedAt),open=all.filter(task=>OPEN.includes(task.status)),past=all.filter(task=>!OPEN.includes(task.status)).reverse(),row=task=>(0,import_react68.createElement)(
+TaskRow3,{key:task.id,task,bot:roster.byId?.[task.botId],room:room2,actions});return(0,import_react68.createElement)("div",{className:"bt-tasks"},(0,import_react68.createElement)("\
+div",{className:"bt-tasks-head"},(0,import_react68.createElement)("div",{className:"bt-section-title"},t("Tasks")),open.length>0?(0,import_react68.createElement)("span",{className:"\
+bt-tasks-count"},open.length):null),(0,import_react68.createElement)("div",{className:"bt-task-list"},open.length===0?(0,import_react68.createElement)("div",{className:"bt-muted bt\
+-tasks-empty"},t("No task is running in this group.")):open.map(row)),past.length>0?(0,import_react68.createElement)("button",{type:"button",className:"bt-more","aria-expanded":historyOpen,
+onClick:()=>setHistoryOpen(value=>!value)},historyOpen?t("Hide history"):t("History ({count})",{count:past.length})):null,historyOpen?(0,import_react68.createElement)("div",{className:"\
+bt-task-list bt-task-history"},past.map(row)):null)}var TASK_CSS=`
 .bt-tasks{margin-top:16px}
 .bt-tasks-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-tasks-head>.bt-section-title{margin:0}
@@ -14200,7 +14274,7 @@ e history"):t("History ({count})",{count:past.length})):null,historyOpen?(0,impo
 .bt-task-head>.bt-mark{flex:none}
 .bt-task-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-status{flex:none;padding:0 6px;border-radius:999px;font-size:11px;line-height:16px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-task[data-status=active] .bt-task-status{color:var(--bt-green)}
+.bt-task[data-status=active] .bt-task-status{color:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
 .bt-task[data-status=review] .bt-task-status{color:var(--bt-accent)}
 .bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
 .bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
@@ -14295,54 +14369,58 @@ t session"):entry.open&&entry.running?t("Open this running session"):entry.open?
 {className:"bt-agent-session-run",role:"status"},t("Running")):entry.current?t("Current"):when3?new Date(when3).toLocaleString(void 0,{month:"short",day:"numeric",hour:"2-digit",minute:"\
 2-digit"}):""))})))}var rowsEqual=(a,b)=>a.length===b.length&&a.every((row,index)=>row?.title===b[index]?.title&&row?.updatedAt===b[index]?.updatedAt);function DetailsDrawer({sessionId,
 startRenaming,startTab,hasStrip,roster,actions,useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,useBrowserPages,useComputer}){let owner=roster.byId[sessionId],part=owner?
-currentPart(owner):sessionId,isMainBot=isMainOf(roster,owner?.id),[tab,setTab]=(0,import_react69.useState)("details"),room2=roster.roomsById[sessionId],[view,setView]=(0,import_react69.useState)(
-startTab==="settings"&&(owner||room2)?"settings":"overview"),[editing,setEditing]=(0,import_react69.useState)(!!(startRenaming&&(roster.byId[sessionId]||roster.roomsById[sessionId]))),
-[draftName,setDraftName]=(0,import_react69.useState)(roster.byId[sessionId]?.name??(roster.roomsById[sessionId]?.named?roster.roomsById[sessionId].name:"")),[copied,setCopied]=(0,import_react69.useState)(
-!1),[error,setError]=(0,import_react69.useState)(""),glide2=useGlide(tab),last=(0,import_react69.useRef)({view,tab,move:void 0});last.current.view!==view?last.current={view,tab,move:view===
-"settings"?"in":"out"}:last.current.tab!==tab&&(last.current={view,tab,move:"tab"});let move=last.current.move,side=move==="tab"?void 0:move,close=()=>actions.closeOverlay();useEscape(
-close);let bot=owner,running=useSessionStatus(map=>map.get(part)?.running===!0),doing=useActivity(map=>map[bot?.id??sessionId]),transcript=useSessions(list=>transcriptOf(list,part,
-bot?.name??room2?.name??t("Bot"),roster.exchangeTurns[part])),usage=useSessions(list=>usageOf(list,[part,...bot?.parts??room2?.parts??[]])),run2=promise=>Promise.resolve(promise).then(
-()=>(setError(""),!0)).catch(failure=>(setError(failure?.message??String(failure)),!1)),share=()=>{navigator.clipboard?.writeText(transcript).then(()=>{setCopied(!0),setTimeout(()=>setCopied(
-!1),1600)})},errorLine=error?(0,import_react69.createElement)("div",{className:"bt-error",role:"alert",style:{padding:0}},error):null;if((bot||room2)&&view==="settings")return[(0,import_react69.createElement)(
-"div",{key:"head",className:"bt-subhead","data-move":move},(0,import_react69.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Back to details"),onClick:()=>setView(
-"overview")},(0,import_react69.createElement)(ChevronLeftIcon)),(0,import_react69.createElement)("span",{className:"bt-subhead-title"},bot?t("Settings"):t("Group settings")),hasStrip?
-null:(0,import_react69.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Close details"),onClick:close},(0,import_react69.createElement)(CloseIcon))),(0,import_react69.createElement)(
-"div",{key:"set-body",className:"bt-drawer-body bt-set-body","data-move":move},errorLine,bot?(0,import_react69.createElement)(BotSettingsForm,{bot,roster,actions,run:run2}):(0,import_react69.createElement)(
-GroupSettingsForm,{room:room2,roster,actions,run:run2,onDeleted:close}))];let more=drawerMenuKeys({bot:bot!==void 0,room:room2!==void 0,canBrowse:bot!==void 0&&roster.browser===!0&&
-actions.openBrowser!==void 0,canTerminal:actions.canOpenTerminal?.()===!0,canFiles:actions.canOpenFiles?.()===!0}).map(key=>menuItemFor(key,actions,sessionId)),top=(0,import_react69.createElement)(
-"div",{className:"bt-drawer-top","data-move":side},bot||room2?(0,import_react69.createElement)("button",{type:"button",className:"bt-round","aria-label":bot?t("Edit Bot"):t("Group \
-settings"),title:bot?t("Edit Bot"):t("Group settings"),"data-info-row":"settings",onClick:()=>setView("settings")},(0,import_react69.createElement)(GearIcon)):null,more.length>0?(0,import_react69.createElement)(
-"span",{"data-info-row":"more"},(0,import_react69.createElement)(PanelMenu,{items:more,className:"bt-round","aria-label":t("More")})):null,bot||room2?(0,import_react69.createElement)(
-"button",{type:"button",className:"bt-round","aria-label":copied?t("Copied conversation"):t("Share conversation"),title:copied?t("Copied"):t("Copy conversation as Markdown"),onClick:share},
+currentPart(owner):sessionId,isMainBot=isMainOf(roster,owner?.id),[tab,setTab]=(0,import_react69.useState)(startTab==="computer"&&owner&&roster.computer?.enabled===!0?"computer":startTab===
+"browser"&&owner?"browser":"details"),room2=roster.roomsById[sessionId],[view,setView]=(0,import_react69.useState)(startTab==="settings"&&(owner||room2)?"settings":"overview"),[editing,
+setEditing]=(0,import_react69.useState)(!!(startRenaming&&(roster.byId[sessionId]||roster.roomsById[sessionId]))),[draftName,setDraftName]=(0,import_react69.useState)(roster.byId[sessionId]?.
+name??(roster.roomsById[sessionId]?.named?roster.roomsById[sessionId].name:"")),cancellingRename=(0,import_react69.useRef)(!1),cancelRename=()=>{cancellingRename.current=!0,setEditing(
+!1)};useEscape(cancelRename,editing);let[copied,setCopied]=(0,import_react69.useState)(!1),[error,setError]=(0,import_react69.useState)(""),glide2=useGlide(tab),last=(0,import_react69.useRef)(
+{view,tab,move:void 0});last.current.view!==view?last.current={view,tab,move:view==="settings"?"in":"out"}:last.current.tab!==tab&&(last.current={view,tab,move:"tab"});let move=last.
+current.move,side=move==="tab"?void 0:move,close=()=>actions.closeOverlay(),bot=owner,running=useSessionStatus(map=>map.get(part)?.running===!0),doing=useActivity(map=>map[bot?.id??
+sessionId]),transcript=useSessions(list=>transcriptOf(list,part,bot?.name??room2?.name??t("Bot"),roster.exchangeTurns[part])),usage=useSessions(list=>usageOf(list,[part,...bot?.parts??
+room2?.parts??[]])),run2=promise=>Promise.resolve(promise).then(()=>(setError(""),!0)).catch(failure=>(setError(failure?.message??String(failure)),!1)),share=()=>{navigator.clipboard?.
+writeText(transcript).then(()=>{setCopied(!0),setTimeout(()=>setCopied(!1),1600)})},errorLine=error?(0,import_react69.createElement)("div",{className:"bt-error",role:"alert",style:{
+padding:0}},error):null;if((bot||room2)&&view==="settings")return[(0,import_react69.createElement)("div",{key:"head",className:"bt-subhead","data-move":move},(0,import_react69.createElement)(
+"button",{type:"button",className:"bt-icon-btn","aria-label":t("Back to details"),onClick:()=>setView("overview")},(0,import_react69.createElement)(ChevronLeftIcon)),(0,import_react69.createElement)(
+"span",{className:"bt-subhead-title"},bot?t("Settings"):t("Group settings")),hasStrip?null:(0,import_react69.createElement)("button",{type:"button",className:"bt-icon-btn","aria-la\
+bel":t("Close details"),onClick:close},(0,import_react69.createElement)(CloseIcon))),(0,import_react69.createElement)("div",{key:"set-body",className:"bt-drawer-body bt-set-body","\
+data-move":move},errorLine,bot?(0,import_react69.createElement)(BotSettingsForm,{bot,roster,actions,run:run2}):(0,import_react69.createElement)(GroupSettingsForm,{room:room2,roster,
+actions,run:run2,onDeleted:close}))];let more=drawerMenuKeys({bot:bot!==void 0,room:room2!==void 0,canBrowse:bot!==void 0&&roster.browser===!0&&actions.openBrowser!==void 0,canTerminal:actions.
+canOpenTerminal?.()===!0,canFiles:actions.canOpenFiles?.()===!0}).map(key=>menuItemFor(key,actions,sessionId)),top=(0,import_react69.createElement)("div",{className:"bt-drawer-top",
+"data-move":side},bot||room2?(0,import_react69.createElement)("button",{type:"button",className:"bt-round","aria-label":bot?t("Edit Bot"):t("Group settings"),title:bot?t("Edit Bot"):
+t("Group settings"),"data-info-row":"settings",onClick:()=>setView("settings")},(0,import_react69.createElement)(GearIcon)):null,more.length>0?(0,import_react69.createElement)("spa\
+n",{"data-info-row":"more"},(0,import_react69.createElement)(PanelMenu,{items:more,className:"bt-round","aria-label":t("More")})):null,bot||room2?(0,import_react69.createElement)("\
+button",{type:"button",className:"bt-round","aria-label":copied?t("Copied conversation"):t("Share conversation"),title:copied?t("Copied"):t("Copy conversation as Markdown"),onClick:share},
 copied?(0,import_react69.createElement)("span",{key:"copied",className:"bt-pop-in"},"✓"):(0,import_react69.createElement)(ShareIcon)):null,hasStrip?null:(0,import_react69.createElement)(
 "button",{type:"button",className:"bt-round","aria-label":t("Close details"),onClick:close},(0,import_react69.createElement)(CloseIcon)));if(!bot&&!room2)return[(0,import_react69.createElement)(
 import_react69.Fragment,{key:"top"},top),(0,import_react69.createElement)("div",{key:"body",className:"bt-drawer-body"},(0,import_react69.createElement)("div",{className:"bt-muted"},
-t("This conversation is not part of your Bot team.")))];let current2=bot?.name??room2.name,saveName=async()=>{setEditing(!1);let next=draftName.trim();next===current2||room2&&!room2.
-named&&next===""||(bot&&next&&await run2(actions.updateBot(bot.id,{name:next})),room2&&await run2(actions.updateRoom(room2.id,{name:next})))},subtitle=bot?void 0:roomSubtitle(room2,
-roster),tabs=bot?roster.computer?.enabled===!0?["details","browser","computer"]:["details","browser"]:["details"];return[(0,import_react69.createElement)(import_react69.Fragment,{key:"\
-top"},top),(0,import_react69.createElement)("div",{key:"id",className:"bt-drawer-id","data-move":side},bot?(0,import_react69.createElement)(BotAvatar,{bot,size:64,state:botState(running,
-doing,roster.questions?.[part]!==void 0),main:isMainBot,badge:!1,gaze:!0,pokeable:!0}):(0,import_react69.createElement)(MemberPile,{room:room2,roster}),editing?(0,import_react69.createElement)(
-"input",{className:"bt-drawer-name-input",autoFocus:!0,value:draftName,"aria-label":bot?t("Bot name"):t("Group name"),placeholder:room2?t("Name after members"):void 0,onChange:event=>setDraftName(
-event.target.value),onBlur:saveName,onKeyDown:event=>{event.key==="Enter"&&saveName(),event.key==="Escape"&&(event.stopPropagation(),setEditing(!1))}}):(0,import_react69.createElement)(
-"button",{type:"button",className:"bt-drawer-name","aria-label":t("Rename {name}",{name:current2}),title:t("Rename"),onClick:()=>{setDraftName(room2&&!room2.named?"":current2),setEditing(
-!0)}},current2),bot?roster.readOnly?bot.role?(0,import_react69.createElement)("span",{className:"bt-drawer-role"},bot.role):null:(0,import_react69.createElement)(BotLabel,{key:`rol\
-e:${bot.id}`,bot,actions,run:run2}):subtitle?(0,import_react69.createElement)("span",{className:"bt-drawer-role"},subtitle):null),tabs.length>1?(0,import_react69.createElement)("di\
-v",{key:"tabs",ref:glide2.box,className:"bt-tabs",role:"tablist","data-move":side},(0,import_react69.createElement)("span",{ref:glide2.thumb,className:"bt-thumb","aria-hidden":!0}),
-tabs.map(key=>(0,import_react69.createElement)("button",{key,type:"button",role:"tab",className:"bt-tab","aria-selected":tab===key,onClick:()=>setTab(key)},t(TAB_LABELS[key])))):null,
-(0,import_react69.createElement)("div",{key:`body:${tab}`,className:"bt-drawer-body","data-move":move},errorLine,room2&&tab==="details"?(0,import_react69.createElement)(GroupOverview,
-{room:room2,roster,actions,usage,useWork,useComputer,openSettings:()=>setView("settings")}):null,bot&&tab==="computer"?(0,import_react69.createElement)(ComputerView,{bot,actions,hooks:{
-useComputer}}):null,bot&&tab==="details"?[(0,import_react69.createElement)(RunStats,{key:"stats",bot,part,running,actions}),(0,import_react69.createElement)("div",{key:"model",className:"\
-bt-drawer-model"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t("Model")),(0,import_react69.createElement)(ModelMenu,{bot,roster,actions,run:run2,wide:!0,
-inline:!0}),modelOf(bot,roster)?null:(0,import_react69.createElement)("div",{className:"bt-note"},t("Pick a model and {name} can start.",{name:bot.name}))),(0,import_react69.createElement)(
-BotSessions,{key:"sessions",bot,part,run:run2,useSessions,actions,running:roster.partsRunning}),(0,import_react69.createElement)(PermissionRow,{key:"permission",bot,roster,actions,
-run:run2}),(0,import_react69.createElement)(BotConnectors,{key:"connectors",bot,roster,actions,run:run2}),(0,import_react69.createElement)("div",{key:"folder",className:"bt-drawer-\
-model"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t("Working folder")),(0,import_react69.createElement)(FolderMenu,{value:bot.workDir,actions,run:run2,wide:!0,
-onPick:workDir=>run2(actions.updateBot(bot.id,{workDir}))})),roster.readOnly?bot.instructions?(0,import_react69.createElement)(About,{key:`about:${bot.id}`,text:bot.instructions}):
-null:(0,import_react69.createElement)(About,{key:`about:${bot.id}`,text:bot.instructions??"",label:t("Instructions"),placeholder:t("What this Bot is responsible for…"),onSave:instructions=>run2(
-actions.updateBot(bot.id,{instructions}))}),roster.memory===!1?null:(0,import_react69.createElement)(MemoryRow,{key:"memory",owner:{id:bot.id,name:bot.name},actions}),usage?(0,import_react69.createElement)(
-"div",{key:"usage"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t("Usage")),(0,import_react69.createElement)("div",{className:"bt-kv"},(0,import_react69.createElement)(
-"span",null,bot.name),(0,import_react69.createElement)("span",null,usage))):null,(0,import_react69.createElement)(ScheduleSummary,{key:"routines",bot,actions})]:null,bot&&tab==="br\
-owser"?(0,import_react69.createElement)(BrowserCards,{bot,sessionId,roster,actions,useBrowserTabs,useBrowserPages}):null)]}function rectsOverlap(a,b){return a.width>0&&a.height>0&&b.width>0&&b.height>0&&a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top}var import_react70=require("react"),import_react_dom12=require("react-dom"),PANEL_LINGER_MS=300,WIDTH_KEY=STORAGE.browserWidth,DEFAULT_WIDTH=520,DETAILS_WIDTH=320,DETAILS_MAX=520,MIN_WIDTH=360,
+t("This conversation is not part of your Bot team.")))];let current2=bot?.name??room2.name,saveName=async()=>{if(cancellingRename.current){cancellingRename.current=!1;return}setEditing(
+!1);let next=draftName.trim();next===current2||room2&&!room2.named&&next===""||(bot&&next&&await run2(actions.updateBot(bot.id,{name:next})),room2&&await run2(actions.updateRoom(room2.
+id,{name:next})))},subtitle=bot?void 0:roomSubtitle(room2,roster),tabs=bot?roster.computer?.enabled===!0?["details","browser","computer"]:["details","browser"]:["details"];return[(0,import_react69.createElement)(
+import_react69.Fragment,{key:"top"},top),(0,import_react69.createElement)("div",{key:"id",className:"bt-drawer-id","data-move":side},bot?(0,import_react69.createElement)(BotAvatar,
+{bot,size:64,state:botState(running,doing,roster.questions?.[part]!==void 0),main:isMainBot,badge:!1,gaze:!0,pokeable:!0}):(0,import_react69.createElement)(MemberPile,{room:room2,roster}),
+editing?(0,import_react69.createElement)("input",{className:"bt-drawer-name-input",autoFocus:!0,value:draftName,"aria-label":bot?t("Bot name"):t("Group name"),placeholder:room2?t("\
+Name after members"):void 0,onChange:event=>setDraftName(event.target.value),onBlur:saveName,onKeyDown:event=>{event.key==="Enter"&&!event.nativeEvent?.isComposing&&event.keyCode!==
+229&&saveName(),event.key==="Escape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault?.(),event.stopPropagation?.(),event.nativeEvent?.stopPropagation?.(),
+cancelRename())}}):(0,import_react69.createElement)("button",{type:"button",className:"bt-drawer-name","aria-label":t("Rename {name}",{name:current2}),title:t("Rename"),onClick:()=>{
+cancellingRename.current=!1,setDraftName(room2&&!room2.named?"":current2),setEditing(!0)}},current2),bot?roster.readOnly?bot.role?(0,import_react69.createElement)("span",{className:"\
+bt-drawer-role"},bot.role):null:(0,import_react69.createElement)(BotLabel,{key:`role:${bot.id}`,bot,actions,run:run2}):subtitle?(0,import_react69.createElement)("span",{className:"\
+bt-drawer-role"},subtitle):null),tabs.length>1?(0,import_react69.createElement)("div",{key:"tabs",ref:glide2.box,className:"bt-tabs",role:"tablist","data-move":side},(0,import_react69.createElement)(
+"span",{ref:glide2.thumb,className:"bt-thumb","aria-hidden":!0}),tabs.map(key=>(0,import_react69.createElement)("button",{key,type:"button",role:"tab",className:"bt-tab","aria-sele\
+cted":tab===key,onClick:()=>setTab(key)},t(TAB_LABELS[key])))):null,(0,import_react69.createElement)("div",{key:`body:${tab}`,className:"bt-drawer-body","data-move":move},errorLine,
+room2&&tab==="details"?(0,import_react69.createElement)(GroupOverview,{room:room2,roster,actions,usage,useWork,useComputer,openSettings:()=>setView("settings")}):null,bot&&tab==="c\
+omputer"?(0,import_react69.createElement)(ComputerView,{bot,actions,hooks:{useComputer}}):null,bot&&tab==="details"?[(0,import_react69.createElement)(RunStats,{key:"stats",bot,part,
+running,actions}),(0,import_react69.createElement)("div",{key:"model",className:"bt-drawer-model"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t("Model")),
+(0,import_react69.createElement)(ModelMenu,{bot,roster,actions,run:run2,wide:!0,inline:!0}),modelOf(bot,roster)?null:(0,import_react69.createElement)("div",{className:"bt-note"},t(
+"Pick a model and {name} can start.",{name:bot.name}))),(0,import_react69.createElement)(BotSessions,{key:"sessions",bot,part,run:run2,useSessions,actions,running:roster.partsRunning}),
+(0,import_react69.createElement)(PermissionRow,{key:"permission",bot,roster,actions,run:run2}),(0,import_react69.createElement)(BotConnectors,{key:"connectors",bot,roster,actions,run:run2}),
+(0,import_react69.createElement)("div",{key:"folder",className:"bt-drawer-model"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t("Working folder")),(0,import_react69.createElement)(
+FolderMenu,{value:bot.workDir,actions,run:run2,wide:!0,onPick:workDir=>run2(actions.updateBot(bot.id,{workDir}))})),roster.readOnly?bot.instructions?(0,import_react69.createElement)(
+About,{key:`about:${bot.id}`,text:bot.instructions}):null:(0,import_react69.createElement)(About,{key:`about:${bot.id}`,text:bot.instructions??"",label:t("Instructions"),placeholder:t(
+"What this Bot is responsible for…"),onSave:instructions=>run2(actions.updateBot(bot.id,{instructions}))}),roster.memory===!1?null:(0,import_react69.createElement)(MemoryRow,{key:"\
+memory",owner:{id:bot.id,name:bot.name},actions}),usage?(0,import_react69.createElement)("div",{key:"usage"},(0,import_react69.createElement)("div",{className:"bt-section-title"},t(
+"Usage")),(0,import_react69.createElement)("div",{className:"bt-kv"},(0,import_react69.createElement)("span",null,bot.name),(0,import_react69.createElement)("span",null,usage))):null,
+(0,import_react69.createElement)(ScheduleSummary,{key:"routines",bot,actions})]:null,bot&&tab==="browser"?(0,import_react69.createElement)(BrowserCards,{bot,sessionId,roster,actions,
+useBrowserTabs,useBrowserPages}):null)]}function rectsOverlap(a,b){return a.width>0&&a.height>0&&b.width>0&&b.height>0&&a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top}var import_react70=require("react"),import_react_dom12=require("react-dom"),PANEL_LINGER_MS=300,WIDTH_KEY=STORAGE.browserWidth,DEFAULT_WIDTH=520,DETAILS_WIDTH=320,DETAILS_MAX=520,MIN_WIDTH=360,
 READ_FLASH_MS=2400,EMPTY_PAGE={url:"",title:"",favicon:null,loading:!1,canGoBack:!1,canGoForward:!1,error:null,excerpt:""},EMPTY_TABS2={ids:[],active:null},icon=paths=>function(){return(0,import_react70.createElement)(
 "svg",{width:16,height:16,viewBox:"0 0 20 20",fill:"none",stroke:"currentColor",strokeWidth:1.5,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":!0},paths.map((d,index)=>(0,import_react70.createElement)(
 "path",{key:index,d})))},GlobeIcon2=icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z","M3 10h14","M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]),BackIcon=icon(
@@ -14355,10 +14433,10 @@ src)})}var savedWidth=()=>{try{let value=Number(localStorage.getItem(WIDTH_KEY))
 "browser"?[MIN_WIDTH,room2-MIN_CHAT]:[DETAILS_WIDTH,Math.min(DETAILS_MAX,room2-MIN_CHAT)],fitWidth=(width,[low,high])=>Math.round(Math.max(low,Math.min(width,high))),shortAddress=url=>String(
 url??"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").replace(/\/$/,""),tabLabel=page=>page.title||shortAddress(page.url)||t("New tab");function PanelMenu({items,className,"ar\
 ia-label":label}){let[open,setOpen]=(0,import_react70.useState)(!1),[shown,leaving]=useLinger(open,120),wrap=(0,import_react70.useRef)(null),button=(0,import_react70.useRef)(null);
-return(0,import_react70.useEffect)(()=>{if(!open)return;let onDown=event=>{wrap.current&&!wrap.current.contains(event.target)&&setOpen(!1)},onKey=event=>{stepMenuFocus(wrap.current,
-event,button.current)||event.key==="Escape"&&(event.stopPropagation(),setOpen(!1))};return window.addEventListener("pointerdown",onDown),window.addEventListener("keydown",onKey),()=>{
-window.removeEventListener("pointerdown",onDown),window.removeEventListener("keydown",onKey)}},[open]),items.length===0?null:(0,import_react70.createElement)("span",{className:"bt-\
-pmenu",ref:wrap},(0,import_react70.createElement)("button",{ref:button,type:"button",className,"aria-label":label,title:label,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(
+return useEscape(()=>{setOpen(!1),button.current?.focus()},open),(0,import_react70.useEffect)(()=>{if(!open)return;let onDown=event=>{wrap.current&&!wrap.current.contains(event.target)&&
+setOpen(!1)},onKey=event=>{stepMenuFocus(wrap.current,event,button.current)};return window.addEventListener("pointerdown",onDown),window.addEventListener("keydown",onKey),()=>{window.
+removeEventListener("pointerdown",onDown),window.removeEventListener("keydown",onKey)}},[open]),items.length===0?null:(0,import_react70.createElement)("span",{className:"bt-pmenu",
+ref:wrap},(0,import_react70.createElement)("button",{ref:button,type:"button",className,"aria-label":label,title:label,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(
 value=>!value)},(0,import_react70.createElement)(DotsIcon)),shown?(0,import_react70.createElement)("div",{className:"bt-pmenu-pop",role:"menu","data-leaving":leaving||void 0},items.
 map((item,index)=>item.sep?(0,import_react70.createElement)("span",{key:`sep-${index}`,className:"bt-pmenu-sep",role:"separator"}):(0,import_react70.createElement)("button",{key:item.
 key,type:"button",role:"menuitem",className:"bt-pmenu-item",onClick:()=>{setOpen(!1),item.onPick()}},(0,import_react70.createElement)(item.icon),(0,import_react70.createElement)("s\
@@ -14368,53 +14446,61 @@ browser":return{key,icon:GlobeIcon2,label:t("Browser"),onPick:report(()=>actions
 label:t("Terminal"),onPick:report(()=>actions.newTerminal())};case"files":return{key,icon:FolderIcon,label:t("Files"),onPick:report(()=>actions.openFiles())};default:return{sep:!0}}}
 var sideTitle=chat=>chat?.entries?.[0]?.question?.trim()||t("Side chat");function PanelStrip({bot,subject,view,ids,active,sides,side,canBrowse,reading,onView,actions,useBrowserPages}){
 let pages=useBrowserPages(map=>map),wrap=(0,import_react70.useRef)(null),ind=(0,import_react70.useRef)(null),spot=(0,import_react70.useRef)(null),under=(0,import_react70.useRef)(null),
-watcher=(0,import_react70.useRef)(null);(0,import_react70.useLayoutEffect)(()=>{let box=wrap.current,capsule=ind.current;if(!box||!capsule)return;let node=view==="details"?box.querySelector(
-".bt-ptab-bot"):view==="side"?box.querySelector(`[data-side="${side}"]`):box.querySelector(`[data-tab="${active}"]`);if(under.current!==node&&(under.current&&watcher.current?.unobserve(
-under.current),under.current=node,node&&watcher.current?.observe(node)),!node){capsule.style.opacity="0",spot.current=null;return}view==="details"?box.scrollLeft=0:node.scrollIntoView?.(
-{block:"nearest",inline:"nearest"});let to={left:node.offsetLeft,right:box.offsetWidth-node.offsetLeft-node.offsetWidth},from=spot.current;if(spot.current=to,capsule.style.opacity=
-"1",capsule.style.left=`${to.left}px`,capsule.style.right=`${to.right}px`,from===null||from.left===to.left&&from.right===to.right||reducedMotion())return;let ahead=to.left>from.left?
-"right":"left",behind=ahead==="right"?"left":"right",lead=capsule.animate([{[ahead]:`${from[ahead]}px`},{[ahead]:`${to[ahead]}px`}],{duration:SPRING_LEAD.duration,easing:SPRING_LEAD.
-easing}),trail=capsule.animate([{[behind]:`${from[behind]}px`},{[behind]:`${to[behind]}px`}],{duration:SPRING_TRAIL.duration,easing:SPRING_TRAIL.easing});return()=>{lead.cancel(),trail.
-cancel()}}),(0,import_react70.useEffect)(()=>{let box=wrap.current;if(!box)return;let observer=new ResizeObserver(()=>{let node=under.current,capsule=ind.current;!node?.isConnected||
-!capsule||spot.current===null||(spot.current={left:node.offsetLeft,right:box.offsetWidth-node.offsetLeft-node.offsetWidth},capsule.style.left=`${spot.current.left}px`,capsule.style.
-right=`${spot.current.right}px`)});return watcher.current=observer,observer.observe(box),under.current&&observer.observe(under.current),()=>{watcher.current=null,observer.disconnect()}},
-[]);let items=stripMenuKeys({canBrowse,canTerminal:actions.canOpenTerminal?.()===!0,canFiles:actions.canOpenFiles?.()===!0}).map(key=>menuItemFor(key,actions,subject));return(0,import_react70.createElement)(
-"div",{className:"bt-ptabs",role:"tablist","aria-label":t("Panel tabs")},(0,import_react70.createElement)("div",{className:"bt-ptabs-in",ref:wrap},(0,import_react70.createElement)(
-"button",{type:"button",role:"tab","aria-selected":view==="details",className:"bt-ptab bt-ptab-bot",title:bot.name,onClick:()=>onView("details")},(0,import_react70.createElement)(BotMark,
-{bot,size:20,state:reading?"searching":"idle"}),view==="details"?(0,import_react70.createElement)("span",{className:"bt-ptab-name"},bot.name):null),ids.map(tabId=>{let page=pages[tabId]??
-EMPTY_PAGE;return(0,import_react70.createElement)("button",{key:tabId,type:"button",role:"tab","aria-selected":view==="browser"&&tabId===active,"data-tab":tabId,className:"bt-ptab",
-title:page.url||t("New tab"),onClick:()=>{actions.browserActivate(bot.id,tabId),onView("browser")},onAuxClick:event=>{event.button===1&&(event.preventDefault(),actions.browserCloseTab(
-bot.id,tabId))}},(0,import_react70.createElement)(Favicon,{src:page.favicon,className:"bt-ptab-fav"}),(0,import_react70.createElement)("span",{className:"bt-ptab-title"},tabLabel(page)),
-(0,import_react70.createElement)("span",{className:"bt-ptab-x",role:"button","aria-label":t("Close tab"),title:t("Close tab"),onClick:event=>{event.stopPropagation(),actions.browserCloseTab(
-bot.id,tabId)}},"×"))}),sides.map(chat=>{let on=view==="side"&&chat.id===side;return(0,import_react70.createElement)("button",{key:chat.id,type:"button",role:"tab","aria-selected":on,
-"data-side":chat.id,className:"bt-ptab bt-ptab-side",title:sideTitle(chat),onClick:()=>actions.openSideChat(subject,chat.id),onAuxClick:event=>{event.button===1&&(event.preventDefault(),
-actions.closeSideChat(chat.id))}},(0,import_react70.createElement)("span",{className:"bt-ptab-globe","aria-hidden":!0},(0,import_react70.createElement)(SideIcon)),(0,import_react70.createElement)(
-"span",{className:"bt-ptab-title"},sideTitle(chat)),(0,import_react70.createElement)("span",{className:"bt-ptab-x",role:"button","aria-label":t("Close side chat"),title:t("Close si\
-de chat"),onClick:event=>{event.stopPropagation(),actions.closeSideChat(chat.id)}},"×"))}),(0,import_react70.createElement)("span",{ref:ind,className:"bt-ptab-ind","aria-hidden":!0})),
-(0,import_react70.createElement)(PanelMenu,{items,className:"bt-ptab-new","aria-label":t("More")}),(0,import_react70.createElement)("button",{type:"button",className:"bt-icon-btn b\
-t-ptab-close","aria-label":t("Close panel"),title:t("Close panel"),onClick:()=>actions.closePanel()},(0,import_react70.createElement)(CloseIcon3)))}function BrowserView({bot,tabId,
-leaving,landed,actions,useBrowserPages,hold}){let page=useBrowserPages(pages=>pages[tabId??""])??EMPTY_PAGE,frame2=(0,import_react70.useRef)(null),input=(0,import_react70.useRef)(null),
-[draft,setDraft]=(0,import_react70.useState)(null),[covered,setCovered]=(0,import_react70.useState)(!1),imports=actions.browserImport,[flow,setFlow]=(0,import_react70.useState)(null),
-flowRef=(0,import_react70.useRef)(null),[sources,setSources]=(0,import_react70.useState)(null),[busy,setBusy]=(0,import_react70.useState)(!1),setFlowTracked=next=>{flowRef.current=
+watcher=(0,import_react70.useRef)(null),observed=(0,import_react70.useRef)(new Set),stripKey=[bot.name,ids.map(tabId=>`${tabId}:${tabLabel(pages[tabId]??EMPTY_PAGE)}`).join("\0"),sides.
+map(chat=>`${chat.id}:${sideTitle(chat)}`).join("\0")].join(""),syncObserved=()=>{let observer=watcher.current,box=wrap.current;if(!observer||!box)return;let next=new Set(box.querySelectorAll(
+".bt-ptab-bot, .bt-ptab-wrap"));for(let el of observed.current)next.has(el)||(observer.unobserve(el),observed.current.delete(el));for(let el of next)observed.current.has(el)||(observer.
+observe(el),observed.current.add(el))};(0,import_react70.useLayoutEffect)(()=>{let box=wrap.current,capsule=ind.current;if(!box||!capsule)return;let node=view==="details"?box.querySelector(
+".bt-ptab-bot"):view==="side"?box.querySelector(`[data-side="${side}"]`):box.querySelector(`[data-tab="${active}"]`);if(under.current=node,syncObserved(),!node){capsule.style.opacity=
+"0",spot.current=null;return}view==="details"?box.scrollLeft=0:node.scrollIntoView?.({block:"nearest",inline:"nearest"});let to={left:node.offsetLeft,right:box.offsetWidth-node.offsetLeft-
+node.offsetWidth},from=spot.current;if(spot.current=to,capsule.style.opacity="1",capsule.style.left=`${to.left}px`,capsule.style.right=`${to.right}px`,from===null||from.left===to.left&&
+from.right===to.right||reducedMotion())return;let ahead=to.left>from.left?"right":"left",behind=ahead==="right"?"left":"right",lead=capsule.animate([{[ahead]:`${from[ahead]}px`},{[ahead]:`${to[ahead]}\
+px`}],{duration:SPRING_LEAD.duration,easing:SPRING_LEAD.easing}),trail=capsule.animate([{[behind]:`${from[behind]}px`},{[behind]:`${to[behind]}px`}],{duration:SPRING_TRAIL.duration,
+easing:SPRING_TRAIL.easing});return()=>{lead.cancel(),trail.cancel()}},[view,active,side,stripKey]),(0,import_react70.useEffect)(()=>{let box=wrap.current;if(!box)return;let observer=new ResizeObserver(
+()=>{let node=under.current,capsule=ind.current;!node?.isConnected||!capsule||spot.current===null||(spot.current={left:node.offsetLeft,right:box.offsetWidth-node.offsetLeft-node.offsetWidth},
+capsule.style.left=`${spot.current.left}px`,capsule.style.right=`${spot.current.right}px`)});return watcher.current=observer,observer.observe(box),syncObserved(),()=>{watcher.current=
+null,observed.current.clear(),observer.disconnect()}},[]);let items=stripMenuKeys({canBrowse,canTerminal:actions.canOpenTerminal?.()===!0,canFiles:actions.canOpenFiles?.()===!0}).map(
+key=>menuItemFor(key,actions,subject));return(0,import_react70.createElement)("div",{className:"bt-ptabs",role:"tablist","aria-label":t("Panel tabs")},(0,import_react70.createElement)(
+"div",{className:"bt-ptabs-in",ref:wrap},(0,import_react70.createElement)("button",{type:"button",role:"tab","aria-selected":view==="details",className:"bt-ptab bt-ptab-bot",title:bot.
+name,onClick:()=>onView("details")},(0,import_react70.createElement)(BotMark,{bot,size:20,state:reading?"searching":"idle"}),view==="details"?(0,import_react70.createElement)("span",
+{className:"bt-ptab-name"},bot.name):null),ids.map(tabId=>{let page=pages[tabId]??EMPTY_PAGE,on=view==="browser"&&tabId===active;return(0,import_react70.createElement)("div",{key:tabId,
+role:"presentation","data-tab":tabId,"data-selected":on||void 0,className:"bt-ptab-wrap"},(0,import_react70.createElement)("button",{type:"button",role:"tab","aria-selected":on,className:"\
+bt-ptab bt-ptab-btn",title:page.url||t("New tab"),onClick:()=>{actions.browserActivate(bot.id,tabId),onView("browser")},onAuxClick:event=>{event.button===1&&(event.preventDefault(),
+actions.browserCloseTab(bot.id,tabId))}},(0,import_react70.createElement)(Favicon,{src:page.favicon,className:"bt-ptab-fav"}),(0,import_react70.createElement)("span",{className:"bt\
+-ptab-title"},tabLabel(page))),(0,import_react70.createElement)("button",{type:"button",className:"bt-ptab-x","aria-label":t("Close tab"),title:t("Close tab"),onClick:()=>{actions.
+browserCloseTab(bot.id,tabId)}},"×"))}),sides.map(chat=>{let on=view==="side"&&chat.id===side;return(0,import_react70.createElement)("div",{key:chat.id,role:"presentation","data-s\
+ide":chat.id,"data-selected":on||void 0,className:"bt-ptab-wrap bt-ptab-side"},(0,import_react70.createElement)("button",{type:"button",role:"tab","aria-selected":on,className:"bt-\
+ptab bt-ptab-btn",title:sideTitle(chat),onClick:()=>actions.openSideChat(subject,chat.id),onAuxClick:event=>{event.button===1&&(event.preventDefault(),actions.closeSideChat(chat.id))}},
+(0,import_react70.createElement)("span",{className:"bt-ptab-globe","aria-hidden":!0},(0,import_react70.createElement)(SideIcon)),(0,import_react70.createElement)("span",{className:"\
+bt-ptab-title"},sideTitle(chat))),(0,import_react70.createElement)("button",{type:"button",className:"bt-ptab-x","aria-label":t("Close side chat"),title:t("Close side chat"),onClick:()=>{
+actions.closeSideChat(chat.id)}},"×"))}),(0,import_react70.createElement)("span",{ref:ind,className:"bt-ptab-ind","aria-hidden":!0})),(0,import_react70.createElement)(PanelMenu,{items,
+className:"bt-ptab-new","aria-label":t("More")}),(0,import_react70.createElement)("button",{type:"button",className:"bt-icon-btn bt-ptab-close","aria-label":t("Close panel"),title:t(
+"Close panel"),onClick:()=>actions.closePanel()},(0,import_react70.createElement)(CloseIcon3)))}var OVERLAY_SELECTOR='[role="dialog"],[role="menu"],[role="listbox"]',isElementNode=node=>node!==
+null&&typeof node=="object"&&node.nodeType===1;function hasOverlayNode(nodes){if(!nodes)return!1;for(let node of nodes)if(isElementNode(node)&&(node.matches?.(OVERLAY_SELECTOR)||node.
+querySelector?.(OVERLAY_SELECTOR)!=null))return!0;return!1}function shouldCheckBrowserCover(records){return records.some(record=>record.type==="attributes"||!isElementNode(record.target)||
+!record.target.closest?.("[data-chat-flow]")||record.target.closest?.(OVERLAY_SELECTOR)?!0:hasOverlayNode(record.addedNodes)||hasOverlayNode(record.removedNodes))}function BrowserView({
+bot,tabId,leaving,landed,actions,useBrowserPages,hold}){let page=useBrowserPages(pages=>pages[tabId??""])??EMPTY_PAGE,frame2=(0,import_react70.useRef)(null),input=(0,import_react70.useRef)(
+null),[draft,setDraft]=(0,import_react70.useState)(null),[covered,setCovered]=(0,import_react70.useState)(!1),imports=actions.browserImport,[flow,setFlow]=(0,import_react70.useState)(
+null),flowRef=(0,import_react70.useRef)(null),[sources,setSources]=(0,import_react70.useState)(null),[busy,setBusy]=(0,import_react70.useState)(!1),setFlowTracked=next=>{flowRef.current=
 typeof next=="function"?next(flowRef.current):next,setFlow(flowRef.current)},showGuest=landed&&!leaving&&!covered&&!!page.url&&!page.error&&flow===null;(0,import_react70.useEffect)(
-()=>{let update=()=>{let panel=frame2.current?.getBoundingClientRect(),overlaps2=panel&&[...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some(element=>rectsOverlap(
-panel,element.getBoundingClientRect()));setCovered(!!overlaps2)},observer=new MutationObserver(update);return observer.observe(document.body,{subtree:!0,childList:!0,attributes:!0,
-attributeFilter:["role","data-leaving"]}),window.addEventListener("resize",update),update(),()=>{observer.disconnect(),window.removeEventListener("resize",update)}},[]),(0,import_react70.useEffect)(
-()=>(setFlowTracked(null),()=>{let id=typeof flowRef.current=="object"&&flowRef.current!==null?flowRef.current.id:null;id&&imports?.cancel(id).catch(()=>{})}),[tabId]);let openImport=()=>{
-setFlowTracked("menu"),sources===null&&imports.sources().then(setSources,()=>setSources([]))},showPicked=r=>{r?.id?setFlowTracked({stage:"preview",id:r.id,preview:r.preview,restarted:r.
-restarted===!0}):r?.error?setFlowTracked({stage:"error",message:importError(r.error)}):setFlowTracked(null)},job=async work=>{setBusy(!0);try{await work()}catch(error){setFlowTracked(
-{stage:"error",message:String(error?.message??error)})}finally{setBusy(!1)}},pickFile=()=>job(async()=>showPicked(await imports.pick())),pickSource=source=>job(async()=>{let r=await imports.
-live(source.id);r?.running?setFlowTracked({stage:"running",source}):showPicked(r)}),closeAndImport=()=>job(async()=>showPicked(await imports.live(flowRef.current?.source?.id,!0))),
-applyImport=()=>job(async()=>{let report=await imports.apply(bot.id,flowRef.current?.id);setFlowTracked(current2=>({stage:"result",report,label:current2?.preview?.source?.label??null}))}),
-cancelImport=()=>{let id=typeof flow=="object"&&flow!==null?flow.id:null;setFlowTracked(null),id&&imports?.cancel(id).catch(()=>{})};(0,import_react70.useLayoutEffect)(()=>{let element=frame2.
-current;if(!element||leaving||!tabId){actions.browserShow(null);return}let raf=0,measure=()=>{cancelAnimationFrame(raf),raf=0;let box=element.getBoundingClientRect();actions.browserShow(
-tabId,showGuest?{left:box.left,top:box.top,width:box.width,height:box.height}:null)},schedule=()=>{raf||(raf=requestAnimationFrame(measure))};measure();let observer=new ResizeObserver(
-measure);return observer.observe(element),window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},
-[tabId,showGuest,leaving]),(0,import_react70.useEffect)(()=>{setDraft(null),landed&&!page.url&&input.current?.focus()},[tabId,landed]);let go=event=>{event.preventDefault();let text=draft??
-"";text.trim()!==""&&(setDraft(null),input.current?.blur(),actions.browserNavigate(tabId,text).then(opened=>{opened&&actions.browserFocus(tabId)}))},editing=draft!==null,secure=/^https:/i.
-test(page.url);return(0,import_react70.createElement)("div",{className:"bt-panel-view bt-panel-browser","aria-label":t("{name}'s browser",{name:bot.name})},actions.browserTakeover?
-(0,import_react70.createElement)("div",{className:"bt-browser-takeover","data-held":hold?.by==="user"||void 0},(0,import_react70.createElement)("span",null,hold?.by==="user"?t("You\
- control this browser"):hold?.by==="bot"?t("The Bot handed this browser to you: {reason}",{reason:hold.reason}):t("The Bot controls this browser")),hold?.by?(0,import_react70.createElement)(
+()=>{let raf=0,update=()=>{raf=0;let panel=frame2.current?.getBoundingClientRect(),overlaps2=panel&&[...document.querySelectorAll(OVERLAY_SELECTOR)].some(element=>rectsOverlap(panel,
+element.getBoundingClientRect()));setCovered(!!overlaps2)},schedule=()=>{raf||(raf=requestAnimationFrame(update))},observer=new MutationObserver(records=>{shouldCheckBrowserCover(records)&&
+schedule()});return observer.observe(document.body,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["role","data-leaving"]}),window.addEventListener("resize",schedule),update(),
+()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},[]),(0,import_react70.useEffect)(()=>(setFlowTracked(null),()=>{let id=typeof flowRef.
+current=="object"&&flowRef.current!==null?flowRef.current.id:null;id&&imports?.cancel(id).catch(()=>{})}),[tabId]);let openImport=()=>{setFlowTracked("menu"),sources===null&&imports.
+sources().then(setSources,()=>setSources([]))},showPicked=r=>{r?.id?setFlowTracked({stage:"preview",id:r.id,preview:r.preview,restarted:r.restarted===!0}):r?.error?setFlowTracked({
+stage:"error",message:importError(r.error)}):setFlowTracked(null)},job=async work=>{setBusy(!0);try{await work()}catch(error){setFlowTracked({stage:"error",message:String(error?.message??
+error)})}finally{setBusy(!1)}},pickFile=()=>job(async()=>showPicked(await imports.pick())),pickSource=source=>job(async()=>{let r=await imports.live(source.id);r?.running?setFlowTracked(
+{stage:"running",source}):showPicked(r)}),closeAndImport=()=>job(async()=>showPicked(await imports.live(flowRef.current?.source?.id,!0))),applyImport=()=>job(async()=>{let report=await imports.
+apply(bot.id,flowRef.current?.id);setFlowTracked(current2=>({stage:"result",report,label:current2?.preview?.source?.label??null}))}),cancelImport=()=>{let id=typeof flow=="object"&&
+flow!==null?flow.id:null;setFlowTracked(null),id&&imports?.cancel(id).catch(()=>{})};(0,import_react70.useLayoutEffect)(()=>{let element=frame2.current;if(!element||leaving||!tabId){
+actions.browserShow(null);return}let raf=0,measure=()=>{cancelAnimationFrame(raf),raf=0;let box=element.getBoundingClientRect();actions.browserShow(tabId,showGuest?{left:box.left,top:box.
+top,width:box.width,height:box.height}:null)},schedule=()=>{raf||(raf=requestAnimationFrame(measure))};measure();let observer=new ResizeObserver(measure);return observer.observe(element),
+window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},[tabId,showGuest,leaving]),(0,import_react70.useEffect)(
+()=>{setDraft(null),landed&&!page.url&&input.current?.focus()},[tabId,landed]);let go=event=>{event.preventDefault();let text=draft??"";text.trim()!==""&&(setDraft(null),input.current?.
+blur(),actions.browserNavigate(tabId,text).then(opened=>{opened&&actions.browserFocus(tabId)}))},editing=draft!==null;useEscape(()=>{setDraft(null),input.current?.blur()},editing);
+let secure=/^https:/i.test(page.url);return(0,import_react70.createElement)("div",{className:"bt-panel-view bt-panel-browser","aria-label":t("{name}'s browser",{name:bot.name})},actions.
+browserTakeover?(0,import_react70.createElement)("div",{className:"bt-browser-takeover","data-held":hold?.by==="user"||void 0},(0,import_react70.createElement)("span",null,hold?.by===
+"user"?t("You control this browser"):hold?.by==="bot"?t("The Bot handed this browser to you: {reason}",{reason:hold.reason}):t("The Bot controls this browser")),hold?.by?(0,import_react70.createElement)(
 "button",{type:"button",onClick:()=>{actions.browserGiveBack(bot.id)}},t("Give back")):(0,import_react70.createElement)("span",{className:"bt-browser-takeover-actions"},(0,import_react70.createElement)(
 "button",{type:"button",onClick:()=>{actions.browserTakeover(bot.id)}},t("Take over")),(0,import_react70.createElement)("button",{type:"button",onClick:()=>{actions.browserStop(bot.
 id)}},t("Stop")))):null,(0,import_react70.createElement)("div",{className:"bt-browser-bar"},(0,import_react70.createElement)("button",{type:"button",className:"bt-icon-btn","aria-l\
@@ -14425,23 +14511,23 @@ t("Stop"):t("Reload"),onClick:()=>actions.browserCommand(tabId,page.loading?"sto
 "form",{className:"bt-browser-address",onSubmit:go,"data-editing":editing||void 0},(0,import_react70.createElement)("span",{className:"bt-browser-scheme","aria-hidden":!0},(0,import_react70.createElement)(
 secure&&!editing?LockIcon2:GlobeIcon2)),(0,import_react70.createElement)("input",{ref:input,type:"text",spellCheck:!1,autoComplete:"off","aria-label":t("Address"),placeholder:t("Se\
 arch or enter address"),value:editing?draft:shortAddress(page.url),onFocus:event=>{setDraft(page.url);let target=event.target;requestAnimationFrame(()=>target.select())},onBlur:()=>setDraft(
-null),onChange:event=>setDraft(event.target.value),onKeyDown:event=>{event.key==="Escape"&&(event.stopPropagation(),setDraft(null),event.currentTarget.blur())}})),(0,import_react70.createElement)(
-"button",{type:"button",className:"bt-icon-btn","aria-label":t("New browser tab"),title:t("New browser tab"),onClick:()=>actions.browserNewTab(bot.id)},(0,import_react70.createElement)(
-PlusTabIcon)),imports?(0,import_react70.createElement)("button",{type:"button",className:"bt-icon-btn bt-import-btn","aria-label":t("Import cookies"),title:t("Import cookies"),"ari\
-a-expanded":flow==="menu",disabled:busy,onClick:()=>{flow==="menu"?setFlowTracked(null):openImport()}},(0,import_react70.createElement)(ImportIcon)):null,page.loading?(0,import_react70.createElement)(
-"span",{className:"bt-browser-progress","aria-hidden":!0}):null),(0,import_react70.createElement)("div",{ref:frame2,className:"bt-browser-frame","data-guest":showGuest||void 0},flow===
-"menu"?(0,import_react70.createElement)(ImportMenu,{sources,busy,onFile:pickFile,onSource:pickSource,onClose:()=>setFlowTracked(null)}):null,typeof flow=="object"&&flow!==null?(0,import_react70.createElement)(
-ImportCard,{flow,page,busy,onApply:applyImport,onCancel:cancelImport,onCloseAndImport:closeAndImport,onDone:()=>setFlowTracked(null),onReload:()=>actions.browserCommand(tabId,"relo\
-ad")}):null,flow===null&&page.error?(0,import_react70.createElement)("div",{className:"bt-browser-empty"},(0,import_react70.createElement)("div",{className:"bt-browser-empty-title"},
-t("This page didn’t load")),(0,import_react70.createElement)("div",{className:"bt-browser-empty-text"},t(page.error)),page.url?(0,import_react70.createElement)("button",{type:"bu\
-tton",className:"bt-browser-retry",onClick:()=>{actions.browserNavigate(tabId,page.url)}},t("Try again")):null):flow===null&&!page.url?(0,import_react70.createElement)("div",{className:"\
-bt-browser-empty"},(0,import_react70.createElement)(BotMark,{bot,size:48,state:"idle",live:!0}),(0,import_react70.createElement)("div",{className:"bt-browser-empty-title"},t("{name\
-}'s browser",{name:bot.name})),(0,import_react70.createElement)("div",{className:"bt-browser-empty-text"},t("Open a page here and {name} can read it with you. Logins and cookies st\
-ay with {name}; other Bots never see them.",{name:bot.name})),imports?(0,import_react70.createElement)("button",{type:"button",className:"bt-browser-retry",onClick:openImport},t("I\
-mport cookies")):null):null))}function importError(error){return error==="too-large"?t("That file is too large to be a cookie export."):error==="unreadable"?t("That file could not \
-be read."):error==="app-bound"?t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file."):String(error)}function ImportMenu({
-sources,busy,onFile,onSource,onClose}){return(0,import_react70.useEffect)(()=>{let close=event=>{event.key==="Escape"&&onClose()};return window.addEventListener("keydown",close),()=>window.
-removeEventListener("keydown",close)},[onClose]),(0,import_react70.createElement)("div",{className:"bt-import-menu",role:"menu","aria-label":t("Import cookies")},(0,import_react70.createElement)(
+null),onChange:event=>setDraft(event.target.value),onKeyDown:event=>{event.key==="Escape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault?.(),event.stopPropagation?.(),
+event.nativeEvent?.stopPropagation?.(),setDraft(null),event.currentTarget.blur())}})),(0,import_react70.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t(
+"New browser tab"),title:t("New browser tab"),onClick:()=>actions.browserNewTab(bot.id)},(0,import_react70.createElement)(PlusTabIcon)),imports?(0,import_react70.createElement)("bu\
+tton",{type:"button",className:"bt-icon-btn bt-import-btn","aria-label":t("Import cookies"),title:t("Import cookies"),"aria-expanded":flow==="menu",disabled:busy,onClick:()=>{flow===
+"menu"?setFlowTracked(null):openImport()}},(0,import_react70.createElement)(ImportIcon)):null,page.loading?(0,import_react70.createElement)("span",{className:"bt-browser-progress",
+"aria-hidden":!0}):null),(0,import_react70.createElement)("div",{ref:frame2,className:"bt-browser-frame","data-guest":showGuest||void 0},flow==="menu"?(0,import_react70.createElement)(
+ImportMenu,{sources,busy,onFile:pickFile,onSource:pickSource,onClose:()=>setFlowTracked(null)}):null,typeof flow=="object"&&flow!==null?(0,import_react70.createElement)(ImportCard,
+{flow,page,busy,onApply:applyImport,onCancel:cancelImport,onCloseAndImport:closeAndImport,onDone:()=>setFlowTracked(null),onReload:()=>actions.browserCommand(tabId,"reload")}):null,
+flow===null&&page.error?(0,import_react70.createElement)("div",{className:"bt-browser-empty"},(0,import_react70.createElement)("div",{className:"bt-browser-empty-title"},t("This pa\
+ge didn’t load")),(0,import_react70.createElement)("div",{className:"bt-browser-empty-text"},t(page.error)),page.url?(0,import_react70.createElement)("button",{type:"button",className:"\
+bt-browser-retry",onClick:()=>{actions.browserNavigate(tabId,page.url)}},t("Try again")):null):flow===null&&!page.url?(0,import_react70.createElement)("div",{className:"bt-browser-\
+empty"},(0,import_react70.createElement)(BotMark,{bot,size:48,state:"idle",live:!0}),(0,import_react70.createElement)("div",{className:"bt-browser-empty-title"},t("{name}'s browser",
+{name:bot.name})),(0,import_react70.createElement)("div",{className:"bt-browser-empty-text"},t("Open a page here and {name} can read it with you. Logins and cookies stay with {name\
+}; other Bots never see them.",{name:bot.name})),imports?(0,import_react70.createElement)("button",{type:"button",className:"bt-browser-retry",onClick:openImport},t("Import cookies")):
+null):null))}function importError(error){return error==="too-large"?t("That file is too large to be a cookie export."):error==="unreadable"?t("That file could not be read."):error===
+"app-bound"?t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file."):String(error)}function ImportMenu({sources,busy,onFile,
+onSource,onClose}){return useEscape(onClose),(0,import_react70.createElement)("div",{className:"bt-import-menu",role:"menu","aria-label":t("Import cookies")},(0,import_react70.createElement)(
 "div",{className:"bt-import-menu-title"},t("Import cookies")),(0,import_react70.createElement)("button",{type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,onClick:onFile},
 (0,import_react70.createElement)(FileIcon,{className:"bt-import-item-icon"}),(0,import_react70.createElement)("span",{className:"bt-import-item-name"},t("From a file…")),(0,import_react70.createElement)(
 "span",{className:"bt-import-item-sub"},t("cookies.txt, JSON, storageState"))),sources===null?(0,import_react70.createElement)("div",{className:"bt-import-menu-note"},t("Loading…")):
@@ -14490,43 +14576,45 @@ DETAILS_WIDTH),widthRange(view,room2));(0,import_react70.useLayoutEffect)(()=>{v
 ()=>{chatRoom.hold(instant)},[instant]);let[last,setLast]=(0,import_react70.useState)({view,width:panelWidth});(last.view!==view||last.width!==panelWidth)&&(setLast({view,width:panelWidth}),
 last.view!==view&&setSettling(last.width!==panelWidth&&!instant&&!overlay));let shownView=(0,import_react70.useRef)(view);(0,import_react70.useLayoutEffect)(()=>{let switched=settling&&
 shownView.current!==view;shownView.current=view,switched&&chatRoom.hold(!0),chatRoom.setRight(leaving||overlay?null:panelWidth),switched&&chatRoom.hold(!1)},[view,panelWidth,leaving,
-overlay]),(0,import_react70.useEffect)(()=>()=>{chatRoom.setRight(null),chatRoom.hold(!1)},[]);let mounted=(0,import_react70.useRef)(!1);(0,import_react70.useEffect)(()=>{if(!mounted.
-current){mounted.current=!0;return}setResizing(!0);let timer=setTimeout(()=>setResizing(!1),160);return()=>clearTimeout(timer)},[room2]),(0,import_react70.useEffect)(()=>{if(!settling)
-return;let timer=setTimeout(()=>setSettling(!1),SPRING_SHAPE.duration+40);return()=>clearTimeout(timer)},[settling,view]),(0,import_react70.useEffect)(()=>{let timer=setTimeout(()=>setLanded(
-!0),360);return()=>clearTimeout(timer)},[]),(0,import_react70.useEffect)(()=>{canBrowse&&actions.browserEnsure(bot.id)},[bot?.id,canBrowse]),(0,import_react70.useEffect)(()=>{view===
-"browser"&&(active===null||!tabState.ids.includes(active))&&actions.setPanelView("details")},[view,active,tabState.ids.length]),(0,import_react70.useEffect)(()=>{pane.view==="side"&&
-sideChat===void 0&&actions.setPanelView("details")},[pane.view,sideChat]),(0,import_react70.useEffect)(()=>{(view!=="browser"||leaving)&&actions.browserShow?.(null)},[view,leaving]),
-(0,import_react70.useEffect)(()=>()=>{actions.browserShow?.(null)},[]),(0,import_react70.useEffect)(()=>{if(!page.readAt||Date.now()-page.readAt>READ_FLASH_MS)return;setReading(!0);
-let timer=setTimeout(()=>setReading(!1),READ_FLASH_MS);return()=>clearTimeout(timer)},[page.readAt]);let beginSwitch=next=>{let panel=root.current;if(intent.current=null,reducedMotion()){
-flight.finish();return}if(!panel)return;let plan=planFlight(flight.active(),next),source=plan==="start"?panel.querySelector(FLIGHT_ENDS[flightStart(next)]):null,flies=plan!=="keep"&&
-(plan==="reverse"||source!==null),outgoing=panel.querySelector(":scope > .bt-panel-view");if(outgoing){let ghostEl=document.createElement("div");if(ghostEl.className="bt-panel-ghos\
-t",Object.assign(ghostEl.style,{top:`${outgoing.offsetTop}px`,width:`${outgoing.offsetWidth}px`,height:`${outgoing.offsetHeight}px`}),ghostEl.append(uniqueIds(outgoing.cloneNode(!0))),
-flies&&next!=="details")for(let mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark"))mark2.style.visibility="hidden";panel.append(ghostEl),ghostEl.animate([{opacity:1,transform:"\
-scale(1)"},{opacity:0,transform:"scale(0.985)"}],{duration:160,easing:"ease-out",fill:"forwards"}).finished.catch(()=>{}).finally(()=>ghostEl.remove())}plan==="start"&&source===null||
-(intent.current={plan,next,id:pane.id,at:performance.now(),end:flightEnd(next),node:source?uniqueIds(source.cloneNode(!0)):null,from:source?source.getBoundingClientRect():null})},switchView=next=>{
-next===view||leaving||(beginSwitch(next),actions.setPanelView(next))},panelActions={...actions};for(let name of["openBrowser","browserNewTab","browserPick"])actions[name]&&(panelActions[name]=
-(...args)=>(view!=="browser"&&beginSwitch("browser"),actions[name](...args)));for(let name of["openSideChat","newSideChat"])actions[name]&&(panelActions[name]=(...args)=>(view!=="s\
-ide"&&beginSwitch("side"),actions[name](...args)));(0,import_react70.useLayoutEffect)(()=>{let note=intent.current;if(intent.current=null,!(note!==null&&note.next===view&&note.id===
-pane.id&&performance.now()-note.at<INTENT_MS&&!instant&&!leaving&&!reducedMotion())){flight.finish();return}if(note.plan!=="keep"){if(note.plan==="reverse"){flight.retarget(note.end)||
-flight.finish();return}flight.begin({panel:root.current,end:note.end,node:note.node,from:note.from})}},[view,pane.id]),(0,import_react70.useLayoutEffect)(()=>{(instant||leaving)&&flight.
-finish()},[instant,leaving]),(0,import_react70.useEffect)(()=>flight.finish,[]);let startResize=event=>{if(event.button!==0||leaving||overlay)return;event.preventDefault();let panel=root.
-current,grip=event.currentTarget;grip.setPointerCapture?.(event.pointerId);let range=widthRange(view,room2),from={x:event.clientX,width:panelWidth},next=panelWidth;setDragging(!0),
-setSettling(!1),chatRoom.hold(!0);let columns2=chatRoom.columns();for(let column of columns2)column.style.setProperty("transition","none","important");let onMove=move=>{next=fitWidth(
-from.width+from.x-move.clientX,range),panel.style.width=`${next}px`,columns2.length===0&&chatRoom.setRight(next);for(let column of columns2)column.style.setProperty("margin-right",
-`${next}px`,"important")},ends=["pointerup","pointercancel","lostpointercapture"],onEnd=end=>{end.type==="pointerup"&&onMove(end),grip.removeEventListener("pointermove",onMove);for(let name of ends)
-grip.removeEventListener(name,onEnd);chatRoom.setRight(next);for(let column of columns2)column.style.removeProperty("margin-right"),column.style.removeProperty("transition");if(panel.
-style.setProperty("--bt-panel-w",`${next}px`),panel.style.removeProperty("width"),setDragging(!1),next!==from.width){setWidth(next);try{localStorage.setItem(WIDTH_KEY,String(next))}catch{}}};
-grip.addEventListener("pointermove",onMove);for(let name of ends)grip.addEventListener(name,onEnd)},hasStrip=panelHasStrip(canBrowse,tabState.ids.length,sideChats.length);return(0,import_react70.createElement)(
-"aside",{ref:root,className:"bt-panel","data-view":view,"aria-label":view==="browser"&&bot?t("{name}'s browser",{name:bot.name}):view==="side"?t("Side chat"):t("Conversation detail\
-s"),"data-leaving":leaving||void 0,"aria-hidden":leaving||void 0,"data-settling":settling||void 0,"data-instant":instant||void 0,"data-dragging":dragging||void 0,"data-overlay":overlay||
-void 0,style:{"--bt-panel-w":`${panelWidth}px`},onAnimationEnd:event=>{event.target===event.currentTarget&&setLanded(!0)}},leaving||overlay?null:(0,import_react70.createElement)("d\
-iv",{className:"bt-panel-grip",role:"separator","aria-orientation":"vertical","aria-label":t("Resize panel"),onPointerDown:startResize}),dragging?(0,import_react_dom12.createPortal)(
-(0,import_react70.createElement)("div",{className:"bt-drag-shield","aria-hidden":!0}),document.body):null,hasStrip?(0,import_react70.createElement)(PanelStrip,{bot,subject:pane.id,
-view,ids:tabState.ids,active,sides:sideChats,side:pane.side,canBrowse,reading,onView:switchView,actions:panelActions,useBrowserPages}):null,view==="browser"&&bot?(0,import_react70.createElement)(
-BrowserView,{key:`browser:${active}`,bot,tabId:active,leaving,landed:landed&&!settling,actions,useBrowserPages,hold}):view==="side"&&sideChat?(0,import_react70.createElement)("div",
-{key:`side:${sideChat.id}`,className:"bt-panel-view"},(0,import_react70.createElement)(SideChatView,{subject:pane.id,chat:sideChat,roster,actions:panelActions})):(0,import_react70.createElement)(
-"div",{key:`details:${pane.id}:${pane.renaming?"rename":""}:${pane.tab??""}`,className:"bt-panel-view"},(0,import_react70.createElement)(DetailsDrawer,{sessionId:pane.id,startRenaming:pane.
-renaming,startTab:pane.tab,hasStrip,roster,actions:panelActions,useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,useBrowserPages,useComputer})))}var BROWSER_CSS=`
+overlay]);let dragCleanup=(0,import_react70.useRef)(null);useEscape(()=>actions.closeOverlay(),!leaving,{priority:-1}),(0,import_react70.useEffect)(()=>()=>{dragCleanup.current?.(),
+chatRoom.setRight(null),chatRoom.hold(!1)},[]);let mounted=(0,import_react70.useRef)(!1);(0,import_react70.useEffect)(()=>{if(!mounted.current){mounted.current=!0;return}setResizing(
+!0);let timer=setTimeout(()=>setResizing(!1),160);return()=>clearTimeout(timer)},[room2]),(0,import_react70.useEffect)(()=>{if(!settling)return;let timer=setTimeout(()=>setSettling(
+!1),SPRING_SHAPE.duration+40);return()=>clearTimeout(timer)},[settling,view]),(0,import_react70.useEffect)(()=>{let timer=setTimeout(()=>setLanded(!0),360);return()=>clearTimeout(timer)},
+[]),(0,import_react70.useEffect)(()=>{canBrowse&&actions.browserEnsure(bot.id)},[bot?.id,canBrowse]),(0,import_react70.useEffect)(()=>{view==="browser"&&(active===null||!tabState.ids.
+includes(active))&&actions.setPanelView("details")},[view,active,tabState.ids.length]),(0,import_react70.useEffect)(()=>{pane.view==="side"&&sideChat===void 0&&actions.setPanelView(
+"details")},[pane.view,sideChat]),(0,import_react70.useEffect)(()=>{(view!=="browser"||leaving)&&actions.browserShow?.(null)},[view,leaving]),(0,import_react70.useEffect)(()=>()=>{
+actions.browserShow?.(null)},[]),(0,import_react70.useEffect)(()=>{if(!page.readAt||Date.now()-page.readAt>READ_FLASH_MS)return;setReading(!0);let timer=setTimeout(()=>setReading(!1),
+READ_FLASH_MS);return()=>clearTimeout(timer)},[page.readAt]);let beginSwitch=next=>{let panel=root.current;if(intent.current=null,reducedMotion()){flight.finish();return}if(!panel)
+return;let plan=planFlight(flight.active(),next),source=plan==="start"?panel.querySelector(FLIGHT_ENDS[flightStart(next)]):null,flies=plan!=="keep"&&(plan==="reverse"||source!==null),
+outgoing=panel.querySelector(":scope > .bt-panel-view");if(outgoing){let ghostEl=document.createElement("div");if(ghostEl.className="bt-panel-ghost",Object.assign(ghostEl.style,{top:`${outgoing.
+offsetTop}px`,width:`${outgoing.offsetWidth}px`,height:`${outgoing.offsetHeight}px`}),ghostEl.append(uniqueIds(outgoing.cloneNode(!0))),flies&&next!=="details")for(let mark2 of ghostEl.
+querySelectorAll(".bt-drawer-id .bt-mark"))mark2.style.visibility="hidden";panel.append(ghostEl),ghostEl.animate([{opacity:1,transform:"scale(1)"},{opacity:0,transform:"scale(0.985\
+)"}],{duration:160,easing:"ease-out",fill:"forwards"}).finished.catch(()=>{}).finally(()=>ghostEl.remove())}plan==="start"&&source===null||(intent.current={plan,next,id:pane.id,at:performance.
+now(),end:flightEnd(next),node:source?uniqueIds(source.cloneNode(!0)):null,from:source?source.getBoundingClientRect():null})},switchView=next=>{next===view||leaving||(beginSwitch(next),
+actions.setPanelView(next))},panelActions={...actions};for(let name of["openBrowser","browserNewTab","browserPick"])actions[name]&&(panelActions[name]=(...args)=>(view!=="browser"&&
+beginSwitch("browser"),actions[name](...args)));for(let name of["openSideChat","newSideChat"])actions[name]&&(panelActions[name]=(...args)=>(view!=="side"&&beginSwitch("side"),actions[name](
+...args)));(0,import_react70.useLayoutEffect)(()=>{let note=intent.current;if(intent.current=null,!(note!==null&&note.next===view&&note.id===pane.id&&performance.now()-note.at<INTENT_MS&&
+!instant&&!leaving&&!reducedMotion())){flight.finish();return}if(note.plan!=="keep"){if(note.plan==="reverse"){flight.retarget(note.end)||flight.finish();return}flight.begin({panel:root.
+current,end:note.end,node:note.node,from:note.from})}},[view,pane.id]),(0,import_react70.useLayoutEffect)(()=>{(instant||leaving)&&flight.finish()},[instant,leaving]),(0,import_react70.useEffect)(
+()=>flight.finish,[]);let startResize=event=>{if(event.button!==0||leaving||overlay)return;event.preventDefault();let panel=root.current,grip=event.currentTarget;grip.setPointerCapture?.(
+event.pointerId);let range=widthRange(view,room2),from={x:event.clientX,width:panelWidth},next=panelWidth;setDragging(!0),setSettling(!1),chatRoom.hold(!0);let columns2=chatRoom.columns();
+for(let column of columns2)column.style.setProperty("transition","none","important");let onMove=move=>{next=fitWidth(from.width+from.x-move.clientX,range),panel.style.width=`${next}\
+px`,columns2.length===0&&chatRoom.setRight(next);for(let column of columns2)column.style.setProperty("margin-right",`${next}px`,"important")},ends=["pointerup","pointercancel","los\
+tpointercapture"],cleanup=()=>{dragCleanup.current=null,grip.removeEventListener("pointermove",onMove);for(let name of ends)grip.removeEventListener(name,onEnd);for(let column of columns2)
+column.style.removeProperty("margin-right"),column.style.removeProperty("transition");panel?.style.removeProperty("width")},onEnd=end=>{if(end.type==="pointerup"&&onMove(end),cleanup(),
+chatRoom.setRight(next),panel?.style.setProperty("--bt-panel-w",`${next}px`),setDragging(!1),next!==from.width){setWidth(next);try{localStorage.setItem(WIDTH_KEY,String(next))}catch{}}};
+dragCleanup.current=cleanup,grip.addEventListener("pointermove",onMove);for(let name of ends)grip.addEventListener(name,onEnd)},hasStrip=panelHasStrip(canBrowse,tabState.ids.length,
+sideChats.length);return(0,import_react70.createElement)("aside",{ref:root,className:"bt-panel","data-view":view,"aria-label":view==="browser"&&bot?t("{name}'s browser",{name:bot.name}):
+view==="side"?t("Side chat"):t("Conversation details"),"data-leaving":leaving||void 0,"aria-hidden":leaving||void 0,"data-settling":settling||void 0,"data-instant":instant||void 0,
+"data-dragging":dragging||void 0,"data-overlay":overlay||void 0,style:{"--bt-panel-w":`${panelWidth}px`},onAnimationEnd:event=>{event.target===event.currentTarget&&setLanded(!0)}},
+leaving||overlay?null:(0,import_react70.createElement)("div",{className:"bt-panel-grip",role:"separator","aria-orientation":"vertical","aria-label":t("Resize panel"),onPointerDown:startResize}),
+dragging?(0,import_react_dom12.createPortal)((0,import_react70.createElement)("div",{className:"bt-drag-shield","aria-hidden":!0}),document.body):null,hasStrip?(0,import_react70.createElement)(
+PanelStrip,{bot,subject:pane.id,view,ids:tabState.ids,active,sides:sideChats,side:pane.side,canBrowse,reading,onView:switchView,actions:panelActions,useBrowserPages}):null,view==="\
+browser"&&bot?(0,import_react70.createElement)(BrowserView,{key:`browser:${active}`,bot,tabId:active,leaving,landed:landed&&!settling,actions,useBrowserPages,hold}):view==="side"&&
+sideChat?(0,import_react70.createElement)("div",{key:`side:${sideChat.id}`,className:"bt-panel-view"},(0,import_react70.createElement)(SideChatView,{subject:pane.id,chat:sideChat,roster,
+actions:panelActions})):(0,import_react70.createElement)("div",{key:`details:${pane.id}:${pane.renaming?"rename":""}:${pane.tab??""}`,className:"bt-panel-view"},(0,import_react70.createElement)(
+DetailsDrawer,{sessionId:pane.id,startRenaming:pane.renaming,startTab:pane.tab,hasStrip,roster,actions:panelActions,useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,
+useBrowserPages,useComputer})))}var BROWSER_CSS=`
 .bt-panel{--bt-panel-view-fade:${SPRING_SHAPE.duration}ms}
 .bt-ptabs{position:relative;display:flex;align-items:center;height:44px;flex:none;border-bottom:.5px solid var(--bt-line);padding:0 6px;gap:0;animation:bt-strip-in ${SPRING_SHAPE.duration}\
 ms ${SPRING_SHAPE.easing}}
@@ -14536,10 +14624,13 @@ padding-left:48px;mask-image:linear-gradient(to right,#000,#000 calc(100% - 10px
 .bt-ptabs-in>.bt-ptab-bot{position:sticky;left:0;z-index:2;background:var(--bt-main)}
 .bt-ptabs-in>.bt-ptab-bot[aria-selected=true]{background:transparent}
 .bt-ptabs-in::-webkit-scrollbar{display:none}
+.bt-ptab-wrap{position:relative;z-index:1;display:inline-flex;align-items:center;height:32px;max-width:180px;flex:none;border-radius:8px;padding-right:4px}
 .bt-ptab{position:relative;z-index:1;display:inline-flex;align-items:center;gap:6px;height:32px;max-width:180px;padding:0 8px;flex:none;border:0;border-radius:8px;background:none;c\
 olor:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;transition:color .12s ease}
-.bt-ptab:hover{color:var(--bt-ink)}
+.bt-ptab-btn{max-width:none;min-width:0;flex:1 1 auto;padding:0 4px 0 8px}
+.bt-ptab:hover,.bt-ptab-wrap:hover .bt-ptab{color:var(--bt-ink)}
 .bt-ptab[aria-selected=true]{color:var(--bt-ink)}
+.bt-ptab:focus-visible,.bt-ptab-x:focus-visible,.bt-ptab-new:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-ptab-bot{padding:0 7px}
 .bt-ptab-bot .bt-mark{flex:none}
 .bt-ptab-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500;animation:bt-ptab-label .18s ease}
@@ -14548,9 +14639,9 @@ olor:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;white-space:nowr
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
 .bt-ptab-title{max-width:140px;overflow:hidden;text-overflow:ellipsis}
-.bt-ptab-x{flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:var(--bt-ink-3);opaci\
-ty:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
-.bt-ptab:hover .bt-ptab-x,.bt-ptab[aria-selected=true] .bt-ptab-x{opacity:1;pointer-events:auto}
+.bt-ptab-x{flex:none;width:18px;height:18px;padding:0;border:0;border-radius:5px;background:none;display:inline-flex;align-items:center;justify-content:center;font:inherit;font-siz\
+e:13px;line-height:1;color:var(--bt-ink-3);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
+.bt-ptab-wrap:hover .bt-ptab-x,.bt-ptab-wrap:focus-within .bt-ptab-x,.bt-ptab-wrap[data-selected] .bt-ptab-x{opacity:1;pointer-events:auto}
 .bt-ptab-x:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-ptab-new{position:relative;z-index:1;flex:none;width:28px;height:32px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;ju\
 stify-content:center;cursor:pointer}
@@ -14619,7 +14710,7 @@ t-hover));overflow:hidden}
 .bt-bcard-host{flex:none;font-size:11px;line-height:15px;color:var(--bt-ink-3);max-width:38%;overflow:hidden;text-overflow:ellipsis}
 .bt-bcard-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:color-mix(in srgb,var(--bt-main) 88%,transparent);color:var(--bt-ink-2)\
 ;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease;backdrop-filter:blur(4px)}
-.bt-bcard:hover .bt-bcard-x{opacity:1;pointer-events:auto}
+.bt-bcard:hover .bt-bcard-x,.bt-bcard:focus-within .bt-bcard-x{opacity:1;pointer-events:auto}
 .bt-bcard-new{display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border:.5px dashed var(--bt-line-2);border-radius:12px;background:none;color:var(--bt-ink-3\
 );font:inherit;font-size:12px;cursor:pointer}
 .bt-bcard-new:hover{color:var(--bt-ink);border-color:var(--bt-ink-3)}
@@ -14668,10 +14759,12 @@ pointer}
 /* Touch: the hidden-but-tappable tab and card close buttons stay visible at a
    finger-sized target instead. */
 @media (hover:none){
+  .bt-ptabs{height:52px}
+  .bt-ptab-wrap,.bt-ptab{height:44px}
   .bt-ptab-x,.bt-bcard-x{opacity:1;pointer-events:auto;width:44px;height:44px}
   .bt-ptab-close{width:44px;height:44px}
 }
-@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name,.bt-browser-progress::after{animation:none}}
 `;var import_react71=require("react"),OPENING_WAIT_MS=5e3;function openingPastWait(pending,target){return!pending||pending.target!==target||pending.slow===!0?pending??null:{...pending,
 slow:!0}}function bindOpeningWait(ui2,{waitMs=OPENING_WAIT_MS,schedule=setTimeout,clear=clearTimeout,onSlow}={}){let timer=null,stop=()=>{timer!==null&&(clear(timer),timer=null)};return{
 begin(pending){ui2.set(state=>({...state,pendingOpen:pending})),stop();let target=pending?.target;timer=schedule(()=>{timer=null;let held=!1;ui2.set(state=>{let pendingOpen=openingPastWait(
@@ -15042,14 +15135,16 @@ ink);cursor:pointer}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;var import_react74=require("react");function ReadOnlyDock({sessionId,useUi,useRoster,actions}){let readOnlyPart=useUi(state=>state.readOnlyPart),bot=useRoster(state=>state.byId?.[sessionId]??
 Object.values(state.byId??{}).find(entry=>entry?.sessionId===sessionId)),running=useRoster(state=>state.partsRunning?.[sessionId]===!0),active=readOnlyPart!==null&&readOnlyPart===sessionId&&
-running,root=(0,import_react74.useRef)(null);return(0,import_react74.useEffect)(()=>{readOnlyPart!==null&&readOnlyPart===sessionId&&!running&&actions.clearReadOnlyPart?.()},[readOnlyPart,
+running,root=(0,import_react74.useRef)(null);(0,import_react74.useEffect)(()=>{readOnlyPart!==null&&readOnlyPart===sessionId&&!running&&actions.clearReadOnlyPart?.()},[readOnlyPart,
 sessionId,running]),(0,import_react74.useEffect)(()=>{if(!active)return;let card=root.current?.closest("[data-composer-card]")??document.querySelector("[data-composer-card]");if(card==
-null)return;let onKey=event=>{event.key==="Enter"&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.isComposing&&(event.preventDefault(),event.stopImmediatePropagation())},
-onClick=event=>{let button=event.target?.closest?.("button");button!=null&&/send|发送/i.test(button.getAttribute("aria-label")??"")&&(event.preventDefault(),event.stopImmediatePropagation())};
-return card.addEventListener("keydown",onKey,!0),card.addEventListener("click",onClick,!0),()=>{card.removeEventListener("keydown",onKey,!0),card.removeEventListener("click",onClick,
-!0)}},[active]),(0,import_react74.createElement)("div",{ref:root,className:"bt-readonly-dock","data-on":active?"":void 0,role:"status",hidden:!active},(0,import_react74.createElement)(
-"span",{className:"bt-readonly-text"},t("This session is still running. Wait for it to finish, or stop it.")),(0,import_react74.createElement)("button",{type:"button",className:"bt\
--soft bt-soft-sm",onClick:()=>actions.stopChat(bot.id)},t("Stop")))}var READ_ONLY_CSS=`
+null)return;let onKey=event=>{event.key==="Enter"&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.isComposing&&event.keyCode!==229&&(event.preventDefault(),
+event.stopImmediatePropagation())},sendWord=t("Send").toLowerCase(),onClick=event=>{let button=event.target?.closest?.("button");if(button==null)return;let label=(button.getAttribute(
+"aria-label")??"").toLowerCase();(button.getAttribute("type")==="submit"||button.hasAttribute("data-send")||/send|发送|傳送|送信|전송|enviar|envoyer|senden/i.test(label)||sendWord!==
+""&&label.includes(sendWord))&&(event.preventDefault(),event.stopImmediatePropagation())};return card.addEventListener("keydown",onKey,!0),card.addEventListener("click",onClick,!0),
+()=>{card.removeEventListener("keydown",onKey,!0),card.removeEventListener("click",onClick,!0)}},[active]);let stopId=bot?.id??sessionId;return(0,import_react74.createElement)("div",
+{ref:root,className:"bt-readonly-dock","data-on":active?"":void 0,role:"status",hidden:!active},(0,import_react74.createElement)("span",{className:"bt-readonly-text"},t("This sessi\
+on is still running. Wait for it to finish, or stop it.")),(0,import_react74.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:!stopId,onClick:()=>{stopId&&
+actions.stopChat?.(stopId)}},t("Stop")))}var READ_ONLY_CSS=`
 .bt-readonly-dock{display:none}
 .bt-readonly-dock[data-on]{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px;padding:8px 10px;border:.5px solid var(--bt-line);border-radius:12px\
 ;background:var(--bt-card);font-size:12px;line-height:17px;color:var(--bt-ink-2)}
@@ -15080,50 +15175,50 @@ null?(0,import_react75.createElement)("span",{className:"bt-queue-thumb","aria-h
 text,renderFactorySlot}){let rendered=renderFactorySlot?.("conversation.user.text",{text,facts:QUEUE_TEXT_FACTS,interactive:!1,ellipsis:!0});return(0,import_react75.createElement)(
 "span",{className:"bt-queue-preview"},rendered??text)}function EditField({text,onChange,onSave,onCancel}){let field=(0,import_react75.useRef)(null);return(0,import_react75.useEffect)(
 ()=>{let node=field.current;node!==null&&(node.focus(),node.style.height="auto",node.style.height=`${node.scrollHeight}px`)},[text]),(0,import_react75.createElement)("textarea",{ref:field,
-className:"bt-queue-edit",value:text,rows:1,"aria-label":t("Edit queued message"),onChange:event=>onChange(event.target.value),onKeyDown:event=>{event.key==="Escape"?(event.stopPropagation(),
-onCancel()):event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing&&(event.preventDefault(),onSave())}})}function RowButton({label,title,disabled,onClick,children}){return(0,import_react75.createElement)(
-"button",{type:"button",className:"bt-queue-action","aria-label":label,title:title??label,disabled,onClick},children)}function QueueDock({useSession,useProjection,updateQueue,loadImage,
-renderFactorySlot,actions}){let inbox=useProjection?.("inbox"),pendingSubmissions=useSession?.(s=>s.pendingSubmissions)??EMPTY_QUEUE,queue=(0,import_react75.useMemo)(()=>{let rows2=(inbox?.["\
-next-turn"]??EMPTY_QUEUE).filter(row=>OWN_QUEUE_KINDS.has(row.source?.kind)),inChat=new Set(pendingSubmissions.filter(item=>item.placement==="transcript").map(item=>item.requestId));
-return inChat.size===0?rows2:rows2.filter(({source})=>source===null||typeof source!="object"||!("rpcId"in source)||!inChat.has(source.rpcId))},[inbox,pendingSubmissions]),pendingQueue=(0,import_react75.useMemo)(
-()=>{let admitted=new Set(queue.flatMap(({source})=>source!==null&&typeof source=="object"&&"rpcId"in source?[source.rpcId]:[]));return pendingSubmissions.filter(submission=>submission.
-placement==="queued"&&!admitted.has(submission.requestId))},[pendingSubmissions,queue]),rowCount=queue.length+pendingQueue.length,running=useSession?.(s=>s.running)===!0,queueMutable=useSession?.(
-s=>s.subagent===null||s.subagent===void 0||s.subagent.address?.mode==="continuable")??!0,[editing,setEditing]=(0,import_react75.useState)(null),[busy,setBusy]=(0,import_react75.useState)(
-null),[collapsed,setCollapsed]=(0,import_react75.useState)(!0),listId=(0,import_react75.useId)();if((0,import_react75.useEffect)(()=>{rowCount===0&&!collapsed&&setCollapsed(!0),editing!==
-null&&(!queueMutable||!queue.some(row=>row.id===editing.id))&&setEditing(null)},[collapsed,editing,queue,queueMutable,rowCount]),rowCount===0)return null;let interactionActive=queueMutable&&
-(editing!==null||busy!==null),expanded=!collapsed||interactionActive,listVisible=rowCount===1||expanded,applyAction=async(itemId,action,failure)=>{setBusy(itemId);try{let result=await updateQueue(
-itemId,action);return result&&result.ok===!1&&result.error?.code!=="session/queue-item-not-found"&&result.error?.code!=="session/steer-unavailable"?(actions.reportError(new Error(failure),
-"queue"),!1):!0}catch{return actions.reportError(new Error(failure),"queue"),!1}finally{setBusy(current2=>current2===itemId?null:current2)}},saveEdit=async()=>{editing===null||editing.
-text.trim()===""||await applyAction(editing.id,{kind:"edit",content:[{type:"text",text:editing.text}]},t("Couldn’t edit the queued message — it may have started already."))&&setEditing(
-null)};return(0,import_react75.createElement)("div",{className:"bt-queue-dock","data-queue-dock":""},(0,import_react75.createElement)("div",{className:"bt-queue-panel"},rowCount>1&&
-(0,import_react75.createElement)("button",{type:"button",className:"bt-queue-head","aria-controls":listId,"aria-expanded":expanded,disabled:interactionActive,onClick:()=>setCollapsed(
-value=>!value)},(0,import_react75.createElement)("span",{className:"bt-queue-lead","aria-hidden":!0},(0,import_react75.createElement)(QueueIcon)),(0,import_react75.createElement)("\
-span",{className:"bt-queue-count"},t("{n} queued messages",{n:rowCount})),!listVisible&&pendingQueue.length>0&&(0,import_react75.createElement)("span",{className:"bt-queue-status",
-role:"status"},t("Sending…")),(0,import_react75.createElement)("span",{className:"bt-queue-chev","aria-hidden":!0},expanded?(0,import_react75.createElement)(ChevronDownIcon):(0,import_react75.createElement)(
-ChevronUpIcon))),(0,import_react75.createElement)("ul",{id:listId,className:"bt-queue-list",hidden:!listVisible},listVisible&&queue.map(row=>{let attachments=queueAttachments(row.content),
-text=textOf(row.content);return(0,import_react75.createElement)("li",{key:row.id,className:"bt-queue-row"},rowCount===1&&(0,import_react75.createElement)("span",{className:"bt-queu\
-e-lead","aria-hidden":!0},(0,import_react75.createElement)(QueueIcon)),editing?.id===row.id?(0,import_react75.createElement)(EditField,{text:editing.text,onChange:text2=>setEditing(
-{id:row.id,text:text2}),onSave:saveEdit,onCancel:()=>setEditing(null)}):(0,import_react75.createElement)(import_react75.Fragment,null,attachments.length>0&&(0,import_react75.createElement)(
-"span",{className:"bt-queue-attachments"},attachments.map((item,index)=>item.type==="image"?(0,import_react75.createElement)(QueueThumb,{key:`${item.attachment.attachmentId}:${index}`,
-attachment:item.attachment,loadImage,label:t("Queued image")}):(0,import_react75.createElement)(QueueFile,{key:`${item.attachment.attachmentId}:${item.attachment.name}:${index}`,attachment:item.
-attachment,label:t("Queued file {name}",{name:item.attachment.name})}))),(0,import_react75.createElement)(Preview,{text:row.content.filter(block=>block.type==="text").map(block=>block.
-text).join(""),renderFactorySlot})),queueMutable&&(0,import_react75.createElement)("div",{className:"bt-queue-actions"},editing?.id===row.id?(0,import_react75.createElement)(import_react75.Fragment,
-null,(0,import_react75.createElement)(RowButton,{label:t("Save queued message"),disabled:busy!==null||editing.text.trim()==="",onClick:saveEdit},(0,import_react75.createElement)(CheckIcon)),
-(0,import_react75.createElement)(RowButton,{label:t("Cancel editing"),disabled:busy!==null,onClick:()=>setEditing(null)},(0,import_react75.createElement)(CloseIcon))):(0,import_react75.createElement)(
-import_react75.Fragment,null,(0,import_react75.createElement)(RowButton,{label:t("Edit queued message"),title:text===null?t("Contains non-text content, so editing is not supported \
-yet"):void 0,disabled:busy!==null||text===null,onClick:()=>{text!==null&&setEditing({id:row.id,text})}},(0,import_react75.createElement)(PencilIcon)),(0,import_react75.createElement)(
-RowButton,{label:t("Delete queued message"),disabled:busy!==null,onClick:()=>applyAction(row.id,{kind:"remove"},t("Couldn’t delete the queued message — it may have started already."))},
-(0,import_react75.createElement)(TrashIcon)),(0,import_react75.createElement)(RowButton,{label:t("Steer queued message"),title:running?void 0:t("Only while a turn is running"),disabled:busy!==
-null||!running,onClick:()=>applyAction(row.id,{kind:"steer"},t("Couldn’t steer the queued message. Try again."))},(0,import_react75.createElement)(ArrowUpIcon)))))}),listVisible&&
-pendingQueue.map(submission=>(0,import_react75.createElement)("li",{key:submission.requestId,className:"bt-queue-row bt-queue-pending"},rowCount===1&&(0,import_react75.createElement)(
-"span",{className:"bt-queue-lead","aria-hidden":!0},(0,import_react75.createElement)(QueueIcon)),submission.attachments.length>0&&(0,import_react75.createElement)("span",{className:"\
-bt-queue-attachments"},submission.attachments.map((attachment,index)=>attachment.type==="image"?(0,import_react75.createElement)("img",{key:`${attachment.value.previewUrl}:${index}`,
-className:"bt-queue-thumb",src:attachment.value.previewUrl,alt:t("Queued image")}):(0,import_react75.createElement)(QueueFile,{key:`${attachment.value.attachmentId}:${attachment.value.
-name}:${index}`,attachment:attachment.value,label:t("Queued file {name}",{name:attachment.value.name})}))),(0,import_react75.createElement)(Preview,{text:submission.text,renderFactorySlot}),
-(0,import_react75.createElement)("span",{className:"bt-queue-status",role:"status"},t("Sending…")),queueMutable&&(0,import_react75.createElement)("div",{className:"bt-queue-actio\
-ns"},(0,import_react75.createElement)(RowButton,{label:t("Edit queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(PencilIcon)),(0,import_react75.createElement)(
-RowButton,{label:t("Delete queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(TrashIcon)),(0,import_react75.createElement)(RowButton,{label:t("Ste\
-er queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(ArrowUpIcon))))))))}var QUEUE_CSS=`
+className:"bt-queue-edit",value:text,rows:1,"aria-label":t("Edit queued message"),onChange:event=>onChange(event.target.value),onKeyDown:event=>{event.key==="Escape"&&!event.nativeEvent.
+isComposing&&event.keyCode!==229?(event.stopPropagation(),onCancel()):event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229&&(event.preventDefault(),
+onSave())}})}function RowButton({label,title,disabled,onClick,children}){return(0,import_react75.createElement)("button",{type:"button",className:"bt-queue-action","aria-label":label,
+title:title??label,disabled,onClick},children)}function QueueDock({useSession,useProjection,updateQueue,loadImage,renderFactorySlot,actions}){let inbox=useProjection?.("inbox"),pendingSubmissions=useSession?.(
+s=>s.pendingSubmissions)??EMPTY_QUEUE,queue=(0,import_react75.useMemo)(()=>{let rows2=(inbox?.["next-turn"]??EMPTY_QUEUE).filter(row=>OWN_QUEUE_KINDS.has(row.source?.kind)),inChat=new Set(
+pendingSubmissions.filter(item=>item.placement==="transcript").map(item=>item.requestId));return inChat.size===0?rows2:rows2.filter(({source})=>source===null||typeof source!="objec\
+t"||!("rpcId"in source)||!inChat.has(source.rpcId))},[inbox,pendingSubmissions]),pendingQueue=(0,import_react75.useMemo)(()=>{let admitted=new Set(queue.flatMap(({source})=>source!==
+null&&typeof source=="object"&&"rpcId"in source?[source.rpcId]:[]));return pendingSubmissions.filter(submission=>submission.placement==="queued"&&!admitted.has(submission.requestId))},
+[pendingSubmissions,queue]),rowCount=queue.length+pendingQueue.length,running=useSession?.(s=>s.running)===!0,queueMutable=useSession?.(s=>s.subagent===null||s.subagent===void 0||s.
+subagent.address?.mode==="continuable")??!0,[editing,setEditing]=(0,import_react75.useState)(null),[busy,setBusy]=(0,import_react75.useState)(null),[collapsed,setCollapsed]=(0,import_react75.useState)(
+!0),listId=(0,import_react75.useId)();if((0,import_react75.useEffect)(()=>{rowCount===0&&!collapsed&&setCollapsed(!0),editing!==null&&(!queueMutable||!queue.some(row=>row.id===editing.
+id))&&setEditing(null)},[collapsed,editing,queue,queueMutable,rowCount]),rowCount===0)return null;let interactionActive=queueMutable&&(editing!==null||busy!==null),expanded=!collapsed||
+interactionActive,listVisible=rowCount===1||expanded,applyAction=async(itemId,action,failure)=>{setBusy(itemId);try{let result=await updateQueue(itemId,action);return result&&result.
+ok===!1&&result.error?.code!=="session/queue-item-not-found"&&result.error?.code!=="session/steer-unavailable"?(actions.reportError(new Error(failure),"queue"),!1):!0}catch{return actions.
+reportError(new Error(failure),"queue"),!1}finally{setBusy(current2=>current2===itemId?null:current2)}},saveEdit=async()=>{editing===null||editing.text.trim()===""||await applyAction(
+editing.id,{kind:"edit",content:[{type:"text",text:editing.text}]},t("Couldn’t edit the queued message — it may have started already."))&&setEditing(null)};return(0,import_react75.createElement)(
+"div",{className:"bt-queue-dock","data-queue-dock":""},(0,import_react75.createElement)("div",{className:"bt-queue-panel"},rowCount>1&&(0,import_react75.createElement)("button",{type:"\
+button",className:"bt-queue-head","aria-controls":listId,"aria-expanded":expanded,disabled:interactionActive,onClick:()=>setCollapsed(value=>!value)},(0,import_react75.createElement)(
+"span",{className:"bt-queue-lead","aria-hidden":!0},(0,import_react75.createElement)(QueueIcon)),(0,import_react75.createElement)("span",{className:"bt-queue-count"},t("{n} queued \
+messages",{n:rowCount})),!listVisible&&pendingQueue.length>0&&(0,import_react75.createElement)("span",{className:"bt-queue-status",role:"status"},t("Sending…")),(0,import_react75.createElement)(
+"span",{className:"bt-queue-chev","aria-hidden":!0},expanded?(0,import_react75.createElement)(ChevronDownIcon):(0,import_react75.createElement)(ChevronUpIcon))),(0,import_react75.createElement)(
+"ul",{id:listId,className:"bt-queue-list",hidden:!listVisible},listVisible&&queue.map(row=>{let attachments=queueAttachments(row.content),text=textOf(row.content);return(0,import_react75.createElement)(
+"li",{key:row.id,className:"bt-queue-row"},rowCount===1&&(0,import_react75.createElement)("span",{className:"bt-queue-lead","aria-hidden":!0},(0,import_react75.createElement)(QueueIcon)),
+editing?.id===row.id?(0,import_react75.createElement)(EditField,{text:editing.text,onChange:text2=>setEditing({id:row.id,text:text2}),onSave:saveEdit,onCancel:()=>setEditing(null)}):
+(0,import_react75.createElement)(import_react75.Fragment,null,attachments.length>0&&(0,import_react75.createElement)("span",{className:"bt-queue-attachments"},attachments.map((item,index)=>item.
+type==="image"?(0,import_react75.createElement)(QueueThumb,{key:`${item.attachment.attachmentId}:${index}`,attachment:item.attachment,loadImage,label:t("Queued image")}):(0,import_react75.createElement)(
+QueueFile,{key:`${item.attachment.attachmentId}:${item.attachment.name}:${index}`,attachment:item.attachment,label:t("Queued file {name}",{name:item.attachment.name})}))),(0,import_react75.createElement)(
+Preview,{text:row.content.filter(block=>block.type==="text").map(block=>block.text).join(""),renderFactorySlot})),queueMutable&&(0,import_react75.createElement)("div",{className:"b\
+t-queue-actions"},editing?.id===row.id?(0,import_react75.createElement)(import_react75.Fragment,null,(0,import_react75.createElement)(RowButton,{label:t("Save queued message"),disabled:busy!==
+null||editing.text.trim()==="",onClick:saveEdit},(0,import_react75.createElement)(CheckIcon)),(0,import_react75.createElement)(RowButton,{label:t("Cancel editing"),disabled:busy!==
+null,onClick:()=>setEditing(null)},(0,import_react75.createElement)(CloseIcon))):(0,import_react75.createElement)(import_react75.Fragment,null,(0,import_react75.createElement)(RowButton,
+{label:t("Edit queued message"),title:text===null?t("Contains non-text content, so editing is not supported yet"):void 0,disabled:busy!==null||text===null,onClick:()=>{text!==null&&
+setEditing({id:row.id,text})}},(0,import_react75.createElement)(PencilIcon)),(0,import_react75.createElement)(RowButton,{label:t("Delete queued message"),disabled:busy!==null,onClick:()=>applyAction(
+row.id,{kind:"remove"},t("Couldn’t delete the queued message — it may have started already."))},(0,import_react75.createElement)(TrashIcon)),(0,import_react75.createElement)(RowButton,
+{label:t("Steer queued message"),title:running?void 0:t("Only while a turn is running"),disabled:busy!==null||!running,onClick:()=>applyAction(row.id,{kind:"steer"},t("Couldn’t ste\
+er the queued message. Try again."))},(0,import_react75.createElement)(ArrowUpIcon)))))}),listVisible&&pendingQueue.map(submission=>(0,import_react75.createElement)("li",{key:submission.
+requestId,className:"bt-queue-row bt-queue-pending"},rowCount===1&&(0,import_react75.createElement)("span",{className:"bt-queue-lead","aria-hidden":!0},(0,import_react75.createElement)(
+QueueIcon)),submission.attachments.length>0&&(0,import_react75.createElement)("span",{className:"bt-queue-attachments"},submission.attachments.map((attachment,index)=>attachment.type===
+"image"?(0,import_react75.createElement)("img",{key:`${attachment.value.previewUrl}:${index}`,className:"bt-queue-thumb",src:attachment.value.previewUrl,alt:t("Queued image")}):(0,import_react75.createElement)(
+QueueFile,{key:`${attachment.value.attachmentId}:${attachment.value.name}:${index}`,attachment:attachment.value,label:t("Queued file {name}",{name:attachment.value.name})}))),(0,import_react75.createElement)(
+Preview,{text:submission.text,renderFactorySlot}),(0,import_react75.createElement)("span",{className:"bt-queue-status",role:"status"},t("Sending…")),queueMutable&&(0,import_react75.createElement)(
+"div",{className:"bt-queue-actions"},(0,import_react75.createElement)(RowButton,{label:t("Edit queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(
+PencilIcon)),(0,import_react75.createElement)(RowButton,{label:t("Delete queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(TrashIcon)),(0,import_react75.createElement)(
+RowButton,{label:t("Steer queued message"),title:t("Sending…"),disabled:!0},(0,import_react75.createElement)(ArrowUpIcon))))))))}var QUEUE_CSS=`
 .bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--\
 dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(\
 0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
@@ -15202,24 +15297,26 @@ if(text===null){dismiss();return}inputActions.insertQuote(text)&&closeNative()},
 close();return}if(!(pending.current||closing)){pending.current=!0,setSending(!0);try{await actions.send(sessionId,annotatedMessage(text,annotation)),close()}catch(error){actions.reportError(
 error,"text-annotation"),setSending(!1),pending.current=!1,field.current?.focus()}}},onKeyDown=event=>{if(event.key==="Escape"){event.preventDefault(),event.stopPropagation(),close();
 return}let action=annotationKey(event);action!==null&&(event.preventDefault(),event.stopPropagation(),action==="add"?add():send())};return team?editing?(0,import_react76.createElement)(
-"section",{className:"bt-annotation","aria-label":t("Annotate quote"),"data-leaving":closing||void 0,onPointerDown:event=>event.stopPropagation()},(0,import_react76.createElement)(
-"label",{className:"bt-annotation-label",htmlFor:"bt-annotation-field"},t("Annotation")),(0,import_react76.createElement)("blockquote",{className:"bt-annotation-quote"},quoteText()),
-(0,import_react76.createElement)("textarea",{id:"bt-annotation-field",ref:field,value:annotation,rows:3,placeholder:t("Add an annotation…"),"aria-label":t("Annotation"),disabled:sending||
-closing,onChange:event=>setAnnotation(event.target.value),onKeyDown}),(0,import_react76.createElement)("div",{className:"bt-annotation-actions"},(0,import_react76.createElement)("b\
-utton",{type:"button",className:"bt-annotation-add",disabled:sending||closing,onClick:add,title:t("Add quote and annotation to the composer · Enter")},t("Add")),(0,import_react76.createElement)(
-"button",{type:"button",className:"bt-annotation-send",disabled:sending||closing,onClick:()=>{send()},title:t("Send quote and annotation · Ctrl+Enter")},sending?t("Sending…"):t(
-"Send")))):(0,import_react76.createElement)("div",{className:"bt-selection-actions"},(0,import_react76.createElement)("button",{type:"button",className:"bt-selection-action","aria-\
-label":hostT("quote.add"),onPointerDown:event=>event.preventDefault(),onClick:quoteOnly},hostT("quote.add")),(0,import_react76.createElement)("button",{type:"button",className:"bt-\
-selection-action bt-quote-annotate","aria-label":t("Annotate"),onPointerDown:event=>event.preventDefault(),onClick:startAnnotate},t("Annotate"))):(0,import_react76.createElement)("\
-button",{type:"button",className:"bt-quote-plain","aria-label":hostT("quote.add"),onPointerDown:event=>event.preventDefault(),onClick:quoteOnly},hostT("quote.add"))}var ANNOTATION_CSS=`\
-
+"section",{className:"bt-annotation","aria-label":t("Annotate quote"),"data-leaving":closing||void 0,onPointerDown:event=>event.stopPropagation(),onKeyDown:event=>{event.key==="Esc\
+ape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault(),event.stopPropagation(),close())}},(0,import_react76.createElement)("label",{className:"bt-annot\
+ation-label",htmlFor:"bt-annotation-field"},t("Annotation")),(0,import_react76.createElement)("blockquote",{className:"bt-annotation-quote"},quoteText()),(0,import_react76.createElement)(
+"textarea",{id:"bt-annotation-field",ref:field,value:annotation,rows:3,placeholder:t("Add an annotation…"),"aria-label":t("Annotation"),disabled:sending||closing,onChange:event=>setAnnotation(
+event.target.value),onKeyDown}),(0,import_react76.createElement)("div",{className:"bt-annotation-actions"},(0,import_react76.createElement)("button",{type:"button",className:"bt-an\
+notation-add",disabled:sending||closing,onClick:add,title:t("Add quote and annotation to the composer · Enter")},t("Add")),(0,import_react76.createElement)("button",{type:"button",
+className:"bt-annotation-send",disabled:sending||closing,onClick:()=>{send()},title:(()=>{let label=t("Send quote and annotation · Ctrl+Enter");return typeof navigator<"u"&&/Mac|iPhone|iPad|iPod/i.
+test(navigator.platform||navigator.userAgent||"")?label.replace("Ctrl+Enter","⌘↵"):label})()},sending?t("Sending…"):t("Send")))):(0,import_react76.createElement)("div",{className:"\
+bt-selection-actions"},(0,import_react76.createElement)("button",{type:"button",className:"bt-selection-action","aria-label":hostT("quote.add"),onPointerDown:event=>event.preventDefault(),
+onClick:quoteOnly},hostT("quote.add")),(0,import_react76.createElement)("button",{type:"button",className:"bt-selection-action bt-quote-annotate","aria-label":t("Annotate"),onPointerDown:event=>event.
+preventDefault(),onClick:startAnnotate},t("Annotate"))):(0,import_react76.createElement)("button",{type:"button",className:"bt-quote-plain","aria-label":hostT("quote.add"),onPointerDown:event=>event.
+preventDefault(),onClick:quoteOnly},hostT("quote.add"))}var ANNOTATION_CSS=`
 .bt-selection-actions{display:inline-flex;align-items:stretch;overflow:hidden;border-radius:10px;background:var(--dsw-alias-button-floating-fill,var(--bt-card));border:1px solid va\
 r(--bt-line-2);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .12s ease-ou\
 t}
 .bt-selection-action{display:inline-flex;align-items:center;gap:5px;height:30px;border:0;border-radius:0;margin:0;padding:0 12px;background:transparent;color:var(--dsw-alias-label-\
 primary,var(--bt-ink));font:500 13px/18px var(--bt-font);cursor:pointer;white-space:nowrap;touch-action:manipulation;transition:background-color .12s ease}
+.bt-selection-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-selection-action+.bt-selection-action{border-left:1px solid var(--bt-line)}
-.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover));outline:none}
+.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elev\
 ation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px\
 ;padding:5px 10px}

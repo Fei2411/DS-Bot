@@ -8,11 +8,30 @@ import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 // The DSH Agent's mark. The app has no DSH Agent, so nothing asks for it.
 export const FishLogo = () => null
 
+function fallbackCopy(text) {
+  if (typeof document === 'undefined' || !document.body) return false
+  const area = document.createElement('textarea')
+  area.value = String(text ?? '')
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '-9999px'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  const previous = document.activeElement
+  area.focus()
+  area.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  area.remove()
+  if (previous instanceof HTMLElement) previous.focus()
+  return ok
+}
+
 // writeClipboard in the plugin is DSH's (navigator.clipboard with an execCommand
 // fallback off-HTTPS); the window keeps the same contract.
 export const writeClipboard = text => (navigator.clipboard === undefined
-  ? Promise.resolve(document.execCommand('copy', false, text))
-  : navigator.clipboard.writeText(text).then(() => true, () => false))
+  ? Promise.resolve(fallbackCopy(text))
+  : navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text)))
 
 const plugins = [remarkGfm]
 
@@ -20,7 +39,8 @@ function CodeBlock({ children, labels }) {
   const [copied, setCopied] = useState(false)
   const block = useRef(null)
   const copy = () => {
-    void navigator.clipboard?.writeText(block.current?.innerText ?? '').then(() => {
+    void writeClipboard(block.current?.innerText ?? '').then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1000)
     })

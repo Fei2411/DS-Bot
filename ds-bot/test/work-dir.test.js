@@ -1569,3 +1569,230 @@ test('a group Session that cannot be opened still saves the folder', async (t) =
   assert.equal(env.state().rooms.r1.id, 'r1')
   assert.equal((await env.call('state', {})).ok, true)
 })
+
+// Preset, sandbox, and approval services matching DSH's preset table: Full access pairs
+// danger-full-access with the 'never' approval policy, which rejects approval.request()
+// before any answerer sees it; Auto review pairs danger-full-access with 'ask'.
+function fullAccessServices(outcome = 'rejected') {
+  const specs = {
+    'read-only': { sandbox: 'read-only', approval: 'ask' },
+    'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+    'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+    auto: { sandbox: 'danger-full-access', approval: 'ask' },
+    custom: { sandbox: 'danger-full-access', approval: 'ask' },
+  }
+  const current = new Map()
+  const requests = []
+  const specOf = session => specs[current.get(session?.id) ?? 'workspace-write']
+  return {
+    requests,
+    current,
+    services: {
+      sandboxPolicy: { resolve: ({ session } = {}) => ({ mode: specOf(session).sandbox }) },
+      permissionPresets: {
+        catalog: () => ({
+          options: ['read-only', 'workspace-write', 'danger-full-access', 'auto'].map(value => ({ value, name: value })),
+          defaultPreset: 'workspace-write',
+        }),
+        resolve: (name) => {
+          if (!(name in specs)) throw new Error(`permission: unknown preset "${name}"`)
+          return specs[name]
+        },
+        current: session => current.get(session?.id) ?? 'workspace-write',
+        set: (session, name) => { current.set(session.id, name) },
+      },
+      approval: {
+        effectivePolicy: session => specOf(session).approval,
+        request: async (request) => {
+          if (specOf(request.agent?.session).approval === 'never') return 'rejected'
+          requests.push(request)
+          return outcome
+        },
+      },
+    },
+  }
+}
+
+// #1308: Full access sets DSH's approval policy to 'never', and the global default sandbox
+// is 'workspace-write'; neither blocks a Full-access caller or a Full-access target.
+test('a Bot on Full access sets folders outside the workspace without an approval prompt', async (t) => {
+  const { service } = folderService()
+  const { requests, services } = fullAccessServices('rejected')
+  const { ctx, call, tool, agentOf, workingIn, dsh, root, project, state, stop } = await start({ services: { ...services, workingDirectory: service } })
+  t.after(stop)
+  const other = join(root, 'other')
+  const third = join(root, 'third')
+  for (const dir of [other, third]) mkdirSync(dir)
+
+  assert.equal((await call('update-bot', { id: 'a', permission: 'danger-full-access' })).ok, true)
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Created Builder, working in ${project}. It is greeting the user now.`)
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: other }, 'a'), `Updated Writer. It now works in ${other}.`)
+  await workingIn('b', other)
+  assert.match(await tool('update_group', { group: 'Ops', work_dir: project }, 'a'), /^Updated "Ops": every member now works in /)
+  await until(() => state().rooms.r1.sessionId !== undefined)
+  assert.equal(await tool('update_group', { group: 'Ops', work_dir: '' }, 'a'), 'Updated "Ops": every member works in its own folder again.')
+  await settle()
+  // Guarded DSH data roots stay closed under Full access too.
+  assert.match(await tool('update_bot', { work_dir: dsh }, 'a'), /holds DeepSeek Harness data/)
+
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  const ownSession = state().bots.b.sessionId
+  assert.equal(await tool('update_bot', { work_dir: project }, ownSession), `Updated Writer. From your next step on, you work in ${project}.`)
+  await workingIn('b', project)
+  const live = agentOf(state().bots.b.sessionId)
+  live.status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, live, third), { result: { isError: false, value: { cwd: third } }, ran: true })
+  assert.equal(state().bots.b.workDir, third)
+  agentOf('gb').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('gb'), other), { result: { isError: false, value: { cwd: other } }, ran: true })
+  assert.equal(state().rooms.r1.memberDirs?.b, other)
+  assert.equal(requests.length, 0)
+})
+
+test('group permissions and Auto review still gate folder changes by a Full-access Bot', async (t) => {
+  const { service } = folderService()
+  const { requests, current, services } = fullAccessServices('rejected')
+  const { ctx, call, tool, agentOf, project, stop } = await start({ services: { ...services, workingDirectory: service } })
+  t.after(stop)
+
+  // Ops restricts every member there to workspace-write, even a Full-access Bot.
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  assert.equal((await call('update-room', { id: 'r1', permission: 'workspace-write' })).ok, true)
+  agentOf('gb').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('gb'), project), { error: notAllowed(project), ran: false })
+  assert.equal(await tool('update_bot', { work_dir: project }, 'gb'), `Could not update the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 2)
+
+  // Auto review and custom review run on danger-full-access with 'ask', so setting a bounded Bot's folder still asks.
+  current.set('a', 'auto')
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  current.set('a', 'custom')
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 4)
+})
+
+test('a bounded Main Bot skips approval for unbounded Bots unless a group bounds them', async (t) => {
+  const { requests, services } = fullAccessServices('rejected')
+  const { call, tool, root, project, state, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+
+  const made = (await call('create-bot', { name: 'Coder' })).value
+  assert.equal((await call('update-bot', { id: made.id, permission: 'danger-full-access' })).ok, true)
+  // Coder is in no group, and both its chat and its future parts run on Full access.
+  assert.equal(await tool('update_bot', { bot: 'Coder', work_dir: project }, 'a'), `Updated Coder. It now works in ${project}.`)
+  assert.equal((await call('update-room', { id: 'r1', workDir: other })).ok, true)
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'] }, 'a'), 'Updated "Ops": added Coder.')
+  assert.equal(requests.length, 0)
+
+  // Once Ops clears its own folder and sets workspace-write, Coder's future group Session
+  // there inherits Coder's folder under workspace-write, so moving Coder asks.
+  assert.equal((await call('update-room', { id: 'r1', workDir: '', permission: 'workspace-write' })).ok, true)
+  assert.equal(await tool('update_bot', { bot: 'Coder', work_dir: other }, 'a'), `Could not update the Bot: ${notAllowed(other)}`)
+  assert.equal(requests.length, 1)
+
+  // A read-only Bot gets an outside folder without approval, then asks before joining or
+  // uncovering that folder in a workspace-write group.
+  const reader = (await call('create-bot', { name: 'Reader' })).value
+  assert.equal((await call('update-bot', { id: reader.id, permission: 'read-only' })).ok, true)
+  assert.equal(await tool('update_bot', { bot: 'Reader', work_dir: project }, 'a'), `Updated Reader. It now works in ${project}.`)
+  assert.equal(requests.length, 1)
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Reader'] }, 'a'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.equal(state().rooms.r1.members.includes(reader.id), false)
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].reason, `Let Reader work in ${project}? Files there can then be changed.`)
+
+  assert.equal((await call('update-room', { id: 'r1', workDir: other, add: [reader.id] })).ok, true)
+  assert.equal(await tool('update_group', { group: 'Ops', work_dir: '' }, 'a'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.equal(state().rooms.r1.workDir, other)
+  assert.equal(requests.length, 3)
+})
+
+test('a Bot\'s live background threads count when checking a folder change, without checking archived segments', async (t) => {
+  const { service } = folderService()
+  const { requests, current, services } = fullAccessServices('rejected')
+  const saved = {
+    ...TEAM,
+    rooms: {},
+    bots: {
+      ...TEAM.bots,
+      b: {
+        ...TEAM.bots.b,
+        permission: 'danger-full-access',
+        openParts: [{ sessionId: 'b-bg', segments: [{ sessionId: 'b-bg-old' }] }],
+      },
+    },
+  }
+  current.set('b', 'danger-full-access')
+  current.set('b-bg', 'workspace-write')
+  current.set('b-bg-old', 'workspace-write')
+  const { ctx, tool, agentOf, project, state, stop } = await start({ services: { ...services, workingDirectory: service }, team: saved })
+  t.after(stop)
+  const resolveAgent = ctx.sessionController.resolveAgent
+  ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'b-bg-old') throw new Error('archived segment has no live agent')
+    return resolveAgent(sessionId)
+  }
+
+  // Main Bot (workspace-write) sees that b's live background thread b-bg is still bounded.
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Could not update the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 1)
+
+  // A read-only foreground thread changing via working_directory also checks live b-bg.
+  current.set('b', 'read-only')
+  agentOf('b').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('b'), project), { error: notAllowed(project), ran: false })
+  assert.equal(requests.length, 2)
+
+  // Once every live thread is on Full access, archived b-bg-old is not checked and needs no approval.
+  current.set('b', 'danger-full-access')
+  current.set('b-bg', 'danger-full-access')
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Updated Writer. It now works in ${project}.`)
+  assert.equal(state().bots.b.workDir, project)
+  assert.equal(requests.length, 2)
+})
+
+test('the Full-access shortcut fails closed on preset lookup errors and unknown presets, and still skips without a preset service', async (t) => {
+  const { requests, current, services } = fullAccessServices('rejected')
+  current.set('a', 'auto')
+  const { permissionPresets } = services
+  const { tool, project, stop } = await start({ services })
+  t.after(stop)
+
+  const originalCurrent = permissionPresets.current
+  permissionPresets.current = () => { throw new Error('presets not ready') }
+  assert.equal(await tool('create_bot', { name: 'ErrBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 1)
+
+  permissionPresets.current = () => undefined
+  assert.equal(await tool('create_bot', { name: 'UnknownBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 2)
+
+  // A broken catalog/resolve lookup while policy default is full access also fails closed.
+  const originalCatalog = permissionPresets.catalog
+  permissionPresets.catalog = () => { throw new Error('broken catalog') }
+  permissionPresets.current = originalCurrent
+  const fallbackReadOnly = services.sandboxPolicy.resolve
+  services.sandboxPolicy.resolve = ({ session } = {}) => (session === undefined ? { mode: 'danger-full-access' } : fallbackReadOnly({ session }))
+  assert.equal(await tool('create_bot', { name: 'BadCatalogBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 3)
+  permissionPresets.catalog = originalCatalog
+  services.sandboxPolicy.resolve = fallbackReadOnly
+
+  // Without a permissionPresets service, sandboxPolicy alone decides Full access.
+  const noPresets = approvalServices('rejected', { mode: 'danger-full-access' })
+  const bare = await start({ services: noPresets.services })
+  t.after(bare.stop)
+  assert.equal(await bare.tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: bare.project }, 'a'),
+    `Created Builder, working in ${bare.project}. It is greeting the user now.`)
+  assert.equal(await bare.tool('update_bot', { bot: 'Writer', work_dir: bare.project }, 'a'),
+    `Updated Writer. It now works in ${bare.project}.`)
+  assert.equal(noPresets.requests.length, 0)
+})

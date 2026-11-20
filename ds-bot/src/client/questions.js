@@ -88,7 +88,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     'aria-keyshortcuts': hints ? ownLetter?.toLowerCase() : undefined,
     onChange: (event) => { if (!busy) { onInteract?.(); setOwn(event.target.value) } },
     onKeyDown: (event) => {
-      if (event.key !== 'Enter' || !enterToSend || event.shiftKey || event.nativeEvent.isComposing) return
+      if (event.key !== 'Enter' || !enterToSend || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return
       event.preventDefault()
       submit()
     },
@@ -105,7 +105,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     h('span', { className: 'bt-q-body' },
       h('span', { className: 'bt-q-label' }, option.label),
       option.description ? h('span', { className: 'bt-q-desc' }, option.description) : null),
-    selected && !raised ? h('span', { className: 'bt-q-check', title: t('Selected') }, h(CheckIcon)) : null)
+    selected && (!raised || !hints) ? h('span', { className: 'bt-q-check', title: t('Selected') }, h(CheckIcon)) : null)
   })
   // Raised cards keep the custom answer as one more keyed row; bubbles put it below the list.
   if (raised && field) {

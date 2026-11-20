@@ -61,10 +61,10 @@ function useGaze(ref, enabled) {
       document.documentElement.removeEventListener('pointerleave', onLeave)
       clear()
     }
-    const sync = () => { if (reducedEffects()) detach(); else attach() }
+    const sync = () => { if (reducedEffects() || document.body?.dataset.btMotion === 'quiet') detach(); else attach() }
     sync()
     const observer = typeof MutationObserver === 'function' && document.body ? new MutationObserver(sync) : null
-    observer?.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects'] })
+    observer?.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects', 'data-bt-motion'] })
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
     media?.addEventListener?.('change', sync)
     return () => {
@@ -89,7 +89,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   // A photo that does not load shows the character instead; a new photo is tried again.
   const [broken, setBroken] = useState('')
   const image = look.image && look.image !== broken ? look.image : undefined
-  useGaze(ref, gaze)
+  useGaze(ref, gaze && !image)
   const common = {
     ref,
     className: poked ? 'bt-mark bt-mark-poke' : 'bt-mark',
@@ -97,14 +97,15 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     'data-state': STATES.includes(state) ? state : 'idle',
     'data-live': live ? '' : undefined,
     'data-fidget': live ? FIDGETS[fnv1a(`${bot?.id ?? ''}:fidget`) % FIDGETS.length] : undefined,
-    'data-gaze': gaze ? '' : undefined,
+    'data-gaze': gaze && !image ? '' : undefined,
     'data-poke': pokeable ? '' : undefined,
     style: { width: size, height: size, ...(live ? { '--bt-delay': `${-(fnv1a(String(bot?.id ?? '')) % 5000) / 1000}s`, '--bt-fidget-delay': `${-(fnv1a(`${bot?.id ?? ''}:when`) % 9000) / 1000}s` } : {}) },
     role: label ? 'img' : undefined,
     'aria-label': label,
     'aria-hidden': label ? undefined : true,
     onClick: pokeable ? () => { if (!reducedMotion() && document.body?.dataset.btMotion !== 'quiet') setPoked(true) } : undefined,
-    onAnimationEnd: poked ? (event) => { if (/^bt-poke/.test(event.animationName)) setPoked(false) } : undefined,
+    onAnimationEnd: poked ? (event) => { if (event.animationName.startsWith('bt-poke')) setPoked(false) } : undefined,
+    onAnimationCancel: poked ? () => setPoked(false) : undefined,
   }
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const box = shapeOf(look.shape).size
@@ -126,23 +127,23 @@ function MainStar() {
 }
 
 // Marks settle with a short squash when a run finishes.
-function useSettled(state) {
-  const prev = useRef(state)
+function useSettled(state, id) {
+  const prev = useRef({ state, id })
   const [settled, setSettled] = useState(false)
   useEffect(() => {
     const was = prev.current
-    prev.current = state
-    if (state !== 'idle') { setSettled(false); return undefined }
-    if (was === 'idle' || was === 'alert') return undefined
+    prev.current = { state, id }
+    if (was.id !== id || state !== 'idle') { setSettled(false); return undefined }
+    if (was.state === 'idle' || was.state === 'alert') return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)
-  }, [state])
+  }, [state, id])
   return settled
 }
 
 export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
-  const settled = useSettled(state)
+  const settled = useSettled(state, bot?.id)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
