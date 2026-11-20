@@ -176,7 +176,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerTakeover: botId => after(call('computer-takeover', { botId })),
     computerHandback: botId => after(call('computer-handback', { botId })),
     computerAllowForeground: botId => call('computer-allow-foreground', { botId }),
-    computerAppAnswer: (id, answer) => call('computer-app-answer', { id, answer }),
+    computerAppAnswer: (id, answer) => after(call('computer-app-answer', { id, answer })),
     computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call('computer-hold-answer', { botId, ...(callId !== undefined ? { callId } : {}), outcome })),
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
@@ -202,12 +202,21 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // group as a user message that calls its owner; cancelling is the panel's own.
     taskNote: (roomId, id, text) => after(call('task-note', { roomId, id, text })),
     taskCancel: (roomId, id) => after(call('task-cancel', { roomId, id })),
-    // The goal island: `goalCompose` holds the room whose draft form is open,
-    // `goalOpen` the room whose panel is open.
-    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
+    // The goal / approval island: `goalCompose` holds the room whose draft form is
+    // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
+    // whose approval panel is open. Goal and approval panels stay mutually exclusive.
+    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
     closeGoalCompose: () => ui.set(state => (state.goalCompose ? { ...state, goalCompose: null } : state)),
-    toggleGoal: roomId => ui.set(state => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId })),
+    toggleGoal: roomId => ui.set(state => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
     closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
+    toggleApproval: roomId => ui.set(state => ({
+      ...state,
+      approvalOpen: state.approvalOpen === roomId ? null : roomId,
+      goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
+      goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
+    })),
+    openApproval: roomId => ui.set(state => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    closeApproval: () => ui.set(state => (state.approvalOpen ? { ...state, approvalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
     secretAllow: requestId => after(call('secret-allow', { requestId })),
