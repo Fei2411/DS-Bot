@@ -133,9 +133,21 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const [unit, setUnit] = useState('hours')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const validAt = kind !== 'at' || (at !== '' && Number.isFinite(Date.parse(at)))
+  const validDays = kind !== 'weekly' || weekdays.length > 0
+  const validEvery = kind !== 'every' || (Number.isFinite(Number(count)) && Number(count) >= 1)
   const timing = () => {
-    if (kind === 'at') return { kind, at: new Date(at).toISOString() }
-    if (kind === 'every') return { kind, minutes: Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1]) }
+    if (kind === 'at') {
+      const parsed = new Date(at)
+      if (!Number.isFinite(parsed.getTime())) throw new Error('invalid date')
+      return { kind, at: parsed.toISOString() }
+    }
+    if (kind === 'every') {
+      const minutes = Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1])
+      if (!Number.isFinite(minutes) || minutes < 1) throw new Error('invalid interval')
+      return { kind, minutes }
+    }
+    if (kind === 'weekly' && weekdays.length === 0) throw new Error('pick a day')
     return { kind, time, timeZone: localZone(), ...(kind === 'weekly' ? { weekdays } : {}) }
   }
   const submit = (event) => {
@@ -144,7 +156,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     setBusy(true)
     setError('')
     let when
-    try { when = timing() } catch { setError(t('Pick a date and time')); setBusy(false); return }
+    try { when = timing() } catch { setError(kind === 'weekly' ? t('Pick at least one day') : t('Pick a date and time')); setBusy(false); return }
     void actions.scheduleCreate({ target, title, prompt, when })
       .then(onDone, (failure) => { setError(hostText(failure?.message ?? String(failure))); setBusy(false) })
   }
@@ -178,7 +190,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     error ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-danger bt-set-hint' }, error)) : null,
     h('div', { className: 'bt-set-row bt-task-foot' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !target || title.trim() === '' || prompt.trim() === '' }, busy ? t('Creating…') : t('Create task'))))
+      h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !target || title.trim() === '' || prompt.trim() === '' || !validAt || !validDays || !validEvery }, busy ? t('Creating…') : t('Create task'))))
 }
 
 // Settings has no schedule service to show: Automation tasks are off in DSH.

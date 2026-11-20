@@ -67,8 +67,8 @@ function TaskRow({ task, bot, room, actions }) {
         className: 'bt-input bt-task-input', value: text, placeholder: t('What should change?'), 'aria-label': t('What should change?'),
         onChange: event => setText(event.target.value),
         onKeyDown: (event) => {
-          if (event.key === 'Enter' && !event.nativeEvent?.isComposing) { event.preventDefault(); send() }
-          if (event.key === 'Escape') { event.stopPropagation(); setWriting(false) }
+          if (event.key === 'Enter' && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); send() }
+          if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.stopPropagation(); setWriting(false) }
         },
       }),
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: text.trim() === '' || busy, onClick: send }, t('Send'))) : null)
@@ -105,7 +105,7 @@ export const TASK_CSS = `
 .bt-task-head>.bt-mark{flex:none}
 .bt-task-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-status{flex:none;padding:0 6px;border-radius:999px;font-size:11px;line-height:16px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-task[data-status=active] .bt-task-status{color:var(--bt-green)}
+.bt-task[data-status=active] .bt-task-status{color:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
 .bt-task[data-status=review] .bt-task-status{color:var(--bt-accent)}
 .bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
 .bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
