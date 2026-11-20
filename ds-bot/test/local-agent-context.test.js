@@ -681,3 +681,26 @@ test('the window a CLI reports is the one its model card shows', async (t) => {
   adapter.live.get('s1').model = 'another-model'
   assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 200_000)
 })
+
+// A Session that was reopened on another model still carries the size it saved (the
+// Session's own figure, which the parts module reads), but that figure must not become
+// the new model's window. Usage-only reports are real -- claude.js sends the size
+// optionally, and a turn that only spends tokens reports `used` alone -- so the old
+// size used to be published under the new model's key: 262,000 for a model whose
+// ceiling nobody had reported.
+test('a usage-only report does not hand the previous model\'s window to the new one', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await turn(adapter, 's1', [user('m1', 'hello grow:100000')])
+  assert.equal(adapter.contextOf('s1').size, 262_000)
+  const live = adapter.live.get('s1')
+  live.model = 'another-model'
+  adapter.observe(live, { type: 'context', used: 5_000 })
+  // The Session keeps the size it saved, so its own percentage still reads it.
+  assert.deepEqual(adapter.contextOf('s1'), { used: 5_000, size: 262_000, compactions: 0 })
+  // The model card still shows the fallback: nothing reported a window for it.
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 200_000)
+  // A report that does carry a size is still the model's window.
+  adapter.observe(live, { type: 'context', used: 5_100, size: 475_000 })
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 475_000)
+})

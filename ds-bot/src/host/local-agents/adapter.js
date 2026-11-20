@@ -249,14 +249,20 @@ export class LocalAgentAdapter extends LlmAdapter {
       return
     }
     if (event?.type === 'context') {
-      const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
+      // A size the CLI reports now, as against one carried by the Session from its
+      // record: only the former is this model's window.
+      const reported = Number.isFinite(event.size) && event.size > 0 ? event.size : undefined
+      const size = reported ?? live.context?.size
       live.context = Number.isFinite(event.used)
         ? { used: event.used, ...(size === undefined ? {} : { size }) }
         : { ...live.context, ...(size === undefined ? {} : { size }) }
       // The same figure is the model's window: the model card and the percentage it
       // renders read it from resolveModel, so it is kept for the route and model this
-      // Session runs, not for this Session alone (#1823).
-      if (size !== undefined) this.windows.set(windowKey(live.route, live.model), size)
+      // Session runs, not for this Session alone (#1823). A usage-only report carries
+      // no size, and the Session may still hold the size of the model it ran before:
+      // publishing that one under this model's key would give the new model a window
+      // nothing has reported for it.
+      if (reported !== undefined) this.windows.set(windowKey(live.route, live.model), reported)
       this.deps.patchRecord?.(live.sessionId, { context: live.context })
       return
     }
