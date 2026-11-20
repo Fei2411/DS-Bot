@@ -9,6 +9,7 @@ import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
+import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 
 const RECONCILE_MS = 15_000
@@ -658,7 +659,7 @@ export function install(rt) {
     // The chat may have been unbound or pointed at another Bot or group while the work
     // it started keeps running; that work's late lines must not follow the old origin.
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
-    return { conn, chatKey: entry.chatKey, chat }
+    return { conn, chatKey: entry.chatKey, chat, senderId: entry.senderId, binding: entry.binding }
   }
   const rememberRequest = (requestId, conn, chatKey, senderId) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
@@ -731,7 +732,14 @@ export function install(rt) {
         queue.sending = true
         let sent
         try {
-          sent = await runner.handle.send(job.chat, job)
+          if (job.image !== undefined) {
+            if (typeof runner.handle.sendImage !== 'function') {
+              throw Object.assign(new Error('This IM platform cannot send images'), { permanent: true })
+            }
+            sent = await runner.handle.sendImage(job.chat, job.image)
+          } else {
+            sent = await runner.handle.send(job.chat, job)
+          }
         } catch (error) {
           queue.sending = false
           // A partial send (e.g. WeChat accepted earlier chunks before one failed)
@@ -810,8 +818,80 @@ export function install(rt) {
       queue.draining = false
     }
   }
-  const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
-  const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
+  // Per-chat staging chain: keeps async local-image resolution ordered ahead of
+  // subsequent replies and cards on the same chat without delaying plain-text sends.
+  const outboundStages = new Map()
+  const afterStage = (conn, chatKey, run) => {
+    const stageKey = `${conn.id}:${chatKey}`
+    const prev = outboundStages.get(stageKey) ?? Promise.resolve()
+    const next = prev.catch(() => {}).then(run)
+    outboundStages.set(stageKey, next)
+    const cleanup = () => { if (outboundStages.get(stageKey) === next) outboundStages.delete(stageKey) }
+    next.then(cleanup, cleanup)
+    return next
+  }
+  const enqueueAfterStage = (conn, chatKey, job) => {
+    const stageKey = `${conn.id}:${chatKey}`
+    if (!outboundStages.has(stageKey)) {
+      enqueue(conn, chatKey, job)
+      return
+    }
+    const runner = runners.get(conn.id)
+    afterStage(conn, chatKey, () => {
+      const liveConn = fresh(conn.id)
+      if (stopped || liveConn === undefined || runners.get(conn.id) !== runner || runner?.stopped) {
+        void Promise.resolve(job.onDrop?.()).catch(() => {})
+        return
+      }
+      enqueue(liveConn, chatKey, job)
+    })
+  }
+  const sendText = (conn, chat, body, buttons, after) => enqueueAfterStage(conn, chat.key, { chat, text: body, buttons, after })
+  const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueueAfterStage(conn, chatKey, { chat, text: body, buttons, after })
+  const originStillValid = (connId, chatKey, runner, senderId, binding) => {
+    const liveConn = fresh(connId)
+    if (stopped || liveConn === undefined || runners.get(connId) !== runner || runner?.stopped) return undefined
+    if (senderId !== undefined && !paired(liveConn, senderId)) return undefined
+    if (liveConn.chats?.[chatKey] === undefined) return undefined
+    if (binding !== undefined && bindingOf(liveConn, chatKey) !== binding) return undefined
+    return liveConn
+  }
+  const sendReply = (origin, body, { sessionId, botId, prefix = '' } = {}) => {
+    const { conn, chatKey, chat, senderId, binding } = origin
+    const where = { key: chatKey, kind: chat.kind, title: chat.title }
+    const stageKey = `${conn.id}:${chatKey}`
+    const runner = runners.get(conn.id)
+    const maybeImages = typeof rt.mobileEndpoint === 'function'
+      && (typeof runner?.handle?.sendImage === 'function' || runner?.handle === undefined)
+      && extractLocalMarkdownImages(body).length > 0
+    if (!maybeImages && !outboundStages.has(stageKey)) {
+      enqueue(conn, chatKey, { chat: where, text: `${prefix}${body}` })
+      return
+    }
+    afterStage(conn, chatKey, async () => {
+      const before = originStillValid(conn.id, chatKey, runner, senderId, binding)
+      if (before === undefined) return
+      if (!maybeImages || typeof runner?.handle?.sendImage !== 'function') {
+        enqueue(before, chatKey, { chat: where, text: `${prefix}${body}` })
+        return
+      }
+      const prepared = await prepareOutboundReply(body, {
+        resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
+          sessionId,
+          ...(botId !== undefined ? { botId } : {}),
+          path,
+        }),
+      })
+      for (const failure of prepared.failed) {
+        rt.warn('ds-bot: im outbound image %s skipped: %s', failure.path, failure.reason)
+      }
+      const liveConn = originStillValid(conn.id, chatKey, runner, senderId, binding)
+      if (liveConn === undefined) return
+      const fullText = prepared.text !== '' ? `${prefix}${prepared.text}` : (prepared.images.length > 0 && prefix !== '' ? prefix.trimEnd() : '')
+      if (fullText !== '') enqueue(liveConn, chatKey, { chat: where, text: fullText })
+      for (const image of prepared.images) enqueue(liveConn, chatKey, { chat: where, image })
+    })
+  }
 
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
@@ -1052,7 +1132,7 @@ export function install(rt) {
     for (const { chatKey } of pending) entries.push({ chatKey, messageId: undefined, text: body })
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
-      enqueue(conn, chatKey, {
+      enqueueAfterStage(conn, chatKey, {
         chat: { key: chatKey, kind: chat.kind, title: chat.title },
         text: body,
         buttons,
@@ -1631,9 +1711,37 @@ export function install(rt) {
         } else if (isTaskReport) {
           // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
           // and post-restart resends (inflight.json) never lose the IM chat claim.
+          // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
+          // the group's own Session without clobbering an unrelated live group origin.
           const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-          if (originFromSaved(saved) === undefined) dropOrigin(session.id)
-          else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          if (typeof source.roomId === 'string' && source.roomId !== '') {
+            const room = rt.roomOf(source.roomId)
+            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
+              const live = origins.get(roomSid)
+              const memberId = rt.groupOwners.get(session.id)?.botId
+              const activeRound = rt.roomActive?.(room.id) === true
+              const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
+              if (live === undefined && !activeRound && !(mixed.has(roomSid) && otherWorking)) {
+                // Restore after restart even while sibling group tasks run, and clear stale
+                // `mixed` left by an already-finished desktop/Web round; stay blocked while
+                // a live non-IM round is active or a mixed round still has working members.
+                resetOrigin(roomSid)
+                claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+                // A different IM chat currently owns the room; mix so neither chat sees the other's report.
+                dropOrigin(roomSid)
+              }
+            } else if (roomSid !== undefined) {
+              // A desktop/Web-started group task has no IM origin: drop any restored room
+              // origin so its report is never forwarded to an IM group chat.
+              dropOrigin(roomSid)
+            }
+          } else if (originFromSaved(saved) === undefined) {
+            dropOrigin(session.id)
+          } else {
+            claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
           // The chat this message came from is the one its turn answers. A message this
@@ -1678,16 +1786,16 @@ export function install(rt) {
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
-      sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+      sendReply(origin, body, { sessionId: session.id, botId })
     }
   })
 
   rt.onRoomLine((room, line) => {
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
-    const origin = originOf(room.sessionId ?? room.id)
+    const roomSessionId = room.sessionId ?? room.id
+    const origin = originOf(roomSessionId)
     if (origin === undefined) return
-    const body = `**${line.who}**: ${line.text}`
-    sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+    sendReply(origin, line.text, { sessionId: roomSessionId, botId: line.botId, prefix: `**${line.who}**: ` })
   })
 
   rt.onApproval((kind, data) => {

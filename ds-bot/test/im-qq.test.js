@@ -212,6 +212,35 @@ test('a platform that refuses markdown gets the same reply as plain text', async
   assert.equal(posts[1].params.content, '加粗与 代码')
 })
 
+test('a retried reply resends only the chunks QQ did not take', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  let refuse = true
+  fake.replies['/v2/users/u1/messages'] = (params) => {
+    if (params.markdown.content.startsWith('b') && refuse) {
+      refuse = false
+      return { error: 22009, message: 'msg limit exceed' }
+    }
+    return { result: { id: `id-${params.msg_seq}` } }
+  }
+  // The IM queue keeps the failed job and Try again hands the same one back.
+  const job = { text: `${'a'.repeat(1500)}\n\n${'b'.repeat(1500)}\n\n${'c'.repeat(1500)}` }
+  await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, job))
+  const sent = await handle.send({ key: 'u1', kind: 'direct' }, job)
+  const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages').map(call => call.params.markdown.content[0])
+  assert.deepEqual(posts, ['a', 'b', 'b', 'c'], 'the delivered first chunk is not posted again')
+  assert.equal(sent.messageId, 'id-4')
+  // A finished job starts over if it is ever sent again.
+  await handle.send({ key: 'u1', kind: 'direct' }, job)
+  assert.equal(fake.calls.filter(call => call.path === '/v2/users/u1/messages').length, 7)
+})
+
 test('a dropped socket reconnects and resumes', async (t) => {
   const fake = await fakeQq()
   const statuses = []

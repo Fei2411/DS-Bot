@@ -19,6 +19,7 @@ import { GearIcon } from './icons.js'
 import { useLinger } from './motion.js'
 import { t } from './i18n.js'
 import { createConnectionFeedback } from './connection-feedback.js'
+import { settingsPreferences } from './settings-preferences.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -202,6 +203,7 @@ export function SettingsShell(props) {
     useSections, useGeneralItems, useOnboardingSteps, useOnboardingRequest,
     useConnectionState, useDesktopUpdate, useSettingsShortcut,
     reconnect, openDesktopUpdate, openOnboarding, finishOnboarding, holdSeat,
+    preferences,
   } = props
   const settings = useUi(state => state.settings)
   const roster = useRoster(value => value)
@@ -260,7 +262,7 @@ export function SettingsShell(props) {
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
     kept ? createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
-      dsh: { sections, items, renderSlot },
+      dsh: { sections, items, renderSlot, preferences },
     }), document.body) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
@@ -419,6 +421,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     const base = face()
     return {
       ...base,
+      preferences: settingsPreferences(ctx),
       reconnect: () => ctx.get('connection')?.reconnect(),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
