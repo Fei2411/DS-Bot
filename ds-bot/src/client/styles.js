@@ -738,10 +738,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup p{margin:0}
-.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
+.bt-connector-setup{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-connector-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.bt-connector-steps li::marker{color:var(--bt-ink-3);font-weight:500}
+.bt-connector-setup-uri{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:180px;padding:5px 8px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:var(--bt-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;color:var(--bt-ink);word-break:break-all;user-select:all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -967,6 +968,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
+/* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
+body[data-ds-dark-theme] .bt-select{color-scheme:dark}
+.bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
 :where([class^="bt-"],[class*=" bt-"]):where(button,a,[tabindex],[role="button"],[role="tab"],[role="menuitem"]):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-browser-duration-choice,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-checks,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
@@ -1181,8 +1185,10 @@ export const CONVERSATION_CSS = `
 /* The menus above the composer ("@", "/", and the picker a command such as /model
    opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
    behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. */
-[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
+   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
+   needs naming too (issue 1698). */
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 /* DSH's row spans share no semantic hooks beyond the option; keep descriptions
    beside their labels without changing their flex sizing or overflow. */
 [data-trigger-menu] [role=option]>span{text-align:left}
