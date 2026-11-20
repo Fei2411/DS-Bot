@@ -133,12 +133,21 @@ function isSeparatorRow(line) {
   return cells !== null && cells.length > 0 && cells.every(cell => /^:?-{1,}:?$/.test(cell))
 }
 
+// A list item is a single line, so a cell cannot keep a hard break: folding it
+// to a space keeps the row on one item and every column under its own name.
+// Left alone, the tag would be turned into a newline afterwards, after the row
+// had already been joined, and the rest of the row would fall outside the item.
+function flattenCell(text) {
+  return text.replace(/<br\s*\/?>/gi, ' ').trim()
+}
+
 // QQ has no table: one list item per row, each cell named by its column, keeps
 // the pairing readable without the pipes.
 function tableToList(header, rows) {
+  const labels = header.map(flattenCell)
   return rows.map((row) => {
     const parts = row
-      .map((cell, index) => (header[index] === undefined || header[index] === '' ? cell : `${header[index]}：${cell}`))
+      .map((cell, index) => (labels[index] === undefined || labels[index] === '' ? flattenCell(cell) : `${labels[index]}：${flattenCell(cell)}`))
       .filter(part => part !== '')
     return `- ${parts.join('；')}`
   }).join('\n')

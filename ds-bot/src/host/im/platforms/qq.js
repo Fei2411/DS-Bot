@@ -17,6 +17,21 @@ const INTENTS = 1 << 25
 const apiBase = env => String(env.config?.api ?? API).replace(/\/+$/, '')
 const tokenBase = env => String(env.config?.token ?? TOKEN_API)
 
+// A voice message carries no `content`: the transcript rides on the attachment
+// as `asr_refer_text`, which the platform produced itself. Without this the
+// message normalises to an empty text and the common IM entry drops it (#1824).
+// A caption the sender typed alongside the voice wins over the transcript.
+const textOf = d => {
+  const content = String(d.content ?? '').trim()
+  if (content !== '') return content
+  const attachments = Array.isArray(d.attachments) ? d.attachments : []
+  return attachments
+    .filter(item => item?.content_type === 'voice')
+    .map(item => String(item?.asr_refer_text ?? '').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
 const getToken = async (fields, env) => {
   const response = await env.fetch(`${tokenBase(env)}/app/getAppAccessToken`, {
     method: 'POST',
@@ -108,7 +123,7 @@ export default {
       await handlers.onMessage({
         chat: { key, kind: c2c ? 'direct' : 'group', title: '' },
         sender: { id: String(sender ?? ''), name: String(sender ?? '') },
-        text: String(d.content ?? '').trim(),
+        text: textOf(d),
         images: [], files: [],
         mentioned: group, messageId: String(d.id ?? ''),
       })

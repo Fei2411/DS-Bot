@@ -158,7 +158,7 @@ export function demoData(): DemoData {
         { kind: 'steps', turn: 5, ms: 12400, tools: [
           { name: 'read_file', label: 'Opening a file', ok: true },
           { name: 'run_command', label: 'Running shell commands', ok: true },
-          { name: 'remember', label: 'Saving to memory', ok: true },
+          { name: 'bot_remember', label: 'Saving to memory', ok: true },
         ], time: T - 1700e3, seq: s() },
         { kind: 'user', text: '看下这个文件', files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: T - 42 * 60e3 },
       { kind: 'event', role: 'paused', name: 'Coder', text: 'Chief and Writer', ms: 3, time: T - 40 * 60e3 },
