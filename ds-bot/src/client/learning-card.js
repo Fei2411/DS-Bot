@@ -14,10 +14,18 @@ export function PendingLearning({ sessionId, useRoster, actions }) {
   const roster = useRoster(value => value)
   const bot = roster.byId?.[sessionId]
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : []
+  const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
   const [open, setOpen] = useState(false)
+  const [failed, setFailed] = useState({})
   const root = useRef(null)
   const [shown, leaving] = useLinger(open, 120)
   useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
+  useEffect(() => {
+    const gone = Object.keys(failed).filter(id => settledIds.includes(id))
+    if (gone.length === 0) return
+    for (const id of gone) failedAnswers.delete(id)
+    setFailed(current => gone.reduce((next, id) => withoutEntry(next, id), current))
+  }, [settledIds.join('|')])
   useEffect(() => {
     if (!open) return
     const outside = event => { if (!root.current?.contains(event.target)) setOpen(false) }
@@ -25,16 +33,33 @@ export function PendingLearning({ sessionId, useRoster, actions }) {
     return () => document.removeEventListener('pointerdown', outside)
   }, [open])
   if (proposals.length === 0) return null
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
+    else failedAnswers.delete(proposal.id)
+    setFailed(current => answerFailure(current, proposal, failure))
+  }
+  const onResolved = id => setFailed(current => {
+    failedAnswers.delete(id)
+    return withoutEntry(current, id)
+  })
   return h('div', { className: 'bt-learning-pending', ref: root },
     h('button', { type: 'button', className: 'bt-learning-pending-toggle', 'aria-expanded': open, onClick: () => setOpen(!open) },
-      h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval'), ` · ${proposals.length}`),
-    shown ? h(PendingLearningPanel, { proposals, actions, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
+      h('span', { className: 'bt-learning-dot', 'aria-hidden': true }),
+      h('span', { className: 'bt-learning-pending-label' }, t('Awaiting approval'), ` · ${proposals.length}`)),
+    shown ? h(PendingLearningPanel, { proposals, actions, failed, onFailure, onResolved, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
 }
 
-function PendingLearningPanel({ proposals, actions, close, leaving }) {
+function PendingLearningPanel({ proposals, actions, failed, onFailure, onResolved, close, leaving }) {
   useEscape(close)
   return h('div', { className: 'bt-learning-pending-panel', 'data-leaving': leaving || undefined, role: 'region', 'aria-label': t('Awaiting approval') },
-    proposals.map(proposal => h(ProposalCard, { key: proposal.id, proposal, actions, onFailure: () => {}, onResolved: () => {} })))
+    proposals.map(proposal => h(ProposalCard, {
+      key: proposal.id,
+      proposal,
+      initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
+      onFailure,
+      onResolved,
+      actions,
+    })))
 }
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
@@ -200,8 +225,9 @@ export function LearningDock(props) {
 }
 
 export const LEARNING_CSS = `
-.bt-learning-pending{pointer-events:auto;position:static;margin-left:8px;-webkit-app-region:no-drag}
-.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending{pointer-events:auto;position:static;flex:0 1 auto;min-width:0;max-width:45%;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-learning-pending-toggle:hover{background:var(--bt-hover)}
 .bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
