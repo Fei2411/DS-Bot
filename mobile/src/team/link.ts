@@ -14,6 +14,7 @@ const RETRY_MS = 2_000
 // Writes that settle pending items without always bumping state.revision.
 const PENDING_MUTATING = new Set([
   'approval-answer',
+  'learning-answer',
   'browser-give-back',
   'browser-takeover',
   'browser-stop',
