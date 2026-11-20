@@ -258,7 +258,7 @@ test('a host without Remote or the permission presets service does not throw', a
   assert.doesNotThrow(() => stop())
   const listeners = []
   const wired = settingsPreferences({
-    get: name => name === 'remote' ? { $on: (event, listener) => { listeners.push(event); return () => listeners.push(`off ${event}`) } } : services[name],
+    get: name => name === 'remote' ? { $on: event => { listeners.push(event); return () => listeners.push(`off ${event}`) } } : services[name],
     on: (event) => { listeners.push(event); return () => listeners.push(`off ${event}`) },
   })
   wired.subscribePermission(() => {})()
