@@ -49,6 +49,50 @@ const fullHeightPage = `<div class="plugin-page">
   <div class="plugin-actions"><button>Save</button><button>Discard</button></div>
 </div>`
 
+test('DS Bot preference rows keep one divider each and empty items vanish (#1815)', async (t) => {
+  let browser
+  try {
+    browser = await chromium.launch({ channel: 'chrome', headless: true })
+  } catch (error) {
+    if (!process.env.CI && /not found|doesn't exist|not installed/i.test(error.message)) {
+      t.skip('Chrome is required for the settings layout regression')
+      return
+    }
+    throw error
+  }
+  try {
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } })
+    try {
+      const row = text => `<div class="bt-set-row"><div class="bt-set-copy">${text}</div></div>`
+      // SettingsPreferences renders straight into .bt-dsh-item (no [data-slot] wrapper): an item may
+      // be empty, hold several rows, or hold a row followed by an error note.
+      await page.setContent(fixture(`<section class="bt-set-section"><div class="bt-set-card">
+        <div class="bt-dsh-item">${row('language')}</div>
+        <div class="bt-dsh-item" id="empty-a"></div>
+        <div class="bt-dsh-item">${row('transcript')}${row('collapse')}${row('folded')}</div>
+        <div class="bt-dsh-item" id="empty-b"></div>
+        <div class="bt-dsh-item">${row('permission')}<div class="bt-set-note" role="alert">Unavailable</div></div>
+        <div class="bt-dsh-item" id="empty-c"></div>
+      </div></section>`))
+      const layout = await page.evaluate(() => {
+        const card = document.querySelector('.bt-set-card')
+        const visible = element => getComputedStyle(element).display !== 'none'
+        const lines = [...card.querySelectorAll('.bt-dsh-item, .bt-set-row, .bt-set-note')]
+          .filter(element => visible(element) && parseFloat(getComputedStyle(element).borderTopWidth) > 0)
+        return {
+          hidden: ['#empty-a', '#empty-b', '#empty-c'].map(selector => visible(document.querySelector(selector))),
+          blocks: card.querySelectorAll('.bt-set-row, .bt-set-note').length,
+          lines: lines.length,
+          note: getComputedStyle(card.querySelector('.bt-set-note')).paddingLeft,
+        }
+      })
+      assert.deepEqual(layout.hidden, [false, false, false], JSON.stringify(layout))
+      assert.equal(layout.lines, layout.blocks - 1, JSON.stringify(layout))
+      assert.equal(layout.note, '16px', JSON.stringify(layout))
+    } finally { await page.close() }
+  } finally { await browser.close() }
+})
+
 test('DSH settings pages keep usable height and scrolling (#1359)', async (t) => {
   let browser
   try {

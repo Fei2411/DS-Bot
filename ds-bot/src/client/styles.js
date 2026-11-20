@@ -606,6 +606,11 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
 .bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
 .bt-dsh-item:has(>[data-slot]:empty){display:none}
+/* DS Bot's own preference rows sit directly in the item: an item that renders nothing takes no
+   line, and rows (or a note) stacked in one item are divided like the card's own rows. */
+.bt-dsh-item:empty{display:none}
+.bt-dsh-item>.bt-set-row+:is(.bt-set-row,.bt-set-note){border-top:.5px solid var(--bt-line)}
+.bt-set-note{padding:12px 16px;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}

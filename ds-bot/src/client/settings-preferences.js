@@ -1,5 +1,5 @@
 // #1815: replace DSH's misplaced Firefox Menu until its positioning is fixed.
-import { createElement as h, Fragment, useEffect, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CheckIcon } from './icons.js'
@@ -55,7 +55,7 @@ export function PreferenceSelect({ label, value, options, disabled, pick }) {
       onKeyDown: (event) => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); menu.open() }
       },
-    }, selected?.label ?? t('Loading…')),
+    }, selected?.label ?? (options.length === 0 ? t('Loading…') : value ?? '')),
     menu.shownPlace ? createPortal(h('div', {
       ref: menu.menu, role: 'menu', 'aria-label': label, className: 'bt-menu',
       'data-leaving': menu.leaving ? '' : undefined, style: { ...menu.shownPlace, overflowY: 'auto', zIndex: 1100 },
@@ -88,7 +88,8 @@ function usePreferenceSchema(preferences, namespace) {
   const describe = preferences.describe
   const snapshot = useSyncExternalStore(listener => describe.subscribe(listener), () => describe.getSnapshot())
   const entry = snapshot.view?.namespaces.find(entry => entry.ns === namespace)
-  return entry ? preferences.schema.rehydrate(entry.schema) : undefined
+  const wire = entry?.schema
+  return useMemo(() => wire === undefined ? undefined : preferences.schema.rehydrate(wire), [preferences.schema, wire])
 }
 
 function FormPreferences({ id, preferences }) {
@@ -183,7 +184,7 @@ function PermissionPreference({ preferences }) {
       save: next => next !== 'danger-full-access' ? savePreference(form, 'defaultPreset', next)
         : new Promise((resolve, reject) => { setAcknowledged(false); setConfirmation({ value: next, resolve, reject }) }),
     }),
-    failed ? h('div', { role: 'alert' }, tr('unavailable'), ' ',
+    failed ? h('div', { className: 'bt-set-note', role: 'alert' }, tr('unavailable'), ' ',
       h('button', { type: 'button', className: 'bt-soft-sm', onClick: () => setAttempt(value => value + 1) }, t('Try again'))) : null,
     h(RiskConfirmation, {
       open: confirmation !== null, title: tr('confirm.title'), description: tr('confirm.description'),
@@ -217,11 +218,11 @@ export function settingsPreferences(ctx) {
       getSnapshot: () => ctx.get('sidebarRightTabs')?.get('browser') !== undefined,
       subscribe: listener => ctx.get('sidebarRightTabs')?.subscribe(listener) ?? (() => {}),
     },
-    permissionCatalog: () => ctx.get('remote.permissionPresets').catalog(),
+    permissionCatalog: () => Promise.resolve().then(() => ctx.get('remote.permissionPresets')?.catalog() ?? { ok: false }),
     subscribePermission: (listener) => {
-      const stop = ctx.get('remote').$on('permission-presets/catalog-changed', listener)
-      const reset = ctx.on('connection/reset', listener)
-      return () => { stop(); reset() }
+      const stop = ctx.get('remote')?.$on?.('permission-presets/catalog-changed', listener)
+      const reset = ctx.on?.('connection/reset', listener)
+      return () => { stop?.(); reset?.() }
     },
   }
 }

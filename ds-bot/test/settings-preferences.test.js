@@ -242,3 +242,31 @@ test('the shell adapter uses public configForms, locale and dotted Remote servic
   assert.equal(PREFERENCE_ITEMS.has('another-plugin'), false)
   assert.equal(settingsPreferences({ get: name => name === 'settingsSchema' ? undefined : services[name] }), undefined)
 })
+
+test('a stored value outside the options shows itself, and only an empty list shows Loading', () => {
+  const label = element => element.props.children[0].props.children[0]
+  assert.equal(label(PreferenceSelect({ label: 'Mode', value: 'custom', options: [{ id: 'a', label: 'A' }], pick() {} })), 'custom')
+  assert.equal(label(PreferenceSelect({ label: 'Mode', value: 'a', options: [{ id: 'a', label: 'A' }], pick() {} })), 'A')
+  assert.equal(label(PreferenceSelect({ label: 'Mode', value: 'custom', options: [], pick() {} })), 'Loading…')
+})
+
+test('a host without Remote or the permission presets service does not throw', async () => {
+  const services = { locale, settingsSchema: schema, configForms: { get: () => form({}), describe: () => describe({ 'ui-chat': ChatConfig }) } }
+  const prefs = settingsPreferences({ get: name => services[name], on: () => () => {} })
+  assert.deepEqual(plain(await prefs.permissionCatalog()), { ok: false })
+  const stop = prefs.subscribePermission(() => {})
+  assert.doesNotThrow(() => stop())
+  const listeners = []
+  const wired = settingsPreferences({
+    get: name => name === 'remote' ? { $on: (event, listener) => { listeners.push(event); return () => listeners.push(`off ${event}`) } } : services[name],
+    on: (event) => { listeners.push(event); return () => listeners.push(`off ${event}`) },
+  })
+  wired.subscribePermission(() => {})()
+  assert.deepEqual(listeners, ['permission-presets/catalog-changed', 'connection/reset', 'off permission-presets/catalog-changed', 'off connection/reset'])
+})
+
+test('the preference schema is rehydrated through useMemo keyed on the described schema', () => {
+  const source = readFileSync(new URL('../src/client/settings-preferences.js', import.meta.url), 'utf8')
+  assert.match(source, /useMemo\(\(\) => wire === undefined \? undefined : preferences\.schema\.rehydrate\(wire\), \[preferences\.schema, wire\]\)/)
+  assert.doesNotMatch(source, /return entry \? preferences\.schema\.rehydrate/)
+})
