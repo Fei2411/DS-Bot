@@ -17235,6 +17235,11 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
 .bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
 .bt-dsh-item:has(>[data-slot]:empty){display:none}
+/* DS Bot's own preference rows sit directly in the item: an item that renders nothing takes no
+   line, and rows (or a note) stacked in one item are divided like the card's own rows. */
+.bt-dsh-item:empty{display:none}
+.bt-dsh-item>.bt-set-row+:is(.bt-set-row,.bt-set-note){border-top:.5px solid var(--bt-line)}
+.bt-set-note{padding:12px 16px;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
@@ -37624,7 +37629,7 @@ function PreferenceSelect({ label, value, options, disabled, pick: pick2 }) {
           menu.open();
         }
       }
-    }, selected?.label ?? t("Loading…")),
+    }, selected?.label ?? (options.length === 0 ? t("Loading…") : value ?? "")),
     menu.shownPlace ? (0, import_react_dom8.createPortal)((0, import_react51.createElement)("div", {
       ref: menu.menu,
       role: "menu",
@@ -37675,7 +37680,8 @@ function usePreferenceSchema(preferences, namespace) {
   const describe = preferences.describe;
   const snapshot = (0, import_react51.useSyncExternalStore)((listener) => describe.subscribe(listener), () => describe.getSnapshot());
   const entry = snapshot.view?.namespaces.find((entry2) => entry2.ns === namespace);
-  return entry ? preferences.schema.rehydrate(entry.schema) : void 0;
+  const wire = entry?.schema;
+  return (0, import_react51.useMemo)(() => wire === void 0 ? void 0 : preferences.schema.rehydrate(wire), [preferences.schema, wire]);
 }
 function FormPreferences({ id, preferences }) {
   const namespace = id === "composer-enter" ? "ui-conversation" : "ui-chat";
@@ -37784,7 +37790,7 @@ function PermissionPreference({ preferences }) {
     }),
     failed ? (0, import_react51.createElement)(
       "div",
-      { role: "alert" },
+      { className: "bt-set-note", role: "alert" },
       tr("unavailable"),
       " ",
       (0, import_react51.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
@@ -37834,13 +37840,13 @@ function settingsPreferences(ctx) {
       subscribe: (listener) => ctx.get("sidebarRightTabs")?.subscribe(listener) ?? (() => {
       })
     },
-    permissionCatalog: () => ctx.get("remote.permissionPresets").catalog(),
+    permissionCatalog: () => Promise.resolve().then(() => ctx.get("remote.permissionPresets")?.catalog() ?? { ok: false }),
     subscribePermission: (listener) => {
-      const stop = ctx.get("remote").$on("permission-presets/catalog-changed", listener);
-      const reset = ctx.on("connection/reset", listener);
+      const stop = ctx.get("remote")?.$on?.("permission-presets/catalog-changed", listener);
+      const reset = ctx.on?.("connection/reset", listener);
       return () => {
-        stop();
-        reset();
+        stop?.();
+        reset?.();
       };
     }
   };
