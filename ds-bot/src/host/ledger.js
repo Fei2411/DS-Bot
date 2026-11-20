@@ -54,12 +54,7 @@ export function install(rt) {
 
   const index = (records) => {
     const bySeq = new Map()
-    const lower = searchTextFor(records)
-    for (let at = 0; at < records.length; at += 1) {
-      const record = records[at]
-      lower(at, record.text)
-      if (Number.isInteger(record.seq)) bySeq.set(record.seq, record)
-    }
+    for (const record of records) if (Number.isInteger(record.seq)) bySeq.set(record.seq, record)
     return bySeq
   }
   const sizeOf = (book) => {
@@ -110,7 +105,6 @@ export function install(rt) {
   function append(book, record) {
     const entry = open(book)
     entry.records.push(record)
-    searchTextFor(entry.records)(entry.records.length - 1, record.text)
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (!writes()) return record
     const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
@@ -153,8 +147,6 @@ export function install(rt) {
     if (added.length === 0) return 0
     added.sort((a, b) => a.seq - b.seq)
     entry.records = [...added, ...entry.records]
-    const lower = searchTextFor(entry.records)
-    for (let at = 0; at < entry.records.length; at += 1) lower(at, entry.records[at].text)
     for (const record of added) entry.bySeq.set(record.seq, record)
     if (!writes()) return added.length
     const wasTorn = entry.torn

@@ -138,3 +138,32 @@ test('cached slots follow reordering, prepends, removed text and changing ledger
   rt.ledger.append('group-test', { seq: 1, text: 'Other MATCH' })
   check()
 })
+
+test('opening, appending and prepending do not lowercase records before a search', () => {
+  const rt = { home: '/unused-search-cache-lazy', readOnly: () => 'read only' }
+  install(rt)
+  const texts = ['Lazy FIRST', 'Lazy SECOND', 'Lazy EARLIER', 'Lazy APPENDED']
+  const original = String.prototype.toLowerCase
+  let calls = 0
+  String.prototype.toLowerCase = function () {
+    if (texts.includes(String(this))) calls += 1
+    return original.call(this)
+  }
+  try {
+    rt.ledger.records('group-test')
+    rt.ledger.append('group-test', { seq: 2, text: texts[0] })
+    rt.ledger.append('group-test', { seq: 3, text: texts[1] })
+    rt.ledger.prepend('group-test', [{ seq: 1, text: texts[2] }])
+    assert.equal(calls, 0)
+    searchGroupBook(rt.ledger.records('group-test'), 'lazy')
+    assert.equal(calls, 3)
+    rt.ledger.search('group-test', 'lazy')
+    assert.equal(calls, 3)
+    rt.ledger.append('group-test', { seq: 4, text: texts[3] })
+    assert.equal(calls, 3)
+    rt.ledger.search('group-test', 'lazy')
+    assert.equal(calls, 4)
+  } finally {
+    String.prototype.toLowerCase = original
+  }
+})
