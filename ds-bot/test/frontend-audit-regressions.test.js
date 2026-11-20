@@ -578,7 +578,7 @@ test('BrowserView detects inline [role="menu"] added/removed inside [data-chat-f
   }
 })
 
-test('GeneralPage preset and default accent swatches cancel pending debounced custom accent', async () => {
+test('Appearance preset and default accent swatches cancel pending debounced custom accent', async () => {
   const code = await loadClientBundle("export { SettingsDialog } from './src/client/settings.js'")
   const harness = makeStatefulReact()
   const mod = { exports: {} }
@@ -624,7 +624,7 @@ test('GeneralPage preset and default accent swatches cancel pending debounced cu
         folders: () => Promise.resolve({ team: '/tmp/work' }),
       }
       const tree = harness.render(harness.React.createElement(SettingsDialog, {
-        page: 'general', id: null, roster, actions, useUpdate: sel => sel({}),
+        page: 'appearance', id: null, roster, actions, useUpdate: sel => sel({}),
       }))
       const colorInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'color')[0]
       assert.ok(colorInput, 'custom accent color input should render')

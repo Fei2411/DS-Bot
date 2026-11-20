@@ -1,12 +1,12 @@
 import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
+import { cleanTheme, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
 // tokens derive from them, so a registered theme recolors the whole team UI.
 
-const THEME_KEYS = ['bg', 'sidebar', 'bubble', 'card', 'text', 'user', 'userText', 'accent']
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
@@ -34,6 +34,21 @@ const THEMES = {
 const DARK_INK = '#141414'
 const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
+// While a background shows (appearance.js): one wash of the main color at the chosen
+// opacity lies over the picture, and the page panes on top of it are clear (`--bt-pane`,
+// DSH's base fill). DSH nests several panes on the same base color, so panes that each let
+// the picture through would stack into a solid color again. Floating surfaces on the main
+// color (Settings, panels, docks) stay nearly solid, so they read over the page; the sidebar
+// keeps a light tint of its own color, cards stay nearly solid.
+const SIDEBAR_TINT = 0.4
+const FLOATING = 0.94
+const round = alpha => Math.round(alpha * 100) / 100
+export const washColor = (mode, alpha) => rgba(mode.bg, alpha)
+export const surfaceVars = (mode, alpha) => `--bt-pane:transparent;--bt-wash:${washColor(mode, alpha)};--bt-skin-main:${rgba(mode.bg, FLOATING)};--bt-skin-sidebar:${rgba(mode.sidebar, SIDEBAR_TINT)};--bt-skin-card:${rgba(mode.card, round(Math.max(FLOATING, alpha + 0.06)))}`
+export const surfaceColors = theme => ({ light: { bg: 'transparent', sidebar: rgba(theme.light.sidebar, SIDEBAR_TINT) }, dark: { bg: 'transparent', sidebar: rgba(theme.dark.sidebar, SIDEBAR_TINT) } })
+export const veilColors = alpha => ({ light: rgba('#ffffff', alpha), dark: rgba('#000000', alpha) })
+// Where a new background starts when the user picks its kind (appearance-page.js).
+export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' }, from: '#9ab6ff', to: '#f7c6d9' }
 export function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
@@ -61,9 +76,10 @@ const darkAccent = (accent) => {
 export const themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
 html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
 ${theme.css ?? ''}`
-export const shellTokens = ({ light, dark }) => ({
-  '--dsw-alias-bg-base': { light: light.bg, dark: dark.bg },
-  '--dsw-specific-sidebar-fill': { light: light.sidebar, dark: dark.sidebar },
+// `surfaces` replaces the base and sidebar fills, so a background shows through DSH's frame too.
+export const shellTokens = ({ light, dark }, surfaces = { light, dark }) => ({
+  '--dsw-alias-bg-base': { light: surfaces.light.bg, dark: surfaces.dark.bg },
+  '--dsw-specific-sidebar-fill': { light: surfaces.light.sidebar, dark: surfaces.dark.sidebar },
   '--dsw-specific-input-major': { light: light.bg, dark: dark.sidebar },
   '--dsw-alias-label-primary': { light: light.text, dark: dark.text },
   '--dsw-alias-label-secondary': { light: rgba(light.text, 0.74), dark: rgba(dark.text, 0.74) },
@@ -119,6 +135,16 @@ export function registerTheme(id, theme) {
   }
 }
 export const allThemes = () => ({ ...THEMES, ...customThemes })
+// The team's own themes (`prefs.themes`, ids `my-…`) after the built-in and plugin ones. A
+// saved theme that no longer passes the rules is left out, so it falls back to the default.
+export function themesOf(prefs) {
+  const own = {}
+  for (const [id, theme] of Object.entries(prefs?.themes ?? {})) {
+    if (!USER_THEME.test(id)) continue
+    try { own[id] = { ...cleanTheme(theme), own: true } } catch { /* unusable: left out */ }
+  }
+  return { ...allThemes(), ...own }
+}
 
 // How chat messages are drawn; a value the plugin does not know reads as the default.
 // A width is a percent of the column: the bubbles' in either layout, the text's in the

@@ -195,7 +195,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -264,7 +264,10 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
+    // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
+    const appearanceChanged = rt.appearancePrefs(body)
     await rt.save()
+    if (appearanceChanged) void rt.backgroundSweep()
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
 
@@ -418,6 +421,15 @@ export function install(rt) {
           await rt.resumeBot(bot)
           return ok(true)
         }
+        // Background pictures and a chat's own background (appearance.js).
+        case 'background-add':
+          await rt.load()
+          return ok(await rt.backgroundAdd(body.image))
+        case 'background-picture':
+          return ok(await rt.backgroundPicture(body.id))
+        case 'set-chat-background':
+          await rt.load()
+          return ok(await rt.setChatBackground(body))
         // The avatar library: photos the user imported once, kept beside the team.
         case 'avatar-library':
           await rt.load()

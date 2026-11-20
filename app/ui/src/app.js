@@ -6,22 +6,36 @@ import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BrandMark, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
-import { allThemes, effectsOf, themeCss } from '../../../ds-bot/src/client/themes.js'
+import { allThemes, effectsOf, themeCss, themesOf } from '../../../ds-bot/src/client/themes.js'
+import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
+import { call } from '../../../ds-bot/src/client/api.js'
+import { readAppearance } from '../../../ds-bot/src/shared/appearance.js'
+import { paintMode } from './mode.js'
 import { Chat } from './chat.js'
 import { createTeam } from './team.js'
 
-// The team's theme and accent, as the plugin paints them.
-function useTheme(prefs) {
+// The team's theme, accent and appearance. The window owns fonts, sizes and light or dark
+// here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
+function useTheme(prefs, chat) {
+  const [loaded, setLoaded] = useState(0)
+  const [safe, setSafe] = useState(safeAppearance)
+  useEffect(() => onSafeAppearance(setSafe), [])
+  useEffect(() => watchSafeAppearance(), [])
   useEffect(() => {
-    const theme = allThemes()[prefs?.theme] ?? allThemes().deepseek
+    const theme = themesOf(prefs)[prefs?.theme] ?? allThemes().deepseek
     const style = document.createElement('style')
-    style.textContent = themeCss(theme, prefs?.accent)
+    style.textContent = themeCss(theme, prefs?.accent) + '\n' + appearanceCss({
+      appearance: prefs?.appearance, theme, background: chat?.background, fonts: true, safe,
+      pictureUrl: id => pictureUrl(id, call, () => setLoaded(count => count + 1)),
+    })
     document.head.append(style)
     if (prefs?.motion) document.body.dataset.btMotion = prefs.motion
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
     return () => { delete document.body.dataset.btEffects; style.remove() }
-  }, [prefs?.theme, prefs?.accent, prefs?.motion, prefs?.effects])
+  }, [prefs, chat?.background, safe, loaded])
+  const mode = readAppearance(prefs?.appearance).mode
+  useEffect(() => paintMode(mode), [mode])
 }
 
 // A dialog or panel that fails closes, and the failure shows as a toast; the window stays.
@@ -54,7 +68,10 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => { setDrawerOpen(false) }, [shown])
   useEscape(() => setDrawerOpen(false), drawerOpen)
-  useTheme(hooks.useRoster(value => value.prefs))
+  const prefs = hooks.useRoster(value => value.prefs)
+  // The open chat's own background, over the team's.
+  const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
+  useTheme(prefs, chat)
   const closeOverlays = (error) => {
     actions.closeSettings()
     actions.closeMemory()

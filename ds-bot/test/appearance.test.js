@@ -1,0 +1,234 @@
+import assert from 'node:assert/strict'
+import { mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { createRuntime } from '../index.js'
+import { AppearanceError, contrast, patchAppearance, readAppearance, readThemeFile, themeFile } from '../src/shared/appearance.js'
+import { fakeContext } from './fake-ctx.js'
+
+// Real pictures: a 1×1 PNG and a 1×1 JPEG as image encoders write them.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+const THEME = {
+  label: 'Dusk',
+  light: { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' },
+  dark: { bg: '#101010', sidebar: '#181818', bubble: '#262626', card: '#1c1c1c', text: '#f0f0f0', user: '#f0f0f0', userText: '#101010', accent: '#5b7bff' },
+}
+
+function start(home) {
+  const ctx = fakeContext()
+  let sessions = 0
+  const workspaces = new Map()
+  Object.assign(ctx, {
+    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    workspaceRegistry: {
+      get: id => workspaces.get(id),
+      resolveByPath: async path => [...workspaces.values()].find(workspace => workspace.path === path),
+      create: async (path) => {
+        const workspace = { id: `w${workspaces.size + 1}`, path }
+        workspaces.set(workspace.id, workspace)
+        return workspace
+      },
+      archiveSession: async () => {},
+    },
+    sessionController: {
+      create: async () => ({ sessionId: `s${++sessions}` }),
+      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: () => {} } }),
+      selectModel: async () => {},
+    },
+    sessionTitle: { rename: async () => {} },
+    sessions: { flush: async () => {} },
+  })
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => {
+    route = options
+    return register(options)
+  }
+  const rt = createRuntime(ctx, { home })
+  const call = async (endpoint, payload) => {
+    const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
+    return response.json()
+  }
+  return { rt, call, stop: () => ctx.dispose() }
+}
+
+function team(t) {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-appearance-'))
+  const started = start(home)
+  t.after(async () => {
+    await started.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  return { home, ...started }
+}
+
+test('an appearance change keeps only the fields that differ from the defaults', () => {
+  const appearance = patchAppearance(undefined, { radius: 60, density: 'compact', fontSize: 14, lineHeight: 1.72, mode: 'system', css: '  ' })
+  assert.deepEqual(appearance, { radius: 60, density: 'compact', lineHeight: 1.7 })
+  assert.deepEqual(patchAppearance(appearance, { radius: null, density: 'standard' }), { lineHeight: 1.7 })
+  assert.throws(() => patchAppearance({}, { radius: 250 }), AppearanceError)
+  assert.throws(() => patchAppearance({}, { colour: 'red' }), AppearanceError)
+  // A font list goes inside a declaration; it may not close it.
+  assert.throws(() => patchAppearance({}, { uiFont: 'Inter; } body { display:none' }), AppearanceError)
+  assert.deepEqual(patchAppearance({}, { uiFont: '"LXGW WenKai", sans-serif' }), { uiFont: '"LXGW WenKai", sans-serif' })
+})
+
+test('a background keeps only the fields of its kind', () => {
+  assert.deepEqual(patchAppearance({}, { background: { kind: 'gradient', from: '#FF0000', to: '#0000ff', image: 'x', blur: 0, dim: 20 } }).background,
+    { kind: 'gradient', from: '#ff0000', to: '#0000ff', angle: 180, dim: 20 })
+  assert.throws(() => patchAppearance({}, { background: { kind: 'image', image: 'https://example.com/a.png' } }), AppearanceError)
+  assert.throws(() => patchAppearance({}, { background: { kind: 'color', color: '#fff', surface: 50 } }), AppearanceError)
+})
+
+test('a saved appearance that another version wrote reads without the fields this one cannot use', () => {
+  assert.deepEqual(readAppearance({ radius: 40, density: 'airy', future: 1, background: { kind: 'video' } }), { radius: 40 })
+  assert.deepEqual(readAppearance('broken'), {})
+})
+
+test('a theme file carries the theme, the appearance and its picture, and nothing of the window', () => {
+  const file = themeFile(THEME, { radius: 40, mode: 'dark', material: false, background: { kind: 'image', image: 'a'.repeat(64), dim: 30 } }, PNG)
+  assert.deepEqual(Object.keys(file.appearance).sort(), ['background', 'radius'])
+  const read = readThemeFile(JSON.stringify(file))
+  assert.equal(read.theme.label, 'Dusk')
+  assert.equal(read.image, PNG)
+  // Without its picture, an image background is not carried.
+  assert.equal(readThemeFile(JSON.stringify({ ...file, image: undefined })).appearance.background, undefined)
+  assert.throws(() => readThemeFile('{"format":"other"}'), AppearanceError)
+  assert.throws(() => readThemeFile('not json'), AppearanceError)
+})
+
+test('contrast follows WCAG', () => {
+  assert.equal(Math.round(contrast('#000000', '#ffffff')), 21)
+  assert.ok(contrast('#777777', '#ffffff') < 4.5)
+})
+
+test('the appearance and the themes of your own are saved with the team', async (t) => {
+  const { call } = team(t)
+  const saved = await call('set-prefs', { appearance: { radius: 40, background: { kind: 'color', color: '#203040' } }, themes: { 'my-dusk': THEME }, theme: 'my-dusk' })
+  assert.equal(saved.ok, true)
+  const { prefs } = (await call('state', {})).value
+  assert.deepEqual(prefs.appearance, { radius: 40, background: { kind: 'color', color: '#203040' } })
+  assert.equal(prefs.themes['my-dusk'].label, 'Dusk')
+  assert.equal(prefs.theme, 'my-dusk')
+  // A wrong value is refused with a line the user can read.
+  const refused = await call('set-prefs', { appearance: { density: 'airy' } })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/invalid')
+  assert.match(refused.error.message, /Density/)
+  assert.equal((await call('set-prefs', { themes: { dusk: THEME } })).ok, false)
+  // The theme in use goes away: the team is on the default theme again.
+  await call('set-prefs', { themes: { 'my-dusk': null } })
+  const after = (await call('state', {})).value.prefs
+  assert.equal(after.themes, undefined)
+  assert.equal(after.theme, undefined)
+})
+
+test('a background picture is checked, kept once and read back by its id', async (t) => {
+  const { home, call } = team(t)
+  const first = (await call('background-add', { image: PNG })).value
+  assert.match(first.id, /^[0-9a-f]{64}$/)
+  assert.equal(first.mime, 'image/png')
+  assert.equal((await call('background-add', { image: PNG })).value.id, first.id)
+  // The type comes from the bytes, not from what the data URL says.
+  assert.equal((await call('background-add', { image: JPEG.replace('image/jpeg', 'image/png') })).value.mime, 'image/jpeg')
+  assert.equal(readdirSync(join(home, 'backgrounds')).length, 2)
+  assert.equal((await call('background-add', { image: 'data:image/png;base64,aGVsbG8=' })).ok, false)
+  assert.equal((await call('background-picture', { id: first.id })).value.image, PNG)
+  assert.equal((await call('background-picture', { id: '../state' })).value, null)
+})
+
+test('a chat can have its own background, and pictures nothing uses are removed later', async (t) => {
+  const { home, call, rt } = team(t)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const room = (await call('create-room', { name: 'Launch', members: [chief, writer.id] })).value
+  const used = (await call('background-add', { image: PNG })).value.id
+  const unused = (await call('background-add', { image: JPEG })).value.id
+  assert.deepEqual((await call('set-chat-background', { botId: writer.id, background: { kind: 'image', image: used, fit: 'contain' } })).value,
+    { kind: 'image', image: used, fit: 'contain' })
+  await call('set-chat-background', { roomId: room.id, background: { kind: 'gradient', from: '#000000', to: '#ffffff', angle: 90 } })
+  const view = (await call('state', {})).value
+  assert.equal(view.bots.find(bot => bot.id === writer.id).background.image, used)
+  assert.equal(view.rooms.find(entry => entry.id === room.id).background.angle, 90)
+  assert.equal((await call('set-chat-background', { botId: 'nobody', background: null })).error.code, 'bot/not-found')
+
+  // A picture saved a moment ago stays, even unused: the change that names it may be on its way.
+  const dir = join(home, 'backgrounds')
+  await rt.backgroundSweep()
+  assert.equal(readdirSync(dir).length, 2)
+  const old = new Date(Date.now() - 60 * 60_000)
+  for (const name of readdirSync(dir)) utimesSync(join(dir, name), old, old)
+  await rt.backgroundSweep()
+  assert.deepEqual(readdirSync(dir).map(name => name.slice(0, 64)), [used])
+  assert.equal((await call('background-picture', { id: unused })).value, null)
+  // Back to the team background.
+  assert.equal((await call('set-chat-background', { botId: writer.id, background: null })).value, null)
+})
+
+test('the page stylesheet follows the appearance, and safe appearance drops the background and the user stylesheet', async () => {
+  const { appearanceCss, backgroundPaint, watchSafeAppearance, safeAppearance } = await import('../src/client/appearance.js')
+  const { themesOf } = await import('../src/client/themes.js')
+  const theme = themesOf({}).deepseek
+  const appearance = { radius: 50, density: 'compact', fontSize: 16, uiFont: 'Inter', background: { kind: 'image', image: 'b'.repeat(64), blur: 8, dim: 30, surface: 80 }, css: '.x{color:red}' }
+  const css = appearanceCss({ appearance, theme, pictureUrl: () => 'blob:picture', fonts: true })
+  assert.match(css, /--bt-r:0\.5/)
+  assert.match(css, /--bt-fs:1\.142/)
+  assert.match(css, /font-family:Inter,/)
+  assert.match(css, /html body \.bt-row\{min-height:44px/)
+  assert.match(css, /url\("blob:picture"\) center\/cover no-repeat/)
+  assert.match(css, /filter:blur\(8px\)/)
+  // One wash of the main color at the chosen opacity lies over the picture, over the dim veil;
+  // the page panes on top are clear, so nested panes do not stack; floating surfaces stay
+  // nearly solid. Both modes.
+  assert.match(css, /html body\{--bt-pane:transparent;--bt-wash:rgba\(252,252,252,0\.8\);--bt-skin-main:rgba\(252,252,252,0\.94\);--bt-skin-sidebar:rgba\(247,247,247,0\.4\);--bt-skin-card:rgba\(255,255,255,0\.94\)\}/)
+  assert.match(css, /html body::after\{[^}]*background:linear-gradient\(rgba\(252,252,252,0\.8\),rgba\(252,252,252,0\.8\)\),linear-gradient\(rgba\(255,255,255,0\.3\)/)
+  assert.match(css, /html body\[data-ds-dark-theme\]::after\{background:linear-gradient\(rgba\(20,20,20,0\.8\)/)
+  assert.ok(css.endsWith('.x{color:red}'))
+  // In DSH the fonts are DSH's settings.
+  assert.doesNotMatch(appearanceCss({ appearance, theme }), /font-family|--bt-fs/)
+  // A chat's own background takes the place of the team's.
+  assert.match(appearanceCss({ appearance, theme, background: { kind: 'color', color: '#112233' } }), /background:#112233/)
+  // A picture still loading paints nothing yet, so the surfaces stay solid.
+  assert.doesNotMatch(appearanceCss({ appearance, theme }), /--bt-skin-main/)
+  const safe = appearanceCss({ appearance, theme, pictureUrl: () => 'blob:picture', safe: true })
+  assert.doesNotMatch(safe, /blob:picture|color:red/)
+  assert.match(safe, /--bt-r:0\.5/)
+  assert.equal(backgroundPaint({ kind: 'gradient', from: '#000000', to: '#ffffff', angle: 90 }), 'linear-gradient(90deg,#000000,#ffffff)')
+
+  // Shift in the first seconds turns safe appearance on; later it does nothing.
+  const target = new EventTarget()
+  let clock = 0
+  watchSafeAppearance(target, () => clock)
+  clock = 3500
+  target.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Shift' }))
+  assert.equal(safeAppearance(), false)
+  clock = 0
+  const stop = watchSafeAppearance(target, () => clock)
+  target.dispatchEvent(Object.assign(new Event('keydown'), { key: 'a' }))
+  assert.equal(safeAppearance(), false)
+  target.dispatchEvent(Object.assign(new Event('pointermove'), { shiftKey: false }))
+  assert.equal(safeAppearance(), false)
+  // A Shift held from before the page loaded shows on the pointer (macOS does not repeat it).
+  target.dispatchEvent(Object.assign(new Event('pointermove'), { shiftKey: true }))
+  assert.equal(safeAppearance(), true)
+  stop()
+})
+
+test('corners and text sizes in DS Bot stylesheets follow the appearance; circles and pills keep their shape', async () => {
+  const { scaleCss } = await import('../src/client/css-scale.js')
+  const out = scaleCss('.a{border-radius:12px;font-size:13px;line-height:18px}.b{border-radius:50%}.c{border-radius:999px}.d{border-radius:16px 16px 0 0}.f{font:13px/1 x;max-width:600px}')
+  assert.equal(out, '.a{border-radius:calc(12px*var(--bt-r,1));font-size:calc(13px*var(--bt-fs,1));line-height:calc(18px*var(--bt-fs,1))}.b{border-radius:50%}.c{border-radius:999px}.d{border-radius:calc(16px*var(--bt-r,1)) calc(16px*var(--bt-r,1)) 0 0}.f{font:13px/1 x;max-width:600px}')
+  assert.equal(scaleCss(out), out)
+})
+
+test('a theme of your own is listed after the built-in ones, and a broken one is left out', async () => {
+  const { themesOf } = await import('../src/client/themes.js')
+  const themes = themesOf({ themes: { 'my-dusk': THEME, 'my-broken': { label: 'x', light: {}, dark: {} }, plain: THEME } })
+  assert.equal(themes['my-dusk'].label, 'Dusk')
+  assert.equal(themes['my-dusk'].own, true)
+  assert.equal(themes['my-broken'], undefined)
+  assert.equal(themes.plain, undefined)
+  assert.ok(themes.deepseek)
+})
