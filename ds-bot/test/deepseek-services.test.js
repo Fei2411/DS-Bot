@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { install, normalizeServices } from '../src/host/deepseek-services.js'
 
@@ -6,7 +9,7 @@ import { install, normalizeServices } from '../src/host/deepseek-services.js'
 // `profile` the deepseek-official route's settings section, `env` the launch
 // environment (DEEPSEEK_BASE_URL overrides the route's endpoint the same way
 // the adapter reads it), and `calls.fetch` records every api.deepseek.com hit.
-function setup({ keys = {}, profile, directory, env, fs, attachments, spillStore, inject, prefs = {}, sessions = {} } = {}) {
+function setup({ keys = {}, profile, directory, env, fs, attachments, spillStore, inject, prefs = {}, sessions = {}, bots = {} } = {}) {
   const calls = { fetch: [] }
   const values = { ...keys }
   const ctx = {
@@ -37,12 +40,13 @@ function setup({ keys = {}, profile, directory, env, fs, attachments, spillStore
   let stateSaved = 0
   const rt = {
     ctx,
-    state: { prefs, rooms: {}, bots: {} },
+    state: { prefs, rooms: {}, bots },
     teamTools: [],
     warn: () => {},
     load: async () => {},
     save: async () => { stateSaved += 1 },
     selfOf: id => sessions[id],
+    botOf: id => rt.state.bots[id],
     isBotSession: id => id in sessions,
     roomOf: () => undefined,
     inData: async path => String(path).startsWith('/dsh'),
@@ -99,7 +103,7 @@ test('key route: a non-official route whose ref IS DEEPSEEK_API_KEY blocks the s
   assert.equal(status.key.configured, false)
   assert.match(status.key.reason, /cannot tell/)
   const calls = stubFetch(t, () => json({}))
-  rt.state.prefs.deepseekServices = { ocr: true }
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: true })
   await assert.rejects(() => readTool(rt).execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))), /cannot tell|not set/)
   assert.equal(calls.length, 0)
 })
@@ -171,8 +175,9 @@ test('config patch: absent keeps, null resets, invalid refuses', async () => {
 test('read_document stays off until enabled, then posts the upload as multipart', async (t) => {
   const attachments = { async* readFileStream() { yield new Uint8Array([1, 2, 3]) } }
   const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, attachments, sessions: { bot1: 'bot1' } })
-  await assert.rejects(() => readTool(rt).execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))), /off/)
-  rt.state.prefs.deepseekServices = { ocr: true }
+  assert.equal(readTool(rt), undefined)
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: true })
+  assert.equal(readTool(rt).name, 'read_document')
   const calls = stubFetch(t, () => json({
     id: 'ocr-1', object: 'ocr.result', created: 1, purpose: 'text_recognition', page_count: 2,
     pages: [
@@ -324,4 +329,75 @@ test('read_document is a team tool: a plain DSH session is refused', async () =>
 test('an unknown endpoint is refused', async () => {
   const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' } })
   await assert.rejects(() => rt.deepseekEndpoint('deepseek-synthesize', {}), /Unknown endpoint/)
+})
+
+test('read_document is omitted from team tools while OCR is off', async () => {
+  const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' } })
+  assert.equal(readTool(rt), undefined)
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: true })
+  assert.equal(readTool(rt).name, 'read_document')
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: null })
+  assert.equal(readTool(rt), undefined)
+})
+
+test('read_document still refuses when the catalog and the preference race', async () => {
+  const attachments = { async* readFileStream() { yield new Uint8Array([1]) } }
+  const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, attachments, sessions: { bot1: 'bot1' }, prefs: { deepseekServices: { ocr: true } } })
+  const tool = readTool(rt)
+  assert.ok(tool)
+  rt.state.prefs.deepseekServices = {}
+  await assert.rejects(() => tool.execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))), /off/)
+})
+
+test('status and config endpoints load saved prefs before answering', async () => {
+  let loads = 0
+  const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-x' } })
+  rt.load = async () => {
+    loads += 1
+    rt.state.prefs.deepseekServices = { ocr: true }
+  }
+  const status = await rt.deepseekEndpoint('deepseek-services', {})
+  assert.ok(loads >= 1, 'status loads on a cold start')
+  assert.equal(status.preferences.ocr, true)
+  assert.equal(status.ocr.enabled, true)
+  assert.equal(readTool(rt).name, 'read_document')
+  const before = loads
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: true })
+  assert.ok(loads > before, 'config loads too')
+})
+
+test('a private Bot spills a long OCR result under its own folder with the literal session id', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-ocr-private-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const spills = []
+  const fs = {
+    resolve: async (path, { cwd }) => ({ targetKey: `${cwd}/${path}`, displayPath: `${cwd}/${path}` }),
+    stat: async () => ({ type: 'file', size: 3, version: 'v' }),
+    processPath: target => target.displayPath,
+    readBytes: async () => new Uint8Array([37, 80, 68, 70]),
+  }
+  const spillStore = {
+    saveText: async (input) => {
+      spills.push(input)
+      return { locator: `/tmp/dsh-spill-abc123/session-0123abcd/a1b2c3-${input.suggestedName}`, bytes: Buffer.byteLength(input.content, 'utf8'), retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+    },
+  }
+  const { rt } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs, spillStore,
+    sessions: { bot1: 'bot1' },
+    bots: { bot1: { id: 'bot1', name: 'Diary', private: true, workDir } },
+    prefs: { deepseekServices: { ocr: true } },
+  })
+  stubFetch(t, () => json({
+    id: 'ocr-priv', object: 'ocr.result', created: 1, purpose: 'text_recognition', page_count: 1,
+    pages: [{ index: 0, text: 'secret '.repeat(5000), finish_reason: 'stop' }],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  }))
+  const out = await readTool(rt).execute({ path: 'scan.pdf' }, exec(sessionWithFile('x')))
+  assert.equal(spills.length, 0, 'the shared spill store is not used for a private Bot')
+  const locator = join(workDir, '.ocr', 'bot1', 'bot1', 'scan.ocr.txt')
+  assert.ok(out.includes(JSON.stringify(locator)), 'the locator is named in the answer')
+  assert.ok(locator.includes('bot1'), 'the path names the literal session id so ownerOfPath needles match')
+  const expected = `[page 0]\n${'secret '.repeat(5000)}`
+  assert.equal(readFileSync(locator, 'utf8'), expected)
 })

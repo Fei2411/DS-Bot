@@ -70,7 +70,8 @@ export const AGENT_NAME = 'DSH Agent'
 export const AGENT_SESSION_TITLE_MAX = 80
 // Every tool this plugin defines for Bot Sessions; tools.js registers them in
 // each Bot session's own scope. `read_browser` only exists in the Desktop
-// profile, so the list served to one session can be shorter.
+// profile, and `read_document` only while DeepSeek OCR is on, so the list
+// served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view',

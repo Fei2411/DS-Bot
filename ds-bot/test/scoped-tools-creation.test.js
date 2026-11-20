@@ -210,7 +210,7 @@ test('team tools retry without a step, without registering successful tools twic
     return register(tool)
   }
   await until(() => scopedNames(host, 'a').includes('list_bots'), 5000)
-  for (const name of TEAM_TOOLS.filter(name => name !== 'read_browser')) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
+  for (const name of TEAM_TOOLS.filter(name => name !== 'read_browser' && name !== 'read_document')) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
 })
 
 test('team tool retries stop at a bound and are cleaned up with their scope', async (t) => {
@@ -255,7 +255,7 @@ test('a Bot Session gets every team tool in its own scope', async (t) => {
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('a')
-  assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
+  assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort())
 })
 
 test('a Bot with no connector off never reads the served schemas for the mask', async (t) => {
@@ -541,7 +541,7 @@ test("a Bot's own Session the creation path missed gets the whole scope at the a
   await host.call('state', {})
   const agent = host.agentOf('a')
   const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
-  const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort()
+  const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort()
   assert.deepEqual(scopedNames(host, 'a').sort(), expected)
   assert.deepEqual(assembled.tools.map(tool => tool.name).sort(), ['read', ...expected].sort())
   // The hidden DSH tools are masked and filtered as on the creation path: none

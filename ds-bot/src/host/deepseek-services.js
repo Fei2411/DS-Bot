@@ -3,7 +3,8 @@
 // DeepSeek API key — never the account sign-in — and it is off until the user turns it
 // on. The speech services of the same key arrive in their own change.
 // https://api-docs.deepseek.com/guides/ocr.md
-import { basename } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { own } from './store.js'
 
@@ -277,20 +278,44 @@ export function install(rt) {
     return out
   }
 
-  // A long result's whole text goes to the session's spill store — DSH's own
-  // retention seam — and the model reads it back through the saved locator. The
-  // hint is backend guidance only: it does not carry the locator, so the answer
-  // must name the locator itself. Without the service the paid result stays
-  // inline; the output policy bounds it.
+  // A long result's whole text is filed so the model can read it back. Non-private
+  // Sessions use DSH's spill store. A private Bot's text must stay inside a path
+  // that names the Bot's own Session id: the default spill backend hashes that id
+  // into the directory name, which ownerOfPath does not see, so another Bot could
+  // glob and read it. Those results go under the Bot's own folder instead.
+  async function spillPrivate(bot, sessionId, text, suggestedName) {
+    const base = typeof bot.workDir === 'string' && bot.workDir !== '' ? bot.workDir : undefined
+    if (base === undefined) return undefined
+    const dir = join(base, '.ocr', bot.id, sessionId)
+    const locator = join(dir, suggestedName)
+    try {
+      await mkdir(dir, { recursive: true })
+      await writeFile(locator, text, 'utf8')
+      return {
+        locator,
+        bytes: Buffer.byteLength(text, 'utf8'),
+        retrievalHint: 'Use read with offset/limit, or grep this path to search within it.',
+      }
+    } catch (error) {
+      rt.warn('ds-bot: OCR result spill failed: %s', error)
+      return undefined
+    }
+  }
+
   async function spillResult(exec, text, name) {
-    const store = ctx.get?.('spillStore')
     const sessionId = exec.agent?.session?.id
-    if (store === undefined || sessionId === undefined) return undefined
+    if (sessionId === undefined) return undefined
+    const suggestedName = `${name.replace(/\.[^.]*$/, '')}.ocr.txt`
+    const botId = rt.selfOf(exec.agent?.id)
+    const bot = botId !== undefined && typeof rt.botOf === 'function' ? rt.botOf(botId) : undefined
+    if (bot?.private === true) return spillPrivate(bot, sessionId, text, suggestedName)
+    const store = ctx.get?.('spillStore')
+    if (store === undefined) return undefined
     try {
       return await store.saveText({
         owner: { sessionId },
         source: { kind: 'tool', toolName: 'read_document', callId: exec.callId ?? 'read_document', label: name },
-        suggestedName: `${name.replace(/\.[^.]*$/, '')}.ocr.txt`,
+        suggestedName,
         content: text,
       })
     } catch (error) {
@@ -329,7 +354,10 @@ export function install(rt) {
     return `${head.join(' ')} The full result was saved to ${JSON.stringify(String(spilled.locator))} (${spilled.bytes} bytes). ${spilled.retrievalHint}\n\n${whole.slice(0, OCR_INLINE_MAX)}\n\n[... ${whole.length - OCR_INLINE_MAX} more characters in the saved result]`
   }
 
-  rt.teamTools.push(defineTool({
+  // Off until Settings turns OCR on: a registered schema still costs context tokens
+  // and invites the model to call it. addTeamTool/removeTeamTool also update live
+  // Agent scopes; unit tests that only install this module fall back to push/splice.
+  const readDocument = defineTool({
     name: 'read_document',
     description: 'Read the text of a document or scanned file — PDF, Word, PowerPoint, or an image of a page — with DeepSeek\'s document recognition (a paid call on your DeepSeek API key, enabled in DS Bot settings). Give exactly one of path or attachment_id. The text comes back page by page; a long result is also written to a file you can read.',
     parameters: {
@@ -343,7 +371,22 @@ export function install(rt) {
       if (rt.selfOf(exec.agent?.id) === undefined) return 'Only Bots on the team can use read_document.'
       return ocrDocument(args, exec)
     },
-  }))
+  })
+
+  function syncOcrTool() {
+    const want = servicePrefs(rt).ocr === true
+    const have = rt.teamTools.some(tool => tool.name === 'read_document')
+    if (want && !have) {
+      if (typeof rt.addTeamTool === 'function') rt.addTeamTool(readDocument)
+      else rt.teamTools.push(readDocument)
+    } else if (!want && have) {
+      if (typeof rt.removeTeamTool === 'function') rt.removeTeamTool('read_document')
+      else {
+        const at = rt.teamTools.findIndex(tool => tool.name === 'read_document')
+        if (at !== -1) rt.teamTools.splice(at, 1)
+      }
+    }
+  }
 
   // ---- channel endpoints ----------------------------------------------------------
   async function servicesStatus() {
@@ -374,20 +417,28 @@ export function install(rt) {
     if (Object.keys(cleaned).length === 0) delete rt.state.prefs.deepseekServices
     else rt.state.prefs.deepseekServices = cleaned
     await rt.save()
+    syncOcrTool()
     return servicesStatus()
   }
 
   async function deepseekEndpoint(endpoint, body) {
+    await rt.load()
+    syncOcrTool()
     switch (endpoint) {
       case 'deepseek-services': return servicesStatus()
-      case 'deepseek-services-config': {
-        await rt.load()
-        return updateServices(body ?? {})
-      }
+      case 'deepseek-services-config': return updateServices(body ?? {})
       default:
         throw invalid(`Unknown endpoint ${endpoint}`)
     }
   }
+
+  syncOcrTool()
+  // Load after the rest of the plugin has installed: store.adopt needs groups'
+  // keepGroupLine, which this module precedes in MODULES. A microtask waits
+  // until createRuntime's loop (and its post-loop sync) has finished.
+  queueMicrotask(() => {
+    void Promise.resolve(rt.load?.()).then(() => { syncOcrTool() }).catch(() => {})
+  })
 
   Object.assign(rt, { servicesStatus, deepseekEndpoint, servicePrefs: () => servicePrefs(rt) })
 }

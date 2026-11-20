@@ -117,7 +117,7 @@ In Settings → Capabilities, you can manage shared MCP servers, skills and pack
 
 ### DeepSeek document reading
 
-A DeepSeek API key can add independent image and document reading to any model, off until you turn it on in **Settings → DeepSeek services** (arriving with the speech settings in the same page). The key is set in **Settings → Models**; setting it never uploads files by itself. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
+A DeepSeek API key can add independent image and document reading to any model, off until you turn it on in **Settings → DeepSeek services**. The key is set in **Settings → Models**; setting it never uploads files by itself. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
 
 ### Office files
 
