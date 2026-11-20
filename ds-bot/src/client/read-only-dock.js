@@ -21,15 +21,21 @@ export function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
     const card = root.current?.closest('[data-composer-card]') ?? document.querySelector('[data-composer-card]')
     if (card === null || card === undefined) return undefined
     const onKey = (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault()
         event.stopImmediatePropagation()
       }
     }
+    const sendWord = t('Send').toLowerCase()
     const onClick = (event) => {
       const button = event.target?.closest?.('button')
       if (button === null || button === undefined) return
-      if (/send|发送/i.test(button.getAttribute('aria-label') ?? '')) {
+      const label = (button.getAttribute('aria-label') ?? '').toLowerCase()
+      const isSend = button.getAttribute('type') === 'submit'
+        || button.hasAttribute('data-send')
+        || /send|发送|傳送|送信|전송|enviar|envoyer|senden/i.test(label)
+        || (sendWord !== '' && label.includes(sendWord))
+      if (isSend) {
         event.preventDefault()
         event.stopImmediatePropagation()
       }
@@ -41,9 +47,10 @@ export function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
       card.removeEventListener('click', onClick, true)
     }
   }, [active])
+  const stopId = bot?.id ?? sessionId
   return h('div', { ref: root, className: 'bt-readonly-dock', 'data-on': active ? '' : undefined, role: 'status', hidden: !active },
     h('span', { className: 'bt-readonly-text' }, t('This session is still running. Wait for it to finish, or stop it.')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.stopChat(bot.id) }, t('Stop')))
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !stopId, onClick: () => { if (stopId) actions.stopChat?.(stopId) } }, t('Stop')))
 }
 
 export const READ_ONLY_CSS = `

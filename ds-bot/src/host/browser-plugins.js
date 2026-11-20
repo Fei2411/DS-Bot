@@ -68,7 +68,7 @@ function grantAllows(bot, action) {
 // that raised it is kept too, so the answer comes back to that thread, not to the
 // foreground chat the user happens to be reading.
 export function handoffHold(rt, botId, { sessionId, callId, ...hold }) {
-  const own = sessionId !== undefined && rt.chatOwners.get(sessionId) === botId
+  const own = sessionId !== undefined && rt.chatOwners.get(sessionId) === botId && !rt.taskOwners?.has(sessionId)
   return own && callId !== undefined ? { ...hold, callId, sessionId } : hold
 }
 
