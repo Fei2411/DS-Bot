@@ -219,9 +219,20 @@ test('config patch: absent keeps, null resets, invalid refuses', async () => {
 
 const wav = (dataBytes = 4) => {
   const bytes = new Uint8Array(44 + dataBytes)
+  const view = new DataView(bytes.buffer)
   bytes.set([82, 73, 70, 70]) // RIFF
-  new DataView(bytes.buffer).setUint32(4, 36 + dataBytes, true)
+  view.setUint32(4, 36 + dataBytes, true)
   bytes.set([87, 65, 86, 69], 8) // WAVE
+  bytes.set([102, 109, 116, 32], 12) // fmt 
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, 24000, true)
+  view.setUint32(28, 48000, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  bytes.set([100, 97, 116, 97], 36) // data
+  view.setUint32(40, dataBytes, true)
   return bytes
 }
 
@@ -278,6 +289,9 @@ test('synthesize accepts an unknown-length streaming WAV but refuses a declared-
   const cut = new Uint8Array(streaming)
   new DataView(cut.buffer).setUint32(40, 1000, true) // data chunk says 1000 bytes, only 16 present
   globalThis.fetch = async () => new Response(cut.slice(0, 44 + 16), { status: 200 })
+  await assert.rejects(() => on.rt.deepseekEndpoint('deepseek-synthesize', { text: 'hi' }), /ended early/)
+  // A streaming header cut off before the data chunk even begins is also rejected.
+  globalThis.fetch = async () => new Response(streaming.slice(0, 36), { status: 200 })
   await assert.rejects(() => on.rt.deepseekEndpoint('deepseek-synthesize', { text: 'hi' }), /ended early/)
 })
 
@@ -800,4 +814,58 @@ test('config rejects non-object payloads, rolls back on save failure, and reject
   await assert.rejects(
     () => readTool(rt).execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))),
     /no usable answer/)
+})
+
+test('ASR wavSeconds handles truncated fmt chunks and zero sample rate without throwing RangeError', async (t) => {
+  const registered = []
+  const inject = (_deps, fn) => fn({ effect: execute => execute() })
+  const speechToText = { register(p) { registered.push(p); return () => {} } }
+  setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, speechToText, inject })
+  const provider = registered[0]
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const calls = stubFetch(t, () => json({ request_id: 'r-malformed', text: 'ok', duration_ms: 500 }))
+  // Truncated fmt chunk near end of a >= 44-byte RIFF/WAVE buffer (size declares 16, only 4 bytes remain).
+  const truncatedFmt = new Uint8Array(48)
+  const v1 = new DataView(truncatedFmt.buffer)
+  truncatedFmt.set([82, 73, 70, 70], 0)
+  v1.setUint32(4, 40, true)
+  truncatedFmt.set([87, 65, 86, 69], 8)
+  truncatedFmt.set([74, 85, 78, 75], 12) // JUNK
+  v1.setUint32(16, 16, true)
+  truncatedFmt.set([102, 109, 116, 32], 36) // fmt  at offset 36 (at + 24 = 60 > 48)
+  v1.setUint32(40, 16, true)
+  const res1 = await provider.transcribe({ audio: truncatedFmt })
+  assert.equal(res1.text, 'ok')
+  // Zero sample rate must not divide by zero into Infinity or reject locally.
+  const zeroRate = wav(16)
+  new DataView(zeroRate.buffer).setUint32(24, 0, true)
+  const res2 = await provider.transcribe({ audio: zeroRate })
+  assert.equal(res2.text, 'ok')
+  assert.equal(calls.length, 2)
+})
+
+test('servicesStatus keeps speech.ready synchronized with key changes and pre-aborted calls skip fetch', async (t) => {
+  const { rt, keys } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' },
+    speechToText: { register: () => () => {} },
+    inject: (_deps, fn) => fn({ effect: execute => execute() }),
+    prefs: { deepseekServices: { tts: 'deepseek' } },
+  })
+  // Even before any timer tick, servicesStatus resolves key + asrReady together.
+  const first = await rt.servicesStatus()
+  assert.equal(first.speech.configured, true)
+  assert.equal(first.speech.ready, true)
+  // Deleting the key immediately reflects as configured: false AND ready: false in the same snapshot.
+  delete keys.DEEPSEEK_API_KEY
+  const second = await rt.servicesStatus()
+  assert.equal(second.speech.configured, false)
+  assert.equal(second.speech.ready, false)
+  assert.ok(second.speech.reason)
+  // Pre-aborted signal rejects before touching fetch.
+  keys.DEEPSEEK_API_KEY = 'sk-1'
+  const calls = stubFetch(t, () => new Response(wav(16), { status: 200 }))
+  const ctl = new AbortController()
+  ctl.abort(new Error('cancelled'))
+  await assert.rejects(() => rt.deepseekEndpoint('deepseek-synthesize', { text: 'hi' }, ctl.signal), /cancelled/)
+  assert.equal(calls.length, 0)
 })

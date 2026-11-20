@@ -9,10 +9,11 @@ const EDGE = /^\s+|\s+$/g
 const ALWAYS_END = /^[!?。！？…；;]/
 const CLOSER = /^['"”’」』）)\]]/
 const ABBREV = /(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i
+const LIST_NUM = /(?:^|\s)\d{1,3}$/
 
 // Split a paragraph at sentence boundaries without tearing apart decimals
-// (`3.14`), version numbers (`v0.3.9`), hostnames (`api.deepseek.com`) or
-// common abbreviations (`Dr.`).
+// (`3.14`), version numbers (`v0.3.9`), hostnames (`api.deepseek.com`),
+// numbered list markers (`1. First`) or common abbreviations (`Dr.`).
 function splitSentences(paragraph) {
   const out = []
   let start = 0
@@ -34,7 +35,8 @@ function splitSentences(paragraph) {
       let after = end
       while (after < len && CLOSER.test(paragraph[after])) after += 1
       const atBoundary = after === len || /\s/.test(paragraph[after])
-      const isAbbrev = singleDot && ABBREV.test(paragraph.slice(start, at))
+      const before = paragraph.slice(start, at)
+      const isAbbrev = singleDot && (ABBREV.test(before) || (after < len && LIST_NUM.test(before)))
       if (atBoundary && !isAbbrev) {
         out.push(paragraph.slice(start, after))
         start = after
@@ -102,11 +104,12 @@ export const bytesOf = (base64) => {
 
 // One clip: an object URL on an audio element, 'done' | 'failed' | 'aborted'.
 // The URL is revoked at every outcome — none survives its clip.
-export const playClip = ({ audioBase64, mediaType }, signal) => new Promise((resolve) => {
+export const playClip = (clip, signal) => new Promise((resolve) => {
   if (signal?.aborted || typeof Audio !== 'function') { resolve(signal?.aborted ? 'aborted' : 'failed'); return }
+  if (typeof clip?.audioBase64 !== 'string' || clip.audioBase64 === '') { resolve('failed'); return }
   let url
   try {
-    url = URL.createObjectURL(new Blob([bytesOf(audioBase64)], { type: mediaType || 'audio/wav' }))
+    url = URL.createObjectURL(new Blob([bytesOf(clip.audioBase64)], { type: clip.mediaType || 'audio/wav' }))
   } catch {
     resolve('failed')
     return
@@ -128,7 +131,7 @@ export const playClip = ({ audioBase64, mediaType }, signal) => new Promise((res
   audio.onerror = () => finish('failed')
   signal?.addEventListener('abort', onAbort, { once: true })
   audio.src = url
-  audio.play().catch(() => finish('failed'))
+  Promise.resolve().then(() => audio.play()).catch(() => finish('failed'))
 })
 
 // The team pref `prefs.deepseekServices` picks the reply voice: 'deepseek'

@@ -156,6 +156,8 @@ export function install(rt) {
   const lifetime = new AbortController()
   ctx.effect(() => () => { lifetime.abort(new Error('ds-bot stopped')) }, 'ds-bot: deepseek services')
   async function requestService(path, init = {}, { timeoutMs, signal } = {}) {
+    lifetime.signal.throwIfAborted()
+    signal?.throwIfAborted?.()
     const key = await resolveKey()
     const deadline = new AbortController()
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => deadline.abort(new Error('DeepSeek did not answer in time')), timeoutMs)
@@ -239,13 +241,16 @@ export function install(rt) {
     for (const listener of asrListeners) listener()
   }
   // A refresh that started later always wins; an older answer landing after it
-  // (or after unload) cannot roll readiness back.
+  // (or after unload) cannot roll readiness back. Returns the described key so
+  // status callers get a consistent key/readiness pair from one check.
   const refreshAsrKey = () => {
     const generation = ++asrGeneration
     return describeKey().then((key) => {
       if (generation === asrGeneration && !lifetime.signal.aborted) setAsrReady(key.configured === true)
+      return key
     }, () => {
       if (generation === asrGeneration && !lifetime.signal.aborted) setAsrReady(false)
+      return { ref: DEFAULT_REF, configured: false }
     })
   }
 
@@ -270,7 +275,9 @@ export function install(rt) {
 
   // Duration of a 16-bit PCM WAV from its header; other containers defer to the API.
   function wavSeconds(audio) {
-    if (audio.byteLength < 44 || String.fromCharCode(...audio.subarray(0, 4)) !== 'RIFF') return undefined
+    if (audio.byteLength < 44
+      || String.fromCharCode(...audio.subarray(0, 4)) !== 'RIFF'
+      || String.fromCharCode(...audio.subarray(8, 12)) !== 'WAVE') return undefined
     const view = new DataView(audio.buffer, audio.byteOffset, audio.byteLength)
     let at = 12
     let rate
@@ -280,6 +287,7 @@ export function install(rt) {
       const id = String.fromCharCode(...audio.subarray(at, at + 4))
       const size = view.getUint32(at + 4, true)
       if (id === 'fmt ' && size >= 16) {
+        if (at + 24 > audio.byteLength) return undefined
         if (view.getUint16(at + 8, true) !== 1 || view.getUint16(at + 22, true) !== 16) return undefined
         channels = view.getUint16(at + 10, true)
         rate = view.getUint32(at + 12, true)
@@ -287,7 +295,7 @@ export function install(rt) {
       if (id === 'data') dataBytes = Math.min(size, audio.byteLength - at - 8)
       at += 8 + size + (size % 2)
     }
-    return rate !== undefined && channels > 0 && dataBytes !== undefined ? dataBytes / (2 * channels) / rate : undefined
+    return rate > 0 && channels > 0 && dataBytes !== undefined ? dataBytes / (2 * channels) / rate : undefined
   }
 
   const asrProvider = {
@@ -327,6 +335,7 @@ export function install(rt) {
         const service = ctx.get?.('speechToText') ?? ctx.speechToText
         unregister = service.register(asrProvider)
         asrRegistration = 'registered'
+        void refreshAsrKey()
       } catch (error) {
         asrRegistration = `another provider already answers as ${ASR_PROVIDER_ID}: ${error?.message ?? error}`
       }
@@ -403,10 +412,10 @@ export function install(rt) {
       if (id === 'data') sawData = { at, size }
       at += 8 + size + (size % 2)
     }
-    if (sawData !== undefined && sawData.size !== 0xFFFFFFFF && audio.byteLength < sawData.at + 8 + sawData.size) {
+    if (sawData === undefined || (sawData.size !== 0xFFFFFFFF && audio.byteLength < sawData.at + 8 + sawData.size)) {
       throw refused('Speech synthesis ended early; try again')
     }
-    return { audioBase64: Buffer.from(audio).toString('base64'), mediaType: 'audio/wav' }
+    return { audioBase64: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'), mediaType: 'audio/wav' }
   }
 
   // ---- OCR ----------------------------------------------------------------------
@@ -619,7 +628,7 @@ export function install(rt) {
 
   // ---- channel endpoints ----------------------------------------------------------
   async function servicesStatus() {
-    const key = await describeKey()
+    const key = await refreshAsrKey()
     const prefs = servicePrefs(rt)
     const speechService = ctx.get?.('speechToText') !== undefined
     return {
@@ -642,7 +651,7 @@ export function install(rt) {
         registered: asrRegistration === 'registered',
         providerId: ASR_PROVIDER_ID,
         configured: key.configured,
-        ready: asrRegistration === 'registered' && asrReady === true,
+        ready: asrRegistration === 'registered' && key.configured === true && asrReady === true,
         reason: speechService === false ? 'This DSH has no speech-to-text service (voice input is not mounted)'
           : asrRegistration === 'pending' ? 'The speech provider is registering'
             : asrRegistration === 'registered'

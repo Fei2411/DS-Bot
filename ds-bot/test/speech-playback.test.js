@@ -263,3 +263,27 @@ test('a playback failure resolves failed without paying for the next chunk', asy
   await tick()
   assert.equal(calls.length, 1)
 })
+
+test('splitSpeech keeps numbered list markers with their items and preserves surrogate pairs on hard cuts', () => {
+  assert.deepEqual(
+    splitSpeech('1. First item. 2. Second item.'),
+    ['1. First item.', '2. Second item.'],
+  )
+  assert.deepEqual(
+    splitSpeech('1. 第一点。2. 第二点。'),
+    ['1. 第一点。', '2. 第二点。'],
+  )
+  const han = '𠀀'.repeat(15)
+  const chunks = splitSpeech(han, 10)
+  assert.equal(chunks.join(''), han)
+  for (const chunk of chunks) {
+    assert.ok(billedLength(chunk) <= 10)
+    assert.equal(chunk.isWellFormed(), true)
+  }
+})
+
+test('playClip handles missing clip payload without throwing', async () => {
+  setup()
+  assert.equal(await playClip(null), 'failed')
+  assert.equal(await playClip({}), 'failed')
+})

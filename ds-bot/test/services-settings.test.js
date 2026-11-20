@@ -283,3 +283,31 @@ test('Settings wires the page into its nav, render switch and action gate', () =
   assert.match(source, /key !== 'deepseek-services' \|\| actions\.deepseekServices !== undefined/)
   assert.match(source, /shown === 'deepseek-services' \? h\(DeepSeekServicesPage/)
 })
+
+test('loading state stays neutral and hides setup buttons when Plugins page is unavailable or ASR is not ready', () => {
+  // status === null must not flash red 'missing' or render a setup button before load completes.
+  const loading = form({ status: null, pluginsAvailable: true, speechAvailable: false }).tree()
+  const loadingStates = loading.filter(node => node.props?.role === 'status' && node.props?.['data-state'])
+  assert.equal(loadingStates.every(node => node.props['data-state'] === 'off'), true)
+  assert.equal(loading.some(node => node.type === 'button' && textOf(node).includes('Set up voice input')), false)
+
+  // Desktop app with pluginsAvailable: false must not render a dead 'Set up voice input' button.
+  const noPlugins = form({
+    status: status({ speech: { registered: false, providerId: 'deepseek-asr', configured: true, ready: false, reason: 'This DSH has no speech-to-text service' } }),
+    pluginsAvailable: false,
+    speechAvailable: false,
+  }).tree()
+  assert.equal(noPlugins.some(node => node.type === 'button' && textOf(node).includes('Set up voice input')), false)
+
+  // When selected as providerId but asr.ready is false, never show green 'In use' pill and keep button disabled.
+  const notReady = form({
+    status: status({ speech: { registered: true, providerId: 'deepseek-asr', configured: true, ready: false, reason: 'Not ready yet' } }),
+    selection: { providerId: 'deepseek-asr', language: 'auto' },
+    speechAvailable: true,
+    pluginsAvailable: true,
+  }).tree()
+  assert.equal(notReady.some(node => node.props?.['data-state'] === 'ready' && textOf(node).includes('In use')), false)
+  const useBtn = notReady.find(node => node.type === 'button' && textOf(node).includes('Use DeepSeek for dictation'))
+  assert.ok(useBtn)
+  assert.equal(useBtn.props.disabled, true)
+})

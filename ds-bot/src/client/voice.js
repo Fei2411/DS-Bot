@@ -66,14 +66,14 @@ export function watchReply(read, watch, consume) {
   return () => { consumed = true; off() }
 }
 
-function useMicLevel(enabled) {
-  const [level, setLevel] = useState(0)
+function useMicLevel(enabled, targetRef) {
   useEffect(() => {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return undefined
     let stream = null
     let audio = null
     let frame = 0
     let stopped = false
+    const write = (value) => { targetRef.current?.style.setProperty('--bt-level', String(value)) }
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) { media.getTracks().forEach(track => track.stop()); return }
       stream = media
@@ -88,7 +88,7 @@ function useMicLevel(enabled) {
         let sum = 0
         for (const value of data) sum += ((value - 128) / 128) ** 2
         smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2
-        setLevel(Math.round(smooth * 100) / 100)
+        write(Math.round(smooth * 100) / 100)
         frame = requestAnimationFrame(tick)
       }
       tick()
@@ -98,10 +98,9 @@ function useMicLevel(enabled) {
       cancelAnimationFrame(frame)
       stream?.getTracks().forEach(track => track.stop())
       void audio?.close().catch(() => {})
-      setLevel(0)
+      write(0)
     }
   }, [enabled])
-  return level
 }
 
 export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessionStatus }) {
@@ -121,8 +120,8 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const [heard, setHeard] = useState('')
   const [said, setSaid] = useState('')
   const [note, setNote] = useState('')
-  const [serviceLevel, setServiceLevel] = useState(0)
   const [cycle, setCycle] = useState(0)
+  const orbRef = useRef(null)
   const waiting = useRef(null)
   const reply = useRef(lastReply)
   reply.current = lastReply
@@ -180,7 +179,19 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const listen = phase === 'listening'
   useEffect(() => {
     if (speech || !listen || dictation.listening) return undefined
-    const timer = setTimeout(() => dictation.start({ continuous: false, onEnd: () => {} }), 250)
+    const timer = setTimeout(() => {
+      const started = dictation.start({
+        continuous: false,
+        onEnd: () => {},
+        onError: (code) => {
+          if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'audio-capture') {
+            setNote(t(CAPTURE_NOTES.blocked))
+            setPhase('paused')
+          }
+        },
+      })
+      if (!started) setPhase('paused')
+    }, 250)
     return () => clearTimeout(timer)
   }, [listen, dictation.listening])
   // Recognition stops on silence; keep listening until the user pauses or ends.
@@ -197,6 +208,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     let smooth = 0
     const detect = turnDetector()
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1000
+    const writeLevel = (value) => { orbRef.current?.style.setProperty('--bt-level', String(value)) }
     const finish = (current) => {
       setPhase('transcribing')
       void transcribeUtterance({
@@ -219,12 +231,12 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         const now = performance.now()
         const level = capture.level()
         smooth = smooth * 0.8 + level * 0.2
-        setServiceLevel(Math.round(smooth * 100) / 100)
+        writeLevel(Math.round(smooth * 100) / 100)
         const state = detect(level, now)
         if (state === 'done' || (state === 'speech' && now - began >= limit)) {
           const current = capture
           capture = null
-          setServiceLevel(0)
+          writeLevel(0)
           void finish(current)
           return
         }
@@ -242,7 +254,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
       stopped = true
       cancelAnimationFrame(frame)
       capture?.cancel()
-      setServiceLevel(0)
+      writeLevel(0)
     }
   }, [speech, catalog, listen, cycle])
   useEffect(() => {
@@ -300,8 +312,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   // every pending completion before it settles: the late transcript drops and
   // the say's then is stale before its state writes would land.
   useEffect(() => () => { turn.current += 1; transcribeCtl.current?.abort(); stopSpeech() }, [])
-  const micLevel = useMicLevel(!speech && phase === 'listening' && dictation.listening)
-  const level = speech ? serviceLevel : micLevel
+  useMicLevel(!speech && phase === 'listening' && dictation.listening, orbRef)
   const markState = phase === 'thinking' || phase === 'transcribing' ? 'thinking' : phase === 'speaking' ? 'sending' : 'idle'
   const blocked = phase === 'unsupported' || phase === 'setup' || phase === 'starting' || phase === 'preparing'
   const togglePause = () => {
@@ -340,6 +351,8 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const startSetup = () => {
     if (openSetup?.navigate) { close(); openSetup.navigate(); return }
     turn.current += 1
+    transcribeCtl.current?.abort()
+    stopSpeech()
     setPhase('preparing')
     void Promise.resolve(openSetup.prepare()).then((started) => {
       if (started === false) { setPhase('setup'); setNote(t("Couldn't prepare voice input")) }
@@ -349,7 +362,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const shownNote = note || dictation.note
   return h('div', { className: 'bt-pane bt-voice-pane', style: { left: paneLeft } },
     h('div', { className: 'bt-voice-stage', role: 'dialog', 'aria-label': t('Voice chat with {name}', { name }), 'data-phase': phase === 'transcribing' ? 'thinking' : phase },
-      h('div', { className: 'bt-voice-orb', style: { '--bt-level': level } },
+      h('div', { ref: orbRef, className: 'bt-voice-orb' },
         h('span', { className: 'bt-voice-ring', 'aria-hidden': true }),
         h('span', { className: 'bt-voice-ring bt-voice-ring-2', 'aria-hidden': true }),
         bot ? h(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === 'listening' }) : room ? h(RoomAvatar, { room, roster, size: 112 }) : null),

@@ -90,3 +90,26 @@ body[data-bt-room] [data-composer-card]:has(.dsb-send:disabled) .bt-mic:not([ari
 .md-code pre{margin:0;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent);overflow-x:auto;font-size:13px;line-height:20px}
 .md-copy{position:absolute;top:6px;right:6px;padding:2px 8px;border:0;border-radius:6px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:18px;cursor:pointer;opacity:0;transition:opacity .12s ease}
 .md-code:hover .md-copy,.md-copy:focus-visible{opacity:1}
+@media (hover:none){.md-copy{opacity:1;min-height:32px;padding:4px 10px}}
+
+.dsb-mobile-menu,.dsb-drawer-scrim{display:none}
+.dsb-frame{height:100vh;height:100dvh}
+.dsb-composer-root{padding:0 calc(11px + env(safe-area-inset-right,0px)) calc(13px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))}
+.dsb-scroll{padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) 16px calc(16px + env(safe-area-inset-left,0px))}
+.dsb-head{padding-top:calc(4px + env(safe-area-inset-top,0px))}
+
+@media (max-width:768px){
+  .dsb-frame,.dsb-frame[data-rail]{grid-template-columns:minmax(0,1fr)}
+  .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:env(safe-area-inset-top,0px) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:8px 0 28px rgba(0,0,0,.18)}
+  .dsb-frame[data-drawer-open] .dsb-side{transform:translateX(0)}
+  .dsb-drawer-scrim{display:block;position:fixed;inset:0;z-index:34;background:rgba(0,0,0,.36)}
+  .dsb-mobile-menu{display:inline-flex;align-items:center;justify-content:center;position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(6px + env(safe-area-inset-top,0px));z-index:10;width:36px;height:36px;padding:0;border:0;border-radius:50%;corner-shape:round;background:var(--bt-glass-bg);color:var(--bt-ink);cursor:pointer;box-shadow:var(--bt-glass-shadow);touch-action:manipulation}
+  .dsb-mobile-menu:hover{background:var(--bt-hover)}
+  .dsb-mobile-menu:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+  .dsb-expand{display:none}
+}
+@media (max-width:768px) and (pointer:coarse){
+  .dsb-composer-input textarea{font-size:16px}
+  .dsb-mobile-menu,.dsb-send{min-width:40px;min-height:40px}
+}
+@media (prefers-reduced-motion:reduce){.dsb-side{transition:none}}

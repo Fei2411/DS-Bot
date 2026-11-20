@@ -140,11 +140,27 @@ function GeneralPage({ roster, actions, run, dsh }) {
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const [custom, setCustom] = useState(prefs.accent ?? '#4d6bfe')
   const timer = useRef(0)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const pendingAccent = useRef(null)
+  const saveAccent = useRef((value) => run(actions.setPrefs({ accent: value })))
+  saveAccent.current = (value) => run(actions.setPrefs({ accent: value }))
+  const flushAccent = () => {
+    clearTimeout(timer.current)
+    const value = pendingAccent.current
+    if (value === null) return
+    pendingAccent.current = null
+    void saveAccent.current(value)
+  }
+  useEffect(() => flushAccent, [])
   const pickCustom = (value) => {
     setCustom(value)
+    pendingAccent.current = value
     clearTimeout(timer.current)
-    timer.current = setTimeout(() => run(actions.setPrefs({ accent: value })), 350)
+    timer.current = setTimeout(flushAccent, 350)
+  }
+  const pickPreset = (value) => {
+    clearTimeout(timer.current)
+    pendingAccent.current = null
+    return run(actions.setPrefs({ accent: value }))
   }
   return [
     h(SetSection, { key: 'look', title: t('Appearance') },
@@ -153,10 +169,10 @@ function GeneralPage({ roster, actions, run, dsh }) {
           Object.entries(themes).map(([id, theme]) => h('option', { key: id, value: id }, t(theme.label))))),
       h(SetRow, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.') },
         h('div', { className: 'bt-swatches' },
-          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => run(actions.setPrefs({ accent: null })) }),
+          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => pickPreset(null) }),
           ACCENT_INKS.map(ink => h('button', {
             key: ink, type: 'button', className: 'bt-swatch', title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
-            style: { background: INKS[ink][0] }, onClick: () => run(actions.setPrefs({ accent: INKS[ink][0] })),
+            style: { background: `var(--bt-ink-${ink})` }, onClick: () => pickPreset(INKS[ink][0]),
           })),
           h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent) },
             h('input', { type: 'color', value: custom, 'aria-label': t('Custom accent'), onChange: event => pickCustom(event.target.value) })))),
@@ -323,7 +339,16 @@ class PageBoundary extends Component {
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const close = useCallback(() => actions.closeSettings(), [])
-  useEscape(close)
+  useEscape(close, !leaving)
+  const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+    const query = window.matchMedia('(max-width: 640px)')
+    const sync = () => setNarrowNav(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
@@ -340,11 +365,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const usageFocus = shown === 'usage' && id ? id : null
   const label = section ? section.label : advanced ? t('Advanced settings') : t(pages.find(([key]) => key === shown)[1])
   const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : null
-  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: 'y' })
+  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: narrowNav ? 'x' : 'y' })
   // A page enters from the right when it is one level in, from the left when it comes
   // back out, and from below beside it. Usage keeps its own entrance and its data
   // across its own levels, so they share one page.
-  const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : '')}`
+  const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
+  useEffect(() => { setError('') }, [pageKey])
   const depth = bot || room || advanced ? 1 : 0
   const last = useRef({ key: pageKey, depth, move: 'up' })
   if (last.current.key !== pageKey) {

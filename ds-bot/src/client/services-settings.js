@@ -41,6 +41,7 @@ function capabilityState(cap) {
 // The host reports no `enabled` for dictation; its real state is the existing
 // speech Remote's selection plus registration and credentials.
 function asrState(asr, selection, speechAvailable) {
+  if (!asr) return { state: 'off', text: t('Off') }
   const reason = asr.reason ? hostText(String(asr.reason)) : ''
   const notReady = reason || (speechAvailable === false ? t('Set up voice input') : t('Not ready'))
   const usable = asr.registered === true && asr.configured !== false && speechAvailable !== false && asr.ready !== false
@@ -74,20 +75,23 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
   save, selectAsr, onOpenModels, onOpenPlugins, Section, Row, Switch, Segmented }) {
   const prefs = { ...DEFAULTS, ...status?.preferences }
   const key = status?.key ?? {}
-  const asr = status?.speech ?? {}
+  const asr = status?.speech ?? null
   const selected = selection?.providerId === ASR_PROVIDER
   const ready = status !== null
   const ocrView = capabilityState(status?.ocr)
   const ttsView = capabilityState(status?.tts)
   const asrView = asrState(asr, selection, speechAvailable)
   const voices = [...new Set([...(status?.tts?.voices ?? []), prefs.voice])]
-  const asrButton = !asr.registered
-    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Set up voice input'))
-    : !asr.configured
-      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models'))
-      : selected
-        ? h(Pill, { state: 'ready', text: t('In use') })
-        : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !speechAvailable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
+  const asrUsable = asr !== null && asr.registered === true && asr.configured !== false && asr.ready !== false && speechAvailable !== false
+  const asrButton = asr === null
+    ? null
+    : !asr.registered
+      ? (pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Set up voice input')) : null)
+      : !asr.configured
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models'))
+        : selected && asrUsable
+          ? h(Pill, { state: 'ready', text: t('In use') })
+          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
   return h('div', { className: 'bt-svc' },
     h('style', { 'data-ds-bot': 'deepseek-services' }, SERVICES_CSS),
     h(Section, { key: 'key', title: t('DeepSeek API') },
@@ -127,7 +131,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
       h(Row, { label: t('Dictation provider') },
         h('div', { className: 'bt-svc-actions' },
           asrButton,
-          asr.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null)),
+          asr?.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null)),
       h(StateLine, { view: asrView })))
 }
 
