@@ -23,10 +23,15 @@ function useChat(botId, roomId, part, feed) {
   const ready = useRef(false)
   const early = useRef([])
   const busy = useRef(false)
+  const reloadQueued = useRef(false)
   const keep = useRef(null)
 
   const load = useCallback(async (cursor, scroller) => {
-    if (busy.current || !active) return
+    if (!active) return
+    if (busy.current) {
+      if (cursor === undefined) reloadQueued.current = true
+      return
+    }
     busy.current = true
     if (cursor === undefined) ready.current = false
     setView(current => ({ ...current, loading: true, failed: false }))
@@ -55,6 +60,10 @@ function useChat(botId, roomId, part, feed) {
       setView(current => ({ ...current, loading: false, failed: true }))
     } finally {
       busy.current = false
+      if (reloadQueued.current) {
+        reloadQueued.current = false
+        void load(undefined)
+      }
     }
   }, [active, botId, roomId, part])
 
@@ -172,8 +181,8 @@ export function Chat({ sessionId, team }) {
   const name = bot?.name ?? room?.name ?? ''
   const { view, stream, pending, load, send, keep } = useChat(bot?.id, room?.id, sessionId, feed)
   useEffect(() => {
-    document.body.toggleAttribute('data-bt-room', room !== undefined)
-    return () => { document.body.removeAttribute('data-bt-room') }
+    document.body?.toggleAttribute?.('data-bt-room', room !== undefined)
+    return () => { document.body?.removeAttribute?.('data-bt-room') }
   }, [room !== undefined])
   const scroller = useRef(null)
   const follow = useRef(true)

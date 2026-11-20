@@ -96,12 +96,14 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const [note, setNote] = useState('')
   const [cycle, setCycle] = useState(0)
   const orbRef = useRef(null)
+  const transcribeAbort = useRef(null)
   const waiting = useRef(null)
   const reply = useRef(lastReply)
   reply.current = lastReply
   // Bumped on pause and close, so a transcript that arrives later is dropped.
   const turn = useRef(0)
-  const close = () => { turn.current += 1; window.speechSynthesis?.cancel(); actions.closeVoice() }
+  const cancelTranscribe = () => { transcribeAbort.current?.abort(); transcribeAbort.current = null }
+  const close = () => { turn.current += 1; cancelTranscribe(); window.speechSynthesis?.cancel(); actions.closeVoice() }
   useEscape(close)
   const submit = (text) => {
     setHeard(text)
@@ -156,7 +158,6 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   useEffect(() => {
     if (!speech || !catalog || !listen) return undefined
     const own = turn.current
-    const controller = new AbortController()
     let capture = null
     let frame = 0
     let stopped = false
@@ -165,6 +166,9 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1000
     const writeLevel = (value) => { orbRef.current?.style.setProperty('--bt-level', String(value)) }
     const finish = async (current) => {
+      cancelTranscribe()
+      const controller = new AbortController()
+      transcribeAbort.current = controller
       setPhase('transcribing')
       try {
         const wave = await current.finish(catalog.maxDurationSeconds)
@@ -176,6 +180,8 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         if (turn.current !== own || error?.name === 'AbortError') return
         setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"))
         setPhase('listening')
+      } finally {
+        if (transcribeAbort.current === controller) transcribeAbort.current = null
       }
     }
     openCapture().then((opened) => {
@@ -207,7 +213,6 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     })
     return () => {
       stopped = true
-      controller.abort()
       cancelAnimationFrame(frame)
       capture?.cancel()
       writeLevel(0)
@@ -243,13 +248,14 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         speak(text)
       })
   }, [phase, running, lastReply])
-  useEffect(() => () => window.speechSynthesis?.cancel(), [])
+  useEffect(() => () => { cancelTranscribe(); window.speechSynthesis?.cancel() }, [])
   useMicLevel(!speech && phase === 'listening' && dictation.listening, orbRef)
   const markState = phase === 'thinking' || phase === 'transcribing' ? 'thinking' : phase === 'speaking' ? 'sending' : 'idle'
   const blocked = phase === 'unsupported' || phase === 'setup' || phase === 'starting' || phase === 'preparing'
   const togglePause = () => {
     if (phase === 'paused') { setPhase('listening'); return }
     turn.current += 1
+    cancelTranscribe()
     window.speechSynthesis?.cancel()
     setPhase('paused')
   }
@@ -282,6 +288,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const startSetup = () => {
     if (openSetup?.navigate) { close(); openSetup.navigate(); return }
     turn.current += 1
+    cancelTranscribe()
     setPhase('preparing')
     void Promise.resolve(openSetup.prepare()).then((started) => {
       if (started === false) { setPhase('setup'); setNote(t("Couldn't prepare voice input")) }
@@ -291,7 +298,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   const shownNote = note || dictation.note
   return h('div', { className: 'bt-pane bt-voice-pane', style: { left: paneLeft } },
     h('div', { className: 'bt-voice-stage', role: 'dialog', 'aria-label': t('Voice chat with {name}', { name }), 'data-phase': phase === 'transcribing' ? 'thinking' : phase },
-      h('div', { ref: orbRef, className: 'bt-voice-orb', style: { '--bt-level': 0 } },
+      h('div', { ref: orbRef, className: 'bt-voice-orb' },
         h('span', { className: 'bt-voice-ring', 'aria-hidden': true }),
         h('span', { className: 'bt-voice-ring bt-voice-ring-2', 'aria-hidden': true }),
         bot ? h(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === 'listening' }) : room ? h(RoomAvatar, { room, roster, size: 112 }) : null),

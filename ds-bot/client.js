@@ -37569,7 +37569,6 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(flushAccent, 350);
   };
-  const dark = typeof document !== "undefined" && document.body?.hasAttribute("data-ds-dark-theme");
   return [
     (0, import_react51.createElement)(
       SetSection,
@@ -37597,7 +37596,7 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
             title: t(capitalize2(ink)),
             "aria-label": t(capitalize2(ink)),
             "aria-pressed": prefs.accent === INKS[ink][0],
-            style: { background: INKS[ink][dark ? 1 : 0] },
+            style: { background: `var(--bt-ink-${ink})` },
             onClick: () => run2(actions.setPrefs({ accent: INKS[ink][0] }))
           })),
           (0, import_react51.createElement)(
@@ -41471,12 +41470,18 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const [note, setNote] = (0, import_react64.useState)("");
   const [cycle, setCycle] = (0, import_react64.useState)(0);
   const orbRef = (0, import_react64.useRef)(null);
+  const transcribeAbort = (0, import_react64.useRef)(null);
   const waiting = (0, import_react64.useRef)(null);
   const reply = (0, import_react64.useRef)(lastReply);
   reply.current = lastReply;
   const turn = (0, import_react64.useRef)(0);
+  const cancelTranscribe = () => {
+    transcribeAbort.current?.abort();
+    transcribeAbort.current = null;
+  };
   const close = () => {
     turn.current += 1;
+    cancelTranscribe();
     window.speechSynthesis?.cancel();
     actions.closeVoice();
   };
@@ -41537,7 +41542,6 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   (0, import_react64.useEffect)(() => {
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
-    const controller = new AbortController();
     let capture = null;
     let frame2 = 0;
     let stopped = false;
@@ -41548,6 +41552,9 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       orbRef.current?.style.setProperty("--bt-level", String(value));
     };
     const finish = async (current2) => {
+      cancelTranscribe();
+      const controller = new AbortController();
+      transcribeAbort.current = controller;
       setPhase("transcribing");
       try {
         const wave = await current2.finish(catalog.maxDurationSeconds);
@@ -41559,6 +41566,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
         if (turn.current !== own || error?.name === "AbortError") return;
         setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
         setPhase("listening");
+      } finally {
+        if (transcribeAbort.current === controller) transcribeAbort.current = null;
       }
     };
     openCapture().then((opened) => {
@@ -41595,7 +41604,6 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     });
     return () => {
       stopped = true;
-      controller.abort();
       cancelAnimationFrame(frame2);
       capture?.cancel();
       writeLevel(0);
@@ -41636,7 +41644,10 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       }
     );
   }, [phase, running, lastReply]);
-  (0, import_react64.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
+  (0, import_react64.useEffect)(() => () => {
+    cancelTranscribe();
+    window.speechSynthesis?.cancel();
+  }, []);
   useMicLevel(!speech && phase === "listening" && dictation.listening, orbRef);
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
   const blocked = phase === "unsupported" || phase === "setup" || phase === "starting" || phase === "preparing";
@@ -41646,6 +41657,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
+    cancelTranscribe();
     window.speechSynthesis?.cancel();
     setPhase("paused");
   };
@@ -41691,6 +41703,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
+    cancelTranscribe();
     setPhase("preparing");
     void Promise.resolve(openSetup.prepare()).then((started) => {
       if (started === false) {
@@ -41709,7 +41722,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       { className: "bt-voice-stage", role: "dialog", "aria-label": t("Voice chat with {name}", { name }), "data-phase": phase === "transcribing" ? "thinking" : phase },
       (0, import_react64.createElement)(
         "div",
-        { ref: orbRef, className: "bt-voice-orb", style: { "--bt-level": 0 } },
+        { ref: orbRef, className: "bt-voice-orb" },
         (0, import_react64.createElement)("span", { className: "bt-voice-ring", "aria-hidden": true }),
         (0, import_react64.createElement)("span", { className: "bt-voice-ring bt-voice-ring-2", "aria-hidden": true }),
         bot ? (0, import_react64.createElement)(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === "listening" }) : room2 ? (0, import_react64.createElement)(RoomAvatar, { room: room2, roster, size: 112 }) : null
