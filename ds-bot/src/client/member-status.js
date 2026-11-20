@@ -1,5 +1,7 @@
-import { createElement as h, useLayoutEffect, useRef, useState } from 'react'
-import { BotMark, toolState } from './mark.js'
+import { createElement as h, Fragment, useLayoutEffect, useRef, useState } from 'react'
+import { BotMark, colorOf, toolState } from './mark.js'
+import { inkText } from './inks.js'
+import { ChevronDownIcon } from './icons.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
@@ -11,24 +13,43 @@ import { t } from './i18n.js'
 // their group turns wait on are answered.
 
 const NO_WORK = { bots: {}, rooms: {}, approvals: [] }
+const NO_COMPUTER = { asks: {} }
 const FACES_MAX = 3
 const DOCK_EXIT_MS = 160
 
+// Pending approvals belonging to this group alone: DSH tool approvals and computer
+// app-access consents raised from members' hidden group Sessions, oldest first.
+export function roomApprovals(room, work = NO_WORK, computer = NO_COMPUTER, roster = { byId: {} }) {
+  if (!room) return []
+  const byId = roster?.byId ?? {}
+  const members = new Set(room.members ?? [])
+  const tools = (work?.approvals ?? [])
+    .filter(entry => entry.roomId === room.id && entry.answerable && byId[entry.botId] && members.has(entry.botId))
+    .map(entry => ({ kind: 'tool', id: entry.id, botId: entry.botId, bot: byId[entry.botId], at: entry.at ?? 0, approval: entry }))
+  const apps = Object.values(computer?.asks ?? {})
+    .filter(ask => ask.roomId === room.id && byId[ask.botId] && members.has(ask.botId))
+    .map(ask => ({ kind: 'computer-app', id: ask.id, botId: ask.botId, bot: byId[ask.botId], at: ask.at ?? 0, ask }))
+  return [...tools, ...apps].sort((a, b) => a.at - b.at)
+}
+
 // Only work in this group counts here; work elsewhere shows on the Bot's own chat
 // (its 'in {group}' capsule and sidebar group tag), not in every group it is in (#473).
-export function memberWork(room, work = NO_WORK) {
+export function memberWork(room, work = NO_WORK, computer = NO_COMPUTER) {
   const here = work.rooms?.[room.id] ?? []
+  const asks = Object.values(computer?.asks ?? {})
   return room.members.map((id) => {
-    const approvals = (work.approvals ?? []).filter(entry => entry.botId === id)
+    const approvals = (work.approvals ?? []).filter(entry => entry.botId === id && (entry.roomId === undefined || entry.roomId === room.id))
+    const computerAsks = asks.filter(ask => ask.botId === id && ask.roomId === room.id)
     const local = here.find(entry => entry.botId === id)
     const doing = local ? { ...local, roomId: room.id } : undefined
-    return { id, approvals, doing, here: local !== undefined, state: approvals.length > 0 ? 'ask' : doing ? 'work' : 'idle' }
+    const waiting = approvals.length > 0 || computerAsks.length > 0
+    return { id, approvals, computerAsks, doing, here: local !== undefined, state: waiting ? 'ask' : doing ? 'work' : 'idle' }
   })
 }
 
 // The busy members, those waiting for an approval first.
-export function busyMembers(room, work, roster) {
-  const busy = memberWork(room, work).filter(entry => entry.state !== 'idle' && roster.byId[entry.id])
+export function busyMembers(room, work, roster, computer = NO_COMPUTER) {
+  const busy = memberWork(room, work, computer).filter(entry => entry.state !== 'idle' && roster.byId[entry.id])
   return [...busy.filter(entry => entry.state === 'ask'), ...busy.filter(entry => entry.state === 'work')]
     .map(entry => ({ ...entry, bot: roster.byId[entry.id] }))
 }
@@ -61,14 +82,15 @@ export function summaryText(busy) {
 }
 
 // What the capsule shows, as plain data: it outlives the work for its exit.
-function dockModel(sessionId, roster, work) {
+function dockModel(sessionId, roster, work, computer) {
   const room = roster.roomsById[sessionId]
   if (room) {
-    const busy = dockMembers(busyMembers(room, work, roster))
+    const busy = dockMembers(busyMembers(room, work, roster, computer))
     if (busy.length === 0) return null
     const { waiting, doing } = summaryText(busy)
+    const hasRoomApproval = roomApprovals(room, work, computer, roster).length > 0
     return {
-      open: { details: room.id },
+      open: hasRoomApproval ? { approval: room.id, details: room.id } : { details: room.id },
       faces: busy.slice(0, FACES_MAX).map(entry => ({ id: entry.id, ask: entry.state === 'ask', state: workState(entry.doing) })),
       waiting, doing,
     }
@@ -100,12 +122,14 @@ function useFitWidth(inner, key) {
   return width
 }
 
-// Above the composer, one capsule for everything at work: it opens the group's details,
-// or from a Bot's own chat the group it is at work in.
-export function MemberDock({ sessionId, useRoster, useWork, actions }) {
+// Above the composer, one capsule for everything at work: it opens the group's details
+// (or the header approval island when an approval waits here), or from a Bot's own chat
+// the group it is at work in.
+export function MemberDock({ sessionId, useRoster, useWork, useComputer, actions }) {
   const roster = useRoster(value => value)
   const work = useWork(value => value)
-  const live = dockModel(sessionId, roster, work)
+  const computer = useComputer?.(value => value) ?? NO_COMPUTER
+  const live = dockModel(sessionId, roster, work, computer)
   const [kept, leaving] = useLinger(live ? JSON.stringify(live) : null, DOCK_EXIT_MS)
   const model = kept ? JSON.parse(kept) : null
   const inner = useRef(null)
@@ -113,7 +137,11 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
   if (!model) return null
   const faces = model.faces.map(face => ({ ...face, bot: roster.byId[face.id] })).filter(face => face.bot)
   const label = [model.waiting, model.doing].filter(Boolean).join(' · ')
-  const open = () => (model.open.details ? actions.showDetails(model.open.details) : actions.openSession(model.open.session))
+  const open = () => (
+    model.open.approval && typeof actions.openApproval === 'function' ? actions.openApproval(model.open.approval)
+      : model.open.details ? actions.showDetails(model.open.details)
+        : actions.openSession(model.open.session)
+  )
   return h('div', { className: 'bt-mw-dock', 'data-leaving': leaving || undefined },
     h('button', { type: 'button', className: 'bt-mw-pill', 'aria-label': label, onClick: open, disabled: leaving, style: width ? { width } : undefined },
       h('span', { ref: inner, className: 'bt-mw-pill-in' },
@@ -129,7 +157,13 @@ const stateLine = (className, at, ...what) => h('span', { className },
   h('span', { className: 'bt-member-what' }, ...what),
   typeof at === 'number' ? h(Elapsed, { at, className: 'bt-member-time' }) : null)
 
-function ApprovalCard({ approval, bot, actions }) {
+const cardHead = (bot, at, label) => h('div', { className: 'bt-mw-head' },
+  h(BotMark, { bot, size: 18, state: 'alert' }),
+  h('span', { className: 'bt-mw-who', style: { color: inkText(colorOf(bot)) } }, bot.name),
+  label ? h('span', { className: 'bt-mw-tool' }, label) : null,
+  typeof at === 'number' ? h(Elapsed, { at, className: 'bt-mw-time' }) : null)
+
+export function ApprovalCard({ approval, bot, actions, showBot = false }) {
   const [busy, setBusy] = useState(false)
   const answer = (choice) => {
     setBusy(true)
@@ -138,7 +172,7 @@ function ApprovalCard({ approval, bot, actions }) {
       .finally(() => setBusy(false))
   }
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for your approval', { name: bot.name }) },
-    h('div', { className: 'bt-mw-tool' }, approval.tool),
+    showBot ? cardHead(bot, approval.at, approval.tool) : h('div', { className: 'bt-mw-tool' }, approval.tool),
     approval.detail?.text ? h('div', { className: 'bt-mw-text' }, approval.detail.text) : null,
     approval.reason ? h('div', { className: 'bt-mw-reason' }, approval.reason) : null,
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
@@ -152,9 +186,30 @@ function ApprovalCard({ approval, bot, actions }) {
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
 }
 
+export function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) {
+  const [busy, setBusy] = useState(false)
+  const answer = (choice) => {
+    setBusy(true)
+    void Promise.resolve(actions.computerAppAnswer(ask.id, choice))
+      .catch(error => actions.reportError?.(error, 'computer'))
+      .finally(() => setBusy(false))
+  }
+  const title = t('Allow {name} to use {app}?', { name: bot.name, app: ask.appName })
+  return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': title },
+    showBot ? cardHead(bot, ask.at) : null,
+    h('div', { className: 'bt-mw-text' }, title),
+    h('div', { className: 'bt-mw-actions' },
+      h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('deny') }, t('Deny')),
+      h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('once') }, t('This time')),
+      h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('always') }, t('Always'))))
+}
+
 // A member's second line in the group's details: what it is doing here, or its role.
 export function MemberState({ entry, bot }) {
-  if (entry?.state === 'ask') return stateLine('bt-member-state bt-mw-ask', entry.approvals[0].at, t('Waiting for your approval'))
+  if (entry?.state === 'ask') {
+    const at = entry.approvals?.[0]?.at ?? entry.computerAsks?.[0]?.at
+    return stateLine('bt-member-state bt-mw-ask', at, t('Waiting for your approval'))
+  }
   if (entry?.state !== 'work') return bot.role ? stateLine('bt-member-state', undefined, bot.role) : null
   return stateLine('bt-member-state', entry.doing.since, h(Shimmer, null, `${workPhrase(entry.doing)}…`))
 }
@@ -190,12 +245,53 @@ export function StopRoomWork({ room, entries, actions }) {
 
 export function MemberApprovals({ entry, bot, actions }) {
   if (entry?.state !== 'ask') return null
-  return h('div', { className: 'bt-member-cards' }, entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot, actions })))
+  return h('div', { className: 'bt-member-cards' },
+    (entry.approvals ?? []).map(approval => h(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions })),
+    (entry.computerAsks ?? []).map(ask => h(ComputerAppApprovalCard, { key: `c:${ask.id}`, ask, bot, actions })))
 }
 
-export function useMemberWork(room, useWork) {
+function approvalSummary(approvals) {
+  const seen = new Set()
+  const bots = []
+  for (const item of approvals) {
+    if (!item.bot || seen.has(item.bot.id)) continue
+    seen.add(item.bot.id)
+    bots.push(item.bot)
+  }
+  const label = bots.length === 0 ? t('Waiting for your approval')
+    : bots.length === 1 ? t('{name} is waiting for your approval', { name: bots[0].name })
+      : bots.length === 2 ? t('{first} and {second} are waiting for your approval', { first: bots[0].name, second: bots[1].name })
+        : t('{first}, {second} and {count} more are waiting for your approval', { first: bots[0].name, second: bots[1].name, count: bots.length - 2, total: bots.length })
+  return { bots, label }
+}
+
+// The approval row and expandable cards rendered inside the group's top header island.
+export function ApprovalIslandPod({ approvals, open, room, actions }) {
+  if (!approvals || approvals.length === 0) return null
+  const { bots, label } = approvalSummary(approvals)
+  return h(Fragment, null,
+    h('button', {
+      type: 'button', className: 'bt-apv-bar', 'aria-expanded': open,
+      onClick: () => actions.toggleApproval?.(room.id),
+    },
+    h('span', { className: 'bt-apv-dot', 'aria-hidden': true }),
+    h('span', { className: 'bt-apv-label' }, label),
+    approvals.length > 1 ? h('span', { className: 'bt-apv-count' }, approvals.length) : null,
+    bots.length > 0 ? h('span', { className: 'bt-goal-faces', 'aria-hidden': true },
+      bots.slice(0, FACES_MAX).map(bot => h('span', { key: bot.id, className: 'bt-goal-face' },
+        h(BotMark, { bot, size: 18, state: 'alert' }))),
+      bots.length > FACES_MAX ? h('span', { className: 'bt-goal-more' }, `+${bots.length - FACES_MAX}`) : null) : null,
+    h('span', { className: 'bt-goal-chev', 'aria-hidden': true }, h(ChevronDownIcon))),
+    open ? h('div', { className: 'bt-apv-panel', role: 'region', 'aria-label': t('Waiting for your approval') },
+      approvals.map(item => (item.kind === 'computer-app'
+        ? h(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true })
+        : h(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true })))) : null)
+}
+
+export function useMemberWork(room, useWork, useComputer) {
   const work = useWork?.(value => value) ?? NO_WORK
-  return { entries: room ? memberWork(room, work) : [] }
+  const computer = useComputer?.(value => value) ?? NO_COMPUTER
+  return { entries: room ? memberWork(room, work, computer) : [] }
 }
 
 export const MEMBER_CSS = `
@@ -245,6 +341,9 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
+.bt-mw-head{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-mw-who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-mw-time{flex:none;margin-left:auto;font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-mw-tool{font-weight:600;color:var(--bt-ink)}
 .bt-mw-text{color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-mw-reason{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}

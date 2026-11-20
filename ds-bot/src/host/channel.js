@@ -6,7 +6,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
-import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -245,6 +245,12 @@ export function install(rt) {
     if (body.enterToSend !== undefined) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
+    }
+    if (body.backgroundAfterSec !== undefined) {
+      const seconds = body.backgroundAfterSec
+      if (seconds === null) delete state.prefs.backgroundAfterSec
+      else if (Number.isInteger(seconds) && seconds >= 0 && seconds <= BACKGROUND_AFTER_MAX_SEC) state.prefs.backgroundAfterSec = seconds
+      else throw invalid(`The background wait is 0 to ${BACKGROUND_AFTER_MAX_SEC} seconds`)
     }
     if (body.memoryAutoRecall !== undefined) {
       if (body.memoryAutoRecall === false) state.prefs.memoryAutoRecall = false
