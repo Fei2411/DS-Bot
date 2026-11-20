@@ -1,7 +1,6 @@
-// DeepSeek services: independent OCR a DeepSeek API key can add to any main model.
-// The key stays in DSH's own Models page; this page only reads the host's status
-// (never the key itself) and saves which capabilities are on. Speech controls
-// stay on their own change.
+// DeepSeek services: independent OCR, TTS and dictation a DeepSeek API key can add
+// to any main model. The key stays in DSH's own Models page; this page only reads the
+// host's status (never the key itself) and saves which capabilities are on.
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { hostText, t } from './i18n.js'
 
@@ -23,7 +22,9 @@ export const SERVICES_CSS = `
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `
 
-const DEFAULTS = { ocr: false }
+const DEFAULTS = { ocr: false, tts: 'system', voice: 'stella' }
+const ASR_PROVIDER = 'deepseek-asr'
+const voiceName = id => String(id).charAt(0).toUpperCase() + String(id).slice(1)
 
 // A capability's state comes from the host, not from the preference. A missing
 // credential wins over `enabled`: the preference can be on while the service is
@@ -37,26 +38,60 @@ function capabilityState(cap) {
   return { state: 'off', text: reason || t('Off') }
 }
 
+// The host reports no `enabled` for dictation; its real state is the existing
+// speech Remote's selection plus registration and credentials.
+function asrState(asr, selection, speechAvailable) {
+  if (!asr) return { state: 'off', text: t('Off') }
+  const reason = asr.reason ? hostText(String(asr.reason)) : ''
+  const notReady = reason || (speechAvailable === false ? t('Set up voice input') : t('Not ready'))
+  const usable = asr.registered === true && asr.configured !== false && speechAvailable !== false && asr.ready !== false
+  if (!usable) return { state: 'missing', text: notReady }
+  if (selection?.providerId === ASR_PROVIDER) return { state: 'ready', text: t('In use') }
+  return { state: 'off', text: reason || t('Off') }
+}
+
 function StateLine({ view }) {
   return h('div', { className: 'bt-svc-line' },
     h('div', { className: 'bt-svc-state', 'data-state': view.state, role: 'status' },
-      h('span', { className: 'bt-svc-dot', 'aria-hidden': true }),
+      h('span', { className: 'bt-svc-dot', 'aria-hidden': 'true' }),
       h('span', null, view.text)))
 }
 
 function Pill({ state, text }) {
   return h('span', { className: 'bt-svc-state', 'data-state': state },
-    h('span', { className: 'bt-svc-dot', 'aria-hidden': true }),
+    h('span', { className: 'bt-svc-dot', 'aria-hidden': 'true' }),
     h('span', null, text))
 }
 
+function Choice({ label, value, options, disabled, pick, Segmented }) {
+  return h(Segmented, { label, value, className: 'bt-svc-seg' }, options.map(([id, text]) => h('button', {
+    key: id, type: 'button', 'aria-pressed': value === id, disabled,
+    onClick: () => { if (value !== id) pick(id) },
+  }, text)))
+}
+
 // Pure rendering half, so a mock UI test can drive it with a fixed host status.
-export function ServicesForm({ status, busy, saved, pluginsAvailable,
-  save, onOpenModels, onOpenPlugins, Section, Row, Switch }) {
+export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
+  save, selectAsr, onOpenModels, onOpenPlugins, Section, Row, Switch, Segmented }) {
   const prefs = { ...DEFAULTS, ...status?.preferences }
   const key = status?.key ?? {}
+  const asr = status?.speech ?? null
+  const selected = selection?.providerId === ASR_PROVIDER
   const ready = status !== null
   const ocrView = capabilityState(status?.ocr)
+  const ttsView = capabilityState(status?.tts)
+  const asrView = asrState(asr, selection, speechAvailable)
+  const voices = [...new Set([...(status?.tts?.voices ?? []), prefs.voice])]
+  const asrUsable = asr !== null && asr.registered === true && asr.configured !== false && asr.ready !== false && speechAvailable !== false
+  const asrButton = asr === null
+    ? null
+    : !asr.registered
+      ? (pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Set up voice input')) : null)
+      : !asr.configured
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models'))
+        : selected && asrUsable
+          ? h(Pill, { state: 'ready', text: t('In use') })
+          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
   return h('div', { className: 'bt-svc' },
     h('style', { 'data-ds-bot': 'deepseek-services' }, SERVICES_CSS),
     h(Section, { key: 'key', title: t('DeepSeek API') },
@@ -79,13 +114,33 @@ export function ServicesForm({ status, busy, saved, pluginsAvailable,
         label: t('Use DeepSeek to read images and documents'), on: prefs.ocr === true, disabled: busy || !ready,
         onChange: on => save({ ocr: on }),
       })),
-      h(StateLine, { view: ocrView })))
+      h(StateLine, { view: ocrView })),
+    h(Section, { key: 'tts', title: t('Text to speech') },
+      h(Row, { label: t('Read replies aloud') },
+        h(Choice, {
+          label: t('Read replies aloud'), value: prefs.tts, disabled: busy || !ready, Segmented,
+          options: [['system', t('System')], ['deepseek', t('DeepSeek')]], pick: id => save({ tts: id }),
+        })),
+      prefs.tts === 'deepseek' ? h(Row, { label: t('Voice') },
+        h(Choice, {
+          label: t('Voice'), value: prefs.voice, disabled: busy || !ready, Segmented,
+          options: voices.map(id => [id, voiceName(id)]), pick: id => save({ voice: id }),
+        })) : null,
+      h(StateLine, { view: ttsView })),
+    h(Section, { key: 'asr', title: t('Speech recognition') },
+      h(Row, { label: t('Dictation provider') },
+        h('div', { className: 'bt-svc-actions' },
+          asrButton,
+          asr?.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null)),
+      h(StateLine, { view: asrView })))
 }
 
-export function DeepSeekServicesPage({ actions, run, Section, Row, Switch }) {
+export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented }) {
   const [status, setStatus] = useState(null)
+  const [selection, setSelection] = useState(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [asrBusy, setAsrBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
   const alive = useRef(true)
   useEffect(() => () => { alive.current = false }, [])
@@ -93,6 +148,10 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch }) {
     void Promise.resolve().then(() => actions.deepseekServices()).then(value => {
       if (alive.current && value) setStatus(value)
     }).catch(failure => { if (alive.current) setLoadError(hostText(failure?.message ?? String(failure))) })
+    const speech = typeof actions.speech === 'function' ? actions.speech() : undefined
+    if (speech) void Promise.resolve().then(() => speech.catalog()).then(result => {
+      if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null)
+    }).catch(() => {})
   }, [])
   useEffect(() => {
     if (!saved) return undefined
@@ -111,15 +170,32 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch }) {
       })
       .finally(() => { if (alive.current) setBusy(false) })
   }
+  // The existing speech Remote owns the dictation selection; DS Bot stores no second
+  // preference for it. A missing Remote leaves the browser's dictation path alone.
+  const selectAsr = () => {
+    const speech = typeof actions.speech === 'function' ? actions.speech() : undefined
+    if (!speech || asrBusy) return
+    setAsrBusy(true)
+    void run(Promise.resolve()
+      .then(() => speech.configure({ providerId: ASR_PROVIDER, language: 'auto' }))
+      .then(result => {
+        if (result?.ok === false) throw new Error(hostText(result?.error?.message ?? t('Could not save. Try again.')))
+        return speech.catalog()
+      })
+      .then(result => { if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null) }))
+      .finally(() => { if (alive.current) setAsrBusy(false) })
+  }
+  const speechAvailable = typeof actions.speech === 'function' && actions.speech() !== undefined
   const pluginsAvailable = typeof actions.hasPlugins !== 'function' || actions.hasPlugins() !== false
   return h(Fragment, null,
     loadError ? h('div', { className: 'bt-error', role: 'alert' }, loadError) : null,
     h(ServicesForm, {
-      status, busy, saved, pluginsAvailable,
-      save, onOpenModels: () => actions.openModels?.(),
+      status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
+      save, selectAsr, onOpenModels: () => actions.openModels?.(),
       // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to.
+      // cannot see or reach what openPlugins() navigated to. The setup button
+      // for voice input shares this callback.
       onOpenPlugins: () => { actions.closeSettings?.(); actions.openPlugins?.() },
-      Section, Row, Switch,
+      Section, Row, Switch, Segmented,
     }))
 }

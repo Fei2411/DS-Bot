@@ -56,6 +56,16 @@ test('bot-capability adds and removes the name in that bot', () => {
   assert.deepEqual(removed.bots[0].capabilities, [])
 })
 
+test('update-room drops the folder on empty and keeps it otherwise', () => {
+  const rooms = (team.rooms ?? []).map(room => room.id === 'r1' ? { ...room, workDir: '/work/a' } : room)
+  const withFolder = { ...team, rooms }
+  const cleared = optimistic(withFolder, 'update-room', { id: 'r1', workDir: '' })!
+  assert.equal('workDir' in cleared.rooms![0], false)
+  assert.equal(cleared.rooms![0].id, 'r1')
+  assert.equal(optimistic(withFolder, 'update-room', { id: 'r1', workDir: '/work/b' })!.rooms![0].workDir, '/work/b')
+  assert.equal(optimistic(withFolder, 'update-room', { id: 'r1', name: 'x' })!.rooms![0].workDir, '/work/a')
+})
+
 test('update-room shallow-merges the patch into that room', () => {
   const next = optimistic(team, 'update-room', { id: 'r1', name: 'Daily', notice: 'Bring updates' })!
   assert.equal(next.rooms![0].name, 'Daily')

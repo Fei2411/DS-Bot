@@ -646,6 +646,37 @@ var JA = {
   "That file is too large to be a cookie export.": "ファイルサイズが大きすぎるため、Cookie のエクスポートファイルではありません。",
   "That file could not be read.": "ファイルを読み込めませんでした。",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "このブラウザの Cookie は暗号化されており直接読み取れません。先にファイルへエクスポートしてから、そのファイルをインポートしてください。",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "キーチェーンへのアクセスがキャンセルされました。macOS がブラウザの Cookie 読み取りを求めたら「許可」をクリックしてください。",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "ブラウザでリモートデバッグの許可が拒否されました。もう一度試して「許可」をクリックしてください。",
+  "Timed out waiting for you to click Allow in the browser.": "ブラウザで「許可」をクリックする待機時間がタイムアウトしました。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "別のブラウザプロファイルがアクティブです。ブラウザで選択したプロファイルのウィンドウに切り替えてから再試行してください。",
+  "Import from browser": "ブラウザからインポート",
+  "Last used": "前回使用",
+  "Browser profile": "ブラウザプロファイル",
+  "Paste cookies or cURL…": "Cookie または cURL を貼り付け…",
+  "JSON, cURL, header": "JSON、cURL、ヘッダー",
+  "Connect to {name}": "{name} に接続",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} は Windows 上で Cookie を保護しています。内蔵のリモートデバッグを一度オンにするだけで、拡張機能は不要です。",
+  "1. Open this address in {name}:": "1. {name} で次のアドレスを開きます:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. 「Allow remote debugging for this browser instance」をオンにし、{name} の確認ダイアログで「許可」をクリックします。",
+  "Remote debugging detected — ready to import.": "リモートデバッグを検出しました。インポートできます。",
+  "Open {name}": "{name} を開く",
+  "Connect and import": "接続してインポート",
+  "Paste cookies or cURL": "Cookie または cURL を貼り付け",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL、または Cookie ヘッダーを貼り付け…",
+  "Site URL (only needed for plain Cookie headers)": "サイト URL（単純な Cookie ヘッダーの場合のみ必要）",
+  "Reading…": "読み込み中…",
+  "{count} storage entries": "ストレージ {count} 件",
+  "All sites ({count})": "すべてのサイト ({count})",
+  "This site ({host})": "このサイト ({host})",
+  "Filter sites…": "サイトを絞り込み…",
+  "storage": "ストレージ",
+  "Keep session logins after app restart": "アプリ再起動後もセッションログインを維持",
+  "Reading {name}…": "{name} を読み込み中…",
+  "If {name} or your system asks for permission, click Allow.": "{name} またはシステムが許可を求めたら「許可」をクリックしてください。",
+  "Imported storage for {count} sites": "{count} サイトのストレージをインポートしました",
+  "{count} sites storage": "{count} サイトのストレージ",
+  "page reloaded": "ページを再読み込みしました",
   "{count}": "{count} 件",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
@@ -827,14 +858,6 @@ var JA = {
   "Advanced settings": "詳細設定",
   "Back to models": "モデルに戻る",
   "Open Plugins": "プラグインを開く",
-  "DeepSeek services": "DeepSeek サービス",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek Web 検索 API",
-  "Find it in Plugins → Web search.": "プラグイン → Web 検索にあります。",
-  "Image and document reading": "画像と文書の読み取り",
-  "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot は選択したファイルを DeepSeek にアップロードして文字認識します。ローカルの Office 編集は変わりません。",
-  "Not ready": "準備できていません",
   "Open settings": "設定を開く",
   "Open settings file": "設定ファイルを開く",
   "Could not open the settings file": "設定ファイルを開けませんでした",
@@ -1902,6 +1925,25 @@ var JA = {
   "You control the computer": "あなたがコンピュータを操作中",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek サービス",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
+  "Find it in Plugins → Web search.": "プラグイン → ウェブ検索 にあります。",
+  "Image and document reading": "画像と文書の読み取り",
+  "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "選択したファイルはテキスト認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。",
+  "Text to speech": "テキスト読み上げ",
+  "Read replies aloud": "返信を読み上げる",
+  "System": "システム",
+  "Voice": "音声",
+  "Speech recognition": "音声認識",
+  "Dictation provider": "音声入力プロバイダー",
+  "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
+  "In use": "使用中",
+  "Not ready": "準備未完了",
+  "Couldn't read the reply": "返信を読み上げられませんでした",
+  "Couldn't reach the speech service": "音声認識サービスに接続できません",
   "Bot models": "Bot モデル",
   "Change several Bots": "複数の Bot をまとめて変更",
   "{selected} of {total} selected": "{total} 件中 {selected} 件を選択",
@@ -3171,6 +3213,37 @@ var KO = {
   "That file is too large to be a cookie export.": "파일이 너무 커서 쿠키 내보내기 파일로 보이지 않습니다.",
   "That file could not be read.": "파일을 읽을 수 없습니다.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "이 브라우저는 자체적으로만 읽을 수 있도록 쿠키를 암호화합니다. 먼저 쿠키를 파일로 내보낸 뒤 그 파일을 가져오세요.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "키체인 접근이 취소되었습니다. macOS가 브라우저 쿠키 읽기를 요청하면 허용을 클릭하세요.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "브라우저에서 원격 디버깅 권한이 거부되었습니다. 다시 시도하고 허용을 클릭하세요.",
+  "Timed out waiting for you to click Allow in the browser.": "브라우저에서 허용을 클릭하기를 기다리다 시간이 초과되었습니다.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "다른 브라우저 프로필이 활성화되어 있습니다. 브라우저에서 선택한 프로필 창으로 전환한 뒤 다시 시도하세요.",
+  "Import from browser": "브라우저에서 가져오기",
+  "Last used": "최근 사용",
+  "Browser profile": "브라우저 프로필",
+  "Paste cookies or cURL…": "쿠키 또는 cURL 붙여넣기…",
+  "JSON, cURL, header": "JSON, cURL, 헤더",
+  "Connect to {name}": "{name}에 연결",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name}은(는) Windows에서 쿠키를 보호합니다. 내장 원격 디버깅 스위치를 한 번만 켜면 확장 프로그램 없이 가져올 수 있습니다.",
+  "1. Open this address in {name}:": "1. {name}에서 다음 주소를 여세요:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. “Allow remote debugging for this browser instance”를 켜고, {name} 확인 창이 뜨면 허용을 클릭하세요.",
+  "Remote debugging detected — ready to import.": "원격 디버깅이 감지되었습니다. 가져올 준비가 되었습니다.",
+  "Open {name}": "{name} 열기",
+  "Connect and import": "연결하고 가져오기",
+  "Paste cookies or cURL": "쿠키 또는 cURL 붙여넣기",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL 또는 Cookie 헤더를 붙여넣으세요…",
+  "Site URL (only needed for plain Cookie headers)": "사이트 URL(단순 Cookie 헤더에만 필요)",
+  "Reading…": "읽는 중…",
+  "{count} storage entries": "스토리지 {count}개",
+  "All sites ({count})": "모든 사이트 ({count})",
+  "This site ({host})": "현재 사이트 ({host})",
+  "Filter sites…": "사이트 필터링…",
+  storage: "스토리지",
+  "Keep session logins after app restart": "앱 재시작 후에도 세션 로그인 유지",
+  "Reading {name}…": "{name} 읽는 중…",
+  "If {name} or your system asks for permission, click Allow.": "{name} 또는 시스템이 권한을 요청하면 허용을 클릭하세요.",
+  "Imported storage for {count} sites": "{count}개 사이트의 스토리지를 가져옴",
+  "{count} sites storage": "{count}개 사이트 스토리지",
+  "page reloaded": "페이지 새로고침됨",
   "{count}": "{count}개",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요",
@@ -3361,14 +3434,6 @@ var KO = {
   "Advanced settings": "고급 설정",
   "Back to models": "모델로 돌아가기",
   "Open Plugins": "플러그인 열기",
-  "DeepSeek services": "DeepSeek 서비스",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
-  "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
-  "Image and document reading": "이미지 및 문서 읽기",
-  "Use DeepSeek to read images and documents": "DeepSeek로 이미지와 문서를 읽기",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot이 선택한 파일을 DeepSeek에 업로드해 문자 인식합니다. 로컬 Office 편집은 그대로입니다.",
-  "Not ready": "준비되지 않음",
   "Open settings": "설정 열기",
   "Open settings file": "설정 파일 열기",
   "Could not open the settings file": "설정 파일을 열 수 없습니다",
@@ -4461,6 +4526,25 @@ var KO = {
   "You control the computer": "사용자가 컴퓨터를 제어 중입니다",
   "{name} · foreground": "{name} · 포그라운드",
   "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek 서비스",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
+  "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
+  "Image and document reading": "이미지 및 문서 읽기",
+  "Use DeepSeek to read images and documents": "DeepSeek으로 이미지와 문서 읽기",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.",
+  "Text to speech": "텍스트 음성 변환",
+  "Read replies aloud": "답변 소리 내어 읽기",
+  "System": "시스템",
+  "Voice": "음성",
+  "Speech recognition": "음성 인식",
+  "Dictation provider": "받아쓰기 제공자",
+  "Use DeepSeek for dictation": "받아쓰기에 DeepSeek 사용",
+  "In use": "사용 중",
+  "Not ready": "준비되지 않음",
+  "Couldn't read the reply": "답변을 읽지 못했습니다",
+  "Couldn't reach the speech service": "음성 인식 서비스에 연결할 수 없습니다",
   "Bot models": "Bot 모델",
   "Change several Bots": "여러 Bot 모델 한 번에 변경",
   "{selected} of {total} selected": "{total}개 중 {selected}개 선택됨",
@@ -5731,6 +5815,37 @@ var ES = {
   "That file is too large to be a cookie export.": "Ese archivo es demasiado grande para ser una exportación de cookies.",
   "That file could not be read.": "No se pudo leer ese archivo.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Este navegador cifra sus cookies para que solo él pueda leerlas. Expórtalas primero a un archivo y luego importa ese archivo.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Se canceló el acceso al llavero. Haz clic en Permitir cuando macOS solicite leer las cookies de tu navegador.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "Se rechazó el permiso de depuración remota en el navegador. Inténtalo de nuevo y haz clic en Permitir.",
+  "Timed out waiting for you to click Allow in the browser.": "Se agotó el tiempo esperando a que hicieras clic en Permitir en el navegador.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Hay otro perfil del navegador activo. Cambia a la ventana del perfil elegido en tu navegador e inténtalo de nuevo.",
+  "Import from browser": "Importar desde el navegador",
+  "Last used": "Último usado",
+  "Browser profile": "Perfil del navegador",
+  "Paste cookies or cURL…": "Pegar cookies o cURL…",
+  "JSON, cURL, header": "JSON, cURL, encabezado",
+  "Connect to {name}": "Conectar con {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} protege sus cookies en Windows. Activa una vez su interruptor integrado de depuración remota; no se necesita extensión.",
+  "1. Open this address in {name}:": "1. Abre esta dirección en {name}:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Activa “Allow remote debugging for this browser instance” y haz clic en Permitir cuando {name} lo solicite.",
+  "Remote debugging detected — ready to import.": "Depuración remota detectada: listo para importar.",
+  "Open {name}": "Abrir {name}",
+  "Connect and import": "Conectar e importar",
+  "Paste cookies or cURL": "Pegar cookies o cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Pega Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL o un encabezado Cookie…",
+  "Site URL (only needed for plain Cookie headers)": "URL del sitio (solo necesaria para encabezados Cookie simples)",
+  "Reading…": "Leyendo…",
+  "{count} storage entries": "{count} entradas de almacenamiento",
+  "All sites ({count})": "Todos los sitios ({count})",
+  "This site ({host})": "Este sitio ({host})",
+  "Filter sites…": "Filtrar sitios…",
+  storage: "almacenamiento",
+  "Keep session logins after app restart": "Mantener sesiones iniciadas al reiniciar la aplicación",
+  "Reading {name}…": "Leyendo {name}…",
+  "If {name} or your system asks for permission, click Allow.": "Si {name} o tu sistema solicitan permiso, haz clic en Permitir.",
+  "Imported storage for {count} sites": "Almacenamiento importado para {count} sitios",
+  "{count} sites storage": "almacenamiento de {count} sitios",
+  "page reloaded": "página recargada",
   "{count}": "{count}",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Elige una imagen PNG, JPEG, WebP o GIF",
@@ -5921,14 +6036,6 @@ var ES = {
   "Advanced settings": "Ajustes avanzados",
   "Back to models": "Volver a modelos",
   "Open Plugins": "Abrir Plugins",
-  "DeepSeek services": "Servicios DeepSeek",
-  "DeepSeek API": "API de DeepSeek",
-  "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
-  "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
-  "Image and document reading": "Lectura de imágenes y documentos",
-  "Use DeepSeek to read images and documents": "Usar DeepSeek para leer imágenes y documentos",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.",
-  "Not ready": "No listo",
   "Open settings": "Abrir ajustes",
   "Open settings file": "Abrir archivo de ajustes",
   "Could not open the settings file": "No se pudo abrir el archivo de ajustes",
@@ -7021,6 +7128,25 @@ var ES = {
   "You control the computer": "Tú controlas el ordenador",
   "{name} · foreground": "{name} · primer plano",
   "{name} waits for the computer": "{name} espera el ordenador",
+  // DeepSeek services
+  "DeepSeek services": "Servicios de DeepSeek",
+  "DeepSeek API": "API de DeepSeek",
+  "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
+  "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
+  "Image and document reading": "Lectura de imágenes y documentos",
+  "Use DeepSeek to read images and documents": "Usar DeepSeek para leer imágenes y documentos",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.",
+  "Text to speech": "Texto a voz",
+  "Read replies aloud": "Leer las respuestas en voz alta",
+  "System": "Sistema",
+  "Voice": "Voz",
+  "Speech recognition": "Reconocimiento de voz",
+  "Dictation provider": "Proveedor de dictado",
+  "Use DeepSeek for dictation": "Usar DeepSeek para el dictado",
+  "In use": "En uso",
+  "Not ready": "No listo",
+  "Couldn't read the reply": "No se pudo leer la respuesta",
+  "Couldn't reach the speech service": "No se pudo conectar con el servicio de voz",
   "Bot models": "Modelos de los Bots",
   "Change several Bots": "Cambiar varios Bots",
   "{selected} of {total} selected": "{selected} de {total} seleccionados",
@@ -8281,6 +8407,37 @@ var FR = {
   "That file is too large to be a cookie export.": "Ce fichier est trop volumineux pour être un export de cookies.",
   "That file could not be read.": "Impossible de lire ce fichier.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Ce navigateur chiffre ses cookies pour être le seul à pouvoir les lire. Exportez-les d’abord dans un fichier, puis importez ce fichier.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "L’accès au trousseau a été annulé. Cliquez sur Autoriser lorsque macOS demande à lire les cookies de votre navigateur.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "L’autorisation de débogage à distance a été refusée dans le navigateur. Réessayez et cliquez sur Autoriser.",
+  "Timed out waiting for you to click Allow in the browser.": "Délai dépassé en attendant que vous cliquiez sur Autoriser dans le navigateur.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Un autre profil de navigateur est actif. Basculez vers la fenêtre du profil choisi dans votre navigateur, puis réessayez.",
+  "Import from browser": "Importer depuis un navigateur",
+  "Last used": "Dernier utilisé",
+  "Browser profile": "Profil du navigateur",
+  "Paste cookies or cURL…": "Coller des cookies ou cURL…",
+  "JSON, cURL, header": "JSON, cURL, en-tête",
+  "Connect to {name}": "Se connecter à {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} protège ses cookies sous Windows. Activez une fois son option intégrée de débogage à distance, sans extension.",
+  "1. Open this address in {name}:": "1. Ouvrez cette adresse dans {name} :",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Activez « Allow remote debugging for this browser instance », puis cliquez sur Autoriser lorsque {name} vous le demande.",
+  "Remote debugging detected — ready to import.": "Débogage à distance détecté — prêt à importer.",
+  "Open {name}": "Ouvrir {name}",
+  "Connect and import": "Connecter et importer",
+  "Paste cookies or cURL": "Coller des cookies ou cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Collez un JSON Cookie-Editor, Netscape cookies.txt, Copy as cURL ou un en-tête Cookie…",
+  "Site URL (only needed for plain Cookie headers)": "URL du site (uniquement nécessaire pour les en-têtes Cookie simples)",
+  "Reading…": "Lecture…",
+  "{count} storage entries": "{count} entrées de stockage",
+  "All sites ({count})": "Tous les sites ({count})",
+  "This site ({host})": "Ce site ({host})",
+  "Filter sites…": "Filtrer les sites…",
+  "storage": "stockage",
+  "Keep session logins after app restart": "Conserver les sessions après le redémarrage de l’application",
+  "Reading {name}…": "Lecture de {name}…",
+  "If {name} or your system asks for permission, click Allow.": "Si {name} ou votre système demande une autorisation, cliquez sur Autoriser.",
+  "Imported storage for {count} sites": "Stockage importé pour {count} sites",
+  "{count} sites storage": "stockage de {count} sites",
+  "page reloaded": "page rechargée",
   "{count}": "{count}",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
@@ -8462,14 +8619,6 @@ var FR = {
   "Advanced settings": "Paramètres avancés",
   "Back to models": "Retour aux modèles",
   "Open Plugins": "Ouvrir les extensions",
-  "DeepSeek services": "Services DeepSeek",
-  "DeepSeek API": "API DeepSeek",
-  "DeepSeek Web Search API": "API de recherche web DeepSeek",
-  "Find it in Plugins → Web search.": "À trouver dans Extensions → Recherche web.",
-  "Image and document reading": "Lecture d’images et de documents",
-  "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et documents",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers choisis à DeepSeek pour la reconnaissance de texte ; l’édition Office locale ne change pas.",
-  "Not ready": "Pas prêt",
   "Open settings": "Ouvrir les paramètres",
   "Open settings file": "Ouvrir le fichier de configuration",
   "Could not open the settings file": "Impossible d’ouvrir le fichier de configuration",
@@ -9537,6 +9686,25 @@ var FR = {
   "You control the computer": "Vous contrôlez l’ordinateur",
   "{name} · foreground": "{name} · premier plan",
   "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
+  // DeepSeek services
+  "DeepSeek services": "Services DeepSeek",
+  "DeepSeek API": "API DeepSeek",
+  "DeepSeek Web Search API": "API de recherche web DeepSeek",
+  "Find it in Plugins → Web search.": "Dans Plugins → Recherche web.",
+  "Image and document reading": "Lecture des images et des documents",
+  "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et les documents",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers sélectionnés à DeepSeek pour la reconnaissance du texte ; l’édition locale d’Office reste inchangée.",
+  "Text to speech": "Synthèse vocale",
+  "Read replies aloud": "Lire les réponses à voix haute",
+  "System": "Système",
+  "Voice": "Voix",
+  "Speech recognition": "Reconnaissance vocale",
+  "Dictation provider": "Fournisseur de dictée",
+  "Use DeepSeek for dictation": "Utiliser DeepSeek pour la dictée",
+  "In use": "En cours d’utilisation",
+  "Not ready": "Pas prêt",
+  "Couldn't read the reply": "Impossible de lire la réponse",
+  "Couldn't reach the speech service": "Impossible de joindre le service vocal",
   "Bot models": "Modèles des Bots",
   "Change several Bots": "Changer plusieurs Bots",
   "{selected} of {total} selected": "{selected} sur {total} sélectionnés",
@@ -10806,6 +10974,37 @@ var DE = {
   "That file is too large to be a cookie export.": "Diese Datei ist zu groß für einen Cookie-Export.",
   "That file could not be read.": "Diese Datei konnte nicht gelesen werden.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Dieser Browser verschlüsselt seine Cookies, sodass nur er selbst sie lesen kann. Exportiere sie zuerst in eine Datei und importiere dann diese Datei.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Der Zugriff auf den Schlüsselbund wurde abgebrochen. Klicke auf Erlauben, wenn macOS nach dem Lesen deiner Browser-Cookies fragt.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "Die Berechtigung für Remote-Debugging wurde im Browser abgelehnt. Versuche es erneut und klicke auf Erlauben.",
+  "Timed out waiting for you to click Allow in the browser.": "Zeitüberschreitung beim Warten auf deine Bestätigung im Browser.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Ein anderes Browser-Profil ist aktiv. Wechsle in deinem Browser zum Fenster des ausgewählten Profils und versuche es erneut.",
+  "Import from browser": "Aus Browser importieren",
+  "Last used": "Zuletzt verwendet",
+  "Browser profile": "Browser-Profil",
+  "Paste cookies or cURL…": "Cookies oder cURL einfügen…",
+  "JSON, cURL, header": "JSON, cURL, Header",
+  "Connect to {name}": "Mit {name} verbinden",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} schützt seine Cookies unter Windows. Aktiviere einmalig den integrierten Remote-Debugging-Schalter – keine Erweiterung nötig.",
+  "1. Open this address in {name}:": "1. Öffne diese Adresse in {name}:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Aktiviere „Allow remote debugging for this browser instance“ und klicke auf Erlauben, wenn {name} fragt.",
+  "Remote debugging detected — ready to import.": "Remote-Debugging erkannt – bereit zum Importieren.",
+  "Open {name}": "{name} öffnen",
+  "Connect and import": "Verbinden und importieren",
+  "Paste cookies or cURL": "Cookies oder cURL einfügen",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor-JSON, Netscape cookies.txt, Copy as cURL oder einen Cookie-Header einfügen…",
+  "Site URL (only needed for plain Cookie headers)": "Website-URL (nur für einfache Cookie-Header nötig)",
+  "Reading…": "Wird gelesen…",
+  "{count} storage entries": "{count} Speicher-Einträge",
+  "All sites ({count})": "Alle Websites ({count})",
+  "This site ({host})": "Diese Website ({host})",
+  "Filter sites…": "Websites filtern…",
+  storage: "Speicher",
+  "Keep session logins after app restart": "Sitzungs-Anmeldungen nach Neustart behalten",
+  "Reading {name}…": "{name} wird gelesen…",
+  "If {name} or your system asks for permission, click Allow.": "Wenn {name} oder dein System um Erlaubnis fragt, klicke auf Erlauben.",
+  "Imported storage for {count} sites": "Speicher für {count} Websites importiert",
+  "{count} sites storage": "Speicher von {count} Websites",
+  "page reloaded": "Seite neu geladen",
   "{count}": "{count}",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild",
@@ -10996,14 +11195,6 @@ var DE = {
   "Advanced settings": "Erweiterte Einstellungen",
   "Back to models": "Zurück zu den Modellen",
   "Open Plugins": "Plugins öffnen",
-  "DeepSeek services": "DeepSeek-Dienste",
-  "DeepSeek API": "DeepSeek-API",
-  "DeepSeek Web Search API": "DeepSeek-Websuche-API",
-  "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
-  "Image and document reading": "Bilder und Dokumente lesen",
-  "Use DeepSeek to read images and documents": "DeepSeek zum Lesen von Bildern und Dokumenten nutzen",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bots laden ausgewählte Dateien zu DeepSeek hoch, um Text zu erkennen; die lokale Office-Bearbeitung bleibt unverändert.",
-  "Not ready": "Nicht bereit",
   "Open settings": "Einstellungen öffnen",
   "Open settings file": "Konfigurationsdatei öffnen",
   "Could not open the settings file": "Konfigurationsdatei konnte nicht geöffnet werden",
@@ -12096,6 +12287,25 @@ var DE = {
   "You control the computer": "Du steuerst den Computer",
   "{name} · foreground": "{name} · Vordergrund",
   "{name} waits for the computer": "{name} wartet, bis du fertig bist",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek-Dienste",
+  "DeepSeek API": "DeepSeek-API",
+  "DeepSeek Web Search API": "DeepSeek-Websuche-API",
+  "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
+  "Image and document reading": "Bilder und Dokumente lesen",
+  "Use DeepSeek to read images and documents": "DeepSeek zum Lesen von Bildern und Dokumenten verwenden",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bots laden ausgewählte Dateien zur Texterkennung zu DeepSeek hoch; die lokale Office-Bearbeitung bleibt unverändert.",
+  "Text to speech": "Text-zu-Sprache",
+  "Read replies aloud": "Antworten vorlesen",
+  "System": "System",
+  "Voice": "Stimme",
+  "Speech recognition": "Spracherkennung",
+  "Dictation provider": "Diktatanbieter",
+  "Use DeepSeek for dictation": "DeepSeek für das Diktat verwenden",
+  "In use": "In Verwendung",
+  "Not ready": "Nicht bereit",
+  "Couldn't read the reply": "Antwort konnte nicht vorgelesen werden",
+  "Couldn't reach the speech service": "Sprachdienst nicht erreichbar",
   "Bot models": "Bot-Modelle",
   "Change several Bots": "Mehrere Bots ändern",
   "{selected} of {total} selected": "{selected} von {total} ausgewählt",
@@ -13340,6 +13550,37 @@ var ZH = {
   "That file is too large to be a cookie export.": "这个文件太大了，不像是 cookie 导出文件。",
   "That file could not be read.": "这个文件读不了。",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "这个浏览器把 cookie 加密了，只有它自己能读。先把 cookie 导出成文件，再导入那个文件。",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。",
+  "Timed out waiting for you to click Allow in the browser.": "等待你在浏览器里点「允许」超时了。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。",
+  "Import from browser": "从浏览器导入",
+  "Last used": "上次使用",
+  "Browser profile": "浏览器配置",
+  "Paste cookies or cURL…": "粘贴 cookie 或 cURL…",
+  "JSON, cURL, header": "JSON、cURL、请求头",
+  "Connect to {name}": "连接到 {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} 在 Windows 上对 cookie 做了保护。打开它自带的远程调试开关一次即可，无需安装扩展。",
+  "1. Open this address in {name}:": "1. 在 {name} 中打开这个地址：",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. 打开「Allow remote debugging for this browser instance」开关，{name} 弹窗时点「允许」。",
+  "Remote debugging detected — ready to import.": "已检测到远程调试，可以导入了。",
+  "Open {name}": "打开 {name}",
+  "Connect and import": "连接并导入",
+  "Paste cookies or cURL": "粘贴 cookie 或 cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "粘贴 Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL 或 Cookie 请求头…",
+  "Site URL (only needed for plain Cookie headers)": "网站地址（仅粘贴纯 Cookie 请求头时需要）",
+  "Reading…": "读取中…",
+  "{count} storage entries": "{count} 条本地存储",
+  "All sites ({count})": "全部网站 ({count})",
+  "This site ({host})": "当前网站 ({host})",
+  "Filter sites…": "筛选网站…",
+  storage: "含存储",
+  "Keep session logins after app restart": "重启应用后保持会话登录",
+  "Reading {name}…": "正在读取 {name}…",
+  "If {name} or your system asks for permission, click Allow.": "如果 {name} 或系统弹出权限提示，请点「允许」。",
+  "Imported storage for {count} sites": "已导入 {count} 个网站的本地存储",
+  "{count} sites storage": "{count} 个网站本地存储",
+  "page reloaded": "页面已刷新",
   "{count}": "{count} 个",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "请选择 PNG、JPEG、WebP 或 GIF 图片",
@@ -13532,13 +13773,6 @@ var ZH = {
   "Advanced settings": "高级设置",
   "Back to models": "返回模型",
   "Open Plugins": "打开插件页",
-  "DeepSeek services": "DeepSeek 服务",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek 网页搜索 API",
-  "Find it in Plugins → Web search.": "在插件 → 网页搜索里打开。",
-  "Image and document reading": "图片与文档识别",
-  "Use DeepSeek to read images and documents": "用 DeepSeek 识别图片和文档",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑不变。",
   "Open settings": "打开设置",
   "Open settings file": "打开配置文件",
   "Could not open the settings file": "无法打开配置文件",
@@ -13577,6 +13811,22 @@ var ZH = {
   Unknown: "未解析",
   "Back to Bots": "返回 Bot 列表",
   "Close settings": "关闭设置",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek 服务",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek 联网搜索 API",
+  "Find it in Plugins → Web search.": "在 插件 → 网页搜索 里设置。",
+  "Image and document reading": "图片与文档识别",
+  "Use DeepSeek to read images and documents": "用 DeepSeek 识别图片和文档",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。",
+  "Text to speech": "文字转语音",
+  "Read replies aloud": "朗读回复",
+  System: "系统",
+  Voice: "声音",
+  "Speech recognition": "语音识别",
+  "Dictation provider": "听写提供方",
+  "Use DeepSeek for dictation": "用 DeepSeek 听写",
+  "In use": "使用中",
   // Phone
   Phone: "手机",
   "Off. Phones cannot reach this computer.": "已关闭。手机连不上这台电脑。",
@@ -14059,6 +14309,8 @@ var ZH = {
   "Downloading the speech model… {pct}%": "正在下载语音模型… {pct}%",
   "Couldn't prepare voice input": "语音输入准备失败",
   "That was too long to recognize": "这段太长了，识别不了",
+  "Couldn't read the reply": "回复朗读失败",
+  "Couldn't reach the speech service": "语音识别服务不可用",
   // Usage page
   "24 hours": "24 小时",
   "7 days": "7 天",
@@ -14547,6 +14799,8 @@ var HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, "$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区"],
   // DeepSeek services: host status reasons, shown where the capability is not ready.
   [/^The DeepSeek API key \((.+)\) is not set$/, "DeepSeek API key（$1）还没设置"],
+  [/^This DSH has no speech-to-text service \(voice input is not mounted\)$/, "这个 DSH 没有语音识别服务（语音输入插件未挂载）"],
+  [/^The speech provider is registering$/, "语音识别提供方正在注册"],
   [/^This DSH has no credential store\.$/, "这个 DSH 没有凭据存储"],
   [/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/, "DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。"],
   // Memory changes the memory panel asked for; the whole message is matched.
@@ -15510,6 +15764,13 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     mailRuleSet: (payload) => after(call2("mail-rule-set", payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call2("mail-send-answer", { requestId, choice, ...extra })),
     mailSignInCode: (payload) => after(call2("mail-sign-in-code", payload)),
+    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
+    // off until enabled. The status answer names the credential ref, never its value.
+    deepseekServices: () => call2("deepseek-services"),
+    // absent keeps a field, null resets it; the full status comes back with the roster.
+    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
+    // One short piece of speech; the caller queues and plays the WAV it gets back.
+    synthesizeSpeech: (body, signal) => call2("deepseek-synthesize", body, signal),
     phoneSet: (settings) => after(call2("phone-set", settings)),
     phonePair: () => after(call2("phone-pair")),
     phonePairCancel: () => after(call2("phone-pair-cancel")),
@@ -15524,8 +15785,6 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     imLoginStart: (payload) => call2("im-login-start", payload),
     imLoginWait: (payload) => call2("im-login-wait", payload),
     saveCapability: (capability) => after(call2("capability-save", capability)),
-    deepseekServices: () => call2("deepseek-services"),
-    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
     setBotCapability: (botId, name, attached) => after(call2("bot-capability", { botId, name, attached })),
@@ -16591,6 +16850,7 @@ var STORAGE = {
   agentSessions: "ds-bot:agent-sessions",
   agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
+  browserImportSource: "ds-bot:browser-import-source",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
 };
@@ -27416,7 +27676,9 @@ function ConnectorRow({ connector, actions }) {
   else {
     actionsNode = [
       connector.auth?.kind === "oauth" && connector.auth.token === true && connector.auth.client?.id ? (0, import_react29.createElement)("button", { key: "token", type: "button", className: "bt-connector-link", disabled: busy, onClick: () => setForm("token") }, t("Use a token instead")) : null,
-      (0, import_react29.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect"))
+      (0, import_react29.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect")),
+      // An added server that has no sign-in token yet still needs a way to be removed.
+      connector.custom ? (0, import_react29.createElement)("button", { key: "remove", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorDisconnect(connector.id)) }, t("Remove")) : null
     ];
   }
   return (0, import_react29.createElement)(
@@ -27672,6 +27934,7 @@ function AddMenu({ actions, run: run2 }) {
   const [kind, setKind] = (0, import_react29.useState)(null);
   const [name, setName] = (0, import_react29.useState)("");
   const [url, setUrl] = (0, import_react29.useState)("");
+  const [oauth, setOauth] = (0, import_react29.useState)(false);
   const [command, setCommand] = (0, import_react29.useState)("");
   const [found, setFound] = (0, import_react29.useState)(null);
   const [picked, setPicked] = (0, import_react29.useState)([]);
@@ -27681,12 +27944,14 @@ function AddMenu({ actions, run: run2 }) {
     setKind(null);
     setName("");
     setUrl("");
+    setOauth(false);
     setCommand("");
     setFound(null);
     setPicked([]);
   };
   const choose = (next) => {
     setKind(next);
+    if (next !== "url") setOauth(false);
     if (next === "import" && found === null) void Promise.resolve(actions.connectorImportScan()).then((list) => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]));
   };
   const key = (item) => `${item.source}:${item.name}`;
@@ -27726,13 +27991,15 @@ function AddMenu({ actions, run: run2 }) {
         (0, import_react29.createElement)(Switch, { label: item.name, on: picked.some((p) => key(p) === key(item)), onChange: (on) => setPicked((list) => on ? [...list, { source: item.source, name: item.name }] : list.filter((p) => key(p) !== key(item))) })
       ))) : [
         (0, import_react29.createElement)("input", { key: "name", className: "bt-input", "aria-label": t("Name"), placeholder: t("Name"), value: name, onChange: (e) => setName(e.target.value) }),
-        kind === "url" ? (0, import_react29.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react29.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) })
+        kind === "url" ? (0, import_react29.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react29.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) }),
+        // A command has nowhere to send a browser sign-in; only an address offers it.
+        kind === "url" ? (0, import_react29.createElement)(SwitchRow, { key: "oauth", label: t("Sign in"), on: oauth, onChange: setOauth }) : null
       ],
       (0, import_react29.createElement)(
         "div",
         { className: "bt-secret-row-actions" },
         (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
-        kind === "import" ? (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
+        kind === "import" ? (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim(), ...oauth ? { oauth: true } : {} }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
       )
     )
   );
@@ -27998,6 +28265,7 @@ function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   return (0, import_react29.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react29.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, roster, actions })));
 }
 var CONNECTOR_CSS = `
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
 .bt-connector-search{display:flex;flex-direction:column;gap:8px;padding:12px}
@@ -34047,7 +34315,11 @@ function ConnectorsPage({ roster, actions }) {
     const featured = FEATURED.map((id) => apps.find((app) => app.id === id)).filter(Boolean);
     body = [
       (0, import_react42.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open }),
-      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) }))
+      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      // An added server has no catalog category. Without its own section a new OAuth
+      // entry, which stays off until its sign-in finishes, would be on neither the
+      // default page nor Connected, leaving Connect and Remove reachable by search only.
+      (0, import_react42.createElement)(Section, { key: "custom", place: "custom", signInPlaces, title: t("Other MCP server"), apps: inCategory("custom"), actions, open, onAll: () => setCategory("custom") })
     ];
   }
   return (0, import_react42.createElement)(
@@ -36446,13 +36718,24 @@ var SERVICES_CSS = `
 .bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `;
-var DEFAULTS = { ocr: false };
+var DEFAULTS = { ocr: false, tts: "system", voice: "stella" };
+var ASR_PROVIDER = "deepseek-asr";
+var voiceName = (id) => String(id).charAt(0).toUpperCase() + String(id).slice(1);
 function capabilityState(cap) {
   if (!cap) return { state: "off", text: t("Off") };
   const usable = cap.supported !== false && cap.configured !== false;
   const reason = cap.reason ? hostText(String(cap.reason)) : "";
   if (!usable) return { state: "missing", text: reason || t("Not ready") };
   if (cap.enabled) return { state: "ready", text: t("Ready") };
+  return { state: "off", text: reason || t("Off") };
+}
+function asrState(asr, selection, speechAvailable) {
+  if (!asr) return { state: "off", text: t("Off") };
+  const reason = asr.reason ? hostText(String(asr.reason)) : "";
+  const notReady = reason || (speechAvailable === false ? t("Set up voice input") : t("Not ready"));
+  const usable = asr.registered === true && asr.configured !== false && speechAvailable !== false && asr.ready !== false;
+  if (!usable) return { state: "missing", text: notReady };
+  if (selection?.providerId === ASR_PROVIDER) return { state: "ready", text: t("In use") };
   return { state: "off", text: reason || t("Off") };
 }
 function StateLine({ view }) {
@@ -36462,7 +36745,7 @@ function StateLine({ view }) {
     (0, import_react45.createElement)(
       "div",
       { className: "bt-svc-state", "data-state": view.state, role: "status" },
-      (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": true }),
+      (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": "true" }),
       (0, import_react45.createElement)("span", null, view.text)
     )
   );
@@ -36471,26 +36754,49 @@ function Pill({ state, text }) {
   return (0, import_react45.createElement)(
     "span",
     { className: "bt-svc-state", "data-state": state },
-    (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": true }),
+    (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": "true" }),
     (0, import_react45.createElement)("span", null, text)
   );
 }
+function Choice({ label, value, options, disabled, pick: pick2, Segmented: Segmented3 }) {
+  return (0, import_react45.createElement)(Segmented3, { label, value, className: "bt-svc-seg" }, options.map(([id, text]) => (0, import_react45.createElement)("button", {
+    key: id,
+    type: "button",
+    "aria-pressed": value === id,
+    disabled,
+    onClick: () => {
+      if (value !== id) pick2(id);
+    }
+  }, text)));
+}
 function ServicesForm({
   status,
+  selection,
   busy,
   saved,
+  asrBusy,
+  speechAvailable,
   pluginsAvailable,
   save,
+  selectAsr,
   onOpenModels,
   onOpenPlugins,
   Section: Section2,
   Row: Row4,
-  Switch: Switch2
+  Switch: Switch2,
+  Segmented: Segmented3
 }) {
   const prefs = { ...DEFAULTS, ...status?.preferences };
   const key = status?.key ?? {};
+  const asr = status?.speech ?? null;
+  const selected = selection?.providerId === ASR_PROVIDER;
   const ready = status !== null;
   const ocrView = capabilityState(status?.ocr);
+  const ttsView = capabilityState(status?.tts);
+  const asrView = asrState(asr, selection, speechAvailable);
+  const voices = [.../* @__PURE__ */ new Set([...status?.tts?.voices ?? [], prefs.voice])];
+  const asrUsable = asr !== null && asr.registered === true && asr.configured !== false && asr.ready !== false && speechAvailable !== false;
+  const asrButton = asr === null ? null : !asr.registered ? pluginsAvailable ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Set up voice input")) : null : !asr.configured ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenModels }, t("Manage models")) : selected && asrUsable ? (0, import_react45.createElement)(Pill, { state: "ready", text: t("In use") }) : (0, import_react45.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t("Saving…") : t("Use DeepSeek for dictation"));
   return (0, import_react45.createElement)(
     "div",
     { className: "bt-svc" },
@@ -36535,13 +36841,59 @@ function ServicesForm({
         onChange: (on) => save({ ocr: on })
       })),
       (0, import_react45.createElement)(StateLine, { view: ocrView })
+    ),
+    (0, import_react45.createElement)(
+      Section2,
+      { key: "tts", title: t("Text to speech") },
+      (0, import_react45.createElement)(
+        Row4,
+        { label: t("Read replies aloud") },
+        (0, import_react45.createElement)(Choice, {
+          label: t("Read replies aloud"),
+          value: prefs.tts,
+          disabled: busy || !ready,
+          Segmented: Segmented3,
+          options: [["system", t("System")], ["deepseek", t("DeepSeek")]],
+          pick: (id) => save({ tts: id })
+        })
+      ),
+      prefs.tts === "deepseek" ? (0, import_react45.createElement)(
+        Row4,
+        { label: t("Voice") },
+        (0, import_react45.createElement)(Choice, {
+          label: t("Voice"),
+          value: prefs.voice,
+          disabled: busy || !ready,
+          Segmented: Segmented3,
+          options: voices.map((id) => [id, voiceName(id)]),
+          pick: (id) => save({ voice: id })
+        })
+      ) : null,
+      (0, import_react45.createElement)(StateLine, { view: ttsView })
+    ),
+    (0, import_react45.createElement)(
+      Section2,
+      { key: "asr", title: t("Speech recognition") },
+      (0, import_react45.createElement)(
+        Row4,
+        { label: t("Dictation provider") },
+        (0, import_react45.createElement)(
+          "div",
+          { className: "bt-svc-actions" },
+          asrButton,
+          asr?.registered && pluginsAvailable ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Open Plugins")) : null
+        )
+      ),
+      (0, import_react45.createElement)(StateLine, { view: asrView })
     )
   );
 }
-function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
+function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2, Segmented: Segmented3 }) {
   const [status, setStatus] = (0, import_react45.useState)(null);
+  const [selection, setSelection] = (0, import_react45.useState)(null);
   const [busy, setBusy] = (0, import_react45.useState)(false);
   const [saved, setSaved] = (0, import_react45.useState)(false);
+  const [asrBusy, setAsrBusy] = (0, import_react45.useState)(false);
   const [loadError, setLoadError] = (0, import_react45.useState)("");
   const alive = (0, import_react45.useRef)(true);
   (0, import_react45.useEffect)(() => () => {
@@ -36552,6 +36904,11 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       if (alive.current && value) setStatus(value);
     }).catch((failure) => {
       if (alive.current) setLoadError(hostText(failure?.message ?? String(failure)));
+    });
+    const speech = typeof actions.speech === "function" ? actions.speech() : void 0;
+    if (speech) void Promise.resolve().then(() => speech.catalog()).then((result) => {
+      if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null);
+    }).catch(() => {
     });
   }, []);
   (0, import_react45.useEffect)(() => {
@@ -36578,6 +36935,20 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       if (alive.current) setBusy(false);
     });
   };
+  const selectAsr = () => {
+    const speech = typeof actions.speech === "function" ? actions.speech() : void 0;
+    if (!speech || asrBusy) return;
+    setAsrBusy(true);
+    void run2(Promise.resolve().then(() => speech.configure({ providerId: ASR_PROVIDER, language: "auto" })).then((result) => {
+      if (result?.ok === false) throw new Error(hostText(result?.error?.message ?? t("Could not save. Try again.")));
+      return speech.catalog();
+    }).then((result) => {
+      if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null);
+    })).finally(() => {
+      if (alive.current) setAsrBusy(false);
+    });
+  };
+  const speechAvailable = typeof actions.speech === "function" && actions.speech() !== void 0;
   const pluginsAvailable = typeof actions.hasPlugins !== "function" || actions.hasPlugins() !== false;
   return (0, import_react45.createElement)(
     import_react45.Fragment,
@@ -36585,20 +36956,26 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
     loadError ? (0, import_react45.createElement)("div", { className: "bt-error", role: "alert" }, loadError) : null,
     (0, import_react45.createElement)(ServicesForm, {
       status,
+      selection,
       busy,
       saved,
+      asrBusy,
+      speechAvailable,
       pluginsAvailable,
       save,
+      selectAsr,
       onOpenModels: () => actions.openModels?.(),
       // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to.
+      // cannot see or reach what openPlugins() navigated to. The setup button
+      // for voice input shares this callback.
       onOpenPlugins: () => {
         actions.closeSettings?.();
         actions.openPlugins?.();
       },
       Section: Section2,
       Row: Row4,
-      Switch: Switch2
+      Switch: Switch2,
+      Segmented: Segmented3
     })
   );
 }
@@ -38383,7 +38760,7 @@ function SetRow({ label, hint, children, className = "" }) {
 }
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
 var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
-function Choice({ label, value, options, pick: pick2 }) {
+function Choice2({ label, value, options, pick: pick2 }) {
   return (0, import_react53.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react53.createElement)("button", {
     key: id,
     type: "button",
@@ -38493,11 +38870,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
           )
         )
       ),
-      (0, import_react53.createElement)(SetRow, { label: t("Message layout") }, (0, import_react53.createElement)(Choice, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
+      (0, import_react53.createElement)(SetRow, { label: t("Message layout") }, (0, import_react53.createElement)(Choice2, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === "flat" ? (0, import_react53.createElement)(SetRow, { label: t("Text width") }, (0, import_react53.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
       (0, import_react53.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react53.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
-      (0, import_react53.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react53.createElement)(Choice, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
+      (0, import_react53.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react53.createElement)(Choice2, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
       (0, import_react53.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react53.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
       look.map((id) => dshItem(dsh, id))
     ),
@@ -38840,7 +39217,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             shown === "connectors" ? (0, import_react53.createElement)(ConnectorsPage, { roster, actions }) : null,
             shown === "im" ? (0, import_react53.createElement)(ImPage, { roster, actions }) : null,
             shown === "capabilities" ? (0, import_react53.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
-            shown === "deepseek-services" ? (0, import_react53.createElement)(DeepSeekServicesPage, { actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
+            shown === "deepseek-services" ? (0, import_react53.createElement)(DeepSeekServicesPage, { actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented }) : null,
             shown === "phone" ? (0, import_react53.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
             shown === "browser" ? (0, import_react53.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
             shown === "schedules" ? (0, import_react53.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
@@ -40184,6 +40561,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     actions.beginVisit(sessionId);
     return () => actions.endVisit(sessionId);
   }, [sessionId]);
+  (0, import_react57.useEffect)(() => actions.watchAgentTerminals?.(sessionId), [sessionId]);
   (0, import_react57.useEffect)(() => {
     if (room2) document.body.dataset.btRoom = "";
     else delete document.body.dataset.btRoom;
@@ -40371,6 +40749,34 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     ),
     document.body
   );
+}
+
+// src/client/agent-terminals.js
+var ACTIONS2 = "conversation.session.header.actions";
+var AGENT_TERMINALS = "agent-terminals";
+var opener = (slots) => slots.entries(ACTIONS2).find((entry) => entry.options?.id === AGENT_TERMINALS) ?? null;
+function watchAgentTerminals(slots, sessionId, onError) {
+  let entry = null;
+  let release;
+  const refresh = () => {
+    const next = opener(slots);
+    if (next === entry) return;
+    release?.();
+    release = void 0;
+    entry = next;
+    try {
+      const watch = entry?.inject?.(sessionId)?.watchAgentTerminals;
+      if (typeof watch === "function") release = watch();
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+  const unsubscribe = slots.subscribe(ACTIONS2, refresh);
+  refresh();
+  return () => {
+    unsubscribe();
+    release?.();
+  };
 }
 
 // src/client/enter-steer.js
@@ -41046,7 +41452,7 @@ async function speechCatalog(speech) {
   if (!result?.ok) throw new Error(result?.error?.message ?? "Speech catalog failed");
   const catalog = result.value;
   const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
-  return { catalog, usable: USABLE.has(provider?.preparation?.phase) };
+  return { catalog, usable: provider !== void 0 && (provider.preparation === void 0 || USABLE.has(provider.preparation.phase)) };
 }
 async function requestPreparation(speech, providerId) {
   try {
@@ -41057,8 +41463,10 @@ async function requestPreparation(speech, providerId) {
   }
 }
 function preparationStep(catalog) {
-  const preparation = catalog.providers.find((item) => item.id === catalog.selection.providerId)?.preparation;
-  if (preparation === void 0) return { state: "done", failed: false };
+  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
+  if (provider === void 0) return { state: "done", failed: false };
+  const { preparation } = provider;
+  if (preparation === void 0) return { state: "usable" };
   if (USABLE.has(preparation.phase)) return { state: "usable" };
   if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
     return { state: "done", failed: preparation.phase === "failed" };
@@ -42611,6 +43019,180 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
   );
 }
 
+// src/client/speech-playback.js
+var CJK = /\p{Script=Han}/u;
+var EDGE = /^\s+|\s+$/g;
+var ALWAYS_END = /^[!?。！？…；;]/;
+var CLOSER = /^['"”’」』）)\]]/;
+var ABBREV = /(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i;
+var LIST_NUM = /(?:^|\s)\d{1,3}$/;
+function splitSentences(paragraph) {
+  const out = [];
+  let start = 0;
+  let at = 0;
+  const len = paragraph.length;
+  while (at < len) {
+    const ch = paragraph[at];
+    if (ALWAYS_END.test(ch)) {
+      at += 1;
+      while (at < len && (ALWAYS_END.test(paragraph[at]) || paragraph[at] === "." || CLOSER.test(paragraph[at]))) at += 1;
+      out.push(paragraph.slice(start, at));
+      start = at;
+      continue;
+    }
+    if (ch === ".") {
+      let end = at + 1;
+      while (end < len && paragraph[end] === ".") end += 1;
+      const singleDot = end === at + 1;
+      let after = end;
+      while (after < len && CLOSER.test(paragraph[after])) after += 1;
+      const atBoundary = after === len || /\s/.test(paragraph[after]);
+      const before = paragraph.slice(start, at);
+      const isAbbrev = singleDot && (ABBREV.test(before) || after < len && LIST_NUM.test(before));
+      if (atBoundary && !isAbbrev) {
+        out.push(paragraph.slice(start, after));
+        start = after;
+        at = after;
+        continue;
+      }
+      at = end;
+      continue;
+    }
+    at += 1;
+  }
+  if (start < len) out.push(paragraph.slice(start));
+  return out;
+}
+var SOFT = /[\s,，、：:—–-][^,，、：:—–-\s]*$/;
+var billedLength = (text) => {
+  let count = 0;
+  for (const char of text) count += CJK.test(char) ? 2 : 1;
+  return count;
+};
+var billedSlice = (text, limit) => {
+  let count = 0;
+  let end = 0;
+  for (const char of text) {
+    count += CJK.test(char) ? 2 : 1;
+    if (count > limit) break;
+    end += char.length;
+  }
+  if (end === 0) return [...text][0];
+  const soft = SOFT.exec(text.slice(0, end));
+  return soft !== null && soft.index >= Math.floor(end / 2) ? text.slice(0, soft.index + 1) : text.slice(0, end);
+};
+var splitSpeech = (text, limit = 800) => {
+  const chunks = [];
+  const push = (piece) => {
+    let rest = piece.replace(EDGE, "");
+    while (rest !== "") {
+      const part = billedLength(rest) <= limit ? rest : billedSlice(rest, limit);
+      chunks.push(part.replace(EDGE, ""));
+      rest = rest.slice(part.length).replace(EDGE, "");
+    }
+  };
+  for (const paragraph of text.split(/\n\s*\n/)) {
+    for (const sentence of splitSentences(paragraph)) push(sentence);
+  }
+  return chunks;
+};
+var bytesOf = (base64) => {
+  const text = atob(base64);
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) bytes[index] = text.charCodeAt(index);
+  return bytes;
+};
+var playClip = (clip2, signal) => new Promise((resolve2) => {
+  if (signal?.aborted || typeof Audio !== "function") {
+    resolve2(signal?.aborted ? "aborted" : "failed");
+    return;
+  }
+  if (typeof clip2?.audioBase64 !== "string" || clip2.audioBase64 === "") {
+    resolve2("failed");
+    return;
+  }
+  let url;
+  try {
+    url = URL.createObjectURL(new Blob([bytesOf(clip2.audioBase64)], { type: clip2.mediaType || "audio/wav" }));
+  } catch {
+    resolve2("failed");
+    return;
+  }
+  const audio = new Audio();
+  let settled = false;
+  const finish = (outcome) => {
+    if (settled) return;
+    settled = true;
+    signal?.removeEventListener("abort", onAbort);
+    audio.onended = audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    URL.revokeObjectURL(url);
+    resolve2(outcome);
+  };
+  const onAbort = () => finish("aborted");
+  audio.onended = () => finish("done");
+  audio.onerror = () => finish("failed");
+  signal?.addEventListener("abort", onAbort, { once: true });
+  audio.src = url;
+  Promise.resolve().then(() => audio.play()).catch(() => finish("failed"));
+});
+var replyVoice = (prefs) => prefs?.deepseekServices?.tts === "deepseek" ? prefs.deepseekServices?.voice === "tide" ? "tide" : "stella" : null;
+var settleSpeech = async (said, current2, { failed, done } = {}) => {
+  const outcome = await said;
+  if (current2() && outcome !== "aborted") {
+    if (outcome === "failed") failed?.();
+    done?.();
+  }
+  return outcome;
+};
+var createSpeechPlayer = (synthesize) => {
+  let generation = 0;
+  let active = null;
+  let playing = Promise.resolve("done");
+  const run2 = async (text, voice, own) => {
+    for (const chunk of splitSpeech(text)) {
+      if (own !== generation) return "aborted";
+      const abort = new AbortController();
+      active = abort;
+      let clip2;
+      try {
+        clip2 = await synthesize(chunk, voice, abort.signal);
+      } catch {
+        if (active === abort) active = null;
+        return own === generation ? "failed" : "aborted";
+      }
+      if (own !== generation) {
+        if (active === abort) active = null;
+        return "aborted";
+      }
+      const outcome = await playClip(clip2, abort.signal);
+      if (active === abort) active = null;
+      if (own !== generation || outcome === "aborted") return "aborted";
+      if (outcome === "failed") return "failed";
+    }
+    return "done";
+  };
+  return {
+    say(text, voice) {
+      generation += 1;
+      active?.abort();
+      active = null;
+      const own = generation;
+      playing = run2(text, voice, own);
+      return playing;
+    },
+    stop() {
+      generation += 1;
+      active?.abort();
+      active = null;
+    },
+    wait() {
+      return playing;
+    }
+  };
+};
+
 // src/client/voice.js
 var import_react67 = require("react");
 var plainSpeech = (text) => stripHeader(text).replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>|~-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -42623,7 +43205,27 @@ var VOICE_LABELS = {
   preparing: "Preparing voice input…",
   unsupported: "Voice chat is not available in this browser"
 };
-var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize" };
+var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize", service: "Couldn't reach the speech service" };
+async function transcribeUtterance({ speech, catalog, capture, isCurrent, ctl, submit, resume, fail: fail2 }) {
+  const controller = new AbortController();
+  try {
+    const wave = await capture.finish(catalog.maxDurationSeconds);
+    if (!wave || !isCurrent() || controller.signal.aborted) {
+      if (isCurrent()) resume();
+      return;
+    }
+    ctl.current = controller;
+    const text = await transcribeWave(speech, catalog, wave, controller.signal);
+    if (!isCurrent() || controller.signal.aborted) return;
+    if (text) submit(text);
+    else resume();
+  } catch (error) {
+    if (!isCurrent() || controller.signal.aborted) return;
+    fail2(error);
+  } finally {
+    if (ctl.current === controller) ctl.current = null;
+  }
+}
 function watchReply(read, watch, consume) {
   let off = () => {
   };
@@ -42704,19 +43306,24 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const [note, setNote] = (0, import_react67.useState)("");
   const [cycle, setCycle] = (0, import_react67.useState)(0);
   const orbRef = (0, import_react67.useRef)(null);
-  const transcribeAbort = (0, import_react67.useRef)(null);
   const waiting = (0, import_react67.useRef)(null);
   const reply = (0, import_react67.useRef)(lastReply);
   reply.current = lastReply;
+  const prefs = (0, import_react67.useRef)(roster.prefs);
+  prefs.current = roster.prefs;
   const turn = (0, import_react67.useRef)(0);
-  const cancelTranscribe = () => {
-    transcribeAbort.current?.abort();
-    transcribeAbort.current = null;
+  const player = (0, import_react67.useRef)(null);
+  const transcribeCtl = (0, import_react67.useRef)(null);
+  const speechSeq = (0, import_react67.useRef)(0);
+  const stopSpeech = () => {
+    speechSeq.current += 1;
+    window.speechSynthesis?.cancel();
+    player.current?.stop();
   };
   const close = () => {
     turn.current += 1;
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     actions.closeVoice();
   };
   useEscape(close);
@@ -42785,24 +43392,21 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     const writeLevel = (value) => {
       orbRef.current?.style.setProperty("--bt-level", String(value));
     };
-    const finish = async (current2) => {
-      cancelTranscribe();
-      const controller = new AbortController();
-      transcribeAbort.current = controller;
+    const finish = (current2) => {
       setPhase("transcribing");
-      try {
-        const wave = await current2.finish(catalog.maxDurationSeconds);
-        const text = wave ? await transcribeWave(speech, catalog, wave, controller.signal) : "";
-        if (turn.current !== own) return;
-        if (text) submit(text);
-        else setPhase("listening");
-      } catch (error) {
-        if (turn.current !== own || error?.name === "AbortError") return;
-        setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
-        setPhase("listening");
-      } finally {
-        if (transcribeAbort.current === controller) transcribeAbort.current = null;
-      }
+      void transcribeUtterance({
+        speech,
+        catalog,
+        capture: current2,
+        isCurrent: () => turn.current === own,
+        ctl: transcribeCtl,
+        submit,
+        resume: () => setPhase("listening"),
+        fail: (error) => {
+          setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
+          setPhase("listening");
+        }
+      });
     };
     openCapture().then((opened) => {
       if (stopped) {
@@ -42853,10 +43457,28 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       const spoken = plainSpeech(text);
       setSaid(spoken);
       setHeard("");
-      if (!window.speechSynthesis || !spoken) {
+      if (!spoken) {
         setPhase("listening");
         return;
       }
+      const cloud = typeof actions.synthesizeSpeech === "function" ? replyVoice(prefs.current) : null;
+      if (cloud) {
+        window.speechSynthesis?.cancel();
+        player.current ??= createSpeechPlayer((text2, voice, signal) => actions.synthesizeSpeech({ text: text2, voice }, signal));
+        const own = ++speechSeq.current;
+        setPhase("speaking");
+        void settleSpeech(player.current.say(spoken, cloud), () => speechSeq.current === own, {
+          failed: () => setNote(t("Couldn't read the reply")),
+          done: () => setPhase((current2) => current2 === "speaking" ? "listening" : current2)
+        });
+        return;
+      }
+      if (!window.speechSynthesis) {
+        setPhase("listening");
+        return;
+      }
+      speechSeq.current += 1;
+      player.current?.stop();
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
       utterance.onend = () => setPhase((current2) => current2 === "speaking" ? "listening" : current2);
@@ -42879,8 +43501,9 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     );
   }, [phase, running, lastReply]);
   (0, import_react67.useEffect)(() => () => {
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    turn.current += 1;
+    transcribeCtl.current?.abort();
+    stopSpeech();
   }, []);
   useMicLevel(!speech && phase === "listening" && dictation.listening, orbRef);
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
@@ -42891,8 +43514,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     setPhase("paused");
   };
   (0, import_react67.useEffect)(() => {
@@ -42937,7 +43560,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
-    cancelTranscribe();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     setPhase("preparing");
     void Promise.resolve(openSetup.prepare()).then((started) => {
       if (started === false) {
@@ -44134,6 +44758,44 @@ var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
 var ImportIcon = icon(["M10 3.5v8.5", "M6 8.5l4 4 4-4", "M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14"]);
 var FileIcon = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
 var WindowIcon = icon(["M4 5h12v9.5H4z", "M4 7.5h12"]);
+var PasteIcon = icon(["M7.5 4.5h5v2h-5z", "M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1"]);
+function siteMatchesHost(site, host) {
+  const s = String(site ?? "").replace(/^\.+/, "").toLowerCase();
+  const h75 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
+  if (!s || !h75) return false;
+  if (s === h75) return true;
+  if (s.includes(".") && h75.endsWith(`.${s}`)) return true;
+  if (h75.includes(".") && s.endsWith(`.${h75}`)) return true;
+  return false;
+}
+var hostOfUrl = (url) => {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+var lastImportSource = () => {
+  try {
+    return localStorage.getItem(STORAGE.browserImportSource) || null;
+  } catch {
+    return null;
+  }
+};
+var saveLastImportSource = (id) => {
+  if (!id) return;
+  try {
+    localStorage.setItem(STORAGE.browserImportSource, String(id));
+  } catch {
+  }
+};
+function orderImportSources(sources, lastId) {
+  if (!Array.isArray(sources) || !lastId) return sources ?? [];
+  const index = sources.findIndex((s) => s.id === lastId);
+  if (index <= 0) return sources;
+  return [sources[index], ...sources.slice(0, index), ...sources.slice(index + 1)];
+}
 function Favicon({ src, className }) {
   const [failed, setFailed] = (0, import_react71.useState)(null);
   if (!src || failed === src) return (0, import_react71.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react71.createElement)(GlobeIcon2));
@@ -44451,11 +45113,23 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const imports = actions.browserImport;
   const [flow, setFlow] = (0, import_react71.useState)(null);
   const flowRef = (0, import_react71.useRef)(null);
+  const reqRef = (0, import_react71.useRef)(0);
+  const liveReqIdRef = (0, import_react71.useRef)(null);
   const [sources, setSources] = (0, import_react71.useState)(null);
+  const [lastSourceId, setLastSourceId] = (0, import_react71.useState)(lastImportSource);
   const [busy, setBusy] = (0, import_react71.useState)(false);
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
+  };
+  const cancelPendingImport = () => {
+    const liveId = liveReqIdRef.current;
+    liveReqIdRef.current = null;
+    if (liveId) void imports?.cancel(liveId).catch(() => {
+    });
+    const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
+    if (id) void imports?.cancel(id).catch(() => {
+    });
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react71.useEffect)(() => {
@@ -44482,48 +45156,124 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     };
   }, []);
   (0, import_react71.useEffect)(() => {
+    reqRef.current += 1;
+    cancelPendingImport();
     setFlowTracked(null);
     return () => {
-      const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
-      if (id) void imports?.cancel(id).catch(() => {
-      });
+      reqRef.current += 1;
+      cancelPendingImport();
     };
   }, [tabId]);
-  const openImport = () => {
-    setFlowTracked("menu");
-    if (sources === null) void imports.sources().then(setSources, () => setSources([]));
+  const refreshSources = () => {
+    if (!imports) return;
+    void imports.sources().then(
+      (list) => setSources(Array.isArray(list) ? list : []),
+      () => setSources((prev) => prev ?? [])
+    );
   };
-  const showPicked = (r) => {
-    if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true });
+  const openImport = () => {
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
+    setFlowTracked("menu");
+    setLastSourceId(lastImportSource());
+    refreshSources();
+  };
+  const showPicked = (r, token) => {
+    if (token !== void 0 && token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null });
     else if (r?.error) setFlowTracked({ stage: "error", message: importError(r.error) });
     else setFlowTracked(null);
   };
   const job = async (work) => {
+    const token = ++reqRef.current;
     setBusy(true);
     try {
-      await work();
+      await work(token);
     } catch (error) {
-      setFlowTracked({ stage: "error", message: String(error?.message ?? error) });
+      if (token === reqRef.current) setFlowTracked({ stage: "error", message: String(error?.message ?? error) });
     } finally {
-      setBusy(false);
+      if (token === reqRef.current) setBusy(false);
     }
   };
-  const pickFile = () => job(async () => showPicked(await imports.pick()));
-  const pickSource = (source) => job(async () => {
-    const r = await imports.live(source.id);
-    if (r?.running) setFlowTracked({ stage: "running", source });
-    else showPicked(r);
+  const pickFile = () => job(async (token) => showPicked(await imports.pick(), token));
+  const openPaste = () => {
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
+    setFlowTracked({ stage: "paste", siteUrl: hostOfUrl(page.url) ? page.url : "" });
+  };
+  const submitPaste = (text, siteUrl) => job(async (token) => {
+    if (!imports?.paste) return;
+    showPicked(await imports.paste(text, siteUrl || void 0), token);
   });
-  const closeAndImport = () => job(async () => showPicked(await imports.live(flowRef.current?.source?.id, true)));
-  const applyImport = () => job(async () => {
-    const report = await imports.apply(bot.id, flowRef.current?.id);
-    setFlowTracked((current2) => ({ stage: "result", report, label: current2?.preview?.source?.label ?? null }));
+  const runLiveImport = async (source, close, token) => {
+    const prevLive = liveReqIdRef.current;
+    if (prevLive) void imports?.cancel(prevLive).catch(() => {
+    });
+    const requestId = `live-${Date.now()}-${token}`;
+    liveReqIdRef.current = requestId;
+    try {
+      return await imports.live(source.id, close, requestId);
+    } finally {
+      if (liveReqIdRef.current === requestId) liveReqIdRef.current = null;
+    }
+  };
+  const pickSource = (source) => job(async (token) => {
+    setFlowTracked({ stage: "connecting", source });
+    const r = await runLiveImport(source, false, token);
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    else if (r?.running) setFlowTracked({ stage: "running", source });
+    else showPicked(r, token);
+  });
+  const closeAndImport = () => job(async (token) => {
+    const source = flowRef.current?.source;
+    if (!source) return;
+    const r = await runLiveImport(source, true, token);
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    else showPicked(r, token);
+  });
+  const applyImport = (options) => job(async (token) => {
+    const current2 = flowRef.current;
+    if (!current2?.id) return;
+    const report = await imports.apply(bot.id, current2.id, options);
+    if (token !== reqRef.current) return;
+    const sourceId = current2.preview?.source?.id;
+    if (sourceId) {
+      saveLastImportSource(sourceId);
+      setLastSourceId(sourceId);
+    }
+    const shouldReload = Boolean(page.url) && ((report?.stored ?? 0) > 0 || (report?.originsStored ?? 0) > 0);
+    if (shouldReload) void actions.browserCommand(tabId, "reload");
+    setFlowTracked({
+      stage: "result",
+      report,
+      label: current2.preview?.source?.label ?? null,
+      reloaded: shouldReload
+    });
   });
   const cancelImport = () => {
-    const id = typeof flow === "object" && flow !== null ? flow.id : null;
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
     setFlowTracked(null);
-    if (id) void imports?.cancel(id).catch(() => {
-    });
   };
   (0, import_react71.useLayoutEffect)(() => {
     const element = frame2.current;
@@ -44652,8 +45402,36 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     (0, import_react71.createElement)(
       "div",
       { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
-      flow === "menu" ? (0, import_react71.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
-      typeof flow === "object" && flow !== null ? (0, import_react71.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
+      flow === "menu" ? (0, import_react71.createElement)(ImportMenu, {
+        sources: orderImportSources(sources, lastSourceId),
+        lastSourceId,
+        loading: sources === null,
+        busy,
+        canPaste: Boolean(imports?.paste),
+        onFile: pickFile,
+        onPaste: openPaste,
+        onSource: pickSource,
+        onClose: () => setFlowTracked(null)
+      }) : null,
+      typeof flow === "object" && flow !== null ? (0, import_react71.createElement)(ImportCard, {
+        flow,
+        page,
+        busy,
+        imports,
+        onApply: applyImport,
+        onCancel: cancelImport,
+        onCloseAndImport: closeAndImport,
+        onRetrySource: () => {
+          if (flow.source) void pickSource(flow.source);
+        },
+        onLaunchSource: () => {
+          if (flow.source && imports?.launch) void imports.launch(flow.source.id);
+        },
+        onFile: pickFile,
+        onSubmitPaste: submitPaste,
+        onDone: () => setFlowTracked(null),
+        onReload: () => actions.browserCommand(tabId, "reload")
+      }) : null,
       flow === null && page.error ? (0, import_react71.createElement)(
         "div",
         { className: "bt-browser-empty" },
@@ -44677,14 +45455,50 @@ function importError(error) {
   if (error === "too-large") return t("That file is too large to be a cookie export.");
   if (error === "unreadable") return t("That file could not be read.");
   if (error === "app-bound") return t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.");
+  if (error === "keychain-denied") return t("Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.");
+  if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
+  if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
+  if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
   return String(error);
 }
-function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
+function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
   useEscape(onClose);
   return (0, import_react71.createElement)(
     "div",
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
-    (0, import_react71.createElement)("div", { className: "bt-import-menu-title" }, t("Import cookies")),
+    (0, import_react71.createElement)("div", { className: "bt-import-menu-title" }, t("Import from browser")),
+    loading ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => {
+      const isLast = source.id === lastSourceId;
+      const isReady = Boolean(source.liveDebugReady);
+      const showFallback = !isLast && !isReady && !source.email;
+      return (0, import_react71.createElement)(
+        "button",
+        {
+          key: source.id,
+          type: "button",
+          className: "bt-import-item",
+          role: "menuitem",
+          disabled: busy,
+          title: source.email ? `${source.label} (${source.email})` : source.label,
+          onClick: () => onSource(source)
+        },
+        (0, import_react71.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
+        (0, import_react71.createElement)(
+          "span",
+          { className: "bt-import-item-main" },
+          (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, source.label),
+          source.email ? (0, import_react71.createElement)("span", { className: "bt-import-item-email" }, source.email) : null
+        ),
+        isLast || isReady || showFallback ? (0, import_react71.createElement)(
+          "span",
+          { className: "bt-import-item-meta" },
+          isLast ? (0, import_react71.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+          isReady ? (0, import_react71.createElement)("span", { className: "bt-import-item-sub", "data-ready": true }, t("Ready")) : null,
+          showFallback ? (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("Browser profile")) : null
+        ) : null
+      );
+    }),
+    (0, import_react71.createElement)("div", { className: "bt-import-sep", role: "separator" }),
     (0, import_react71.createElement)(
       "button",
       { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onFile },
@@ -44692,97 +45506,224 @@ function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
       (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
       (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("cookies.txt, JSON, storageState"))
     ),
-    sources === null ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => (0, import_react71.createElement)(
+    canPaste ? (0, import_react71.createElement)(
       "button",
-      {
-        key: source.id,
-        type: "button",
-        className: "bt-import-item",
-        role: "menuitem",
-        disabled: busy,
-        onClick: () => onSource(source)
-      },
-      (0, import_react71.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
-      (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, source.label),
-      (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("Copy of its cookies"))
-    ))
+      { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onPaste },
+      (0, import_react71.createElement)(PasteIcon, { className: "bt-import-item-icon" }),
+      (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, t("Paste cookies or cURL…")),
+      (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("JSON, cURL, header"))
+    ) : null
   );
 }
-function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onDone, onReload }) {
-  const { stage } = flow;
-  if (stage === "running") {
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
-      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
-      (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-actions" },
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name })),
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
-      )
-    ));
-  }
-  if (stage === "error") {
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
-      (0, import_react71.createElement)("div", { className: "bt-import-text" }, flow.message),
-      (0, import_react71.createElement)("div", { className: "bt-import-actions" }, (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
-    ));
-  }
-  if (stage === "result") {
-    const { report } = flow;
-    const problems = [...report.dropped ?? [], ...report.failed ?? []];
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : t("No cookies were stored")),
-      flow.label ? (0, import_react71.createElement)("div", { className: "bt-import-sub" }, flow.label) : null,
-      problems.length ? (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-list" },
-        problems.slice(0, 8).map((item, index) => (0, import_react71.createElement)(
-          "div",
-          { key: index, className: "bt-import-line" },
-          (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
-          (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
-        )),
-        problems.length > 8 ? (0, import_react71.createElement)("div", { className: "bt-import-line" }, (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
-      ) : null,
-      (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-actions" },
-        page.url ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
-      )
-    ));
-  }
-  const { preview } = flow;
+function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
+  const { source, info } = flow;
+  const inspectUrl = info?.inspectUrl || "chrome://inspect/#remote-debugging";
+  const browserName = info?.browserName || source.name;
+  const [copied, setCopied] = (0, import_react71.useState)(false);
+  const [detected, setDetected] = (0, import_react71.useState)(false);
+  const copyTimerRef = (0, import_react71.useRef)(null);
+  const mountedRef = (0, import_react71.useRef)(true);
+  (0, import_react71.useEffect)(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+  (0, import_react71.useEffect)(() => {
+    const canProbe = typeof imports?.probe === "function";
+    const canList = typeof imports?.sources === "function";
+    if (!canProbe && !canList) return void 0;
+    let active = true;
+    let timer = null;
+    const schedule = () => {
+      if (!active) return;
+      timer = setTimeout(poll, 2e3);
+    };
+    const poll = () => {
+      const req = canProbe ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady)) : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady));
+      void req.then(
+        (ready) => {
+          if (active) setDetected(ready);
+        },
+        () => {
+        }
+      ).finally(schedule);
+    };
+    schedule();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [imports, source.id]);
+  const copyAddress = () => {
+    void Promise.resolve((0, import_dsh_client_ui_primitives.writeClipboard)(inspectUrl)).then((ok) => {
+      if (!ok || !mountedRef.current) return;
+      setCopied(true);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setCopied(false);
+      }, 1800);
+    }, () => {
+    });
+  };
   return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
     "div",
     { className: "bt-import-box" },
-    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: preview.cookies })),
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Connect to {name}", { name: browserName })),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-text" },
+      t("{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.", { name: browserName })
+    ),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-steps" },
+      (0, import_react71.createElement)("div", { className: "bt-import-step" }, t("1. Open this address in {name}:", { name: browserName })),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-copy-row" },
+        (0, import_react71.createElement)("code", { className: "bt-import-code" }, inspectUrl),
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-mini", onClick: copyAddress }, copied ? t("Copied") : t("Copy"))
+      ),
+      (0, import_react71.createElement)("div", { className: "bt-import-step" }, t("2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.", { name: browserName }))
+    ),
+    detected ? (0, import_react71.createElement)("div", { className: "bt-import-ready-note" }, t("Remote debugging detected — ready to import.")) : null,
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      !info?.running && info?.hasExe ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onLaunchSource }, t("Open {name}", { name: browserName })) : (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onFile }, t("From a file…")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onRetrySource }, busy ? t("Connecting…") : t("Connect and import"))
+    )
+  ));
+}
+function PasteCard2({ flow, busy, onSubmitPaste, onCancel }) {
+  const [text, setText] = (0, import_react71.useState)("");
+  const [siteUrl, setSiteUrl] = (0, import_react71.useState)(flow.siteUrl || "");
+  return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Paste cookies or cURL")),
+    (0, import_react71.createElement)("textarea", {
+      className: "bt-import-textarea",
+      rows: 5,
+      spellCheck: false,
+      placeholder: t("Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…"),
+      value: text,
+      onChange: (event) => setText(event.target.value)
+    }),
+    (0, import_react71.createElement)("input", {
+      type: "text",
+      className: "bt-import-input",
+      spellCheck: false,
+      placeholder: t("Site URL (only needed for plain Cookie headers)"),
+      value: siteUrl,
+      onChange: (event) => setSiteUrl(event.target.value)
+    }),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-primary",
+        disabled: busy || !text.trim(),
+        onClick: () => onSubmitPaste(text, siteUrl.trim())
+      }, busy ? t("Reading…") : t("Continue"))
+    )
+  ));
+}
+function PreviewCard({ flow, page, busy, onApply, onCancel }) {
+  const { preview } = flow;
+  const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0);
+  const currentHost = hostOfUrl(page.url);
+  const matchingCurrent = currentHost ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site) : [];
+  const [selected, setSelected] = (0, import_react71.useState)(() => new Set(sites.map((s) => s.site)));
+  const [query, setQuery] = (0, import_react71.useState)("");
+  const [persistSession, setPersistSession] = (0, import_react71.useState)(true);
+  const hasSession = preview.notes.includes("session-cookies");
+  const allSelected = selected.size === sites.length;
+  const currentOnlySelected = matchingCurrent.length > 0 && selected.size === matchingCurrent.length && matchingCurrent.every((s) => selected.has(s));
+  const visibleSites = query.trim() ? sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase())) : sites;
+  const selectedCookies = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0);
+  const selectedStorage = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.localStorage ?? 0 : 0), 0);
+  const toggleSite = (site) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(site)) next.delete(site);
+      else next.add(site);
+      return next;
+    });
+  };
+  const selectAll = () => setSelected(new Set(sites.map((s) => s.site)));
+  const clearAll = () => setSelected(/* @__PURE__ */ new Set());
+  const selectCurrent = () => setSelected(new Set(matchingCurrent));
+  const submit = () => {
+    const chosen = allSelected ? void 0 : [...selected];
+    onApply({ sites: chosen, persistSession: hasSession ? persistSession : false });
+  };
+  return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: selectedCookies })),
     (0, import_react71.createElement)(
       "div",
       { className: "bt-import-sub" },
       preview.source?.label ?? "",
-      flow.restarted ? ` · ${t("the browser was restarted")}` : ""
+      flow.restarted ? ` · ${t("the browser was restarted")}` : "",
+      selectedStorage > 0 ? ` · ${t("{count} storage entries", { count: selectedStorage })}` : ""
     ),
-    preview.sites.length ? (0, import_react71.createElement)(
+    matchingCurrent.length > 0 && sites.length > 1 ? (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-scope" },
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-pill",
+        "aria-pressed": allSelected,
+        onClick: selectAll
+      }, t("All sites ({count})", { count: sites.length })),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-pill",
+        "aria-pressed": currentOnlySelected,
+        onClick: selectCurrent
+      }, t("This site ({host})", { host: currentHost }))
+    ) : null,
+    sites.length > 6 ? (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-filter-row" },
+      (0, import_react71.createElement)("input", {
+        type: "text",
+        className: "bt-import-input",
+        spellCheck: false,
+        placeholder: t("Filter sites…"),
+        value: query,
+        onChange: (event) => setQuery(event.target.value)
+      }),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-mini",
+        onClick: allSelected ? clearAll : selectAll
+      }, allSelected ? t("Clear") : t("All"))
+    ) : null,
+    sites.length ? (0, import_react71.createElement)(
       "div",
       { className: "bt-import-list" },
-      preview.sites.map((site) => (0, import_react71.createElement)(
-        "div",
-        { key: site.site, className: "bt-import-line" },
+      visibleSites.map((site) => (0, import_react71.createElement)(
+        "label",
+        { key: site.site, className: "bt-import-line bt-import-check-row" },
+        (0, import_react71.createElement)("input", {
+          type: "checkbox",
+          checked: selected.has(site.site),
+          onChange: () => toggleSite(site.site)
+        }),
         (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, site.site),
         (0, import_react71.createElement)(
           "span",
           { className: "bt-import-line-count" },
           t("{count}", { count: site.cookies }),
-          site.session > 0 ? ` · ${t("{count} session", { count: site.session })}` : ""
+          site.localStorage > 0 ? ` · ${t("storage")}` : site.session > 0 ? ` · ${t("{count} session", { count: site.session })}` : ""
         )
       ))
     ) : null,
@@ -44808,15 +45749,103 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
         (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
       ))
     ) : null,
-    preview.notes.includes("session-cookies") ? (0, import_react71.createElement)("div", { className: "bt-import-note" }, t("Cookies without an expiry stay until the app closes.")) : null,
+    hasSession ? (0, import_react71.createElement)(
+      "label",
+      { className: "bt-import-toggle" },
+      (0, import_react71.createElement)("input", { type: "checkbox", checked: persistSession, onChange: (event) => setPersistSession(event.target.checked) }),
+      (0, import_react71.createElement)("span", null, t("Keep session logins after app restart"))
+    ) : null,
     preview.notes.includes("local-storage-left") ? (0, import_react71.createElement)("div", { className: "bt-import-note" }, t("Some sites also keep sign-in outside cookies; you may need to sign in again there.")) : null,
     (0, import_react71.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onApply }, busy ? t("Importing…") : t("Import")),
-      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
     )
   ));
+}
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+  const { stage } = flow;
+  if (stage === "connecting") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Reading {name}…", { name: flow.source.name })),
+      (0, import_react71.createElement)("div", { className: "bt-import-sub" }, flow.source.label),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("If {name} or your system asks for permission, click Allow.", { name: flow.source.name })),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
+      )
+    ));
+  }
+  if (stage === "remote-debug") {
+    return (0, import_react71.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel });
+  }
+  if (stage === "paste") {
+    return (0, import_react71.createElement)(PasteCard2, { flow, busy, onSubmitPaste, onCancel });
+  }
+  if (stage === "running") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name }))
+      )
+    ));
+  }
+  if (stage === "error") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, flow.message),
+      (0, import_react71.createElement)("div", { className: "bt-import-actions" }, (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
+    ));
+  }
+  if (stage === "result") {
+    const { report } = flow;
+    const problems = [...report.dropped ?? [], ...report.failed ?? []];
+    const title = report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : (report.originsStored ?? 0) > 0 ? t("Imported storage for {count} sites", { count: report.originsStored }) : t("No cookies were stored");
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, title),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-sub" },
+        [
+          flow.label,
+          (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
+          flow.reloaded ? t("page reloaded") : null
+        ].filter(Boolean).join(" · ")
+      ),
+      problems.length ? (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-list" },
+        problems.slice(0, 8).map((item, index) => (0, import_react71.createElement)(
+          "div",
+          { key: index, className: "bt-import-line" },
+          (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
+          (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+        )),
+        problems.length > 8 ? (0, import_react71.createElement)("div", { className: "bt-import-line" }, (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
+      ) : null,
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        page.url && !flow.reloaded ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
+      )
+    ));
+  }
+  return (0, import_react71.createElement)(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel });
 }
 function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const bot = roster.byId[pane.id];
@@ -45158,26 +46187,55 @@ var BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
+.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
+.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
 .bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-name{flex:none;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main .bt-import-item-name{max-width:none}
+.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta .bt-import-item-sub{flex:none}
+.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
-.bt-import-box{width:100%;max-width:340px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
+.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
 .bt-import-title{font-size:15px;line-height:21px;font-weight:600}
 .bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
 .bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
+.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
+.bt-import-mini:hover{background:var(--bt-hover)}
+.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
+.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
+.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
+.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
+.bt-import-filter-row{display:flex;align-items:center;gap:6px}
+.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
 .bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
 .bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
+.bt-import-check-row{align-items:center;cursor:pointer}
+.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
 .bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
+.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
@@ -48397,13 +49455,17 @@ function apply(ctx) {
         await bridge2.views.hold(botId, false);
         return result;
       } : void 0,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge2.importSources === "function" ? {
         sources: () => bridge2.importSources(),
+        probe: typeof bridge2.importProbe === "function" ? (source) => bridge2.importProbe(source) : null,
         pick: () => bridge2.importPick(),
-        live: (source, close) => bridge2.importLive(source, close),
-        apply: (botId, pending) => bridge2.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge2.importCancel(pending)
       } : null
     });
@@ -48623,6 +49685,7 @@ function apply(ctx) {
     }
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
+  actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));
   actions.newTerminal = () => {
     actions.closePanel();
     try {

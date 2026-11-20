@@ -111,7 +111,7 @@ Messages only flow while your computer is awake and DS Bot is running. WeChat on
 
 ### Connectors and capabilities
 
-In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default.
+In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default. Your own MCP server can be added too: give its address and turn on **Sign in** for a browser sign-in, or keep a fixed header or key when the server publishes no OAuth metadata.
 
 In Settings → Capabilities, you can manage shared MCP servers, skills and packs for the team and enable them per bot; local commands added by a bot need your approval before they run.
 
@@ -119,9 +119,9 @@ In Settings → Capabilities, you can manage shared MCP servers, skills and pack
 
 The `auto` web search keeps the asking conversation's own route and key (never borrowing another route's key) with a keyless fallback, and now also tries DeepSeek's official Search API on that route's own origin. To use the official Search and Fetch APIs for every model, open the Plugins page and go to **Web search**, then turn on **Use the new Web Search API**; that switch selects both. A DeepSeek account sign-in is only verified for Search and Fetch. These calls are billed to your own API key by usage.
 
-### DeepSeek document reading
+### DeepSeek services
 
-A DeepSeek API key can add independent image and document reading to any model, off until you turn it on in **Settings → DeepSeek services**. The key is set in **Settings → Models**; setting it never uploads files by itself. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
+A DeepSeek API key can add independent image and document reading, DeepSeek text-to-speech (with a choice of voice) and DeepSeek dictation to any model, in **Settings → DeepSeek services**. Each capability is off until you turn it on; setting the key never uploads files or switches speech by itself. The key is set in **Settings → Models**, and the page shows whether each service is ready and why not. Dictation uses the existing Voice Input provider picker; when that plugin is off, your current dictation keeps working. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
 
 ### Office files
 

@@ -118,6 +118,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     actions.beginVisit(sessionId)
     return () => actions.endVisit(sessionId)
   }, [sessionId])
+  // Stands in for DSH's header: a terminal this Session's Agent starts gets its tab.
+  useEffect(() => actions.watchAgentTerminals?.(sessionId), [sessionId])
   // Group chats have no voice mode, so the composer CSS needs to know the Session kind.
   useEffect(() => {
     if (room) document.body.dataset.btRoom = ''

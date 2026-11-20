@@ -422,7 +422,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
           shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
-          shown === 'deepseek-services' ? h(DeepSeekServicesPage, { actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
+          shown === 'deepseek-services' ? h(DeepSeekServicesPage, { actions, run, Section: SetSection, Row: SetRow, Switch, Segmented }) : null,
           shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
