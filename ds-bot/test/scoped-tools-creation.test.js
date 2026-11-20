@@ -630,6 +630,28 @@ test('enabling OCR after a Bot is scoped, then disabling it, removes the scoped 
   assert.equal(scopedNames(host, 'a').includes('read_document'), false)
 })
 
+test('removeTeamTool still unloads other live Bots when one disposer throws', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+  const agentA = host.agentOf('a')
+  const origRegister = agentA.ctx.tools.register
+  agentA.ctx.tools.register = (tool) => {
+    const dispose = origRegister(tool)
+    if (tool.name !== 'read_document') return dispose
+    return () => { dispose(); throw new Error('already disposed') }
+  }
+  await host.call('deepseek-services-config', { ocr: true })
+  assert.equal(scopedNames(host, 'a').includes('read_document'), true)
+  assert.equal(scopedNames(host, 'b').includes('read_document'), true)
+  const off = await host.call('deepseek-services-config', { ocr: false })
+  assert.equal(off.ok, true)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+  assert.equal(scopedNames(host, 'b').includes('read_document'), false)
+})
+
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
   // A hot reload lifts the scope of Agents that are still live, and
   // agent/created does not fire again: the sync at the next load must scope

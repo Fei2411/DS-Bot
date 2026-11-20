@@ -313,6 +313,13 @@ test('upstream error bodies never echo secrets: fixed phrases only', async (t) =
   const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-fake-secret-123' }, prefs: { deepseekServices: { ocr: true } }, sessions: { bot1: 'bot1' }, attachments: { async* readFileStream() { yield new Uint8Array([1]) } } })
   const secret = 'sk-fake-secret-123'
   stubFetch(t, () => json({ error: { type: `type-${secret}`, message: `message-${secret}`, code: `code-${secret}` } }, 400))
+  await assert.rejects(
+    () => readTool(rt).execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))),
+    (error) => {
+      assert.match(error.message, /HTTP 400/)
+      assert.equal(error.message.includes(secret), false, `leaked: ${error.message}`)
+      return true
+    })
   // A 200 in-body error with secret-bearing type and code also stays generic.
   globalThis.fetch = async () => json({ error: { type: secret, message: secret, code: secret } })
   await assert.rejects(
@@ -447,4 +454,92 @@ test('a private Bot keeps distinct spills when two long readings share a basenam
   assert.equal(readFileSync(receiptLocator, 'utf8'), receiptText)
   assert.ok(invoiceText.length > 8000)
   assert.ok(receiptText.length > 8000)
+})
+
+test('a private Bot deleted while OCR is in flight still never uses the shared spill store', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-ocr-private-toctou-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const spills = []
+  const fs = {
+    resolve: async (path, { cwd }) => ({ targetKey: `${cwd}/${path}`, displayPath: `${cwd}/${path}` }),
+    stat: async () => ({ type: 'file', size: 3, version: 'v' }),
+    processPath: target => target.displayPath,
+    readBytes: async () => new Uint8Array([37, 80, 68, 70]),
+  }
+  const bots = { bot1: { id: 'bot1', name: 'Diary', private: true, workDir } }
+  const { rt } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs,
+    spillStore: { saveText: async (input) => { spills.push(input); return { locator: '/tmp/shared.txt', bytes: 1, retrievalHint: '' } } },
+    sessions: { bot1: 'bot1' },
+    bots,
+    prefs: { deepseekServices: { ocr: true } },
+  })
+  stubFetch(t, () => {
+    // Simulate deleting the private Bot while the OCR request is in flight.
+    delete bots.bot1
+    return json({
+      id: 'ocr-toctou', object: 'ocr.result', created: 1, purpose: 'text_recognition', page_count: 1,
+      pages: [{ index: 0, text: 'secret '.repeat(5000), finish_reason: 'stop' }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    })
+  })
+  const out = await readTool(rt).execute({ path: 'scan.pdf' }, exec(sessionWithFile('x')))
+  assert.equal(spills.length, 0, 'in-flight deletion must not downgrade spill isolation to shared spillStore')
+  const locator = locatorOf(out)
+  assert.equal(dirname(locator), join(workDir, '.ocr', 'bot1', 'bot1'))
+})
+
+test('a private Bot truncates inline instead of risking shared spill when read-only or unable to write', async (t) => {
+  const spills = []
+  const fs = {
+    resolve: async (path, { cwd }) => ({ targetKey: `${cwd}/${path}`, displayPath: `${cwd}/${path}` }),
+    stat: async () => ({ type: 'file', size: 3, version: 'v' }),
+    processPath: target => target.displayPath,
+    readBytes: async () => new Uint8Array([37, 80, 68, 70]),
+  }
+  const { rt } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs,
+    spillStore: { saveText: async (input) => { spills.push(input); return { locator: '/tmp/shared.txt', bytes: 1, retrievalHint: '' } } },
+    sessions: { bot1: 'bot1' },
+    bots: { bot1: { id: 'bot1', name: 'Diary', private: true, workDir: '/nonexistent-dir-should-not-be-written' } },
+    prefs: { deepseekServices: { ocr: true } },
+  })
+  rt.readOnly = () => 'team is open in another window'
+  stubFetch(t, () => json({
+    id: 'ocr-ro', object: 'ocr.result', created: 1, purpose: 'text_recognition', page_count: 1,
+    pages: [{ index: 0, text: 'secret '.repeat(10_000), finish_reason: 'stop' }],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  }))
+  const out = await readTool(rt).execute({ path: 'scan.pdf' }, exec(sessionWithFile('x')))
+  assert.equal(spills.length, 0)
+  assert.match(out, /could not save a private copy/)
+  assert.ok(out.length < 10_000, 'truncated inline answer stays well below DSH spill threshold')
+})
+
+test('config rejects non-object payloads, rolls back on save failure, and rejects JSON null OCR bodies', async (t) => {
+  const { rt } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' },
+    env: { DEEPSEEK_BASE_URL: '' },
+    sessions: { bot1: 'bot1' },
+    attachments: { async* readFileStream() { yield new Uint8Array([1]) } },
+  })
+  const initial = await rt.deepseekEndpoint('deepseek-services', {})
+  assert.equal(initial.key.configured, true, 'empty DEEPSEEK_BASE_URL does not block official key')
+  await assert.rejects(
+    () => rt.deepseekEndpoint('deepseek-services-config', 'bad'),
+    error => error.code === 'bot/invalid')
+  await assert.rejects(
+    () => rt.deepseekEndpoint('deepseek-services-config', []),
+    error => error.code === 'bot/invalid')
+  const origSave = rt.save
+  rt.save = async () => { throw new Error('disk full') }
+  await assert.rejects(() => rt.deepseekEndpoint('deepseek-services-config', { ocr: true }), /disk full/)
+  assert.equal(rt.state.prefs.deepseekServices, undefined, 'failed save rolls back in-memory prefs')
+  assert.equal(readTool(rt), undefined)
+  rt.save = origSave
+  await rt.deepseekEndpoint('deepseek-services-config', { ocr: true })
+  stubFetch(t, () => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } }))
+  await assert.rejects(
+    () => readTool(rt).execute({ attachment_id: 'sha256:aa' }, exec(sessionWithFile('sha256:aa'))),
+    /no usable answer/)
 })

@@ -27,7 +27,7 @@ DS Bot 的基础路径不依赖官方 API：图片由主模型或视觉模型读
 
 - 默认关闭。关闭时 `read_document` 不登记进 `TEAM_TOOLS` 目录（不占上下文、也不诱导误调）；开启后才登记。工具仍拒绝关闭态调用（`bot/unavailable`）作为双保险。给 `path`（工作区文件）或 `attachment_id`（本会话上传的文件或图片）之一，按 `text_recognition` / `rich_layout_recognition` 识别 PDF、Word、PowerPoint 与常见图片。
 - **当前会话归属**：`attachment_id` 必须命中发起调用的 Session 自己消息里的 `file` / `image` 块；猜的 id 读不到任何东西。`path` 经工作区文件系统按该 Session 的工作目录解析，落在 DeepSeek Harness 或团队数据目录里的路径被拒绝；`read_document` 也登记在隐私工具表里，私有 Bot 的路径规则同样适用。
-- **只读、不丢全文**：工具只读字节、回文本，不改文件。结果按页返回；单页被服务截断会标注「possibly incomplete」。全文不超过 8,000 字直接内联；更长时整份文本写入文件（文件名 `<name>.ocr.txt`），工具结果给出取回提示和开头，模型仍可读到全文。非隐私 Session 走 DSH 的 `spillStore`；隐私 Bot 的溢出写在自己工作文件夹下 `.ocr/{botId}/{sessionId}/`，路径含字面 Session id，好让 `ownerOfPath` 拦住其它 Bot 的 `glob`/`read`。无法落盘时整份文本仍内联返回。
+- **只读、不丢全文**：工具只读字节、回文本，不改文件。结果按页返回；单页被服务截断会标注「possibly incomplete」。全文不超过 8,000 字直接内联；更长时整份文本写入文件（文件名 `<name>.ocr.txt`），工具结果给出取回提示和开头，模型仍可读到全文。非隐私 Session 走 DSH 的 `spillStore`（无法落盘时整份文本内联返回）；隐私 Bot 的溢出写在自己工作文件夹下 `.ocr/{botId}/{sessionId}/`，路径含字面 Session id，好让 `ownerOfPath` 拦住其它 Bot 的 `glob`/`read`（只读窗口或无法写入隐私副本时截断内联返回，绝不回落到共享 `spillStore` 或触发 DSH 二次公共溢出）。
 - 上传提示：OCR 开启时，团队会话里文件块后附加一条指向 `attachment_id` 的提示（幂等、不改动原块）；图片转文本的附注也会指向 `read_document`。纯 DSH 会话没有该工具，不提示。
 - 本地 Office 编辑流程不变；`read_document` 也能读 Office 文件，所以界面提示只说「选中的文件会上传给 DeepSeek 做文字识别，本地 Office 编辑不变」，不承诺 Office 文件不上传。
 

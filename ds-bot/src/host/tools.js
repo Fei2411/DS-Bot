@@ -1148,7 +1148,7 @@ export function install(rt) {
     if (rt.teamTools.some(tool => tool.name === def.name)) return
     rt.teamTools.push(def)
     for (const held of scoped.values()) {
-      if (held.relay || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
       try {
         const dispose = held.agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1166,8 +1166,17 @@ export function install(rt) {
     const at = rt.teamTools.findIndex(tool => tool.name === name)
     if (at !== -1) rt.teamTools.splice(at, 1)
     // Scoped registrations already handed out are disposed by name.
-    for (const held of scoped.values()) {
-      held.toolLifts?.get(name)?.()
+    for (const [id, held] of scoped) {
+      const dispose = held.toolLifts?.get(name)
+      if (typeof dispose === 'function') {
+        const index = held.disposers.indexOf(dispose)
+        if (index !== -1) held.disposers.splice(index, 1)
+        try {
+          dispose()
+        } catch (error) {
+          rt.warn('ds-bot: a scoped tool %s of %s was not removed: %s', name, id, error)
+        }
+      }
       held.toolLifts?.delete(name)
       held.added?.delete(name)
       held.unlisted.delete(name)
