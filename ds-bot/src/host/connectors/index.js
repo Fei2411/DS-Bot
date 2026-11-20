@@ -558,6 +558,7 @@ export function install(rt) {
       const signIn = statuses.get(id)?.state === 'needs-sign-in'
       if (connected && !signIn && !offFor(id).includes(bot.id)) return `${entry.name} is already connected; use its tools (mcp__${id}__*).`
       if (offFor(id).includes(bot.id)) return `${entry.name} is turned off for you. The user can turn it on in your details.`
+      if (rt.taskOwners?.has(agentId)) return 'Background tasks cannot show connector cards. Finish or report back to your own chat so it can ask the user.'
       if (rt.groupOwners.has(agentId)) return 'Connector cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_connector there.'
       if (!rt.chatOwners.has(agentId)) return 'Connector cards only work in your current own chat.'
       const readOnly = rt.readOnly()

@@ -245,19 +245,19 @@ export function install(rt) {
 
   async function resumeTurn(sessionId, record) {
     const bot = rt.botOf(record.botId)
-    if (bot === undefined) return
+    if (bot === undefined) return false
     const text = resumeText(record)
     if (record.roomId !== undefined) {
       const room = rt.roomOf(record.roomId)
-      if (room === undefined || !room.members.includes(bot.id)) return
+      if (room === undefined || !room.members.includes(bot.id)) return false
       await rt.postToRoom(room, bot, '', { resumed: true, quiet: true, ...(record.resumed ? { again: true } : {}) })
       // A turn already picked up once and cut off again stays stopped: a restart loop
       // must not run it forever.
-      if (record.resumed) return
+      if (record.resumed) return false
       await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
-      return
+      return true
     }
-    if (record.resumed) return
+    if (record.resumed) return false
     // The turn ran in a part that is still one of the Bot's: it goes on there, not in the
     // foreground chat when that part is a background one. A part gone since (archived and
     // dropped) falls back to the Bot's current chat.
@@ -266,10 +266,11 @@ export function install(rt) {
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
       await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
-      return
+      return true
     }
     // A turn that went on with work another Bot asked for still owes that Bot its answer.
     await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}) })
+    return true
   }
 
   // Where a queued note goes now: its Session if it still is one, else the
@@ -282,14 +283,19 @@ export function install(rt) {
   // up, so a send that fails here, or a Session that cannot be opened, leaves them
   // for the next start instead of losing them.
   async function resendQueued(sessionId, list) {
+    const active = new Set()
     const fresh = list.filter(item => rt.botOf(item.args?.toId) !== undefined
       && sessionFor(sessionId, item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
-    if (fresh.length === 0) return
+    if (fresh.length === 0) return active
     const target = sessionFor(sessionId, fresh[0].args)
     const agent = await rt.resolveAgent(target)
     const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].map(message => message.source?.exchangeId))
     for (const { args } of fresh) {
-      if (waiting.has(args.exchangeId)) continue
+      const dest = sessionFor(sessionId, args)
+      if (waiting.has(args.exchangeId)) {
+        if (dest !== undefined) active.add(dest)
+        continue
+      }
       if (taken?.has(args.exchangeId) === true) {
         forgetQueued(args.exchangeId)
         continue
@@ -297,9 +303,11 @@ export function install(rt) {
       // A request that waited through a restart reaches its target late: the work
       // it is for is marked, so the answer that comes back says so.
       if (args.role === 'request' || args.role === 'stopped') rt.lateWork?.(args.exchangeId)
-      await deliver({ ...args, sessionId: sessionFor(sessionId, args), steer: false, resent: true })
-        .catch(error => rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error))
+      const ok = await deliver({ ...args, sessionId: dest, steer: false, resent: true })
+        .then(() => true, (error) => { rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error); return false })
+      if (ok && dest !== undefined) active.add(dest)
     }
+    return active
   }
 
   // A Session's durable log, as DSH keeps it: what happened there, and what it said.
@@ -439,29 +447,47 @@ export function install(rt) {
     persist()
     // Agents and inboxes are read before anything wakes their Sessions.
     const cut = []
+    const keepTaskSessions = new Set()
     for (const [sessionId, record] of Object.entries(noted)) {
       const first = firstTurn.get(sessionId)
       if (first?.type === 'turn/end') {
         // The turn ended while DS Bot was not watching it: what it did is settled from
         // the Session's durable log.
-        await reconcileEnded(sessionId, record, first).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
+        if (rt.taskOwners?.has(sessionId)) {
+          await rt.reconcileEndedTask?.(sessionId, first).catch(error => rt.warn('ds-bot: settling task %s failed: %s', sessionId, error))
+        } else {
+          await reconcileEnded(sessionId, record, first).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
+        }
         continue
       }
       // Still running: noted again, as if it had started here.
-      if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') update(sessionId, () => record)
-      else cut.push([sessionId, record])
+      if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') {
+        update(sessionId, () => record)
+        keepTaskSessions.add(sessionId)
+      } else {
+        cut.push([sessionId, record])
+      }
     }
     firstTurn = undefined
     for (const [sessionId, list] of Object.entries(dropped)) {
       if (!Array.isArray(list)) continue
-      await resendQueued(sessionId, list).catch(error => rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error))
+      const active = await resendQueued(sessionId, list).catch((error) => {
+        rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error)
+        return new Set()
+      })
+      for (const dest of active ?? []) keepTaskSessions.add(dest)
     }
     taken = undefined
     for (const [sessionId, record] of cut) {
-      await resumeTurn(sessionId, record).catch(error => rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error))
+      const resumed = await resumeTurn(sessionId, record).catch((error) => {
+        rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error)
+        return false
+      })
+      if (resumed === true) keepTaskSessions.add(sessionId)
     }
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()
+    await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
   }
 
   ctx.effect(() => {
@@ -469,7 +495,10 @@ export function install(rt) {
     // With nothing to pick up, the group batches a restart left are settled at once.
     const timer = pending
       ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)
-      : setTimeout(() => void rt.load().then(() => rt.settleRoomBatches?.()).catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
+      : setTimeout(() => void rt.load()
+        .then(() => rt.settleRoomBatches?.())
+        .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
+        .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
     timer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.
     return () => {
