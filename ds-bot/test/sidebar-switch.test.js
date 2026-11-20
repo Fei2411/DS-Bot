@@ -601,6 +601,61 @@ test('the Plugins shortcut opens the plugin manager and names itself', () => {
   assert.deepEqual(calls, ['open'])
 })
 
+// #1833: Agent mode draws BotReturn in the shell's footer slot; the Bot column's foot
+// carries the mirror, so neither direction hides its switch behind a menu.
+const findNode = (node, match) => {
+  if (Array.isArray(node)) {
+    for (const child of node) { const hit = findNode(child, match); if (hit) return hit }
+    return undefined
+  }
+  if (!node || typeof node !== 'object') return undefined
+  if (match(node)) return node
+  return findNode(node.props?.children, match)
+}
+const isFoot = node => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('bt-leftcol-foot')
+
+for (const wide of [true, false]) {
+  test(`the Bot foot offers the way back to the classic Agent view (${wide ? 'open column' : 'rail'})`, () => {
+    viewport.innerWidth = 1280
+    const calls = []
+    const tree = TeamSidebar({
+      wide,
+      useSidebarPref: pick => pick(wide ? 'open' : 'rail'),
+      useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+      useUi: pick => pick({ unread: {} }),
+      useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }),
+      useUpdate: () => ({}),
+      actions: { toggleSidebar() {}, openNewChat() {}, setSurface: mode => calls.push(mode) },
+    })
+    const foot = findNode(tree, isFoot)
+    assert.ok(foot, 'the column draws a foot')
+    const button = findNode(foot, node => node.type === 'button' && node.props['aria-label'] === 'Switch to classic Agent mode')
+    assert.ok(button, 'the foot offers the Agent switch')
+    assert.equal(button.props.title, 'Switch to classic Agent mode')
+    button.props.onClick()
+    assert.deepEqual(calls, ['agent'])
+    // The rail keeps its icons in one stack, the switch at its end.
+    if (!wide) assert.equal(foot.props.children.at(-1), button)
+  })
+}
+
+test('the foot leaves the Agent switch out where the surface cannot change', () => {
+  viewport.innerWidth = 1280
+  const tree = TeamSidebar({
+    wide: true,
+    useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+    useUi: pick => pick({ unread: {} }),
+    useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }),
+    useUpdate: () => ({}),
+    actions: { toggleSidebar() {} },
+  })
+  const foot = findNode(tree, isFoot)
+  assert.ok(foot, 'the column draws a foot')
+  assert.equal(findNode(foot, node => node.type === 'button' && node.props['aria-label'] === 'Switch to classic Agent mode'), undefined)
+})
+
 // The foot of the team column is the sidebar's own `.bt-leftcol-foot`, not the
 // shell's footArea: only the account menu and the Agent-mode return button go
 // through the shell's action slot.

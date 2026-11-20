@@ -31918,12 +31918,14 @@ function TeamSidebar(props) {
     main ? (0, import_react36.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react36.createElement)(BootFailed, { actions }) : (0, import_react36.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react36.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react36.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react36.createElement)(PluginsButton, { actions })) : (0, import_react36.createElement)(
+  const agentReturn = typeof actions.setSurface === "function" ? (0, import_react36.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Switch to classic Agent mode"), title: t("Switch to classic Agent mode"), onClick: () => actions.setSurface("agent") }, (0, import_react36.createElement)(SwitchIcon)) : null;
+  const foot = wideContent ? (0, import_react36.createElement)("div", { className: "bt-leftcol-foot" }, agentReturn, (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react36.createElement)(PluginsButton, { actions })) : (0, import_react36.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react36.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react36.createElement)(PlusIcon)),
     (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }),
-    (0, import_react36.createElement)(PluginsButton, { actions })
+    (0, import_react36.createElement)(PluginsButton, { actions }),
+    agentReturn
   );
   const content = (0, import_react36.createElement)(
     "div",

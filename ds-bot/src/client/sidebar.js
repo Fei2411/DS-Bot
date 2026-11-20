@@ -815,12 +815,18 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
+  // #1833: Agent mode draws BotReturn in the shell's footer slot; this is its mirror
+  // in Bot mode, beside the account in the open column and at the rail's stack end.
+  const agentReturn = typeof actions.setSurface === 'function'
+    ? h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Switch to classic Agent mode'), title: t('Switch to classic Agent mode'), onClick: () => actions.setSurface('agent') }, h(SwitchIcon))
+    : null
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, agentReturn, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
-        h(PluginsButton, { actions }))
+        h(PluginsButton, { actions }),
+        agentReturn)
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
