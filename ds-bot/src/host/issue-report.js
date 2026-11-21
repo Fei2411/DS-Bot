@@ -9,18 +9,22 @@ export const PUBLISH_ISSUE = 'publish_ds_bot_issue'
 const DRAFT_TTL = 10 * 60_000
 const LINK_MAX = 4000
 
-function issueLink({ title, body }) {
-  const link = value => `${ISSUES_URL}?${new URLSearchParams({ title, body: value })}`
-  if (link(body).length <= LINK_MAX) return link(body)
-  const chars = Array.from(body)
+function issueLink({ title, body, form = { what: body } }) {
+  const link = fields => `${ISSUES_URL}?${new URLSearchParams({ template: 'bug.yml', title, ...fields })}`
+  const full = link(form)
+  if (full.length <= LINK_MAX) return full
+  const fields = Object.entries(form).map(([id, text]) => [id, Array.from(text)])
+  const capped = limit => link(Object.fromEntries(fields.map(([id, chars]) => [
+    id, chars.length <= limit ? chars.join('') : `${chars.slice(0, limit).join('')}…`,
+  ])))
   let low = 0
-  let high = chars.length
+  let high = Math.max(...fields.map(([, chars]) => chars.length))
   while (low < high) {
     const mid = Math.ceil((low + high) / 2)
-    if (link(`${chars.slice(0, mid).join('')}…`).length <= LINK_MAX) low = mid
+    if (capped(mid).length <= LINK_MAX) low = mid
     else high = mid - 1
   }
-  return link(`${chars.slice(0, low).join('')}…`)
+  return capped(low)
 }
 
 export function install(rt) {
@@ -68,7 +72,8 @@ export function install(rt) {
       const now = Date.now()
       for (const [id, draft] of drafts) if (draft.expiresAt <= now) drafts.delete(id)
       const report_issue = randomUUID()
-      drafts.set(sessionId, { id: report_issue, title, body, view: checked.view, expiresAt: now + DRAFT_TTL })
+      const payload = { title, body, form: { what, steps, diagnostics } }
+      drafts.set(sessionId, { id: report_issue, payload, view: checked.view, expiresAt: now + DRAFT_TTL })
       return `Call show_view with these exact arguments:\n${JSON.stringify({ title, view, report_issue })}`
     },
   }))
@@ -76,15 +81,16 @@ export function install(rt) {
   rt.claimIssueDraft = (sessionId, id, { title, view }) => {
     const draft = drafts.get(sessionId)
     if (draft === undefined || draft.id !== id || draft.expiresAt <= Date.now()
-      || draft.title !== title || !isDeepStrictEqual(draft.view, view)) return undefined
+      || draft.payload.title !== title || !isDeepStrictEqual(draft.view, view)) return undefined
     drafts.delete(sessionId)
-    return { title: draft.title, body: draft.body }
+    return draft.payload
   }
 
   rt.settleIssueReport = async (sessionId, draft) => {
     let uncertain = false
     try {
-      const url = await rt.publishDsBotIssue(rt.chatOwners.get(sessionId), draft)
+      const { title, body } = draft
+      const url = await rt.publishDsBotIssue(rt.chatOwners.get(sessionId), { title, body })
       if (url !== undefined) return `Issue published: ${url}`
     } catch {
       uncertain = true

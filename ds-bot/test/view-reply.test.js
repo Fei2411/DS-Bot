@@ -180,8 +180,13 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.ok(link.length <= 4000)
   const url = new URL(link)
   assert.equal(url.origin + url.pathname, 'https://github.com/Fei2411/DS-Bot/issues/new')
+  assert.equal(url.searchParams.get('template'), 'bug.yml')
   assert.equal(url.searchParams.get('title'), args.title)
-  assert.match(url.searchParams.get('body'), /^### What happened\?\n\n故障😀.*…$/s)
+  assert.match(url.searchParams.get('what'), /^(?:故障😀)+故?障?…$/)
+  assert.equal(url.searchParams.get('steps'), '1. Open chat.\n2. Reload.')
+  assert.match(url.searchParams.get('diagnostics'), /^DS Bot: .+\n[\s\S]*OS: /)
+  assert.equal(url.searchParams.has('body'), false)
+  assert.equal(url.searchParams.has('clean'), false)
 
   let writes = 0
   rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei2411/DS-Bot/issues/42' }
