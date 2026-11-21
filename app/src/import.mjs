@@ -171,15 +171,28 @@ const OVER = Symbol('over budget')
 // The bytes under `path` into `tally`, links counted as themselves and what cannot be read as
 // nothing; `tally.regen` takes the bytes inside the folders that REGENERABLE names.
 async function measure(path, clock, tally, regen = false) {
-  if (clock.now() > clock.until) throw OVER
-  const entry = await lstat(path).catch(() => undefined)
-  if (entry === undefined) return
-  if (!entry.isDirectory()) {
-    tally.bytes += entry.size
-    if (regen) tally.regen += entry.size
-    return
+  const pending = [{ path, regen }]
+  while (pending.length) {
+    const batch = pending.splice(-16)
+    // Settle the whole batch before propagating expiry; siblings may still be using the disk.
+    const results = await Promise.allSettled(batch.map(async ({ path, regen }) => {
+      if (clock.now() > clock.until) throw OVER
+      const entry = await lstat(path).catch(() => undefined)
+      if (entry === undefined) return
+      if (!entry.isDirectory()) {
+        tally.bytes += entry.size
+        if (regen) tally.regen += entry.size
+        return
+      }
+      if (clock.now() > clock.until) throw OVER
+      for (const name of await readdir(path).catch(() => [])) {
+        pending.push({ path: join(path, name), regen: regen || REGENERABLE.has(name) })
+      }
+    }))
+    const failed = results.find(result => result.status === 'rejected')
+    if (failed) throw failed.reason
+    if (clock.now() > clock.until) throw OVER
   }
-  for (const name of await readdir(path).catch(() => [])) await measure(join(path, name), clock, tally, regen || REGENERABLE.has(name))
 }
 
 /**
