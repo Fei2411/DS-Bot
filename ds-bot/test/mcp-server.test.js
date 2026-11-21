@@ -5,6 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { MCP_TOOLS, clientTools } from '../src/host/mcp-server.js'
@@ -108,9 +109,12 @@ test('MCP access is off until turned on, and a client token reaches only its own
   assert.deepEqual((await call('list_bots')).structuredContent.bots.map(bot => bot.name), ['Chief', 'Scout'])
   assert.equal((await call('read_chat', { bot: 'Diary' })).isError, true)
 
-  const bridge = spawn(process.execPath, [new URL('../bin/ds-bot-mcp.mjs', import.meta.url).pathname, '--url', url], { env: { ...process.env, DSBOT_MCP_TOKEN: token }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const bridge = spawn(process.execPath, [fileURLToPath(new URL('../bin/ds-bot-mcp.mjs', import.meta.url)), '--url', url], { env: { ...process.env, DSBOT_MCP_TOKEN: token }, stdio: ['pipe', 'pipe', 'inherit'] })
   t.after(() => bridge.kill())
-  const line = new Promise(resolve => bridge.stdout.once('data', chunk => resolve(JSON.parse(String(chunk).split('\n')[0]))))
+  const line = new Promise((resolve, reject) => {
+    bridge.stdout.once('data', chunk => resolve(JSON.parse(String(chunk).split('\n')[0])))
+    bridge.once('exit', code => reject(new Error(`ds-bot-mcp exited with ${code}`)))
+  })
   bridge.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'list_bots', arguments: {} } })}\n`)
   const bridged = await line
   assert.equal(bridged.id, 7)
