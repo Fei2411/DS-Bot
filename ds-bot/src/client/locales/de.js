@@ -1461,6 +1461,8 @@ export const DE = {
   'in {name}': 'in {name}',
   'Click again to delete': 'Zum Löschen erneut klicken',
   'Delete task': 'Aufgabe löschen',
+  'Pause task': 'Aufgabe pausieren',
+  'Resume task': 'Aufgabe fortsetzen',
   Once: 'Einmalig',
   'Every week': 'Jede Woche',
   Repeat: 'Wiederholen',

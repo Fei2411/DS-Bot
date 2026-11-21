@@ -1429,6 +1429,8 @@ export const FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "Pause task": "Mettre la tâche en pause",
+  "Resume task": "Reprendre la tâche",
   "Once": "Une fois",
   "Every week": "Toutes les semaines",
   "Repeat": "Répéter",

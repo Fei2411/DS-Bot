@@ -1493,6 +1493,8 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'Pause task': '暂停任务',
+  'Resume task': '恢复任务',
   Once: '一次',
   'Every week': '每周',
   Repeat: '重复',
@@ -2152,35 +2154,60 @@ export function installLocale(locale) {
     pushOff(locale.register(NAMESPACE, langId, dict))
   }
 
-  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  // DS Bot fills locales that other plugins' namespaces lack. Each supplement is tied to
+  // the owner dictionary it was made from, so it leaves when that owner unloads or
+  // re-registers. DSH has no lower-priority registration, so an owner's own locale
+  // registered while the supplement stands still collides with it.
+  const supplements = new Map()
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key)
+    if (!entry) return
+    supplements.delete(key)
+    entry.off()
+  }
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId)
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return
+    try {
+      const off = locale.register(ns, langId, make())
+      if (typeof off === 'function') supplements.set(key, { ns, source, off })
+    } catch { /* already registered */ }
+  }
+
   let syncing = false
   let disposed = false
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return
     syncing = true
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns)
+        if (![...(map?.values() ?? [])].includes(entry.source)) dropSupplement(key)
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns)
-          if (!map || map.has(langId.toLowerCase())) continue
-          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+          const source = map?.get('en') ?? map?.get('zh')
+          if (source) supplement(ns, langId, source, () => dict)
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has('zh-tw')) continue
         const zhDict = map.get('zh')
-        if (zhDict) {
-          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, 'zh-TW', zhDict, () => convertDict(zhDict))
       }
     } finally {
       syncing = false
     }
   }
+
   syncDshNamespaces()
   if (typeof locale.subscribe === 'function') {
     pushOff(locale.subscribe(syncDshNamespaces))
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key)
+  })
 
   const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
   if (origResolveText) {

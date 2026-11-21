@@ -681,6 +681,7 @@ export function install(rt) {
         case 'schedules':
         case 'schedule-create':
         case 'schedule-delete':
+        case 'schedule-pause':
           await rt.load()
           return ok(await rt.scheduleEndpoint(endpoint, body))
         case 'memory-view':

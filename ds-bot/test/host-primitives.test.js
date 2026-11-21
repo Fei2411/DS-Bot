@@ -67,3 +67,13 @@ test('every UI primitive the client reads is one the DSH under test exports, or 
   // change (the matrix still runs 0.2.0-rc.2) exports the name, so that is not checked.
   for (const name of Object.keys(OPTIONAL)) assert.ok(reads.has(name), `${name} is listed as optional but the client does not read it`)
 })
+
+// The desktop window's build swaps only dsh-primitives.js for its own module (app/vite.config.js),
+// so a module that names the DSH package itself breaks the window's build.
+test('only dsh-primitives.js names the DSH primitives package', () => {
+  const dirs = [new URL('../src/client/', import.meta.url), new URL('../../app/ui/src/', import.meta.url)]
+  const named = dirs.flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.js'))
+    .filter(name => /from '@deepseek-ai\/dsh-client-ui-primitives'/.test(readFileSync(new URL(name, dir), 'utf8')))
+    .map(name => name))
+  assert.deepEqual(named, ['dsh-primitives.js'])
+})
