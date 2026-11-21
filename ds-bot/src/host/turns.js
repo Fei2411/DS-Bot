@@ -1029,6 +1029,9 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        // A model that could not be applied before is tried again now that a turn has
+        // proved its Session can be reached; the first try may have come too early (#1937).
+        void rt.retryModel?.(rt.selfOf?.(id))
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
@@ -1363,6 +1366,16 @@ export function install(rt) {
           const config = session.requestHeader?.()?.config
           const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
+        // A turn refused before its request left because the Session's selection names
+        // a provider with no adapter, or a model DSH no longer serves, applies the Bot's
+        // model again and rewrites that selection, so the next turn can run (#1937).
+        if (failure?.code === 'NO_ADAPTER' || failure?.code === 'UNKNOWN_MODEL') {
+          const bot = rt.botOf(rt.selfOf(id))
+          if (bot !== undefined) {
+            void Promise.resolve(rt.reapplyModel?.(bot))
+              .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
+          }
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) {

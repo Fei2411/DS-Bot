@@ -742,6 +742,69 @@ test('a group retry that cannot read the catalog logs and keeps the retry, it do
   assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
 })
 
+// #1937: a Bot's model applied at a start can fail, e.g. while its Session is not in
+// the live store yet; only a restart applied it again. It is now retried at the next
+// trigger, so a Session that comes back is fixed without a restart.
+test('a Bot whose model could not be applied is retried at the next sync, though the models are the same', async () => {
+  const { rt, selected } = bench()
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The same models, as the next state refresh finds them.
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // Applied now, so a later refresh asks for nothing.
+  await rt.syncModels()
+  assert.equal(selected.length, 1)
+})
+
+test('a provider change applies the team\'s models again, so a Session left on a removed provider is fixed without a restart', async () => {
+  const { rt, selected, listeners } = bench()
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  await rt.catalog()
+  listeners.get('llm/adapters-updated')()
+  // The registrations of a start settle before the one sync runs; no clock keeps going.
+  for (let i = 0; i < 100 && selected.length === 0; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a Session left on a provider with no adapter is rewritten by applying its model again, even when the record matches', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  // The record already matches, so an ordinary apply writes nothing.
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, [])
+  // The failed turn calls this: the Session's own selection is rewritten anyway.
+  await rt.reapplyModel(bot)
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a model that fails to apply again is kept for the next turn of its Bot to retry', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  const select = rt.ctx.sessionController.selectModel
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('session "b1" not found') }
+  await rt.catalog()
+  await assert.rejects(rt.reapplyModel(bot), /session "b1" not found/)
+  // The next turn proves the Session can be reached; the recorded retry runs then.
+  rt.ctx.sessionController.selectModel = select
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // A Bot with no recorded failure costs nothing on its next turn.
+  await rt.retryModel('b2')
+  assert.equal(selected.length, 1)
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {

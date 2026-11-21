@@ -66,6 +66,7 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'CONTENT_POLICY': return []
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
+    case 'NO_ADAPTER': return ['model']
     case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }

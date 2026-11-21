@@ -8,6 +8,9 @@ import { ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
+// Providers register one by one at every start; a provider that was added or removed
+// re-applies the team's models once after the registrations settle (#1937).
+const ADAPTERS_SYNC_MS = 100
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
@@ -158,9 +161,26 @@ export function install(rt) {
   let syncedKey
   const dropCatalog = () => { catalogCache = { at: 0, value: [] } }
   // A key set or a sign-in may be the user's fix for a Bot's failed turn (turns.js); a
-  // key removed or a sign-out is not. A provider that registers or changes fixes
-  // nothing by itself: providers register late at every start.
-  ctx.on?.('llm/adapters-updated', () => { dropCatalog(); syncedKey = undefined; reasoningCache.clear(); return forgetChangedRefusals() })
+  // key removed or a sign-out is not. A provider added or removed changes whether a
+  // Session's selection names a real adapter, so the team's models are applied again:
+  // once after the burst of registrations a start makes, not once per registration,
+  // and without a timer that keeps running (#1937).
+  let adaptersSyncTimer
+  const syncAfterAdapters = () => {
+    if (adaptersSyncTimer !== undefined) clearTimeout(adaptersSyncTimer)
+    adaptersSyncTimer = setTimeout(() => {
+      adaptersSyncTimer = undefined
+      if (closing) return
+      void syncModels().catch(error => rt.warn('ds-bot: models after a provider change not applied: %s', error))
+    }, ADAPTERS_SYNC_MS)
+  }
+  ctx.on?.('llm/adapters-updated', async () => {
+    dropCatalog()
+    syncedKey = undefined
+    reasoningCache.clear()
+    await forgetChangedRefusals()
+    syncAfterAdapters()
+  })
   ctx.on?.('credentials/reference-updated', async (ref) => {
     dropCatalog()
     if (await inPlace(credentials => credentials.describe(ref))) rt.unblockBots?.({ ref })
@@ -532,6 +552,11 @@ export function install(rt) {
   // The Sessions whose selection failed. The models may not change again, so the next
   // sync tries them once more instead of waiting for a change that never comes.
   const roomRetry = new Set()
+  // The Bots whose model could not be applied, e.g. because their Session was not
+  // there yet. Each is tried again at the next trigger — a provider change, or its next
+  // turn — so a failure does not last until the next start (#1937). Nothing retries on
+  // a clock: an unchanged team costs one lookup per turn start at most.
+  const botRetry = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
     try {
       const ref = await roomModel(sessionId, room)
@@ -574,20 +599,62 @@ export function install(rt) {
 
   // Sequential, and again whenever the answerable models change (a refused route is
   // not one of them): a provider that registers late still gets its Bots' models selected.
+  // A failure recorded for a Bot, or for a group Session, is retried on the next trigger
+  // even when the models are the same, as every state refresh finds them.
   const syncModels = () => {
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
-    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRooms, syncRooms) ?? syncRooms()
+    else if (roomRetry.size > 0 || botRetry.size > 0) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
     return modelsSynced
   }
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
   // here, such as a catalog that cannot be read, is logged; the retry record stays.
   const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
+  const retryBot = bot => applyModel(bot, { syncGroups: false })
+    .then(() => { botRetry.delete(bot.id) })
+    .catch(error => {
+      botRetry.add(bot.id)
+      rt.warn('ds-bot: model for %s not applied: %s', bot.name, error)
+    })
   async function syncAll() {
     for (const bot of Object.values(state.bots)) {
-      await applyModel(bot, { syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+      await retryBot(bot)
     }
     await syncRooms()
+  }
+  // Only what failed is tried again; a Bot or group that is now applied costs nothing.
+  async function syncRetry() {
+    for (const botId of [...botRetry]) {
+      const bot = state.bots?.[botId]
+      if (bot === undefined) { botRetry.delete(botId); continue }
+      await retryBot(bot)
+    }
+    await syncRooms()
+  }
+
+  // A Bot's turn can only start on a Session DSH can reach, so its start is a good
+  // moment for the one retry a recorded failure is waiting for (#1937). No record, no
+  // work: a team whose models are applied never pays for this.
+  async function retryModel(botId) {
+    if (botId === undefined || !botRetry.has(botId)) return
+    const bot = state.bots?.[botId]
+    if (bot === undefined) { botRetry.delete(botId); return }
+    await retryBot(bot)
+  }
+
+  // A turn refused before its request left — no adapter for the Session's provider, or
+  // a model DSH no longer serves — is the first sign that the Session's own selection
+  // names something gone. Applying again with `force` writes the selection even when
+  // the Bot's record already looks applied; a failure here keeps the retry record.
+  async function reapplyModel(bot) {
+    if (bot === undefined || llm() === undefined) return
+    try {
+      await applyModel(bot, { force: true })
+      botRetry.delete(bot.id)
+    } catch (error) {
+      botRetry.add(bot.id)
+      throw error
+    }
   }
 
   // A route that refused a request for not being a model endpoint: it stays out of
@@ -614,7 +681,11 @@ export function install(rt) {
   }
 
   const lifetime = new AbortController()
-  ctx.effect?.(() => () => { closing = true; lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  ctx.effect?.(() => () => {
+    closing = true
+    lifetime.abort()
+    if (adaptersSyncTimer !== undefined) clearTimeout(adaptersSyncTimer)
+  }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
@@ -622,6 +693,6 @@ export function install(rt) {
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, retryModel, reapplyModel, routeRefused, dropCatalog, assembleLlm,
   })
 }
