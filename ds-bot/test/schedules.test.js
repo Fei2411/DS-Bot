@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { reminderText } from '../src/host/schedules.js'
+import { threadCurrentOfPart } from '../src/host/threads.js'
 import { ScheduleInputError } from '@deepseek-ai/dsh-schedule'
 
 const TEAM = {
@@ -434,23 +435,41 @@ test('on DSH 0.2.2 a one-time task set "after" a delay is also past resuming onc
   assert.equal(schedule.tasks.get('schedule-after').status, 'paused')
 })
 
-test('on DSH 0.2.2 a task on an older chat still open, or on a running background task, resumes where it was', async (t) => {
+test('on DSH 0.2.2 a task on an older chat still open resumes there, not on the foreground chat', async (t) => {
   const team = JSON.parse(JSON.stringify(TEAM))
-  // Writer's foreground is w2; w-open is an older chat still open beside it, w-task a
-  // running background task.
+  // Writer's foreground is w2; w-open is an older chat still open beside it.
   team.bots.w1.openParts = [{ sessionId: 'w-open', openedAt: 5 }]
-  team.bots.w1.tasks = [{ id: 'task-1', sessionId: 'w-task', status: 'running', title: 'Long job', from: 'w2', createdAt: 6 }]
   const schedule = hostSchedule()
   const { ctx, home, call } = setup({ schedule }, team)
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-  for (const sessionId of ['w-open', 'w-task']) {
-    const id = `schedule-${sessionId}`
-    schedule.tasks.set(id, { record: { id, kind: 'daily', title: sessionId, prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId }, status: 'paused' })
-    const resumed = await call('schedule-pause', { sessionId, id, active: true })
-    assert.equal(resumed.ok, true, JSON.stringify(resumed))
-    assert.deepEqual(schedule.edits.at(-1).patch, { active: true }, `${sessionId} keeps its own target`)
-    assert.deepEqual(schedule.tasks.get(id).target, { kind: 'session', sessionId })
-  }
+  schedule.tasks.set('schedule-open', { record: { id: 'schedule-open', kind: 'daily', title: 'Open chat', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w-open' }, status: 'paused' })
+  const resumed = await call('schedule-pause', { sessionId: 'w-open', id: 'schedule-open', active: true })
+  assert.equal(resumed.ok, true, JSON.stringify(resumed))
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true })
+  assert.deepEqual(schedule.tasks.get('schedule-open').target, { kind: 'session', sessionId: 'w-open' })
+})
+
+// A background task that is still running carries its own thread: its part is the
+// thread's current one (the resume keeps the target). One that has ended has no current
+// part (the resume keeps the target too, and DSH decides whether the Session can still
+// take it).
+test('a running background task is its own thread\'s current part; an ended one has none', () => {
+  const bot = { id: 'w1', sessionId: 'w2', tasks: [{ id: 'task-1', sessionId: 'w-task', status: 'running', from: 'w2' }] }
+  assert.equal(threadCurrentOfPart(bot, 'w-task'), 'w-task')
+  assert.equal(threadCurrentOfPart({ ...bot, tasks: [{ ...bot.tasks[0], status: 'interrupted' }] }, 'w-task'), undefined)
+})
+
+test('on DSH 0.2.2 a task on a background task that ended keeps its target on resume', async (t) => {
+  const team = JSON.parse(JSON.stringify(TEAM))
+  team.bots.w1.tasks = [{ id: 'task-1', sessionId: 'w-task', status: 'done', title: 'Long job', from: 'w2', createdAt: 6, endedAt: 7 }]
+  const schedule = hostSchedule()
+  const { ctx, home, call, rt } = setup({ schedule }, team)
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  schedule.tasks.set('schedule-task', { record: { id: 'schedule-task', kind: 'daily', title: 'Task chat', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w-task' }, status: 'paused' })
+  const resumed = await call('schedule-pause', { sessionId: 'w-task', id: 'schedule-task', active: true })
+  assert.equal(resumed.ok, true, JSON.stringify(resumed))
+  assert.notEqual(rt.botOf('w1').tasks[0].status, 'running', 'the task is not running here')
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true })
 })
 
 test('on DSH 0.2.2 a one-time task whose time has come cannot be paused', async (t) => {
