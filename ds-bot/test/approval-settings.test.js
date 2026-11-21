@@ -308,12 +308,47 @@ test('group mode changes restart task CLIs and stale requests leave newer ones a
   assert.equal(modes.get('task-session'), 'read-only')
 })
 
+test('a superseded room request cannot hide the CLI mode that still needs revocation', async () => {
+  const { rt, bot, room, closed, modes } = setup()
+  room.members = ['b']
+  room.sessions = {}
+  room.permission = 'danger-full-access'
+  bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
+  rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  await rt.applyPermission(bot, 'task-session', room)
+  const resolve = rt.resolveAgent
+  let release
+  let held = false
+  const reached = new Promise((done) => {
+    rt.resolveAgent = async id => {
+      if (id === 'task-session' && !held) {
+        held = true
+        done()
+        await new Promise(done => { release = done })
+      }
+      return resolve(id)
+    }
+  })
+  const first = rt.setRoomPermission(room, 'read-only')
+  await reached
+  bot.permission = 'read-only'
+  await rt.setRoomPermission(room, null)
+  assert.deepEqual(closed, ['task-session'], 'the actually full-access CLI is stopped even though both room requests derive read-only')
+  assert.equal(modes.get('task-session'), 'read-only')
+  closed.length = 0
+  release()
+  await first
+  assert.deepEqual(closed, [])
+  assert.equal(modes.get('task-session'), 'read-only')
+})
+
 test('an unchanged effective group mode does not interrupt a running task', async () => {
   const { rt, bot, room, closed, modes } = setup()
   room.members = ['b']
   bot.permission = 'workspace-write'
   bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
   rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  await rt.applyPermission(bot, 'task-session', room)
   await rt.setRoomPermission(room, 'workspace-write')
   assert.deepEqual(closed, ['g'], 'the member chat reapplies its mode but the unchanged task keeps running')
   assert.equal(modes.get('task-session'), 'workspace-write')
