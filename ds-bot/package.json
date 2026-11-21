@@ -41,6 +41,7 @@
     "office.js",
     "web-search.js",
     "cordis.patch.yml",
+    "assets/pwa/",
     "README.md",
     "LICENSE"
   ],

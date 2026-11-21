@@ -69,6 +69,7 @@ import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { installTitle } from './branding.js'
 import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
@@ -78,6 +79,7 @@ import { installAgentForks } from './agent-fork.js'
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
 export function apply(ctx) {
+  ctx.effect(() => installTitle(document), 'ds-bot: window title')
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   migrateStorage()
   // The window's cached prefs stand in until the first pull answers: a saved
