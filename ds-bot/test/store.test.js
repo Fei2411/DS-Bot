@@ -105,6 +105,40 @@ test('saves made while a write is in flight share one queued write', async (t) =
   }
 })
 
+test('saves that joined a failed write get one more write', async (t) => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+      if (writes.length === 2) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const later = ['a', 'b', 'c'].map(marker => {
+      rt.state.prefs.marker = marker
+      return rt.save({ required: marker === 'b' })
+    })
+    release()
+    await first
+    await assert.rejects(later[0], /busy/)
+    await Promise.all(later.slice(1))
+    assert.deepEqual(writes, ['first', 'c', 'c'])
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'c')
+  } finally {
+    restore()
+  }
+})
+
 test('model selection witnesses survive a saved store reload', async (t) => {
   const first = runtime(t)
   await first.rt.load()

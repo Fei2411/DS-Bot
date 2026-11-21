@@ -429,9 +429,17 @@ export function install(rt) {
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
     // A save made while another waits in the queue joins it: that write takes its
     // snapshot when it runs, so it already holds this caller's change.
+    const joined = queued !== undefined
     queued ??= queueWrite()
-    return queued.then(skipped => {
+    const settle = skipped => {
       if (skipped !== undefined && required) throw new Error(`This host cannot save the Bot team: ${skipped}`)
+    }
+    // A caller that joined would have had a write of its own, so a shared write
+    // that failed (e.g. a rename blocked on Windows) gets one more try for it.
+    return queued.then(settle, error => {
+      if (!joined || error?.code === 'ELOCKLOST' || stopped || !writable()) throw error
+      queued ??= queueWrite()
+      return queued.then(settle)
     })
   }
   const queueWrite = () => {
