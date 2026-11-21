@@ -879,6 +879,12 @@ export function install(rt) {
     const id = session?.id
     if (id === undefined) return
     const switchedEnd = event.type === 'turn/end' && live.get(id)?.switched === true && rt.pastOwners?.has(id)
+    // A DSH Agent's plain Session is only watched for its running turn, for the phone's Stop.
+    if (rt.agentOf?.(id) !== undefined && !rt.isBotSession(id)) {
+      if (event.type === 'turn/start') Object.assign(liveOf(id), { turn: event.data?.turn, since: event.time ?? Date.now() })
+      else if (event.type === 'turn/end' && live.delete(id)) setActivity(id, undefined)
+      return
+    }
     if (!rt.isBotSession(id) && !rt.roomOf(id) && !switchedEnd) {
       // A deleted Bot's Session can still be ending its turn; nothing of it stays.
       if (live.delete(id)) setActivity(id, undefined)

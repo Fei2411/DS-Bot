@@ -132,17 +132,20 @@ test('agent-chat pages the newest Session of the DSH Agent and refuses an unknow
 })
 
 test('a running DSH Agent shows in the work view, and stop-agent cancels its turn', async (t) => {
-  const { call, stop } = start(TEAM)
+  const { call, stop, ctx } = start(TEAM)
   t.after(stop)
   await call('state', {})
   const agent = (await call('add-agent')).value
   assert.equal((await call('stop-agent', { agentId: agent.id })).value, false)
   const cancels = []
   rt.resolveAgent = async sessionId => ({ cancel: reason => cancels.push([sessionId, reason.kind]) })
-  Object.assign(rt.liveOf(agent.sessions[0]), { turn: 1, since: 5 })
-  assert.equal(rt.agentWorkView()[agent.id].since, 5)
+  const emit = async event => { for (const listener of ctx.listeners.get('session/event') ?? []) await listener({ id: agent.sessions[0] }, event) }
+  await emit({ type: 'turn/start', time: 5, data: { turn: 1 } })
+  assert.equal((await call('state', {})).value.work.agents[agent.id].since, 5)
   assert.equal((await call('stop-agent', { agentId: agent.id })).value, true)
   assert.deepEqual(cancels, [[agent.sessions[0], 'user']])
+  await emit({ type: 'turn/end', data: { turn: 1 } })
+  assert.deepEqual(rt.agentWorkView(), {})
 })
 
 test('a team holds at most one DSH Agent', async (t) => {
