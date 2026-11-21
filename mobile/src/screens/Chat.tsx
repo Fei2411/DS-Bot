@@ -76,9 +76,19 @@ const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown
   return call(endpoint, { [field]: id, ...(cursor === undefined ? {} : { cursor }), steps: true }) as Promise<ChatPage>
 }
 // The Session a message to a DSH Agent goes to: its newest, or a new one when all are archived.
-async function agentSession(call: (endpoint: string, payload?: unknown) => Promise<unknown>, agentId: string) {
-  const newest = (await readChat(call, 'agent', agentId)).sessionId
-  return newest ?? ((await call('agent-session', { agentId })) as { sessionId: string }).sessionId
+// One pending Session per Agent, so two quick sends to an empty Agent chat share it.
+const agentSessions = new Map<string, Promise<string>>()
+
+function agentSession(call: (endpoint: string, payload?: unknown) => Promise<unknown>, agentId: string) {
+  const pending = agentSessions.get(agentId)
+  if (pending !== undefined) return pending
+  const next = (async () => {
+    const newest = (await readChat(call, 'agent', agentId)).sessionId
+    return newest ?? ((await call('agent-session', { agentId })) as { sessionId: string }).sessionId
+  })()
+  agentSessions.set(agentId, next)
+  void next.then(() => agentSessions.delete(agentId), () => agentSessions.delete(agentId))
+  return next
 }
 export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: ChatKind; id: string }) {
   const key = `${computerId}:${target.kind}:${target.id}`
