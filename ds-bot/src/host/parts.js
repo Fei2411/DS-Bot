@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, sessionGone, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -1251,7 +1251,7 @@ export function install(rt) {
   async function freshRoute(bot, session) {
     const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
   }
   const selectRoute = (named, sessionId, { ref, effort }) => rt.selectSessionModel(sessionId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
@@ -2183,9 +2183,20 @@ export function install(rt) {
   // A member's conversation in a group moves the same way, but only while it is idle.
   async function newPart(sessionId) {
     await rt.load()
-    const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
+    let agent
+    try {
+      agent = await rt.resolveAgent(sessionId)
+    } catch (error) {
+      // The part is gone from the Session library: there is no agent to switch from,
+      // so a fresh part takes its place directly and the Bot runs again.
+      if (!sessionGone(error) || place.roomId !== undefined) throw error
+      const bot = rt.botOf(place.botId)
+      if (bot === undefined) throw error
+      await openPartNow(bot, undefined)
+      return true
+    }
     const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
     if (agent.status === 'idle' && !busyHere) {
       // Answers once the fresh part is there, so a switch that fails reaches the user.
@@ -2199,11 +2210,13 @@ export function install(rt) {
   }
 
   // The part the user leaves stays live: no handoff note, no archive, no stop of its
-  // turn. It keeps its own earlier parts with it (threads.js).
+  // turn. It keeps its own earlier parts with it (threads.js). `agent` is undefined
+  // when the part it replaces is gone from the Session library: there is no earlier
+  // Session to read a route from, and no running turn to hand on.
   async function openPartNow(bot, agent) {
     const dir = rt.workDirOf({ botId: bot.id })
     const freshId = await rt.createSession(bot.name, { dir })
-    const picked = await freshRoute(bot, agent.session)
+    const picked = await freshRoute(bot, agent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
     await rt.applyPermission(bot, freshId, undefined)
       .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
@@ -2219,6 +2232,7 @@ export function install(rt) {
     // registered then, and the sync recorded it as applied; this part was not one of them
     // yet, so the route picked at the top may be the old one. Read it again now that the
     // part is the Bot's, as the switch does.
+    if (agent === undefined) return
     const now = await freshRoute(bot, agent.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }

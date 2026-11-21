@@ -9,6 +9,11 @@
 // (store.js chatOf falls back to it).
 export const currentSession = bot => bot?.sessionId ?? bot?.id
 
+// A Session the library no longer holds. The code is stable across the wire
+// (`RemoteError` discriminates by code), so a caller can tell a dangling reference
+// from a call that failed for a reason a retry could fix.
+export const sessionGone = error => error?.code === 'session/not-found'
+
 export const ACTIVE_TASK_STATUSES = new Set(['running', 'waiting_work', 'waiting_approval'])
 
 export const isActiveTask = task => task !== undefined && ACTIVE_TASK_STATUSES.has(task.status)

@@ -124,6 +124,7 @@ var JA = {
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
+  "This session is no longer available.": "このセッションはもう存在しません。",
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
   "No phones yet": "スマートフォンはまだありません",
@@ -2735,6 +2736,7 @@ var KO = {
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
+  "This session is no longer available.": "이 세션은 더 이상 존재하지 않습니다.",
   "Android beta": "Android 베타",
   "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
   "No phones yet": "아직 휴대폰이 없습니다",
@@ -5391,6 +5393,7 @@ var ES = {
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
+  "This session is no longer available.": "Esta sesión ya no está disponible.",
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
   "No phones yet": "Aún no hay teléfonos",
@@ -8047,6 +8050,7 @@ var FR = {
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
+  "This session is no longer available.": "Cette session n’est plus disponible.",
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
   "No phones yet": "Aucun téléphone pour l’instant",
@@ -10658,6 +10662,7 @@ var DE = {
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
+  "This session is no longer available.": "Diese Sitzung ist nicht mehr verfügbar.",
   "Android beta": "Android-Beta",
   "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
   "No phones yet": "Noch keine Telefone",
@@ -14779,6 +14784,7 @@ var ZH = {
   // A Session that is still landing
   "Opening…": "正在打开…",
   "Still opening…": "还在打开…",
+  "This session is no longer available.": "这个会话已不存在。",
   "Add files": "添加文件",
   "Reference a chat": "引用对话",
   "Chat with {name}": "与 {name} 的对话",
@@ -48070,6 +48076,17 @@ function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, 
     end() {
       stop();
       ui.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+    },
+    // The wait ended without the Session and cannot succeed: keep the cover, mark it
+    // failed, so the card says what happened and offers a way out. A newer navigation
+    // lifts it the same way `end` does.
+    fail(target) {
+      stop();
+      ui.set((state) => {
+        const pending = state.pendingOpen;
+        if (!pending || pending.target !== target || pending.failed === true) return state;
+        return { ...state, pendingOpen: { ...pending, failed: true } };
+      });
     }
   };
 }
@@ -48083,11 +48100,17 @@ function openingModel({ pending, current: current2, roster }) {
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
     bot,
     group: room2 !== void 0,
-    slow: pending.slow === true
+    slow: pending.slow === true,
+    failed: pending.failed === true
   };
 }
-function OpeningCover({ model, column }) {
+function OpeningCover({ model, column, actions }) {
   if (model === null) return null;
+  const recovery = model.failed && model.bot !== void 0 ? (0, import_react74.createElement)("button", {
+    type: "button",
+    className: "bt-soft bt-soft-sm bt-opening-new",
+    onClick: () => actions?.recoverOpening?.(model.bot.id)
+  }, t("New session")) : null;
   return (0, import_react74.createElement)(
     "div",
     {
@@ -48101,7 +48124,8 @@ function OpeningCover({ model, column }) {
       { className: "bt-opening-card" },
       (0, import_react74.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react74.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react74.createElement)(PeopleIcon)),
       model.name ? (0, import_react74.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react74.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
+      (0, import_react74.createElement)("span", { className: "bt-opening-note" }, t(model.failed ? "This session is no longer available." : model.slow ? "Still opening…" : "Opening…")),
+      recovery
     )
   );
 }
@@ -48111,6 +48135,7 @@ var OPENING_CSS = `
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-opening-note{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-opening-new{margin-top:2px}
 @keyframes bt-opening-in{from{opacity:0}to{opacity:1}}
 `;
 
@@ -48167,7 +48192,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     import_react75.Fragment,
     null,
     (0, import_react75.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
-    opening ? (0, import_react_dom13.createPortal)((0, import_react75.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
+    opening ? (0, import_react_dom13.createPortal)((0, import_react75.createElement)(OpeningCover, { model: opening, column: layout.column, actions }), document.body) : null,
     pane ? (0, import_react_dom13.createPortal)((0, import_react75.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui.newChat ? (0, import_react_dom13.createPortal)((0, import_react75.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui.palette ? (0, import_react_dom13.createPortal)((0, import_react75.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
@@ -50026,7 +50051,8 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 }
 
 // src/client/open-listed.js
-function listedOpener({ list, open, refresh, current: current2, begin, done }) {
+var OPENING_FAIL_MS = 1e4;
+function listedOpener({ list, open, refresh, current: current2, begin, done, fail: fail2, gone, waitMs = OPENING_FAIL_MS, schedule = setTimeout, clear = clearTimeout }) {
   let drop = () => {
   };
   return (target) => {
@@ -50041,28 +50067,51 @@ function listedOpener({ list, open, refresh, current: current2, begin, done }) {
     const from = current2?.();
     begin?.(target);
     let waiting = true;
-    const settle = () => {
-      if (!waiting) return;
-      waiting = false;
-      drop = () => {
-      };
-      done?.(target);
+    let failed = false;
+    let timer;
+    let off = () => {
     };
-    const off = list.subscribe(() => {
+    const stop = () => {
+      off();
+      if (timer !== void 0) {
+        clear(timer);
+        timer = void 0;
+      }
+    };
+    const end = (asFailure) => {
+      if (!waiting) return false;
+      waiting = false;
+      stop();
+      if (asFailure) {
+        failed = true;
+        fail2?.(target);
+      } else done?.(target);
+      return true;
+    };
+    drop = () => {
+      if (waiting) end(false);
+      else if (failed) {
+        failed = false;
+        done?.(target);
+      }
+    };
+    off = list.subscribe(() => {
       if (current2?.() !== from) {
-        off();
-        settle();
+        end(false);
         return;
       }
       if (!listed()) return;
-      off();
-      settle();
+      end(false);
       open(target);
     });
-    drop = () => {
-      off();
-      settle();
-    };
+    if (gone?.(target) === true) {
+      end(true);
+      return;
+    }
+    timer = schedule(() => {
+      if (!waiting || listed()) return;
+      end(true);
+    }, waitMs);
     refresh?.();
   };
 }
@@ -51013,10 +51062,19 @@ function apply(ctx) {
   const endOpening = () => {
     openingWait.end();
   };
+  const failOpening = (target) => {
+    if (ownerOfSession(target) === void 0) {
+      endOpening();
+      return;
+    }
+    openingWait.fail(target);
+  };
+  const lostSession = (target) => (roster.getSnapshot().bots ?? []).some((bot) => bot.sessionMissing === target);
+  const recovering = /* @__PURE__ */ new Set();
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
     ctx.uiWorkspace.openSession(target);
-  }, current: mainView, begin: beginOpening, done: endOpening });
+  }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession });
   const panelFolded = (view) => {
     const state = ui.getSnapshot();
     if (state.details === null) return false;
@@ -51078,6 +51136,23 @@ function apply(ctx) {
       setPlain(false);
       const target = partFor(id);
       show2(target);
+    },
+    // The Bot's current Session is gone from the library: a fresh part takes its place
+    // (the Host makes it without the lost part), then that part is opened. The failure
+    // card stays meanwhile, so a failed try leaves the way out on screen.
+    recoverOpening: async (botId) => {
+      if (recovering.has(botId)) return;
+      recovering.add(botId);
+      try {
+        await after(call("bot-new-part", { botId }));
+        const bot = roster.getSnapshot().byId[botId];
+        if (bot === void 0) endOpening();
+        else show2(currentPart(bot));
+      } catch (error) {
+        actions.reportError(error, "reopen-session");
+      } finally {
+        recovering.delete(botId);
+      }
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
