@@ -181,6 +181,8 @@ export function install(rt) {
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
     const agent = exec.agent
+    const places = folderPlaces(options)
+    const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
     if (policy !== undefined) {
       const presets = ctx.get?.('permissionPresets')
       if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
@@ -200,8 +202,6 @@ export function install(rt) {
           return 'workspace-write'
         }
       }
-      const places = folderPlaces(options)
-      const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
       const modes = places.length === 0 ? [fallback] : [
         ...agents.map(entry => policy.resolve({ session: entry.session }).mode),
@@ -213,14 +213,14 @@ export function install(rt) {
     // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)
-    const outcome = await approval.request({
+    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: `Let ${who.en} work in ${path}? Files there can then be changed.`,
       displayReason: { en: `Let ${who.en} work in ${path}? Files there can then be changed.`, zh: `允许${who.zh}在 ${path} 中工作吗？之后可以修改这个文件夹里的文件。` },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'folder', path, sessions, who, arguments: exec.arguments, persistent: true })
     if (outcome === 'allowed-once') return
     // An approval policy that never asks answers 'rejected' as well.
     throw new Error(outcome === 'rejected' ? `Working in ${path} was not allowed, so nothing changed. The user can make this change in the settings.`
