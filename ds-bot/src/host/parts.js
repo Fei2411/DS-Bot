@@ -111,7 +111,9 @@ export function readReply(text) {
     return { handoff: { callId: value.callId, reason: value.reason, note: typeof value.note === 'string' ? value.note : '', outcome: value.outcome === 'skipped' || value.outcome === 'returned' ? value.outcome : 'done' } }
   }
   const viewReplyData = readViewReply(text)
-  if (viewReplyData !== undefined) return viewReplyData
+  if (viewReplyData !== undefined) {
+    return typeof value.issueReportResult === 'string' ? { ...viewReplyData, issueReportResult: value.issueReportResult } : viewReplyData
+  }
   const questions = Array.isArray(value?.questions) ? value.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
   if (questions.length === 0) return undefined
   const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
@@ -125,7 +127,10 @@ export function replyText(text) {
     const { reason, note, outcome } = reply.handoff
     return `[Browser handoff] ${note === '' ? reason : `${reason} — ${note}`}\nAnswer: ${outcome}`
   }
-  if (reply.views !== undefined) return viewReplyText(text)
+  if (reply.views !== undefined) {
+    const answer = viewReplyText(text)
+    return reply.issueReportResult === undefined ? answer : `${answer}\n${reply.issueReportResult}`
+  }
   return reply.questions.map((question) => {
     const answer = reply.answers.find(item => item.id === question.id)
     const values = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]

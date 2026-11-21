@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
+import { goalProvider } from '../src/host/goal-skills.js'
+import { replyText } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
 
 let rt
@@ -81,6 +83,115 @@ async function start() {
 }
 
 const text = value => [{ type: 'text', text: value }]
+
+async function prepareIssue(args = {}) {
+  const prepared = await rt.teamTools.find(tool => tool.name === 'prepare_ds_bot_issue').execute({
+    title: 'Chat history disappears',
+    what: 'Expected the conversation to stay open.',
+    steps: '1. Open chat.\n2. Reload.',
+    ...args,
+  }, { agent: { id: 'writer-now' } })
+  return JSON.parse(prepared.slice(prepared.indexOf('\n') + 1))
+}
+
+test('the bundled report skill can be invoked by the model and by the user', async () => {
+  const provider = goalProvider()
+  const item = (await provider.list()).find(skill => skill.name === 'report-ds-bot-issue')
+  assert.deepEqual(item.invocation, { modelInvocable: true, userInvocable: true })
+  assert.match((await provider.get(item)).content, /prepare_ds_bot_issue.*show_view/)
+})
+
+test('only the matching affirmative view reply publishes the redacted issue shown to the user', async (t) => {
+  const { call, show, team, sent, stop } = await start()
+  t.after(stop)
+  const writes = []
+  const savedSecret = ['only', 'known', 'to', 'host'].join('-')
+  rt.redactSecrets = value => value.replaceAll(savedSecret, '[hidden]')
+  rt.publishDsBotIssue = async (botId, draft) => {
+    writes.push({ botId, ...draft })
+    return 'https://github.com/Fei2411/DS-Bot/issues/42'
+  }
+  const draft = await prepareIssue({ what: `Error in ${homedir()}/a with ${savedSecret}` })
+  const action = draft.view.children.at(-1).id
+  const tampered = await show('writer-now', { ...draft, title: 'Not the approved title' })
+  assert.match(tampered.text, /draft changed or expired/)
+  const wrongChat = await show('chief', draft)
+  assert.match(wrongChat.text, /draft changed or expired/)
+  assert.equal((await show('writer-now', draft)).concluded, true)
+  assert.match((await show('writer-now', draft)).text, /draft changed or expired/)
+  const pending = (await team()).views['writer-now']
+  assert.equal(writes.length, 0)
+  const reply = { sessionId: 'writer-now', viewId: pending.id, action, values: { confirmed: true } }
+  assert.equal((await call('view-reply', { ...reply, viewId: 'stale' })).ok, false)
+  assert.equal((await call('view-reply', { ...reply, values: { confirmed: 'yes' } })).ok, false)
+  const answers = await Promise.all([call('view-reply', reply), call('view-reply', reply)])
+  assert.equal(answers.filter(result => result.ok).length, 1)
+  assert.deepEqual(answers.find(result => result.ok).value, { issueReportResult: 'Issue published: https://github.com/Fei2411/DS-Bot/issues/42' })
+  assert.equal(writes.length, 1)
+  const [{ botId, title, body }] = writes
+  assert.equal(botId, 'writer')
+  assert.equal(title, draft.title)
+  assert.equal(pending.view.children[1].text, `\`\`\`\n${body}\n\`\`\``)
+  assert.match(body, /Error in ~\/a with \[hidden\]/)
+  assert.match(body, /### Diagnostics\n\nDS Bot: .+\n[\s\S]*OS: /)
+  assert.ok(!JSON.stringify(draft).includes(savedSecret))
+  const followup = sent.at(-1).message.content[0].text
+  assert.equal(JSON.parse(followup).answers[0].values.confirmed, true)
+  assert.match(replyText(followup), /Issue published: https:\/\/github\.com\/Fei2411\/DS-Bot\/issues\/42$/)
+})
+
+test('cancel, dismiss, a typed yes, and a plain confirmation card never publish an issue', async (t) => {
+  const { call, emit, show, team, stop } = await start()
+  t.after(stop)
+  let writes = 0
+  rt.publishDsBotIssue = async () => { writes += 1 }
+  const approve = async (confirmed = true) => {
+    const { id, view } = (await team()).views['writer-now']
+    return { sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed } }
+  }
+  const args = await prepareIssue()
+  await show('writer-now', args)
+  assert.equal((await call('view-reply', await approve(false))).ok, true)
+  await show('writer-now', await prepareIssue())
+  const dismissed = await approve()
+  await call('dismiss-view', { sessionId: dismissed.sessionId })
+  assert.equal((await call('view-reply', dismissed)).ok, false)
+  await show('writer-now', await prepareIssue())
+  const typed = await approve()
+  emit('writer-now', 'user/message', { content: text('yes'), source: { kind: 'user' } })
+  assert.equal((await call('view-reply', typed)).ok, false)
+  await show('writer-now', { title: args.title, view: args.view })
+  assert.equal((await call('view-reply', await approve())).ok, true)
+  assert.equal(writes, 0)
+})
+
+test('an unconnected report returns a capped prefilled link, and a failed followup cannot replay approval', async (t) => {
+  const { call, failFlush, show, team, stop } = await start()
+  t.after(stop)
+  const args = await prepareIssue({ what: '故障😀'.repeat(300) })
+  const open = async () => {
+    const { id, view } = (await team()).views['writer-now']
+    return { sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed: true } }
+  }
+  assert.equal((await show('writer-now', args)).concluded, true)
+  const fallback = await call('view-reply', await open())
+  assert.equal(fallback.ok, true)
+  const link = fallback.value.issueReportResult.match(/https:\/\/\S+/)[0]
+  assert.ok(link.length <= 4000)
+  const url = new URL(link)
+  assert.equal(url.origin + url.pathname, 'https://github.com/Fei2411/DS-Bot/issues/new')
+  assert.equal(url.searchParams.get('title'), args.title)
+  assert.match(url.searchParams.get('body'), /^### What happened\?\n\n故障😀.*…$/s)
+
+  let writes = 0
+  rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei2411/DS-Bot/issues/42' }
+  await show('writer-now', await prepareIssue())
+  const reply = await open()
+  failFlush(new Error('could not flush'))
+  assert.equal((await call('view-reply', reply)).ok, false)
+  assert.equal((await call('view-reply', reply)).ok, false)
+  assert.equal(writes, 1)
+})
 
 test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
   const { emit, show, team, stop } = await start()

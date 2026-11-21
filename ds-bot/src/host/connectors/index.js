@@ -604,6 +604,27 @@ export function install(rt) {
 
   const offFor = id => state.connectors?.[id]?.offFor ?? []
 
+  async function publishDsBotIssue(botId, { title, body }) {
+    await rt.loadSecrets()
+    const id = 'github'
+    if (options === null || rt.botOf(botId) === undefined || rt.readOnly() !== undefined
+      || offFor(id).includes(botId) || state.connectors?.[id]?.readOnly === true
+      || statuses.get(id)?.state === 'needs-sign-in') return undefined
+    const headers = credentialOf(id)
+    if (headers === undefined) return undefined
+    const response = await fetch('https://api.github.com/repos/Fei2411/DS-Bot/issues', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
+      body: JSON.stringify({ title, body, labels: ['bug'] }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    })
+    if (!response.ok) return undefined
+    const { number } = await response.json()
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
+    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+  }
+
   // --- import -------------------------------------------------------------
 
   const importFiles = () => {
@@ -900,6 +921,7 @@ export function install(rt) {
   Object.assign(rt, {
     connectorsView,
     connectorEndpoint,
+    publishDsBotIssue,
     connectorOffFor: (botId) => {
       const prefixes = []
       for (const entry of entries()) {
