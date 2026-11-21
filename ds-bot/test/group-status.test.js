@@ -395,10 +395,10 @@ test('a dsbot/ path inside a local CLI command is the CLI\'s own work', async (t
 
   // A command that only mentions a local `dsbot/` path is the CLI's own work: it
   // counts, shows what the member does, and starts the grace.
-  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ ls /home/agent/dsbot/work' })
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ ls /home/user/dsbot/work' })
   const state = (await host.call('state', {})).value
   assert.equal(host.rt.liveOf('gb').toolCount, 1)
-  assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/agent/dsbot/work'])
+  assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/user/dsbot/work'])
   t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
   await settle(() => result() !== undefined)
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
