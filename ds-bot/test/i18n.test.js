@@ -294,3 +294,89 @@ test('user-facing host errors translate across all non-English locales', () => {
     off()
   }
 })
+
+// DSH's own locale runtime, loaded as its browser module would be; rendering
+// dependencies are stubs because only the dictionary registry is exercised.
+const localeRuntime = (async () => {
+  let registration
+  const previous = globalThis.window
+  globalThis.window = { __ModuleLoader__: { load: entry => { registration = entry } } }
+  try { await import('@deepseek-ai/dsh-client-locale/client') } catch { return null } finally { globalThis.window = previous }
+  const stub = () => new Proxy(function () {}, { get: (_, key) => (key === 'then' ? undefined : key === Symbol.toPrimitive ? () => '' : stub()), apply: () => stub(), construct: () => stub() })
+  const runtime = registration?.factory(() => stub()).LocaleRuntime
+  return typeof runtime === 'function' ? runtime : null
+})()
+
+async function realLocale() {
+  const LocaleRuntime = await localeRuntime
+  if (!LocaleRuntime) return null
+  return new LocaleRuntime({ emit() {}, effect: fn => fn() })
+}
+
+test('a generated zh-TW dictionary leaves with the namespace owner', async (t) => {
+  const locale = await realLocale()
+  if (!locale) return t.skip('this DSH has no locale runtime to load')
+  const off = installLocale(locale)
+  try {
+    locale.setLocale('zh-TW')
+    const text = locale.bind('locale-owner')
+    const removeOwner = locale.register('locale-owner', { en: { label: 'Old settings' }, zh: { label: '旧设置' } })
+    assert.equal(text('label'), '舊設定')
+    removeOwner()
+    assert.equal(text('label'), 'label')
+
+    const removeNative = locale.register('locale-owner', {
+      en: { label: 'New settings' },
+      zh: { label: '新设置' },
+      'zh-TW': { label: '原生設定' },
+    })
+    assert.equal(text('label'), '原生設定')
+    removeNative()
+    assert.equal(text('label'), 'label')
+
+    const removeBase = locale.register('locale-owner', { en: { label: 'Settings' }, zh: { label: '设置' } })
+    assert.equal(text('label'), '設定')
+    removeBase()
+    assert.equal(text('label'), 'label')
+  } finally {
+    off()
+  }
+})
+
+test('a generated language pack leaves with the namespace owner', async (t) => {
+  const locale = await realLocale()
+  if (!locale) return t.skip('this DSH has no locale runtime to load')
+  const [ns, dict] = Object.entries(DSH_KO)[0]
+  const [key, translated] = Object.entries(dict)[0]
+  const off = installLocale(locale)
+  try {
+    locale.setLocale('ko')
+    const text = locale.bind(ns)
+    const before = text(key)
+    const removeOwner = locale.register(ns, { en: { [key]: 'English' }, zh: { [key]: '中文' } })
+    assert.equal(text(key), translated)
+    removeOwner()
+    assert.equal(text(key), before)
+    const removeNative = locale.register(ns, { en: { [key]: 'English' }, zh: { [key]: '中文' }, ko: { [key]: '원본' } })
+    assert.equal(text(key), '원본')
+    removeNative()
+  } finally {
+    off()
+  }
+})
+
+test('unloading DS Bot removes only its own dictionaries', async (t) => {
+  const locale = await realLocale()
+  if (!locale) return t.skip('this DSH has no locale runtime to load')
+  const removeOwner = locale.register('locale-owner', { en: { label: 'Settings' }, zh: { label: '设置' } })
+  const off = installLocale(locale)
+  locale.setLocale('zh-TW')
+  const text = locale.bind('locale-owner')
+  assert.equal(text('label'), '設定')
+  off()
+  assert.equal(locale.bind('ds-bot')('Settings'), 'Settings')
+  locale.setLocale('zh')
+  assert.equal(text('label'), '设置')
+  assert.doesNotThrow(() => locale.register('locale-owner', 'zh-TW', { label: '原生設定' }))
+  removeOwner()
+})

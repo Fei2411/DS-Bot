@@ -7,6 +7,21 @@ import type { LearningProposal } from './screens/chat/learning.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
+export interface BotTask {
+  id: string
+  title: string
+  status: 'running' | 'waiting_work' | 'waiting_approval' | 'completed' | 'failed' | 'interrupted' | 'stopped' | string
+  sessionId: string
+  roomId?: string
+  origin?: string
+  startedAt?: number
+  updatedAt?: number
+  endedAt?: number
+  summary?: string
+  error?: string
+  running?: boolean
+}
+
 export interface Bot {
   id: string
   name: string
@@ -28,6 +43,7 @@ export interface Bot {
   instructions?: string
   sessionId?: string
   parts?: string[]
+  tasks?: BotTask[]
   waiting?: boolean
   pinned?: boolean
   hidden?: boolean
@@ -66,6 +82,8 @@ export interface Approval {
   sessionId: string
   botId: string
   roomId?: string
+  taskId?: string
+  taskTitle?: string
   at?: number
   tool: string
   reason: string
@@ -99,12 +117,16 @@ export interface CapabilityItem {
   content?: string; items?: string[]; status?: string; approved?: boolean
 }
 
+// The team's DSH Agent (agents.js): plain DSH Sessions, newest last, not a Bot.
+export interface Agent { id: string; name?: string; sessions: string[]; createdAt?: number }
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
   liveKey?: string
   bots: Bot[]
   rooms?: Room[]
+  agents?: Agent[]
   mainBotId?: string | null
   mainBotIds?: string[]
   models?: { ref: string; name: string; provider?: string; providerName?: string }[]
@@ -126,6 +148,7 @@ export interface TeamState {
   version?: string
   work?: {
     bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
     waiting?: Record<string, { bots?: string[]; rooms?: string[] }>

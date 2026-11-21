@@ -775,6 +775,21 @@ const ZH = {
   'On. Paired phones can use DS Bot here.': '已开启。配对过的手机可以用这台电脑上的 DS Bot。',
   'Cannot reach the Server. Trying again…': '连不上服务器，正在重试…',
   'Phone access': '手机访问',
+  'MCP access': 'MCP 访问',
+  'Off. Other agents cannot reach DS Bot.': '已关闭。其他智能体无法访问 DS Bot。',
+  'On. Agents with a token can reach DS Bot at {url}': '已开启。有令牌的智能体可通过 {url} 访问 DS Bot',
+  'Port': '端口',
+  'Only programs on this computer can connect.': '只有本机上的程序可以连接。',
+  'Add a client': '添加客户端',
+  'Each agent gets its own token. It can read chats, send messages and wait for replies; approvals, questions, settings and secrets stay here.': '每个智能体有自己的令牌，可以读对话、发消息、等回复；审批、提问、设置和密钥都留在这里处理。',
+  'Create token': '生成令牌',
+  'Copy the token for {name} now. It is shown once.': '现在复制 {name} 的令牌，它只显示这一次。',
+  'Clients that start a command use: {command}': '需要启动命令的客户端使用：{command}',
+  'Clients': '客户端',
+  'No clients yet': '还没有客户端',
+  'Last used {date}': '上次使用：{date}',
+  'Can reach: {names}': '可访问：{names}',
+  'nothing yet': '暂无',
   'Beta': '测试版',
   'Phone app': '手机 App',
   'Android beta': 'Android 测试版',
@@ -1493,6 +1508,9 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'The files attached to this draft could not be put back.': '没发出去的消息里附带的文件没能放回来。',
+  'Pause task': '暂停任务',
+  'Resume task': '恢复任务',
   Once: '一次',
   'Every week': '每周',
   Repeat: '重复',
@@ -1527,6 +1545,9 @@ const ZH = {
   'Repeat every 1 minute to 7 days': '重复间隔要在 1 分钟到 7 天之间',
   'Pick when it runs': '选择什么时候运行',
   'No such task': '没有这个任务',
+  'This task is due now and can’t be paused.': '这个任务已经到点，不能暂停。',
+  'The task just changed. Try again.': '任务刚被改过，再试一次。',
+  'This task’s chat has ended. Delete the task and make it again.': '这个任务所在的对话已结束。删掉它再建一个。',
   'Working folder': '工作文件夹',
   'Working folder: {folder}': '工作文件夹：{folder}',
   Folder: '文件夹',
@@ -1575,6 +1596,27 @@ const ZH = {
   '{name} token': '{name} 令牌',
   'Get a key': '获取密钥',
   'Read-only': '只读',
+  'Waiting for teammate': '等待同伴',
+  'Interrupted': '已中断',
+  'Moved from chat': '来自主对话',
+  'Teammate request': '同伴请求',
+  '{count} background tasks · {waiting} needs approval': '{count} 个后台任务 · {waiting} 项待批准',
+  '{count} background tasks running': '{count} 个后台任务运行中',
+  'Sent to background task': '已发给后台任务',
+  'Background tasks': '后台任务',
+  'Active': '进行中',
+  'Completed': '已完成',
+  'Previous item': '上一项',
+  'Next item': '下一项',
+  'Open read-only transcript': '查看只读记录',
+  'Inspect progress without switching the current chat': '查看进度，不切换当前对话',
+  'View details': '查看详情',
+  'Sending to {title}': '发送给「{title}」',
+  'Send follow-up or guidance…': '补充说明或继续指导…',
+  'Hide steps': '隐藏步骤',
+  'Show steps': '显示步骤',
+  'Current chat': '当前对话',
+  'Earlier & parallel sessions': '更早与并行段',
   '{count} tools': '{count} 个工具',
   'Mailbox': '邮箱',
   'Email address': '邮箱地址',
@@ -2080,35 +2122,60 @@ export function installLocale(locale) {
     pushOff(locale.register(NAMESPACE, langId, dict))
   }
 
-  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  // DS Bot fills locales that other plugins' namespaces lack. Each supplement is tied to
+  // the owner dictionary it was made from, so it leaves when that owner unloads or
+  // re-registers. DSH has no lower-priority registration, so an owner's own locale
+  // registered while the supplement stands still collides with it.
+  const supplements = new Map()
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key)
+    if (!entry) return
+    supplements.delete(key)
+    entry.off()
+  }
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId)
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return
+    try {
+      const off = locale.register(ns, langId, make())
+      if (typeof off === 'function') supplements.set(key, { ns, source, off })
+    } catch { /* already registered */ }
+  }
+
   let syncing = false
   let disposed = false
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return
     syncing = true
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns)
+        if (![...(map?.values() ?? [])].includes(entry.source)) dropSupplement(key)
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns)
-          if (!map || map.has(langId.toLowerCase())) continue
-          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+          const source = map?.get('en') ?? map?.get('zh')
+          if (source) supplement(ns, langId, source, () => dict)
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has('zh-tw')) continue
         const zhDict = map.get('zh')
-        if (zhDict) {
-          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, 'zh-TW', zhDict, () => convertDict(zhDict))
       }
     } finally {
       syncing = false
     }
   }
+
   syncDshNamespaces()
   if (typeof locale.subscribe === 'function') {
     pushOff(locale.subscribe(syncDshNamespaces))
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key)
+  })
 
   const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
   if (origResolveText) {
