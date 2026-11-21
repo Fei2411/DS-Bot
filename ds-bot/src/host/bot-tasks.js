@@ -728,6 +728,18 @@ export function install(rt) {
       || (activeWork !== undefined && rt.ownsWork?.(bot.id, activeWork))
     const origin = isBotHandoff ? 'bot-handoff' : 'fg-handoff'
     const title = titleFromRunningTurn(oldAgent?.session, entry)
+    const startSeq = (() => {
+      const events = oldAgent?.session?.snapshotEvents?.() ?? []
+      if (events.length === 0) return 0
+      const lastStart = events.findLastIndex(ev => ev?.type === 'turn/start')
+      const boundary = lastStart >= 0 ? lastStart : events.length
+      for (let i = boundary - 1; i >= 0; i -= 1) {
+        if (events[i]?.type === 'turn/end') {
+          return Number.isInteger(events[i].seq) ? events[i].seq + 1 : i + 1
+        }
+      }
+      return 0
+    })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
     const record = { oldSid, committed: false, newSid: undefined, messages: [...initialMessages], promise: undefined }
@@ -762,9 +774,10 @@ export function install(rt) {
         from: newSid,
         sessionId: oldSid,
         segments: [],
+        startSeq,
         ...(bot.segments?.length ? { inheritedSegments: bot.segments.map(seg => ({ ...seg })) } : {}),
         origin,
-        status: 'running',
+        status: rt.waitsForApproval?.(oldSid) ? 'waiting_approval' : 'running',
         startedAt: entry?.since ?? now,
         updatedAt: now,
         ...(isBotHandoff && activeWork !== undefined ? { exchangeId: activeWork } : {}),
