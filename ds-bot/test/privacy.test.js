@@ -324,12 +324,13 @@ test('other Bots cannot read, write or search what a private Bot keeps', async (
 test('bundled skill references stay readable under a data root with a private Bot present', async (t) => {
   const { rt, run, home, stop } = await start()
   t.after(stop)
+  const reader = (await rt.createBot({ name: 'Reader' })).id
   rt.dshHome = dirname(dirname(manualDirectory()))
   const reference = join(manualDirectory(), 'references', 'settings.md')
   assert.ok(readFileSync(reference, 'utf8').includes('# Settings reference'))
-  assert.deepEqual(await run('read', { file_path: reference }, 'b'), { ran: true })
+  assert.deepEqual(await run('read', { file_path: reference }, reader), { ran: true })
   for (const file of [join(rt.dshHome, 'private-data.json'), join(home, 'state.json')]) {
-    const result = await run('read', { file_path: file }, 'b')
+    const result = await run('read', { file_path: file }, reader)
     assert.equal(result.ran, false)
     assert.match(result.error, CLOSED)
   }
