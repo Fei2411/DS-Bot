@@ -861,7 +861,15 @@ export function Schedules({ route, navigation }: any) {
   const [count, setCount] = useState('1')
   const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
-  const load = () => void call('schedules').then(v => setTasks(((v as { tasks?: typeof tasks })?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
+  const [canPause, setCanPause] = useState(false)
+  const load = () => void call('schedules').then((v) => {
+    const view = v as { tasks?: typeof tasks, canPause?: boolean }
+    setCanPause(view?.canPause === true)
+    setTasks((view?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))
+  }).catch(() => {})
+  // As on the desktop: a one-time task whose time has passed is neither paused nor resumed.
+  const pausable = (task: typeof tasks[number]) => canPause && (task.status === 'active' || task.status === 'paused')
+    && !((task.kind === 'at' || task.kind === 'after') && Date.parse(String(task.scheduledAt)) <= Date.now())
   useEffect(() => { load() }, [botId])
   const when = () => {
     if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
@@ -884,8 +892,13 @@ export function Schedules({ route, navigation }: any) {
             <View key={task.id} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{task.title}</Text>
-                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{whenText(task)}</Text>
+                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{task.status === 'paused' ? `${whenText(task)} · ${t('Paused')}` : whenText(task)}</Text>
               </View>
+              {pausable(task) ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'active' ? t('Pause task') : t('Resume task')} onPress={() => void run('schedule-pause', { sessionId: task.sessionId ?? sessionId, id: task.id, active: task.status !== 'active' }).then(load)} hitSlop={8} style={{ marginRight: 14 }}>
+                  <Text style={{ color: p.ink3, fontSize: 15 }}>{task.status === 'active' ? '‖' : '▶\uFE0E'}</Text>
+                </Pressable>
+              ) : null}
               <Pressable accessibilityRole="button" accessibilityLabel={t('Delete task')} onPress={() => void run('schedule-delete', { sessionId: task.sessionId ?? sessionId, id: task.id }, load)} hitSlop={8}>
                 <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
               </Pressable>

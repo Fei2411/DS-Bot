@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom'
 import {
   Button, ConnectionIndicator, Modal, Tooltip,
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+} from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'

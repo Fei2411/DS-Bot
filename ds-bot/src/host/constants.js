@@ -74,7 +74,7 @@ export const AGENT_SESSION_TITLE_MAX = 80
 // served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
-  'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view',
+  'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view', 'prepare_ds_bot_issue',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'bot_remember', 'bot_forget', 'bot_recall', 'read_browser', 'read_document',
   'list_capabilities', 'save_capability', 'delete_capability',

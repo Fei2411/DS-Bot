@@ -189,7 +189,8 @@ test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules whi
   const { SHELL_CSS, botOwnCss } = loadClient().exports
   assert.match(SHELL_CSS, /@keyframes bt-veil-in\{from\{opacity:0;filter:var\(--bt-fx-blur-6,blur\(6px\)\)\}\}/)
   const own = botOwnCss(SHELL_CSS)
-  assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
+  assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\],body\[data-bt-os=windows\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
+  assert.match(SHELL_CSS, /body\[data-bt-os=windows\] :is\(\[data-composer-card\],[^)]*\)\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/)
   assert.match(own, /body\[data-bt-effects=reduced\] \.bt-mark\[data-gaze\] \.bt-gaze/)
   assert.match(own, /--bt-fx-blur-6:none/)
   assert.match(own, /\.bt-pill[^}]*backdrop-filter:none!important/)
