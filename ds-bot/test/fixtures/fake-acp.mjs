@@ -27,6 +27,8 @@ import { createInterface } from 'node:readline'
 
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const cursorModes = process.argv.includes('--cursor-modes')
+const deferArg = process.argv.find(arg => arg.startsWith('--defer-cancel='))
+const deferCancel = deferArg === undefined ? 0 : Number(deferArg.slice('--defer-cancel='.length))
 const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
 const legacyModels = process.argv.includes('--legacy-models')
@@ -141,6 +143,7 @@ async function runPrompt(session, prompt, requestId) {
   const sessionId = session.id
   const finish = (textOut) => {
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: textOut } })
+    if (session.pendingPrompt === requestId) session.pendingPrompt = undefined
     if (!reportsUsage) { reply(requestId, { stopReason: 'end_turn' }); return }
     const grow = Number(text.match(/grow:(\d+)/)?.[1] ?? 0)
     session.used = (session.used ?? 14_000) + 50 + grow
@@ -165,7 +168,12 @@ async function runPrompt(session, prompt, requestId) {
   if (text.includes('rpc-error-empty')) { send({ jsonrpc: '2.0', id: requestId, error: { code: '', message: 'Internal error: empty code' } }); return }
   if (text.includes('rpc-error-object')) { send({ jsonrpc: '2.0', id: requestId, error: { code: -32603, message: { reason: 'stopped' } } }); return }
   if (text.includes('count-sessions')) { finish(`sessions: ${sessions.size}`); return }
-  if (/\bhang\b/.test(text)) return // session/cancel releases it below
+  if (/\bhang\b/.test(text)) return true // session/cancel releases it below
+  if (text.includes('fail-now')) {
+    if (session.pendingPrompt === requestId) session.pendingPrompt = undefined
+    fail(requestId, 'policy blocked the tool')
+    return
+  }
   if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('late-permission')) {
@@ -416,17 +424,33 @@ process.stdin.on('data', (chunk) => {
         if (!['legacy-std', 'legacy-fast', 'fake-large', 'fake-small'].includes(params.modelId)) fail(id, `unknown model ${params.modelId}`)
         else { sessions.get(params.sessionId).model = params.modelId; saveSaved(); reply(id, {}) }
         break
-      case 'session/prompt':
-        void runPrompt(sessions.get(params.sessionId) ?? { id: params.sessionId }, params.prompt, id)
+      case 'session/prompt': {
+        const session = sessions.get(params.sessionId) ?? { id: params.sessionId }
+        session.pendingPrompt = id
+        void runPrompt(session, params.prompt, id)
           .then(() => { if (exitAfterTurn) setTimeout(() => process.exit(0), 50) })
         break
+      }
       case 'session/close':
         sessions.delete(params.sessionId)
         reply(id, {})
         break
-      case 'session/cancel':
-        update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })
+      case 'session/cancel': {
+        const finishCancel = () => {
+          const session = sessions.get(params.sessionId)
+          update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })
+          update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'STALE_FRAGMENT thought' } })
+          update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'STALE_FRAGMENT text' } })
+          const pending = session?.pendingPrompt
+          if (pending !== undefined) {
+            session.pendingPrompt = undefined
+            fail(pending, { text: 'the cancelled prompt failed' })
+          }
+        }
+        if (deferCancel > 0) setTimeout(finishCancel, deferCancel)
+        else finishCancel()
         break
+      }
       default:
         if (id !== undefined) fail(id, `method not found: ${method}`)
     }

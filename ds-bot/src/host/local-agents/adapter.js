@@ -168,7 +168,15 @@ export class LocalAgentAdapter extends LlmAdapter {
         // The queue belongs to the process that is gone: the retry starts clean
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
+        live.queue.length = 0
+        live.state = 'idle'
+        live.turnTag = undefined
+        live.cancelling = false
       }
+      // A cancel that settled while nothing was queued still reads as running
+      // until a drain releases it; finalize it here so a maintenance request or
+      // a model change is not refused behind a turn that is already over.
+      this.reconcileCancelled(live)
       // A CLI takes its model and permission mode when its session opens. Another
       // model or preset reopens the same CLI session as soon as no turn runs in it.
       if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
@@ -208,8 +216,14 @@ export class LocalAgentAdapter extends LlmAdapter {
       // Output of a request DS Bot made for itself may trail its end (Devin's
       // "Context compacted"); until the next prompt, text, thoughts and activity drop.
       mute: false,
+      // A stop asked the CLI to cancel its turn; true until that turn's own end
+      // event lands. Its late tool calls are refused meanwhile (ensureMcp).
+      cancelling: false,
     }
     live.push = (event) => {
+      // The end event of the turn a stop asked to cancel: its settle is in, so
+      // its late tool calls are over and what is queued may go out again.
+      if (live.cancelling === true && (event?.type === 'done' || event?.type === 'error')) live.cancelling = false
       this.observe(live, event)
       if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity')) return
       clearTimeout(live.idle)
@@ -330,10 +344,18 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
-  stopTurn(live, reason) {
-    live.state = 'idle'
+  stopTurn(live, reason, { waitForAcp = false } = {}) {
+    // A conversational ACP request cannot take another prompt until its cancel
+    // settles. Maintenance requests keep the existing idle-on-cancel contract.
+    live.state = waitForAcp && live.spec.kind === 'acp' ? 'running' : 'idle'
+    if (waitForAcp && live.spec.kind === 'acp') live.turnTag = null
     live.queue.length = 0
+    live.events.length = 0
+    live.engineSession?.dropQueued?.()
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
+    // Until the stopped turn's own end event lands, its late tool calls must
+    // not enter pending: they would take the next message as their answer.
+    if (live.engineSession !== undefined) live.cancelling = true
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
     live.pending.clear()
@@ -369,6 +391,37 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.deps.saveRecord(sessionId, this.recordOf(live))
   }
 
+  rollbackWaiting(live) {
+    live.handed = live.handedBefore
+    this.deps.saveRecord(live.sessionId, this.recordOf(live))
+  }
+
+  async releaseCancelled(live, event, options) {
+    if (event.type !== 'done' && event.type !== 'error') return
+    if (live.engineSession?.dead === true && live.queue.length > 0) {
+      this.rollbackWaiting(live)
+      live.queue.length = 0
+      live.state = 'idle'
+      throw toLlmError(event.error ?? new Error('the local agent exited'), live)
+    }
+    const next = live.queue.shift()
+    live.events.length = 0
+    live.engineSession?.dropQueued?.()
+    if (next === undefined) live.state = 'idle'
+    else await this.startTurn(live, next, options.signal, options.reasoningEffort, live.spec.kind === 'acp' ? live.turnTag : undefined)
+  }
+
+  // The cancel of a conversational ACP turn settles on the CLI's own word, and
+  // only the next drain reads that settle to release the turn. When the engine
+  // reports the prompt over and no replacement is reserved, the settle is final
+  // here: maintenance and reuse see the Session idle instead of busy behind a
+  // turn that is already over.
+  reconcileCancelled(live) {
+    if (live.spec.kind !== 'acp' || live.state !== 'running' || live.turnTag !== null) return
+    if (live.engineSession?.running !== false) return
+    live.state = 'idle'
+  }
+
   // The loopback MCP server for one live session; tools/call lands in its event queue.
   // `tools` lists the current turn's tools; the server outlives the turn that
   // started it, so tools/list reads the latest one.
@@ -378,8 +431,17 @@ export class LocalAgentAdapter extends LlmAdapter {
     const mcp = new LoopbackMcp(() => live.tools(), ({ name, arguments: args, callId }) => {
       const dshCallId = `dsbot-${callId}`
       return new Promise((resolve) => {
+        // A stopped turn may still call a tool until its cancel settles. That
+        // call must not enter pending, or it would consume the replacement's
+        // user input and surface as a tool card. ACP marks the window with its
+        // turn tag; every engine with the flag stopTurn sets.
+        if (live.cancelling === true
+          || (live.spec.kind === 'acp' && (live.turnTag === null || (live.engineSession?.turnTag !== undefined && live.turnTag !== live.engineSession.turnTag)))) {
+          resolve({ text: 'the turn was stopped', isError: true })
+          return
+        }
         live.pending.set(dshCallId, { name, mcpCallId: callId, resolve })
-        live.push({ type: 'call', name, args, dshCallId })
+        live.push({ type: 'call', name, args, dshCallId, ...(live.spec.kind === 'acp' && live.turnTag !== undefined ? { turnId: live.turnTag } : {}) })
       })
     })
     await mcp.listen()
@@ -612,8 +674,20 @@ export class LocalAgentAdapter extends LlmAdapter {
     const body = settled === undefined || settled === ''
       ? blocks
       : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
+    // Claude and Codex report that their cancelled turn is still live through
+    // canSteer(). Its replacement waits in the same queue used for ACP.
+    if (live.spec.kind !== 'acp' && live.state === 'idle' && live.engine.canSteer?.(live.engineSession) === true) {
+      live.queue.push(body)
+      return Promise.resolve()
+    }
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(blocks); return Promise.resolve() }
+      if (live.spec.kind === 'acp') {
+        // Reserve the replacement's tag before its prompt can start. The old
+        // request's terminal event releases this queue but is otherwise dropped.
+        if (live.turnTag === null) live.turnTag = {}
+        live.queue.push(blocks)
+        return Promise.resolve()
+      }
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -637,6 +711,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         return recover()
       }
     }
+    this.discardTurnOutput(live)
     this.startTurn(live, blocks, signal, effort)
     return Promise.resolve()
   }
@@ -647,19 +722,23 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
-  startTurn(live, input, signal, effort) {
+  startTurn(live, input, signal, effort, reservedTag) {
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
+    // A turn starting owns the CLI: the settle the last stop waited for is over.
+    live.cancelling = false
     // The turn an engine names is the one this stream reads: a finished turn's late
     // events carry another id and are dropped instead of answering this one (#1513).
-    live.turnTag = undefined
+    // ACP has no protocol turn id, so the adapter gives each prompt its own tag.
+    const turnTag = live.spec.kind === 'acp' ? (reservedTag ?? {}) : undefined
+    live.turnTag = turnTag
     try {
-      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort, ...(live.spec.kind === 'acp' ? { turnTag } : {}) }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => live.push({ type: 'error', error, ...(live.spec.kind === 'acp' ? { turnId: turnTag } : {}) }))
       return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
-      live.push({ type: 'error', error })
+      live.push({ type: 'error', error, ...(live.spec.kind === 'acp' ? { turnId: turnTag } : {}) })
       return Promise.resolve()
     }
   }
@@ -744,12 +823,44 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
-        this.stopTurn(live, 'the turn was stopped')
+        // The losing live.next() must not swallow the next turn's first event.
+        // closeLive still owns waiters when a Session is closing.
+        for (const waiter of live.waiters.splice(0)) waiter({ type: 'skip' })
+        this.stopTurn(live, 'the turn was stopped', { waitForAcp: true })
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
+      if (event.type === 'skip') continue
+      // A cancelled Claude/Codex turn has no replacement tag yet. Its terminal
+      // event releases the queued input; every earlier event belongs to it.
+      if (live.spec.kind !== 'acp' && live.state === 'idle' && live.queue.length > 0) {
+        if (event.type === 'permission') event.reply?.(null)
+        if (event.type === 'call') {
+          const pending = live.pending.get(event.dshCallId)
+          live.pending.delete(event.dshCallId)
+          pending?.resolve({ text: 'the turn was stopped', isError: true })
+        }
+        await this.releaseCancelled(live, event, options)
+        continue
+      }
       // A finished turn's leftovers must not answer the turn this stream reads.
-      if (event.type !== 'permission' && event.type !== 'call' && event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
+      const stale = event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag
+      if (stale && (live.spec.kind === 'acp' || (event.type !== 'permission' && event.type !== 'call'))) {
+        if (live.spec.kind === 'acp') {
+          // Unlike a late Codex decision, a cancelled ACP request must not open
+          // a card for its replacement or consume that replacement as an answer.
+          if (event.type === 'permission') event.reply?.(null)
+          if (event.type === 'call') {
+            const pending = live.pending.get(event.dshCallId)
+            live.pending.delete(event.dshCallId)
+            pending?.resolve({ text: 'the turn was stopped', isError: true })
+          }
+          // The terminal event belongs to the cancelled prompt that still owns
+          // the engine. It only releases the next prompt; it is not its result.
+          if (live.engineSession?.turnTag === event.turnId) await this.releaseCancelled(live, event, options)
+        }
+        continue
+      }
       switch (event.type) {
         case 'text': {
           if (textIndex === -1) {
@@ -877,6 +988,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       await this.openFor(live, sessionId)
       opened = true
     }
+    // A settled cancel leaves the turn reading as running until a drain
+    // releases it; finalize it here so the request is not refused busy.
+    this.reconcileCancelled(live)
     if (live.state !== 'idle' || live.pending.size > 0) throw new LlmError('the local agent is in the middle of a turn', 'LOCAL_AGENT_BUSY')
     // What a finished turn left behind is not this request's answer.
     live.events.length = 0
@@ -1173,12 +1287,38 @@ async function renderReplay(messages, system, resolveImage) {
   return mergeTextBlocks([{ type: 'text', text: `${head}The conversation so far (oldest first):` }, ...picked.flat()])
 }
 
+// A JSON-RPC error can nest its readable message instead of using a string.
+function errorText(error, seen = new Set()) {
+  if (typeof error === 'string') return error === '[object Object]' ? '' : error
+  if (error == null) return ''
+  if (typeof error !== 'object') return String(error)
+  if (seen.has(error)) return ''
+  seen.add(error)
+  const message = error.message
+  if (typeof message === 'string' && message !== '' && message !== '[object Object]') return message
+  if (message !== undefined && typeof message !== 'string') {
+    const nested = errorText(message, seen)
+    if (nested !== '') return nested
+  }
+  for (const key of ['text', 'detail', 'reason', 'error', 'data']) {
+    if (error[key] === undefined) continue
+    const nested = errorText(error[key], seen)
+    if (nested !== '') return nested
+  }
+  try {
+    const json = JSON.stringify(error)
+    if (json && json !== '{}' && json !== 'null') return json
+  } catch { /* a circular rejection still needs some words */ }
+  return ''
+}
+
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS
 // Bot's repair card can act on them.
 function toLlmError(error, live) {
   if (error instanceof LlmError) return error
   const upstream = [error?.data?.error, error?.data].filter(value => value !== null && typeof value === 'object' && !Array.isArray(value))
-  const text = [...new Set([errorText(error), ...upstream.flatMap(value => [value.message, value.detail]).filter(nonEmptyString)])].join('\n')
+  const text = [...new Set([errorText(error), ...upstream.flatMap(value => [value.message, value.detail])].filter(nonEmptyString))].join('\n')
+    || 'The local agent failed without an error message.'
   const upstreamCode = upstream.map(value => value?.code).find(nonEmptyString)
   // A CLI whose context is past its window: the part moves on the way an overflow does.
   const overflow = /prompt is too long|context.?(window|length).?(exceeded|is full)|context_length_exceeded|exceeds the (model's )?(maximum )?context|too many tokens/i
@@ -1218,20 +1358,4 @@ function repairCode(code) {
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() !== ''
-}
-
-// JSON-RPC errors carry numeric codes and may arrive as plain objects; LlmError
-// needs a non-empty string message and code, or it throws and hides the cause.
-function errorText(error) {
-  const message = error?.message
-  if (typeof message === 'string' && message !== '') return message
-  if (typeof error === 'string' && error !== '') return error
-  if (message !== undefined && message !== null && typeof message !== 'string') return safeJson(message)
-  if (error !== null && typeof error === 'object' && !(error instanceof Error)) return safeJson(error)
-  if (error !== undefined && error !== null && typeof error !== 'object' && error !== '') return String(error)
-  return 'The local agent failed without an error message.'
-}
-
-function safeJson(value) {
-  try { return JSON.stringify(value) || String(value) } catch { return String(value) }
 }

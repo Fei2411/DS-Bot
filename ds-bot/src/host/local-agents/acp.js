@@ -207,7 +207,17 @@ export class AcpEngine {
 
   createSession(dshSessionId) {
     const queue = new EventQueue()
-    return { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
+    const session = {
+      dshSessionId,
+      acpSessionId: undefined,
+      dead: false,
+      modes: [],
+      toolCalls: new Map(),
+      push: event => queue.push(session.turnTag === undefined || event.turnId !== undefined ? event : { ...event, turnId: session.turnTag }),
+      next: () => queue.next(),
+      dropQueued: () => queue.clear(),
+    }
+    return session
   }
 
   sessionFor(dshSessionId) {
@@ -492,9 +502,10 @@ export class AcpEngine {
     return (this.workerOf(session) ?? this).caps.image
   }
 
-  async prompt(session, blocks, { signal, effort } = {}) {
+  async prompt(session, blocks, { effort, turnTag } = {}) {
     const worker = this.workerOf(session)
-    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
+    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { effort, turnTag })
+    session.turnTag = turnTag
     const peer = await this.ensure()
     if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined || session.defaultEffort !== undefined || session.effort !== undefined) {
       const current = session.effort ?? session.defaultEffort
@@ -513,10 +524,19 @@ export class AcpEngine {
       }
     }
     session.running = true
-    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal, timeout: 0 })
+    // cancel() ends the request at the agent. A local abort rejection would race it
+    // and leave that rejection for the next prompt's drain to read.
+    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { timeout: 0 })
+    const tag = event => turnTag === undefined ? event : { ...event, turnId: turnTag }
     reply.then(
-      result => { session.running = false; session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
-      error => { session.running = false; session.push({ type: 'error', error }) },
+      result => {
+        if (session.turnTag === turnTag) session.running = false
+        session.push(tag({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }))
+      },
+      error => {
+        if (session.turnTag === turnTag) session.running = false
+        session.push(tag({ type: 'error', error }))
+      },
     )
     return reply
   }

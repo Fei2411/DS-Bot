@@ -2,10 +2,15 @@
 // line, then answers each user message with thinking + text + result events.
 const sessionId = `claude-${Math.random().toString(36).slice(2)}`
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
+const deferArg = process.argv.find(arg => arg.startsWith('--defer-cancel='))
+// With --defer-cancel a hanging turn ends only after the delay, like a CLI
+// that is slow to stop.
+const deferCancel = deferArg === undefined ? 0 : Number(deferArg.slice('--defer-cancel='.length))
 
 send({ type: 'system', subtype: 'init', session_id: sessionId })
 
 let rest = ''
+let hanging = false
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
   rest += chunk
@@ -17,7 +22,9 @@ process.stdin.on('data', (chunk) => {
     let message
     try { message = JSON.parse(line) } catch { continue }
     if (message.type === 'control_request' && message.request?.subtype === 'interrupt') {
-      send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'interrupted', usage: { input_tokens: 1, output_tokens: 1 } })
+      // A hanging turn stays alive until the test kills the process.
+      if (!hanging) send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'interrupted', usage: { input_tokens: 1, output_tokens: 1 } })
+      else if (deferCancel > 0) setTimeout(() => send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'interrupted', usage: { input_tokens: 1, output_tokens: 1 } }), deferCancel)
       continue
     }
     if (message.type === 'control_response') {
@@ -44,6 +51,7 @@ process.stdin.on('data', (chunk) => {
     }
     const images = blocks.filter(block => block.type === 'image').map(block => ({ mediaType: block.source.media_type, data: block.source.data }))
     const text = blocks.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n')
+    if (/\bhang\b/.test(text)) { hanging = true; continue }
     if (text.includes('ask-claude-perm')) {
       send({ type: 'control_request', request_id: 'cr-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'rm -rf /tmp/test' } } })
       continue

@@ -20,6 +20,10 @@ import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
 const holdCompact = process.argv.includes('--hold-compact')
+const deferArg = process.argv.find(arg => arg.startsWith('--defer-cancel='))
+// With --defer-cancel an interrupted turn completes only after the delay, like
+// a CLI that is slow to stop.
+const deferCancel = deferArg === undefined ? 0 : Number(deferArg.slice('--defer-cancel='.length))
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -65,6 +69,7 @@ async function elicitTurn(thread, turnId, text) {
 }
 
 function runTurn(thread, turnId, text, effort, images = []) {
+  if (/\bhang\b/.test(text)) return
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
   // An approval request whose turn stays alive: an answer has to steer this turn.
   if (text.includes('late-double')) {
@@ -204,7 +209,15 @@ process.stdin.on('data', (chunk) => {
         setImmediate(() => compactTurn(thread))
         break
       }
-      case 'turn/interrupt': reply(id, {}); break
+      case 'turn/interrupt': {
+        reply(id, {})
+        const thread = threads.get(params.threadId)
+        if (deferCancel > 0 && thread?.turn !== undefined) {
+          const turnId = thread.turn
+          setTimeout(() => notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'interrupted' } }), deferCancel)
+        }
+        break
+      }
       case 'turn/steer': {
         // Codex's schema requires the turn being steered; a steer after that turn
         // ended is refused, which is what the adapter must recover from.
