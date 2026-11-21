@@ -2066,14 +2066,22 @@ export function install(rt) {
   }
 
   // "New session" in a Bot's chat: a manual move to a fresh part with the
-  // deterministic handoff package, no model call. While the Bot is working the fresh
-  // part starts at once and the part it replaces keeps running in the background.
-  // A member's conversation in a group moves the same way, but only while it is idle.
-  async function newPart(sessionId) {
+  // deterministic handoff package, no model call. `blank` opens a fresh part with
+  // neither the handoff package nor the old chat, and is the same part the working Bot
+  // gets: it starts at once and the part it replaces stays live in the background, at
+  // an idle Bot too. A member's conversation in a group moves the handoff way only.
+  async function newPart(sessionId, { blank = false } = {}) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
+    if (blank) {
+      const bot = rt.botOf(place.botId)
+      if (bot === undefined || place.roomId !== undefined) throw Object.assign(new Error('A blank part starts only in a Bot\'s own conversation'), { code: 'bot/invalid' })
+      if (switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      await openPartNow(bot, agent)
+      return true
+    }
     if (agent.status === 'idle') {
       startSwitch(agent, { manual: true })
       return true

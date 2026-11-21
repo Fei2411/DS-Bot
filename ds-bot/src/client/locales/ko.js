@@ -756,6 +756,8 @@ export const KO = {
   'Add DSH Agent': 'DSH Agent 추가',
   'Remove DSH Agent': 'DSH Agent 제거',
   'New session': '새 세션',
+  'Blank session': '빈 세션',
+  'Continue with handoff': '인수인계로 계속',
   Archive: '보관',
   'Session actions': '세션 작업',
   'Plugins': '플러그인',

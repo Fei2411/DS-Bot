@@ -754,6 +754,8 @@ export const JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Blank session": "空のセッション",
+  "Continue with handoff": "引き継ぎで続ける",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",

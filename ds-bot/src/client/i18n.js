@@ -761,6 +761,8 @@ const ZH = {
   'Add DSH Agent': '添加 DSH Agent',
   'Remove DSH Agent': '移除 DSH Agent',
   'New session': '新会话',
+  'Blank session': '空白会话',
+  'Continue with handoff': '带交接继续',
   Archive: '归档',
   'Session actions': '会话操作',
   Plugins: '插件',

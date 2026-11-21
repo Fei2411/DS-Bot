@@ -851,16 +851,18 @@ export function install(rt) {
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
         // "New session" and "open an earlier session" on an abot's chat: ordinary
-        // parts moves (parts.js), the same mechanism every Bot's chat uses.
+        // parts moves (parts.js), the same mechanism every Bot's chat uses. `blank`
+        // starts the fresh part without the handoff package; a member's group Session
+        // has no blank path.
         case 'bot-new-part': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id)))
+          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id), { blank: body.blank === true }))
           const room = rt.roomOf(String(body.roomId))
           const member = room?.members.includes(bot.id) ? room.sessions?.[bot.id] : undefined
           if (member === undefined) return fail('Not a member of that group', 'bot/invalid')
-          return ok(await rt.newPart(member))
+          return ok(await rt.newPart(member, { blank: body.blank === true }))
         }
         case 'bot-open-part': {
           await rt.load()

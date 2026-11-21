@@ -10,6 +10,7 @@ import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
 import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
+import { NewPartMenu } from './new-part-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
@@ -257,7 +258,7 @@ function BotSessions({ bot, part, run, useSessions, actions, running }) {
   return h('div', { className: 'bt-drawer-model' },
     h('div', { className: 'bt-agent-sessions-head' },
       h('div', { className: 'bt-section-title' }, t('Sessions')),
-      h('button', { type: 'button', className: 'bt-agent-sessions-new', onClick: () => run(actions.newPart !== undefined ? actions.newPart(bot.id) : call('bot-new-part', { botId: bot.id })) }, h(PlusIcon), t('New session'))),
+      h(NewPartMenu, { botId: bot.id, busy: runningOf(part), actions, run })),
     backgroundRunning
       ? h('div', { className: 'bt-agent-sessions-warn', role: 'status' },
           h(AlertIcon),

@@ -754,6 +754,8 @@ export const FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Blank session": "Session vierge",
+  "Continue with handoff": "Continuer avec passation",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",

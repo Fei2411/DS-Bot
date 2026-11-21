@@ -169,6 +169,32 @@ test('a new part made while the Bot works starts at once and leaves the running 
   assert.equal(rt.chatOwners.get('w5'), 'w1')
 })
 
+// #1792: "New session" has a blank path beside the handoff one. At an idle Bot the
+// blank part starts at once with nothing carried over, exactly as the working Bot's
+// does, so its first turn holds neither the old chat nor a handoff note.
+test('a blank new part starts while the Bot is idle, carrying no handoff and leaving the old part live', async (t) => {
+  const { home, registry, call, rt } = await team(t)
+  await call('state')
+  rt.resolveAgent = async () => ({ id: 'w2', status: 'idle', session: { id: 'w2', requestHeader: () => undefined } })
+  const made = []
+  rt.createSession = async (name, options) => { made.push(options); return 'w5' }
+  const result = await call('bot-new-part', { botId: 'w1', blank: true })
+  assert.equal(result.ok, true, JSON.stringify(result))
+  const writer = saved(home).bots.w1
+  assert.equal(writer.sessionId, 'w5')
+  // A fresh Session with no messages seeded into it: nothing of w2 or w1 comes along.
+  assert.equal(made.length, 1)
+  assert.deepEqual(Object.keys(made[0]), ['dir'])
+  assert.deepEqual(writer.segments, [])
+  assert.deepEqual(writer.openParts.map(part => part.sessionId), ['w3', 'w2'])
+  assert.deepEqual(writer.openParts.at(-1).segments.map(segment => segment.sessionId), ['w1'])
+  // No handoff switch ran: no note is written and the old part is not archived or stopped.
+  assert.equal([...rt.switchJobs()].length, 0)
+  assert.deepEqual(saved(home).switching ?? {}, {})
+  assert.deepEqual([...registry.archivedSessionIds], [])
+  assert.equal(rt.chatOwners.get('w5'), 'w1')
+})
+
 // A model picked while the new part is being made must reach it: at that moment it is
 // not registered as the Bot's yet, so the sync that ran meanwhile did not see it (and
 // recorded the new model as applied), and the route this part was made with is the old

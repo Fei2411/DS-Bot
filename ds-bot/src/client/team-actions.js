@@ -182,7 +182,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: botId => after(call('bot-new-part', { botId })),
+    // `blank` starts the new part without the handoff package; the default carries it.
+    newPart: (botId, mode) => after(call('bot-new-part', { botId, ...(mode === 'blank' ? { blank: true } : {}) })),
     openPart: (botId, sessionId, running = false) => {
       ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
       return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
