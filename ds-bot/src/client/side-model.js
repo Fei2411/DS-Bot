@@ -138,9 +138,9 @@ export async function submitSide({ call, roster, sessionId, args, attachments, o
   return { kind: 'success' }
 }
 
-// The strip shows whenever there is at least one browser tab or side chat.
-export const panelHasStrip = (canBrowse, tabCount, sideCount) =>
-  (canBrowse === true && tabCount > 0) || sideCount > 0
+// The strip shows whenever there is at least one browser tab, side chat, or open task viewer.
+export const panelHasStrip = (canBrowse, tabCount, sideCount, hasTask = false) =>
+  (canBrowse === true && tabCount > 0) || sideCount > 0 || hasTask === true
 
 // The strip `···` menu keys, in order. 'sep' joins the two groups only when
 // both have entries.

@@ -31,7 +31,7 @@ export function pendingItemsOf(team: TeamState | null): PendingItem[] {
       key: `a-${approval.id}`,
       botId: approval.botId,
       roomId: approval.roomId,
-      summary: [approval.tool, approval.reason].filter(Boolean).join(' · '),
+      summary: [approval.taskTitle, approval.tool, approval.reason].filter(Boolean).join(' · '),
     })
   }
   for (const [botId, list] of Object.entries(team.secretRequests ?? {})) {

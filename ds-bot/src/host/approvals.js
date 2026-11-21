@@ -50,7 +50,8 @@ export function install(rt) {
       if (!pending.has(id)) return false
       pending.delete(id)
       rt.noteApproval?.(sessionId, undefined)
-      emit('settled', { id, outcome, ...(taskOwner ? { taskId: taskOwner.taskId } : {}) })
+      const settledTaskId = entry.taskId ?? rt.taskOwners?.get(sessionId)?.taskId
+      emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
       return true
     }
     if (owner === undefined && taskOwner === undefined) {
@@ -98,7 +99,15 @@ export function install(rt) {
     })
   }, { prepend: true })
 
-  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => ({ ...entry, answerable: answer !== undefined }))
+  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => {
+    const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(entry.sessionId) : undefined
+    const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(entry.sessionId)?.task?.title)
+    return {
+      ...entry,
+      ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
+      answerable: answer !== undefined,
+    }
+  })
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
 
   function answerApproval(id, choice) {

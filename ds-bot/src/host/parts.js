@@ -1767,7 +1767,13 @@ export function install(rt) {
   // Earlier parts of a Bot's own chat, newest page first, for the chat to show above
   // the current part as one conversation.
   const EARLIER_PAGE = 60
-  function displayItems(partId, events, session, seedTurn) {
+  const stripRelayHeader = text => String(text ?? '').replace(/^\[[^\r\n]*\]\r?\n?/, '').trim()
+  const cleanTaskBrief = (text) => stripRelayHeader(text)
+    .replace(/\n\n\[Recent context from your own chat\][\s\S]*$/, '')
+    .replace(/\n\nDo this work here\. The user does not chat directly in this task session;[\s\S]*$/, '')
+    .trim()
+
+  function displayItems(partId, events, session, seedTurn, options = {}) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
     // Files a turn presented, attached to its closing Bot row so the phone can save
     // them: the card shows name and type, the save action names seq and index.
@@ -1883,6 +1889,15 @@ export function install(rt) {
           ...(file ? { file, length: source.length } : {}),
           time: event.time,
         })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task') {
+        const brief = cleanTaskBrief(textOf(event.data.content))
+        if (brief !== '') stamp(event, { kind: 'task-brief', text: brief, time: event.time })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task-followup') {
+        const body = stripRelayHeader(textOf(event.data.content))
+        if (body !== '') stamp(event, { kind: 'user', text: body, time: event.time })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'request') {
+        const body = stripRelayHeader(textOf(event.data.content))
+        if (body !== '') stamp(event, { kind: 'task-brief', name: source.senderName ?? null, text: body, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       } else if (source?.kind === 'schedule') {
@@ -1901,7 +1916,7 @@ export function install(rt) {
     return items
   }
 
-  async function partPage(parts, index, cursor, steps = false) {
+  async function partPage(parts, index, cursor, steps = false, options = {}) {
     const part = parts[index]
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     // An archived earlier part may have no live agent left; its stored events
@@ -1913,7 +1928,12 @@ export function install(rt) {
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
     }, signal)
-    const events = page.records.map(record => record.event)
+    const rawEvents = page.records.map(record => record.event)
+    const minSeq = Number.isInteger(options.minSeq) && options.minSeq > 0 ? options.minSeq : undefined
+    const events = minSeq === undefined
+      ? rawEvents
+      : rawEvents.filter(event => !Number.isInteger(event?.seq) || event.seq >= minSeq)
+    const hitFloor = minSeq !== undefined && (rawEvents.length === 0 || (Number.isInteger(rawEvents[0]?.seq) && rawEvents[0].seq <= minSeq))
     let seedTurn
     if (agent === undefined) {
       // Without the live session's projection, rows on a page that does not
@@ -1935,13 +1955,13 @@ export function install(rt) {
         before = back.records[0]?.event?.seq
       }
     }
-    const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
+    const items = displayItems(part.sessionId, events, agent?.session, seedTurn, options)
     if (index < parts.length - 1) {
       for (const item of items) {
         if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
       }
     }
-    const more = page.hasMore && events.length > 0
+    const more = !hitFloor && page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
     if (steps === true) await applySteps(items, events, part.sessionId)
@@ -2157,7 +2177,15 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
     }
-    const stored = { ...task, sessionId, segments: [], ...(workDir ? { workDir } : {}) }
+    let startSeq = 0
+    if (forked) {
+      const forkedAgent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      const inherited = forkedAgent?.session?.inheritedEventCount
+      const seq = forkedAgent?.session?.seq
+      if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
+      else if (Number.isInteger(seq) && seq > 0) startSeq = seq
+    }
+    const stored = { ...task, sessionId, segments: [], ...(startSeq > 0 ? { startSeq } : {}), ...(workDir ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id })
@@ -2210,7 +2238,8 @@ export function install(rt) {
     return { sessionId, forked, syncRoute }
   }
 
-  // Read-only transcript paging for one background task across its own segments.
+  // Read-only transcript paging for one background task across its own segments,
+  // excluding any inherited foreground history that predates the task itself.
   async function taskPage(botId, taskId, cursor, steps = false) {
     const bot = rt.botOf(botId)
     const task = (bot?.tasks ?? []).find(item => item?.id === taskId)
@@ -2222,7 +2251,28 @@ export function install(rt) {
     if (parts.length === 0) return { sessionId: task.sessionId, items: [], cursor: null }
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
-    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
+    let minSeq = Number.isInteger(task.startSeq) && task.startSeq > 0 ? task.startSeq : undefined
+    if (index === 0 && minSeq === undefined) {
+      const firstAgent = await rt.resolveAgent(parts[0].sessionId).catch(() => undefined)
+      const inherited = firstAgent?.session?.inheritedEventCount
+      if (task.origin !== 'fg-handoff' && Number.isInteger(inherited) && inherited > 0) {
+        minSeq = inherited
+      } else if (task.origin === 'fg-handoff') {
+        const all = firstAgent?.session?.snapshotEvents?.() ?? []
+        const lastStart = all.findLastIndex(ev => ev?.type === 'turn/start')
+        const boundary = lastStart >= 0 ? lastStart : all.length
+        for (let i = boundary - 1; i >= 0; i -= 1) {
+          if (all[i]?.type === 'turn/end') {
+            minSeq = Number.isInteger(all[i].seq) ? all[i].seq + 1 : i + 1
+            break
+          }
+        }
+      }
+    }
+    return {
+      sessionId: parts.at(-1).sessionId,
+      ...(await partPage(parts, index, cursor, steps, { taskView: true, ...(index === 0 && minSeq !== undefined ? { minSeq } : {}) })),
+    }
   }
 
   // Opening an earlier part again: it becomes the current one and the part that

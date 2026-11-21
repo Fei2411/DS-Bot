@@ -5,6 +5,21 @@ import type { ConnectorsView } from './team/connectors.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
+export interface BotTask {
+  id: string
+  title: string
+  status: 'running' | 'waiting_work' | 'waiting_approval' | 'completed' | 'failed' | 'interrupted' | 'stopped' | string
+  sessionId: string
+  roomId?: string
+  origin?: string
+  startedAt?: number
+  updatedAt?: number
+  endedAt?: number
+  summary?: string
+  error?: string
+  running?: boolean
+}
+
 export interface Bot {
   id: string
   name: string
@@ -26,6 +41,7 @@ export interface Bot {
   instructions?: string
   sessionId?: string
   parts?: string[]
+  tasks?: BotTask[]
   waiting?: boolean
   pinned?: boolean
   hidden?: boolean
@@ -63,6 +79,8 @@ export interface Approval {
   sessionId: string
   botId: string
   roomId?: string
+  taskId?: string
+  taskTitle?: string
   at?: number
   tool: string
   reason: string

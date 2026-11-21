@@ -138,7 +138,8 @@ export function ApprovalCard({ approval, call, p , bare = false }: { approval: A
   return (
     <View accessibilityLabel={t('{name} is waiting for your approval', { name: '' })}
       style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{approval.tool || 'Approval'}</Text>}
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{[approval.taskTitle, approval.tool || 'Approval'].filter(Boolean).join(' · ')}</Text>}
+      {bare && approval.taskTitle ? <Text style={[type.caption, { color: p.ink2, marginBottom: 2 }]} numberOfLines={1}>{approval.taskTitle}</Text> : null}
       {typeof approval.detail?.text === 'string' && approval.detail.text !== ''
         ? <Text selectable style={[type.small, { color: p.ink, marginTop: 4 }]}>{approval.detail.text}</Text> : null}
       {approval.reason !== '' ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 4 }]} numberOfLines={4}>{approval.reason}</Text> : null}
