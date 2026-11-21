@@ -5,6 +5,6 @@ export function installTitle(document, Observer = globalThis.MutationObserver) {
   }
   update()
   const observer = new Observer(update)
-  observer.observe(title, { childList: true, characterData: true, subtree: true })
+  if (title !== null) observer.observe(title, { childList: true, characterData: true, subtree: true })
   return () => observer.disconnect()
 }

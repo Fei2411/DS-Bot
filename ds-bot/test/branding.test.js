@@ -21,6 +21,17 @@ test('the browser title stays DS Bot after the host script updates it', () => {
   assert.equal(disconnected, true)
 })
 
+test('a document without a title element still gets the DS Bot title', () => {
+  class Observer {
+    observe() { assert.fail('nothing to observe') }
+    disconnect() {}
+  }
+  const document = { title: 'DeepSeek Harness', head: { querySelector: () => null } }
+  const dispose = installTitle(document, Observer)
+  assert.equal(document.title, 'DS Bot')
+  assert.doesNotThrow(dispose)
+})
+
 test('the Web index and install metadata use DS Bot branding', () => {
   const html = brandHtml(`<!doctype html><head>
     <link rel="manifest" href="./manifest.webmanifest" />
