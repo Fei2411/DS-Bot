@@ -72,6 +72,39 @@ test('a failed state write rejects and leaves the saved file unchanged', async (
   assert.deepEqual(fs.readFileSync(statePath), original)
 })
 
+test('saves made while a write is in flight share one queued write', async (t) => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    const revision = rt.state.revision
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const later = ['a', 'b', 'c'].map(marker => {
+      rt.state.prefs.marker = marker
+      return rt.save({ required: marker === 'b' })
+    })
+    release()
+    await Promise.all([first, ...later])
+    assert.deepEqual(writes, ['first', 'c'])
+    assert.equal(rt.state.revision, revision + 2)
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'c')
+  } finally {
+    restore()
+  }
+})
+
 test('model selection witnesses survive a saved store reload', async (t) => {
   const first = runtime(t)
   await first.rt.load()

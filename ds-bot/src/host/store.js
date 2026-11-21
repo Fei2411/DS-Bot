@@ -344,6 +344,8 @@ export function install(rt) {
       notifyStoreSync()
     })
     writing = run.catch(() => {})
+    // A save queued before this adopt must not take in later saves: they write the adopted state.
+    queued = undefined
     const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
     adopting = tracked
     return tracked
@@ -419,18 +421,27 @@ export function install(rt) {
     return warnReadOnly()
   }
 
+  let queued
   const save = ({ required = false } = {}) => {
     if (stopped) return required ? Promise.reject(new Error('The Bot team cannot be saved after this host stopped.')) : writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
+    // A save made while another waits in the queue joins it: that write takes its
+    // snapshot when it runs, so it already holds this caller's change.
+    queued ??= queueWrite()
+    return queued.then(skipped => {
+      if (skipped !== undefined && required) throw new Error(`This host cannot save the Bot team: ${skipped}`)
+    })
+  }
+  const queueWrite = () => {
     const run = writing.then(async () => {
+      if (queued === job) queued = undefined
       // Re-check writability once the queued write runs: an adopt queued before
       // it may have made this host read-only (e.g. a file a newer DS Bot wrote).
       if (stuck !== undefined || holder !== undefined) {
-        if (required) throw new Error(`This host cannot save the Bot team: ${readOnly()}`)
         warnReadOnly()
-        return
+        return readOnly()
       }
       // The snapshot is taken here, so a save made while an adopt was pending
       // writes the adopted state, not the stale one it had.
@@ -471,10 +482,11 @@ export function install(rt) {
       }
     })
     writing = run.catch(() => {})
-    return run.catch(error => {
+    const job = run.catch(error => {
       warn('ds-bot: state write failed: %s', error)
       throw error
     })
+    return job
   }
 
   ctx.effect(() => () => {
