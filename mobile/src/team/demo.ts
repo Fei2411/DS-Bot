@@ -86,6 +86,10 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         if (data === undefined) throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
         return { mime: 'image/png', data }
       }
+      case 'file-download': {
+        if (body.attachmentId !== 'att-1') throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
+        return { name: 'release-notes.md', mime: 'text/markdown', bytes: btoa('# Release notes\n\nDemo file from DS Bot.\n') }
+      }
       case 'state':
         if (body.since === state.revision) return { revision: state.revision, unchanged: true, work: state.work, activity: state.activity }
         return state
@@ -111,7 +115,15 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'stop-agent': {
         const agentId = String(body.agentId ?? '')
         const running = state.work?.agents?.[agentId] !== undefined
-        if (running) delete state.work!.agents![agentId]
+        if (running) {
+          delete state.work!.agents![agentId]
+          // What the Agent made before it was stopped: a photo and a file, as a host sends them.
+          const pages = chatsRef.current[state.agents?.find(agent => agent.id === agentId)?.sessions.at(-1) ?? '']
+          if (pages !== undefined) {
+            const item: ChatItem = { kind: 'bot', text: 'Here is the screenshot and the notes.', imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }], files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: Date.now(), seq: (pages[0].items.at(-1)?.seq ?? 0) + 1 }
+            pages[0] = { ...pages[0], items: [...pages[0].items, item] }
+          }
+        }
         touch()
         return running
       }
