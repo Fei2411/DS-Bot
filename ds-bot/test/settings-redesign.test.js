@@ -1,0 +1,457 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
+
+const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+
+async function loadBundle(contents) {
+  const { outputFiles } = await build({
+    stdin: { contents, resolveDir: join(repoRoot, 'ds-bot') },
+    bundle: true,
+    format: 'cjs',
+    platform: 'browser',
+    write: false,
+    logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  return outputFiles[0].text
+}
+
+function makeStatefulReact() {
+  const states = new Map()
+  const effects = new Map()
+  let cleanups = []
+  let activePath = ''
+  let hookIdx = 0
+
+  const nextSlot = () => {
+    const key = `${activePath}#${hookIdx++}`
+    return key
+  }
+
+  const React = {
+    Fragment: Symbol('Fragment'),
+    Component: class {
+      constructor(props) { this.props = props; this.state = {} }
+      setState(patch) { Object.assign(this.state, typeof patch === 'function' ? patch(this.state) : patch) }
+    },
+    createElement(type, props, ...children) {
+      return {
+        type,
+        props: props ?? {},
+        children: children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false && c !== true),
+      }
+    },
+    useState(init) {
+      const key = nextSlot()
+      if (!states.has(key)) states.set(key, typeof init === 'function' ? init() : init)
+      const set = (next) => {
+        const prev = states.get(key)
+        states.set(key, typeof next === 'function' ? next(prev) : next)
+      }
+      return [states.get(key), set]
+    },
+    useRef(init) {
+      const key = nextSlot()
+      if (!states.has(key)) states.set(key, { current: init })
+      return states.get(key)
+    },
+    useMemo(fn) {
+      const key = nextSlot()
+      const val = fn()
+      states.set(key, val)
+      return val
+    },
+    useCallback(fn) { return fn },
+    useId() { return 'bt-id' },
+    createContext(v) { return { Provider: ({ children }) => children, _v: v } },
+    useContext(c) { return c?._v },
+    useEffect(fn, deps) {
+      const key = nextSlot()
+      effects.set(key, { fn, deps })
+    },
+    useLayoutEffect(fn, deps) {
+      const key = nextSlot()
+      effects.set(key, { fn, deps })
+    },
+  }
+
+  const expand = (node, path = 'root') => {
+    if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${idx}]`))
+    if (!node || typeof node !== 'object') return node
+    if (node.type === React.Fragment) return expand(node.children, `${path}.F`)
+    if (typeof node.type === 'function') {
+      const name = node.type.name || 'Fn'
+      const compPath = `${path}/${name}:${node.props?.key ?? ''}`
+      if (node.type.prototype && typeof node.type.prototype.render === 'function') {
+        const inst = new node.type({ ...node.props, children: node.children })
+        return expand(inst.render(), compPath)
+      }
+      activePath = compPath
+      hookIdx = 0
+      const out = node.type({ ...node.props, children: node.children })
+      return expand(out, compPath)
+    }
+    return { ...node, children: expand(node.children ?? [], `${path}.${node.type}`) }
+  }
+
+  const runEffects = () => {
+    for (const c of cleanups.splice(0)) c()
+    for (const { fn } of effects.values()) {
+      const cleanup = fn()
+      if (typeof cleanup === 'function') cleanups.push(cleanup)
+    }
+    effects.clear()
+  }
+
+  return {
+    React,
+    render(el) {
+      effects.clear()
+      const tree = expand(el)
+      runEffects()
+      return tree
+    },
+    unmount() {
+      for (const c of cleanups.splice(0)) c()
+      states.clear()
+      effects.clear()
+    },
+  }
+}
+
+function findAll(node, pred, out = []) {
+  if (Array.isArray(node)) { for (const c of node) findAll(c, pred, out); return out }
+  if (!node || typeof node !== 'object') return out
+  if (pred(node)) out.push(node)
+  for (const c of node.children ?? []) findAll(c, pred, out)
+  return out
+}
+
+function textOf(node) {
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (!node || typeof node !== 'object') return ''
+  return (node.children ?? []).map(textOf).join('')
+}
+
+const iconStub = () => null
+const primitivesStub = {
+  IconAgentPresetOutlineMedium: iconStub,
+  IconArchiveOutlineMedium: iconStub,
+  IconPersonalizationOutlineMedium: iconStub,
+  IconSettingsOutlineMedium: iconStub,
+  IconUserOutlineMedium: iconStub,
+  MarkdownText: () => null,
+  FishLogo: () => null,
+  writeClipboard: async () => true,
+  UserMessageContent: () => null,
+}
+
+const baseRoster = {
+  bots: [{ id: 'chief', name: 'Chief' }, { id: 'writer', name: 'Writer' }],
+  rooms: [{ id: 'r1', name: 'Design', members: ['chief', 'writer'], admin: 'chief' }],
+  byId: { chief: { id: 'chief', name: 'Chief' }, writer: { id: 'writer', name: 'Writer' } },
+  roomsById: { r1: { id: 'r1', name: 'Design', members: ['chief', 'writer'], admin: 'chief' } },
+  mainBotIds: ['chief'],
+  models: [{ ref: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', provider: 'deepseek' }],
+  prefs: { theme: 'deepseek' },
+  connectors: { connectors: [], mail: { accounts: [] } },
+  im: { connections: [], platforms: [] },
+  imStatus: {},
+  phone: { on: false, status: 'off', server: '', phones: [], pairing: null },
+  computer: { enabled: false },
+  secrets: [],
+  secretStore: { mode: 'plaintext' },
+}
+
+const withGlobals = async (fn) => {
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  const listeners = new Set()
+  globalThis.window = {
+    addEventListener(type, listener) { if (type === 'keydown') listeners.add(listener) },
+    removeEventListener(type, listener) { if (type === 'keydown') listeners.delete(listener) },
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    innerWidth: 1280,
+    innerHeight: 800,
+  }
+  globalThis.document = {
+    body: { dataset: {}, hasAttribute: () => false },
+    documentElement: { addEventListener() {}, removeEventListener() {} },
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  try {
+    return await fn(listeners)
+  } finally {
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+}
+
+test('SettingsDialog consolidates nav into 9 groups and preserves all legacy sub-page deep links', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+
+    const actions = {
+      openSettings() {},
+      closeSettings() {},
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      deepseekServices: () => Promise.resolve(null),
+      folders: () => Promise.resolve({ team: '/work' }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+      diagnostics: () => Promise.resolve({ entries: [], total: 0, markdown: '' }),
+      repoStars: () => Promise.resolve(null),
+      setPrefs: () => Promise.resolve(),
+    }
+
+    const renderPage = (page, id = null) => {
+      harness.unmount()
+      return harness.render(harness.React.createElement(SettingsDialog, {
+        page, id, roster: baseRoster, actions, useUpdate: sel => sel({}),
+      }))
+    }
+
+    const guideTree = renderPage('guide')
+    const navButtons = findAll(findAll(guideTree, n => n.type === 'nav')[0], n => n.type === 'button')
+    assert.deepEqual(navButtons.map(textOf), ['Guide', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Usage', 'About DS Bot'])
+
+    const routes = [
+      ['models', 'Models', 'Providers'],
+      ['bot-models', 'Models', 'Bot models'],
+      ['local-agents', 'Models', 'Local agents'],
+      ['deepseek-services', 'Models', 'DeepSeek services'],
+      ['bots', 'Team', 'Bots'],
+      ['groups', 'Team', 'Group chats'],
+      ['schedules', 'Team', 'Scheduled tasks'],
+      ['connectors', 'Connect', 'Connectors'],
+      ['im', 'Connect', 'IM'],
+      ['phone', 'Connect', 'Phone'],
+      ['mcp', 'Connect', 'MCP access'],
+      ['computer', 'Tools', 'Computer use'],
+      ['browser', 'Tools', 'Browser'],
+      ['capabilities', 'Tools', 'Capabilities'],
+      ['secrets', 'Tools', 'Secrets'],
+      ['about', 'About DS Bot', 'About DS Bot'],
+      ['feedback', 'About DS Bot', 'Feedback'],
+    ]
+
+    for (const [page, expectedGroup, expectedTab] of routes) {
+      const tree = renderPage(page)
+      const currentNav = findAll(tree, n => n.type === 'button' && n.props['aria-current'] === 'page')[0]
+      assert.equal(textOf(currentNav), expectedGroup, `page "${page}" should highlight nav group "${expectedGroup}"`)
+      const subnav = findAll(tree, n => n.props?.className === 'bt-settings-subnav')[0]
+      assert.ok(subnav, `page "${page}" should render sub-tab bar`)
+      const activeTab = findAll(subnav, n => n.type === 'button' && n.props['aria-pressed'] === true)[0]
+      assert.ok(textOf(activeTab).startsWith(expectedTab), `page "${page}" should activate sub-tab "${expectedTab}", got "${textOf(activeTab)}"`)
+    }
+
+    // Drilled-down Bot detail hides sub-tabs and shows Back button.
+    const botDetail = renderPage('bots', 'chief')
+    assert.equal(findAll(botDetail, n => n.props?.className === 'bt-settings-subnav').length, 0)
+    assert.ok(findAll(botDetail, n => n.type === 'button' && n.props['aria-label'] === 'Back to Bots').length === 1)
+    harness.unmount()
+  })
+})
+
+test('Settings search filters bilingual keywords, clears on Escape without closing, and auto-expands Advanced', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async (listeners) => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+
+    let closed = 0
+    const opened = []
+    let currentPage = 'guide'
+    const actions = {
+      openSettings: (page, id) => { opened.push([page, id ?? null]); currentPage = page },
+      closeSettings: () => { closed += 1 },
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      folders: () => Promise.resolve({ team: '/work' }),
+      setPrefs: () => Promise.resolve(),
+    }
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+      page: currentPage, id: null, roster: baseRoster, actions, useUpdate: sel => sel({}),
+    }))
+
+    let tree = draw()
+    const searchInput = () => findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-set-search-input')[0]
+
+    // Search in Chinese for WeChat → matches IM.
+    searchInput().props.onChange({ target: { value: '微信' } })
+    tree = draw()
+    const hits = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')
+    assert.equal(hits.length, 1)
+    assert.match(textOf(hits[0]), /IM/)
+
+    // Escape while search has text clears query without closing dialog.
+    let prevented = false
+    searchInput().props.onKeyDown({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() {} })
+    assert.equal(prevented, true)
+    assert.equal(closed, 0)
+    // Also ensure window Escape listener is inactive while query was non-empty.
+    for (const fn of listeners) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    assert.equal(closed, 0)
+
+    tree = draw()
+    assert.equal(searchInput().props.value, '')
+
+    // Searching "memory" and clicking jumps to general with Advanced auto-expanded.
+    searchInput().props.onChange({ target: { value: 'memory' } })
+    tree = draw()
+    const memHit = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')[0]
+    assert.ok(memHit)
+    memHit.props.onClick()
+    assert.deepEqual(opened, [['general', null]])
+    tree = draw()
+    const collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
+    assert.equal(collapseBtn.props['aria-expanded'], true, 'jumping to Memory via search must auto-expand Advanced')
+    harness.unmount()
+  })
+})
+
+test('GuidePage shows setup banner only when no usable model exists and switches themes inline', async () => {
+  const code = await loadBundle("export { GuidePage } from './src/client/guide-page.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : harness.React
+    ))
+    const { GuidePage } = mod.exports
+
+    const opened = []
+    const saved = []
+    const actions = {
+      openSettings: (page, id) => opened.push([page, id ?? null]),
+      providers: () => Promise.resolve({ available: true, providers: [] }),
+      setPrefs: patch => { saved.push(patch); return Promise.resolve() },
+    }
+
+    // No usable model → banner appears with Set up button.
+    const emptyTree = harness.render(harness.React.createElement(GuidePage, {
+      roster: { ...baseRoster, models: [{ ref: 'deepseek/chat', name: 'Chat', needsKey: true }] },
+      actions,
+      run: p => p,
+    }))
+    const banner = findAll(emptyTree, n => n.props?.className === 'bt-guide-banner')[0]
+    assert.ok(banner, 'setup banner should show when no usable model exists')
+    const setUpBtn = findAll(banner, n => n.type === 'button')[0]
+    setUpBtn.props.onClick()
+    assert.deepEqual(opened, [['models', null]])
+
+    // Usable model present → no banner; inline theme pills apply immediately.
+    harness.unmount()
+    const readyTree = harness.render(harness.React.createElement(GuidePage, {
+      roster: baseRoster,
+      actions,
+      run: p => p,
+    }))
+    assert.equal(findAll(readyTree, n => n.props?.className === 'bt-guide-banner').length, 0)
+    const paperPill = findAll(readyTree, n => n.type === 'button' && n.props?.className === 'bt-guide-theme-pill' && textOf(n).includes('Paper'))[0]
+    assert.ok(paperPill)
+    paperPill.props.onClick()
+    assert.deepEqual(saved, [{ theme: 'paper' }])
+    harness.unmount()
+  })
+})
+
+test('PhonePage offers one-click Turn on & pair and collapses custom relay server editor by default', async () => {
+  const code = await loadBundle("export { PhonePage } from './src/client/phone-page.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : harness.React
+    ))
+    const { PhonePage } = mod.exports
+
+    const Section = ({ title, children }) => harness.React.createElement('section', null, harness.React.createElement('h3', null, title), children)
+    const Row = ({ label, hint, children }) => harness.React.createElement('div', null, harness.React.createElement('span', null, label), hint ? harness.React.createElement('span', null, hint) : null, children)
+
+    const calls = []
+    const actions = {
+      phoneSet: patch => { calls.push(['set', patch]); return Promise.resolve() },
+      phonePair: () => { calls.push(['pair']); return Promise.resolve() },
+      phonePairCancel: () => Promise.resolve(),
+      phoneRemove: () => Promise.resolve(),
+    }
+
+    let phone = { on: false, status: 'off', server: '', phones: [], pairing: null }
+    const draw = () => harness.render(harness.React.createElement(PhonePage, {
+      roster: { phone }, actions, Section, Row,
+    }))
+
+    let tree = draw()
+    // Server input is collapsed by default.
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server').length, 0)
+    // Click Edit to reveal Server input.
+    const editBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit')[0]
+    assert.ok(editBtn)
+    editBtn.props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server').length, 1)
+
+    // Click Turn on & pair while phone access is off.
+    const pairBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Turn on & pair')[0]
+    assert.ok(pairBtn)
+    assert.equal(pairBtn.props.disabled, false)
+    pairBtn.props.onClick()
+    assert.deepEqual(calls, [['set', { on: true }]])
+
+    // Once phone comes online, pairing starts automatically.
+    phone = { ...phone, on: true, status: 'online' }
+    tree = draw()
+    assert.deepEqual(calls, [['set', { on: true }], ['pair']])
+    harness.unmount()
+  })
+})
+
+test('BrowserPage collapses Allow an action form behind Allow action toggle and uses Segmented duration', async () => {
+  const code = await loadBundle("export { BrowserPage } from './src/client/browser-settings.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : harness.React
+    ))
+    const { BrowserPage } = mod.exports
+
+    const Section = ({ title, action, children }) => harness.React.createElement('section', null, harness.React.createElement('h3', null, title), action, children)
+    const Row = ({ label, hint, children }) => harness.React.createElement('div', null, harness.React.createElement('span', null, label), hint ? harness.React.createElement('span', null, hint) : null, children)
+
+    const draw = () => harness.render(harness.React.createElement(BrowserPage, {
+      roster: baseRoster, actions: { updateBot: () => Promise.resolve() }, run: p => p, Section, Row,
+    }))
+
+    let tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'form').length, 0, 'form should be collapsed initially')
+    const toggleBtn = findAll(tree, n => n.type === 'button' && textOf(n).includes('Allow action'))[0]
+    assert.ok(toggleBtn)
+    toggleBtn.props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'form').length, 1)
+    assert.ok(findAll(tree, n => n.props?.className?.includes('bt-seg')).length >= 1, 'Duration should use Segmented')
+    harness.unmount()
+  })
+})

@@ -207,13 +207,13 @@ test('Traditional Chinese phrase mapping translates 界面动效 and its tier la
   assert.equal(toTraditional('无'), '無')
 })
 
-test('SettingsDialog renders Interface motion choices in General appearance and updates effects', () => {
+test('SettingsDialog renders Interface motion choices in Appearance and updates effects', () => {
   const dom = new JSDOM('<!doctype html><body></body>')
   const { exports: client, react } = loadClient({ document: dom.window.document, window: dom.window })
 
   const calls = []
   const tree = expand(react.createElement(client.SettingsDialog, {
-    page: 'general',
+    page: 'appearance',
     roster: { byId: {}, roomsById: {}, prefs: { effects: 'reduced' } },
     actions: {
       setPrefs: (patch) => { calls.push(patch); return Promise.resolve() },
@@ -227,7 +227,7 @@ test('SettingsDialog renders Interface motion choices in General appearance and 
   walk(tree, (node) => {
     if (node.type === 'div' && node.props?.['aria-label'] === 'Interface motion') group = node
   })
-  assert.ok(group, 'Interface motion Segmented group should render in GeneralPage')
+  assert.ok(group, 'Interface motion Segmented group should render in AppearancePage')
   const buttons = []
   walk(group, (node) => { if (node.type === 'button') buttons.push(node) })
   assert.deepEqual(buttons.map(btn => [textOf(btn), btn.props['aria-pressed']]), [
