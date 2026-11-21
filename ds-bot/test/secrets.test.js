@@ -442,6 +442,20 @@ test('frozen accessor model messages are redacted fresh', async (t) => {
   assert.equal(redactRequest(bench, [message]).messages[0].content, '[secret:TOKEN]')
 })
 
+test('frozen arrays with custom prototypes are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const prototype = Object.create(Array.prototype)
+  prototype[0] = Object.freeze({ type: 'text', text: 'clean' })
+  const content = Object.freeze(Object.setPrototypeOf(new Array(1), prototype))
+  const message = Object.freeze({ role: 'user', content })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  prototype[0] = Object.freeze({ type: 'text', text: value })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+})
+
 test('cached redacted copies reject downstream mutation', async (t) => {
   const bench = start()
   t.after(bench.stop)
