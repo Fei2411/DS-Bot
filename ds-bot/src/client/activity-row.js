@@ -33,10 +33,16 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // descendant one; a flow without a slot falls back to the first flow. No flow at all
 // is a mount failure, noted once per page — the observer keeps retrying in case the
 // transcript is only mid-mount.
+// The slot sits at the end of the flow, so the search walks the whole transcript; it
+// runs every frame the transcript changes, so the last slot found is kept while it
+// stays in its flow.
 let mountMissed = false
+let runningSlot = null
 export function findHost() {
-  const node = document.querySelector('[data-chat-flow] [data-chat-running]')?.closest('[data-chat-flow]')
-    ?? document.querySelector('[data-chat-flow]')
+  if (runningSlot?.slot.isConnected && runningSlot.slot.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
+  const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
+  const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
+  runningSlot = slot ? { slot, host: node } : null
   if (node === null && !mountMissed) {
     mountMissed = true
     noteClientError('activity row', new Error('[data-chat-flow] not found'))
@@ -98,7 +104,7 @@ function useRowEntrances(replacing) {
         }
         return
       }
-      const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
+      const items = [...column.children].filter(item => item.hasAttribute('data-chat-flow-key'))
       let last = -1
       items.forEach((item, index) => { if (seen.has(item)) last = index })
       if (reducedEffects()) return

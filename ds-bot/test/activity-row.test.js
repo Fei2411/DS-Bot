@@ -91,6 +91,29 @@ test('without the running slot the row mounts at the flow tail', () => {
   assert.equal(host?.id, 'flow')
 })
 
+// The search walks the whole transcript, so it runs again only when the slot it found
+// leaves its flow.
+test('the activity row keeps its flow while the slot stays, and follows the slot when it leaves', () => {
+  const doc = dom.window.document
+  doc.body.innerHTML = '<div data-chat-flow id="one"><div data-chat-running id="slot"></div></div><div data-chat-flow id="two"></div>'
+  assert.equal(findHost()?.id, 'one')
+  const query = doc.querySelector
+  let queries = 0
+  doc.querySelector = (selector) => { queries += 1; return query.call(doc, selector) }
+  try {
+    for (let i = 0; i < 5; i++) assert.equal(findHost()?.id, 'one')
+    assert.equal(queries, 0)
+    doc.getElementById('two').appendChild(doc.getElementById('slot'))
+    assert.equal(findHost()?.id, 'two')
+    doc.getElementById('slot').remove()
+    assert.equal(findHost()?.id, 'one')
+    doc.getElementById('one').insertAdjacentHTML('beforeend', '<div data-chat-running></div>')
+    assert.equal(findHost()?.id, 'one')
+  } finally {
+    delete doc.querySelector
+  }
+})
+
 test('a missing chat flow is reported once per page, not on every retry', () => {
   dom.window.document.body.innerHTML = '<div></div>'
   const before = clientErrors().filter(entry => entry.text.startsWith('activity row:')).length
