@@ -238,6 +238,12 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(browserServed, ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel'])
 })
 
+test('a browser device may stop a Bot background task, as it may stop a chat', () => {
+  for (const endpoint of ['stop-chat', 'stop-room-work', 'bot-stop-task']) {
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, endpoint), undefined, endpoint)
+  }
+})
+
 test('the link strips pairing offers from feed events without changing the desktop payload', async t => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-private-feed-'))
   const ctx = fakeContext()
