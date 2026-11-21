@@ -894,6 +894,17 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           return ok(await rt.stopTask(bot.id, String(body.taskId ?? '')))
         }
+        case 'bot-task-send': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          const taskId = String(body.taskId ?? '')
+          const task = (bot.tasks ?? []).find(item => item?.id === taskId)
+          if (task === undefined) return fail('Unknown task', 'bot/not-found')
+          const text = String(body.text ?? '').trim()
+          if (text === '') return fail('Message text is required', 'bot/invalid')
+          return ok(await rt.deliverToTask(taskId, { text, role: 'task-followup', note: 'User follow-up' }))
+        }
         case 'bot-task-read': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
