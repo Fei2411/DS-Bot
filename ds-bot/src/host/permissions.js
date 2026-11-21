@@ -173,11 +173,16 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', bot.name, room.name, error))
     }
     for (const botId of room.members ?? []) {
+      if (roomRequests.get(room) !== request) break
       const bot = rt.botOf(botId)
       if (bot === undefined) continue
+      const seq = requests.get(botId)?.seq
       for (const task of activeTasksOf(bot)) {
+        if (roomRequests.get(room) !== request) break
         if (task.roomId !== room.id) continue
-        await setPreset(task.sessionId, () => room.permission ?? bot.permission ?? service.catalog().defaultPreset)
+        await setPreset(task.sessionId, () => roomRequests.get(room) === request
+          && (room.permission !== undefined || requests.get(botId)?.seq === seq)
+          ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, true)
           .catch(error => rt.warn('ds-bot: permission for task %s of %s in %s not applied: %s', task.id, bot.name, room.name, error))
       }
     }
@@ -196,8 +201,12 @@ export function install(rt) {
       if (seen.has(id)) break
       seen.add(id)
       const group = rt.groupOwners.get(id)
-      const bot = rt.botOf(group?.botId ?? rt.chatOwners?.get(id))
-      if (bot) { owner = { id, bot, room: group && rt.roomOf(group.roomId) }; break }
+      const task = rt.taskOwners?.get(id)
+      const bot = rt.botOf(group?.botId ?? task?.botId ?? rt.chatOwners?.get(id))
+      if (bot) {
+        owner = { id, bot, room: rt.roomOf(group?.roomId ?? task?.roomId) }
+        break
+      }
       const parent = current.session?.header?.parentSession
       current = parent && current.session.header.origin === 'subagent' ? await rt.resolveAgent(parent).catch(() => undefined) : undefined
     }
@@ -209,7 +218,7 @@ export function install(rt) {
       const mode = ctx.get('sandboxPolicy').resolve({ session: agent.session }).mode
       // Child Sessions keep a narrower sandbox; a full-access child is capped at workspace.
       if (mode !== 'workspace-write' && (owner.id === sessionId || mode !== 'read-only')) setSandboxMode(agent.session, 'workspace-write')
-      if (owner.id !== sessionId && !Object.hasOwn(saved, sessionId)) saved[sessionId] = approval.effectivePolicy(agent.session)
+      if (owner.id !== sessionId && !Object.hasOwn(saved, sessionId)) saved[sessionId] = approval.overrideOf(agent.session) ?? 'ask'
       approval.setPolicy(agent, 'ask')
     } else if (Object.hasOwn(saved, sessionId)) {
       approval.setPolicy(agent, saved[sessionId])
