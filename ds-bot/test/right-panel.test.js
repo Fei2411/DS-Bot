@@ -13,6 +13,95 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 
 const document = attrs => new JSDOM(`<!doctype html><body><div ${attrs}><div data-rightbar-col></div></div></body>`).window.document
 
+const bundle = await build({
+  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+const module = { exports: {} }
+runInNewContext(bundle.outputFiles[0].text, {
+  module, exports: module.exports, URL, URLSearchParams, setTimeout, clearTimeout,
+  require: (name) => {
+    const platform = {
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
+        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+        useState: initial => [initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
+        useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
+        useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+      },
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
+    }
+    if (!(name in platform)) throw new Error(`no platform module ${name}`)
+    return platform[name]
+  },
+})
+const { DetailsDrawer } = module.exports
+
+const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
+const room = { id: 'g', name: 'Writers', named: true, members: ['a'] }
+const roster = { byId: { a: bot }, roomsById: { g: room }, bots: [], exchangeTurns: {}, questions: {}, memory: false }
+const hook = value => select => select(value)
+const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
+  sessionId, roster: liveRoster, actions,
+  useSessions: hook({ byId: {} }),
+  useSessionStatus: hook(new Map()),
+  useActivity: hook({}),
+  useWork: hook({ bots: {}, approvals: [] }),
+  useBrowserTabs: hook({}),
+  useBrowserPages: hook({}),
+})
+const moreButton = (node) => {
+  if (Array.isArray(node)) return node.map(moreButton).find(found => found !== null) ?? null
+  if (node === null || typeof node !== 'object') return null
+  if (node.props?.['data-info-row'] === 'more') return node
+  for (const child of node.children ?? []) {
+    const found = moreButton(child)
+    if (found) return found
+  }
+  return null
+}
+const menuKeys = (node) => {
+  const button = moreButton(node)
+  const items = button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? []
+  // `items` was built inside the bundle's vm context; a test-context array compares deep-equal.
+  return [...items].map(item => (item.sep ? 'sep' : item.key))
+}
+const menuItem = (node, key) => {
+  const button = moreButton(node)
+  return [...(button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? [])].find(item => item.key === key)
+}
+
+const runStatsBundle = await build({
+  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+let runStatsState
+const runStatsReact = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ children }) => children; return ctx },
+  useContext: ctx => ctx.value, useId: () => 'rv-id',
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  useState: () => [runStatsState, value => { runStatsState = value }],
+  useEffect: effect => effect(), useRef: current => ({ current }), useLayoutEffect: () => {},
+  useMemo: make => make(), useCallback: fn => fn,
+  useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+}
+const runStatsModule = { exports: {} }
+runInNewContext(runStatsBundle.outputFiles[0].text, {
+  module: runStatsModule, exports: runStatsModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
+  require: (name) => {
+    const platform = {
+      react: runStatsReact,
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
+    }
+    if (!(name in platform)) throw new Error(`no platform module ${name}`)
+    return platform[name]
+  },
+})
+const { RunStats } = runStatsModule.exports
+
 // 公开#456: the Bot drawer and DSH's right column never share the window; whichever
 // the user asked for last wins. The column's state lives on the frame's attributes.
 test('the frame attributes read as the column state', () => {
@@ -72,64 +161,6 @@ test('a newer Session switch restarts the window and the old settle is stale', (
 
 // The drawer's top row, bundled once and run with a minimal React stand-in; the
 // row's components are vnodes, so only the drawer's own body runs.
-const bundle = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
-  bundle: true, format: 'cjs', platform: 'node', write: false,
-  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
-})
-const module = { exports: {} }
-runInNewContext(bundle.outputFiles[0].text, {
-  module, exports: module.exports, URL, URLSearchParams, setTimeout, clearTimeout,
-  require: (name) => {
-    const platform = {
-      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
-        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-        useState: initial => [initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
-        useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
-        useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
-      },
-      'react-dom': { createPortal: node => node },
-      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
-    }
-    if (!(name in platform)) throw new Error(`no platform module ${name}`)
-    return platform[name]
-  },
-})
-const { DetailsDrawer } = module.exports
-
-const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
-const room = { id: 'g', name: 'Writers', named: true, members: ['a'] }
-const roster = { byId: { a: bot }, roomsById: { g: room }, bots: [], exchangeTurns: {}, questions: {}, memory: false }
-const hook = value => select => select(value)
-const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
-  sessionId, roster: liveRoster, actions,
-  useSessions: hook({ byId: {} }),
-  useSessionStatus: hook(new Map()),
-  useActivity: hook({}),
-  useWork: hook({ bots: {}, approvals: [] }),
-  useBrowserTabs: hook({}),
-  useBrowserPages: hook({}),
-})
-const moreButton = (node) => {
-  if (Array.isArray(node)) return node.map(moreButton).find(found => found !== null) ?? null
-  if (node === null || typeof node !== 'object') return null
-  if (node.props?.['data-info-row'] === 'more') return node
-  for (const child of node.children ?? []) {
-    const found = moreButton(child)
-    if (found) return found
-  }
-  return null
-}
-const menuKeys = (node) => {
-  const button = moreButton(node)
-  const items = button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? []
-  // `items` was built inside the bundle's vm context; a test-context array compares deep-equal.
-  return [...items].map(item => (item.sep ? 'sep' : item.key))
-}
-const menuItem = (node, key) => {
-  const button = moreButton(node)
-  return [...(button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? [])].find(item => item.key === key)
-}
 
 test('the drawer `···` lists browser, a side chat, and the column tabs', () => {
   const picks = { openBrowser: 0, newSideChat: 0, newTerminal: 0, openFiles: 0 }
@@ -314,35 +345,6 @@ test('every Bot gets the Sessions section and New session, not only local-agent 
 
 // A second instance of the drawer bundle whose React runs effects at once and keeps
 // one state slot, so the status line can resolve its host read and render.
-const runStatsBundle = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
-  bundle: true, format: 'cjs', platform: 'node', write: false,
-  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
-})
-let runStatsState
-const runStatsReact = {
-  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ children }) => children; return ctx },
-  useContext: ctx => ctx.value, useId: () => 'rv-id',
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-  useState: () => [runStatsState, value => { runStatsState = value }],
-  useEffect: effect => effect(), useRef: current => ({ current }), useLayoutEffect: () => {},
-  useMemo: make => make(), useCallback: fn => fn,
-  useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
-}
-const runStatsModule = { exports: {} }
-runInNewContext(runStatsBundle.outputFiles[0].text, {
-  module: runStatsModule, exports: runStatsModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
-  require: (name) => {
-    const platform = {
-      react: runStatsReact,
-      'react-dom': { createPortal: node => node },
-      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
-    }
-    if (!(name in platform)) throw new Error(`no platform module ${name}`)
-    return platform[name]
-  },
-})
-const { RunStats } = runStatsModule.exports
 
 test('the Bot status line needs the runStats action and then draws turns, speed, cache and context', () => {
   runStatsState = undefined
