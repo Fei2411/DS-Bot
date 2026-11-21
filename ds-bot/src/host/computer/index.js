@@ -7,7 +7,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND } from '../constants.js'
@@ -848,9 +848,6 @@ export function install(rt) {
       if (DRIVER_REFUSED.has(call.method)) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
-      injectDriverSession(exec, call, bot.id)
-      await ensureDriverSession(exec, call)
-      await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
         if (call.method === 'get_desktop_state') {
           return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
@@ -858,14 +855,17 @@ export function install(rt) {
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
-      } else if (app.unknown === true && DRIVER_GLOBAL.has(call.method)) {
-        // A listing filtered by a pid not seen yet is metadata; its result records the app.
+      } else if (app.unknown === true && DRIVER_LISTINGS.has(call.method)) {
+        // A listing filtered by a pid not seen yet is window metadata; its result records the app.
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
         const verdict = await driverConsent(exec, bot, sessionId, app)
         if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
+      injectDriverSession(exec, call, bot.id)
+      await ensureDriverSession(exec, call)
+      await ensureDriverCursorOff(exec, bot.id)
     }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)

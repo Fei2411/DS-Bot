@@ -889,7 +889,7 @@ test('cua-driver sessions that ended while idle are started again before the nex
   const defs = {
     cua_driver_native__start_session: { parameters: { properties: { session: {} } }, execute: async (args) => { started.push(args); return { active: true } } },
     cua_driver_native__list_apps: { parameters: { properties: {} } },
-    cua_driver_native__get_window_state: { parameters: { properties: { window_id: {}, session: {} } } },
+    cua_driver_native__get_screen_size: { parameters: { properties: { session: {} } } },
   }
   ctx.tools.get = name => defs[name]
   let now = 1_000_000
@@ -909,8 +909,8 @@ test('cua-driver sessions that ended while idle are started again before the nex
   assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
   assert.deepEqual(started, [{}, {}])
   // a tool that takes a session gets the Bot's label, started the same way
-  const exec = { name: 'cua_driver_native__get_window_state', arguments: { window_id: 7 }, agent: { id: 'w1' }, callId: 'c-state' }
-  await gate(exec, allow)
+  const exec = { name: 'cua_driver_native__get_screen_size', arguments: {}, agent: { id: 'w1' }, callId: 'c-size' }
+  assert.equal(await gate(exec, allow), 'allowed')
   const label = exec.arguments.session
   assert.match(label, /^dsbot-/)
   assert.deepEqual(started.at(-1), { session: label })
@@ -921,12 +921,18 @@ test('cua-driver sessions that ended while idle are started again before the nex
   assert.equal(ended.isError, true)
   assert.match(ended.content[0].text, /started it again; call the tool again/)
   assert.deepEqual(started, [{}])
-  // discovery reads need no named window; the whole-desktop capture stays refused
-  assert.equal(await call('cua_driver_native__list_windows', { pid: 99 }), 'allowed')
-  assert.equal(await call('cua_driver_native__get_accessibility_tree', {}), 'allowed')
+  // a window listing for a pid not seen yet needs no consent; reading that app's
+  // elements does, and so does the whole-desktop capture. Refused calls start nothing.
+  started.length = 0
+  now += 5 * 60_000
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', { pid: 99 })).kind, 'deny')
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', {})).kind, 'deny')
   const desktop = await call('cua_driver_native__get_desktop_state', {})
   assert.equal(desktop.kind, 'deny')
   assert.match(desktop.reason, /get_window_state/)
+  assert.deepEqual(started, [])
+  assert.equal(await call('cua_driver_native__list_windows', { pid: 99 }), 'allowed')
+  assert.deepEqual(started, [{}])
 })
 
 test('revoke clears a This time under every key, so the next call asks again', async (t) => {
