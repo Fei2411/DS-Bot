@@ -282,9 +282,11 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     // A local service answering the probe owns the voice; the pref decides only
     // when there is none, so a machine without one keeps its configured engine.
     const beginSpeech = async (spoken) => {
-      const at = turn
+      // A pause or close during the probe still wins: both bump speechSeq, and a
+      // reply they cancelled must not start reading afterwards.
+      const seq = speechSeq.current
       const local = await (localTts.current ??= probeLocalTts())
-      if (turn !== at) return
+      if (speechSeq.current !== seq) return
       if (local) {
         window.speechSynthesis?.cancel()
         localPlayer.current ??= createSpeechPlayer((chunk, voice, signal) => synthesizeLocal(chunk, signal), LOCAL_TTS_CHUNK)
