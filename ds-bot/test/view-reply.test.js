@@ -198,6 +198,28 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.equal(writes, 1)
 })
 
+test('someone else’s home paths are redacted from the public preview and manual report', async (t) => {
+  const { call, show, team, stop } = await start()
+  t.after(stop)
+  const args = await prepareIssue({
+    title: 'Could not open /Users/private-test/Documents/notes.txt',
+    what: 'Reload fails in /home/other-person/work/project',
+    diagnostics: 'Windows failed in C:\\Users\\Another Person\\Documents\\notes.txt',
+  })
+  assert.equal(args.title, 'Could not open ~/Documents/notes.txt')
+  assert.match(args.view.children[1].text, /Reload fails in ~\/work\/project/)
+  assert.match(args.view.children[1].text, /Windows failed in ~\/Documents\\notes\.txt/)
+  assert.equal((await show('writer-now', args)).concluded, true)
+  const { id, view } = (await team()).views['writer-now']
+  const reply = await call('view-reply', {
+    sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed: true },
+  })
+  const url = new URL(reply.value.issueReportResult.match(/https:\/\/\S+/)[0])
+  assert.equal(url.searchParams.get('title'), args.title)
+  assert.equal(url.searchParams.get('what'), 'Reload fails in ~/work/project')
+  assert.match(url.searchParams.get('diagnostics'), /Windows failed in ~\/Documents\\notes\.txt/)
+})
+
 test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
