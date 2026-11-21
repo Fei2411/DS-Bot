@@ -12,6 +12,25 @@ export function mediaSignal(signal, timeoutMs = MEDIA_TIMEOUT_MS) {
   return signal !== undefined ? AbortSignal.any([signal, timeout]) : timeout
 }
 
+// The fetch adapters get: a call that sets no signal of its own gives up after
+// `timeoutMs`, so one stalled connection cannot hold a chat's send queue forever.
+// A write that timed out may still have arrived, so it is marked unknown and
+// dropped, not sent again.
+export const FETCH_TIMEOUT_MS = 60_000
+
+export function boundedFetch(fetchImpl = (...args) => globalThis.fetch(...args), timeoutMs = FETCH_TIMEOUT_MS) {
+  return async (url, init) => {
+    if (init?.signal != null) return fetchImpl(url, init)
+    try {
+      return await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+    } catch (error) {
+      const write = !['GET', 'HEAD'].includes(String(init?.method ?? 'GET').toUpperCase())
+      if (error?.name === 'TimeoutError' && write) error.unknown = true
+      throw error
+    }
+  }
+}
+
 export function isHttpUrl(raw) {
   try {
     const { protocol } = new URL(String(raw ?? ''))

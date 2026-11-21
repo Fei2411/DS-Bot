@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  createChatQueue, detectImageMediaType, fileExtension,
+  boundedFetch, createChatQueue, detectImageMediaType, fileExtension,
   isHttpUrl, readCappedBytes,
 } from '../src/host/im/platforms/media.js'
 
@@ -81,4 +81,25 @@ test('createChatQueue preserves order and emits no unhandledRejection when a tas
   } finally {
     process.off('unhandledRejection', onUnhandled)
   }
+})
+
+// A fetch that only ends when its signal aborts, like a stalled connection.
+const stalled = async (url, init) => new Promise((resolve, reject) => {
+  init.signal.addEventListener('abort', () => reject(init.signal.reason))
+})
+
+test('boundedFetch gives up on a stalled call and marks a timed-out write unknown', async (t) => {
+  // AbortSignal.timeout does not hold the event loop open by itself.
+  const alive = setInterval(() => {}, 1000)
+  t.after(() => clearInterval(alive))
+  const fetch = boundedFetch(stalled, 20)
+  await assert.rejects(fetch('https://example.test/token'), error => error.name === 'TimeoutError' && error.unknown !== true)
+  await assert.rejects(fetch('https://example.test/send', { method: 'POST', body: '{}' }), error => error.name === 'TimeoutError' && error.unknown === true)
+})
+
+test('boundedFetch keeps a signal the caller set', async () => {
+  const seen = []
+  const own = new AbortController().signal
+  await boundedFetch(async (url, init) => { seen.push(init.signal); return new Response('') }, 20)('https://example.test', { signal: own })
+  assert.equal(seen[0], own)
 })
