@@ -493,7 +493,7 @@ async function chat(cdp) {
       const button = ${send}
       if (button === null || button.disabled) return false
       if (window.__packedEnter === undefined) {
-        const trace = window.__packedEnter = { before: ${snapshot}, events: [] }
+        const trace = window.__packedEnter = { events: [] }
         // Every press is recorded, not just the first: a run that needed the second one has to
         // say so.
         for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {

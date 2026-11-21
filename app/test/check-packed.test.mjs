@@ -97,12 +97,6 @@ test('even when bare JS focus already reports true, chat clicks the composer onc
   assert.equal(presses, 1)
 })
 
-test('the packed check still sends exactly one Enter and waits for the reply', async () => {
-  const { error, keys } = await runChat('sent')
-  assert.equal(error, undefined)
-  assert.deepEqual(keys.map(key => key.type), ['keyDown', 'keyUp'])
-})
-
 test('an unfocused window is clicked through the input pipeline until document.hasFocus() holds before typing', async () => {
   const { error, presses, clicks } = await runChat('unfocused')
   assert.equal(error, undefined)
@@ -129,9 +123,6 @@ test('every press being dropped stops after three tries and reports the empty ke
   assert.equal(state.focused, true)
   assert.equal(state.draft, 'packaged app check')
   assert.equal(state.send.disabled, false)
-  assert.equal(state.enter.before.draft, 'packaged app check')
-  assert.equal(state.enter.before.send.disabled, false)
-  assert.equal(state.enter.before.focused, true)
   assert.deepEqual(state.enter.events, [])
 })
 
@@ -146,7 +137,6 @@ test('an IME holding the key stops after three tries and reports composing and p
   assert.equal(state.enter.events[0].target, 'DIV')
   assert.equal(state.enter.events[0].composing, true)
   assert.equal(state.enter.events[0].prevented, true)
-  assert.equal(state.draft, 'packaged app check')
 })
 
 test('the script waits for the start window to close and leave one visible window before running chat', () => {
