@@ -121,6 +121,11 @@ test('agent-chat pages the newest Session of the DSH Agent and refuses an unknow
   assert.deepEqual(page.items, [])
   assert.equal(page.cursor, null)
   assert.equal(pages.at(-1).address.sessionId, second.sessionId)
+  await call('agent-archive', { agentId: agent.id, sessionId: agent.sessions[0] })
+  await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })
+  const empty = (await call('agent-chat', { agentId: agent.id })).value
+  assert.equal(empty.sessionId, undefined)
+  assert.deepEqual(empty.items, [])
   const missing = await call('agent-chat', { agentId: 'nope' })
   assert.equal(missing.ok, false)
   assert.equal(missing.error.code, 'bot/not-found')

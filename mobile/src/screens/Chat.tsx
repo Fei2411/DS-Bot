@@ -75,6 +75,11 @@ const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown
   const [endpoint, field] = CHAT_READS[kind]
   return call(endpoint, { [field]: id, ...(cursor === undefined ? {} : { cursor }), steps: true }) as Promise<ChatPage>
 }
+// The Session a message to a DSH Agent goes to: its newest, or a new one when all are archived.
+async function agentSession(call: (endpoint: string, payload?: unknown) => Promise<unknown>, agentId: string) {
+  const newest = (await readChat(call, 'agent', agentId)).sessionId
+  return newest ?? ((await call('agent-session', { agentId })) as { sessionId: string }).sessionId
+}
 export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: ChatKind; id: string }) {
   const key = `${computerId}:${target.kind}:${target.id}`
   if (pages.has(key) || reads.has(key)) return
@@ -85,7 +90,8 @@ export function prefetchChat(call: (endpoint: string, payload?: unknown) => Prom
 
 // Messages the phone sent that the chat has not shown back yet, per chat. They live
 // outside the screen so a send keeps going, and stays visible, across chat switches.
-interface Outgoing { item: ChatItem; photos: Photo[]; sessionId: string; known?: Set<string> }
+// `agentId` with no `sessionId`: a DSH Agent whose Sessions are all archived.
+interface Outgoing { item: ChatItem; photos: Photo[]; sessionId: string; agentId?: string; known?: Set<string> }
 const outbox = new Map<string, Outgoing[]>()
 const outboxListeners = new Set<() => void>()
 const EMPTY: Outgoing[] = []
@@ -138,6 +144,8 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const restoredForRef = useRef<string | null>(null)
   const prevPageItemsLenRef = useRef(0)
   const prevSigRef = useRef('')
+  // A DSH Agent's chat is one Session; a new one starts over, older pages and all.
+  const shownSession = useRef<string | undefined>(cached?.page?.sessionId)
 
   useEffect(() => {
     prevSigRef.current = ''
@@ -168,9 +176,12 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
         const sig = `${next.sessionId ?? ''}:${botCount}:${lastBot?.id ?? lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
         if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
         prevSigRef.current = sig
+        const restart = kind === 'agent' && shownSession.current !== next.sessionId
+        shownSession.current = next.sessionId
+        if (restart) cursor.current = next.cursor
         setPageState(prev => ({
           key: chatKey,
-          older: prev.key === chatKey ? prev.older : [],
+          older: prev.key === chatKey && !restart ? prev.older : [],
           page: prev.key === chatKey && prev.page !== null && prev.page.sessionId === next.sessionId
             ? { ...next, items: keepSame(prev.page.items, next.items) }
             : next,
@@ -189,7 +200,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       // The latest refresh, not this closure's: the chat may have changed meanwhile.
       if (again.current) { again.current = false; void latest.current(generation.current) }
     }
-  }, [call, id, chatKey])
+  }, [call, id, kind, chatKey])
   const latest = useRef(refresh)
   latest.current = refresh
 
@@ -198,6 +209,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     const kept = pages.get(chatKey)
     setPageState({ key: chatKey, page: kept?.page ?? null, older: kept?.older ?? [] })
     cursor.current = kept?.cursor
+    shownSession.current = kept?.page?.sessionId
     setGone(false)
     const saved = scrollOffsets.get(chatKey) ?? 0
     offsetRef.current = saved
@@ -245,7 +257,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     finally { loading.current = false; setLoadingOlder(false) }
   }, [call, id, kind, chatKey])
 
-  const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? agent?.sessions.at(-1) ?? id
+  const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? (agent !== undefined ? agent.sessions.at(-1) ?? '' : id)
   const question: Question | undefined = team?.questions?.[sessionId]
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
@@ -366,7 +378,8 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     try {
       const images: string[] = []
       for (const photo of entry.photos) images.push(((await call('stage-image', { mediaType: photo.mediaType, data: photo.data })) as { id: string }).id)
-      await call('send', { sessionId: entry.sessionId, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
+      const target = entry.sessionId !== '' || entry.agentId === undefined ? entry.sessionId : await agentSession(call, entry.agentId)
+      await call('send', { sessionId: target, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
       // What the chat already holds, so only a new row of the same text counts as this one.
       const kept = pages.get(key)
       const all = [...(kept?.older ?? []), ...(kept?.page.items ?? [])]
@@ -383,7 +396,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   latestKey.current = chatKey
   const send = async (text: string, photos: Photo[]) => {
     const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const entry: Outgoing = { item: { kind: 'user', text, local: 'sending', localId, time: Date.now(), ...(photos.length > 0 ? { localImages: photos.map(photo => photo.uri) } : {}) }, photos, sessionId }
+    const entry: Outgoing = { item: { kind: 'user', text, local: 'sending', localId, time: Date.now(), ...(photos.length > 0 ? { localImages: photos.map(photo => photo.uri) } : {}) }, photos, sessionId, ...(agent !== undefined ? { agentId: agent.id } : {}) }
     setOutbox(chatKey, list => [...list, entry])
     // Once the new row is laid out, bring the latest messages into view.
     setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60)

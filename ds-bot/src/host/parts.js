@@ -2140,8 +2140,11 @@ export function install(rt) {
 
   // A DSH Agent's newest Session, paged like one part of a Bot's chat.
   async function agentPage(agentId, cursor, steps = false) {
-    const sessionId = rt.agentSessionOf(agentId)
-    if (sessionId === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+    const agent = rt.agentById(agentId)
+    if (agent === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+    // Every Session archived: the Agent is still there, with an empty chat.
+    const sessionId = agent.sessions.at(-1)
+    if (sessionId === undefined) return { items: [], cursor: null }
     return { sessionId, ...(await partPage([{ sessionId }], 0, cursor, steps)) }
   }
 
