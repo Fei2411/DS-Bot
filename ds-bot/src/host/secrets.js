@@ -748,8 +748,15 @@ export function install(rt) {
   // A value that is part of its own label would be replaced again on every pass, so a
   // request this listener rewrote passes straight through.
   const rewritten = new WeakSet()
-  const deeplyFrozen = value => value === null || typeof value !== 'object'
-    || (Object.isFrozen(value) && Object.values(value).every(deeplyFrozen))
+  const immutableData = value => {
+    if (value === null || typeof value !== 'object') return typeof value !== 'function'
+    const prototype = Object.getPrototypeOf(value)
+    if (!Object.isFrozen(value) || (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)) return false
+    return Reflect.ownKeys(value).every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return Object.hasOwn(descriptor, 'value') && immutableData(descriptor.value)
+    })
+  }
   ctx.on('llm/stream', (options, next) => {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
     let messages = options.messages
@@ -761,7 +768,7 @@ export function install(rt) {
         if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
         else {
           replaced = redactDeep(message, redact)
-          if (object && deeplyFrozen(message)) redactedMessages.set(message, replaced)
+          if (object && immutableData(message)) redactedMessages.set(message, replaced)
         }
         if (replaced !== message) changed = true
         return replaced

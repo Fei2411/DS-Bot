@@ -430,6 +430,18 @@ test('shallow-frozen model messages are redacted fresh after nested mutation', a
   assert.equal(redactRequest(bench, [message]).messages[0].content[1].text, '[secret:TOKEN]')
 })
 
+test('frozen accessor model messages are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  let text = 'clean'
+  const message = Object.freeze({ role: 'user', get content() { return text } })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content, '[secret:TOKEN]')
+})
+
 test('memoized model messages equal the original deep redaction path', async (t) => {
   const bench = start()
   t.after(bench.stop)
