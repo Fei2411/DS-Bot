@@ -65,17 +65,18 @@ async function saveShot(ctx, value) {
 
 /**
  * @param {any} ctx
- * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void }} options
+ * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void, unregister?: (name: string) => void, skipEffect?: boolean }} options
  */
-export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, downloadGraceMs, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register }) {
+export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, downloadGraceMs, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register, unregister, skipEffect = false }) {
   const sessions = new Map()
   const pendingCalls = new Map()
   let disposed = false
   const names = new Set(toolDefs.map(tool => tool.name))
+  const toolDisposers = []
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
   // DSH's public surface API, keeping the original log for the transcript.
-  ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+  const offPreStep = ctx.on?.('agent/pre-step', async ({ agent }, next) => {
     const session = agent.session
     let changed = false
     for (const seq of session.surface?.nodes ?? []) {
@@ -108,13 +109,22 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     sessions.delete(botId)
     void Promise.resolve(session).then(s => s.close(), () => {}).catch(() => {})
   })
-  ctx.effect(() => async () => {
+  const dispose = async () => {
+    if (disposed) return
     disposed = true
+    offPreStep?.()
     unsubscribeHolds?.()
+    for (const lift of toolDisposers.splice(0)) { try { lift() } catch {} }
+    if (typeof unregister === 'function') {
+      for (const name of names) { try { unregister(name) } catch {} }
+    }
     const open = [...sessions.values()]
     sessions.clear()
     await Promise.all(open.map(session => Promise.resolve(session).then(opened => opened.close(), () => {})))
-  }, 'ds-bot: browser plugin')
+  }
+  if (!skipEffect) {
+    ctx.effect(() => dispose, 'ds-bot: browser plugin')
+  }
 
   // Closes a Bot's browser and removes its profile directory; used when the Bot is deleted.
   async function drop(botId) {
@@ -126,7 +136,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
 
   const registerTool = register ?? (tool => ctx.tools.register(tool))
   for (const spec of toolDefs) {
-    registerTool(defineTool({
+    const registered = registerTool(defineTool({
       name: spec.name,
       description: spec.description,
       parameters: spec.parameters ?? {},
@@ -196,11 +206,14 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
         }
       },
     }))
+    if (typeof registered === 'function') toolDisposers.push(registered)
   }
 
   // An object return would be collected as an effect by cordis, so the api is an out-param.
   if (api) {
     api.drop = drop
+    api.dispose = dispose
     api.frame = async botId => (await sessions.get(botId))?.frame?.()
+    api.toolNames = [...names]
   }
 }

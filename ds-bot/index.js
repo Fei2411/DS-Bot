@@ -60,6 +60,7 @@ import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
 export { COLORS } from './src/host/constants.js'
+export { defineBrowserProvider } from './src/host/browser/provider.js'
 
 export { name, inject } from './src/host/entry.js'
 

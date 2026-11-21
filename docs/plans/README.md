@@ -54,6 +54,7 @@
 | [DeepSeek 文档识别](2026-11-14-read-document.md) | 官方 API key 给任意主模型独立 OCR：`read_document` 会话归属 / 只读 / 长文留存；凭据网关隔离、缺 key / 费用与验收 |
 | [DeepSeek 语音](2026-11-14-deepseek-services.md) | 官方 API key 给任意主模型独立 ASR / TTS：`deepseek-asr` 走现有语音输入选择、TTS 分段串行与停止取消；偏好只存 `tts` / `voice`，配置 key 不自动切语音 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
+| [浏览器操控插件化](2026-11-20-browser-pluginization.md) | 浏览器后端彻底插件化与热切换：内置 Playwright、社区 DSH 浏览器插件（如 ego lite）、MCP 浏览器服务与原生 Provider 契约 |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
 | [一个 Bot 同时跑两个会话](2026-11-13-parallel-sessions.md) | Bot 忙的时候新开会话：新的一段在前台开始，原来那段留在后台继续跑；详情面板列出每个 Bot 的会话和「运行中」标记；打开运行中的后台段是只读的（英文文档） |

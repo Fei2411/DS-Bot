@@ -26,6 +26,7 @@
   "exports": {
     ".": "./plugin.js",
     "./client": "./client.js",
+    "./browser-provider": "./src/host/browser/provider.js",
     "./web-search": "./web-search.js",
     "./package.json": "./package.json"
   },

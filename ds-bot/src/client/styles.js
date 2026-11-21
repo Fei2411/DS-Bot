@@ -673,6 +673,10 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-hint.bt-danger{color:var(--bt-danger)}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
+.bt-browser-item-title{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bt-browser-active-chip{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.bt-browser-status-chip[data-state=ready]{color:var(--bt-green)}
+.bt-browser-status-chip[data-state=error]{color:var(--bt-danger)}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
 .bt-browser-grant+.bt-browser-grant{border-top:.5px solid var(--bt-line)}
 .bt-browser-grant-who{display:flex;align-items:center;gap:8px;flex:0 0 150px;min-width:0;font-size:13px}
