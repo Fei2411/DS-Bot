@@ -23,6 +23,10 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 
 ## Install
 
+An experimental, opt-in code executor is available as `ds-bot/code-mode`. Bots keep their existing executor unless enabled. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
+Enable it with `config.codeMode.enabled: true` on the active profile's `bot` (`ds-bot`) row; the bundle defaults it to false. Restart the engine after changing it. It mounts only in Bot and group Session scopes. Also enable `tool-fs`'s `applyPatch: true` in their selected agent preset for multi-file patches.
+Code-mode requires DSH **0.2.2-rc.1 or newer**; with the switch off the main plugin never imports this separate entry, so older hosts are unaffected.
+
 **Desktop app (Windows, macOS, Linux)**
 
 The desktop app brings its own DSH, so you don't need to install DSH first. Download the installer for your system from [Releases](https://github.com/Fei2411/DS-Bot/releases/latest), open it, and set up a model in Settings (it can also copy your existing bot team from DSH).

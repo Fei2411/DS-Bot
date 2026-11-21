@@ -1307,6 +1307,7 @@ export function install(rt) {
   // and delegation tools. The restricts are kept with the Session's scope, so they
   // lift with it.
   const hideBotUnusedTools = (agent) => {
+    rt.scopeCodeMode?.(agent)
     shareBotTools(agent)
     const id = agent?.session?.id
     // The shell shadows go with the scope, so a reload or a Session that leaves
@@ -1388,7 +1389,7 @@ export function install(rt) {
     // Cleared whatever happens below: the names are offered once, not on
     // every step.
     held.unlisted.clear()
-    if ((assembled.tools ?? []).some(tool => tool.name === 'run_code')) return assembled
+    if ((assembled.tools ?? []).length === 1 && assembled.tools[0].name === 'run_code') return assembled
     if (typeof ctx.tools?.schemas !== 'function') return assembled
     try {
       const wanted = new Set(pending)

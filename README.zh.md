@@ -23,6 +23,10 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 ## 安装
 
+实验性的可选代码执行器通过 `ds-bot/code-mode` 提供，默认关闭，不改变 Bot 的现有执行方式。参见[配置和限制](docs/plans/2026-11-18-code-mode.md)。
+在当前 profile 的 `bot`（`ds-bot`）行中设置 `config.codeMode.enabled: true` 启用；bundle 默认设为 false，修改后重启 engine。它只挂载在 Bot 和群聊的 Session 作用域中。多文件补丁还需在这些 Session 使用的 agent 预设中启用 `tool-fs` 的 `applyPatch: true`。
+代码模式要求 DSH **0.2.2-rc.1 或更新版本**；开关关闭时主插件不导入此独立入口，因此不影响旧版宿主。
+
 **桌面应用（Windows、macOS、Linux）**
 
 桌面应用自带 dsh，不用先装 dsh。直接在 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型就能用（也可以直接复制你原来在 dsh 里的 bot 团队）。
