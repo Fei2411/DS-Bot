@@ -30,11 +30,11 @@ export function CommandPalette({ start, token, mode = 'search', owner, roster, a
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS)
   }
   useEscape(close)
-  // Referring to a chat never searches message text, so the turn outlines stay unread:
+// Referring to a chat never searches message text, so the turn outlines stay unread:
   // the empty result keeps every keystroke free of a team-wide scan.
+  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)]
   const found = useSessions((list) => {
     if (reference || wanted.length < 2) return '[]'
-    const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(item => item.id)]
     const hits = []
     for (const id of ids) {
       const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline

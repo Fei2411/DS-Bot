@@ -51,6 +51,8 @@
 | 优先级 | `P0` 崩溃、丢数据或无法使用 · `P1` 影响日常使用 · `P2` 一般缺陷或功能 · `P3` 建议或窄场景 |
 | 领域 | `area/host` 服务端（`index.js`、`src/host/`）· `area/client` 界面（`src/client/`）· `area/group` 群聊、@ 提及、Bot 之间的消息 · `area/memory` 记忆、对话分段、上下文 · `area/browser` Bot 浏览器、读网页、网页搜索 · `area/build` CI、发版、脚本、测试台 · `area/docs` |
 | 流程 | `maintainer` 等维护者 · `needs-info` 等报告人 · `upstream` 原因在 DSH 或其他插件 · `duplicate` · `auto-found` 自动测试发现 |
+| PR 制作 Agent | `agent/antigravity` · `agent/claude-code` · `agent/codex` · `agent/devin` · `agent/dsbot` · `agent/other`（哪个 AI Agent 开的 PR） |
+| PR 审查状态 | `review/approved` · `review/changes-requested` · `review/needs-decision` · `review/re-review`（互斥）· `reviewed-by/<agent>`（哪个 AI Agent 做的独立审查） |
 
 跨多个领域或不属于任何领域的 Issue，不打领域标签。
 
@@ -133,7 +135,7 @@ node scripts/build-client.mjs --check  # client.js 与 src/client 一致
 npm run lint                           # oxlint
 ```
 
-CI 在每个 Pull Request 上，在 Linux 和 Windows 上跑同样的三项检查。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
+对改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request（以及 `dev`/`main` 分支），CI 会在 Linux 和 Windows 上跑 `npm test`（含生成文件一致性校验），在 Linux 上跑 `npm run lint`。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree

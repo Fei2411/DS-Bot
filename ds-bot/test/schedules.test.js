@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { reminderText } from '../src/host/schedules.js'
+import { ScheduleInputError } from '@deepseek-ai/dsh-schedule'
 
 const TEAM = {
   version: 1,
@@ -57,35 +58,66 @@ function scheduleService() {
   }
 }
 
-// The Host-wide service of DSH 0.2.2: each task has a delivery target and changes through edit().
+// The Host-wide service of DSH 0.2.2: each task has a delivery target and changes through
+// edit(). edit() follows dsh-schedule's own steps: not found, then the version check, then
+// the target check (archived Sessions) when the target changes or the task resumes, then
+// the revision; a resume finds the next occurrence, which a one-time task past its time
+// does not have. Errors are DSH's own ScheduleInputError.
 function hostSchedule() {
   const tasks = new Map()
+  const archived = new Set()
   let next = 1
+  let clock = Date.parse('2026-01-01T00:00:00.000Z')
+  const stamp = () => new Date(clock += 1000).toISOString()
   const edits = []
   return {
     tasks,
     edits,
+    archived,
+    // A change made elsewhere (a delivery, a Bot's own edit) after a read.
+    touch(id, change = {}) { Object.assign(tasks.get(id), change, { updatedAt: stamp() }) },
     async create({ title, prompt, timing, target }) {
       const id = `schedule-${next++}`
       const [selector] = Object.keys(timing).filter(key => key !== 'kind')
-      tasks.set(id, { record: { id, kind: timing.kind, title, prompt, scheduledAt: timing.at ?? '2030-01-01T01:00:00.000Z' }, timing: timing[selector], target, status: 'active' })
+      tasks.set(id, { record: { id, kind: timing.kind, title, prompt, scheduledAt: timing.at ?? '2030-01-01T01:00:00.000Z' }, timing: timing[selector], target, status: 'active', updatedAt: stamp() })
       return { id }
     },
     async catalog() {
-      return [...tasks.values()].map(task => ({ ...task.record, target: task.target, status: task.status }))
+      return [...tasks.values()].map(task => ({ ...task.record, target: task.target, status: task.status, ...(task.updatedAt === undefined ? {} : { updatedAt: task.updatedAt }) }))
     },
     async edit(request) {
       edits.push(request)
-      if (request.action === 'delete') tasks.delete(request.id)
-      else Object.assign(tasks.get(request.id), request.patch)
-      return { id: request.id }
+      const task = tasks.get(request.id)
+      if (task === undefined) return { id: request.id, code: 'schedule_not_found' }
+      if (request.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== (task.updatedAt ?? null)) return { id: request.id, code: 'schedule_conflict' }
+      if (request.action === 'delete') {
+        tasks.delete(request.id)
+        return { id: request.id, deleted: true }
+      }
+      const { active, target } = request.patch
+      const effectiveTarget = target ?? task.target
+      if ((target !== undefined || active === true) && effectiveTarget.kind === 'session' && archived.has(effectiveTarget.sessionId)) {
+        throw new ScheduleInputError('invalid_rule', `target Session "${effectiveTarget.sessionId}" is archived.`)
+      }
+      if (active === true) {
+        const once = task.record.kind === 'at' || task.record.kind === 'after'
+        if (once && Date.parse(task.record.scheduledAt) <= Date.now()) {
+          throw new ScheduleInputError('not_future', 'This task has no future occurrence. Set a future schedule before resuming it.')
+        }
+        // updateScheduleRecord recomputes a recurrence from now on every resume.
+        if (!once) task.record = { ...task.record, scheduledAt: new Date(Date.now() + 3600_000).toISOString() }
+      }
+      if (target !== undefined) task.target = target
+      if (active !== undefined) task.status = active ? 'active' : 'paused'
+      task.updatedAt = stamp()
+      return { ...task.record, target: task.target, status: task.status, updatedAt: task.updatedAt }
     },
   }
 }
 
-function setup(services = {}) {
+function setup(services = {}, team = TEAM) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
@@ -291,4 +323,158 @@ test('a failed task move can resume without losing identical remaining tasks', a
   await rt.moveSchedules('w2', 's9')
   assert.equal(on('s9').length, 2)
   assert.equal(on('w2').length, 0)
+})
+
+test('on DSH 0.2.2 a task pauses and resumes from Settings, and only a team task does', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await call('schedule-create', { target: 'w1', title: 'Briefing', prompt: 'Sum up the day', when: { kind: 'daily', time: '09:00', timeZone: 'UTC' } })
+  assert.equal((await call('schedules', {})).value.canPause, true)
+
+  const paused = await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: false })
+  assert.equal(paused.ok, true, JSON.stringify(paused))
+  assert.deepEqual(paused.value.tasks.map(task => [task.title, task.status, task.state]), [['Briefing', 'paused', 'paused']])
+  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-1', action: 'update', patch: { active: false }, expectedUpdatedAt: schedule.edits.at(-1).expectedUpdatedAt })
+  assert.equal(typeof schedule.edits.at(-1).expectedUpdatedAt, 'string', 'the edit names the version it read')
+
+  // Asking again for the state it is already in changes nothing.
+  const edits = schedule.edits.length
+  assert.equal((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: false })).ok, true)
+  assert.equal(schedule.edits.length, edits)
+
+  const resumed = await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: true })
+  assert.deepEqual(resumed.value.tasks.map(task => task.status), ['active'])
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true })
+
+  // The Session named must be the task's own team Session.
+  assert.match((await call('schedule-pause', { sessionId: 'm1', id: 'schedule-1', active: false })).error.message, /No such task/)
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'missing', active: false })).error.message, /No such task/)
+  schedule.tasks.set('schedule-other', { record: { id: 'schedule-other', kind: 'at', title: 'Elsewhere', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'outside' }, status: 'active' })
+  assert.match((await call('schedule-pause', { sessionId: 'outside', id: 'schedule-other', active: false })).error.message, /No such task/)
+  assert.equal(schedule.tasks.get('schedule-other').status, 'active')
+
+  // An ended task stays ended; a one-time task past its time has nothing to resume to.
+  schedule.tasks.set('schedule-ended', { record: { id: 'schedule-ended', kind: 'at', title: 'Done', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'ended' })
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-ended', active: true })).error.message, /No such task/)
+  schedule.tasks.set('schedule-late', { record: { id: 'schedule-late', kind: 'at', title: 'Late', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'paused' })
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-late', active: true })).error.message, /Pick a time in the future/)
+  assert.equal(schedule.tasks.get('schedule-late').status, 'paused')
+})
+
+test('on DSH 0.2.1 there is no pause', async (t) => {
+  const schedule = scheduleService()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await call('schedule-create', { target: 'w1', title: 'Briefing', prompt: 'Sum up the day', when: { kind: 'daily', time: '09:00', timeZone: 'UTC' } })
+  assert.equal((await call('schedules', {})).value.canPause, false)
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: false })).error.message, /No such task/)
+})
+
+test('on DSH 0.2.2 a pause names the version it read, and a change in between is read again', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await call('schedule-create', { target: 'w1', title: 'Briefing', prompt: 'Sum up the day', when: { kind: 'daily', time: '09:00', timeZone: 'UTC' } })
+
+  // A Bot's own change lands between the read and the edit: the edit is refused, the
+  // task is read again, and the pause goes through on the new version.
+  const edit = schedule.edit.bind(schedule)
+  let raced = false
+  schedule.edit = async (request) => {
+    if (!raced) { raced = true; schedule.touch('schedule-1') }
+    return edit(request)
+  }
+  const paused = await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: false })
+  assert.equal(paused.ok, true, JSON.stringify(paused))
+  assert.equal(schedule.tasks.get('schedule-1').status, 'paused')
+  assert.equal(schedule.edits.length, 2)
+
+  // A delivery that ended a one-time task in between: read again, it is ended, nothing
+  // turns it into a paused task.
+  await call('schedule-create', { target: 'w1', title: 'Once', prompt: 'Ping', when: { kind: 'at', at: new Date(Date.now() + 3600_000).toISOString() } })
+  schedule.edit = async (request) => {
+    if (request.id === 'schedule-2' && schedule.tasks.get('schedule-2').status === 'active') schedule.touch('schedule-2', { status: 'ended' })
+    return edit(request)
+  }
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-2', active: false })).error.message, /No such task/)
+  assert.equal(schedule.tasks.get('schedule-2').status, 'ended')
+
+  // A task that keeps changing under every try says so instead of overwriting it.
+  schedule.edit = async (request) => { schedule.touch(request.id); return edit(request) }
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-1', active: true })).error.message, /The task just changed/)
+  assert.equal(schedule.tasks.get('schedule-1').status, 'paused')
+})
+
+test('on DSH 0.2.2 a task left on an earlier part resumes on the chat’s current part', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  // Writer's chat moved from w1 to w2; a move that failed left this task on w1.
+  schedule.archived.add('w1')
+  schedule.tasks.set('schedule-old', { record: { id: 'schedule-old', kind: 'daily', title: 'Left behind', prompt: 'x', scheduledAt: '2020-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w1' }, status: 'paused' })
+  const resumed = await call('schedule-pause', { sessionId: 'w1', id: 'schedule-old', active: true })
+  assert.equal(resumed.ok, true, JSON.stringify(resumed))
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true, target: { kind: 'session', sessionId: 'w2' } })
+  assert.deepEqual(schedule.tasks.get('schedule-old').target, { kind: 'session', sessionId: 'w2' })
+  assert.ok(Date.parse(schedule.tasks.get('schedule-old').record.scheduledAt) > Date.now(), 'a resumed recurrence runs next in the future')
+
+  // Where the current part is archived too, the user is told in words, not DSH's own.
+  schedule.archived.add('w2')
+  schedule.tasks.set('schedule-stuck', { record: { id: 'schedule-stuck', kind: 'daily', title: 'Stuck', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'paused' })
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-stuck', active: true })).error.message, /chat has ended/)
+})
+
+test('on DSH 0.2.2 a one-time task set "after" a delay is also past resuming once its time has gone', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  schedule.tasks.set('schedule-after', { record: { id: 'schedule-after', kind: 'after', title: 'Later', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'paused' })
+  assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-after', active: true })).error.message, /Pick a time in the future/)
+  assert.equal(schedule.tasks.get('schedule-after').status, 'paused')
+})
+
+test('on DSH 0.2.2 a task on an older chat still open resumes there, not on the foreground chat', async (t) => {
+  const team = JSON.parse(JSON.stringify(TEAM))
+  // Writer's foreground is w2; w-open is an older chat still open beside it.
+  team.bots.w1.openParts = [{ sessionId: 'w-open', openedAt: 5 }]
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule }, team)
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  schedule.tasks.set('schedule-open', { record: { id: 'schedule-open', kind: 'daily', title: 'Open chat', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w-open' }, status: 'paused' })
+  const resumed = await call('schedule-pause', { sessionId: 'w-open', id: 'schedule-open', active: true })
+  assert.equal(resumed.ok, true, JSON.stringify(resumed))
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true })
+  assert.deepEqual(schedule.tasks.get('schedule-open').target, { kind: 'session', sessionId: 'w-open' })
+})
+
+// A background task's Session holds no schedules (the hand-off moves them to the
+// foreground chat, and a task may not make one), so one left there by a failed move
+// resumes on the foreground chat, running task or not.
+for (const status of ['running', 'done']) {
+  test(`on DSH 0.2.2 a task left on a background task (${status}) resumes on the foreground chat`, async (t) => {
+    const team = JSON.parse(JSON.stringify(TEAM))
+    team.bots.w1.tasks = [{ id: 'task-1', sessionId: 'w-task', status, title: 'Long job', from: 'w2', createdAt: 6, ...(status === 'done' ? { endedAt: 7 } : {}) }]
+    const schedule = hostSchedule()
+    const { ctx, home, call } = setup({ schedule }, team)
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+    schedule.tasks.set('schedule-task', { record: { id: 'schedule-task', kind: 'daily', title: 'Task chat', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w-task' }, status: 'paused' })
+    const resumed = await call('schedule-pause', { sessionId: 'w-task', id: 'schedule-task', active: true })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.deepEqual(schedule.edits.at(-1).patch, { active: true, target: { kind: 'session', sessionId: 'w2' } })
+  })
+}
+
+test('on DSH 0.2.2 a one-time task whose time has come cannot be paused', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  for (const kind of ['at', 'after']) {
+    const id = `schedule-due-${kind}`
+    schedule.tasks.set(id, { record: { id, kind, title: 'Due', prompt: 'x', scheduledAt: new Date(Date.now() - 1000).toISOString() }, target: { kind: 'session', sessionId: 'w2' }, status: 'active' })
+    const edits = schedule.edits.length
+    assert.match((await call('schedule-pause', { sessionId: 'w2', id, active: false })).error.message, /due now/)
+    assert.equal(schedule.edits.length, edits)
+    assert.equal(schedule.tasks.get(id).status, 'active')
+  }
 })

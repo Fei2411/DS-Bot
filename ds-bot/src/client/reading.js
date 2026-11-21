@@ -48,9 +48,9 @@ export function sectionAt(tops, line) {
 // sits inside the scroller (the desktop app's sits below it).
 export function readingBand(scroller) {
   const box = scroller.getBoundingClientRect()
-  const head = Array.from(document.querySelectorAll('.bt-head'), node => node.getBoundingClientRect())
-    .find(rect => rect.height > 0 && rect.left < box.right && rect.right > box.left)
-  const top = head && head.bottom > box.top && head.bottom < box.bottom ? head.bottom : box.top
+  const heads = Array.from(document.querySelectorAll('.bt-head, .bt-island'), node => node.getBoundingClientRect())
+    .filter(rect => rect.height > 0 && rect.left < box.right && rect.right > box.left && rect.bottom > box.top && rect.bottom < box.bottom)
+  const top = heads.length > 0 ? Math.max(...heads.map(rect => rect.bottom)) : box.top
   const composer = parseFloat(getComputedStyle(scroller).getPropertyValue('--dsh-composer-height')) || 0
   return { top: top + GAP, bottom: box.bottom - composer, left: box.left, right: box.right }
 }
@@ -155,7 +155,8 @@ export function ReplyGuide({ box, active }) {
       const place = pillPlace(node.getBoundingClientRect(), band, news)
       const headings = place ? headingsIn(node) : []
       const current = sectionAt(headings.map(heading => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0)
-      const next = place && { ...place, current }
+      const maxWidth = place && Number.isFinite(band.right) ? Math.max(120, Math.min(MAX_WIDTH, Math.round(band.right - place.left - GAP))) : undefined
+      const next = place && { ...place, current, maxWidth }
       setView(prev => (prev && next && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     })
   }, [long, scroller])
@@ -192,7 +193,7 @@ export function ReplyGuide({ box, active }) {
     if (heading) glide(scroller, heading.getBoundingClientRect().top - shown.top - PILL - GAP)
   }
   const label = outline[shown.current]?.text ?? t('Contents')
-  return createPortal(h('div', { className: 'bt-reading', 'data-leaving': leaving || undefined, style: { top: shown.top, left: shown.left } },
+  return createPortal(h('div', { className: 'bt-reading', 'data-leaving': leaving || undefined, style: { top: shown.top, left: shown.left, maxWidth: shown.maxWidth } },
     outline.length === 0
       ? h('button', { type: 'button', className: 'bt-reading-start', onClick: toStart }, h(ArrowUpIcon), t('Start of reply'))
       : [

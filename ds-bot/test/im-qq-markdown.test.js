@@ -97,3 +97,29 @@ test('a line break inside a table cell keeps the row on one list item', () => {
     '- a：x y；b：z',
   )
 })
+
+test('a table needs no outer pipes to be converted', () => {
+  assert.equal(toQqMarkdown('a | b\n--- | ---\n1 | 2'), '- a：1；b：2')
+  assert.equal(
+    toQqMarkdown('Name | State\n:--- | ---:\nweb | ok\niOS | 待测'),
+    '- Name：web；State：ok\n- Name：iOS；State：待测',
+  )
+})
+
+test('a table ends at the next block instead of swallowing it', () => {
+  // A heading that happens to hold a pipe is not a row.
+  assert.equal(
+    toQqMarkdown('| A | B |\n|---|---|\n| 1 | 2 |\n# Notes | next'),
+    '- A：1；B：2\n# Notes | next',
+  )
+  // A list, a quote and a blank line end the table too.
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n- item | x'), '- A：1\n- item | x')
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n> quote | x'), '- A：1\n> quote | x')
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n\n| not | a row'), '- A：1\n\n| not | a row')
+})
+
+test('a delimiter row outside a table stays text', () => {
+  // Nothing above it is a header, so the line is prose and must survive.
+  assert.equal(toQqMarkdown('Using pipes:\n\n--- | ---'), 'Using pipes:\n\n--- | ---')
+  assert.equal(toQqMarkdown('--- | ---'), '--- | ---')
+})

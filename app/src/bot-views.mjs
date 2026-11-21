@@ -9,11 +9,11 @@ import { allowedNavigation, requestAllowed } from './bot-browser.mjs'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const PLAYWRIGHT_ARTIFACT_PREFIX = 'playwright-artifacts-'
-const rectOf = rect => ({
-  x: Math.max(0, Math.round(rect?.left ?? 0)),
-  y: Math.max(0, Math.round(rect?.top ?? 0)),
-  width: Math.max(1, Math.round(rect?.width ?? 800)),
-  height: Math.max(1, Math.round(rect?.height ?? 600)),
+const rectOf = (rect, zoom = 1) => ({
+  x: Math.max(0, Math.round((rect?.left ?? 0) * zoom)),
+  y: Math.max(0, Math.round((rect?.top ?? 0) * zoom)),
+  width: Math.max(1, Math.round((rect?.width ?? 800) * zoom)),
+  height: Math.max(1, Math.round((rect?.height ?? 600) * zoom)),
 })
 const BOT_ID = /^session-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 export const isBotId = value => typeof value === 'string' && BOT_ID.test(value)
@@ -254,7 +254,8 @@ export class BotViews {
   place(tabId, rect, visible = rect !== null) {
     const entry = this.#views.get(tabId)
     if (!entry) return false
-    if (rect !== null) entry.view.setBounds(rectOf(rect))
+    // The renderer reports CSS pixels; native view bounds are window DIPs.
+    if (rect !== null) entry.view.setBounds(rectOf(rect, this.#window()?.webContents.getZoomFactor() ?? 1))
     entry.shown = visible === true
     entry.view.setVisible(entry.shown && !this.#covered)
     if (visible === true) {

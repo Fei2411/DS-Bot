@@ -1,4 +1,4 @@
-import { createElement as h, startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { colorOf, MAIN_LOOK } from './characters.js'
 import { GRADIENTS, paintCss } from './inks.js'
 import { BotAvatar, BotMark, RoomAvatar } from './mark.js'
@@ -31,10 +31,23 @@ const soften = (paint, strength = 1) => {
   return paint.startsWith('linear-gradient(') ? paint.replace(/#[0-9a-f]{6}/gi, mix) : mix(paint)
 }
 
-const full = count => new Intl.NumberFormat(dateLocale()).format(Math.round(count))
+const numberCache = new Map()
+const full = (count) => {
+  const locale = dateLocale()
+  let fmt = numberCache.get(locale)
+  if (!fmt) { fmt = new Intl.NumberFormat(locale); numberCache.set(locale, fmt) }
+  return fmt.format(Math.round(count))
+}
 const hitRate = sum => percent(sum.cacheRead, sum.input + sum.cacheRead)
 
-const dates = options => new Intl.DateTimeFormat(dateLocale(), { timeZone: 'UTC', ...options })
+const dateCache = new Map()
+const dates = (options) => {
+  const locale = dateLocale()
+  const key = `${locale}|${JSON.stringify(options)}`
+  let fmt = dateCache.get(key)
+  if (!fmt) { fmt = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', ...options }); dateCache.set(key, fmt) }
+  return fmt
+}
 const hourText = ms => `${String(new Date(ms).getUTCHours()).padStart(2, '0')}:00`
 const yearOf = ms => new Date(ms).getUTCFullYear()
 // Day keys `from` to `to` as one short phrase, with the year only when it is not this one.
@@ -70,28 +83,34 @@ function titleOf(range, bucket) {
   return dates({ year: 'numeric', month: 'long' }).format(bucket.start)
 }
 
-// The number eases to each new value.
-function useTween(value) {
-  const [shown, setShown] = useState(0)
-  const from = useRef(0)
-  useEffect(() => {
-    if (reducedMotion() || typeof requestAnimationFrame !== 'function') {
+// The number eases to each new value within one range, and snaps on a range switch
+// so switching ranges does not count across unrelated totals (#1547).
+function useTween(value, rangeKey) {
+  const instant = reducedMotion() || typeof requestAnimationFrame !== 'function'
+  const [shown, setShown] = useState(() => (instant ? value : 0))
+  const from = useRef(instant ? value : 0)
+  const key = useRef(rangeKey)
+  useLayoutEffect(() => {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== 'function' || from.current === value) {
+      key.current = rangeKey
       from.current = value
       setShown(value)
       return undefined
     }
     const begin = from.current
     const started = performance.now()
+    let active = true
     let frame
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650)
+      if (!active) return
+      const progress = Math.min(1, Math.max(0, (now - started) / 650))
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3)
       setShown(from.current)
       if (progress < 1) frame = requestAnimationFrame(step)
     }
     frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
-  }, [value])
+    return () => { active = false; cancelAnimationFrame(frame) }
+  }, [value, rangeKey])
   return shown
 }
 
@@ -144,16 +163,18 @@ function Tabs({ label, value, options, onChange, boxRef }) {
     options.map(([id, text, icon]) => h('button', { key: id, type: 'button', 'aria-pressed': value === id, onClick: () => onChange(id) }, icon ? h(icon) : null, text)))
 }
 
-function Stats({ range, total, previous }) {
-  const shown = useTween(total.total)
+export function Stats({ range, total, previous }) {
+  const rangeKey = `${range.id}:${range.from ?? ''}:${range.to ?? ''}`
+  const shown = useTween(total.total, rangeKey)
   const change = previous > 0 ? Math.round(((total.total - previous) / previous) * 100) : null
   const cell = (label, value) => h('div', { className: 'bt-us-stat' }, h('span', { className: 'bt-us-stat-label' }, label), h('span', { className: 'bt-us-stat-value' }, value))
   return h('section', { className: 'bt-us-stats', style: { '--i': 0 } },
     h('div', { className: 'bt-us-stat bt-us-stat-main' },
-      h('span', { className: 'bt-us-stat-label' }, lastText(range)),
-      h('span', { className: 'bt-us-stat-value' }, compact(shown), h('small', null, t('tokens')),
+      h('div', { className: 'bt-us-stat-head' },
+        h('span', { className: 'bt-us-stat-label' }, lastText(range)),
         change === null ? null : h('span', { className: 'bt-us-delta', title: compareText(range) },
-          `${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}%`))),
+          `${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}%`)),
+      h('span', { className: 'bt-us-stat-value' }, compact(shown), h('small', null, t('tokens')))),
     cell(t('Cache hit rate'), `${hitRate(total)}%`),
     cell(t('Output'), compact(total.output)),
     cell(t('Calls'), full(total.calls)))
@@ -326,35 +347,41 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
 // Each day of the last year, shaded by its tokens.
 function Heat({ view, keep, paint, index }) {
   const [hover, setHover] = useState(null)
-  const today = hourMs(`${view.now.slice(0, 10)} 00`)
-  const first = mondayOf(today) - (HEAT_WEEKS - 1) * 7 * DAY_MS
-  const from = dayKey(first)
-  const daily = new Map()
-  for (const row of view.rows) {
-    const day = row[HOUR].slice(0, 10)
-    if (day >= from && keep(row)) daily.set(day, (daily.get(day) ?? 0) + tokensOf(row))
-  }
-  const most = Math.max(0, ...daily.values())
+  const { today, daily, most, months, gridData, active } = useMemo(() => {
+    const day = hourMs(`${view.now.slice(0, 10)} 00`)
+    const first = mondayOf(day) - (HEAT_WEEKS - 1) * 7 * DAY_MS
+    const from = dayKey(first)
+    const map = new Map()
+    for (const row of view.rows) {
+      const k = row[HOUR].slice(0, 10)
+      if (k >= from && keep(row)) map.set(k, (map.get(k) ?? 0) + tokensOf(row))
+    }
+    const peak = Math.max(0, ...map.values())
+    const monthLabels = []
+    const items = []
+    for (let week = 0; week < HEAT_WEEKS; week += 1) {
+      const monday = first + week * 7 * DAY_MS
+      if (week > 0 && new Date(monday).getUTCMonth() !== new Date(monday - 7 * DAY_MS).getUTCMonth()) {
+        monthLabels.push(h('span', { key: week, style: { gridColumn: week + 1 } }, dates({ month: 'short' }).format(monday)))
+      }
+      for (let d = 0; d < 7; d += 1) {
+        const ms = monday + d * DAY_MS
+        const value = map.get(dayKey(ms)) ?? 0
+        const level = value > 0 ? Math.max(1, Math.ceil(4 * Math.sqrt(value / peak))) : 0
+        items.push({ ms, week, day: d, level })
+      }
+    }
+    const count = [...map.values()].filter(value => value > 0).length
+    return { today: day, daily: map, most: peak, months: monthLabels, gridData: items, active: count }
+  }, [view.now, view.rows, keep])
+  void most
   const levels = [0.3, 0.52, 0.76, 1]
-  const months = []
-  const cells = []
-  for (let week = 0; week < HEAT_WEEKS; week += 1) {
-    const monday = first + week * 7 * DAY_MS
-    if (week > 0 && new Date(monday).getUTCMonth() !== new Date(monday - 7 * DAY_MS).getUTCMonth()) {
-      months.push(h('span', { key: week, style: { gridColumn: week + 1 } }, dates({ month: 'short' }).format(monday)))
-    }
-    for (let day = 0; day < 7; day += 1) {
-      const ms = monday + day * DAY_MS
-      const value = daily.get(dayKey(ms)) ?? 0
-      const level = value > 0 ? Math.max(1, Math.ceil(4 * Math.sqrt(value / most))) : 0
-      cells.push(h('span', {
-        key: ms, className: 'bt-us-cell', style: { '--w': week },
-        'data-on': hover?.ms === ms ? '' : undefined,
-        'data-future': ms > today ? '' : undefined, 'data-today': ms === today ? '' : undefined,
-        onMouseEnter: ms > today ? undefined : () => setHover({ ms, week, day }),
-      }, level > 0 ? h('i', { style: { background: soften(paint, levels[level - 1]) } }) : null))
-    }
-  }
+  const cells = gridData.map(({ ms, week, day, level }) => h('span', {
+    key: ms, className: 'bt-us-cell', style: { '--w': week },
+    'data-on': hover?.ms === ms ? '' : undefined,
+    'data-future': ms > today ? '' : undefined, 'data-today': ms === today ? '' : undefined,
+    onMouseEnter: ms > today ? undefined : () => setHover({ ms, week, day }),
+  }, level > 0 ? h('i', { style: { background: soften(paint, levels[level - 1]) } }) : null))
   const tipSide = hover ? {
     ...(hover.week >= HEAT_WEEKS / 2
       ? { right: `calc(${((HEAT_WEEKS - hover.week) / HEAT_WEEKS) * 100}% + 8px)` }
@@ -363,7 +390,6 @@ function Heat({ view, keep, paint, index }) {
       ? { top: `calc(${(hover.day / 7) * 100}% - 2px)` }
       : { top: 'auto', bottom: `calc(${((6 - hover.day) / 7) * 100}% - 2px)` }),
   } : null
-  const active = [...daily.values()].filter(value => value > 0).length
   const summary = active === 1 ? t('Active on 1 day in the last year') : t('Active on {count} days in the last year', { count: active })
   return h('section', { className: 'bt-us-card bt-us-heat', style: { '--i': index } },
     h('div', { className: 'bt-us-card-head' }, h('h3', null, t('Activity')), h('span', { className: 'bt-us-head-note' }, summary)),
@@ -406,6 +432,11 @@ export function UsagePage({ roster, actions, focusId }) {
   useEffect(() => {
     let stopped = false
     let timer
+    const schedule = (ms) => {
+      clearTimeout(timer)
+      if (stopped || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return
+      timer = setTimeout(load, ms)
+    }
     const load = async () => {
       try {
         const value = await actions.usage()
@@ -414,15 +445,24 @@ export function UsagePage({ roster, actions, focusId }) {
         startTransition(() => setView(value))
         setError('')
         // While older chats are still being read, totals catch up quickly.
-        timer = setTimeout(load, value.scanning ? 3000 : 20000)
+        schedule(value.scanning ? 3000 : 20000)
       } catch (failure) {
         if (stopped) return
         setError(failure?.message ?? String(failure))
-        timer = setTimeout(load, 10000)
+        schedule(10000)
       }
     }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') clearTimeout(timer)
+      else if (!stopped) void load()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
     void load()
-    return () => { stopped = true; clearTimeout(timer) }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   const today = view?.now.slice(0, 10)
@@ -600,7 +640,7 @@ export const USAGE_CSS = `
 .bt-us-tabs button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-us-tabs button{position:relative;z-index:1;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:26px;white-space:nowrap;cursor:pointer;transition:color .15s ease}
 .bt-us-tabs button svg{flex:none;width:13px;height:13px;margin-left:-2px}
-.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
+.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;max-height:min(520px,calc(100vh - 150px));max-height:min(520px,calc(100dvh - 150px));overflow-y:auto;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
 .bt-us-pick-quick{display:flex;gap:6px;margin-bottom:12px}
 .bt-us-pick-quick button{height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-us-pick-quick button:hover{background:var(--bt-active);color:var(--bt-ink)}
@@ -617,10 +657,10 @@ export const USAGE_CSS = `
 .bt-us-weekdays span{height:24px;font-size:11px;line-height:24px;text-align:center;color:var(--bt-ink-3)}
 .bt-us-day{position:relative;height:36px;padding:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
 .bt-us-day::before{content:'';position:absolute;top:4px;bottom:4px;left:0;right:0;transition:background-color .12s ease}
-.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;font-weight:400;transition:background-color .12s ease,color .12s ease}
+.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;corner-shape:round;font-weight:400;transition:background-color .12s ease,color .12s ease}
 .bt-us-day:hover:not(:disabled)>b{background:var(--bt-hover)}
 .bt-us-day[data-today]>b{color:var(--bt-accent);font-weight:600}
-.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:var(--bt-ink-3)}
+.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-us-day[data-in]::before{background:color-mix(in srgb,var(--bt-accent) 13%,transparent)}
 .bt-us-day[data-in][data-l]::before{left:4px;border-radius:14px 0 0 14px}
 .bt-us-day[data-in][data-r]::before{right:4px;border-radius:0 14px 14px 0}
@@ -637,7 +677,7 @@ export const USAGE_CSS = `
 .bt-us-tabs:not([data-glide]) button[aria-pressed=true]{background:var(--bt-card)}
 .bt-us-tabs>.bt-thumb{top:3px;bottom:3px;border-radius:999px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 .5px var(--bt-line-2)}
 .bt-us-note{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
+.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
 .bt-us-sheet{display:flex;flex-direction:column;gap:4px}
 .bt-us-sheet>.bt-us-stats,.bt-us-sheet>.bt-us-card,.bt-us-sheet>.bt-us-pair>.bt-us-card{border-radius:0}
 .bt-us-sheet>:first-child{border-radius:16px 16px 0 0}
@@ -645,11 +685,12 @@ export const USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
@@ -664,7 +705,7 @@ export const USAGE_CSS = `
 .bt-us-stack{display:flex;flex-direction:column-reverse;gap:2px;width:56%;min-width:4px;max-width:28px;transform-origin:50% 100%;animation:bt-us-grow .6s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 14ms);transition:height .45s var(--bt-us-ease),opacity .18s ease}
 .bt-us-stack>i{flex:1 1 0;min-height:2px;border-radius:5px;transition:flex-grow .45s var(--bt-us-ease)}
 .bt-us-plot[data-hover] .bt-us-col:not([data-on]) .bt-us-stack{opacity:.3}
-.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;background:var(--bt-line-2)}
+.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;corner-shape:round;background:var(--bt-line-2)}
 .bt-us-ticks{display:flex;margin-left:40px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-us-ticks span{flex:1 1 0;min-width:0;text-align:center;white-space:nowrap}
 .bt-us-ticks span[data-now]{color:var(--bt-ink);font-weight:500}
@@ -680,7 +721,7 @@ export const USAGE_CSS = `
 .bt-us-key{display:inline-flex;align-items:center;gap:6px;min-width:0;height:24px;padding:0 10px 0 8px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:24px}
 button.bt-us-key{cursor:pointer;transition:background-color .12s ease,color .12s ease}
 button.bt-us-key:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%}
+.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round}
 .bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px}
 .bt-us-rows{display:flex;flex-direction:column;margin:0 -8px}
 .bt-us-row{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:8px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;text-align:left;animation:bt-us-in .4s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 35ms + 90ms)}
@@ -698,7 +739,7 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-row-num small{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-split{height:1px;margin:6px 8px;background:var(--bt-line)}
 .bt-us-none{padding:18px 8px;font-size:12px;color:var(--bt-ink-3);text-align:center}
-.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-us-model{display:inline-flex;align-items:center;justify-content:center;border-radius:30%;font-weight:600;line-height:1}
 .bt-us-profile{display:flex;align-items:center;gap:20px;padding:6px 4px 2px;animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-ring{position:relative;flex:none;width:96px;height:96px}
@@ -744,9 +785,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 @keyframes bt-us-pulse{50%{opacity:.25}}
 @keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
-/* Phone-width viewports: the page is full width but its fixed parts are not —
-   stats take two columns, the calendar and heat map shrink or scroll. */
-@media (max-width:640px){
+/* Narrow and mid-width viewports: stats take two columns, the calendar and heat map shrink or scroll. */
+@media (max-width:780px){
   .bt-us-stats{grid-template-columns:repeat(2,1fr)}
   .bt-us-stat{padding:12px}
   .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}

@@ -35,7 +35,7 @@ function render(roster) {
   const tree = ComposerPlus({
     sessionId: 'chief', useRoster: select => select(roster),
     useInput: select => select({ phase: 'plain', draft: '', attachmentIds: [], queue: [] }),
-    actions: { canReferenceChat: () => false },
+    actions: { openPalette: () => {} },
   })
   return { tree, hooks }
 }
@@ -56,7 +56,7 @@ test('the + Set a goal entry stores the room id when the Session moved', () => {
   // Seed the menu open; the test's real useState never re-renders.
   react.useState = initial => [initial === null ? { files: false } : initial, () => {}]
   try {
-    const tree = hooksFor(movedRoster, { canReferenceChat: () => false, composeGoal: id => calls.push(id) })
+    const tree = hooksFor(movedRoster, { openPalette: () => {}, composeGoal: id => calls.push(id) })
     const items = []
     const walk = (node) => {
       if (node === null || typeof node !== 'object') return
