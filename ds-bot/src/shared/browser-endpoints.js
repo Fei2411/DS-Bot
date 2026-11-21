@@ -13,6 +13,8 @@ export const BROWSER_ALLOWED = new Set([
   'file-text', 'file-download', 'stop-chat', 'stop-room-work',
   'answer-question', 'dismiss-question', 'view-reply', 'dismiss-view',
   'approval-answer', 'btw-delete', 'secret-cancel', 'connector-request-cancel',
+  // Bot background tasks
+  'bot-stop-task',
   // Side questions
   'side-new', 'side-ask', 'side-cancel', 'side-close',
   // Bot and group management
