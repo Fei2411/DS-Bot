@@ -114,7 +114,7 @@ test('broken or missing storage keeps nothing and breaks nothing', () => {
 test('a deleted chat takes its draft with it', () => {
   keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, storage)
   keepDraft({ chatId: 'chief', part: 'chief', text: 'stay', files: [] }, storage)
-  pruneDrafts(id => id === 'chief', storage)
+  pruneDrafts(['bee'], storage)
   assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { chief: { part: 'chief', text: 'stay' } })
   assert.deepEqual(takeDraft({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, storage).files, [])
 })
@@ -295,4 +295,53 @@ test('DraftKeeper releases unattached drafts and preserves kept text/files if re
   const stillKept = take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls)
   assert.equal(stillKept.text, 'keep me')
   assert.deepEqual(Array.from(stillKept.files, item => item.file.name), ['red.png'])
+})
+
+test('pruning drops only the chats named, so another team\'s drafts in the same browser stay', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'this team', files: [] }, storage)
+  keepDraft({ chatId: 'other-team-bot', part: 'x', text: 'another team', files: [] }, storage)
+  pruneDrafts([], storage)
+  pruneDrafts(['gone-bot'], storage)
+  assert.deepEqual(Object.keys(JSON.parse(storage.getItem(STORAGE.drafts))).sort(), ['bee', 'other-team-bot'])
+})
+
+test('a paste card whose file the composer no longer has waits for it again', () => {
+  const ui = createSource({ paste: {} })
+  const actions = teamActions({ call: async () => ({}), after: value => value, partFor: id => id, roster: createSource({}), ui, live: createSource({}), cards: createSource({}), heldCards: createSource({}), turnClock: createSource({}), panelFolded: () => false })
+  const kept = actions.addPaste('s1', 'kept text', 'Pasted text (9 characters).txt')
+  const stale = actions.addPaste('s1', 'stale text', 'Pasted text (10 characters).txt')
+  actions.linkPastes('s1', [{ blockId: kept, attachmentId: 'live' }, { blockId: stale, attachmentId: 'released' }])
+  actions.unlinkPastes('s1', [stale])
+  assert.deepEqual(ui.getSnapshot().paste.s1.map(block => [block.text, block.attachmentId]), [['kept text', 'live'], ['stale text', null]])
+  const before = ui.getSnapshot()
+  actions.unlinkPastes('s1', [stale])
+  assert.equal(ui.getSnapshot(), before, 'nothing to change keeps the state')
+})
+
+test('DraftKeeper stops keeping a draft that is being sent, and keeps it again if the send fails', () => {
+  const ls = memoryStorage()
+  const { takeDraft: take, render } = loadKeeper(ls)
+  const actions = {
+    draftFiles: ids => ids.map(id => image(`${id}.png`)),
+    restoreDraftFiles: () => [],
+    releaseDraftFiles: () => {},
+    reopenPastes: () => {},
+  }
+  const inputActions = { setDraft() {}, addAttachments: () => true }
+  const state = { draft: 'look at this', attachmentIds: ['img'], phase: 'plain' }
+  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+  render(props)
+  assert.deepEqual(Array.from(take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls).files, item => item.file.name), ['img.png'])
+
+  // Send pressed; the composer closes before the Host answers: nothing comes back.
+  state.phase = 'sending'
+  render(props)
+  assert.deepEqual(take({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls), { text: '', files: [], from: undefined })
+
+  // The send failed and the shell gave the draft back.
+  state.phase = 'plain'
+  render(props)
+  const back = take({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls)
+  assert.equal(back.text, 'look at this')
+  assert.deepEqual(Array.from(back.files, item => item.file.name), ['img.png'])
 })

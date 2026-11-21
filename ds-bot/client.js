@@ -15720,6 +15720,11 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       const { [from]: _left, ...rest } = state.paste;
       return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
     }),
+    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? [];
+      const waiting = blocks.map((block) => blockIds.includes(block.id) ? { ...block, attachmentId: null } : block);
+      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting);
+    }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const kept = blocks.filter((block) => !blockIds.includes(block.id));
@@ -41100,12 +41105,13 @@ function takeDraft({ chatId, part, text, attached }, storage = globalThis.localS
   const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
   return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
 }
-function pruneDrafts(exists, storage = globalThis.localStorage) {
-  for (const chatId of keptFiles.keys()) if (!exists(chatId)) keptFiles.delete(chatId);
-  const texts2 = readTexts(storage);
-  const gone = Object.keys(texts2).filter((chatId) => !exists(chatId));
+function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
-  for (const chatId of gone) delete texts2[chatId];
+  for (const chatId of gone) keptFiles.delete(chatId);
+  const texts2 = readTexts(storage);
+  const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
+  if (listed.length === 0) return;
+  for (const chatId of listed) delete texts2[chatId];
   writeTexts(storage, texts2);
 }
 function forgetKeptFiles() {
@@ -41410,11 +41416,15 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react58.useEffect)(() => {
     if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (frozen) {
+      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      return;
+    }
     if (pending.current.text && draft === "") return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
-  }, [current2, chatId, sessionId, draft, ids]);
+  }, [current2, frozen, chatId, sessionId, draft, ids]);
   return null;
 }
 
@@ -42961,6 +42971,10 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     return () => observer.disconnect();
   }, [ids, blocks]);
   const shown = (0, import_react64.useRef)(/* @__PURE__ */ new Set());
+  (0, import_react64.useEffect)(() => {
+    const stale = latest.current.blocks.filter((block) => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId));
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map((block) => block.id));
+  }, [sessionId]);
   (0, import_react64.useEffect)(() => {
     const gone = latest.current.blocks.filter((block) => !blockLives(block, ids) && shown.current.has(block.attachmentId));
     for (const id of ids) shown.current.add(id);
@@ -50017,14 +50031,13 @@ function apply(ctx) {
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment)
   });
   ctx.effect(() => {
-    let chats = "";
+    let chats = null;
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot();
       if (!snapshot.ready) return;
-      const now = [...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)].join(" ");
-      if (now === chats) return;
+      const now = /* @__PURE__ */ new Set([...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)]);
+      if (chats !== null) pruneDrafts([...chats].filter((id) => !now.has(id)));
       chats = now;
-      pruneDrafts((id) => snapshot.byId[id] !== void 0 || snapshot.roomsById[id] !== void 0);
     });
   }, "ds-bot: drafts of removed chats");
   ctx.effect(() => noticeApprovals({

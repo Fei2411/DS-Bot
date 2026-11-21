@@ -988,14 +988,13 @@ export function apply(ctx) {
   })
   // A deleted Bot or group takes its kept draft with it.
   ctx.effect(() => {
-    let chats = ''
+    let chats = null
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot()
       if (!snapshot.ready) return
-      const now = [...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)].join(' ')
-      if (now === chats) return
+      const now = new Set([...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)])
+      if (chats !== null) pruneDrafts([...chats].filter(id => !now.has(id)))
       chats = now
-      pruneDrafts(id => snapshot.byId[id] !== undefined || snapshot.roomsById[id] !== undefined)
     })
   }, 'ds-bot: drafts of removed chats')
   ctx.effect(() => noticeApprovals({

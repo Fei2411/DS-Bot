@@ -86,17 +86,20 @@ export function takeDraft({ chatId, part, text, attached }, storage = globalThis
 }
 
 /**
- * Forget the drafts of chats that no longer exist, so a deleted Bot's text does not
- * stay in browser storage.
- * @param {(chatId: string) => boolean} exists
+ * Forget the drafts of chats that were deleted, so a deleted Bot's text does not stay
+ * in browser storage. Only the chats named go: the storage is shared by every team this
+ * browser has opened (another data location of the desktop app, another DSH), whose
+ * chats this roster does not list.
+ * @param {readonly string[]} gone
  * @param {Storage} [storage]
  */
-export function pruneDrafts(exists, storage = globalThis.localStorage) {
-  for (const chatId of keptFiles.keys()) if (!exists(chatId)) keptFiles.delete(chatId)
-  const texts = readTexts(storage)
-  const gone = Object.keys(texts).filter(chatId => !exists(chatId))
+export function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return
-  for (const chatId of gone) delete texts[chatId]
+  for (const chatId of gone) keptFiles.delete(chatId)
+  const texts = readTexts(storage)
+  const listed = gone.filter(chatId => texts[chatId] !== undefined)
+  if (listed.length === 0) return
+  for (const chatId of listed) delete texts[chatId]
   writeTexts(storage, texts)
 }
 

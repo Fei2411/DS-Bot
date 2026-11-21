@@ -278,12 +278,19 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
   }, [current, frozen, chatId, sessionId, inputActions])
   useEffect(() => {
     if (!current || restored.current !== `${chatId}:${sessionId}`) return
+    // A draft on its way out is no longer kept: should the composer close before the
+    // Host takes it, the sent images must not come back as a draft. A send that fails
+    // returns to the plain phase with its draft, which is then kept again.
+    if (frozen) {
+      keepDraft({ chatId, part: sessionId, text: '', files: [] })
+      return
+    }
     // What was put back lands in the input state a render later; keeping the empty box
     // in between would drop it.
     if (pending.current.text && draft === '') return
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, files: false }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) })
-  }, [current, chatId, sessionId, draft, ids])
+  }, [current, frozen, chatId, sessionId, draft, ids])
   return null
 }
