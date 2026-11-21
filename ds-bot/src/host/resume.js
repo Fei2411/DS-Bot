@@ -179,6 +179,12 @@ export function install(rt) {
   rt.deliver = async (args) => {
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
+    // A deferred delivery is one request handed back for a turn of its own; the normal
+    // path and a restart recovery can both reach it. The note already waiting for it
+    // says it is on its way, so the second delivery is the same message. A resend is
+    // that note going out again, so it passes.
+    if (noted.deferred === true && noted.resent !== true
+      && (queued[sessionId] ?? []).some(item => item.args.exchangeId === noted.exchangeId)) return noted.exchangeId
     // Noted before it is sent: a turn may take it up before the send returns. Notes
     // are kept whole; nothing waits out a delivery silently.
     queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }] }
@@ -557,13 +563,20 @@ export function install(rt) {
         }
       }
       const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
-      const waiting = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
-        .some(message => message?.source?.exchangeId === exchangeId)
-      if (waiting) continue
       const content = turn.messages?.[exchangeId]?.content ?? []
       const text = textOf(content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
       const images = content.filter(block => block?.type === 'image' && block.attachment !== undefined).map(block => block.attachment)
       const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+      // The checks above awaited, so the normal path may have committed this exchange
+      // or closed its work in the meantime. Check once more with nothing awaited between
+      // here and the delivery: a queued note or an inbox entry for the same exchange
+      // means it was already handed back, and a closed work has nothing left to answer.
+      const alreadyHandedBack = rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId) === true
+        || [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
+          .some(message => message?.source?.exchangeId === exchangeId)
+      const workOpen = source.role !== 'request'
+        || (rt.ownsWork(record.botId, exchangeId) && rt.workAsker(exchangeId) !== undefined)
+      if (alreadyHandedBack || !workOpen) continue
       try {
         await rt.deliver({
           fromId: sender,

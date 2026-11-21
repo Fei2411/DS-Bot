@@ -786,3 +786,100 @@ test('a request already deferred before the crash is not handed back twice', asy
   assert.deepEqual(host.rt.state.works['p2'].open, ['req-2'], 'its parent work is still waiting for its own turn')
   await host.stop()
 })
+
+// A completed turn with two steered requests under independent parent works, ready for
+// a restart to recover the second one.
+function completedSteerFixture() {
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    p1: { from: 'c', to: 'a', open: ['req-1'], results: [], at: 1 },
+    p2: { from: 'c', to: 'a', open: ['req-2'], results: [], at: 1 },
+    'req-1': { from: 'a', to: 'b', parent: 'p1', open: [], results: [], at: 2 },
+    'req-2': { from: 'a', to: 'b', parent: 'p2', open: [], results: [], at: 3 },
+  }
+  const req1 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-1', senderName: 'Chief', senderSessionId: 'a' }
+  const req2 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-2', senderName: 'Chief', senderSessionId: 'a' }
+  const logs = new Map([
+    ['a', []],
+    ['b', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: req1, content: [{ type: 'text', text: 'first' }] } },
+      { type: 'user/message', seq: 3, data: { source: req2, content: [{ type: 'text', text: 'second' }] } },
+      { type: 'assistant/message', seq: 4, data: { message: { content: [{ type: 'text', text: 'first answer' }] } } },
+      { type: 'turn/end', seq: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+  return { seed, logs, req2 }
+}
+
+function completedSteerHome(t, name, seed) {
+  const home = mkdtempSync(join(tmpdir(), `ds-bot-${name}-`))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { b: { botId: 'b', since: 1, trigger: { role: 'request', exchangeId: 'req-1', senderSessionId: 'a' } } },
+    queued: {},
+  }))
+  return home
+}
+
+// Hold the agent resolution recovery makes for its own inbox check (the second one
+// for this Session: resumeAll resolves the Session first to see whether it still
+// runs), so the test can let the normal path act between that check and the delivery.
+function holdRecoveryResolve(host) {
+  const gate = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const resolve = host.ctx.sessionController.resolveAgent
+  let seen = 0
+  host.ctx.sessionController.resolveAgent = async (id) => {
+    if (id === 'b' && ++seen === 2) { gate.resolve(); await release.promise }
+    return resolve(id)
+  }
+  return { gate: gate.promise, release: () => release.resolve() }
+}
+
+// Run one normal deferred delivery of the same request just before recovery delivers
+// it, the way the live turn path can.
+function commitBeforeRecovery(host, req2) {
+  const real = host.rt.deliver
+  let injected = false
+  host.rt.deliver = async (args) => {
+    if (!injected && args.deferred === true && args.exchangeId === req2.exchangeId) {
+      injected = true
+      await real({ fromId: 'a', toId: 'b', sessionId: 'b', text: 'second', role: 'request', exchangeId: req2.exchangeId, deferred: true })
+    }
+    return real(args)
+  }
+}
+
+test('recovery does not hand a request back again when the normal path delivered it first', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { seed, logs, req2 } = completedSteerFixture()
+  const home = completedSteerHome(t, 'ds-bot-dedup-reconcile-raced', seed)
+  const host = await createRestartHost(t, home, logs)
+  commitBeforeRecovery(host, req2)
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('a').calls.length >= 1 && host.agentOf('b').calls.length >= 1)
+  await realDelay(30)
+  const handed = host.agentOf('b').calls.filter(msg => msg.source.exchangeId === 'req-2' && msg.source.deferred === true)
+  assert.equal(handed.length, 1, 'the request is handed back exactly once')
+  await host.stop()
+})
+
+test('recovery does not hand a request back after its work closed while it checked', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { seed, logs } = completedSteerFixture()
+  const home = completedSteerHome(t, 'ds-bot-dedup-reconcile-closed', seed)
+  const host = await createRestartHost(t, home, logs)
+  const held = holdRecoveryResolve(host)
+  t.mock.timers.tick(3000)
+  await held.gate
+  // The work is settled by the normal path while recovery waits on its checks.
+  host.rt.closeWork('req-2', 'Writer', 'already answered')
+  held.release()
+  await settle(() => host.agentOf('a').calls.length >= 1)
+  await realDelay(30)
+  assert.equal(host.agentOf('b').calls.length, 0, 'a closed work has nothing left to answer')
+  await host.stop()
+})
