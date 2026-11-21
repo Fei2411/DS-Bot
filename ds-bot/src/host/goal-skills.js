@@ -1,3 +1,4 @@
+// Registers the bundled goal-grill and report-ds-bot-issue skills when the skills service is available.
 import { readFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
