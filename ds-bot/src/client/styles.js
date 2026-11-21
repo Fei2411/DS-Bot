@@ -1512,8 +1512,14 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
 .bt-agent-sessions-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--bt-warn) 40%,transparent);border-left:3px solid var(--bt-warn);border-radius:10px;background:color-mix(in srgb,var(--bt-warn) 13%,var(--bt-card));color:var(--bt-warn);font-size:13px;line-height:17px;font-weight:500}
 .bt-agent-sessions-warn svg{flex:none;width:15px;height:15px;margin-top:1px}
-.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
-.bt-agent-session:first-child{border-top:0}
+.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
+.bt-agent-session-row{display:flex;align-items:stretch;border-top:1px solid var(--bt-line-2)}
+.bt-agent-session-row:first-child{border-top:0}
+.bt-agent-session-del{display:flex;flex:none;align-items:center;justify-content:center;width:34px;border:0;background:none;color:var(--bt-ink-3);cursor:pointer;opacity:0;transition:opacity .12s}
+.bt-agent-session-row:hover .bt-agent-session-del,.bt-agent-session-del:focus-visible,.bt-agent-session-del.is-armed{opacity:1}
+.bt-agent-session-del:hover,.bt-agent-session-del.is-armed{background:var(--bt-hover);color:var(--bt-danger)}
+.bt-agent-session-del.is-armed{background:var(--bt-danger-soft)}
+.bt-agent-session-del svg{width:13px;height:13px}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}

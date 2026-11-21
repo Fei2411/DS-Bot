@@ -310,6 +310,7 @@ export const FR = {
   "Open this earlier session": "Ouvrir cette session précédente",
   "Session {number}": "Session {number}",
   "Current session": "Session actuelle",
+  "Delete this session": "Supprimer cette session",
   "This page could not be shown.": "Cette page n’a pas pu être affichée.",
   "Current": "Actuel",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "Cette clé provient de l’extérieur de DS Bot (comme une variable d’environnement) et ne peut pas être modifiée ici.",

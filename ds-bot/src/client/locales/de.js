@@ -316,6 +316,7 @@ export const DE = {
   'Open this earlier session': 'Diese frühere Sitzung öffnen',
   'Session {number}': 'Sitzung {number}',
   'Current session': 'Aktuelle Sitzung',
+  'Delete this session': 'Diese Sitzung löschen',
   'This page could not be shown.': 'Diese Seite konnte nicht angezeigt werden.',
   'Current': 'Aktuell',
   'This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.': 'Dieser Schlüssel stammt von außerhalb von DS Bot (z. B. aus einer Umgebungsvariable) und kann hier nicht geändert werden.',

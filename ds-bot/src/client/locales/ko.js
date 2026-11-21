@@ -316,6 +316,7 @@ export const KO = {
   'Open this earlier session': '이 이전 세션 열기',
   'Session {number}': '세션 {number}',
   'Current session': '현재 세션',
+  'Delete this session': '이 세션 삭제',
   'This page could not be shown.': '이 페이지를 표시할 수 없습니다.',
   'Current': '현재',
   'This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.': '이 키는 환경 변수 등 DS Bot 외부에서 설정되었으므로 여기서 변경할 수 없습니다.',
