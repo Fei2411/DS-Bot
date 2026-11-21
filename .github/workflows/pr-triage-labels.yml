@@ -95,10 +95,10 @@ jobs:
 
             function matchKnownAgent(text) {
               if (/\bantigravity\b|\bagy\b/i.test(text)) return 'antigravity';
-              if (/claude[\s_-]*code/i.test(text)) return 'claude-code';
+              if (/\bclaude[\s_-]*code\b/i.test(text)) return 'claude-code';
               if (/\bcodex\b/i.test(text)) return 'codex';
               if (/\bdevin\b/i.test(text)) return 'devin';
-              if (/ds[\s_-]*bot/i.test(text)) return 'dsbot';
+              if (/\bds[\s_-]*bot\b/i.test(text)) return 'dsbot';
               return null;
             }
 
@@ -110,7 +110,7 @@ jobs:
               if (/^<[^>]+>/.test(primary) || /^<[^>]+>/.test(cleaned)) return null;
               if (/^(?:none|n\/a|human|manual|无)$/i.test(primary)) return null;
               if (/^(?:none|n\/a|human|manual|无)$/i.test(cleaned)) return null;
-              return matchKnownAgent(primary) || matchKnownAgent(cleaned) || 'other';
+              return matchKnownAgent(primary) || 'other';
             }
 
             function parseAgentLine(text) {
@@ -123,24 +123,36 @@ jobs:
               return null;
             }
 
-            const STATUS_BOUNDARY = '(?=$|[\\s*_`·–.,;:!?/()（），。：；！？、—-])';
+            const STATUS_BOUNDARY = '(?=$|[\\s*_`·–.,;:!/()（），。：；！、—-])';
             const STATUS_RULES = [
               [new RegExp(`^(?:approved|approve|lgtm|可合)${STATUS_BOUNDARY}`, 'i'), 'review/approved'],
               [new RegExp(`^(?:changes[- ]requested|request[- ]changes|needs[- ]changes|需改)${STATUS_BOUNDARY}`, 'i'), 'review/changes-requested'],
               [new RegExp(`^(?:needs[- ]decision|需拍板|需你拍板|需用户拍板)${STATUS_BOUNDARY}`, 'i'), 'review/needs-decision'],
               [new RegExp(`^(?:re[- ]?review|待复审)${STATUS_BOUNDARY}`, 'i'), 'review/re-review'],
             ];
+            const STANDALONE_REREVIEW_RE = /^(?:re[- ]?review|待复审)[.!。！]?$/i;
+
+            function extractReviewedSha(raw) {
+              const cleaned = unwrapInline(raw);
+              let last = null;
+              for (const m of cleaned.matchAll(/@[ \t]*[`*_]*([0-9a-f]{7,40})[`*_]*(?=$|[\s.,;:)/）\]—–-])/gi)) {
+                last = m[1].toLowerCase();
+              }
+              return last;
+            }
 
             function parseReviewComment(text) {
               const prose = stripNonProse(text);
               const statusRe = /^[ ]{0,3}(?:[-*][ \t]+)?(?:\*\*)?(?:Independent[ \t]+)?Review(?:\*\*)?[ \t]*[:：](?:\*\*)?[ \t]*([^\n]+)$/gim;
               let status = null;
+              let statusCandidate = null;
               for (const m of prose.matchAll(statusRe)) {
                 const candidate = unwrapInline(m[1]);
-                if (!candidate || candidate.includes('|')) continue;
+                if (!candidate || candidate.includes('|') || /[?？]/.test(candidate)) continue;
                 for (const [pattern, label] of STATUS_RULES) {
                   if (pattern.test(candidate)) {
                     status = label;
+                    statusCandidate = candidate;
                     break;
                   }
                 }
@@ -149,17 +161,32 @@ jobs:
               if (!status) return null;
 
               const reviewerRe = /^[ ]{0,3}(?:[-*][ \t]+)?(?:\*\*)?Reviewer(?:\*\*)?[ \t]*[:：](?:\*\*)?[ \t]*([^\n]+)$/gim;
+              let hasReviewerLine = false;
               let reviewerSlug = null;
+              let reviewedSha = null;
               for (const m of prose.matchAll(reviewerRe)) {
-                const slug = mapAgentSlug(m[1]);
-                if (slug) {
-                  reviewerSlug = slug;
-                  break;
-                }
+                const cleaned = unwrapInline(m[1]);
+                if (!cleaned || /^<[^>]+>/.test(cleaned)) continue;
+                const primary = unwrapInline(cleaned.split(/[（(@]/)[0]);
+                if (!primary || /^<[^>]+>/.test(primary)) continue;
+                hasReviewerLine = true;
+                reviewerSlug = mapAgentSlug(cleaned);
+                reviewedSha = extractReviewedSha(cleaned);
+                break;
               }
+
+              if (status === 'review/re-review') {
+                if (!hasReviewerLine && !STANDALONE_REREVIEW_RE.test(statusCandidate)) {
+                  return null;
+                }
+              } else if (!hasReviewerLine) {
+                return null;
+              }
+
               return {
                 status,
                 reviewedBy: reviewerSlug ? `reviewed-by/${reviewerSlug}` : null,
+                reviewedSha,
               };
             }
 
@@ -300,6 +327,47 @@ jobs:
               if (isForkReview) {
                 core.warning(`PR #${issueNumber}: fork pull_request_review has a read-only token; post a regular PR comment or update labels manually.`);
                 return;
+              }
+
+              const { data: livePr } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: issueNumber,
+              });
+              if (!livePr || livePr.state !== 'open') {
+                core.info(`PR #${issueNumber}: PR is no longer open; skipping review label sync.`);
+                return;
+              }
+              const liveHeadSha = String(livePr.head?.sha || '').toLowerCase();
+
+              if (parsed.status !== 'review/re-review') {
+                const reviewCommitId = !isComment && source.commit_id
+                  ? String(source.commit_id).toLowerCase()
+                  : null;
+
+                if (!liveHeadSha) {
+                  core.warning(`PR #${issueNumber}: missing live head SHA; skipping verdict.`);
+                  return;
+                }
+                if (reviewCommitId && reviewCommitId !== liveHeadSha) {
+                  core.info(
+                    `PR #${issueNumber}: ignoring stale review for ${reviewCommitId.slice(0, 8)} (current head is ${liveHeadSha.slice(0, 8)}).`,
+                  );
+                  return;
+                }
+                if (parsed.reviewedSha) {
+                  if (!liveHeadSha.startsWith(parsed.reviewedSha)) {
+                    core.info(
+                      `PR #${issueNumber}: ignoring stale review marker @ ${parsed.reviewedSha} (current head is ${liveHeadSha.slice(0, 8)}).`,
+                    );
+                    return;
+                  }
+                } else if (isComment || !reviewCommitId) {
+                  core.info(
+                    `PR #${issueNumber}: ignoring ${parsed.status} without a reviewed commit SHA matching head ${liveHeadSha.slice(0, 8)}.`,
+                  );
+                  return;
+                }
               }
 
               const current = await getCurrentLabels(owner, repo, issueNumber);
