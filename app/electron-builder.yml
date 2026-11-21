@@ -8,8 +8,12 @@ files:
   - package.json
   - src/**
   - assets/**
-  # The LibreOffice engine goes beside the app instead (extraResources).
+  # The LibreOffice engine goes beside the app instead (extraResources). Since
+  # dsh-office-kit carries a second, nested copy of the kit, its engine packages
+  # nest inside libreoffice-kit's and dsh-office-kit's own node_modules; inside
+  # the asar they would shadow the sibling copy under resources/.
   - '!node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
+  - '!node_modules/@deepseek-ai/*/node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
 # The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
 # plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
 asarUnpack:
