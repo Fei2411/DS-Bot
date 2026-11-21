@@ -845,6 +845,53 @@ test('a group member Session that failed keeps the Bot for another try, then wri
   assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash'])
 })
 
+// #2002 review: one Session's failed write forced every part and group Session of the
+// Bot to be rewritten again. A retry now forces only the Sessions it recorded.
+test('a forced retry rewrites only the Session that failed, not every part and group of its Bot', async () => {
+  const { rt, selected } = bench()
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x',
+    openParts: [{ sessionId: 'b1-bg', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  rt.groupSessionsOf = () => ['g1', 'g2']
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-bg:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'g2:deepseek/v4-flash'])
+  selected.length = 0
+  // The current part's turn was refused: its own selection names the provider that is
+  // gone, while the Bot's record and the other Sessions are already applied.
+  await rt.reapplyModel(bot, 'b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+// #2002 review: a successful retry cleared the Bot's whole record even when the failed
+// Session itself was never written. Its own record must survive until its own write.
+test('a failed Session keeps its retry when no model can be written yet, and clears only after its own write', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(bot, 'b1'), /not found/)
+  assert.deepEqual(selected, [])
+  // For a moment the Bot has no model to write: the retry trigger must not drop the
+  // record of the Session that still owes its selection.
+  bot.model = undefined
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // With the model back, the recorded Session is the one written, and only then cleared.
+  bot.model = 'deepseek/v4-flash'
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {

@@ -1373,7 +1373,9 @@ export function install(rt) {
         if (failure?.code === 'NO_ADAPTER' || failure?.code === 'UNKNOWN_MODEL') {
           const bot = rt.botOf(rt.selfOf(id))
           if (bot !== undefined) {
-            void Promise.resolve(rt.reapplyModel?.(bot))
+            // The turned-away Session is the one whose own selection is wrong; only it
+            // is rewritten, not every part and group of the Bot (#2002 review).
+            void Promise.resolve(rt.reapplyModel?.(bot, id))
               .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
           }
         }
