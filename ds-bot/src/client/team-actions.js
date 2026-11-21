@@ -258,7 +258,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
       taskDeck: state.approvalOpen === roomId ? state.taskDeck : null,
     })),
-    openApproval: roomId => ui.set(state => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null })),
+    openApproval: roomId => ui.set((state) => {
+      const snap = roster.getSnapshot()
+      const activeSet = new Set(['running', 'waiting_work', 'waiting_approval'])
+      const room = snap.roomsById?.[roomId]
+      const bot = snap.byId?.[roomId]
+      const hasTasks = room
+        ? (room.members ?? []).some(id => (snap.byId?.[id]?.tasks ?? []).some(item => item?.roomId === room.id && activeSet.has(item.status)))
+        : (bot?.tasks ?? []).some(item => !item?.roomId && activeSet.has(item.status))
+      if (hasTasks) {
+        return { ...state, taskDeck: { targetId: roomId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null }
+      }
+      return { ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null }
+    }),
     closeApproval: () => ui.set(state => (state.approvalOpen ? { ...state, approvalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),

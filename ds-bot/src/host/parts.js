@@ -1831,7 +1831,7 @@ export function install(rt) {
     .trim()
 
   function displayItems(partId, events, session, seedTurn, options = {}) {
-    const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    const hidden = options.taskView === true ? new Set() : new Set(state.exchangeTurns[partId] ?? [])
     // Files a turn presented, attached to its closing Bot row so the phone can save
     // them: the card shows name and type, the save action names seq and index.
     const presented = []
@@ -2016,7 +2016,11 @@ export function install(rt) {
       }
     }
     const items = displayItems(part.sessionId, events, agent?.session, seedTurn, options)
-    if (index < parts.length - 1) {
+    if (options.taskView === true) {
+      for (const item of items) {
+        if (item.sessionId === undefined) item.sessionId = part.sessionId
+      }
+    } else if (index < parts.length - 1) {
       for (const item of items) {
         if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
       }
@@ -2024,7 +2028,7 @@ export function install(rt) {
     const more = !hitFloor && page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
-    if (steps === true) await applySteps(items, events, part.sessionId)
+    if (steps === true) await applySteps(items, events, part.sessionId, options)
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -2072,8 +2076,8 @@ export function install(rt) {
 
   // Per-turn folds of a page's tool calls, for `chat`/`room-chat` with
   // `steps: true`. Interactive calls stay out: they show as cards, not steps.
-  function stepsItems(events, partId) {
-    const hidden = new Set(state.exchangeTurns[partId] ?? [])
+  function stepsItems(events, partId, includeHidden = false) {
+    const hidden = includeHidden ? new Set() : new Set(state.exchangeTurns[partId] ?? [])
     const byTurn = new Map()
     let turn
     for (const event of events) {
@@ -2102,7 +2106,7 @@ export function install(rt) {
   // Places a page's `steps` items after the last row of each turn and fills in
   // `ms` from the turn's thinking time when the stream has it.
   async function applySteps(items, events, sessionId, options) {
-    const byTurn = stepsItems(events, sessionId)
+    const byTurn = stepsItems(events, sessionId, options?.taskView === true)
     const known = pageThinkingMs(events, options)
     for (const [turn, tools] of byTurn) {
       const item = { kind: 'steps', turn, tools, time: items.filter(it => it.turn === turn).at(-1)?.time ?? events.at(-1)?.time }

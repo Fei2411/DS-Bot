@@ -15999,7 +15999,17 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
       taskDeck: state.approvalOpen === roomId ? state.taskDeck : null
     })),
-    openApproval: (roomId) => ui.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null })),
+    openApproval: (roomId) => ui.set((state) => {
+      const snap = roster.getSnapshot();
+      const activeSet = /* @__PURE__ */ new Set(["running", "waiting_work", "waiting_approval"]);
+      const room2 = snap.roomsById?.[roomId];
+      const bot = snap.byId?.[roomId];
+      const hasTasks = room2 ? (room2.members ?? []).some((id) => (snap.byId?.[id]?.tasks ?? []).some((item) => item?.roomId === room2.id && activeSet.has(item.status))) : (bot?.tasks ?? []).some((item) => !item?.roomId && activeSet.has(item.status));
+      if (hasTasks) {
+        return { ...state, taskDeck: { targetId: roomId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null };
+      }
+      return { ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null };
+    }),
     closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
     // Values go out in these requests and never come back in a response.
     secretSet: (payload) => after(call2("secret-set", payload)),
@@ -31193,7 +31203,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
     return found >= 0 ? found : 0;
   });
   const [busy, setBusy] = (0, import_react35.useState)(false);
-  const [draft, setDraft] = (0, import_react35.useState)("");
+  const [drafts, setDrafts] = (0, import_react35.useState)({});
   const [sentNote, setSentNote] = (0, import_react35.useState)("");
   const [error, setError] = (0, import_react35.useState)("");
   const inputRef = (0, import_react35.useRef)(null);
@@ -31246,6 +31256,9 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   if (!item) return null;
   const ownerBot = item.bot ?? bot;
   const task = item.task;
+  const itemKey = item.key;
+  const draft = drafts[itemKey] ?? "";
+  const setDraftFor = (key, updater) => setDrafts((prev) => ({ ...prev, [key]: typeof updater === "function" ? updater(prev[key] ?? "") : updater }));
   const approvalItem = item.kind === "approval" ? item.approvalItem : null;
   const isApproval = approvalItem !== null;
   const taskActive = task !== void 0 && isActiveTask(task);
@@ -31271,6 +31284,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   const sendFollowup = () => {
     const text = draft.trim();
     if (text === "" || busy || !task || !ownerBot) return;
+    const targetKey = itemKey;
     if (sentTimerRef.current) {
       clearTimeout(sentTimerRef.current);
       sentTimerRef.current = null;
@@ -31278,7 +31292,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
     setBusy(true);
     setError("");
     setSentNote("");
-    setDraft("");
+    setDraftFor(targetKey, "");
     void Promise.resolve(actions.sendTask(ownerBot.id, task.id, text)).then(() => {
       setSentNote(t("Sent to background task"));
       sentTimerRef.current = setTimeout(() => {
@@ -31286,7 +31300,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
         setSentNote("");
       }, 2200);
     }).catch((err) => {
-      setDraft((prev) => prev === "" ? text : prev);
+      setDraftFor(targetKey, (prev) => prev === "" ? text : prev);
       setError(hostText(err?.message ?? String(err)));
     }).finally(() => setBusy(false));
   };
@@ -31349,11 +31363,11 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
             placeholder: t("Send follow-up or guidance…"),
             "aria-label": t("Sending to {title}", { title: task.title }),
             onChange: (event) => {
-              setDraft(event.target.value);
+              setDraftFor(itemKey, event.target.value);
               if (error) setError("");
             },
             onKeyDown: (event) => {
-              if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return;
+              if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return;
               event.preventDefault();
               sendFollowup();
             }
@@ -31445,12 +31459,20 @@ function TaskReaderView({ bot, task, actions }) {
     setPage(null);
     void loadLatest(false, gen);
   }, [loadLatest]);
+  const wasActiveRef = (0, import_react35.useRef)(active);
   (0, import_react35.useEffect)(() => {
-    if (!active) return void 0;
-    const timer = setInterval(() => {
+    if (active) {
+      wasActiveRef.current = true;
+      const timer = setInterval(() => {
+        void loadLatest(true, reqGenRef.current);
+      }, 2500);
+      return () => clearInterval(timer);
+    }
+    if (wasActiveRef.current) {
+      wasActiveRef.current = false;
       void loadLatest(true, reqGenRef.current);
-    }, 2500);
-    return () => clearInterval(timer);
+    }
+    return void 0;
   }, [active, loadLatest]);
   const nextCursor = olderCursor.active ? olderCursor.cursor : page?.cursor ?? null;
   const loadEarlier = async () => {
@@ -31481,8 +31503,12 @@ function TaskReaderView({ bot, task, actions }) {
   };
   if (!bot || !task) return null;
   const latestItems = page?.items ?? [];
-  const latestSeqs = new Set(latestItems.filter((it) => Number.isInteger(it?.seq)).map((it) => it.seq));
-  const uniqueOlder = older.filter((it) => !Number.isInteger(it?.seq) || !latestSeqs.has(it.seq));
+  const seqKey = (it) => Number.isInteger(it?.seq) ? `${it.sessionId ?? page?.sessionId ?? ""}:${it.seq}` : null;
+  const latestSeqs = new Set(latestItems.map(seqKey).filter(Boolean));
+  const uniqueOlder = older.filter((it) => {
+    const key = seqKey(it);
+    return key === null || !latestSeqs.has(key);
+  });
   const items = [...uniqueOlder, ...latestItems];
   const origin = taskOriginLabel(task.origin);
   const hasBotReply = items.some((entry) => entry.kind === "bot");
@@ -31620,6 +31646,7 @@ function DetailsTaskList({ tasks, sessionId, showBot = false, actions, run: run2
               tabIndex: 0,
               onClick: () => actions.openTask?.(sessionId, ownerId, task.id),
               onKeyDown: (event) => {
+                if (event.target !== event.currentTarget) return;
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   actions.openTask?.(sessionId, ownerId, task.id);

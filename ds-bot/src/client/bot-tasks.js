@@ -192,7 +192,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
     return found >= 0 ? found : 0
   })
   const [busy, setBusy] = useState(false)
-  const [draft, setDraft] = useState('')
+  const [drafts, setDrafts] = useState({})
   const [sentNote, setSentNote] = useState('')
   const [error, setError] = useState('')
   const inputRef = useRef(null)
@@ -244,6 +244,9 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
 
   const ownerBot = item.bot ?? bot
   const task = item.task
+  const itemKey = item.key
+  const draft = drafts[itemKey] ?? ''
+  const setDraftFor = (key, updater) => setDrafts(prev => ({ ...prev, [key]: typeof updater === 'function' ? updater(prev[key] ?? '') : updater }))
   const approvalItem = item.kind === 'approval' ? item.approvalItem : null
   const isApproval = approvalItem !== null
   const taskActive = task !== undefined && isActiveTask(task)
@@ -279,18 +282,19 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
   const sendFollowup = () => {
     const text = draft.trim()
     if (text === '' || busy || !task || !ownerBot) return
+    const targetKey = itemKey
     if (sentTimerRef.current) { clearTimeout(sentTimerRef.current); sentTimerRef.current = null }
     setBusy(true)
     setError('')
     setSentNote('')
-    setDraft('')
+    setDraftFor(targetKey, '')
     void Promise.resolve(actions.sendTask(ownerBot.id, task.id, text))
       .then(() => {
         setSentNote(t('Sent to background task'))
         sentTimerRef.current = setTimeout(() => { sentTimerRef.current = null; setSentNote('') }, 2200)
       })
       .catch((err) => {
-        setDraft(prev => (prev === '' ? text : prev))
+        setDraftFor(targetKey, prev => (prev === '' ? text : prev))
         setError(hostText(err?.message ?? String(err)))
       })
       .finally(() => setBusy(false))
@@ -347,9 +351,9 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
                 disabled: busy,
                 placeholder: t('Send follow-up or guidance…'),
                 'aria-label': t('Sending to {title}', { title: task.title }),
-                onChange: (event) => { setDraft(event.target.value); if (error) setError('') },
+                onChange: (event) => { setDraftFor(itemKey, event.target.value); if (error) setError('') },
                 onKeyDown: (event) => {
-                  if (event.key !== 'Enter' || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return
+                  if (event.key !== 'Enter' || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return
                   event.preventDefault()
                   sendFollowup()
                 },
@@ -438,10 +442,18 @@ export function TaskReaderView({ bot, task, actions }) {
     void loadLatest(false, gen)
   }, [loadLatest])
 
+  const wasActiveRef = useRef(active)
   useEffect(() => {
-    if (!active) return undefined
-    const timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
-    return () => clearInterval(timer)
+    if (active) {
+      wasActiveRef.current = true
+      const timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
+      return () => clearInterval(timer)
+    }
+    if (wasActiveRef.current) {
+      wasActiveRef.current = false
+      void loadLatest(true, reqGenRef.current)
+    }
+    return undefined
   }, [active, loadLatest])
 
   const nextCursor = olderCursor.active ? olderCursor.cursor : (page?.cursor ?? null)
@@ -475,8 +487,12 @@ export function TaskReaderView({ bot, task, actions }) {
 
   if (!bot || !task) return null
   const latestItems = page?.items ?? []
-  const latestSeqs = new Set(latestItems.filter(it => Number.isInteger(it?.seq)).map(it => it.seq))
-  const uniqueOlder = older.filter(it => !Number.isInteger(it?.seq) || !latestSeqs.has(it.seq))
+  const seqKey = it => (Number.isInteger(it?.seq) ? `${it.sessionId ?? page?.sessionId ?? ''}:${it.seq}` : null)
+  const latestSeqs = new Set(latestItems.map(seqKey).filter(Boolean))
+  const uniqueOlder = older.filter((it) => {
+    const key = seqKey(it)
+    return key === null || !latestSeqs.has(key)
+  })
   const items = [...uniqueOlder, ...latestItems]
   const origin = taskOriginLabel(task.origin)
   const hasBotReply = items.some(entry => entry.kind === 'bot')
@@ -582,6 +598,7 @@ export function DetailsTaskList({ tasks, sessionId, showBot = false, actions, ru
             tabIndex: 0,
             onClick: () => actions.openTask?.(sessionId, ownerId, task.id),
             onKeyDown: (event) => {
+              if (event.target !== event.currentTarget) return
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
                 actions.openTask?.(sessionId, ownerId, task.id)
