@@ -15767,7 +15767,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
-        return { ...state, details: id, view, ...state.view === "task" ? { task: null } : {}, renaming: false, tab: null };
+        return { ...state, details: id, view, task: null, renaming: false, tab: null };
       });
     },
     showDetails: (id, tab = null) => {
@@ -15978,7 +15978,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
       taskDeck: state.approvalOpen === roomId ? state.taskDeck : null
     })),
-    openApproval: (roomId) => ui.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    openApproval: (roomId) => ui.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null })),
     closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
     // Values go out in these requests and never come back in a response.
     secretSet: (payload) => after(call2("secret-set", payload)),
@@ -31176,6 +31176,10 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   const [error, setError] = (0, import_react35.useState)("");
   const inputRef = (0, import_react35.useRef)(null);
   const bodyRef = (0, import_react35.useRef)(null);
+  const sentTimerRef = (0, import_react35.useRef)(null);
+  (0, import_react35.useEffect)(() => () => {
+    if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
+  }, []);
   (0, import_react35.useEffect)(() => {
     if (focusTaskId) {
       const found = items.findIndex((item2) => item2.task?.id === focusTaskId);
@@ -31188,6 +31192,10 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   }, [focusTaskId, items.length]);
   const selectIndex = (0, import_react35.useCallback)((nextIdx) => {
     if (items.length === 0) return;
+    if (sentTimerRef.current) {
+      clearTimeout(sentTimerRef.current);
+      sentTimerRef.current = null;
+    }
     setError("");
     setSentNote("");
     setIndex((nextIdx % items.length + items.length) % items.length);
@@ -31241,13 +31249,20 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   const sendFollowup = () => {
     const text = draft.trim();
     if (text === "" || busy || !task || !ownerBot) return;
+    if (sentTimerRef.current) {
+      clearTimeout(sentTimerRef.current);
+      sentTimerRef.current = null;
+    }
     setBusy(true);
     setError("");
     setSentNote("");
     setDraft("");
     void Promise.resolve(actions.sendTask(ownerBot.id, task.id, text)).then(() => {
       setSentNote(t("Sent to background task"));
-      setTimeout(() => setSentNote(""), 2200);
+      sentTimerRef.current = setTimeout(() => {
+        sentTimerRef.current = null;
+        setSentNote("");
+      }, 2200);
     }).catch((err) => {
       setDraft((prev) => prev === "" ? text : prev);
       setError(hostText(err?.message ?? String(err)));
@@ -31364,57 +31379,89 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
 function TaskReaderView({ bot, task, actions }) {
   const [page, setPage] = (0, import_react35.useState)(null);
   const [older, setOlder] = (0, import_react35.useState)([]);
+  const [olderCursor, setOlderCursor] = (0, import_react35.useState)({ active: false, cursor: null });
   const [showSteps, setShowSteps] = (0, import_react35.useState)(false);
   const [loading, setLoading] = (0, import_react35.useState)(true);
   const [loadingMore, setLoadingMore] = (0, import_react35.useState)(false);
   const [stopping, setStopping] = (0, import_react35.useState)(false);
   const [error, setError] = (0, import_react35.useState)("");
   const scrollRef = (0, import_react35.useRef)(null);
+  const actionsRef = (0, import_react35.useRef)(actions);
+  actionsRef.current = actions;
+  const reqGenRef = (0, import_react35.useRef)(0);
+  const mountedRef = (0, import_react35.useRef)(true);
+  const botId = bot?.id;
+  const taskId = task?.id;
   const active = isActiveTask(task);
-  const loadLatest = (0, import_react35.useCallback)(async (quiet = false) => {
-    if (!bot || !task || typeof actions.readTask !== "function") return;
+  (0, import_react35.useEffect)(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const loadLatest = (0, import_react35.useCallback)(async (quiet = false, gen = reqGenRef.current) => {
+    const readTask = actionsRef.current?.readTask;
+    if (!botId || !taskId || typeof readTask !== "function") return;
     if (!quiet) setLoading(true);
     try {
-      const next = await actions.readTask(bot.id, task.id, void 0, showSteps);
+      const next = await readTask(botId, taskId, void 0, showSteps);
+      if (!mountedRef.current || gen !== reqGenRef.current) return;
       setPage(next);
       setError("");
     } catch (err) {
+      if (!mountedRef.current || gen !== reqGenRef.current) return;
       setError(hostText(err?.message ?? String(err)));
     } finally {
-      if (!quiet) setLoading(false);
+      if (mountedRef.current && !quiet && gen === reqGenRef.current) setLoading(false);
     }
-  }, [bot?.id, task?.id, showSteps, actions]);
+  }, [botId, taskId, showSteps]);
   (0, import_react35.useEffect)(() => {
+    reqGenRef.current += 1;
+    const gen = reqGenRef.current;
     setOlder([]);
-    void loadLatest(false);
+    setOlderCursor({ active: false, cursor: null });
+    setPage(null);
+    void loadLatest(false, gen);
   }, [loadLatest]);
   (0, import_react35.useEffect)(() => {
     if (!active) return void 0;
     const timer = setInterval(() => {
-      void loadLatest(true);
+      void loadLatest(true, reqGenRef.current);
     }, 2500);
     return () => clearInterval(timer);
   }, [active, loadLatest]);
+  const nextCursor = olderCursor.active ? olderCursor.cursor : page?.cursor ?? null;
   const loadEarlier = async () => {
-    if (!page?.cursor || loadingMore) return;
+    const readTask = actionsRef.current?.readTask;
+    if (!nextCursor || loadingMore || !botId || !taskId || typeof readTask !== "function") return;
+    const gen = reqGenRef.current;
     setLoadingMore(true);
     try {
-      const prev = await actions.readTask(bot.id, task.id, page.cursor, showSteps);
+      const prev = await readTask(botId, taskId, nextCursor, showSteps);
+      if (!mountedRef.current || gen !== reqGenRef.current) return;
       setOlder((list) => [...prev.items ?? [], ...list]);
-      setPage((curr) => curr ? { ...curr, cursor: prev.cursor ?? null } : prev);
+      setOlderCursor({ active: true, cursor: prev.cursor ?? null });
     } catch (err) {
+      if (!mountedRef.current || gen !== reqGenRef.current) return;
       setError(hostText(err?.message ?? String(err)));
     } finally {
-      setLoadingMore(false);
+      if (mountedRef.current && gen === reqGenRef.current) setLoadingMore(false);
     }
   };
   const stop = () => {
-    if (stopping || !bot || !task) return;
+    if (stopping || !botId || !taskId) return;
     setStopping(true);
-    void Promise.resolve(actions.stopTask(bot.id, task.id)).then(() => loadLatest(true)).catch((err) => setError(hostText(err?.message ?? String(err)))).finally(() => setStopping(false));
+    void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId)).then(() => loadLatest(true, reqGenRef.current)).catch((err) => {
+      if (mountedRef.current) setError(hostText(err?.message ?? String(err)));
+    }).finally(() => {
+      if (mountedRef.current) setStopping(false);
+    });
   };
   if (!bot || !task) return null;
-  const items = [...older, ...page?.items ?? []];
+  const latestItems = page?.items ?? [];
+  const latestSeqs = new Set(latestItems.filter((it) => Number.isInteger(it?.seq)).map((it) => it.seq));
+  const uniqueOlder = older.filter((it) => !Number.isInteger(it?.seq) || !latestSeqs.has(it.seq));
+  const items = [...uniqueOlder, ...latestItems];
   const origin = taskOriginLabel(task.origin);
   const hasBotReply = items.some((entry) => entry.kind === "bot");
   return (0, import_react35.createElement)(
@@ -31457,13 +31504,13 @@ function TaskReaderView({ bot, task, actions }) {
     (0, import_react35.createElement)(
       "div",
       { className: "bt-tread-scroll", ref: scrollRef },
-      page?.cursor ? (0, import_react35.createElement)(
+      nextCursor ? (0, import_react35.createElement)(
         "button",
         { type: "button", className: "bt-tread-more", disabled: loadingMore, onClick: loadEarlier },
         loadingMore ? t("Loading…") : t("Load earlier")
       ) : null,
       loading && items.length === 0 ? (0, import_react35.createElement)("div", { className: "bt-tread-empty" }, t("Loading…")) : items.length === 0 ? (0, import_react35.createElement)("div", { className: "bt-tread-empty" }, task.summary || task.brief || t("No messages yet")) : items.map((entry, idx) => {
-        const key = `${entry.seq ?? idx}:${entry.kind}`;
+        const key = `${entry.seq ?? "x"}:${entry.kind}:${idx}`;
         if (entry.kind === "task-brief") {
           return (0, import_react35.createElement)(
             "div",
@@ -31748,7 +31795,7 @@ body[data-ds-dark-theme] .bt-btask-btn.is-danger:hover:not(:disabled){background
 .bt-tlist-go{flex:none;display:inline-flex;color:var(--bt-ink-3);opacity:.6;transition:opacity .12s ease,transform .12s ease}
 .bt-tlist-row:hover .bt-tlist-go{opacity:1;transform:translateX(1px)}
 
-@media (prefers-reduced-motion:reduce){.bt-task-panel,.bt-btask-card{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.bt-task-bar,.bt-task-panel{animation:none!important}}
 `;
 
 // src/client/activity-row.js
@@ -42485,14 +42532,14 @@ async function submitSide({ call: call2, roster, sessionId, args, attachments, o
   return { kind: "success" };
 }
 var panelHasStrip = (canBrowse, tabCount, sideCount, hasTask = false) => canBrowse === true && tabCount > 0 || sideCount > 0 || hasTask === true;
-function stripMenuKeys({ canBrowse, canTerminal, canFiles }) {
+function stripMenuKeys({ canBrowse, canSide = true, canTerminal, canFiles }) {
   const keys = [];
   if (canBrowse === true) keys.push("new-tab");
-  keys.push("side");
+  if (canSide === true) keys.push("side");
   const tail = [];
   if (canTerminal === true) tail.push("terminal");
   if (canFiles === true) tail.push("files");
-  if (tail.length > 0) keys.push("sep");
+  if (keys.length > 0 && tail.length > 0) keys.push("sep");
   return [...keys, ...tail];
 }
 function drawerMenuKeys({ bot, room: room2, canBrowse, canTerminal, canFiles }) {
@@ -45811,14 +45858,23 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   useEscape(cancelRename, editing);
   const [copied, setCopied] = (0, import_react71.useState)(false);
   const [error, setError] = (0, import_react71.useState)("");
-  const glide2 = useGlide(tab);
-  const last = (0, import_react71.useRef)({ view, tab, move: void 0 });
-  if (last.current.view !== view) last.current = { view, tab, move: view === "settings" ? "in" : "out" };
-  else if (last.current.tab !== tab) last.current = { view, tab, move: "tab" };
+  const bot = owner;
+  const chatTasks = bot || room2 ? tasksForChat({ bot, room: room2, roster }) : [];
+  const activeTaskCount = chatTasks.filter(isActiveTask).length;
+  const tabs = [
+    "details",
+    ...chatTasks.length > 0 ? ["tasks"] : [],
+    ...bot ? ["browser"] : [],
+    ...bot && roster.computer?.enabled === true ? ["computer"] : []
+  ];
+  const activeTab = tabs.includes(tab) ? tab : "details";
+  const glide2 = useGlide(`${activeTab}:${tabs.join(",")}`);
+  const last = (0, import_react71.useRef)({ view, tab: activeTab, move: void 0 });
+  if (last.current.view !== view) last.current = { view, tab: activeTab, move: view === "settings" ? "in" : "out" };
+  else if (last.current.tab !== activeTab) last.current = { view, tab: activeTab, move: "tab" };
   const move = last.current.move;
   const side = move === "tab" ? void 0 : move;
   const close = () => actions.closeOverlay();
-  const bot = owner;
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
   const transcript = useSessions((list) => transcriptOf(list, part, bot?.name ?? room2?.name ?? t("Bot"), roster.exchangeTurns[part]));
@@ -45887,16 +45943,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     if (bot && next) await run2(actions.updateBot(bot.id, { name: next }));
     if (room2) await run2(actions.updateRoom(room2.id, { name: next }));
   };
-  const chatTasks = tasksForChat({ bot, room: room2, roster });
-  const activeTaskCount = chatTasks.filter(isActiveTask).length;
   const subtitle = bot ? void 0 : roomSubtitle(room2, roster);
-  const tabs = [
-    "details",
-    ...chatTasks.length > 0 ? ["tasks"] : [],
-    ...bot ? ["browser"] : [],
-    ...bot && roster.computer?.enabled === true ? ["computer"] : []
-  ];
-  const activeTab = tabs.includes(tab) ? tab : "details";
   return [
     (0, import_react71.createElement)(import_react71.Fragment, { key: "top" }, top),
     (0, import_react71.createElement)(
@@ -46232,6 +46279,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
   }, []);
   const items = stripMenuKeys({
     canBrowse,
+    canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
   }).map((key) => menuItemFor(key, actions, subject));
@@ -46341,26 +46389,39 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
         );
       }),
       task ? (0, import_react72.createElement)(
-        "button",
+        "div",
         {
           key: `task:${task.id}`,
-          type: "button",
-          role: "tab",
-          "aria-selected": view === "task",
+          role: "presentation",
           "data-task": task.id,
-          className: "bt-ptab bt-ptab-side",
-          title: task.title,
-          onClick: () => onView("task")
+          "data-selected": view === "task" || void 0,
+          className: "bt-ptab-wrap bt-ptab-side"
         },
-        (0, import_react72.createElement)("span", { className: "bt-task-dot", "data-status": task.status, "aria-hidden": true }),
-        (0, import_react72.createElement)("span", { className: "bt-ptab-title" }, task.title),
-        (0, import_react72.createElement)("span", {
+        (0, import_react72.createElement)(
+          "button",
+          {
+            type: "button",
+            role: "tab",
+            "aria-selected": view === "task",
+            className: "bt-ptab bt-ptab-btn",
+            title: task.title,
+            onClick: () => onView("task"),
+            onAuxClick: (event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+                actions.closeTask?.();
+              }
+            }
+          },
+          (0, import_react72.createElement)("span", { className: "bt-task-dot", "data-status": task.status, "aria-hidden": true }),
+          (0, import_react72.createElement)("span", { className: "bt-ptab-title" }, task.title)
+        ),
+        (0, import_react72.createElement)("button", {
+          type: "button",
           className: "bt-ptab-x",
-          role: "button",
           "aria-label": t("Close"),
           title: t("Close"),
-          onClick: (event) => {
-            event.stopPropagation();
+          onClick: () => {
             actions.closeTask?.();
           }
         }, "×")
@@ -46368,7 +46429,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
       (0, import_react72.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
     ),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
-    (0, import_react72.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }),
+    items.length > 0 ? (0, import_react72.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }) : null,
     (0, import_react72.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react72.createElement)(CloseIcon3))
   );
 }

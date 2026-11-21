@@ -243,6 +243,7 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
   }, [])
   const items = stripMenuKeys({
     canBrowse,
+    canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
   }).map(key => menuItemFor(key, actions, subject))
@@ -292,21 +293,25 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
           }, '×'))
       }),
       task
-        ? h('button', {
-            key: `task:${task.id}`, type: 'button', role: 'tab', 'aria-selected': view === 'task', 'data-task': task.id, className: 'bt-ptab bt-ptab-side',
+        ? h('div', {
+            key: `task:${task.id}`, role: 'presentation', 'data-task': task.id, 'data-selected': view === 'task' || undefined, className: 'bt-ptab-wrap bt-ptab-side',
+          },
+          h('button', {
+            type: 'button', role: 'tab', 'aria-selected': view === 'task', className: 'bt-ptab bt-ptab-btn',
             title: task.title,
             onClick: () => onView('task'),
+            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); actions.closeTask?.() } },
           },
-          h('span', { className: 'bt-task-dot', 'data-status': task.status, 'aria-hidden': true }),
-          h('span', { className: 'bt-ptab-title' }, task.title),
-          h('span', {
-            className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close'), title: t('Close'),
-            onClick: (event) => { event.stopPropagation(); actions.closeTask?.() },
+            h('span', { className: 'bt-task-dot', 'data-status': task.status, 'aria-hidden': true }),
+            h('span', { className: 'bt-ptab-title' }, task.title)),
+          h('button', {
+            type: 'button', className: 'bt-ptab-x', 'aria-label': t('Close'), title: t('Close'),
+            onClick: () => { actions.closeTask?.() },
           }, '×'))
         : null,
       h('span', { ref: ind, className: 'bt-ptab-ind', 'aria-hidden': true })),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
-    h(PanelMenu, { items, className: 'bt-ptab-new', 'aria-label': t('More') }),
+    items.length > 0 ? h(PanelMenu, { items, className: 'bt-ptab-new', 'aria-label': t('More') }) : null,
     h('button', { type: 'button', className: 'bt-icon-btn bt-ptab-close', 'aria-label': t('Close panel'), title: t('Close panel'), onClick: () => actions.closePanel() }, h(CloseIcon)))
 }
 

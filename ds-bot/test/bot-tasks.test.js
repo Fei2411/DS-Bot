@@ -798,4 +798,35 @@ test('bot-task-read excludes inherited foreground chat history, renders task-bri
   const movedItems = movedRes.value.items
   assert.equal(movedItems.some(it => String(it.text ?? '').includes('Prior unrelated foreground chat')), false, 'fg-handoff taskPage must exclude prior foreground turns')
   assert.equal(movedItems.some(it => it.kind === 'user' && it.text === 'Run full release check'), true, 'fg-handoff taskPage must include the moved turn prompt')
+
+  // 3) First-turn fg-handoff (startSeq === 0) + follow-up turn 2 must preserve turn 1 in bot-task-read.
+  const dmB = env.agentMap.get('dm-b')
+  await env.emit('dm-b', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'First turn prompt' }] })
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  dmB.session.seq = dmB.session.events.length + 10
+  Object.assign(env.rt.live.get('dm-b'), { since: Date.now() - 10_000, toolCount: 1 })
+  await env.rt.handoffForeground(env.rt.botOf('b'), 'dm-b', [])
+  const firstTurnTask = env.rt.botOf('b').tasks[0]
+  assert.equal(firstTurnTask.startSeq, 0, 'first-turn fg-handoff must persist startSeq === 0')
+  await env.emit('dm-b', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Turn 1 interim reply' }] } })
+  // User sends a follow-up starting turn 2 before the task settles (simulated via live turn/end + turn/start).
+  await env.callApi('bot-task-send', { botId: 'b', taskId: firstTurnTask.id, text: 'Follow-up for turn 2' })
+  await env.emit('dm-b', 'turn/start', { turn: 2 })
+  await env.emit('dm-b', 'assistant/message', { turn: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'Turn 2 reply' }] } })
+  dmB.session.seq = dmB.session.events.length + 10
+  const bothTurnsRes = await env.callApi('bot-task-read', { botId: 'b', taskId: firstTurnTask.id })
+  assert.equal(bothTurnsRes.ok, true)
+  assert.equal(bothTurnsRes.value.items.some(it => it.text === 'First turn prompt'), true, 'turn 1 prompt must be preserved when startSeq === 0')
+  assert.equal(bothTurnsRes.value.items.some(it => it.text === 'Turn 1 interim reply'), true, 'turn 1 reply must be preserved')
+  assert.equal(bothTurnsRes.value.items.some(it => it.text === 'Follow-up for turn 2'), true, 'turn 2 follow-up must be included')
+  assert.equal(bothTurnsRes.value.items.some(it => it.text === 'Turn 2 reply'), true, 'turn 2 reply must be included')
+
+  // 4) bot-task-send rejects cross-Bot taskId and read-only hosts.
+  const crossRes = await env.callApi('bot-task-send', { botId: 'a', taskId: firstTurnTask.id, text: 'Wrong bot' })
+  assert.equal(crossRes.ok, false)
+  env.rt.readOnly = () => 'Another host holds the team.'
+  const roSend = await env.callApi('bot-task-send', { botId: 'b', taskId: firstTurnTask.id, text: 'Read-only send' })
+  assert.equal(roSend.ok, false)
+  assert.equal(roSend.error?.code, 'bot/read-only')
+  env.rt.readOnly = () => undefined
 })

@@ -2248,7 +2248,7 @@ export function install(rt) {
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    const stored = { ...task, sessionId, segments: [], ...(startSeq > 0 ? { startSeq } : {}), ...(workDir !== undefined ? { workDir } : {}) }
+    const stored = { ...task, sessionId, segments: [], startSeq, ...(workDir !== undefined ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
@@ -2314,13 +2314,15 @@ export function install(rt) {
     if (parts.length === 0) return { sessionId: task.sessionId, items: [], cursor: null }
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
-    let minSeq = Number.isInteger(task.startSeq) && task.startSeq > 0 ? task.startSeq : undefined
-    if (index === 0 && minSeq === undefined) {
+    const hasStoredStart = Number.isInteger(task.startSeq) && task.startSeq >= 0
+    let minSeq = hasStoredStart ? task.startSeq : undefined
+    if (index === 0 && !hasStoredStart) {
       const firstAgent = await rt.resolveAgent(parts[0].sessionId).catch(() => undefined)
       const inherited = firstAgent?.session?.inheritedEventCount
-      if (task.origin !== 'fg-handoff' && Number.isInteger(inherited) && inherited > 0) {
+      const movedOrigin = task.origin === 'fg-handoff' || task.origin === 'bot-handoff'
+      if (!movedOrigin && Number.isInteger(inherited) && inherited > 0) {
         minSeq = inherited
-      } else if (task.origin === 'fg-handoff') {
+      } else if (movedOrigin) {
         const all = firstAgent?.session?.snapshotEvents?.() ?? []
         const lastStart = all.findLastIndex(ev => ev?.type === 'turn/start')
         const boundary = lastStart >= 0 ? lastStart : all.length
@@ -2334,7 +2336,7 @@ export function install(rt) {
     }
     return {
       sessionId: parts.at(-1).sessionId,
-      ...(await partPage(parts, index, cursor, steps, { taskView: true, ...(index === 0 && minSeq !== undefined ? { minSeq } : {}) })),
+      ...(await partPage(parts, index, cursor, steps, { taskView: true, ...(index === 0 && minSeq !== undefined && minSeq > 0 ? { minSeq } : {}) })),
     }
   }
 

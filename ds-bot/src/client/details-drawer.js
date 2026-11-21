@@ -307,16 +307,26 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   useEscape(cancelRename, editing)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
-  const glide = useGlide(tab)
+  const bot = owner
+  const chatTasks = bot || room ? tasksForChat({ bot, room, roster }) : []
+  const activeTaskCount = chatTasks.filter(isActiveTask).length
+  // Tab sets: Tasks appears as its own clean tab only when this chat has background tasks.
+  const tabs = [
+    'details',
+    ...(chatTasks.length > 0 ? ['tasks'] : []),
+    ...(bot ? ['browser'] : []),
+    ...(bot && roster.computer?.enabled === true ? ['computer'] : []),
+  ]
+  const activeTab = tabs.includes(tab) ? tab : 'details'
+  const glide = useGlide(`${activeTab}:${tabs.join(',')}`)
   // The settings view comes in from the right and the overview back from the left; a
   // new tab clears from a blur. The first view arrives with the panel.
-  const last = useRef({ view, tab, move: undefined })
-  if (last.current.view !== view) last.current = { view, tab, move: view === 'settings' ? 'in' : 'out' }
-  else if (last.current.tab !== tab) last.current = { view, tab, move: 'tab' }
+  const last = useRef({ view, tab: activeTab, move: undefined })
+  if (last.current.view !== view) last.current = { view, tab: activeTab, move: view === 'settings' ? 'in' : 'out' }
+  else if (last.current.tab !== activeTab) last.current = { view, tab: activeTab, move: 'tab' }
   const move = last.current.move
   const side = move === 'tab' ? undefined : move
   const close = () => actions.closeOverlay()
-  const bot = owner
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const transcript = useSessions(list => transcriptOf(list, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part]))
@@ -369,17 +379,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     // An empty group name goes back to naming the group after its members.
     if (room) await run(actions.updateRoom(room.id, { name: next }))
   }
-  const chatTasks = tasksForChat({ bot, room, roster })
-  const activeTaskCount = chatTasks.filter(isActiveTask).length
   const subtitle = bot ? undefined : roomSubtitle(room, roster)
-  // Tab sets: Tasks appears as its own clean tab only when this chat has background tasks.
-  const tabs = [
-    'details',
-    ...(chatTasks.length > 0 ? ['tasks'] : []),
-    ...(bot ? ['browser'] : []),
-    ...(bot && roster.computer?.enabled === true ? ['computer'] : []),
-  ]
-  const activeTab = tabs.includes(tab) ? tab : 'details'
   return [h(Fragment, { key: 'top' }, top),
     h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side },
       bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined), main: isMainBot, badge: false, gaze: true, pokeable: true })

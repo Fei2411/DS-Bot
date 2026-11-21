@@ -144,14 +144,14 @@ export const panelHasStrip = (canBrowse, tabCount, sideCount, hasTask = false) =
 
 // The strip `···` menu keys, in order. 'sep' joins the two groups only when
 // both have entries.
-export function stripMenuKeys({ canBrowse, canTerminal, canFiles }) {
+export function stripMenuKeys({ canBrowse, canSide = true, canTerminal, canFiles }) {
   const keys = []
   if (canBrowse === true) keys.push('new-tab')
-  keys.push('side')
+  if (canSide === true) keys.push('side')
   const tail = []
   if (canTerminal === true) tail.push('terminal')
   if (canFiles === true) tail.push('files')
-  if (tail.length > 0) keys.push('sep')
+  if (keys.length > 0 && tail.length > 0) keys.push('sep')
   return [...keys, ...tail]
 }
 

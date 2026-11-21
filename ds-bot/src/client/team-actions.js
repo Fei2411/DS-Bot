@@ -54,7 +54,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'
               : state.view
-        return { ...state, details: id, view, ...(state.view === 'task' ? { task: null } : {}), renaming: false, tab: null }
+        return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
     showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
@@ -243,7 +243,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
       taskDeck: state.approvalOpen === roomId ? state.taskDeck : null,
     })),
-    openApproval: roomId => ui.set(state => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    openApproval: roomId => ui.set(state => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null })),
     closeApproval: () => ui.set(state => (state.approvalOpen ? { ...state, approvalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),

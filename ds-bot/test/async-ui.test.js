@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { panelHasStrip } from '../src/client/side-model.js'
+import { panelHasStrip, stripMenuKeys } from '../src/client/side-model.js'
 import { teamActions } from '../src/client/team-actions.js'
 
 const bundle = await build({
@@ -229,11 +229,18 @@ test('teamActions task deck, right-panel read-only task viewer, stopTask, sendTa
 
   assert.equal(panelHasStrip(false, 0, 0, true), true)
   assert.equal(panelHasStrip(false, 0, 0, false), false)
+  assert.deepEqual(stripMenuKeys({ canBrowse: false, canSide: false, canTerminal: true, canFiles: false }), ['terminal'])
+  assert.deepEqual(stripMenuKeys({ canBrowse: false, canSide: false, canTerminal: false, canFiles: false }), [])
+  assert.deepEqual(stripMenuKeys({ canBrowse: true, canSide: true, canTerminal: true, canFiles: false }), ['new-tab', 'side', 'sep', 'terminal'])
 
   actions.openTaskDeck('a', 'k_1')
   assert.equal(ui.getSnapshot().taskDeck.targetId, 'a')
   assert.equal(ui.getSnapshot().taskDeck.taskId, 'k_1')
   assert.equal(ui.getSnapshot().approvalOpen, null)
+  actions.openApproval('r1')
+  assert.equal(ui.getSnapshot().approvalOpen, 'r1')
+  assert.equal(ui.getSnapshot().taskDeck, null)
+  actions.openTaskDeck('a', 'k_1')
   actions.toggleTaskDeck('a')
   assert.equal(ui.getSnapshot().taskDeck, null)
   actions.toggleTaskDeck('a')
@@ -249,6 +256,15 @@ test('teamActions task deck, right-panel read-only task viewer, stopTask, sendTa
   assert.equal(ui.getSnapshot().view, 'task')
   assert.deepEqual(ui.getSnapshot().task, { botId: 'a', taskId: 'k_1' })
 
+  // Returning to details tab without closing task, then switching chat via followPanel must clear task.
+  actions.setPanelView('details')
+  assert.equal(ui.getSnapshot().view, 'details')
+  assert.deepEqual(ui.getSnapshot().task, { botId: 'a', taskId: 'k_1' })
+  actions.followPanel('dm-b')
+  assert.equal(ui.getSnapshot().details, 'dm-b')
+  assert.equal(ui.getSnapshot().task, null)
+
+  actions.openTask('dm-a', 'a', 'k_1')
   actions.closeTask()
   assert.equal(ui.getSnapshot().view, 'details')
   assert.equal(ui.getSnapshot().task, null)

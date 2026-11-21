@@ -197,6 +197,9 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
   const [error, setError] = useState('')
   const inputRef = useRef(null)
   const bodyRef = useRef(null)
+  const sentTimerRef = useRef(null)
+
+  useEffect(() => () => { if (sentTimerRef.current) clearTimeout(sentTimerRef.current) }, [])
 
   useEffect(() => {
     if (focusTaskId) {
@@ -208,6 +211,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
 
   const selectIndex = useCallback((nextIdx) => {
     if (items.length === 0) return
+    if (sentTimerRef.current) { clearTimeout(sentTimerRef.current); sentTimerRef.current = null }
     setError('')
     setSentNote('')
     setIndex(((nextIdx % items.length) + items.length) % items.length)
@@ -275,6 +279,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
   const sendFollowup = () => {
     const text = draft.trim()
     if (text === '' || busy || !task || !ownerBot) return
+    if (sentTimerRef.current) { clearTimeout(sentTimerRef.current); sentTimerRef.current = null }
     setBusy(true)
     setError('')
     setSentNote('')
@@ -282,7 +287,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
     void Promise.resolve(actions.sendTask(ownerBot.id, task.id, text))
       .then(() => {
         setSentNote(t('Sent to background task'))
-        setTimeout(() => setSentNote(''), 2200)
+        sentTimerRef.current = setTimeout(() => { sentTimerRef.current = null; setSentNote('') }, 2200)
       })
       .catch((err) => {
         setDraft(prev => (prev === '' ? text : prev))
@@ -387,64 +392,92 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
 export function TaskReaderView({ bot, task, actions }) {
   const [page, setPage] = useState(null)
   const [older, setOlder] = useState([])
+  const [olderCursor, setOlderCursor] = useState({ active: false, cursor: null })
   const [showSteps, setShowSteps] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState('')
   const scrollRef = useRef(null)
+  const actionsRef = useRef(actions)
+  actionsRef.current = actions
+  const reqGenRef = useRef(0)
+  const mountedRef = useRef(true)
+  const botId = bot?.id
+  const taskId = task?.id
   const active = isActiveTask(task)
 
-  const loadLatest = useCallback(async (quiet = false) => {
-    if (!bot || !task || typeof actions.readTask !== 'function') return
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  const loadLatest = useCallback(async (quiet = false, gen = reqGenRef.current) => {
+    const readTask = actionsRef.current?.readTask
+    if (!botId || !taskId || typeof readTask !== 'function') return
     if (!quiet) setLoading(true)
     try {
-      const next = await actions.readTask(bot.id, task.id, undefined, showSteps)
+      const next = await readTask(botId, taskId, undefined, showSteps)
+      if (!mountedRef.current || gen !== reqGenRef.current) return
       setPage(next)
       setError('')
     } catch (err) {
+      if (!mountedRef.current || gen !== reqGenRef.current) return
       setError(hostText(err?.message ?? String(err)))
     } finally {
-      if (!quiet) setLoading(false)
+      if (mountedRef.current && !quiet && gen === reqGenRef.current) setLoading(false)
     }
-  }, [bot?.id, task?.id, showSteps, actions])
+  }, [botId, taskId, showSteps])
 
   useEffect(() => {
+    reqGenRef.current += 1
+    const gen = reqGenRef.current
     setOlder([])
-    void loadLatest(false)
+    setOlderCursor({ active: false, cursor: null })
+    setPage(null)
+    void loadLatest(false, gen)
   }, [loadLatest])
 
   useEffect(() => {
     if (!active) return undefined
-    const timer = setInterval(() => { void loadLatest(true) }, 2500)
+    const timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
     return () => clearInterval(timer)
   }, [active, loadLatest])
 
+  const nextCursor = olderCursor.active ? olderCursor.cursor : (page?.cursor ?? null)
+
   const loadEarlier = async () => {
-    if (!page?.cursor || loadingMore) return
+    const readTask = actionsRef.current?.readTask
+    if (!nextCursor || loadingMore || !botId || !taskId || typeof readTask !== 'function') return
+    const gen = reqGenRef.current
     setLoadingMore(true)
     try {
-      const prev = await actions.readTask(bot.id, task.id, page.cursor, showSteps)
+      const prev = await readTask(botId, taskId, nextCursor, showSteps)
+      if (!mountedRef.current || gen !== reqGenRef.current) return
       setOlder(list => [...(prev.items ?? []), ...list])
-      setPage(curr => (curr ? { ...curr, cursor: prev.cursor ?? null } : prev))
+      setOlderCursor({ active: true, cursor: prev.cursor ?? null })
     } catch (err) {
+      if (!mountedRef.current || gen !== reqGenRef.current) return
       setError(hostText(err?.message ?? String(err)))
     } finally {
-      setLoadingMore(false)
+      if (mountedRef.current && gen === reqGenRef.current) setLoadingMore(false)
     }
   }
 
   const stop = () => {
-    if (stopping || !bot || !task) return
+    if (stopping || !botId || !taskId) return
     setStopping(true)
-    void Promise.resolve(actions.stopTask(bot.id, task.id))
-      .then(() => loadLatest(true))
-      .catch(err => setError(hostText(err?.message ?? String(err))))
-      .finally(() => setStopping(false))
+    void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId))
+      .then(() => loadLatest(true, reqGenRef.current))
+      .catch((err) => { if (mountedRef.current) setError(hostText(err?.message ?? String(err))) })
+      .finally(() => { if (mountedRef.current) setStopping(false) })
   }
 
   if (!bot || !task) return null
-  const items = [...older, ...(page?.items ?? [])]
+  const latestItems = page?.items ?? []
+  const latestSeqs = new Set(latestItems.filter(it => Number.isInteger(it?.seq)).map(it => it.seq))
+  const uniqueOlder = older.filter(it => !Number.isInteger(it?.seq) || !latestSeqs.has(it.seq))
+  const items = [...uniqueOlder, ...latestItems]
   const origin = taskOriginLabel(task.origin)
   const hasBotReply = items.some(entry => entry.kind === 'bot')
 
@@ -473,7 +506,7 @@ export function TaskReaderView({ bot, task, actions }) {
     error ? h('div', { className: 'bt-tread-err', role: 'alert' }, error) : null,
 
     h('div', { className: 'bt-tread-scroll', ref: scrollRef },
-      page?.cursor
+      nextCursor
         ? h('button', { type: 'button', className: 'bt-tread-more', disabled: loadingMore, onClick: loadEarlier },
             loadingMore ? t('Loading…') : t('Load earlier'))
         : null,
@@ -482,7 +515,7 @@ export function TaskReaderView({ bot, task, actions }) {
         : items.length === 0
           ? h('div', { className: 'bt-tread-empty' }, task.summary || task.brief || t('No messages yet'))
           : items.map((entry, idx) => {
-              const key = `${entry.seq ?? idx}:${entry.kind}`
+              const key = `${entry.seq ?? 'x'}:${entry.kind}:${idx}`
               if (entry.kind === 'task-brief') {
                 return h('div', { key, className: 'bt-tread-brief' },
                   entry.name ? h('div', { className: 'bt-tread-brief-from' }, entry.name) : null,
@@ -737,5 +770,5 @@ body[data-ds-dark-theme] .bt-btask-btn.is-danger:hover:not(:disabled){background
 .bt-tlist-go{flex:none;display:inline-flex;color:var(--bt-ink-3);opacity:.6;transition:opacity .12s ease,transform .12s ease}
 .bt-tlist-row:hover .bt-tlist-go{opacity:1;transform:translateX(1px)}
 
-@media (prefers-reduced-motion:reduce){.bt-task-panel,.bt-btask-card{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.bt-task-bar,.bt-task-panel{animation:none!important}}
 `
