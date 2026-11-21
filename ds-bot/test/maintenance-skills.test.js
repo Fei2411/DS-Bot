@@ -271,7 +271,7 @@ test('skill docs name only real team tools, never the old memory tool names', ()
   for (const skillName of ['ds-bot-maintenance', 'ds-bot-plugin-dev']) {
     for (const filePath of skillFiles(skillName)) {
       const raw = readFileSync(filePath, 'utf8')
-      for (const [token] of raw.matchAll(/`([^`]+)`/g)) {
+      for (const [, token] of raw.matchAll(/`([^`]+)`/g)) {
         assert.ok(!['remember', 'recall', 'forget'].includes(token), `${filePath} still names the renamed tool \`${token}\``)
         if (/^bot_[a-z_]+$/.test(token) || /^(list|read)_[a-z_]+$/.test(token) || token === 'message_bot') {
           assert.ok(TEAM_TOOLS.includes(token), `${filePath} names \`${token}\`, which is not a team tool`)
