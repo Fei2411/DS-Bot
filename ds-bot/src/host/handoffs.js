@@ -197,6 +197,7 @@ export function install(rt) {
     if (work === undefined) return
     const { parent } = work
     delete works()[id]
+    for (const child of Object.values(works())) if (child.parent === id) delete child.parent
     const above = works()[parent]
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
