@@ -4,10 +4,14 @@
 // snapshot with its cursor, then every committed event in order, and the reply being
 // written (`assistant-stream`). A window that reconnects opens again and drops what it
 // already holds by `seq`; an earlier page is `session-page` with `beforeSeq`.
+// DSH tells a follow about events committed in its own process. A window that only reads the
+// team (another dsh holds it) gets the opening and no later events; it opens again when the
+// live feed says the team changed.
 //   GET  api/bot/session?id=<Session>[&parent=<Session>&mode=<mode>][&max=<messages>]
 //        Server-Sent Events: `frame` (one follow frame), `error` ({ code, message }), `end`
 //   POST api/bot `session-page` { sessionId, parent?, mode?, beforeSeq?, throughSeq?, maxMessages? }
 // Reading never wakes a Session: the follow is passive.
+import { errorCode } from './channel.js'
 import { ROUTE } from './constants.js'
 
 export const SESSION_ROUTE = `${ROUTE}/session`
@@ -19,10 +23,11 @@ const SESSION_ID = /^[\w-]{1,128}$/
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 const missing = message => Object.assign(new Error(message), { code: 'bot/not-found' })
-const whole = (value, name) => {
+// A number field: absent, or a whole number from `min` (DSH takes -1 as an empty cut).
+const whole = (value, name, min = 0) => {
   if (value === undefined || value === null || value === '') return undefined
   const number = Number(value)
-  if (!Number.isInteger(number) || number < 0) throw invalid(`${name} must be a whole number`)
+  if (!Number.isInteger(number) || number < min) throw invalid(`${name} must be a whole number from ${min}`)
   return number
 }
 
@@ -35,14 +40,20 @@ export function addressOf({ sessionId, parent, mode }) {
   if (!SESSION_ID.test(id)) throw invalid('A Session id is needed')
   if (parent === undefined || parent === null || parent === '') return { kind: 'session', sessionId: id }
   if (typeof parent !== 'string' || !SESSION_ID.test(parent)) throw invalid('The parent Session id is not one')
+  if (mode !== undefined && mode !== null && mode !== '' && !SUBAGENT_MODES.has(mode)) throw invalid(`A subagent mode is one of ${[...SUBAGENT_MODES].join(', ')}`)
   return { kind: 'subagent', parentSessionId: parent, childSessionId: id, mode: SUBAGENT_MODES.has(mode) ? mode : 'unknown' }
 }
 
-// DSH names a Session it does not know (`session "…" not found`, or `session/not-found` over
-// its Remote); the window hears not-found.
-const known = (error) => {
-  if (error?.code === 'session/not-found' || /^session ".*" not found$/.test(error?.message ?? '')) throw missing(error.message)
-  throw error
+// DSH's refusals as the window hears them: a Session or subagent that is not there is
+// not-found (the window stops asking); an address DSH turns away (a subagent's Session read
+// without its parent, or under another one) is refused; anything else as every endpoint.
+const GONE = new Set(['session/not-found', 'subagent/not-found'])
+const TURNED_AWAY = new Set(['session/agent-busy', 'subagent/unauthorized'])
+export function windowError(error) {
+  const message = error?.message ?? String(error)
+  if (GONE.has(error?.code) || /^session ".*" not found$/.test(message)) return Object.assign(new Error(message), { code: 'bot/not-found' })
+  if (TURNED_AWAY.has(error?.code)) return Object.assign(new Error(message), { code: 'bot/refused' })
+  return error
 }
 
 export function install(rt) {
@@ -57,10 +68,11 @@ export function install(rt) {
     const request = {
       address: addressOf(body),
       ...(whole(body.beforeSeq, 'beforeSeq') === undefined ? {} : { beforeSeq: whole(body.beforeSeq, 'beforeSeq') }),
-      ...(whole(body.throughSeq, 'throughSeq') === undefined ? {} : { throughSeq: whole(body.throughSeq, 'throughSeq') }),
-      ...(whole(body.maxMessages, 'maxMessages') === undefined ? {} : { maxMessages: whole(body.maxMessages, 'maxMessages') }),
+      ...(whole(body.throughSeq, 'throughSeq', -1) === undefined ? {} : { throughSeq: whole(body.throughSeq, 'throughSeq', -1) }),
+      ...(whole(body.maxMessages, 'maxMessages', 1) === undefined ? {} : { maxMessages: whole(body.maxMessages, 'maxMessages', 1) }),
     }
-    return controller().page(request, signal ?? AbortSignal.timeout(30_000)).catch(known)
+    // `events` is DSH's name for the page read (`page` stays for its own web client).
+    return controller().events(request, signal ?? AbortSignal.timeout(30_000)).catch((error) => { throw windowError(error) })
   }
 
   ctx.effect(() => ctx.connection.fetch.register({
@@ -71,7 +83,7 @@ export function install(rt) {
       const query = new URL(request.url).searchParams
       let follow
       try {
-        const max = whole(query.get('max'), 'max')
+        const max = whole(query.get('max'), 'max', 1)
         follow = { address: addressOf({ sessionId: query.get('id'), parent: query.get('parent'), mode: query.get('mode') }), assistantStream: true, ...(max === undefined ? {} : { maxMessages: max }) }
       } catch (error) {
         return Response.json({ ok: false, error: { code: error.code ?? 'bot/invalid', message: error.message, details: {} } }, { status: 400 })
@@ -100,9 +112,10 @@ export function install(rt) {
             if (!stop.signal.aborted) write('end', {})
           } catch (error) {
             if (!stop.signal.aborted) {
-              let code = 'bot/internal'
-              try { known(error) } catch (mapped) { code = mapped.code ?? code }
-              write('error', { code, message: error?.message ?? String(error) })
+              const mapped = windowError(error)
+              const code = errorCode(mapped)
+              if (code === 'bot/internal') rt.noteFailure?.({ source: 'api', text: `session follow: ${mapped.message}`, code: error?.code ?? error?.name, stack: error?.stack })
+              write('error', { code, message: mapped.message })
             }
           } finally {
             clearInterval(keepalive)

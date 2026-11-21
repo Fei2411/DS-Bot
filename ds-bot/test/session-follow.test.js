@@ -34,7 +34,7 @@ function start({ follow, page } = {}) {
       asked.follow.push({ request, signal })
       return follow(request, signal)
     },
-    page: async (request, signal) => {
+    events: async (request, signal) => {
       asked.page.push(request)
       return page(request, signal)
     },
@@ -51,7 +51,7 @@ function start({ follow, page } = {}) {
     return response.json()
   }
   const open = (query, signal) => routes['/api/bot/session'].fetch(new Request(`http://localhost/api/bot/session?${query}`, { signal }))
-  return { call, open, asked, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
+  return { ctx, call, open, asked, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
 }
 
 async function* frames(list, signal, { hold = false } = {}) {
@@ -119,20 +119,43 @@ test('a window that leaves stops the follow in DSH', async (t) => {
   assert.equal(asked.follow[0].signal.aborted, true)
 })
 
-test('a Session DSH does not know is not-found; another failure is an error event', async (t) => {
+// DSH's RemoteError codes for an address it cannot serve (dsh-api-session-controller 0.2.2-rc.1).
+const remote = (code, message) => Object.assign(new Error(message), { code })
+
+test('what DSH refuses reaches the window as gone, turned away, or a failure', async (t) => {
   let failure
-  const { open, stop } = start({ follow: () => (async function* () { throw failure })() })
+  const { open, call, stop } = start({ follow: () => (async function* () { throw failure })(), page: async () => { throw failure } })
   t.after(stop)
-  failure = new Error('session "gone" not found')
-  assert.deepEqual(await events(await open('id=gone')), [{ event: 'error', data: { code: 'bot/not-found', message: 'session "gone" not found' } }])
-  failure = new Error('disk read failed')
-  assert.deepEqual(await events(await open('id=s1')), [{ event: 'error', data: { code: 'bot/internal', message: 'disk read failed' } }])
+  const cases = [
+    [new Error('session "gone" not found'), 'bot/not-found'],
+    [remote('session/not-found', 'session "gone" not found'), 'bot/not-found'],
+    [remote('subagent/not-found', 'subagent is unavailable'), 'bot/not-found'],
+    [remote('subagent/unauthorized', 'subagent does not belong to the supplied parent'), 'bot/refused'],
+    [remote('session/agent-busy', 'subagent Sessions require their durable parent address'), 'bot/refused'],
+    [new TypeError('cannot read properties of undefined'), 'bot/internal'],
+  ]
+  for (const [error, code] of cases) {
+    failure = error
+    assert.deepEqual(await events(await open('id=s1')), [{ event: 'error', data: { code, message: error.message } }], error.message)
+    assert.equal((await call('session-page', { sessionId: 's1' })).error.code, code, `page: ${error.message}`)
+  }
+})
+
+test('unloading the plugin ends a follow that is open', async (t) => {
+  const { ctx, open, asked, stop } = start({ follow: (request, signal) => frames(LIVE.slice(0, 1), signal, { hold: true }) })
+  t.after(stop)
+  const response = await open('id=session-main')
+  const reader = response.body.getReader()
+  await reader.read()
+  await ctx.dispose()
+  assert.equal(asked.follow[0].signal.aborted, true)
+  for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) { /* the rest, then the close */ }
 })
 
 test('a request that names no Session, or a bad size, is refused before DSH is asked', async (t) => {
   const { open, asked, stop } = start({ follow: (request, signal) => frames([], signal) })
   t.after(stop)
-  for (const query of ['', 'id=a/b', 'id=s1&max=-1', 'id=s1&max=x', 'id=s1&parent=..%2F']) {
+  for (const query of ['', 'id=a/b', 'id=s1&max=-1', 'id=s1&max=0', 'id=s1&max=x', 'id=s1&parent=..%2F', 'id=s1&parent=p1&mode=forever']) {
     const response = await open(query)
     assert.equal(response.status, 400, query)
     assert.equal((await response.json()).error.code, 'bot/invalid')
@@ -142,7 +165,8 @@ test('a request that names no Session, or a bad size, is refused before DSH is a
 
 test('a subagent\'s Session is read under its parent', () => {
   assert.deepEqual(addressOf({ sessionId: 'child', parent: 'p1', mode: 'one-shot' }), { kind: 'subagent', parentSessionId: 'p1', childSessionId: 'child', mode: 'one-shot' })
-  assert.equal(addressOf({ sessionId: 'child', parent: 'p1', mode: 'other' }).mode, 'unknown')
+  assert.equal(addressOf({ sessionId: 'child', parent: 'p1' }).mode, 'unknown')
+  assert.throws(() => addressOf({ sessionId: 'child', parent: 'p1', mode: 'other' }), /subagent mode/)
 })
 
 test('session-page reads an earlier page through the channel', async (t) => {
@@ -152,7 +176,11 @@ test('session-page reads an earlier page through the channel', async (t) => {
   assert.equal(answer.ok, true)
   assert.deepEqual(answer.value, RECORDED.page)
   assert.deepEqual(asked.page[0], { address: { kind: 'session', sessionId: 'session-main' }, beforeSeq: 23, maxMessages: 4 })
-  const refused = await call('session-page', { sessionId: 'session-main', beforeSeq: 1.5 })
-  assert.equal(refused.error.code, 'bot/invalid')
+  for (const bad of [{ beforeSeq: 1.5 }, { maxMessages: 0 }, { throughSeq: -2 }]) {
+    assert.equal((await call('session-page', { sessionId: 'session-main', ...bad })).error.code, 'bot/invalid', JSON.stringify(bad))
+  }
+  // -1 is DSH's empty cut.
+  assert.equal((await call('session-page', { sessionId: 'session-main', throughSeq: -1 })).ok, true)
+  assert.equal(asked.page.at(-1).throughSeq, -1)
   assert.equal((await call('session-nope', {})).error.code, 'bot/not-found')
 })
