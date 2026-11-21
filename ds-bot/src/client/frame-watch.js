@@ -5,8 +5,12 @@ import { installStyles } from './styles.js'
 import { nextCollapsedWidth, trackRoom } from './frame-layout.js'
 
 export const sidebarTrackWidth = () => {
-  const box = typeof document === 'undefined' ? undefined : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect()
-  return box === undefined ? null : trackRoom(box)
+  const column = typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')
+  if (!column) return null
+  const position = typeof getComputedStyle === 'function' ? getComputedStyle(column).position : ''
+  // A drawer overlays the grid; its visible strip does not reserve a track.
+  if (position === 'absolute' || position === 'fixed') return 0
+  return trackRoom(column.getBoundingClientRect())
 }
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
@@ -43,6 +47,11 @@ const roomRule = () => {
 const margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`)
   else style.setProperty(`margin-${side}`, `${width}px`, 'important')
+  // A host skin can give the grid item width:100%. That width plus our margins
+  // exceeds its track. Own the width until both margin overrides are released,
+  // including an explicit zero used while our column is hidden.
+  if (style.marginLeft || style.marginRight) style.setProperty('width', 'auto', 'important')
+  else style.removeProperty('width')
 }
 let roomHold = 0
 export const chatRoom = {
@@ -71,7 +80,7 @@ export const chatRoom = {
 export function installFrameWatch(frame) {
   let collapsedWidth = collapsedTrackWidth()
   let raf = 0
-  const watched = new Set()
+  const watched = new WeakSet()
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
   const read = () => {
     // While the shell slides its sidebar (data-animating on the frame) the
@@ -99,8 +108,14 @@ export function installFrameWatch(frame) {
   const schedule = () => {
     if (raf === 0) raf = requestAnimationFrame(() => { raf = 0; measure() })
   }
+  const relevant = (records) => records.some((record) => {
+    if (record.type === 'attributes') return true
+    const target = record.target
+    if (target instanceof Element && target.closest('[data-chat-flow],[data-composer-card]')) return false
+    return true
+  })
   measure()
-  const mutations = new MutationObserver(schedule)
+  const mutations = new MutationObserver((records) => { if (relevant(records)) schedule() })
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sidebar-collapsed', 'data-animating'] })
   window.addEventListener('resize', schedule)
   return () => {

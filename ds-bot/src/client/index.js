@@ -13,6 +13,7 @@ import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
+import { watchAgentTerminals } from './agent-terminals.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
@@ -27,6 +28,7 @@ import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } f
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { SaveFileAction } from './file-save.js'
+import { fileMentionSource } from './mention-source.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
@@ -34,7 +36,8 @@ import { BROWSER_CSS } from './browser-pane.js'
 import { SECRET_CSS, SecretDock } from './secret-card.js'
 import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
 import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
-import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
+import { PROVIDERS_CSS } from './providers-page.js'
+import { LearningDock, LearningTurnTail, PendingLearning, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { ReadOnlyDock, READ_ONLY_CSS } from './read-only-dock.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
@@ -59,7 +62,8 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
-import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, installUserBubble } from './user-message.js'
+import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
@@ -68,6 +72,8 @@ import { listedOpener } from './open-listed.js'
 import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
+import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
+import { installAgentForks } from './agent-fork.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -87,7 +93,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
+  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -367,17 +373,18 @@ export function apply(ctx) {
   ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
   ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
-  // Mentions wear each Bot's color and character silhouette (or its photo). A message
-  // DSH still draws itself, while it waits to be sent or to join a running turn, shows
-  // "@Name" as a file reference; one whose label is a whole Bot name wears the Bot's
-  // mark there too (a name with a space is cut by DSH, so it stays as DSH draws it).
+  // Mentions wear each Bot's color and character silhouette (or its photo). User text
+  // DSH draws (a message waiting to be sent or to join a running turn, and since DSH
+  // 0.2.1-alpha.3 the contents of DS Bot's own user bubble, .bt-uhost) shows "@Name" as
+  // a file reference; one whose label is a whole Bot name wears the Bot's mark there too
+  // (a name with a space is cut by DSH, so it stays as DSH draws it).
   const installMentions = () => {
     const style = installStyles('', 'mentions')
     let last = ''
     const render = () => {
       const next = roster.getSnapshot().bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
-        const chip = /\s/.test(bot.name) ? '' : `[class*="_userRow"] [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
+        const chip = /\s/.test(bot.name) ? '' : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
         const look = lookOf(bot)
         const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`
         const mark = look.image
@@ -711,7 +718,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -793,13 +800,17 @@ export function apply(ctx) {
         await bridge.views.hold(botId, false)
         return result
       } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge.importSources === 'function' ? {
         sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
         pick: () => bridge.importPick(),
-        live: (source, close) => bridge.importLive(source, close),
-        apply: (botId, pending) => bridge.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
@@ -954,6 +965,9 @@ export function apply(ctx) {
     })
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
+  // primitives' text projection; the user's bubble draws with either (user-message.js).
+  const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
   // DS Bot's own rows in the `/` menu of a Bot chat and a group chat (the DSH rows stay;
   // the host module stops their execution there).
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), 'ds-bot: bot command actions')
@@ -981,7 +995,7 @@ export function apply(ctx) {
     const binding = ctx.sessions.binding(sessionId)
     if (binding === undefined) throw new Error(`ds-bot: unknown session "${sessionId}"`)
     const chat = ctx.uiConversation.binding(binding).target('chat')
-    return { ...face(), keyedHooks: {
+    return { ...face(), fileMentions: fileMentionSource(ctx, sessionId), keyedHooks: {
       turnSteps: (turn) => {
         const snapshot = chat.getSnapshot()
         if (snapshot === undefined) throw new Error('ds-bot: Chat target is unavailable')
@@ -1032,6 +1046,8 @@ export function apply(ctx) {
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
   actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
+  // The tabs of the terminals a shown Bot starts, as DSH's own header opens them.
+  actions.watchAgentTerminals = sessionId => watchAgentTerminals(ctx.slots, sessionId, error => actions.reportError(error, 'right-sidebar'))
   actions.newTerminal = () => {
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
@@ -1100,7 +1116,7 @@ export function apply(ctx) {
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name, ...options, ...(options.priority === undefined ? {} : { priority: freePriority(ctx.slots.entries(name), options) }),
   }, component))
-  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY))
+  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY))
 
   // The "@" menu's Bot group and the chats "+" references. The composer's controller
   // for a Session is the shell's own, so the chats open at its caret.
@@ -1166,7 +1182,7 @@ export function apply(ctx) {
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
     [SIDEBAR_CSS, 'sidebar'],
-    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
@@ -1233,9 +1249,11 @@ export function apply(ctx) {
     () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
     () => installCompiledStyles(QUEUE_CSS, 'queue'),
+    () => installCompiledStyles(ANNOTATION_CSS, 'text-annotation'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
+    () => shadow('conversation.chat.text-interaction', { key: 'quote', priority: BOT_PRIORITY, locale: 'messageQuotes', inject: face }, TextSelectionAction),
     () => shadow('conversation.chat.node', { key: 'assistant-step', priority: BOT_PRIORITY, locale: 'chat', inject: assistantFace }, AssistantCell),
     () => shadow('conversation.chat.node', { key: 'turn-trigger', priority: BOT_PRIORITY, locale: 'chat', inject: face }, TriggerCell),
     () => shadow('conversation.chat.node', { key: 'tool-call', priority: BOT_PRIORITY, locale: 'chat', inject: face }, ToolCell),
@@ -1259,7 +1277,17 @@ export function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
-    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    ...(canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ['user', 'steering'].map(key => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell))
+      return () => { for (const off of offs) off() }
+    })] : []),
+    // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
+    // space. A rule of ours claims a whole Bot name first; releases that still have the
+    // text projection (above) have no such registry.
+    ...(typeof ctx.uiConversation.userText?.register === 'function' ? [
+      () => installBotMentionRule(ctx.uiConversation.userText, roster),
+      () => shadow('conversation.user.text.node', { key: BOT_MENTION_ID, inject: face }, BotMention),
+    ] : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
@@ -1298,10 +1326,35 @@ export function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, 'computer'), 'ds-bot: computer styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
+  ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: id => roster.getSnapshot().agentOf[id],
+      hasAgent: id => roster.getSnapshot().agentsById[id] !== undefined,
+      pending: pendingAdopt,
+      ready: async () => { if (!roster.getSnapshot().ready) await pull() },
+      adopt: (agentId, sessionId) => call('agent-adopt', { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage,
+    })
+    const reconcile = () => { void forks.reconcile().catch(error => actions.reportError(error, 'agent-fork-reconcile')) }
+    const offRoster = roster.subscribe(reconcile)
+    const offList = ctx.sessions.list.subscribe(reconcile)
+    const timer = setInterval(reconcile, 5000)
+    reconcile()
+    return () => {
+      offRoster()
+      offList()
+      clearInterval(timer)
+      return forks.dispose()
+    }
+  }, 'ds-bot: Agent forks')
+
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but
-  // withdraws the conversation replacements, so the native dsh page shows. A jump
-  // this plugin did not start — the hero's workspace picker or a fork — opens an
-  // unowned Session; coming from a DSH Agent Session it is adopted into that Agent.
+  // withdraws the conversation replacements, so the native dsh page shows. The
+  // hero's workspace picker creates a blank Session, adopted into the same Agent;
+  // forks are captured at creation above, without depending on list metadata.
   ctx.effect(() => {
     let previous
     const sync = () => {
@@ -1323,18 +1376,13 @@ export function apply(ctx) {
       if (agentId === undefined) return
       const snapshot = roster.getSnapshot()
       if (snapshot.byId[main] !== undefined || snapshot.roomsById[main] !== undefined || agentOfSession(main) !== undefined) return
-      // Only a Session this jump created joins the Agent: a blank one from the
-      // workspace picker, or a fork of a Session the same Agent owns. An existing
-      // Session the user opened from the sidebar keeps its team tools and stays out.
+      // Only a blank Session from the workspace picker joins here. Existing
+      // Sessions opened from the native sidebar keep their tools and stay out.
       const row = list.byId[main]
       // A subagent child reports the Agent Session as its parent, but adopting it
       // would steal it from subagent routing — the Host refuses anyway, so skip.
       if (row?.origin === 'subagent') return
-      // The client list maps the fork's parent to `parentId`; the raw field is
-      // the fallback for shapes that skip the mapping.
-      const parent = row?.parentId ?? row?.parentSessionId
-      const forkedFromAgent = parent !== undefined && agentOfSession(parent) === agentId
-      if (row?.blank !== true && !forkedFromAgent) return
+      if (row?.blank !== true) return
       pendingAdopt.set(main, agentId)
       setPlain(true)
       void call('agent-adopt', { agentId, sessionId: main }).then(() => pull()).catch((error) => {

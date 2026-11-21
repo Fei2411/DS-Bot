@@ -104,7 +104,10 @@ linux:
   maintainer: Fei2411 <https://github.com/Fei2411>
   # Links the running window to the menu entry (WM_CLASS = app id).
   syncDesktopName: true
-  icon: assets/icon.png
+  # The menu/taskbar reads the icon from hicolor/<size>x<size>/apps/. electron-builder installs
+  # each PNG from this directory; a single PNG file would install at just its own size again,
+  # and 1024x1024 is not a registered hicolor size.
+  icon: assets/icons
   category: Utility
 # Let apt replace the legacy deb instead of leaving two installed applications.
 deb:

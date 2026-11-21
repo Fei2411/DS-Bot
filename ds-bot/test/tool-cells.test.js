@@ -252,11 +252,13 @@ const BRANCHES = [
   ['read_group_chat', { args: { group: 'Ops' } }, /Read.*Ops/],
   ['remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
   ['forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
+  ['bot_remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
+  ['bot_forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
 ]
 const rosterFor = callId => team({ questions: { chief: question(callId) }, secretRequests: { chief: [request(callId)] } })
 
 test('every call ToolCell draws shows the same nested in a PTC program as on its own', () => {
-  assert.equal(BRANCHES.length, 15)
+  assert.equal(BRANCHES.length, 17)
   for (const [name, options, expected] of BRANCHES) {
     const native = shown(call(name, 'direct', options), { roster: rosterFor('direct') })
     assert.match(native, expected, `${name} on its own`)
@@ -457,11 +459,13 @@ test('a memory write that failed says so, and opens the memory it meant to chang
 })
 
 test('a removal that failed says it could not remove the entry, and why', () => {
-  const line = memoryLine(failedWrite('forget', {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
-  assert.match(text(line), /Couldn't remove from memory/)
-  assert.match(text(line), /No saved entry matched/)
-  // The entry the call named is not repeated in the notice.
-  assert.doesNotMatch(text(line), /tea/)
+  for (const name of ['bot_forget', 'forget']) {
+    const line = memoryLine(failedWrite(name, {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
+    assert.match(text(line), /Couldn't remove from memory/)
+    assert.match(text(line), /No saved entry matched/)
+    // The entry the call named is not repeated in the notice.
+    assert.doesNotMatch(text(line), /tea/)
+  }
 })
 
 test('the reason follows the kind of failure, not the words of the host', () => {

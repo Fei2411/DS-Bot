@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 import { listComputers } from '../store.ts'
-import * as SecureStore from 'expo-secure-store'
+import * as SecureStore from '../storage'
 import type { TeamState } from '../connection.ts'
 import { offline, useTeamLink } from './link.ts'
 import { demoLink } from './demo.ts'
