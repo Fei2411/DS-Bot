@@ -21,9 +21,12 @@ export function remoteAccessError(device, endpoint) {
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
+  if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
   return undefined
 }
 
+// A browser may not open DSH Agent chats, so it may not read their media either.
+const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
 function remoteState(state) {
@@ -77,13 +80,17 @@ export function install(rt) {
   // When the call carries `state` (the payload the phone would send `state`) and
   // it moved the team, the reply carries the new state too — one round trip
   // through the relay instead of waiting for the revision event and a read.
+  const agentMediaError = (device, endpoint, payload) =>
+    device.kind !== 'phone' && AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
+      ? { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
+      : undefined
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
     // Fail closed if the calling device is missing, unknown, or was revoked.
     const device = typeof deviceId === 'string' && deviceId !== ''
       ? registry.list().find(entry => entry.deviceId === deviceId)
       : undefined
-    const denied = remoteAccessError(device, endpoint)
+    const denied = remoteAccessError(device, endpoint) ?? agentMediaError(device, endpoint, params?.payload)
     if (denied !== undefined) return { ok: false, error: denied }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision

@@ -127,7 +127,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
         .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
     } catch { /* the menu still has the CLI's default */ }
-    if (!this.engineInUse(engine)) await engine.close?.().catch(() => {})
+    if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -308,6 +308,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engineInUse(engine, except) {
     return [...this.live.values()].some(other => other.engine === engine && !other.dead)
       || [...this.sideRequests].some(request => request !== except && request.engine === engine)
+      || [...this.probes.keys()].some(route => route !== except && this.engines.get(route) === engine)
   }
 
   async closeLive(live, { idle = false } = {}) {
@@ -1059,7 +1060,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.disposed = true
     const requests = [...this.sideRequests]
     for (const request of requests) request.controller.abort(new LlmError('the local agents adapter is disposed', 'NO_ADAPTER'))
-    await Promise.all(requests.filter(request => request.isolated).map(request => request.engine.close?.().catch(() => {})))
+    await Promise.all([...new Set(requests.map(request => request.engine))].map(engine => engine.close?.().catch(() => {})))
     await Promise.all(requests.map(request => request.done.promise))
     for (const live of Array.from(this.live.values())) await this.closeLive(live)
     for (const engine of Array.from(this.engines.values())) await engine.close?.().catch(() => {})

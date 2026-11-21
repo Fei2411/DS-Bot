@@ -213,7 +213,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   }
 
   const actionButton = (id, disabled = false) => activeId === id
-    ? h('span', { className: 'bt-chip bt-browser-active-chip' }, t('Active'))
+    ? h('span', { className: 'bt-chip bt-browser-active-chip' }, t('In use'))
     : h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',

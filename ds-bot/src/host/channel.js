@@ -1,6 +1,7 @@
 // Client channel: the team view the browser renders, and the POST /api/bot endpoints.
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { PUBLISH_ISSUE } from './issue-report.js'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
@@ -163,7 +164,7 @@ export function install(rt) {
       .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
       .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
       .map(sessionId => [sessionId, true])),
-    work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -171,6 +172,7 @@ export function install(rt) {
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
     phone: rt.phoneView(),
+    mcp: rt.mcpView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
     // Why this host cannot write the team, or null. It changes without a save — the
@@ -203,7 +205,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'browser-backends', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'browser-backends', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -502,6 +504,9 @@ export function install(rt) {
         case 'add-agent':
           await rt.load()
           return ok(await rt.addAgent())
+        case 'agent-chat':
+          await rt.load()
+          return ok(await rt.agentPage(String(body.agentId ?? ''), body.cursor ?? undefined, body.steps === true))
         case 'agent-session':
           await rt.load()
           return ok({ sessionId: await rt.createAgentSession(body.agentId, body.workspaceId) })
@@ -591,6 +596,8 @@ export function install(rt) {
         }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
+        case 'stop-agent':
+          return ok(await rt.stopAgent(String(body.agentId ?? '')))
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
@@ -642,6 +649,12 @@ export function install(rt) {
         case 'phone-pair-cancel':
         case 'phone-remove':
           return ok(await rt.phoneEndpoint(endpoint, body))
+        case 'mcp-set':
+        case 'mcp-client-add':
+        case 'mcp-client-update':
+        case 'mcp-client-remove':
+          await rt.load()
+          return ok(await rt.mcpEndpoint(endpoint, body))
         case 'capability-save':
         case 'capability-delete':
         case 'capability-approve':
@@ -698,17 +711,26 @@ export function install(rt) {
           if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
           // Claim the view before queueing so a second answer is refused.
           delete state.views[sessionId]
+          let consumed = false
+          let issueReportResult
           try {
             await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)
+            if (pending.issueDraft !== undefined && body.action === PUBLISH_ISSUE && checked.confirmed === true) {
+              // Persist the claim before sending a write that cannot be safely retried.
+              await rt.save({ required: true })
+              consumed = true
+              issueReportResult = await rt.settleIssueReport(sessionId, pending.issueDraft)
+              reply.text = JSON.stringify({ ...JSON.parse(reply.text), issueReportResult })
+            }
             agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
             await ctx.sessions.flush(agent.session)
           } catch (error) {
-            state.views[sessionId] ??= pending
+            if (!consumed) state.views[sessionId] ??= pending
             throw error
           }
           await rt.save()
-          return ok(true)
+          return ok(issueReportResult === undefined ? true : { issueReportResult })
         }
         // A photo for the next `send`, one per call: a phone's link carries a few MB per
         // message, so photos travel one by one and the message names them.
@@ -904,6 +926,17 @@ export function install(rt) {
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           return ok(await rt.stopTask(bot.id, String(body.taskId ?? '')))
+        }
+        case 'bot-task-send': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          const taskId = String(body.taskId ?? '')
+          const task = (bot.tasks ?? []).find(item => item?.id === taskId)
+          if (task === undefined) return fail('Unknown task', 'bot/not-found')
+          const text = String(body.text ?? '').trim()
+          if (text === '') return fail('Message text is required', 'bot/invalid')
+          return ok(await rt.deliverToTask(taskId, { text, role: 'task-followup', note: 'User follow-up' }))
         }
         case 'bot-task-read': {
           await rt.load()

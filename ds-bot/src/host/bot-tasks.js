@@ -527,6 +527,8 @@ export function install(rt) {
     }
   }
 
+  const hasInboxInput = agent => Boolean(agent?.inbox?.nextStep?.length || agent?.inbox?.nextTurn?.length)
+
   // Settles a task whose turn ended while the plugin was reloading (durable log).
   async function reconcileEndedTask(sessionId, ended) {
     if (rt.readOnly?.() !== undefined) return false
@@ -550,6 +552,11 @@ export function install(rt) {
       .join('\n\n')
       .trim()
     const failure = reason?.kind === 'error' ? turnFailure(reason.error) : undefined
+    if (reason?.kind !== 'error' && reason?.kind !== 'aborted') {
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      // A child work can already be closed while its reply still waits for replay.
+      if (hasInboxInput(agent) || rt.unreadOf?.(sessionId)?.length > 0) return false
+    }
     await handleTurnEnd(bot, task, reason, failure, said)
     return true
   }
@@ -571,8 +578,7 @@ export function install(rt) {
         if ((rt.runningJobs?.(sid)?.length ?? 0) > 0) continue
         if ((rt.unreadOf?.(sid)?.length ?? 0) > 0) continue
         const agent = await rt.resolveAgent(sid).catch(() => undefined)
-        const pendingInbox = (agent?.inbox?.nextStep?.length ?? 0) + (agent?.inbox?.nextTurn?.length ?? 0)
-        if (agent?.status === 'running' || pendingInbox > 0) continue
+        if (agent?.status === 'running' || hasInboxInput(agent)) continue
         if (hasOpenOutgoingWorks(bot, task)) {
           if (task.status !== 'waiting_work') {
             task.status = 'waiting_work'
@@ -728,6 +734,18 @@ export function install(rt) {
       || (activeWork !== undefined && rt.ownsWork?.(bot.id, activeWork))
     const origin = isBotHandoff ? 'bot-handoff' : 'fg-handoff'
     const title = titleFromRunningTurn(oldAgent?.session, entry)
+    const startSeq = (() => {
+      const events = oldAgent?.session?.snapshotEvents?.() ?? []
+      if (events.length === 0) return 0
+      const lastStart = events.findLastIndex(ev => ev?.type === 'turn/start')
+      const boundary = lastStart >= 0 ? lastStart : events.length
+      for (let i = boundary - 1; i >= 0; i -= 1) {
+        if (events[i]?.type === 'turn/end') {
+          return Number.isInteger(events[i].seq) ? events[i].seq + 1 : i + 1
+        }
+      }
+      return 0
+    })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
     const record = { oldSid, committed: false, newSid: undefined, messages: [...initialMessages], promise: undefined }
@@ -762,9 +780,10 @@ export function install(rt) {
         from: newSid,
         sessionId: oldSid,
         segments: [],
+        startSeq,
         ...(bot.segments?.length ? { inheritedSegments: bot.segments.map(seg => ({ ...seg })) } : {}),
         origin,
-        status: 'running',
+        status: rt.waitsForApproval?.(oldSid) ? 'waiting_approval' : 'running',
         startedAt: entry?.since ?? now,
         updatedAt: now,
         ...(isBotHandoff && activeWork !== undefined ? { exchangeId: activeWork } : {}),

@@ -61,13 +61,19 @@ Use the phone app's interface in a browser without installing it. On the compute
 
 The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
 
+### MCP access (preview)
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, your own scripts) can talk to your Bots through MCP. Open **Settings → MCP access**, turn it on, and create a token for each client; the token is shown once. A client reaches only the Bots and groups you tick for it (the Main Bot by default, never a private Bot). It can list Bots and groups, send messages, wait for replies, read chats and see what waits for you; approvals, questions, settings and secrets stay on the computer.
+
+Point an HTTP MCP client at `http://127.0.0.1:8797/mcp` with the header `Authorization: Bearer <token>`. For clients that only start a command, use `DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp`. See the [design](docs/plans/2026-11-20-mcp-access.md).
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model and thinking level you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
 
 Bots also have memory. A bot remembers what you like and uses it in later work. You can manage its memory on the bot's details page, or just tell the bot.
 
-Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. While a bot is working, you can send a message to steer it right away, or type `/side` to ask a side question without interrupting its task; it can also draw charts, tables and forms in its replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can start background tasks on its own or move an in-flight turn to the background when you send a new message; you can inspect progress, answer approvals, send follow-ups, or stop tasks from the header island, read task transcripts and stop tasks in the Tasks tab, or track active tasks, answer approvals, and stop them on mobile, or type `/side` to ask a side question. Bots can also draw charts, tables and forms in their replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 

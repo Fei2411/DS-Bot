@@ -122,6 +122,20 @@ test('the live feed tells a window about saves, new chat entries and the reply b
   assert.equal(await next(), undefined)
 })
 
+test('a DSH Agent Session changing status tells a window to read the live state', async (t) => {
+  const agent = { id: 'a1', name: 'DSH Agent', sessions: ['s-agent'], createdAt: 4 }
+  const { ctx, call, stop, routes } = start({ team: { ...TEAM, agents: { a1: agent } } })
+  t.after(stop)
+  await call('state')
+  const abort = new AbortController()
+  const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal }))
+  const next = reader(response)
+  assert.equal((await next()).event, 'hello')
+  ctx.listeners.get('agent/status').at(-1)({ agent: { id: agent.sessions[0] }, status: 'running' })
+  assert.deepEqual(await next(), { event: 'live', data: {} })
+  abort.abort()
+})
+
 test('a window that stops reading the feed is dropped', { timeout: 10_000 }, async (t) => {
   const { ctx, call, stop, routes } = start()
   t.after(stop)
