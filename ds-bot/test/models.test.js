@@ -892,6 +892,70 @@ test('a failed Session keeps its retry when no model can be written yet, and cle
   assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
 })
 
+// #2002 review: two passes of one Bot overlap. The first took the short Session list
+// and finished, advancing the Bot's record; the second took the longer list, failed on
+// one Session and never reached the next one. A retry that trusted `ownChanged` alone
+// then found the Bot's record applied and skipped both Sessions for good.
+test('a later pass over a longer Session list keeps the Session it failed on and the one it never reached', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'old/x' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  // How many passes have taken their Session list, and a way to wait for the second.
+  let lists = 0
+  let secondListTaken
+  const secondList = new Promise(resolve => { secondListTaken = resolve })
+  rt.groupSessionsOf = () => {
+    lists += 1
+    if (lists === 2) secondListTaken()
+    return []
+  }
+  let firstWriteStarted
+  const firstWrite = new Promise(resolve => { firstWriteStarted = resolve })
+  let releaseFirst
+  const released = new Promise(resolve => { releaseFirst = resolve })
+  let calls = 0
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    calls += 1
+    // The first pass holds the short list's only write until the second pass has taken
+    // the longer list, so the two really overlap.
+    if (calls === 1) { firstWriteStarted(); await released }
+    // The second pass hits one Session that is not reachable for a moment.
+    if (request.sessionId === 'b1-bg2' && !failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  // The short list: the own chat's current Session only.
+  const first = rt.applyModel(bot)
+  await firstWrite
+  // A new background part and another one appear while the first pass is in its write;
+  // the second pass takes the longer list.
+  bot.openParts = [{ sessionId: 'b1-bg2', segments: [] }, { sessionId: 'b1-bg3', segments: [] }]
+  const second = rt.applyModel(bot)
+  const secondOutcome = second.then(() => 'resolved', error => error)
+  await secondList
+  releaseFirst()
+  await first
+  assert.match(String(await secondOutcome), /Session unavailable/)
+  // The first pass advanced the record, so the second one's failure cannot count on
+  // `ownChanged` to be retried.
+  assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+  const wrote = id => selected.filter(entry => entry.startsWith(`${id}:`)).length
+  // The Session after the failed one was still written by the pass that failed.
+  assert.equal(wrote('b1-bg3'), 1)
+  assert.equal(wrote('b1-bg2'), 0)
+  // The failure recovers. The recorded Session is written even though the Bot's record
+  // already matches the model.
+  await rt.retryModel('b1')
+  assert.equal(wrote('b1-bg2'), 1)
+  assert.equal(wrote('b1-bg3'), 1)
+  // Its own write cleared the record: a later refresh asks for nothing.
+  const total = selected.length
+  await rt.syncModels()
+  assert.equal(selected.length, total)
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {

@@ -548,18 +548,30 @@ export function install(rt) {
     // A Session of a group this Bot left, or a part moved on to a fresh one, owes nothing.
     pruneSessionRetries(bot.id, new Set([...own, ...groups]))
     const forced = sessionId => force === true || forceSessions?.has(sessionId) === true
+    // A Session with a record owes its write even when the Bot's record already matches:
+    // an earlier pass that took a shorter Session list can advance `appliedModel` while
+    // a later pass is still writing, and that later pass may fail or stop midway, so a
+    // retry decided by `ownChanged` alone would skip its Sessions for good (#2002 review).
+    const owesWrite = sessionId => ownChanged || forced(sessionId) || sessionRetry.has(sessionId)
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
-    // while the settings show the new one. A part that cannot take it fails the change.
-    if (ownChanged || own.some(sessionId => forced(sessionId))) for (const sessionId of own) {
-      if (!ownChanged && !forced(sessionId)) continue
-      try {
-        await selectSessionModel(sessionId, route, { force: forced(sessionId) })
-        settleSessionRetry(sessionId, forced(sessionId))
-      } catch (error) {
-        noteSessionRetry(bot.id, sessionId, forced(sessionId))
-        throw error
+    // while the settings show the new one. A part that cannot take it fails the change,
+    // but the other parts are still written before the failure is reported: stopping at
+    // the first one would leave the later parts unapplied with nothing recorded to retry
+    // them once another pass has advanced the Bot's record (#2002 review).
+    if (own.some(owesWrite)) {
+      let failure
+      for (const sessionId of own) {
+        if (!owesWrite(sessionId)) continue
+        try {
+          await selectSessionModel(sessionId, route, { force: forced(sessionId) })
+          settleSessionRetry(sessionId, forced(sessionId))
+        } catch (error) {
+          noteSessionRetry(bot.id, sessionId, forced(sessionId))
+          failure ??= error
+        }
       }
+      if (failure !== undefined) throw failure
     }
     // Every group this Bot is in carries the same model on its member Session. One that
     // cannot take it keeps its own record, so the Bot's retry looks done only when every
@@ -667,10 +679,11 @@ export function install(rt) {
   // here, such as a catalog that cannot be read, is logged; the retry record stays.
   const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
   // A recorded failure is retried at the next trigger — a provider change, or the Bot's
-  // next turn. Only the recorded Sessions are forced: a forced write that failed before
-  // must not be skipped because the record looks applied, and must not rewrite every
-  // other part and group Session of the Bot (#1937, #2002 review). Each Session's record
-  // is cleared by its own successful write, inside applyModel.
+  // next turn. Every recorded Session is written, forced or not: a Session with a record
+  // owes its write even when the Bot's record already looks applied, because another
+  // pass may have advanced it meanwhile (#2002 review). Only the Sessions recorded as
+  // forced are written with `force`, so a retry rewrites nothing else of the Bot. Each
+  // Session's record is cleared by its own successful write, inside applyModel.
   const retryBot = (bot) => applyModel(bot, { syncGroups: false, forceSessions: forcedSessionsOf(bot.id) })
     .catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
   async function syncAll() {
