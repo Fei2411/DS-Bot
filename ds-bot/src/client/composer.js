@@ -253,7 +253,7 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     // The box may hold the text of a message that was already sent, when its send closed
     // the composer before the shell committed the empty draft (#1891). It is not a draft:
     // clear the box, and never carry that text from the kept draft either.
-    const sent = takeSentDraft({ chatId })
+    const sent = takeSentDraft({ chatId, sessionId })
     if (sent !== '') {
       dropped.current = sent
       if (draft === sent) inputActions.setDraft('')
@@ -295,10 +295,10 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     if (!current) return
     if (frozen) {
       // A message on its way out is not a draft any more: this page remembers its text,
-      // so a composer that closes (or opens) before the shell commits the empty draft
-      // cannot bring it back. A send that fails returns to the plain phase with its
-      // draft, which is then kept again.
-      if (sending && draft !== '') keepSentDraft({ chatId, text: draft })
+      // for this Session, so a composer that closes (or opens) before the shell commits
+      // the empty draft cannot bring it back. A send that fails returns to the plain
+      // phase with its draft, which is then kept again.
+      if (sending && draft !== '') keepSentDraft({ chatId, sessionId, text: draft })
       // Before the take, an earlier part's draft still waits to be carried; only a draft
       // this composer already has is dropped.
       if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: '', files: [] })
@@ -310,7 +310,7 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     if (dropped.current !== '' && draft === dropped.current) return
     dropped.current = ''
     // The composer is open and the send has settled: the text cannot come back now.
-    dropSentDraft({ chatId })
+    dropSentDraft({ chatId, sessionId })
     // What was put back lands in the input state a render later; keeping the empty box
     // in between would drop it.
     if (pending.current.text && draft === '') return

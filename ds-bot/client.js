@@ -42424,17 +42424,20 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   writeTexts(storage, texts2);
 }
 var sentTexts = /* @__PURE__ */ new Map();
-function keepSentDraft({ chatId, text }) {
-  if (text === "") sentTexts.delete(chatId);
-  else sentTexts.set(chatId, text);
+var sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ""}`;
+function keepSentDraft({ chatId, sessionId, text }) {
+  const key = sentKey(chatId, sessionId);
+  if (text === "") sentTexts.delete(key);
+  else sentTexts.set(key, text);
 }
-function takeSentDraft({ chatId }) {
-  const text = sentTexts.get(chatId) ?? "";
-  sentTexts.delete(chatId);
+function takeSentDraft({ chatId, sessionId }) {
+  const key = sentKey(chatId, sessionId);
+  const text = sentTexts.get(key) ?? "";
+  sentTexts.delete(key);
   return text;
 }
-function dropSentDraft({ chatId }) {
-  sentTexts.delete(chatId);
+function dropSentDraft({ chatId, sessionId }) {
+  sentTexts.delete(sentKey(chatId, sessionId));
 }
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
@@ -42445,7 +42448,11 @@ function takeDraft({ chatId, part, text, attached }, storage = globalThis.localS
 }
 function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
-  for (const chatId of gone) keptFiles.delete(chatId);
+  for (const chatId of gone) {
+    keptFiles.delete(chatId);
+    const prefix = `${chatId}:`;
+    for (const key of sentTexts.keys()) if (key.startsWith(prefix)) sentTexts.delete(key);
+  }
   const texts2 = readTexts(storage);
   const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
   if (listed.length === 0) return;
@@ -42723,7 +42730,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     if (!current2 || frozen || inputActions === void 0) return;
     const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
-    const sent = takeSentDraft({ chatId });
+    const sent = takeSentDraft({ chatId, sessionId });
     if (sent !== "") {
       dropped.current = sent;
       if (draft === sent) inputActions.setDraft("");
@@ -42762,14 +42769,14 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
   (0, import_react60.useEffect)(() => {
     if (!current2) return;
     if (frozen) {
-      if (sending && draft !== "") keepSentDraft({ chatId, text: draft });
+      if (sending && draft !== "") keepSentDraft({ chatId, sessionId, text: draft });
       if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: "", files: [] });
       return;
     }
     if (restored.current !== `${chatId}:${sessionId}`) return;
     if (dropped.current !== "" && draft === dropped.current) return;
     dropped.current = "";
-    dropSentDraft({ chatId });
+    dropSentDraft({ chatId, sessionId });
     if (pending.current.text && draft === "") return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };
