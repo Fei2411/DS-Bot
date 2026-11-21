@@ -268,6 +268,29 @@ test('issue report redaction preserves prose after bare Windows homes', async (t
   assert.ok(url.searchParams.get('diagnostics').endsWith(diagnostics))
 })
 
+test('issue report redaction hides both bare Windows homes on the same line', async (t) => {
+  const { call, show, team, stop } = await start()
+  t.after(stop)
+  const what = [
+    'C:\\Users\\Jane Doe then C:\\Users\\Bob Ray or so',
+    'C:\\Users\\Jane Doe and C:\\Users\\Bob Ray',
+    '(C:\\Users\\Jane Doe then C:\\Users\\Bob Ray)',
+    'C:\\Users\\Jane Doe and more text',
+    'C:\\Users\\Jane Doe.',
+    'C:\\Users\\John Smith\\AppData',
+  ].join('\n')
+  const expected = ['~ ~ or so', '~ ~', '(~ ~)', '~ and more text', '~.', '~/AppData'].join('\n')
+  const args = await prepareIssue({ what })
+  assert.ok(args.view.children[1].text.includes(expected))
+  assert.equal((await show('writer-now', args)).concluded, true)
+  const { id, view } = (await team()).views['writer-now']
+  const reply = await call('view-reply', {
+    sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed: true },
+  })
+  const url = new URL(reply.value.issueReportResult.match(/https:\/\/\S+/)[0])
+  assert.equal(url.searchParams.get('what'), expected)
+})
+
 test('issue report redaction preserves the destination of a failed rename', async (t) => {
   const { stop } = await start()
   t.after(stop)
