@@ -2291,7 +2291,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir })
+      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir, bot })
     }
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
@@ -2335,7 +2335,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(bot.name, { dir })
+      sessionId = await rt.createSession(bot.name, { dir, bot })
     }
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)

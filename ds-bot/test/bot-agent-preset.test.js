@@ -458,6 +458,28 @@ test('a new session opened during a running turn runs its first turn on the sele
   assert.equal(host.headers.get(fresh), 'research')
 })
 
+test('fresh background and busy-foreground fallback sessions use the saved preset', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  const bot = host.rt.botOf(writer.id)
+  host.rt.desiredModel = async () => 'test/model'
+
+  // This harness has no sessionController.fork, so both paths take their fresh-Session fallback.
+  const opened = await host.rt.openTaskPart(bot, writer.id, {
+    id: 'task-1', title: 'Research', status: 'running', startedAt: 1, updatedAt: 1,
+  })
+  assert.equal(opened.forked, false)
+  assert.equal(host.created.at(-1).agentPreset, 'research')
+  assert.equal(host.headers.get(opened.sessionId), 'research')
+
+  const foreground = await host.rt.forkForegroundPart(bot, writer.id)
+  assert.equal(foreground.forked, false)
+  assert.equal(host.created.at(-1).agentPreset, 'research')
+  assert.equal(host.headers.get(foreground.sessionId), 'research')
+})
+
 test('an opaque default clear moves a background part with the foreground', async (t) => {
   const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
   t.after(host.stop)
