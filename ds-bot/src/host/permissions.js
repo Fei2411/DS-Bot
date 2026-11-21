@@ -75,7 +75,19 @@ export function install(rt) {
     const request = requests.get(bot.id) ?? { seq: 0, applied: bot.permission }
     const mine = ++request.seq
     requests.set(bot.id, request)
-    const groupRequests = new Map(rt.groupSessionsOf(bot.id).map(id => [id, roomRequests.get(roomOfSession(id))]))
+    // The Bot's own chat may have background parts opened while it was busy: a stricter
+    // preset must reach those live Sessions too, or the user would think it applied.
+    // Group tasks follow their group's permission below (inheriting bot.permission if unset).
+    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId), ...activeTasksOf(bot).filter(task => task.roomId === undefined).map(task => task.sessionId)]
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+    const groupSessions = () => [
+      ...rt.groupSessionsOf(bot.id),
+      ...activeTasksOf(bot).filter(task => task.roomId !== undefined).map(task => task.sessionId),
+    ].filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+    // The snapshot covers every Session groupSessions() applies to, task Sessions
+    // included: without their entry a stale room request marker reads as newer and
+    // the Bot's new preset never reaches that Session.
+    const groupRequests = new Map(groupSessions().map(id => [id, roomRequests.get(roomOfSession(id))]))
     // The preset is written before its first await: a request still being applied
     // then reads the one asked for last.
     rt.cancelApprovalReviews?.({ botId: bot.id })
@@ -92,15 +104,6 @@ export function install(rt) {
       return setPreset(sessionId, () => request.seq === mine
         && (!room || (!room.permission && roomRequests.get(room) === groupRequest)) ? bot.permission : undefined, true)
     }
-    // The Bot's own chat may have background parts opened while it was busy: a stricter
-    // preset must reach those live Sessions too, or the user would think it applied.
-    // Group tasks follow their group's permission below (inheriting bot.permission if unset).
-    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId), ...activeTasksOf(bot).filter(task => task.roomId === undefined).map(task => task.sessionId)]
-      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
-    const groupSessions = () => [
-      ...rt.groupSessionsOf(bot.id),
-      ...activeTasksOf(bot).filter(task => task.roomId !== undefined).map(task => task.sessionId),
-    ].filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groups = async (warnFail) => {
       for (const sessionId of groupSessions()) {
         if (request.seq !== mine) break

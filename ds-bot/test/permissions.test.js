@@ -221,6 +221,23 @@ test('a rollback that is still applying does not write over a newer, stricter re
   assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=read-only', 'b1-bg=read-only', 'b1-group=read-only'])
 })
 
+test('a Bot\'s preset reaches a group task Session whose room asked for a preset before', async () => {
+  // The room once had a permission request, later cleared: roomRequests keeps a
+  // marker while room.permission is gone. A task Session not in the snapshot would
+  // read the marker as a newer room request and never get the Bot's new preset.
+  const { rt, writes, bots } = runtime()
+  const room = { id: 'r1', name: 'Ops', sessions: {} }
+  bots.b1 = { id: 'b1', name: 'Ada', tasks: [{ id: 't1', sessionId: 'b1-task', roomId: 'r1', status: 'running' }] }
+  rt.roomOf = id => id === 'r1' ? room : undefined
+  rt.taskOwners = new Map([['b1-task', { botId: 'b1', taskId: 't1', roomId: 'r1' }]])
+  await rt.setRoomPermission(room, 'workspace-write')
+  await rt.setRoomPermission(room, null)
+  writes.length = 0
+  await rt.setPermission(bots.b1, 'danger-full-access')
+  assert.equal(bots.b1.permission, 'danger-full-access')
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-group=danger-full-access', 'b1-task=danger-full-access'])
+})
+
 test('a stricter preset reaches the parts opened while the Bot was busy', async () => {
   // Two Sessions running at once must not let the background one keep the old,
   // wider preset after the user was told the Bot was made stricter.
