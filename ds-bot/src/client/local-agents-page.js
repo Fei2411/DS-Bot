@@ -83,7 +83,7 @@ export function LocalAgentsPage({ run, Row }) {
         h('h3', null, t('Detected agents')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: refresh }, t('Refresh'))),
       h('div', { className: 'bt-set-card' },
-        view.detected.length === 0 ? h(Row, { label: t('No agent CLIs found') }) : null,
+        view.detected.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No agent CLIs found'))) : null,
         view.detected.map(agent => h(AgentSignInRow, { key: agent.route, agent, Row })))),
     h('section', { key: 'custom', className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
