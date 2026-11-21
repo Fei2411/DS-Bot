@@ -16973,11 +16973,11 @@ var reducedMotion = () => effectsTier() === "off" || typeof window !== "undefine
 var reducedEffects = () => effectsTier() !== "full" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 var noHover = () => window.matchMedia?.("(hover: none)").matches === true;
 var viewBottom = () => window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight;
-function useViewport() {
+function useViewport(enabled = true) {
   const [tick, setTick] = (0, import_react.useState)(0);
   (0, import_react.useEffect)(() => {
     const viewport = window.visualViewport;
-    if (!viewport) return void 0;
+    if (!enabled || !viewport) return void 0;
     const bump = () => setTick((value) => value + 1);
     viewport.addEventListener("resize", bump);
     viewport.addEventListener("scroll", bump);
@@ -16985,7 +16985,7 @@ function useViewport() {
       viewport.removeEventListener("resize", bump);
       viewport.removeEventListener("scroll", bump);
     };
-  }, []);
+  }, [enabled]);
   return tick;
 }
 function springEasing(stiffness, damping) {
@@ -30031,7 +30031,7 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [copied, setCopied] = (0, import_react34.useState)(false);
   const tools = (0, import_react34.useRef)(null);
   const pop = (0, import_react34.useRef)(null);
-  const tick = useViewport();
+  const tick = useViewport(panel !== null);
   const close = () => setPanel(null);
   useDismiss(panel !== null, close, [tools, pop]);
   const open = (kind, event) => {
