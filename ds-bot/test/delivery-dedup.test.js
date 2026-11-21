@@ -224,6 +224,9 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
 
   const failureRepliesToChief = deliveries.filter(entry => entry.sessionId === 'a' && entry.source.role === 'reply' && entry.text.includes('req-dup-1319'))
   assert.equal(failureRepliesToChief.length, 1, 'Chief must receive the failure notice for req-dup-1319 only once')
+  // The works are closed in memory; their save is queued without being awaited. Write
+  // the state before reading the file, so a slow CI disk cannot show a stale work.
+  await rt.save({ required: true })
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.deepEqual(Object.keys(state.works ?? {}), [], 'all works bound to the failed turn must be closed')
 
