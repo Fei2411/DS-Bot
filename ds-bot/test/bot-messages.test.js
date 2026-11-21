@@ -1369,12 +1369,26 @@ test('a generic refusal of a part past its hard line moves it on; one below does
   assert.equal(made, 1)
 })
 
-test('New session on an idle group member moves its group conversation on; a working member or a non-member is refused', async (t) => {
-  const { rt: runtime, ctx, agentOf, call, stop } = await start(team({ group: true }))
+test('New session on an idle group member moves its group conversation on; a working member, a member without a group session, or a non-member is refused', async (t) => {
+  const seed = team({ group: true })
+  seed.bots.c = { id: 'c', name: 'Scout', role: 'Scout', sessionId: 'c', createdAt: 3 }
+  const { rt: runtime, ctx, agentOf, call, stop } = await start(seed)
   t.after(stop)
   let made = 0
   ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
-  assert.equal((await call('bot-new-part', { botId: 'a', roomId: 'r1' })).ok, false)
+  const stateView = await call('state', {})
+  assert.equal(stateView.ok, true)
+  const roomView = (stateView.value ?? stateView).rooms.find(r => r.id === 'r1')
+  assert.deepEqual(roomView.sessionMembers, ['b'], 'only members with a group Session are advertised as having one')
+  const noSession = await call('bot-new-part', { botId: 'a', roomId: 'r1' })
+  assert.equal(noSession.ok, false)
+  assert.equal(noSession.error.message, 'This Bot has no session in this group yet')
+  const nonMember = await call('bot-new-part', { botId: 'c', roomId: 'r1' })
+  assert.equal(nonMember.ok, false)
+  assert.equal(nonMember.error.message, 'Not a member of that group')
+  const missingRoom = await call('bot-new-part', { botId: 'b', roomId: 'r-missing' })
+  assert.equal(missingRoom.ok, false)
+  assert.equal(missingRoom.error.message, 'Unknown group chat')
   agentOf('gb').status = 'working'
   assert.equal((await call('bot-new-part', { botId: 'b', roomId: 'r1' })).ok, false)
   agentOf('gb').status = 'idle'
@@ -1383,6 +1397,16 @@ test('New session on an idle group member moves its group conversation on; a wor
   for (let at = 0; at < 200 && runtime.state.rooms.r1.sessions.b === 'gb'; at += 1) await delay(5)
   assert.equal(runtime.state.rooms.r1.sessions.b, 's1')
   assert.equal(runtime.state.bots.b.sessionId, 'b')
+})
+
+test('New session on a group member answers with an error when the fresh part cannot be made, and the member keeps its session', async (t) => {
+  const { rt: runtime, ctx, call, stop } = await start(team({ group: true }))
+  t.after(stop)
+  ctx.sessionController.create = async () => { throw new Error('disk full') }
+  const failed = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
+  assert.equal(failed.ok, false, JSON.stringify(failed))
+  assert.equal(failed.error.message, 'The new session did not start; the Bot stays in its current one')
+  assert.equal(runtime.state.rooms.r1.sessions.b, 'gb')
 })
 
 for (const id of ['b', 'gb']) {

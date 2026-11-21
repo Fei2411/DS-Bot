@@ -80,7 +80,7 @@ export const chatRoom = {
 export function installFrameWatch(frame) {
   let collapsedWidth = collapsedTrackWidth()
   let raf = 0
-  const watched = new Set()
+  const watched = new WeakSet()
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
   const read = () => {
     // While the shell slides its sidebar (data-animating on the frame) the
@@ -108,8 +108,14 @@ export function installFrameWatch(frame) {
   const schedule = () => {
     if (raf === 0) raf = requestAnimationFrame(() => { raf = 0; measure() })
   }
+  const relevant = (records) => records.some((record) => {
+    if (record.type === 'attributes') return true
+    const target = record.target
+    if (target instanceof Element && target.closest('[data-chat-flow],[data-composer-card]')) return false
+    return true
+  })
   measure()
-  const mutations = new MutationObserver(schedule)
+  const mutations = new MutationObserver((records) => { if (relevant(records)) schedule() })
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sidebar-collapsed', 'data-animating'] })
   window.addEventListener('resize', schedule)
   return () => {

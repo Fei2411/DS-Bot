@@ -11,7 +11,7 @@ let reconnectDelayMsFn: (hadLink: boolean, failStreak: number) => number
 before(async () => {
   hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate.ts' || specifier === '../ui/i18n.ts') {
+      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate' || specifier === '../ui/i18n.ts') {
         return { url: `mock:${specifier}`, shortCircuit: true }
       }
       return nextResolve(specifier, context)
@@ -47,7 +47,7 @@ before(async () => {
           `,
         }
       }
-      if (url === 'mock:./gate.ts') {
+      if (url === 'mock:./gate') {
         return { format: 'module', shortCircuit: true, source: `export const ensureUnlock = async () => {}` }
       }
       if (url === 'mock:../ui/i18n.ts') {
@@ -298,6 +298,39 @@ test('useTeamLink reconciles settled approvals and browserHolds via refresh and 
   afterCall.refresh()
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(pendingCountOf(h.render().team), 0)
+})
+
+test('learning answers immediately reconcile idle pending cards without a revision bump', async (t) => {
+  for (const approve of [false, true]) {
+    let stateCalls = 0
+    let settled = false
+    const openSnapshot: TeamState = {
+      revision: 10,
+      bots: [{ id: 'b1', name: 'Chief', sessionId: 's1' }],
+      learning: { b1: [{ id: 'learn-1', botId: 'b1', kind: 'agents', folder: '/project', edits: [] }] },
+    }
+    const h = mountUseTeamLink({
+      async onStateCall() {
+        stateCalls += 1
+        return settled ? { ...openSnapshot, unchanged: true, learning: {} } : openSnapshot
+      },
+      async onCallBotState(endpoint, payload) {
+        assert.equal(endpoint, 'learning-answer')
+        assert.deepEqual(payload, { id: 'learn-1', approve })
+        settled = true
+        return { value: { applied: approve } }
+      },
+    })
+    t.after(h.cleanup)
+    h.render()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(pendingCountOf(h.render().team), 1)
+    await h.render().call('learning-answer', { id: 'learn-1', approve })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(pendingCountOf(h.render().team), 0, `approve=${approve} should settle without the 15s poll`)
+    assert.equal(stateCalls, 2)
+    h.cleanup()
+  }
 })
 
 test('useTeamLink keeps connection retry timer when initial handshake fails before concurrent poll rejects', async (t) => {

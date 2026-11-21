@@ -116,6 +116,7 @@ export function install(rt) {
     return job
   }
   let redact = text => text
+  let redactedMessages = new WeakMap()
   let refreshEnv = () => {}
   let refreshQueued = false
   let seenStamp = ''
@@ -138,6 +139,7 @@ export function install(rt) {
 
   const notify = ({ declare = true } = {}) => {
     redact = redactor([...secrets.values()])
+    redactedMessages = new WeakMap()
     if (declare) refreshEnv()
     else scheduleRefreshEnv()
     rt.secretsChanged?.()
@@ -679,6 +681,7 @@ export function install(rt) {
       if (!SECRET_NAME.test(name)) return 'Name the key with capitals, digits, and underscores, starting with a letter (for example GITHUB_TOKEN).'
       const secret = secrets.get(name)
       if (canUse(secret, bot.id)) return `${name} is already saved and you may use it: ${usage(name)}. You cannot see the value; never print it.`
+      if (rt.taskOwners?.has(id)) return `Background tasks cannot show secret cards directly. End or report back to your own chat naming ${name} and why you need it, so your own chat can request it from the user.`
       if (rt.groupOwners.has(id)) return 'Secret cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_secret there.'
       if (!rt.chatOwners.has(id)) return 'Secret cards only work in your current own chat.'
       const readOnly = rt.readOnly()
@@ -745,9 +748,42 @@ export function install(rt) {
   // A value that is part of its own label would be replaced again on every pass, so a
   // request this listener rewrote passes straight through.
   const rewritten = new WeakSet()
+  const freezeCopies = value => {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value
+    for (const key of Reflect.ownKeys(value)) freezeCopies(Object.getOwnPropertyDescriptor(value, key).value)
+    return Object.freeze(value)
+  }
+  const immutableData = value => {
+    if (value === null || typeof value !== 'object') return typeof value !== 'function'
+    const prototype = Object.getPrototypeOf(value)
+    if (!Object.isFrozen(value)) return false
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return false
+      for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) return false
+    } else if (prototype !== Object.prototype && prototype !== null) return false
+    return Reflect.ownKeys(value).every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return Object.hasOwn(descriptor, 'value') && immutableData(descriptor.value)
+    })
+  }
   ctx.on('llm/stream', (options, next) => {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
-    const messages = redactDeep(options.messages, redact)
+    let messages = options.messages
+    if (Array.isArray(messages)) {
+      let changed = false
+      const nextMessages = messages.map((message) => {
+        const object = message !== null && typeof message === 'object'
+        let replaced
+        if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
+        else {
+          replaced = redactDeep(message, redact)
+          if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
+        }
+        if (replaced !== message) changed = true
+        return replaced
+      })
+      if (changed) messages = nextMessages
+    } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
     const fresh = [...(messages ?? [])]

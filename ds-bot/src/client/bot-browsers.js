@@ -196,21 +196,30 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     layer = doc.createElement('div')
     layer.className = 'bt-browser-layer'
     // Inline, not in BROWSER_CSS: Agent mode withdraws the Bot styles, and the
-    // webviews must stay out of the page flow then too.
-    Object.assign(layer.style, { position: 'fixed', inset: '0', zIndex: '41', pointerEvents: 'none' })
+    // webviews must stay out of the page flow then too. Keep the container 0x0 and
+    // neutral for app-region: DSH marks every `body > :not(#root)` as no-drag on
+    // macOS, and Chromium ignores pointer-events:none when subtracting no-drag boxes
+    // from the window drag region (#1571). Each child webview is position:fixed and
+    // owns its own panel rectangle.
+    Object.assign(layer.style, {
+      position: 'fixed', top: '0', left: '0', width: '0', height: '0',
+      zIndex: '41', pointerEvents: 'none', webkitAppRegion: 'initial',
+    })
     doc.body.append(layer)
     return layer
   }
 
   const place = (entry) => {
     const box = rect ?? { left: 0, top: 0, width: 800, height: 600 }
+    const onScreen = shown === entry.tabId && visible && Boolean(rect)
     if (entry.appView) {
-      void bridge.views.place(entry.tabId, box, shown === entry.tabId && visible && Boolean(rect))
+      void bridge.views.place(entry.tabId, box, onScreen)
       return
     }
     Object.assign(entry.element.style, {
       left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`,
-      visibility: shown === entry.tabId && visible && rect ? 'visible' : 'hidden',
+      visibility: onScreen ? 'visible' : 'hidden',
+      pointerEvents: onScreen ? 'auto' : 'none',
     })
   }
 
