@@ -360,7 +360,7 @@ test('stop-chat ends a Bot own-chat turn, and answers false when nothing runs', 
 })
 
 test('a phone stages photos one by one, then send puts them in one message with the text', async () => {
-  const { call, sent, stop } = start()
+  const { call, rt, sent, stop } = start()
   const { chief } = await team(call)
   const pixel = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64')
   assert.deepEqual(await call('stage-image', { mediaType: 'text/html', data: pixel }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo DS Bot can send', details: {} } })
@@ -368,7 +368,11 @@ test('a phone stages photos one by one, then send puts them in one message with 
   const second = (await call('stage-image', { mediaType: 'image/png', data: pixel })).value.id
   const before = sent.length
   assert.equal((await call('send', { sessionId: chief, text: 'look', images: [first, second] })).value, true)
-  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
+  const promptEntry = sent.slice(before).find(entry => entry.prompt !== undefined)
+  // A photo send must resolve the Bot ref to its real Session, not submit to the
+  // raw ref; the prompt stub accepts any id, so we assert the destination here.
+  assert.equal(promptEntry.sessionId, rt.chatOf(chief))
+  const prompt = promptEntry.prompt
   assert.deepEqual(prompt.content, [
     { type: 'text', text: 'look' },
     { type: 'image', mediaType: 'image/jpeg', data: pixel },
@@ -411,6 +415,23 @@ test('a phone stages a file, then send puts it in one message with the text', as
   assert.equal((await call('send', { sessionId: chief, text: '', files: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'file', receiptId: 'receipt-plan.txt' }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-files'), true)
+  await stop()
+})
+
+test('a text-only send resolves the bot ref and honours a foreground handoff', async () => {
+  const { call, rt, sent, stop } = start()
+  const { chief } = await team(call)
+  const oldSid = rt.chatOf(chief)
+  const newSid = 'handoff-session'
+  rt.chatOwners.set(oldSid, chief)
+  rt.shouldMoveForeground = () => true
+  rt.handoffForeground = async () => newSid
+  const before = sent.length
+  // No file rides along: sendUser must resolve the ref and fork a fresh part.
+  assert.equal((await call('send', { sessionId: chief, text: 'hello' })).value, true)
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined)
+  assert.ok(prompt, 'a prompt was submitted')
+  assert.equal(prompt.sessionId, newSid)
   await stop()
 })
 

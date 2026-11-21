@@ -786,7 +786,11 @@ export function install(rt) {
           await rt.load()
           // Resolve the destination ONCE (including a foreground handoff). The upload
           // receipt and the prompt must name the same Session, or DSH drops the file.
-          const sessionId = files.length > 0 ? await resolveSendSession(body.sessionId) : body.sessionId
+          // Only pre-resolve when a file rides along: with no file, leave the override
+          // undefined so sendUser resolves the ref normally (bot/group lookup,
+          // current-part routing, foreground handoff). Passing the raw ref as an
+          // override skipped all of that and queued the prompt on the wrong Session.
+          const sessionId = files.length > 0 ? await resolveSendSession(body.sessionId) : undefined
           const content = [
             ...(text === '' ? [] : [{ type: 'text', text }]),
             ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
