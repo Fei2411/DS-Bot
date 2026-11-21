@@ -938,6 +938,30 @@ test('a write that changed nothing fails the call with a code, and a saved one k
   })
 })
 
+test('a memory snapshot checks every entry in a file against the same day', async (t) => {
+  const DayFormat = Intl.DateTimeFormat
+  let calls
+  t.mock.method(Intl, 'DateTimeFormat', function (...args) {
+    const formatter = new DayFormat(...args)
+    if (args[0] === 'en-CA') {
+      const format = formatter.format
+      Object.defineProperty(formatter, 'format', { value: value => calls === undefined ? format(value) : calls++ === 0 ? '2099-06-01' : '2099-06-02' })
+    }
+    return formatter
+  })
+  const { tool, section, stop } = start({ config: { timeZone: 'UTC' } })
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Release checklist alpha', until: '2099-06-01' }, 'b2')
+  await tool('bot_remember', { text: 'Release checklist beta', until: '2099-06-01' }, 'b2')
+  await tool('bot_remember', { text: 'Release checklist expired', until: '2099-05-31' }, 'b2')
+  calls = 0
+  const snapshot = section('b2')
+  assert.match(snapshot, /Release checklist alpha/)
+  assert.match(snapshot, /Release checklist beta/)
+  assert.doesNotMatch(snapshot, /Release checklist expired/)
+  assert.equal(calls, 2)
+})
+
 test('a Session keeps the memory it began with, across restarts, until its snapshot goes', async (t) => {
   const first = start()
   t.after(() => first.stop())
