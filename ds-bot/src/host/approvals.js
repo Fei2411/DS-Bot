@@ -43,7 +43,16 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, ...entry }) => ({ ...entry, answerable: answer !== undefined })
+  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, ...entry }) => {
+    const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
+    const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
+    const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task?.title)
+    return {
+      ...entry,
+      ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
+      answerable: answer !== undefined,
+    }
+  }
   const changed = entry => emit('updated', view(entry))
 
   // Queued user input is not a user/message until the pending tool yields.
@@ -187,7 +196,8 @@ export function install(rt) {
         linked.abort()
         if (request.signal === linked.signal) request.signal = original
         rt.noteApproval?.(owner.ownerSessionId, undefined)
-        emit('settled', { id, outcome, ...(owner.taskId ? { taskId: owner.taskId } : {}) })
+        const settledTaskId = entry.taskId ?? rt.taskOwners?.get(owner.sessionId)?.taskId ?? rt.taskOwners?.get(owner.ownerSessionId)?.taskId
+        emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
       const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }

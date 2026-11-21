@@ -7,7 +7,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND } from '../constants.js'
@@ -631,6 +631,32 @@ export function install(rt) {
     if (props === null || typeof props !== 'object' || !('session' in props)) return
     exec.arguments = { ...(exec.arguments ?? {}), session: driverSessionOf(botId) }
   }
+  // Driver sessions end after five idle minutes and ordinary calls never revive
+  // them (#1821): a Bot back after a pause starts the session its call will use,
+  // its own label or the shared implicit one, again first.
+  const DRIVER_SESSION_FRESH_MS = 4 * 60_000
+  const driverSessionSeen = new Map()
+  const driverSessionKey = (exec) => typeof exec.arguments?.session === 'string' ? exec.arguments.session : ''
+  const startDriverSession = async (exec, key) => {
+    driverSessionSeen.set(key, Date.now())
+    if (key !== '') driverCursorOff.delete(key)
+    try {
+      await ctx.tools?.get?.('cua_driver_native__start_session', exec.agent)?.execute(key === '' ? {} : { session: key }, exec)
+    } catch {}
+  }
+  const ensureDriverSession = async (exec, call) => {
+    if (call.method === 'start_session' || call.method === 'end_session') return
+    const key = driverSessionKey(exec)
+    const seen = driverSessionSeen.get(key)
+    if (seen !== undefined && Date.now() - seen < DRIVER_SESSION_FRESH_MS) {
+      driverSessionSeen.set(key, Date.now())
+      return
+    }
+    await startDriverSession(exec, key)
+  }
+  const SESSION_RESTARTED = 'The computer-use session had ended. DS Bot started it again; call the tool again.'
+  const isSessionEnded = (result) => result?.isError === true &&
+    /session has ended/i.test(String(result.error?.message ?? result.content?.map?.(part => part?.text).join(' ') ?? ''))
   const driverCursorOff = new Set()
   const ensureDriverCursorOff = async (exec, botId) => {
     const session = driverSessionOf(botId)
@@ -822,18 +848,24 @@ export function install(rt) {
       if (DRIVER_REFUSED.has(call.method)) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
-      injectDriverSession(exec, call, bot.id)
-      await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
+        if (call.method === 'get_desktop_state') {
+          return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
+        }
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
+      } else if (app.unknown === true && DRIVER_LISTINGS.has(call.method)) {
+        // A listing filtered by a pid not seen yet is window metadata; its result records the app.
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
         const verdict = await driverConsent(exec, bot, sessionId, app)
         if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
+      injectDriverSession(exec, call, bot.id)
+      await ensureDriverSession(exec, call)
+      await ensureDriverCursorOff(exec, bot.id)
     }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)
@@ -887,6 +919,12 @@ export function install(rt) {
     const started = Date.now()
     try {
       const result = await next()
+      // DSH hands a failed tool body back as an error envelope, not an exception.
+      if (call.provider === 'cua-driver' && isSessionEnded(result)) {
+        await startDriverSession(exec, driverSessionKey(exec))
+        noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: SESSION_RESTARTED })
+        return { ...result, content: [{ type: 'text', text: `Error: ${SESSION_RESTARTED}` }], error: { message: SESSION_RESTARTED } }
+      }
       // Tool results arrive as an envelope { isError, content, value } — the
       // recorded app identity and screenshot attachment live in `value`.
       const payload = result !== null && typeof result === 'object' && result.isError !== true

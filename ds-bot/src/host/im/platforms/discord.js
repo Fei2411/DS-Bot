@@ -3,7 +3,7 @@
 // `mentions`. Buttons are components; interactions come back as
 // INTERACTION_CREATE and are answered with a deferred update (type 6).
 // Wire details ported from dsh-im (MIT, see NOTICE).
-import { chunkMarkdown, toPlain } from '../format.js'
+import { chunkMarkdown } from '../format.js'
 
 const API = 'https://discord.com/api/v10'
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json'
@@ -263,7 +263,11 @@ export default {
         const components = buttons?.length > 0
           ? [{ type: 1, components: buttons.slice(0, 5).map(button => ({ type: 2, style: 1, label: button.label.slice(0, 80), custom_id: button.data })) }]
           : []
-        await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: toPlain(text).slice(0, TEXT_LIMIT), components } })
+        // Discord renders Markdown in `content`, so an edit that goes through `toPlain`
+        // silently drops every emphasis, code fence and link the message had: a streamed
+        // reply looked formatted while it was being sent and plain once it was edited.
+        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)[0] ?? ''
+        await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: body, components } })
       },
       typing: async (chat) => rest(`/channels/${chat.key}/typing`).then(() => {}, () => {}),
       stop: () => {

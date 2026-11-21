@@ -22,9 +22,10 @@ const CHECK_TIMEOUT_MS = 15_000
 const SIGN_IN_TIMEOUT_MS = 10 * 60_000
 const SECRET_REF = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const MAX_REQUESTS = 20
+const GITHUB_API = 'https://api.github.com'
 
 // Asks GitHub who the token belongs to. Any token GitHub accepts passes.
-export async function signIn(token, { api = 'https://api.github.com', fetch: request = fetch } = {}) {
+export async function signIn(token, { api = GITHUB_API, fetch: request = fetch } = {}) {
   let response
   try {
     response = await request(`${api.replace(/\/$/, '')}/user`, {
@@ -44,7 +45,7 @@ export async function signIn(token, { api = 'https://api.github.com', fetch: req
 export function install(rt) {
   const { ctx, state } = rt
   for (const entry of CATALOG) CONNECTOR_IDS.add(entry.id)
-  const options = rt.config.github === false ? null : { api: 'https://api.github.com', ...rt.config.github }
+  const options = rt.config.github === false ? null : { api: GITHUB_API, ...rt.config.github }
   const insecure = (url) => !/^https:\/\//i.test(String(url))
   let stopped = false
   let queue = Promise.resolve()
@@ -604,6 +605,29 @@ export function install(rt) {
 
   const offFor = id => state.connectors?.[id]?.offFor ?? []
 
+  async function publishDsBotIssue(botId, { title, body }) {
+    const id = 'github'
+    if (options?.api !== GITHUB_API || options.endpoints !== undefined || options.url !== undefined) return undefined
+    await rt.loadSecrets()
+    if (rt.botOf(botId) === undefined || rt.readOnly() !== undefined
+      || offFor(id).includes(botId) || state.connectors?.[id]?.readOnly === true
+      || statuses.get(id)?.state === 'needs-sign-in') return undefined
+    const headers = credentialOf(id)
+    if (headers === undefined) return undefined
+    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
+      body: JSON.stringify({ title, body, labels: ['bug'] }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    })
+    if (response.status >= 500) throw new Error('Could not confirm whether GitHub accepted the issue')
+    if (!response.ok) return undefined
+    const { number } = await response.json()
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
+    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+  }
+
   // --- import -------------------------------------------------------------
 
   const importFiles = () => {
@@ -900,6 +924,7 @@ export function install(rt) {
   Object.assign(rt, {
     connectorsView,
     connectorEndpoint,
+    publishDsBotIssue,
     connectorOffFor: (botId) => {
       const prefixes = []
       for (const entry of entries()) {

@@ -663,6 +663,119 @@ test('Antigravity 1.5.9, as recorded: models with per-model thinking levels, con
   })
 })
 
+function makeScriptAdapter(script, { records = {}, engines = [] } = {}) {
+  const usage = []
+  return new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
+    findExecutable: path => path,
+    spawnEngine: (kind, route, spec) => {
+      const engine = new AcpEngine(route, { ...spec, command: process.execPath, args: ['-e', script] }, { findExecutable: path => path })
+      engines.push(engine)
+      return engine
+    },
+    record: sessionId => records[sessionId],
+    saveRecord: (sessionId, record) => { records[sessionId] = record },
+    patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
+    recordUsage: entry => usage.push(entry),
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => tmpdir(),
+    probeCwd: () => tmpdir(),
+    toolsFor: () => [],
+  })
+}
+
+test('dispose() unblocks when a non-isolated ACP ask() is stuck waiting in engine.open()', async (t) => {
+  const hangOpenScript = `
+    let buf = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        if (msg.method === 'initialize') {
+          process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } }) + '\\n')
+        }
+      }
+    })
+  `
+  const engines = []
+  const adapter = makeScriptAdapter(hangOpenScript, {
+    records: { s1: { route: 'local-acp-fake', model: 'default' } },
+    engines,
+  })
+  t.after(async () => { for (const engine of engines) await engine.close().catch(() => {}) })
+
+  const asked = adapter.ask('s1', { system: 'sys', prompt: 'hello' })
+  asked.catch(() => {})
+  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  const outcome = await Promise.race([
+    adapter.dispose().then(() => 'disposed'),
+    new Promise(resolve => setTimeout(() => resolve('timed-out'), 2_000)),
+  ])
+  assert.equal(outcome, 'disposed')
+  await assert.rejects(asked)
+})
+
+test('ask() finishing on a shared ACP engine does not close it underneath an in-flight probeModels()', async (t) => {
+  const concurrentProbeScript = `
+    let buf = '', next = 0, heldProbe = null
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          if (heldProbe === null) { heldProbe = id; continue }
+          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+        } else if (method === 'session/prompt') {
+          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (params.sessionId === 'acp-1' && heldProbe !== null) {
+            const probeId = heldProbe; heldProbe = null
+            setTimeout(() => {
+              send({ jsonrpc: '2.0', id: probeId, result: { sessionId: 'acp-probe', configOptions: [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'm-fast', name: 'Fast' }] }] } })
+            }, 30)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engines = []
+  const adapter = makeScriptAdapter(concurrentProbeScript, {
+    records: { s1: { route: 'local-acp-fake', model: 'default' } },
+    engines,
+  })
+  t.after(() => adapter.dispose())
+
+  const probing = adapter.probeModels('local-acp-fake')
+  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  const text = await adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  assert.equal(text, 'ok')
+  const models = await probing
+  assert.deepEqual(models.map(model => model.id), ['default', 'm-fast'])
+  assert.equal(engines[0].child, undefined)
+})
+
 // The model card's share is what the Session used over the window resolveModel reports:
 // the loop stamps that figure into request/context and the contextPressure view hands it
 // to `text.js`'s runStatsOf. Every local route answered DEFAULT_CONTEXT_WINDOW there, so a
