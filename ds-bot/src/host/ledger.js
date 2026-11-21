@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'no
 import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
 
@@ -198,9 +199,12 @@ export function install(rt) {
     search: (book, query, pick = record => record.text) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
-      return open(book).records.filter((record) => {
+      const records = open(book).records
+      const lower = searchTextFor(records)
+      return records.filter((record, at) => {
         const text = pick(record)
-        return typeof text === 'string' && words.every(word => text.toLowerCase().includes(word))
+        const value = lower(at, text)
+        return typeof text === 'string' && words.every(word => value.includes(word))
       }).slice(-SEARCH_MAX).reverse()
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`

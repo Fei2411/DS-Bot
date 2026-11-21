@@ -2,6 +2,8 @@
 // search reads that book instead of a second store. A hit carries its neighbours so
 // the message can be read in context. Text stays whole: the list snippets it, and
 // opening a hit shows the line.
+import { searchTextFor } from './search-text.js'
+
 const SEARCH_MAX = 20
 const TERMS_MAX = 8
 const QUERY_MAX = 200
@@ -23,6 +25,7 @@ function lineOf(record) {
 export function searchGroupBook(records, query, options) {
   const terms = [...new Set(String(query ?? '').toLowerCase().slice(0, QUERY_MAX).split(/\s+/).filter(Boolean))].slice(0, TERMS_MAX)
   if (terms.length === 0) return { results: [], hasMore: false }
+  const lower = searchTextFor(records)
   const page = options ?? {}
   const offset = Number.isInteger(page.offset) && page.offset > 0 ? page.offset : 0
   const before = Number.isInteger(page.before) ? page.before : undefined
@@ -32,7 +35,7 @@ export function searchGroupBook(records, query, options) {
   for (let at = records.length - 1; at >= 0; at -= 1) {
     const record = records[at]
     if (before !== undefined && !(Number.isInteger(record?.seq) && record.seq < before)) continue
-    const text = typeof record?.text === 'string' ? record.text.toLowerCase() : ''
+    const text = lower(at, record?.text)
     if (text === '' || !terms.every(term => text.includes(term))) continue
     const hit = lineOf(record)
     if (hit === undefined) continue

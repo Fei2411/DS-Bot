@@ -879,6 +879,62 @@ test('cua-driver resolves a window_id or an element token to the app, and refuse
   assert.equal(unknown.kind, 'deny')
 })
 
+test('cua-driver sessions that ended while idle are started again before the next call (#1821)', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const started = []
+  const defs = {
+    cua_driver_native__start_session: { parameters: { properties: { session: {} } }, execute: async (args) => { started.push(args); return { active: true } } },
+    cua_driver_native__list_apps: { parameters: { properties: {} } },
+    cua_driver_native__get_screen_size: { parameters: { properties: { session: {} } } },
+  }
+  ctx.tools.get = name => defs[name]
+  let now = 1_000_000
+  t.mock.method(Date, 'now', () => now)
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name, arguments: args, agent: { id: 'w1' }, callId: `c-${name}` }, allow)
+  // the first call starts the implicit session; a call right after does not
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}])
+  now += 60_000
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}])
+  // after the driver's five idle minutes the next call starts it again
+  now += 5 * 60_000
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}, {}])
+  // a tool that takes a session gets the Bot's label, started the same way
+  const exec = { name: 'cua_driver_native__get_screen_size', arguments: {}, agent: { id: 'w1' }, callId: 'c-size' }
+  assert.equal(await gate(exec, allow), 'allowed')
+  const label = exec.arguments.session
+  assert.match(label, /^dsbot-/)
+  assert.deepEqual(started.at(-1), { session: label })
+  // a call refused as ended starts its session again and says to call again
+  started.length = 0
+  const ended = await track({ name: 'cua_driver_native__list_apps', arguments: {}, agent: { id: 'w1' }, callId: 'c-ended' },
+    async () => ({ isError: true, content: [{ type: 'text', text: 'Error: this session has ended; call start_session explicitly to reuse its label' }], error: { message: 'this session has ended; call start_session explicitly to reuse its label' } }))
+  assert.equal(ended.isError, true)
+  assert.match(ended.content[0].text, /started it again; call the tool again/)
+  assert.deepEqual(started, [{}])
+  // a window listing for a pid not seen yet needs no consent; reading that app's
+  // elements does, and so does the whole-desktop capture. Refused calls start nothing.
+  started.length = 0
+  now += 5 * 60_000
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', { pid: 99 })).kind, 'deny')
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', {})).kind, 'deny')
+  const desktop = await call('cua_driver_native__get_desktop_state', {})
+  assert.equal(desktop.kind, 'deny')
+  assert.match(desktop.reason, /get_window_state/)
+  assert.deepEqual(started, [])
+  assert.equal(await call('cua_driver_native__list_windows', { pid: 99 }), 'allowed')
+  assert.deepEqual(started, [{}])
+})
+
 test('revoke clears a This time under every key, so the next call asks again', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })

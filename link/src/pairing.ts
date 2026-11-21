@@ -11,10 +11,12 @@ export interface PairedDevice {
   identityKey: string
   name: string
   pairedAt: number
+  kind?: 'phone' | 'browser'
 }
 
 /** What the computer's pairing QR code carries to the phone. */
 export interface PairingOffer {
+  device?: 'browser'
   server: string
   hostDeviceId: string
   hostKey: string
@@ -61,6 +63,7 @@ export function pairingUri(offer: PairingOffer): string {
     code: offer.code,
     name: offer.name,
   })
+  if (offer.device !== undefined) query.set('device', offer.device)
   return `${PAIRING_SCHEME}//pair?${query}`
 }
 
@@ -83,12 +86,16 @@ export function parsePairingUri(uri: string): PairingOffer {
     code: field('code'),
     name: (url.searchParams.get('name') ?? '').slice(0, MAX_NAME),
   }
+  const device = url.searchParams.get('device')
+  if (device !== null && device !== 'browser') throw new Error('The pairing device is invalid.')
+  if (device === 'browser') offer.device = device
   if (deviceIdFor(offer.hostKey) !== offer.hostDeviceId) throw new Error('The pairing code does not match its computer.')
   return offer
 }
 
 interface OpenPairing {
   code: string
+  browserCode: string
   expiresAt: number
   misses: number
 }
@@ -104,16 +111,16 @@ export class DeviceRegistry {
   private readonly now: () => number
 
   constructor(devices: PairedDevice[] = [], onChange?: (devices: PairedDevice[]) => void, now: () => number = Date.now) {
-    for (const device of devices) this.devices.set(device.deviceId, { ...device })
+    for (const device of devices) this.devices.set(device.deviceId, { ...device, kind: device.kind === 'browser' ? 'browser' : 'phone' })
     this.onChange = onChange
     this.now = now
   }
 
   list(): PairedDevice[] { return [...this.devices.values()].map(device => ({ ...device })) }
 
-  openPairing(ttlMs = 5 * 60_000): { code: string; expiresAt: number } {
-    this.pairing = { code: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 }
-    return { code: this.pairing.code, expiresAt: this.pairing.expiresAt }
+  openPairing(ttlMs = 5 * 60_000): { code: string; browserCode: string; expiresAt: number } {
+    this.pairing = { code: randomToken(18), browserCode: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 }
+    return { code: this.pairing.code, browserCode: this.pairing.browserCode, expiresAt: this.pairing.expiresAt }
   }
 
   closePairing(): void { this.pairing = undefined }
@@ -133,13 +140,14 @@ export class DeviceRegistry {
     if (this.matches(deviceId, identityKey)) return true
     if (hello.pairingCode === undefined || !this.pairingOpen()) return false
     const pairing = this.pairing!
-    if (!sameText(hello.pairingCode, pairing.code)) {
+    const kind = sameText(hello.pairingCode, pairing.browserCode) ? 'browser' : 'phone'
+    if (kind === 'phone' && !sameText(hello.pairingCode, pairing.code)) {
       pairing.misses += 1
       if (pairing.misses >= 5) this.pairing = undefined
       return false
     }
     this.pairing = undefined
-    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? '', pairedAt: this.now() })
+    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? '', pairedAt: this.now(), kind })
     this.onChange?.(this.list())
     return true
   }

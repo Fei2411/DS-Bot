@@ -69,7 +69,7 @@ export function install(rt) {
     }, LIVE_DELAY_MS)
   }
   ctx.on('agent/status', ({ agent }) => {
-    if (rt.selfOf(agent.id) !== undefined) live()
+    if (rt.selfOf(agent.id) !== undefined || rt.agentOf?.(agent.id) !== undefined) live()
   })
 
   ctx.on('session/event', (session, event) => {

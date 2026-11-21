@@ -52,8 +52,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const snap = roster.getSnapshot()
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
-            : state.view
-        return { ...state, details: id, view, renaming: false, tab: null }
+            : state.view === 'task' ? 'details'
+              : state.view
+        return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
     showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
@@ -67,9 +68,30 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
     setPanelView: (view) => {
-      if (view !== 'details' && view !== 'browser' && view !== 'side') return
-      ui.set(state => (state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state))
+      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task') return
+      ui.set(state => (state.details && state.view !== view ? { ...state, view, ...(view === 'details' ? { tab: null } : {}), panelYield: yieldTo(state, view) } : state))
     },
+    openTaskDeck: (targetId, taskId = null) => {
+      if (!targetId) return
+      ui.set(state => ({ ...state, taskDeck: { targetId, taskId, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null }))
+    },
+    toggleTaskDeck: (targetId) => {
+      if (!targetId) return
+      ui.set(state => (state.taskDeck?.targetId === targetId
+        ? { ...state, taskDeck: null }
+        : { ...state, taskDeck: { targetId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null }))
+    },
+    closeTaskDeck: () => { ui.set(state => (state.taskDeck ? { ...state, taskDeck: null } : state)) },
+    openTask: (sessionId, botId, taskId) => {
+      if (!sessionId || !botId || !taskId) return
+      ui.set(state => ({ ...state, details: sessionId, view: 'task', task: { botId, taskId }, renaming: false, tab: null, panelYield: yieldTo(state, 'details') }))
+    },
+    closeTask: () => {
+      ui.set(state => (state.details && state.view === 'task' ? { ...state, view: 'details', task: null, tab: 'tasks' } : { ...state, task: null }))
+    },
+    stopTask: (botId, taskId) => after(call('bot-stop-task', { botId, taskId })),
+    sendTask: (botId, taskId, text) => after(call('bot-task-send', { botId, taskId, text })),
+    readTask: (botId, taskId, cursor, steps = false) => call('bot-task-read', { botId, taskId, ...(cursor ? { cursor } : {}), ...(steps ? { steps: true } : {}) }),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -87,7 +109,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => (state.details && state.view === 'side' && state.side === chatId ? { ...state, view: 'details', side: null } : state))
       return after(call('side-close', { chatId }))
     },
-    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state)) },
+    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null } : state)) },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
@@ -107,6 +129,21 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         return id === undefined ? block : { ...block, attachmentId: id }
       })
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked)
+    }),
+    // Files put back into a draft get new attachment ids: the cards of `from` wait for
+    // their files again in `to`, and bind by name as on a paste.
+    reopenPastes: (from, to) => ui.set((state) => {
+      const blocks = state.paste?.[from] ?? []
+      if (blocks.length === 0) return state
+      const waiting = blocks.map(block => ({ ...block, attachmentId: null }))
+      if (from === to) return pasteState(state, to, waiting)
+      const { [from]: _left, ...rest } = state.paste
+      return { ...state, paste: { ...rest, [to]: [...(rest[to] ?? []), ...waiting] } }
+    }),
+    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const waiting = blocks.map(block => (blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block))
+      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting)
     }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? []
@@ -182,7 +219,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: botId => after(call('bot-new-part', { botId })),
+    newPart: (botId, roomId) => after(call('bot-new-part', roomId === undefined ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
       return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
@@ -205,17 +242,35 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // The goal / approval island: `goalCompose` holds the room whose draft form is
     // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
     // whose approval panel is open. Goal and approval panels stay mutually exclusive.
-    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
+    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null, taskDeck: null })),
     closeGoalCompose: () => ui.set(state => (state.goalCompose ? { ...state, goalCompose: null } : state)),
-    toggleGoal: roomId => ui.set(state => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
+    toggleGoal: roomId => ui.set(state => ({
+      ...state,
+      goalOpen: state.goalOpen === roomId ? null : roomId,
+      approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null,
+      taskDeck: state.goalOpen === roomId ? state.taskDeck : null,
+    })),
     closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
     toggleApproval: roomId => ui.set(state => ({
       ...state,
       approvalOpen: state.approvalOpen === roomId ? null : roomId,
       goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
+      taskDeck: state.approvalOpen === roomId ? state.taskDeck : null,
     })),
-    openApproval: roomId => ui.set(state => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    openApproval: roomId => ui.set((state) => {
+      const snap = roster.getSnapshot()
+      const activeSet = new Set(['running', 'waiting_work', 'waiting_approval'])
+      const room = snap.roomsById?.[roomId]
+      const bot = snap.byId?.[roomId]
+      const hasTasks = room
+        ? (room.members ?? []).some(id => (snap.byId?.[id]?.tasks ?? []).some(item => item?.roomId === room.id && activeSet.has(item.status)))
+        : (bot?.tasks ?? []).some(item => !item?.roomId && activeSet.has(item.status))
+      if (hasTasks) {
+        return { ...state, taskDeck: { targetId: roomId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null }
+      }
+      return { ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null }
+    }),
     closeApproval: () => ui.set(state => (state.approvalOpen ? { ...state, approvalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
@@ -243,10 +298,22 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     mailRuleSet: payload => after(call('mail-rule-set', payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call('mail-send-answer', { requestId, choice, ...extra })),
     mailSignInCode: payload => after(call('mail-sign-in-code', payload)),
+    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
+    // off until enabled. The status answer names the credential ref, never its value.
+    deepseekServices: () => call('deepseek-services'),
+    // absent keeps a field, null resets it; the full status comes back with the roster.
+    setDeepseekServices: patch => after(call('deepseek-services-config', patch)),
+    // One short piece of speech; the caller queues and plays the WAV it gets back.
+    synthesizeSpeech: (body, signal) => call('deepseek-synthesize', body, signal),
     phoneSet: settings => after(call('phone-set', settings)),
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
+    // The answer to mcp-client-add carries the new token once; nothing else does.
+    mcpSet: settings => after(call('mcp-set', settings)),
+    mcpClientAdd: client => after(call('mcp-client-add', client)),
+    mcpClientUpdate: (id, patch) => after(call('mcp-client-update', { id, ...patch })),
+    mcpClientRemove: id => after(call('mcp-client-remove', { id })),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
@@ -257,14 +324,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imLoginStart: payload => call('im-login-start', payload),
     imLoginWait: payload => call('im-login-wait', payload),
     saveCapability: capability => after(call('capability-save', capability)),
-    deepseekServices: () => call('deepseek-services'),
-    setDeepseekServices: patch => after(call('deepseek-services-config', patch)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
     setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call('schedule-pause', { sessionId, id, active }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
