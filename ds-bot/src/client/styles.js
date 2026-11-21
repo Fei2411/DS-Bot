@@ -432,6 +432,14 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* On macOS a side panel reaches the window's top edge, where the window drag strip is.
+   Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
+   that strip: it drags where no chip or button covers it, and controls stay no-drag. The
+   body-level .bt-browser-layer container must stay neutral so DSH's body > :not(#root)
+   no-drag rule never punches a hole through the window's drag geometry. */
+html[data-platform=darwin] .bt-browser-layer{-webkit-app-region:initial}
+html[data-platform=darwin] .bt-panel>[data-window-drag],html[data-platform=darwin] .bt-panel>.bt-panel-view>[data-window-drag]{-webkit-app-region:drag}
+html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,textarea,select,[role=button],[role=tab],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
 .bt-pane{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;z-index:45;pointer-events:auto;background:var(--bt-main);color:var(--bt-ink);display:flex;font-family:var(--bt-font)}
 .bt-dialog{flex:1;display:flex;flex-direction:column;min-width:0}
 .bt-dialog .bt-head{height:62px}
@@ -1247,11 +1255,18 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 /* The transcript runs under a floating header pill. */
 header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
-header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
+header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;z-index:1;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
 header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
 header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
+/* In a native mobile shell, the floating ::before gradient does not reliably occlude
+   scrolled cards behind the Bot title and passes hits through; give the bar an opaque
+   theme fill that captures pointer events across its full width. Keep .bt-head itself
+   pointer-events:none so it never covers the earlier _headerLeading menu/back button. */
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head),header[class*="_header"][data-dsh-mobile-header]:has(.bt-head){width:auto!important;margin:0!important;padding:calc(10px + env(safe-area-inset-top,0px)) 0 10px!important;background:var(--bt-main)!important;pointer-events:auto}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)::before,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)::before{content:none}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"],header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)>[class*="_headerLeading"]{top:calc(10px + env(safe-area-inset-top,0px))}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head

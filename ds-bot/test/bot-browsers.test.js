@@ -49,7 +49,7 @@ function fakeDesktop() {
   const openHandlers = {}
   let lease = 0
   const doc = {
-    body: { append() {} },
+    body: { children: [], append(...nodes) { this.children.push(...nodes) } },
     createElement(tag) {
       if (tag === 'webview') { const view = fakeWebview(); created.push(view); return view }
       return { className: '', style: {}, isConnected: true, append() {}, remove() {} }
@@ -410,4 +410,26 @@ test('browserAddress opens hosts over https, local addresses over http, and sear
 
 test('the page reader is one valid expression', () => {
   assert.doesNotThrow(() => new Function(`return ${READ_PAGE_SCRIPT}`))
+})
+
+// #1571: on macOS DSH marks every `body > :not(#root)` as `-webkit-app-region: no-drag`,
+// and Chromium ignores pointer-events:none when computing drag regions. The layer must
+// stay 0x0 and app-region-neutral rather than covering the full window with inset:0.
+test('bt-browser-layer stays 0x0 and app-region-neutral so it never blocks window dragging', async () => {
+  const desktop = fakeDesktop()
+  const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  const tab = browsers.openTab('a')
+  await browsers.show(tab, BOX)
+  const layer = desktop.doc.body.children.find(node => node.className === 'bt-browser-layer')
+  assert.ok(layer, 'layer is mounted in document.body')
+  assert.equal(layer.style.inset, undefined, 'layer must not stretch full-window via inset:0')
+  assert.equal(layer.style.width, '0')
+  assert.equal(layer.style.height, '0')
+  assert.equal(layer.style.webkitAppRegion, 'initial')
+  const view = desktop.created[0]
+  assert.equal(view.style.visibility, 'visible')
+  assert.equal(view.style.pointerEvents, 'auto')
+  await browsers.show(null)
+  assert.equal(view.style.visibility, 'hidden')
+  assert.equal(view.style.pointerEvents, 'none')
 })

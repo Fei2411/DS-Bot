@@ -247,7 +247,10 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
   }).map(key => menuItemFor(key, actions, subject))
-  return h('div', { className: 'bt-ptabs', role: 'tablist', 'aria-label': t('Panel tabs') },
+  // `data-window-drag` is the shell's window drag-row mark on macOS: base.css turns it
+  // into the drag geometry, and the shell's watcher re-collects that geometry while the
+  // panel slides in. The rule in styles.js declares the same row for a shell without it.
+  return h('div', { className: 'bt-ptabs', role: 'tablist', 'data-window-drag': true, 'aria-label': t('Panel tabs') },
     h('div', { className: 'bt-ptabs-in', ref: wrap },
       h('button', {
         type: 'button', role: 'tab', 'aria-selected': view === 'details', className: 'bt-ptab bt-ptab-bot',
