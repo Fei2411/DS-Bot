@@ -32259,7 +32259,7 @@ var chatRoom = {
 function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
-  const watched = /* @__PURE__ */ new WeakSet();
+  const watched = /* @__PURE__ */ new Set();
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
   const read = () => {
     const column = document.querySelector('[class*="_sidebarCol"]');
@@ -32273,8 +32273,16 @@ function installFrameWatch(frame2) {
     });
   };
   const measure = () => {
-    for (const selector of ['[class*="_sidebarCol"]', '[class*="_centerCol"]']) {
-      for (const column of document.querySelectorAll(selector)) {
+    let scan = watched.size < 2;
+    for (const column of watched) {
+      if (!column.isConnected) {
+        watched.delete(column);
+        observer?.unobserve(column);
+        scan = true;
+      }
+    }
+    if (scan) {
+      for (const column of document.querySelectorAll('[class*="_sidebarCol"],[class*="_centerCol"]')) {
         if (!watched.has(column)) {
           watched.add(column);
           observer?.observe(column);

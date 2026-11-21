@@ -80,7 +80,7 @@ export const chatRoom = {
 export function installFrameWatch(frame) {
   let collapsedWidth = collapsedTrackWidth()
   let raf = 0
-  const watched = new WeakSet()
+  const watched = new Set()
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
   const read = () => {
     // While the shell slides its sidebar (data-animating on the frame) the
@@ -97,9 +97,15 @@ export function installFrameWatch(frame) {
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next
     })
   }
+  // Scanning a long chat's DOM for the columns costs more than the read, so the
+  // scan runs only while a column is missing or one we watch was replaced.
   const measure = () => {
-    for (const selector of ['[class*="_sidebarCol"]', '[class*="_centerCol"]']) {
-      for (const column of document.querySelectorAll(selector)) {
+    let scan = watched.size < 2
+    for (const column of watched) {
+      if (!column.isConnected) { watched.delete(column); observer?.unobserve(column); scan = true }
+    }
+    if (scan) {
+      for (const column of document.querySelectorAll('[class*="_sidebarCol"],[class*="_centerCol"]')) {
         if (!watched.has(column)) { watched.add(column); observer?.observe(column) }
       }
     }
