@@ -201,7 +201,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
-  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {} }
+  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {}, agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined) }
   installPhone(rt)
   const served = []
   rt.phoneServe(async endpoint => { served.push(endpoint); return { ok: true, value: endpoint } })
@@ -219,6 +219,12 @@ test('the host enforces a default-deny browser allowlist across every channel ro
     for (const endpoint of deniedEndpoints) {
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
+      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
+      else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+    }
+    // DSH Agent chats are phone-only, and so is their media.
+    for (const endpoint of ['image', 'file-download', 'markdown-image']) {
+      const answer = await link.client.rpc('bot', { endpoint, payload: { sessionId: 'agent-s1' } })
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
