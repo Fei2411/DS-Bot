@@ -166,7 +166,7 @@ test('Claude resume needs runtime cwd confirmation before automatic review', asy
 test('ACP permission cwd follows host session/new and session/load, not rawInput', async t => {
   const engine = new AcpEngine('local-acp-fake', { name: 'Fake ACP', command: process.execPath, args: [fixture('fake-acp.mjs')] }, { findExecutable: value => value })
   t.after(() => engine.close())
-  const session = await engine.open('s', { cwd })
+  let session = await engine.open('s', { cwd })
   const ask = async () => {
     const result = engine.onRequest('session/request_permission', {
       sessionId: session.acpSessionId,
@@ -179,7 +179,7 @@ test('ACP permission cwd follows host session/new and session/load, not rawInput
     return event
   }
   assert.equal((await ask()).cwd, cwd)
-  await engine.open('s', { cwd: otherCwd, resumeId: session.acpSessionId })
+  session = await engine.open('s', { cwd: otherCwd, resumeId: session.acpSessionId })
   assert.equal((await ask()).cwd, otherCwd)
   engine.onNotice('session/update', { sessionId: session.acpSessionId, update: { sessionUpdate: 'tool_call', toolCallId: 'changed', kind: 'execute', status: 'completed' } })
   assert.equal((await session.next()).type, 'activity')

@@ -221,7 +221,13 @@ export function install(rt) {
       const mode = ctx.get('sandboxPolicy').resolve({ session: agent.session }).mode
       // Child Sessions keep a narrower sandbox; a full-access child is capped at workspace.
       if (mode !== 'workspace-write' && (owner.id === sessionId || mode !== 'read-only')) setSandboxMode(agent.session, 'workspace-write')
-      if (owner.id !== sessionId && !Object.hasOwn(saved, sessionId)) saved[sessionId] = approval.overrideOf(agent.session) ?? 'ask'
+      if (owner.id !== sessionId && !Object.hasOwn(saved, sessionId)) {
+        const override = approval.overrideOf(agent.session)
+        // DSH exposes no public way to remove a temporary override. An inherited
+        // policy must stay inherited; only an explicit override can be restored.
+        if (override === undefined) return
+        saved[sessionId] = override
+      }
       approval.setPolicy(agent, 'ask')
     } else if (Object.hasOwn(saved, sessionId)) {
       approval.setPolicy(agent, saved[sessionId])
