@@ -26,10 +26,7 @@ const SIGNED_IN_TTL_MS = 60_000
 export function presetOf(rt, sessionId) {
   const bot = rt.botOf(rt.selfOf(sessionId))
   const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
-  // Approval review is DS Bot's own policy, not a sandbox preset: the Session
-  // runs on workspace-write while the review policy does the asking.
-  const permission = room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
-  return permission === 'review' ? 'workspace-write' : permission
+  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
@@ -98,11 +95,6 @@ export function install(rt) {
     saveRecord: (sessionId, record) => {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
-    },
-    reviewFor: sessionId => {
-      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      const bot = rt.botOf(rt.selfOf(sessionId))
-      return (room?.permission ?? bot?.permission) === 'review'
     },
     recordUsage: entry => rt.recordUsage?.(entry),
     // A change that rides along with the next save: the CLI reports its context on
@@ -201,7 +193,6 @@ export function install(rt) {
     parameters: {
       action: { type: 'string', required: true, description: 'What the action does, in one line' },
       detail: { type: 'string', description: 'The exact command, paths, or arguments, when it helps the decision' },
-      evidence: { type: 'string', description: 'Complete permission request supplied by the external runtime' },
     },
     output,
     localAgentOnly: true,
@@ -209,14 +200,14 @@ export function install(rt) {
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
+      const outcome = await approval.request({
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      }, adapter.approvalEvidence(exec.agent.session.id, exec.callId) ?? { kind: 'external-agent', action: args })
+      })
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })

@@ -167,14 +167,6 @@ export function install(rt) {
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
     }
-    // Null maps and null entries are repaired above. Migrating before that
-    // threw on archives that previously still loaded.
-    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
-      if (!Object.hasOwn(target, 'autoApprove')) continue
-      if (target.autoApprove === true) target.permission = 'review'
-      delete target.autoApprove
-      migrated = true
-    }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
     if (!Array.isArray(state.mainBotIds)) state.mainBotIds = []

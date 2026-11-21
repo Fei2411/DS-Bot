@@ -1,16 +1,6 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
-  "Approvals": "Aprobaciones",
-  "Approval model": "Modelo de aprobación",
-  "Review for me": "Revisar por mí",
-  "Follow team default": "Usar el modelo predeterminado del equipo",
-  "Reviews pending approval requests; uncertain decisions come back to you.": "Revisa las solicitudes de aprobación pendientes; si hay dudas, te pide que decidas.",
-  "Recent approval reviews": "Revisiones de aprobación recientes",
-  "Approved once": "Permitido una vez",
-  "Rejected": "Rechazado",
-  "Manual review": "Revisión manual",
-  "Reviewing this action…": "Revisando esta acción…",
   'Background work': 'Trabajo en segundo plano',
   'Background commands after (seconds)': 'Pasar comandos a segundo plano tras (segundos)',
   'A new reply is waiting': "Tienes una nueva respuesta",

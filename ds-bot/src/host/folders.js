@@ -213,14 +213,14 @@ export function install(rt) {
     // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)
-    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
+    const outcome = await approval.request({
       agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: `Let ${who.en} work in ${path}? Files there can then be changed.`,
       displayReason: { en: `Let ${who.en} work in ${path}? Files there can then be changed.`, zh: `允许${who.zh}在 ${path} 中工作吗？之后可以修改这个文件夹里的文件。` },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    }, { kind: 'folder', path, sessions, who, arguments: exec.arguments, persistent: true })
+    })
     if (outcome === 'allowed-once') return
     // An approval policy that never asks answers 'rejected' as well.
     throw new Error(outcome === 'rejected' ? `Working in ${path} was not allowed, so nothing changed. The user can make this change in the settings.`

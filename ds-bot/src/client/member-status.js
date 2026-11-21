@@ -177,11 +177,10 @@ export function ApprovalCard({ approval, bot, actions, showBot = false }) {
     showBot ? cardHead(bot, approval.at, label) : h('div', { className: 'bt-mw-tool' }, label),
     approval.detail?.text ? h('div', { className: 'bt-mw-text' }, approval.detail.text) : null,
     approval.reason ? h('div', { className: 'bt-mw-reason' }, approval.reason) : null,
-    approval.review ? h('div', { className: 'bt-mw-reason', role: 'status' }, approval.review.status === 'reviewing' ? t('Reviewing this action…') : approval.review.reason) : null,
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
-    // Answering here resolves the request and withdraws the Bot's own DSH card,
-    // so group, task and own-chat approvals all get buttons.
-    approval.answerable
+    // Group and background-task approvals are answered directly through DS Bot;
+    // foreground own-chat approvals still use DSH's own inline card.
+    approval.answerable && (approval.roomId !== undefined || approval.taskId !== undefined)
       ? h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
         h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))

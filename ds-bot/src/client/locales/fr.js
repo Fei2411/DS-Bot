@@ -1,16 +1,6 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
-  "Approvals": "Approbations",
-  "Approval model": "Modèle d’approbation",
-  "Review for me": "Examiner pour moi",
-  "Follow team default": "Utiliser le modèle par défaut de l’équipe",
-  "Reviews pending approval requests; uncertain decisions come back to you.": "Examine les demandes d’approbation en attente ; en cas de doute, vous demande de décider.",
-  "Recent approval reviews": "Examens d’approbation récents",
-  "Approved once": "Autorisé une fois",
-  "Rejected": "Refusé",
-  "Manual review": "Examen manuel",
-  "Reviewing this action…": "Examen de cette action…",
   "Background work": "Travail en arrière-plan",
   "Background commands after (seconds)": "Passer les commandes en arrière-plan après (secondes)",
   'A new reply is waiting': "Une nouvelle réponse vous attend",
