@@ -243,6 +243,27 @@ test('someone else’s home paths are redacted from the public preview and manua
   assert.match(url.searchParams.get('diagnostics'), /Windows failed in ~\/AppData\\x\.log\nProfile: ~$/)
 })
 
+test('issue report redaction preserves prose after bare Windows homes', async (t) => {
+  const { call, show, team, stop } = await start()
+  t.after(stop)
+  const args = await prepareIssue({
+    what: 'Could not open C:\\Users\\Jane Doe and more text',
+    steps: 'Open C:\\Users\\Jane Doe but keep the log. Then open "C:\\Users\\Research and Development".',
+  })
+  const what = 'Could not open ~ and more text'
+  const steps = 'Open ~ but keep the log. Then open "~".'
+  assert.ok(args.view.children[1].text.includes(what))
+  assert.ok(args.view.children[1].text.includes(steps))
+  assert.equal((await show('writer-now', args)).concluded, true)
+  const { id, view } = (await team()).views['writer-now']
+  const reply = await call('view-reply', {
+    sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed: true },
+  })
+  const url = new URL(reply.value.issueReportResult.match(/https:\/\/\S+/)[0])
+  assert.equal(url.searchParams.get('what'), what)
+  assert.equal(url.searchParams.get('steps'), steps)
+})
+
 test('issue report redaction preserves the destination of a failed rename', async (t) => {
   const { stop } = await start()
   t.after(stop)
