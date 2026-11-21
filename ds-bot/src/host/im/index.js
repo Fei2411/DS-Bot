@@ -1728,6 +1728,14 @@ export function install(rt) {
         if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
           // A job notice has no launch ID; a child ID can be reused by another subagent run.
           dropOrigin(session.id)
+          const member = rt.groupOwners.get(session.id)
+          if (member !== undefined) {
+            const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
+            if (roomSid !== undefined) {
+              pendingReset.delete(roomSid)
+              dropOrigin(roomSid)
+            }
+          }
         } else if (typeof imOrigin === 'string') {
           const resumed = resumedOrigins.get(imOrigin)
           resumedOrigins.delete(imOrigin)
