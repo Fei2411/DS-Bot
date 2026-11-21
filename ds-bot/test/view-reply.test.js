@@ -249,11 +249,14 @@ test('issue report redaction preserves prose after bare Windows homes', async (t
   const args = await prepareIssue({
     what: 'Could not open C:\\Users\\Jane Doe and more text',
     steps: 'Open C:\\Users\\Jane Doe but keep the log. Then open "C:\\Users\\Research and Development".',
+    diagnostics: 'Failed at "C:\\Users\\Jane (and Doe)" and (C:\\Users\\Jane and Doe).',
   })
   const what = 'Could not open ~ and more text'
   const steps = 'Open ~ but keep the log. Then open "~".'
+  const diagnostics = 'Failed at "~)" and (~).'
   assert.ok(args.view.children[1].text.includes(what))
   assert.ok(args.view.children[1].text.includes(steps))
+  assert.ok(args.view.children[1].text.includes(diagnostics))
   assert.equal((await show('writer-now', args)).concluded, true)
   const { id, view } = (await team()).views['writer-now']
   const reply = await call('view-reply', {
@@ -262,6 +265,7 @@ test('issue report redaction preserves prose after bare Windows homes', async (t
   const url = new URL(reply.value.issueReportResult.match(/https:\/\/\S+/)[0])
   assert.equal(url.searchParams.get('what'), what)
   assert.equal(url.searchParams.get('steps'), steps)
+  assert.ok(url.searchParams.get('diagnostics').endsWith(diagnostics))
 })
 
 test('issue report redaction preserves the destination of a failed rename', async (t) => {

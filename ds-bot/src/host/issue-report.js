@@ -15,8 +15,7 @@ const PROSE_CONTINUATION = / +(?:and|or|but|then|because|while|when) +/i
 
 function windowsHomeMarker(match, separator, offset, text) {
   if (separator !== undefined) return '~/'
-  const quote = text[offset - 1]
-  if ((quote === "'" || quote === '"' || quote === '\x60') && text[offset + match.length] === quote) return '~'
+  if (offset > 0 && "'\"\x60([".includes(text[offset - 1])) return '~'
   const continuation = match.search(PROSE_CONTINUATION)
   return continuation === -1 ? '~' : '~' + match.slice(continuation)
 }
