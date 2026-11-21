@@ -309,12 +309,11 @@ test('devin: a call to the dsbot server is allowed once without asking; other se
   assert.equal(other.calls[0]?.name, 'approve_agent_action')
 })
 
-test('acp: a dsbot call with no one-time allow still asks', async (t) => {
+test('acp: a request with no one-time allow is refused without a misleading approval card', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const asked = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
-  assert.equal(asked.calls[0]?.name, 'approve_agent_action')
-  const denied = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only'), toolResult('m2', asked.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
+  const denied = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
+  assert.equal(denied.calls.length, 0)
   assert.match(denied.text, /denied/)
 })
 

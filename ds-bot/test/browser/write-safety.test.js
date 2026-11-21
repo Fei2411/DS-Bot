@@ -180,8 +180,14 @@ async function waitFor(check) {
   }
 }
 
-// `roots(profileRoot)`: the folders an upload may come from.
-async function setup(t, { roots, ...options } = {}) {
+// `roots(profileRoot)`: the folders an upload may come from. Newer cases pass an
+// action timeout before either an options object or the roots shorthand.
+async function setup(t, timeoutOrOptions = {}, rootsOrOptions) {
+  const timed = typeof timeoutOrOptions === 'number'
+  const supplied = timed
+    ? typeof rootsOrOptions === 'function' ? { roots: rootsOrOptions } : rootsOrOptions ?? {}
+    : timeoutOrOptions
+  const { roots, ...options } = supplied
   const fixture = await fixtureServer()
   let profileRoot
   let session
@@ -199,6 +205,7 @@ async function setup(t, { roots, ...options } = {}) {
     profileRoot,
     downloadDir: join(profileRoot, 'downloads'),
     ...browserOptions,
+    ...(timed ? { actionTimeout: timeoutOrOptions } : {}),
     ...options,
     ...(roots ? { uploadRoots: async () => roots(profileRoot) } : {}),
   })

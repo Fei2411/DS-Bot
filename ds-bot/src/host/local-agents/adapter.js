@@ -798,6 +798,12 @@ export class LocalAgentAdapter extends LlmAdapter {
           const preset = this.deps.presetFor(live.sessionId)
           const answer = this.deps.reviewFor?.(live.sessionId) && preset !== 'read-only' ? undefined : presetAnswer(preset, event)
           if (answer !== undefined) { event.reply(answer); break }
+          // Without a single-use grant, Allow once would be reported to the user but
+          // cancelled at the CLI. Fail closed instead of converting it to a saved grant.
+          if (!event.options?.some(option => option.kind === 'allow_once')) {
+            event.reply(optionOf(event.options, 'reject') ?? null)
+            break
+          }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.

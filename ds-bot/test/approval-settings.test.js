@@ -20,7 +20,8 @@ function setup() {
     set(session, name) { modes.set(session.id, name); policies.set(session.id, this.resolve(name).approval) },
   }
   const approval = {
-    effectivePolicy: session => policies.get(session.id) ?? 'never',
+    effectivePolicy() { throw new Error('private ApprovalService API must not be used') },
+    overrideOf: session => policies.get(session.id),
     setPolicy(agent, policy) { policies.set(agent.id, policy) },
   }
   const sandboxPolicy = { resolve: ({ session }) => ({ mode: modes.get(session.id) ?? 'danger-full-access' }) }
@@ -93,7 +94,7 @@ test('children inherit review, keep read-only boundaries and cap full access', a
   await rt.setPermission(bot, 'danger-full-access')
   const child = await rt.resolveAgent('read-only')
   await rt.applyReviewPolicy(child)
-  assert.equal(policies.get(child.id), 'never')
+  assert.equal(policies.get(child.id), 'ask')
   assert.equal(modes.get(child.id), 'read-only')
   assert.equal(rt.state.approvalPolicies[child.id], undefined)
 })
@@ -246,6 +247,65 @@ test('mode changes reopen affected CLI sessions, ordinary turn setup keeps them'
   closed.length = 0
   await rt.setPermission(bot, 'workspace-write')
   assert.deepEqual(closed, ['b'])
+})
+
+test('a Bot-owned group task cannot widen a read-only room through review', async () => {
+  const { rt, bot, room, policies, modes } = setup()
+  room.permission = 'read-only'
+  bot.permission = 'review'
+  bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
+  rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  modes.set('task-session', 'read-only')
+  policies.set('task-session', 'never')
+  await rt.applyReviewPolicy(await rt.resolveAgent('task-session'))
+  assert.equal(modes.get('task-session'), 'read-only')
+  assert.equal(policies.get('task-session'), 'never')
+  assert.equal(rt.state.approvalPolicies?.['task-session'], undefined)
+})
+
+test('a saved child policy restores its explicit override through the public reader', async () => {
+  const { rt, bot, policies } = setup()
+  await rt.setPermission(bot, 'review')
+  const child = await rt.resolveAgent('child')
+  child.session.header = { parentSession: 'b', origin: 'subagent' }
+  policies.set('child', 'never')
+  await rt.applyReviewPolicy(child)
+  assert.equal(rt.state.approvalPolicies.child, 'never')
+  await rt.setPermission(bot, 'workspace-write')
+  await rt.applyReviewPolicy(child)
+  assert.equal(policies.get('child'), 'never')
+  assert.equal(Object.hasOwn(rt.state.approvalPolicies, 'child'), false)
+})
+
+test('group mode changes restart task CLIs and stale requests leave newer ones alone', async () => {
+  const { rt, bot, room, closed, modes } = setup()
+  room.members = ['b']
+  bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
+  rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  const resolve = rt.resolveAgent
+  let release
+  let held = false
+  const reached = new Promise((done) => {
+    rt.resolveAgent = async id => {
+      if (id === 'task-session' && !held) {
+        held = true
+        done()
+        await new Promise(done => { release = done })
+      }
+      return resolve(id)
+    }
+  })
+  const first = rt.setRoomPermission(room, 'review')
+  await reached
+  closed.length = 0
+  const second = rt.setRoomPermission(room, 'read-only')
+  await second
+  assert.deepEqual(closed, ['g', 'task-session'], 'the newer room request restarts the task CLI')
+  closed.length = 0
+  release()
+  await first
+  assert.deepEqual(closed, [], 'the stale room request leaves the newly restarted CLI alone')
+  assert.equal(modes.get('task-session'), 'read-only')
 })
 
 test('applying an explicit mode clears legacy saved policy on that Session', async () => {

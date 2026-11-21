@@ -42211,7 +42211,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const activeTasks = chatTasks.filter(isActiveTask);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.answerable === true)) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
   const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
@@ -42243,7 +42243,10 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false;
   const showGoal = room2 !== void 0 && !away && (goal !== void 0 || goalCompose);
   const showTasks = approvalTargetId !== void 0 && !away && activeTasks.length > 0;
-  const showApprovals = approvalTargetId !== void 0 && !away && approvals.length > 0 && !showTasks;
+  const foregroundApprovals = bot && !room2 ? approvals.filter((entry) => entry.kind === "tool" && entry.approval?.taskId === void 0) : [];
+  const standaloneApprovals = foregroundApprovals.length > 0 ? foregroundApprovals : approvals;
+  const taskApprovals = foregroundApprovals.length > 0 ? approvals.filter((entry) => entry.kind !== "tool" || entry.approval?.taskId !== void 0) : approvals;
+  const showApprovals = approvalTargetId !== void 0 && !away && standaloneApprovals.length > 0 && (foregroundApprovals.length > 0 || !showTasks);
   const showIsland = showGoal || showApprovals || showTasks;
   (0, import_react60.useEffect)(() => {
     if (approvalOpen && !showApprovals) actions.closeApproval?.();
@@ -42282,9 +42285,9 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react60.createElement)(MemoryNotice, { shown: memoryNotice }),
     (0, import_react60.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react60.createElement)(GoArrow))
   );
-  const approvalPod = showApprovals ? (0, import_react60.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
-  const taskPod = showTasks ? (0, import_react60.createElement)(TaskIslandPod, { bot, room: room2, roster, tasks: chatTasks, approvals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null;
-  const taskWaiting = Math.max(activeTasks.filter((item) => item.status === "waiting_approval").length, approvals.length);
+  const approvalPod = showApprovals ? (0, import_react60.createElement)(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
+  const taskPod = showTasks ? (0, import_react60.createElement)(TaskIslandPod, { bot, room: room2, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null;
+  const taskWaiting = Math.max(activeTasks.filter((item) => item.status === "waiting_approval").length, taskApprovals.length);
   const taskBadge = taskHoverReveal ? (0, import_react60.createElement)(
     "button",
     {
@@ -42300,7 +42303,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   return (0, import_react60.createElement)(
     "div",
     { className: "bt-head" },
-    showIsland ? (0, import_react60.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
+    showIsland ? (0, import_react60.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning2 ? (0, import_react60.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
     (0, import_react60.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
     room2 !== void 0 && !away ? (0, import_react60.createElement)("button", {

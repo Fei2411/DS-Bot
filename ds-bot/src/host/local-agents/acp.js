@@ -126,6 +126,7 @@ export class AcpEngine {
   }
 
   async ensure() {
+    if (this.retired) throw Object.assign(new Error(`${this.engine.name} worker is closed`), { code: 'LOCAL_AGENT_EXIT' })
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
@@ -211,13 +212,10 @@ export class AcpEngine {
   }
 
   sessionFor(dshSessionId) {
-    let session = this.sessions.get(dshSessionId)
-    // A session whose process exited keeps its queue and, with it, the pump
-    // still waiting there: a reopened session needs a fresh one.
-    if (session === undefined || session.dead) {
-      session = this.createSession(dshSessionId)
-      this.sessions.set(dshSessionId, session)
-    }
+    // Each open owns its queue. A forgotten attempt may finish after its replacement;
+    // sharing this object would let the stale cleanup unregister the replacement.
+    const session = this.createSession(dshSessionId)
+    this.sessions.set(dshSessionId, session)
     return session
   }
 
@@ -417,8 +415,6 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
     const { cwd, mcp, resumeId, preset, model } = openArgs
     const peer = await this.ensure()
-    const prior = this.sessions.get(dshSessionId)
-    const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
@@ -463,7 +459,7 @@ export class AcpEngine {
       }
       return session
     } catch (error) {
-      if (created && this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
+      if (this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
       throw error
     }
   }
