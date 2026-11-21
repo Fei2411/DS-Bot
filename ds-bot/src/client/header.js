@@ -317,7 +317,10 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     if (back) back.click()
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
   }
-  const toDivider = () => document.querySelector('[data-conversation-scroll] .bt-new-sep')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const toDivider = () => {
+    const scroller = document.querySelector('[data-conversation-scroll]')
+    if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
   return createPortal(h(Fragment, null,
     showUp ? pill('up', unread, { left: view.center, top: view.top }, toDivider, () => setAbove(state => ({ ...state, dismissed: true }))) : null,
     showDown ? pill('down', fresh, { left: view.center, bottom: view.bottom }, toLatest, () => setRelease(state => ({ ...state, dismissed: true }))) : null),

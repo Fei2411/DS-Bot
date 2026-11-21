@@ -42353,7 +42353,10 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     if (back) back.click();
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   };
-  const toDivider = () => document.querySelector("[data-conversation-scroll] .bt-new-sep")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  const toDivider = () => {
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
   return (0, import_react_dom10.createPortal)(
     (0, import_react59.createElement)(
       import_react59.Fragment,
