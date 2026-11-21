@@ -38,6 +38,19 @@ const roster = {
   },
 }
 
+// Built before any test is declared: under --test-force-exit the runner ends the
+// process once the tests declared so far are done, so tests declared after a
+// top-level await would never run.
+const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
+const keeperBundle = await build({
+  stdin: {
+    contents: "export { DraftKeeper } from './src/client/composer.js'; export { keepDraft, takeDraft, forgetKeptFiles } from './src/client/draft-keep.js'",
+    resolveDir: PLUGIN_DIR,
+  },
+  bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+  external: ['react', 'react-dom'],
+})
+
 test('a Session finds its chat and the part the chat is on', () => {
   assert.deepEqual(chatOfSession(roster, 'bee'), { id: 'bee', part: 'bee-2' })
   assert.deepEqual(chatOfSession(roster, 'bee-2'), { id: 'bee', part: 'bee-2' })
@@ -151,15 +164,6 @@ test('the pinned DSH conversation service has the draft intake the keeper uses',
   assert.match(input, /readonly phase: 'plain' \| 'adjudicating' \| 'claimed' \| 'submitting' \| 'sending';/)
 })
 
-const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
-const keeperBundle = await build({
-  stdin: {
-    contents: "export { DraftKeeper } from './src/client/composer.js'; export { keepDraft, takeDraft, forgetKeptFiles } from './src/client/draft-keep.js'",
-    resolveDir: PLUGIN_DIR,
-  },
-  bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
-  external: ['react', 'react-dom'],
-})
 
 function loadKeeper(localStorage) {
   let cursor = 0
@@ -202,31 +206,41 @@ function loadKeeper(localStorage) {
   return { ...mod.exports, render, warnings }
 }
 
-test('DraftKeeper preserves kept files and releases orphan drafts when addAttachments refuses', () => {
+test('DraftKeeper releases refused drafts, tells the user, and does not retry on every later send', () => {
   const ls = memoryStorage()
   const { keepDraft: keep, takeDraft: take, render } = loadKeeper(ls)
   keep({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, ls)
 
   const released = []
   const reopened = []
+  const notices = []
+  let restores = 0
   const actions = {
     draftFiles: ids => ids.map(id => image(id)),
-    restoreDraftFiles: (_sid, files) => files.map((_, i) => `draft-${i + 1}`),
+    restoreDraftFiles: (_sid, files) => { restores += 1; return files.map((_, i) => `draft-${i + 1}`) },
     releaseDraftFiles: ids => released.push(...ids),
     reopenPastes: (from, to) => reopened.push([from, to]),
+    notice: text => notices.push(text),
   }
   const inputActions = { setDraft() {}, addAttachments: () => false }
   const state = { draft: 'hello', attachmentIds: [], phase: 'plain' }
-  render({
-    sessionId: 'bee-2', inputActions, actions,
-    useRoster: pick => pick(roster),
-    useInput: pick => pick(state),
-  })
+  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+  render(props)
 
   assert.deepEqual(released, ['draft-1'], 'refused drafts must be released so uploads do not leak')
   assert.deepEqual(reopened, [], 'paste cards stay closed when attachments were refused')
-  const stillKept = take({ chatId: 'bee', part: 'bee-2', text: 'hello', attached: 0 }, ls)
-  assert.deepEqual(Array.from(stillKept.files, item => item.file.name), ['red.png'], 'save effect must not wipe kept files after refusal')
+  assert.equal(notices.length, 1, 'the user hears the files could not come back')
+  const now = take({ chatId: 'bee', part: 'bee-2', text: 'hello', attached: 0 }, ls)
+  assert.equal(now.files.length, 0, 'the draft is kept from what the box holds now')
+
+  // A send and its return to plain do not run the failed restore again.
+  state.phase = 'sending'
+  render(props)
+  state.draft = ''
+  state.phase = 'plain'
+  render(props)
+  assert.equal(restores, 1)
+  assert.equal(notices.length, 1)
 })
 
 test('DraftKeeper waits while a send is in flight and restores once the composer returns to plain', () => {
@@ -336,7 +350,8 @@ test('DraftKeeper stops keeping a draft that is being sent, and keeps it again i
   // Send pressed; the composer closes before the Host answers: nothing comes back.
   state.phase = 'sending'
   render(props)
-  assert.deepEqual(take({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls), { text: '', files: [], from: undefined })
+  // A plain copy: the keeper runs in its own vm context, whose objects are not this realm's.
+  assert.deepEqual(JSON.parse(JSON.stringify(take({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls))), { text: '', files: [] })
 
   // The send failed and the shell gave the draft back.
   state.phase = 'plain'

@@ -120,7 +120,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     }),
     unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? []
-      const waiting = blocks.map(block => (blockIds.includes(block.id) ? { ...block, attachmentId: null } : block))
+      const waiting = blocks.map(block => (blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block))
       return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting)
     }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {

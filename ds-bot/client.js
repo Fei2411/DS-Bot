@@ -1545,6 +1545,7 @@ var JA = {
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
+  "The files attached to this draft could not be put back.": "この下書きに添付したファイルを戻せませんでした。",
   "Pause task": "タスクを一時停止",
   "Resume task": "タスクを再開",
   "Once": "1 回のみ",
@@ -4158,6 +4159,7 @@ var KO = {
   "in {name}": "{name}에서",
   "Click again to delete": "삭제하려면 한 번 더 클릭하세요",
   "Delete task": "작업 삭제",
+  "The files attached to this draft could not be put back.": "이 초안에 첨부된 파일을 되돌리지 못했습니다.",
   "Pause task": "작업 일시 중지",
   "Resume task": "작업 재개",
   Once: "한 번",
@@ -6774,6 +6776,7 @@ var ES = {
   "in {name}": "en {name}",
   "Click again to delete": "Haz clic de nuevo para eliminar",
   "Delete task": "Eliminar tarea",
+  "The files attached to this draft could not be put back.": "No se pudieron recuperar los archivos adjuntos de este borrador.",
   "Pause task": "Pausar tarea",
   "Resume task": "Reanudar tarea",
   Once: "Una vez",
@@ -9348,6 +9351,7 @@ var FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "The files attached to this draft could not be put back.": "Les fichiers joints à ce brouillon n’ont pas pu être restaurés.",
   "Pause task": "Mettre la tâche en pause",
   "Resume task": "Reprendre la tâche",
   "Once": "Une fois",
@@ -11961,6 +11965,7 @@ var DE = {
   "in {name}": "in {name}",
   "Click again to delete": "Zum Löschen erneut klicken",
   "Delete task": "Aufgabe löschen",
+  "The files attached to this draft could not be put back.": "Die an diesen Entwurf angehängten Dateien konnten nicht wiederhergestellt werden.",
   "Pause task": "Aufgabe pausieren",
   "Resume task": "Aufgabe fortsetzen",
   Once: "Einmalig",
@@ -14597,6 +14602,7 @@ var ZH = {
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
+  "The files attached to this draft could not be put back.": "这份草稿附带的文件没能放回来。",
   "Pause task": "暂停任务",
   "Resume task": "恢复任务",
   Once: "一次",
@@ -15722,7 +15728,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     }),
     unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
-      const waiting = blocks.map((block) => blockIds.includes(block.id) ? { ...block, attachmentId: null } : block);
+      const waiting = blocks.map((block) => blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block);
       return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting);
     }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {
@@ -41409,10 +41415,9 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
       ok = false;
       console.warn("[ds-bot] could not put the draft back", error);
     }
-    if (ok) {
-      pending.current = { text: restoredText, files: restoredFiles };
-      restored.current = key;
-    }
+    pending.current = { text: restoredText, files: restoredFiles };
+    restored.current = key;
+    if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react58.useEffect)(() => {
     if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;

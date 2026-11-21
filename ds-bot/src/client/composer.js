@@ -271,10 +271,11 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
       ok = false
       console.warn('[ds-bot] could not put the draft back', error)
     }
-    if (ok) {
-      pending.current = { text: restoredText, files: restoredFiles }
-      restored.current = key
-    }
+    // A restore that failed outside a send is not tried again on every later send: the
+    // draft is kept from what the box holds now, and the user hears the files are gone.
+    pending.current = { text: restoredText, files: restoredFiles }
+    restored.current = key
+    if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
   }, [current, frozen, chatId, sessionId, inputActions])
   useEffect(() => {
     if (!current || restored.current !== `${chatId}:${sessionId}`) return
