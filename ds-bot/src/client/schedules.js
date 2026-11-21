@@ -109,6 +109,8 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     void actions.schedulePause(task.sessionId, task.id, task.status !== 'active').then((next) => { setBusy(false); onView(next) }, (failure) => {
       setBusy(false)
       setFailed(hostText(failure?.message ?? String(failure)))
+      // The task may have ended or changed meanwhile: show it as it is now.
+      void actions.schedules?.().then(onView, () => {})
     })
   }
   const pausable = canPause && canPauseTask(task)

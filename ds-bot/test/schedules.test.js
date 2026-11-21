@@ -104,7 +104,8 @@ function hostSchedule() {
         if (once && Date.parse(task.record.scheduledAt) <= Date.now()) {
           throw new ScheduleInputError('not_future', 'This task has no future occurrence. Set a future schedule before resuming it.')
         }
-        if (!once && Date.parse(task.record.scheduledAt) <= Date.now()) task.record = { ...task.record, scheduledAt: new Date(Date.now() + 3600_000).toISOString() }
+        // updateScheduleRecord recomputes a recurrence from now on every resume.
+        if (!once) task.record = { ...task.record, scheduledAt: new Date(Date.now() + 3600_000).toISOString() }
       }
       if (target !== undefined) task.target = target
       if (active !== undefined) task.status = active ? 'active' : 'paused'
@@ -114,9 +115,9 @@ function hostSchedule() {
   }
 }
 
-function setup(services = {}) {
+function setup(services = {}, team = TEAM) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
@@ -431,4 +432,37 @@ test('on DSH 0.2.2 a one-time task set "after" a delay is also past resuming onc
   schedule.tasks.set('schedule-after', { record: { id: 'schedule-after', kind: 'after', title: 'Later', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'paused' })
   assert.match((await call('schedule-pause', { sessionId: 'w2', id: 'schedule-after', active: true })).error.message, /Pick a time in the future/)
   assert.equal(schedule.tasks.get('schedule-after').status, 'paused')
+})
+
+test('on DSH 0.2.2 a task on an older chat still open, or on a running background task, resumes where it was', async (t) => {
+  const team = JSON.parse(JSON.stringify(TEAM))
+  // Writer's foreground is w2; w-open is an older chat still open beside it, w-task a
+  // running background task.
+  team.bots.w1.openParts = [{ sessionId: 'w-open', openedAt: 5 }]
+  team.bots.w1.tasks = [{ id: 'task-1', sessionId: 'w-task', status: 'running', title: 'Long job', from: 'w2', createdAt: 6 }]
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule }, team)
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  for (const sessionId of ['w-open', 'w-task']) {
+    const id = `schedule-${sessionId}`
+    schedule.tasks.set(id, { record: { id, kind: 'daily', title: sessionId, prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId }, status: 'paused' })
+    const resumed = await call('schedule-pause', { sessionId, id, active: true })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.deepEqual(schedule.edits.at(-1).patch, { active: true }, `${sessionId} keeps its own target`)
+    assert.deepEqual(schedule.tasks.get(id).target, { kind: 'session', sessionId })
+  }
+})
+
+test('on DSH 0.2.2 a one-time task whose time has come cannot be paused', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  for (const kind of ['at', 'after']) {
+    const id = `schedule-due-${kind}`
+    schedule.tasks.set(id, { record: { id, kind, title: 'Due', prompt: 'x', scheduledAt: new Date(Date.now() - 1000).toISOString() }, target: { kind: 'session', sessionId: 'w2' }, status: 'active' })
+    const edits = schedule.edits.length
+    assert.match((await call('schedule-pause', { sessionId: 'w2', id, active: false })).error.message, /due now/)
+    assert.equal(schedule.edits.length, edits)
+    assert.equal(schedule.tasks.get(id).status, 'active')
+  }
 })

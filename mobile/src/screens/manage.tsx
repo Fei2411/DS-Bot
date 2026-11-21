@@ -895,8 +895,8 @@ export function Schedules({ route, navigation }: any) {
                 <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{task.status === 'paused' ? `${whenText(task)} · ${t('Paused')}` : whenText(task)}</Text>
               </View>
               {pausable(task) ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'active' ? t('Pause task') : t('Resume task')} onPress={() => void run('schedule-pause', { sessionId: task.sessionId ?? sessionId, id: task.id, active: task.status !== 'active' }, load)} hitSlop={8} style={{ marginRight: 14 }}>
-                  <Text style={{ color: p.ink3, fontSize: 15 }}>{task.status === 'active' ? '‖' : '▶'}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'active' ? t('Pause task') : t('Resume task')} onPress={() => void run('schedule-pause', { sessionId: task.sessionId ?? sessionId, id: task.id, active: task.status !== 'active' }).then(load)} hitSlop={8} style={{ marginRight: 14 }}>
+                  <Text style={{ color: p.ink3, fontSize: 15 }}>{task.status === 'active' ? '‖' : '▶\uFE0E'}</Text>
                 </Pressable>
               ) : null}
               <Pressable accessibilityRole="button" accessibilityLabel={t('Delete task')} onPress={() => void run('schedule-delete', { sessionId: task.sessionId ?? sessionId, id: task.id }, load)} hitSlop={8}>

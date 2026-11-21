@@ -1583,6 +1583,7 @@ var JA = {
   "Repeat every 1 minute to 7 days": "繰り返し間隔は 1 分〜7 日の間で設定してください",
   "Pick when it runs": "実行タイミングを選択してください",
   "No such task": "該当するタスクがありません",
+  "This task is due now and can’t be paused.": "このタスクは実行時刻になったため一時停止できません。",
   "The task just changed. Try again.": "タスクが変更されたところです。もう一度お試しください。",
   "This task’s chat has ended. Delete the task and make it again.": "このタスクの会話は終了しています。タスクを削除して作り直してください。",
   "Working folder": "作業フォルダ",
@@ -4198,6 +4199,7 @@ var KO = {
   "Repeat every 1 minute to 7 days": "반복 주기는 1분에서 7일 사이여야 합니다",
   "Pick when it runs": "실행 시점을 선택하세요",
   "No such task": "해당 작업이 없습니다",
+  "This task is due now and can’t be paused.": "이 작업은 이미 실행 시간이 되어 일시 중지할 수 없습니다.",
   "The task just changed. Try again.": "작업이 방금 변경되었습니다. 다시 시도하세요.",
   "This task’s chat has ended. Delete the task and make it again.": "이 작업의 대화가 끝났습니다. 작업을 삭제하고 다시 만드세요.",
   "Working folder": "작업 폴더",
@@ -6816,6 +6818,7 @@ var ES = {
   "Repeat every 1 minute to 7 days": "Repite cada entre 1 minuto y 7 días",
   "Pick when it runs": "Elige cuándo se ejecuta",
   "No such task": "No existe esa tarea",
+  "This task is due now and can’t be paused.": "Esta tarea ya toca y no se puede pausar.",
   "The task just changed. Try again.": "La tarea acaba de cambiar. Inténtalo de nuevo.",
   "This task’s chat has ended. Delete the task and make it again.": "El chat de esta tarea ha terminado. Elimínala y créala de nuevo.",
   "Working folder": "Carpeta de trabajo",
@@ -9392,6 +9395,7 @@ var FR = {
   "Repeat every 1 minute to 7 days": "L’intervalle de répétition doit être compris entre 1 minute et 7 jours",
   "Pick when it runs": "Choisissez quand l’exécuter",
   "No such task": "Tâche introuvable",
+  "This task is due now and can’t be paused.": "Cette tâche arrive à échéance et ne peut pas être mise en pause.",
   "The task just changed. Try again.": "La tâche vient de changer. Réessayez.",
   "This task’s chat has ended. Delete the task and make it again.": "La discussion de cette tâche est terminée. Supprimez la tâche et recréez-la.",
   "Working folder": "Dossier de travail",
@@ -12007,6 +12011,7 @@ var DE = {
   "Repeat every 1 minute to 7 days": "Das Wiederholungsintervall muss zwischen 1 Minute und 7 Tagen liegen",
   "Pick when it runs": "Wähle den Ausführungszeitpunkt",
   "No such task": "Aufgabe nicht gefunden",
+  "This task is due now and can’t be paused.": "Diese Aufgabe ist jetzt fällig und kann nicht pausiert werden.",
   "The task just changed. Try again.": "Die Aufgabe wurde gerade geändert. Versuche es erneut.",
   "This task’s chat has ended. Delete the task and make it again.": "Der Chat dieser Aufgabe ist beendet. Lösche die Aufgabe und lege sie neu an.",
   "Working folder": "Arbeitsordner",
@@ -14645,6 +14650,7 @@ var ZH = {
   "Repeat every 1 minute to 7 days": "重复间隔要在 1 分钟到 7 天之间",
   "Pick when it runs": "选择什么时候运行",
   "No such task": "没有这个任务",
+  "This task is due now and can’t be paused.": "这个任务已经到点，不能暂停。",
   "The task just changed. Try again.": "任务刚被改过，再试一次。",
   "This task’s chat has ended. Delete the task and make it again.": "这个任务所在的对话已结束。删掉它再建一个。",
   "Working folder": "工作文件夹",
@@ -25682,6 +25688,8 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
     }, (failure) => {
       setBusy(false);
       setFailed(hostText(failure?.message ?? String(failure)));
+      void actions.schedules?.().then(onView, () => {
+      });
     });
   };
   const pausable = canPause && canPauseTask(task);

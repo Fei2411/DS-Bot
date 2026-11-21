@@ -1529,6 +1529,7 @@ const ZH = {
   'Repeat every 1 minute to 7 days': '重复间隔要在 1 分钟到 7 天之间',
   'Pick when it runs': '选择什么时候运行',
   'No such task': '没有这个任务',
+  'This task is due now and can’t be paused.': '这个任务已经到点，不能暂停。',
   'The task just changed. Try again.': '任务刚被改过，再试一次。',
   'This task’s chat has ended. Delete the task and make it again.': '这个任务所在的对话已结束。删掉它再建一个。',
   'Working folder': '工作文件夹',

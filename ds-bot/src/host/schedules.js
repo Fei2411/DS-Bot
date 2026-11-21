@@ -6,6 +6,8 @@
 // the group like a message from the user (see reminderText). DSH 0.2.0 mounts the service only with its Automation tasks bundle on, so
 // the service is optional and every endpoint reports whether it is there.
 
+import { threadCurrentOfPart } from './threads.js'
+
 const MAX_TITLE = 120
 // A time input reports HH:mm, or HH:mm:ss when the browser's picker shows seconds.
 const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
@@ -108,10 +110,15 @@ export function install(rt) {
     if (room !== undefined) return { roomId: room.id }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
-  // The part a chat's tasks deliver to now; a group member's own part has none here.
-  const currentSessionOf = (owner) => {
+  // The part that now carries the thread a task's Session belongs to: a Bot's chat, an
+  // older chat still open beside it, or a running background task each go on in their
+  // own thread. A group member's own part and a finished task's part have none here.
+  const currentSessionOf = (owner, sessionId) => {
     if (owner === undefined || (owner.botId !== undefined && owner.roomId !== undefined)) return undefined
-    if (owner.botId !== undefined) return rt.botOf(owner.botId) === undefined ? undefined : rt.chatOf(owner.botId)
+    if (owner.botId !== undefined) {
+      const bot = rt.botOf(owner.botId)
+      return bot === undefined ? undefined : threadCurrentOfPart(bot, sessionId)
+    }
     const room = rt.roomOf(owner.roomId)
     return room === undefined ? undefined : rt.sessionOfRoom(room)
   }
@@ -184,10 +191,13 @@ export function install(rt) {
         const entry = await teamTask(body.id, body.sessionId)
         if (entry === undefined || entry.status === 'ended') throw invalid('No such task')
         if (entry.status === (active ? 'active' : 'paused')) return schedulesView()
+        // A one-time task whose time has come is about to be delivered: paused now, it
+        // would never run and could never resume.
+        if (!active && (entry.kind === 'at' || entry.kind === 'after') && Date.parse(entry.scheduledAt) <= Date.now()) throw invalid('This task is due now and can’t be paused.')
         const patch = { active }
         // A task left on an earlier part (a move that failed) resumes on the chat's
         // current part: DSH refuses to resume onto an archived Session.
-        const current = active ? currentSessionOf(ownerOf(body.sessionId)) : undefined
+        const current = active ? currentSessionOf(ownerOf(body.sessionId), body.sessionId) : undefined
         if (current !== undefined && current !== body.sessionId) patch.target = { kind: 'session', sessionId: current }
         let result
         try {
