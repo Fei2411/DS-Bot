@@ -440,6 +440,8 @@ function HScroll({ children, fade: background, showIndicator = false }: {
     <View>
       <GHScrollView
         horizontal
+        disallowInterruption
+        shouldActivateOnStart
         nestedScrollEnabled
         directionalLockEnabled
         showsHorizontalScrollIndicator={showIndicator}
