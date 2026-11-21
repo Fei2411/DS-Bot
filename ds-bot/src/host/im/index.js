@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
+import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 
@@ -547,9 +547,9 @@ export function install(rt) {
   // turn starts — the Web UI, a peer Bot's message, a scheduled task, work picked up
   // after a restart — has no IM origin, and its replies, views and cards stay in the app.
   // Nothing is persisted: after a restart there is no origin, so nothing goes out. A
-  // Bot's origin lives until its turn ends or another source joins it, however long the
+  // Bot's origin lives until its turn ends or a conflicting IM source joins it, however long the
   // turn runs; a group's own Session ends its relay turn at once while its members keep
-  // working, so its origin lives until another source writes in the group or the user
+  // working, so its origin lives until a new round starts in the group or the user
   // is unpaired. A request lives until the message it names is admitted, however long
   // that message waits in the queue behind a busy Bot.
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
@@ -635,11 +635,14 @@ export function install(rt) {
     }
     origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
   }
+  const forgetHeldOrigins = (sessionId) => {
+    for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
+  }
   const dropOrigin = (sessionId) => {
     if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
     origins.delete(sessionId)
     mixed.add(sessionId)
-    for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
+    forgetHeldOrigins(sessionId)
   }
   const resetOrigin = (sessionId) => {
     origins.delete(sessionId)
@@ -1696,7 +1699,9 @@ export function install(rt) {
       if (room === undefined) {
         resetOrigin(session.id)
       } else {
-        const working = rt.roomActive?.(room.id) || (rt.roomWorkView?.()[room.id] ?? []).length > 0
+        const working = rt.roomActive?.(room.id)
+          || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && rt.live.get(id)?.turn !== undefined)
+          || [...rt.switchJobs()].some(job => job.roomId === room.id)
         // A group's own Session can start a turn for the last member's late result after
         // its relay turn ended, when no work looks active. Keep the origin until the
         // turn's first message says whether it continues the work the chat asked for.
@@ -1716,7 +1721,10 @@ export function install(rt) {
         // A late member result, part-switch handoff, or task report continues the work the chat asked for;
         // any other first message starts a fresh turn, which clears the previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
-        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
+          forgetHeldOrigins(session.id)
+          resetOrigin(session.id)
+        }
         if (typeof imOrigin === 'string') {
           const resumed = resumedOrigins.get(imOrigin)
           resumedOrigins.delete(imOrigin)
@@ -1733,26 +1741,20 @@ export function install(rt) {
             const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
             if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
               const live = origins.get(roomSid)
-              const memberId = rt.groupOwners.get(session.id)?.botId
               const activeRound = rt.roomActive?.(room.id) === true
-              const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
-              if (live === undefined && !activeRound && !(mixed.has(roomSid) && otherWorking)) {
-                // Restore after restart even while sibling group tasks run, and clear stale
-                // `mixed` left by an already-finished desktop/Web round; stay blocked while
-                // a live non-IM round is active or a mixed round still has working members.
-                resetOrigin(roomSid)
+              if (live === undefined && !activeRound && !mixed.has(roomSid)) {
+                // Restore after restart even while sibling tasks run, but never reopen
+                // an active non-IM round or a round blocked by conflicting IM claims.
                 claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
               } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
                 // A different IM chat currently owns the room; mix so neither chat sees the other's report.
                 dropOrigin(roomSid)
               }
-            } else if (roomSid !== undefined) {
-              // A desktop/Web-started group task has no IM origin: drop any restored room
-              // origin so its report is never forwarded to an IM group chat.
+            } else if (roomSid !== undefined && (saved !== undefined || origins.has(roomSid))) {
               dropOrigin(roomSid)
             }
           } else if (originFromSaved(saved) === undefined) {
-            dropOrigin(session.id)
+            if (saved !== undefined) dropOrigin(session.id)
           } else {
             claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
           }
@@ -1768,16 +1770,8 @@ export function install(rt) {
             if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
             claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
           }
-        } else if (source?.kind === REPLY_KIND) {
-          // Web and phone answers carry no registered IM request.
-          dropOrigin(session.id)
-        } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
-          // A member's late result relayed into the group's own Session. The group's work
-          // is still the answer to the chat that asked, wherever the member runs.
         } else {
-          // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
-          // IM chat's to answer, even when an earlier turn of this Session was.
-          dropOrigin(session.id)
+          // Non-IM input can join the turn, but cannot claim or withdraw its IM chat.
         }
       }
     }

@@ -28,6 +28,6 @@ An error such as GLIBC_2.27 not found while loading libghostty-vt.so comes from 
 - An old fact outside active context is not necessarily lost. Call `read_own_chat`, `read_group_chat` or `bot_recall` as appropriate.
 - Approval denial is not a transient failure. Do not retry through a different tool.
 
-When reporting a bug, include the redacted error, reproduction steps and host/version. Separate what you observed from what you suspect. Never patch DSH or promise an unverified workaround.
+Use the bundled **report-ds-bot-issue** skill to prepare a DS Bot bug report and ask for approval before publishing. Include the redacted error, reproduction steps and host/version. Separate what you observed from what you suspect. Never patch DSH or promise an unverified workaround.
 
 Sources: docs/known-issues.md; README.md (Web search, Browser remote, Local agents); src/host/prompt.js; src/client/settings.js, capability-settings.js, browser-settings.js.

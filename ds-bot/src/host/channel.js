@@ -1,6 +1,7 @@
 // Client channel: the team view the browser renders, and the POST /api/bot endpoints.
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { PUBLISH_ISSUE } from './issue-report.js'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
@@ -701,17 +702,26 @@ export function install(rt) {
           if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
           // Claim the view before queueing so a second answer is refused.
           delete state.views[sessionId]
+          let consumed = false
+          let issueReportResult
           try {
             await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)
+            if (pending.issueDraft !== undefined && body.action === PUBLISH_ISSUE && checked.confirmed === true) {
+              // Persist the claim before sending a write that cannot be safely retried.
+              await rt.save({ required: true })
+              consumed = true
+              issueReportResult = await rt.settleIssueReport(sessionId, pending.issueDraft)
+              reply.text = JSON.stringify({ ...JSON.parse(reply.text), issueReportResult })
+            }
             agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
             await ctx.sessions.flush(agent.session)
           } catch (error) {
-            state.views[sessionId] ??= pending
+            if (!consumed) state.views[sessionId] ??= pending
             throw error
           }
           await rt.save()
-          return ok(true)
+          return ok(issueReportResult === undefined ? true : { issueReportResult })
         }
         // A photo for the next `send`, one per call: a phone's link carries a few MB per
         // message, so photos travel one by one and the message names them.
