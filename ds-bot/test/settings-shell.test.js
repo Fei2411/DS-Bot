@@ -72,6 +72,9 @@ function dshShellDeclarations() {
 // an older shell lacks is harmless: nothing registers into it there.
 const NEWER_SLOTS = new Set(['settings.section.icon'])
 
+// Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
+const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
+
 test('the seat declares every child slot DSH\'s own settings shell declares, alike', () => {
   // Both sides come from their own realms, so the comparison goes through plain data.
   const plain = value => JSON.parse(JSON.stringify(value))
@@ -434,9 +437,6 @@ test('the installer hands SettingsShell the hold through the seat\'s face', () =
   assert.equal(held.getSnapshot(), false)
   installed.dispose()
 })
-
-// Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
-const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
 
 test('settings slot icons take precedence over legacy plugin nav decorators', () => {
   assert.match(styles.SHELL_CSS, /\.bt-settings-item:has\(>\.bt-settings-icon\)::before\{content:none!important\}/)
