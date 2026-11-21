@@ -51,9 +51,21 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 
 ### 网页搜索
 
-DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉-web-search-auto-后所有会话的网页搜索都失败)。
+DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉web-search-auto后所有会话的网页搜索都失败)。
 
 ## 功能
+
+### 浏览器远程访问（预览）
+
+无需安装 App，也能在浏览器里使用手机端界面。在电脑上打开 **设置 → 手机**，开启手机访问并显示配对码，然后选择 **Open in a browser** 或 **Copy browser link**；也可以在网页里粘贴配对链接。浏览器作为一台额外设备，经已有的端到端加密链路配对；在电脑的已配对设备列表里移除即可撤销访问。
+
+中转服务器需要部署网页构建：在 `mobile/` 运行 `npm ci && npm run export:web`，启动[中转服务器](link/README.md)时把 `DSBOT_LINK_WEB_DIR` 设为 `mobile/dist` 的绝对路径。localhost 以外使用 HTTPS/WSS。`relay.dsbot.app` 完成这项部署后，默认服务器的浏览器链接才能使用。浏览器存储由 IndexedDB 中不可导出的密钥进行 AES-GCM 加密，但浏览器仍运行服务器提供的网页，请只使用可信的服务器。敏感操作需要改用手机 App 或电脑；网页没有后台通知。详见[设计与安全限制](docs/plans/2026-11-17-web-remote.md)。
+
+### MCP 访问（预览）
+
+本机的其他智能体（Claude Desktop、Cursor、Codex 或你自己的脚本）可以通过 MCP 和你的 Bot 对话。打开 **设置 → MCP 访问**，开启后为每个客户端生成一个令牌；令牌只显示一次。客户端只能找你为它勾选的 Bot 和群（默认是 Main Bot，隐私 Bot 永远不在内）。它可以列出 Bot 和群、发消息、等回复、读对话、查看等你处理的事项；审批、提问、设置和密钥都留在电脑上。
+
+HTTP MCP 客户端连 `http://127.0.0.1:8797/mcp`，带请求头 `Authorization: Bearer <令牌>`。只会启动命令的客户端用 `DSBOT_MCP_TOKEN=<令牌> npx -p ds-bot ds-bot-mcp`。详见[设计](docs/plans/2026-11-20-mcp-access.md)。
 
 ### Bot
 
@@ -61,7 +73,7 @@ DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `we
 
 另外，bot 拥有记忆，它会记住你的喜好并在下次的工作中应用。你可以在 bot 的详情页管理记忆，也可以直接和 bot 对话来进行管理。
 
-每个 bot 可以单独设置工作文件夹和权限，换文件夹直接和它说一声就行。它干活时你可以随时插话，或者输入 `/side` 开侧边对话顺手问一句而不打断它；它也能在回复里直接画图表、表格和表单，或者跑定时任务。侧边栏里还可以把 bot 和群聊按工作收进分组。
+每个 bot 可以单独设置工作文件夹和权限，换文件夹直接和它说一声就行。它干活时前台始终能接话：耗时的终端命令会自动转到后台执行，bot 也能主动开启后台任务，或在它正忙时你直接发新消息把正在做的活顺手移到后台继续跑；你可以在顶栏灵动岛查看进度、批复权限、发追问或停止，在详情页的「任务」标签查看任务记录与停止，或在手机端查看活跃任务、批复权限与停止，也可以输入 `/side` 开侧边对话顺手问一句。它还能在回复里直接画图表、表格和表单，或者跑定时任务。侧边栏里还可以把 bot 和群聊按工作收进分组。
 
 ![bot 详情页：模型、记忆、用量](docs/images/details.zh.png)
 
@@ -111,9 +123,17 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ### 连接器与能力
 
-在 设置 → 连接器 里，可以登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入已有配置。凭据保存在 ds bot 的密钥里，bot 看不到明文，写的邮件默认也要你确认后才发。
+在 设置 → 连接器 里，可以登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入已有配置。凭据保存在 ds bot 的密钥里，bot 看不到明文，写的邮件默认也要你确认后才发。自己的 MCP 服务器也可以添加：地址填好后打开「Sign in」，就能走浏览器授权（服务不发布 OAuth 元数据时，改用固定 header 或密钥）。
 
 在 设置 → 能力 里，可以管理团队共享的 MCP 服务、技能和能力包，并在每个 bot 的设置里按需开启；bot 自己添加的本地命令需要先经你批准才能运行。
+
+### 联网搜索
+
+`auto` 联网搜索仍走发起检索会话自己的路由和 key（绝不借用别的路由的 key）与无 key 回退，现在还会在该路由自己的 origin 上尝试 DeepSeek 官方 Search API。想让所有模型都用官方 Search / Fetch API，在插件页找到 插件 → 网页搜索 下的「Use the new Web Search API」开关，打开后会同时选择 Search 与 Fetch。DeepSeek 账号登录目前只验证了 Search / Fetch。这些调用按你自己的 API key 用量计费。
+
+### DeepSeek 服务
+
+在 设置 → DeepSeek 服务 里，可以用一个 DeepSeek API key 给任意模型单独开启图片与文档识别、DeepSeek 文字转语音（可选声音）和 DeepSeek 听写。每项默认关闭，必须手动打开；配置 key 不会自动上传文件，也不会自动切换语音。key 在 设置 → 模型 里设置，页面会显示每项是否就绪以及未就绪的原因。听写复用现有的语音输入提供方选择；插件没开时，原来的听写方式照常可用。文档识别是只读的：`read_document` 接受工作区路径或本会话上传的文件 / 图片附件，结果再长也会保留全文，不丢内容。
 
 ### Office 文件
 

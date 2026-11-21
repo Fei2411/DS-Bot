@@ -137,8 +137,11 @@ export function createTeam() {
   }
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   const partFor = (id) => {
-    const bot = roster.getSnapshot().byId[id]
-    return bot ? currentPart(bot) : id
+    const snap = roster.getSnapshot()
+    const bot = snap.byId[id]
+    if (bot) return currentPart(bot)
+    const room = snap.roomsById[id]
+    return room ? currentPart(room) : id
   }
 
   const actions = {
@@ -194,12 +197,20 @@ export function createTeam() {
   // Running and the tool at work come with the team's state; the plugin reads them from
   // DSH's Session status and its own tool cells.
   const followWork = () => {
-    const bots = work.getSnapshot().bots ?? {}
-    for (const bot of roster.getSnapshot().bots) {
+    const snap = work.getSnapshot()
+    const bots = snap.bots ?? {}
+    const rooms = snap.rooms ?? {}
+    const r = roster.getSnapshot()
+    for (const bot of r.bots) {
       const part = currentPart(bot)
       const doing = bots[bot.id]?.roomId === undefined ? bots[bot.id] : undefined
       setStatus(part, { running: doing !== undefined })
       actions.noteLive(part, 'tool', doing?.tool ? { label: workPhrase(doing), state: toolState(doing.tool) } : null)
+    }
+    for (const room of r.rooms ?? []) {
+      const part = currentPart(room)
+      const busy = (rooms[room.id]?.length ?? 0) > 0
+      setStatus(part, { running: busy })
     }
   }
   roster.subscribe(followWork)

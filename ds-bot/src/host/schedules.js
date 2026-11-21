@@ -6,6 +6,8 @@
 // the group like a message from the user (see reminderText). DSH 0.2.0 mounts the service only with its Automation tasks bundle on, so
 // the service is optional and every endpoint reports whether it is there.
 
+import { threadCurrentOfPart, threadOfPart } from './threads.js'
+
 const MAX_TITLE = 120
 // A time input reports HH:mm, or HH:mm:ss when the browser's picker shows seconds.
 const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
@@ -108,7 +110,31 @@ export function install(rt) {
     if (room !== undefined) return { roomId: room.id }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
+  // The part that now carries the thread a task's Session belongs to: a Bot's chat and an
+  // older chat still open beside it each go on in their own thread. A group member's own
+  // part has none here.
+  const currentSessionOf = (owner, sessionId) => {
+    if (owner === undefined || (owner.botId !== undefined && owner.roomId !== undefined)) return undefined
+    if (owner.botId !== undefined) {
+      const bot = rt.botOf(owner.botId)
+      if (bot === undefined) return undefined
+      // A background task's Session holds no schedules: the hand-off moves them to the
+      // foreground chat, and a task may not make one. One found there was left by a move
+      // that failed, so it goes back to the foreground chat.
+      if (threadOfPart(bot, sessionId)?.thread === 'task') return rt.chatOf(owner.botId)
+      return threadCurrentOfPart(bot, sessionId)
+    }
+    const room = rt.roomOf(owner.roomId)
+    return room === undefined ? undefined : rt.sessionOfRoom(room)
+  }
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
+
+  // A Host-wide task delivering to this team Session, or nothing.
+  const teamTask = async (id, sessionId) => {
+    if (ownerOf(sessionId) === undefined) return undefined
+    const entry = (await service.catalog()).find(task => task.id === id)
+    return entry === undefined || sessionOf(entry) !== sessionId ? undefined : entry
+  }
 
   async function schedulesView() {
     if (service === null) return { available: false, tasks: [] }
@@ -125,7 +151,8 @@ export function install(rt) {
         : entry.status === 'paused' ? 'paused' : 'finished'
       tasks.push({ ...entry, sessionId, ...owner, state })
     }
-    return { available: true, tasks }
+    // DSH 0.2.1 keeps tasks by Session and has no pause.
+    return { available: true, canPause: hostWide(service), tasks }
   }
 
   const endpoints = {
@@ -151,13 +178,46 @@ export function install(rt) {
       if (ownerOf(body.sessionId) === undefined) throw invalid('No such task')
       if (hostWide(service)) {
         // Ids are Host-wide here, so the task must still deliver to the team Session named.
-        const entry = (await service.catalog()).find(task => task.id === body.id)
-        if (entry === undefined || sessionOf(entry) !== body.sessionId) throw invalid('No such task')
+        if (await teamTask(body.id, body.sessionId) === undefined) throw invalid('No such task')
         await service.edit({ id: body.id, action: 'delete' })
       } else {
         await service.delete({ sessionId: body.sessionId, id: body.id })
       }
       return schedulesView()
+    },
+    // Pause keeps the task and its timing; resume picks the next time it comes round.
+    // The edit names the version it read, so a delivery that ended a one-time task or a
+    // Bot's own change in between is not overwritten; a conflict reads the task again.
+    async 'schedule-pause'(body) {
+      if (service === null) throw invalid('Automation tasks are off in DSH')
+      if (!hostWide(service)) throw invalid('No such task')
+      const active = body.active === true
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const entry = await teamTask(body.id, body.sessionId)
+        if (entry === undefined || entry.status === 'ended') throw invalid('No such task')
+        if (entry.status === (active ? 'active' : 'paused')) return schedulesView()
+        // A one-time task whose time has come is about to be delivered: paused now, it
+        // would never run and could never resume.
+        if (!active && (entry.kind === 'at' || entry.kind === 'after') && Date.parse(entry.scheduledAt) <= Date.now()) throw invalid('This task is due now and can’t be paused.')
+        const patch = { active }
+        // A task left on an earlier part (a move that failed) resumes on the chat's
+        // current part: DSH refuses to resume onto an archived Session.
+        const current = active ? currentSessionOf(ownerOf(body.sessionId), body.sessionId) : undefined
+        if (current !== undefined && current !== body.sessionId) patch.target = { kind: 'session', sessionId: current }
+        let result
+        try {
+          result = await service.edit({ id: body.id, action: 'update', patch, expectedUpdatedAt: entry.updatedAt ?? null })
+        } catch (error) {
+          // A one-time task whose time has passed has nothing left to resume to.
+          if (error?.code === 'not_future' || error?.details?.code === 'not_future' || /no future occurrence/i.test(error?.message ?? '')) throw invalid('Pick a time in the future')
+          if (/is archived/i.test(error?.message ?? '')) throw invalid('This task’s chat has ended. Delete the task and make it again.')
+          throw error
+        }
+        if (result?.code === 'schedule_conflict') continue
+        if (result?.code === 'schedule_not_found') throw invalid('No such task')
+        return schedulesView()
+      }
+      throw invalid('The task just changed. Try again.')
     },
   }
 

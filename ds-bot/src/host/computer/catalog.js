@@ -77,6 +77,9 @@ export const DRIVER_GLOBAL = new Set([
   'start_session', 'end_session',
 ])
 
+// Global listings that only return window metadata, so a pid filter needs no consent.
+export const DRIVER_LISTINGS = new Set(['list_apps', 'list_windows'])
+
 // Refused at every level: a Bot must not reconfigure the driver, and whole-screen
 // capture/replay bypasses per-app consent and the protected list. The session
 // lifecycle and the list/permission/health tools stay.

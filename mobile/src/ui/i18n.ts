@@ -9,6 +9,14 @@ const ZH = DICTIONARY.zh as Record<string, string>
 const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
 
 const MOBILE_ZH: Record<string, string> = {
+  "This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link.": '这是手机 App 的配对码。请在电脑的设置 → 手机中选择“在浏览器中打开”或“复制浏览器链接”。',
+  'This is a browser pairing link. In Settings → Phone on the computer, scan the QR code to pair the phone app.': '这是浏览器配对链接。请在电脑的设置 → 手机中扫描二维码以配对手机 App。',
+  'Not available from a browser. Use the phone app or the computer.': '浏览器不支持此操作。请使用手机 App 或电脑。',
+  'This is not a DS Bot pairing code.': '这不是 DS Bot 配对码。',
+  'DS Bot is open in another tab': 'DS Bot 已在另一个标签页中打开',
+  'This browser cannot keep a single DS Bot tab active. Use a browser with Web Locks over HTTPS or localhost.': '此浏览器无法确保只有一个 DS Bot 标签页处于活动状态。请使用支持 Web Locks 的浏览器，并通过 HTTPS 或 localhost 访问。',
+  'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
+  'Pick a folder from Folders.': '请从“文件夹”中选择一个文件夹。',
   'Asks for the secret {name}': '请求密钥 {name}',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',
@@ -84,6 +92,7 @@ const MOBILE_ZH: Record<string, string> = {
   'New Bot': '新 Bot',
   'Create new Bot': '创建新 Bot',
   'Create group chat': '创建群聊',
+  'Add DSH Agent': '添加 DSH Agent',
   'Create': '创建',
   'New group': '新群聊',
   'New': '新建',
@@ -206,6 +215,10 @@ const MOBILE_ZH: Record<string, string> = {
   '{name} {event}': '{name}{event}',
   '{count} images': '{count} 张图片',
   'Waiting for your approval': '等你批准',
+  'Background tasks': '后台任务',
+  '{count} background tasks running': '{count} 个后台任务运行中',
+  'Waiting for approval': '待批准',
+  'Running': '运行中',
   'Allow': '允许',
   'Reject': '拒绝',
   'Answer on the computer.': '在电脑上回答。',

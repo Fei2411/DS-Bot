@@ -9,10 +9,10 @@
 // rebuild. Without SQLite, read_own_chat scans the logs as before.
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
+import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
 import { excerpt } from './text.js'
 
-const INDEX_VERSION = 3
+const INDEX_VERSION = 4
 const AROUND_LINES = 6
 const SEARCH_TERMS_MAX = 6
 const ANY_TERM_HITS = 50
@@ -50,11 +50,17 @@ export function install(rt) {
   let indexOpening
 
   // A Session's events from newest to oldest, also for an archived part.
-  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX) {
+  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read) {
+    if (read !== undefined) Object.assign(read, { complete: false, capped: false })
     const agent = await rt.resolveAgent(sessionId)
     const throughSeq = Number(agent.session.seq) - 1
     let beforeSeq
-    for (let pages = 0; throughSeq >= 0 && pages < maxPages; pages += 1) {
+    if (throughSeq < 0 && read !== undefined) read.complete = true
+    for (let pages = 0; throughSeq >= 0; pages += 1) {
+      if (pages >= maxPages) {
+        if (read !== undefined) read.capped = true
+        if (!read?.continue?.()) return
+      }
       const page = await ctx.sessionController.page({
         address: { kind: 'session', sessionId },
         throughSeq,
@@ -63,7 +69,11 @@ export function install(rt) {
       }, signal)
       const events = page.records.map(record => record.event)
       for (let index = events.length - 1; index >= 0; index -= 1) yield events[index]
-      if (!page.hasMore || events.length === 0) return
+      if (!page.hasMore) {
+        if (read !== undefined) read.complete = true
+        return
+      }
+      if (events.length === 0) return
       beforeSeq = events[0].seq
     }
   }
@@ -106,18 +116,26 @@ export function install(rt) {
       if (db.prepare('PRAGMA user_version').get().user_version !== INDEX_VERSION) {
         db.exec(`
           DROP TABLE IF EXISTS lines;
+          DROP TABLE IF EXISTS messages;
           DROP TABLE IF EXISTS marks;
-          CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, tokenize = 'trigram');
+          CREATE TABLE messages (id INTEGER PRIMARY KEY, text, session, seq, time, who);
+          CREATE INDEX messages_session_seq ON messages (session, seq);
+          CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
           CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
           PRAGMA user_version = ${INDEX_VERSION};`)
       }
+      const insertMessage = db.prepare('INSERT INTO messages (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)')
+      const insertLine = db.prepare('INSERT INTO lines (rowid, text, session, seq, time, who) VALUES (?, ?, ?, ?, ?, ?)')
       return {
         db,
         mark: db.prepare('SELECT through, keep, sealed, turn FROM marks WHERE session = ?'),
         setMark: db.prepare('INSERT OR REPLACE INTO marks (session, through, keep, sealed, turn) VALUES (?, ?, ?, ?, ?)'),
-        insert: db.prepare('INSERT INTO lines (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)'),
-        before: db.prepare('SELECT text, session, seq, time, who FROM lines WHERE session = ? AND seq < ? ORDER BY seq DESC LIMIT ?'),
-        from: db.prepare('SELECT text, session, seq, time, who FROM lines WHERE session = ? AND seq >= ? ORDER BY seq LIMIT ?'),
+        insert: (...values) => {
+          const { lastInsertRowid } = insertMessage.run(...values)
+          insertLine.run(lastInsertRowid, ...values)
+        },
+        before: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq < ? ORDER BY seq DESC LIMIT ?'),
+        from: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? ORDER BY seq LIMIT ?'),
       }
     } catch (error) {
       db.close()
@@ -160,11 +178,11 @@ export function install(rt) {
           const entry = rt.historyEntry(event, false)
           if (entry === undefined) continue
           if (entry.answer) {
-            if (keep) index.insert.run(entry.text, part.sessionId, event.seq, event.time ?? 0, 'you')
+            if (keep) index.insert(entry.text, part.sessionId, event.seq, event.time ?? 0, 'you')
             continue
           }
           keep = entry.keepAnswers
-          if (entry.text !== '') index.insert.run(entry.text, part.sessionId, event.seq, event.time ?? 0, entry.who)
+          if (entry.text !== '') index.insert(entry.text, part.sessionId, event.seq, event.time ?? 0, entry.who)
         }
         index.setMark.run(part.sessionId, last, keep ? 1 : 0, seal ? 1 : 0, turn)
         index.db.exec('COMMIT')
@@ -265,15 +283,18 @@ export function install(rt) {
     const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
+    let capped = false
     for (const part of [...parts].reverse()) {
-      for await (const line of rt.partLines(part.sessionId, signal)) {
+      const read = {}
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
       }
+      capped ||= read.capped === true && read.complete !== true
       if (lines.length >= limit) break
     }
-    return lines.reverse()
+    return [...lines.reverse(), ...(capped ? ['(Older messages were not searched.)'] : [])]
   }
 
   // The parts of a Bot's own chat, for the model: when each ran.

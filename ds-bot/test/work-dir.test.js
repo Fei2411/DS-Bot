@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import { createRuntime } from '../index.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { SOURCE_KIND, TEXT_KEPT } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
@@ -59,7 +59,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
       const calls = []
       agents.set(sessionId, {
         id: sessionId,
-        session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
         calls,
         status: 'idle',
         followup(message) { calls.push(['followup', message]) },
@@ -1309,6 +1309,247 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   assert.deepEqual((await call('earlier', { sessionId: 'r1' })).value.items, [])
 })
 
+test('compressed pre-ledger group replies are recovered from the migrated group log', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  const unrelated = 'This reply belongs to the next prompt.'
+  saved.rooms.r1.seq = 6
+  saved.rooms.r1.log = [
+    { seq: 1, who: 'User', text: 'Original prompt' },
+    ...replies.map((reply, index) => ({ seq: index + 2, who: reply.name, botId: reply.botId, text: reply.text })),
+    { seq: 5, who: 'User', text: 'Next prompt' },
+    { seq: 6, who: 'Chief', botId: 'a', text: unrelated },
+  ]
+  const { ctx, call, project, state, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const text = `${preview}\n\n[save-token #c123 compressed: ${original.length} -> ${preview.length} bytes. expand: save_token_expand id="c123" | full: /unused/group_relay.txt]`
+  const events = [
+    { seq: 4, type: 'tool/call', data: { name: 'group_relay', callId: 'relay' } },
+    { seq: 5, type: 'tool/result', data: { message: { toolCallId: 'relay', content: [{ type: 'text', text }] } } },
+  ]
+  ctx.sessionController.page = async ({ address }) => ({
+    records: address.sessionId === 'r1' ? events.map(event => ({ event })) : [],
+    hasMore: false,
+  })
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  await until(() => state().rooms.r1.sessionId === 's1')
+  const earlier = (await call('earlier', { sessionId: 's1' })).value
+  assert.deepEqual(earlier.items.map(item => [item.botId, item.texts[0]]), expected)
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+  assert.equal((await call('group-relay-replies', { sessionId: 'gb', preview })).value, null)
+  const brokenHead = original.indexOf(',"name":', original.indexOf('Middle') - 28)
+  const broken = `${original.slice(0, brokenHead)} ...[+${tail - brokenHead} chars]... ${original.slice(tail)}`
+  assert.throws(() => JSON.parse(broken))
+  const fromBroken = (await call('group-relay-replies', { sessionId: 'r1', preview: broken })).value
+  assert.deepEqual(fromBroken?.map(reply => [reply.botId, reply.text]), expected)
+  const shortened = replies.map(reply => ({
+    ...reply, text: `${reply.text.slice(0, 220)} ...[+${reply.text.length - 300} chars]... ${reply.text.slice(-80)}`,
+  }))
+  const structured = (await call('group-relay-replies', { sessionId: 'r1', preview: JSON.stringify({ replies: shortened }) })).value
+  assert.deepEqual(structured, replies)
+  const crossedPrompt = JSON.stringify({ replies: [{ botId: 'b', text: `${replies[0].text.slice(0, 45)} ...[+2000 chars]... ${unrelated}` }] })
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: crossedPrompt })).value, null)
+})
+
+test('compressed replies are recovered from a legacy group that was never versioned', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  // The oldest saved groups have neither `room.seq` nor a `seq` on their log lines.
+  delete saved.rooms.r1.seq
+  saved.rooms.r1.log = [
+    { who: 'User', text: 'Original prompt' },
+    ...replies.map(reply => ({ who: reply.name, botId: reply.botId, text: reply.text })),
+    { who: 'User', text: 'Next prompt' },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  // The first thing asked of the group is the recovery, before any message or page read.
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+})
+
+test('compressed group replies do not restore a shortened legacy log line as complete', async (t) => {
+  const replies = [
+    { botId: 'b', text: 'Start of the original reply. '.repeat(4) },
+    { botId: 'a', text: 'Reply with a missing end. '.repeat(120) },
+    { botId: 'b', text: 'End of the original reply. '.repeat(4) },
+  ]
+  const original = JSON.stringify({ replies })
+  const head = original.indexOf(replies[0].text) + 45
+  const tail = original.indexOf(replies[2].text) + 45
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+  log[1] = { ...log[1], text: log[1].text.slice(0, TEXT_KEPT), length: replies[1].text.length }
+
+  for (const source of ['room log', 'previously migrated ledger']) {
+    await t.test(source, async (t) => {
+      const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      if (source === 'room log') {
+        saved.rooms.r1.log = log.map(line => line.length === undefined ? line : { ...line, text: line.text.slice(0, 40) })
+      } else {
+        const ledger = join(root, 'dsh', 'bot', 'ledger')
+        mkdirSync(ledger, { recursive: true })
+        writeFileSync(join(ledger, 'group-r1.jsonl'), log.map(({ length, ...line }) => `${JSON.stringify(line)}\n`).join(''))
+      }
+      const { call, stop } = await start({ root, team: saved })
+      t.after(stop)
+      assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+      if (source === 'room log') assert.equal(rt.ledger.record('group-r1', 2).length, replies[1].text.length)
+    })
+  }
+})
+
+test('compressed group replies distinguish a complete match from an ambiguous clipped match', async (t) => {
+  for (const clipped of [false, true]) {
+    await t.test(clipped ? 'a clipped opening and a later reply share a prefix' : 'a complete legacy reply exactly reaches the clipping limit', async (t) => {
+      const opening = 'Shared opening sentence. '.repeat(3)
+      const replies = [
+        { botId: 'b', text: opening + 'x'.repeat(TEXT_KEPT - opening.length) },
+        { botId: clipped ? 'b' : 'a', text: opening + 'A later reply.' },
+        { botId: 'a', text: 'Closing reply. '.repeat(10) },
+      ]
+      const original = JSON.stringify({ replies })
+      const head = original.indexOf(opening) + opening.length
+      const tail = original.indexOf(replies[2].text) + 45
+      const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      saved.rooms.r1.log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+      if (clipped) saved.rooms.r1.log[0] = { ...saved.rooms.r1.log[0], length: TEXT_KEPT, text: opening.slice(0, 45) }
+      const { call, stop } = await start({ team: saved })
+      t.after(stop)
+      const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+      if (clipped) assert.equal(result, null)
+      else assert.deepEqual(result?.map(reply => reply.text), replies.map(reply => reply.text))
+    })
+  }
+})
+
+test('a clipped legacy reply of an incompatible length does not hide the exact match', async (t) => {
+  const head = 'Opening shared by two replies. '.padEnd(220, 'x')
+  const tail = 'The original closing sentence. '.padStart(80, 'z')
+  const hidden = 'Original middle. '.repeat(25)
+  const text = head + hidden + tail
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { seq: 1, botId: 'b', text },
+    { seq: 2, who: 'User', text: 'Next prompt' },
+    { seq: 3, botId: 'b', text: head + 'x'.repeat(TEXT_KEPT - head.length), length: TEXT_KEPT + 100 },
+  ]
+  const preview = JSON.stringify({ replies: [{ botId: 'b', text: `${head} ...[+${hidden.length} chars]... ${tail}` }] })
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.deepEqual((await call('group-relay-replies', { sessionId: 'r1', preview })).value, [{ botId: 'b', text }])
+})
+
+test('a save-token line cut cannot restore an apparent exact match from another prompt', async (t) => {
+  const first = { botId: 'b', text: 'First reply. '.repeat(42) }
+  const last = { botId: 'a', text: 'Last reply. '.repeat(350) }
+  const original = JSON.stringify({ replies: [first, last], passed: [] })
+  const omitted = original.length - 360
+  const marker = ` ...[+${omitted} chars]... `
+  const preview = original.slice(0, 260) + marker + original.slice(-100)
+  const unrelated = { ...JSON.parse(preview).replies[0] }
+  unrelated.text = unrelated.text.replace(marker, 'x'.repeat(omitted))
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 4
+  saved.rooms.r1.log = [
+    { ...first, seq: 1, text: first.text.slice(0, 40), length: first.text.length },
+    { ...last, seq: 2 },
+    { seq: 3, who: 'User', text: 'Unrelated prompt' },
+    { ...unrelated, seq: 4 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+})
+
+test('a save-token line cut inside one reply recovers it only at the exact encoded length', async (t) => {
+  const encoded = text => JSON.stringify({ replies: [{ botId: 'b', text }], passed: [] })
+  const [beforeText, afterText] = encoded('').split('""')
+  const opening = 'Opening sentence. '.repeat(20).slice(0, 259 - beforeText.length - 1)
+  const closing = 'Closing sentence. '.repeat(10).slice(0, 100 - afterText.length - 2)
+  const reply = { botId: 'b', text: opening + '🙂' + '"Middle".\n'.repeat(35) + '🙂' + closing }
+  const original = encoded(reply.text)
+  assert.equal(original.slice(259, 261), '🙂')
+  assert.equal(original.slice(-101, -99), '🙂')
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 1
+  saved.rooms.r1.log = [{ ...reply, seq: 1 }]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const preview = omitted => original.slice(0, 260) + ` ...[+${omitted} chars]... ` + original.slice(-100)
+  const omitted = original.length - 360
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted) })).value
+  assert.deepEqual(recovered?.map(({ botId, text }) => ({ botId, text })), [reply])
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted + 1) })).value, null)
+})
+
+test('a save-token line cut inside a JSON escape matches the raw ending', async (t) => {
+  const first = { botId: 'b', text: 'Original opening. '.repeat(35), time: 1000, duration: 12345 }
+  const encode = text => JSON.stringify({ replies: [first, { botId: 'a', text, time: 2000, duration: 12345 }], passed: [] })
+  const trailer = encode('').split('""')[1]
+  const closing = 'End of report. '.repeat(10).slice(0, 100 - 6 - 1 - trailer.length)
+  const last = { botId: 'a', text: 'Second reply. '.repeat(100) + '\\u0044' + closing }
+  const original = encode(last.text)
+  assert.ok(original.slice(-100).startsWith('\\u0044'))
+  const preview = original.slice(0, 260) + ` ...[+${original.length - 360} chars]... ` + original.slice(-100)
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { ...first, seq: 1 },
+    { ...last, seq: 2 },
+    { botId: 'a', text: 'D' + closing, seq: 3 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(result?.map(({ text }) => text), [first.text, last.text])
+})
+
+test('a reply with the same visible text cannot replace an expired original', async (t) => {
+  const original = { botId: 'b', text: 'Opening. '.repeat(30) + 'First report. '.repeat(50) + 'Closing. '.repeat(15) }
+  const later = { ...original, text: original.text.replaceAll('First report.', 'Later report.') }
+  const json = JSON.stringify({ replies: [original], passed: [] })
+  const lineCut = json.slice(0, 260) + ` ...[+${json.length - 360} chars]... ` + json.slice(-100)
+  const jsonCut = JSON.stringify({ replies: [{
+    ...original, text: original.text.slice(0, 220) + ` ...[+${original.text.length - 300} chars]... ` + original.text.slice(-80),
+  }], passed: [] })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 62
+  saved.rooms.r1.log = [
+    { seq: 61, who: 'User', text: 'Later prompt' },
+    { seq: 62, ...later },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  for (const preview of [lineCut, jsonCut]) {
+    assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+  }
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.
@@ -1327,4 +1568,231 @@ test('a group Session that cannot be opened still saves the folder', async (t) =
   assert.equal(env.state().rooms.r1.workDir, env.project)
   assert.equal(env.state().rooms.r1.id, 'r1')
   assert.equal((await env.call('state', {})).ok, true)
+})
+
+// Preset, sandbox, and approval services matching DSH's preset table: Full access pairs
+// danger-full-access with the 'never' approval policy, which rejects approval.request()
+// before any answerer sees it; Auto review pairs danger-full-access with 'ask'.
+function fullAccessServices(outcome = 'rejected') {
+  const specs = {
+    'read-only': { sandbox: 'read-only', approval: 'ask' },
+    'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+    'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+    auto: { sandbox: 'danger-full-access', approval: 'ask' },
+    custom: { sandbox: 'danger-full-access', approval: 'ask' },
+  }
+  const current = new Map()
+  const requests = []
+  const specOf = session => specs[current.get(session?.id) ?? 'workspace-write']
+  return {
+    requests,
+    current,
+    services: {
+      sandboxPolicy: { resolve: ({ session } = {}) => ({ mode: specOf(session).sandbox }) },
+      permissionPresets: {
+        catalog: () => ({
+          options: ['read-only', 'workspace-write', 'danger-full-access', 'auto'].map(value => ({ value, name: value })),
+          defaultPreset: 'workspace-write',
+        }),
+        resolve: (name) => {
+          if (!(name in specs)) throw new Error(`permission: unknown preset "${name}"`)
+          return specs[name]
+        },
+        current: session => current.get(session?.id) ?? 'workspace-write',
+        set: (session, name) => { current.set(session.id, name) },
+      },
+      approval: {
+        effectivePolicy: session => specOf(session).approval,
+        request: async (request) => {
+          if (specOf(request.agent?.session).approval === 'never') return 'rejected'
+          requests.push(request)
+          return outcome
+        },
+      },
+    },
+  }
+}
+
+// #1308: Full access sets DSH's approval policy to 'never', and the global default sandbox
+// is 'workspace-write'; neither blocks a Full-access caller or a Full-access target.
+test('a Bot on Full access sets folders outside the workspace without an approval prompt', async (t) => {
+  const { service } = folderService()
+  const { requests, services } = fullAccessServices('rejected')
+  const { ctx, call, tool, agentOf, workingIn, dsh, root, project, state, stop } = await start({ services: { ...services, workingDirectory: service } })
+  t.after(stop)
+  const other = join(root, 'other')
+  const third = join(root, 'third')
+  for (const dir of [other, third]) mkdirSync(dir)
+
+  assert.equal((await call('update-bot', { id: 'a', permission: 'danger-full-access' })).ok, true)
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Created Builder, working in ${project}. It is greeting the user now.`)
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: other }, 'a'), `Updated Writer. It now works in ${other}.`)
+  await workingIn('b', other)
+  assert.match(await tool('update_group', { group: 'Ops', work_dir: project }, 'a'), /^Updated "Ops": every member now works in /)
+  await until(() => state().rooms.r1.sessionId !== undefined)
+  assert.equal(await tool('update_group', { group: 'Ops', work_dir: '' }, 'a'), 'Updated "Ops": every member works in its own folder again.')
+  await settle()
+  // Guarded DSH data roots stay closed under Full access too.
+  assert.match(await tool('update_bot', { work_dir: dsh }, 'a'), /holds DeepSeek Harness data/)
+
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  const ownSession = state().bots.b.sessionId
+  assert.equal(await tool('update_bot', { work_dir: project }, ownSession), `Updated Writer. From your next step on, you work in ${project}.`)
+  await workingIn('b', project)
+  const live = agentOf(state().bots.b.sessionId)
+  live.status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, live, third), { result: { isError: false, value: { cwd: third } }, ran: true })
+  assert.equal(state().bots.b.workDir, third)
+  agentOf('gb').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('gb'), other), { result: { isError: false, value: { cwd: other } }, ran: true })
+  assert.equal(state().rooms.r1.memberDirs?.b, other)
+  assert.equal(requests.length, 0)
+})
+
+test('group permissions and Auto review still gate folder changes by a Full-access Bot', async (t) => {
+  const { service } = folderService()
+  const { requests, current, services } = fullAccessServices('rejected')
+  const { ctx, call, tool, agentOf, project, stop } = await start({ services: { ...services, workingDirectory: service } })
+  t.after(stop)
+
+  // Ops restricts every member there to workspace-write, even a Full-access Bot.
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  assert.equal((await call('update-room', { id: 'r1', permission: 'workspace-write' })).ok, true)
+  agentOf('gb').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('gb'), project), { error: notAllowed(project), ran: false })
+  assert.equal(await tool('update_bot', { work_dir: project }, 'gb'), `Could not update the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 2)
+
+  // Auto review and custom review run on danger-full-access with 'ask', so setting a bounded Bot's folder still asks.
+  current.set('a', 'auto')
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  current.set('a', 'custom')
+  assert.equal(await tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 4)
+})
+
+test('a bounded Main Bot skips approval for unbounded Bots unless a group bounds them', async (t) => {
+  const { requests, services } = fullAccessServices('rejected')
+  const { call, tool, root, project, state, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+
+  const made = (await call('create-bot', { name: 'Coder' })).value
+  assert.equal((await call('update-bot', { id: made.id, permission: 'danger-full-access' })).ok, true)
+  // Coder is in no group, and both its chat and its future parts run on Full access.
+  assert.equal(await tool('update_bot', { bot: 'Coder', work_dir: project }, 'a'), `Updated Coder. It now works in ${project}.`)
+  assert.equal((await call('update-room', { id: 'r1', workDir: other })).ok, true)
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'] }, 'a'), 'Updated "Ops": added Coder.')
+  assert.equal(requests.length, 0)
+
+  // Once Ops clears its own folder and sets workspace-write, Coder's future group Session
+  // there inherits Coder's folder under workspace-write, so moving Coder asks.
+  assert.equal((await call('update-room', { id: 'r1', workDir: '', permission: 'workspace-write' })).ok, true)
+  assert.equal(await tool('update_bot', { bot: 'Coder', work_dir: other }, 'a'), `Could not update the Bot: ${notAllowed(other)}`)
+  assert.equal(requests.length, 1)
+
+  // A read-only Bot gets an outside folder without approval, then asks before joining or
+  // uncovering that folder in a workspace-write group.
+  const reader = (await call('create-bot', { name: 'Reader' })).value
+  assert.equal((await call('update-bot', { id: reader.id, permission: 'read-only' })).ok, true)
+  assert.equal(await tool('update_bot', { bot: 'Reader', work_dir: project }, 'a'), `Updated Reader. It now works in ${project}.`)
+  assert.equal(requests.length, 1)
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Reader'] }, 'a'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.equal(state().rooms.r1.members.includes(reader.id), false)
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].reason, `Let Reader work in ${project}? Files there can then be changed.`)
+
+  assert.equal((await call('update-room', { id: 'r1', workDir: other, add: [reader.id] })).ok, true)
+  assert.equal(await tool('update_group', { group: 'Ops', work_dir: '' }, 'a'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.equal(state().rooms.r1.workDir, other)
+  assert.equal(requests.length, 3)
+})
+
+test('a Bot\'s live background threads count when checking a folder change, without checking archived segments', async (t) => {
+  const { service } = folderService()
+  const { requests, current, services } = fullAccessServices('rejected')
+  const saved = {
+    ...TEAM,
+    rooms: {},
+    bots: {
+      ...TEAM.bots,
+      b: {
+        ...TEAM.bots.b,
+        permission: 'danger-full-access',
+        openParts: [{ sessionId: 'b-bg', segments: [{ sessionId: 'b-bg-old' }] }],
+      },
+    },
+  }
+  current.set('b', 'danger-full-access')
+  current.set('b-bg', 'workspace-write')
+  current.set('b-bg-old', 'workspace-write')
+  const { ctx, tool, agentOf, project, state, stop } = await start({ services: { ...services, workingDirectory: service }, team: saved })
+  t.after(stop)
+  const resolveAgent = ctx.sessionController.resolveAgent
+  ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'b-bg-old') throw new Error('archived segment has no live agent')
+    return resolveAgent(sessionId)
+  }
+
+  // Main Bot (workspace-write) sees that b's live background thread b-bg is still bounded.
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Could not update the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 1)
+
+  // A read-only foreground thread changing via working_directory also checks live b-bg.
+  current.set('b', 'read-only')
+  agentOf('b').status = 'running'
+  assert.deepEqual(await changeDirectory(ctx, service, agentOf('b'), project), { error: notAllowed(project), ran: false })
+  assert.equal(requests.length, 2)
+
+  // Once every live thread is on Full access, archived b-bg-old is not checked and needs no approval.
+  current.set('b', 'danger-full-access')
+  current.set('b-bg', 'danger-full-access')
+  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Updated Writer. It now works in ${project}.`)
+  assert.equal(state().bots.b.workDir, project)
+  assert.equal(requests.length, 2)
+})
+
+test('the Full-access shortcut fails closed on preset lookup errors and unknown presets, and still skips without a preset service', async (t) => {
+  const { requests, current, services } = fullAccessServices('rejected')
+  current.set('a', 'auto')
+  const { permissionPresets } = services
+  const { tool, project, stop } = await start({ services })
+  t.after(stop)
+
+  const originalCurrent = permissionPresets.current
+  permissionPresets.current = () => { throw new Error('presets not ready') }
+  assert.equal(await tool('create_bot', { name: 'ErrBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 1)
+
+  permissionPresets.current = () => undefined
+  assert.equal(await tool('create_bot', { name: 'UnknownBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 2)
+
+  // A broken catalog/resolve lookup while policy default is full access also fails closed.
+  const originalCatalog = permissionPresets.catalog
+  permissionPresets.catalog = () => { throw new Error('broken catalog') }
+  permissionPresets.current = originalCurrent
+  const fallbackReadOnly = services.sandboxPolicy.resolve
+  services.sandboxPolicy.resolve = ({ session } = {}) => (session === undefined ? { mode: 'danger-full-access' } : fallbackReadOnly({ session }))
+  assert.equal(await tool('create_bot', { name: 'BadCatalogBot', role: 'Build', instructions: 'Build', work_dir: project }, 'a'),
+    `Could not create the Bot: ${notAllowed(project)}`)
+  assert.equal(requests.length, 3)
+  permissionPresets.catalog = originalCatalog
+  services.sandboxPolicy.resolve = fallbackReadOnly
+
+  // Without a permissionPresets service, sandboxPolicy alone decides Full access.
+  const noPresets = approvalServices('rejected', { mode: 'danger-full-access' })
+  const bare = await start({ services: noPresets.services })
+  t.after(bare.stop)
+  assert.equal(await bare.tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: bare.project }, 'a'),
+    `Created Builder, working in ${bare.project}. It is greeting the user now.`)
+  assert.equal(await bare.tool('update_bot', { bot: 'Writer', work_dir: bare.project }, 'a'),
+    `Updated Writer. It now works in ${bare.project}.`)
+  assert.equal(noPresets.requests.length, 0)
 })

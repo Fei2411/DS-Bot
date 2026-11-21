@@ -74,8 +74,9 @@ function useRowEntrances(replacing) {
     const started = Date.now()
     let column = null
     let frame = 0
+    let waiting = false
     const settle = (event) => {
-      if (event.target !== event.currentTarget || !/^bt-row/.test(event.animationName)) return
+      if (event.target !== event.currentTarget || !event.animationName.startsWith('bt-row')) return
       delete event.currentTarget.dataset.btEnter
       event.currentTarget.removeEventListener('animationend', settle)
     }
@@ -85,9 +86,18 @@ function useRowEntrances(replacing) {
       if (next !== column) {
         observer.disconnect()
         column = next
-        if (column) observer.observe(column, { childList: true, subtree: true })
+        if (column) {
+          waiting = false
+          observer.observe(column, { childList: true })
+        }
       }
-      if (!column) return
+      if (!column) {
+        if (!waiting) {
+          waiting = true
+          observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
+        }
+        return
+      }
       const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
       let last = -1
       items.forEach((item, index) => { if (seen.has(item)) last = index })

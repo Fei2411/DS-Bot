@@ -199,7 +199,27 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.ok(env.PATH.startsWith(process.env.PATH))
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH')
+  assert.ok(pathKey)
+  assert.ok(env[pathKey].startsWith(process.env[pathKey]))
+})
+
+test('env sanitization matches the explicit denylist and host prefixes case-insensitively', () => {
+  const keys = ['openai_api_key', 'anthropic_auth_token', 'acp_backend', 'ds_bot_fixture_variable', 'dsh_fixture_variable', 'antigravity_fixture_variable', 'agy_fixture_variable', 'deepseek_fixture_variable']
+  const before = keys.map(key => [key, process.env[key]])
+  try {
+    for (const key of keys) process.env[key] = 'fake-env-value'
+    const env = cleanEnv({ OPENAI_API_KEY: 'fake-explicit-value', DSH_FIXTURE_VARIABLE: 'fake-explicit-host-value' })
+    for (const key of keys) assert.equal(Object.hasOwn(env, key), false, key)
+    // An engine's explicit environment is passed in, not inherited, so it stays.
+    assert.equal(env.OPENAI_API_KEY, 'fake-explicit-value')
+    assert.equal(env.DSH_FIXTURE_VARIABLE, 'fake-explicit-host-value')
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
 
 // A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
@@ -1605,6 +1625,48 @@ test('claude receives Anthropic base64 image blocks for text+image and image-onl
   assert.match(second.text, new RegExp(`"data":"${pngBytes.toString('base64')}"`))
 })
 
+test('ClaudeEngine.steer unwraps block arrays and strings without double-wrapping', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
+  const pngRef = { attachmentId: 'att-c-steer', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-c-steer': { mediaType: 'image/png', data: pngBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  // Put Claude into a running/suspended turn (`session.running === true`) via permission wait,
+  // then send a text+image follow-up so sendInput steers via ClaudeEngine.steer(session, blocks).
+  const first = await collect(adapter.stream(options('c-steer-img', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(first.finish?.kind, 'tool-calls')
+  const steeredImg = await collect(adapter.stream(options('c-steer-img', [
+    user('m1', 'ask-claude-perm'),
+    imageMsg('m2', 'steer with image', pngRef),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredImg.finish?.kind, 'stop')
+  assert.match(steeredImg.text, /^ok: steer with image/)
+  assert.match(steeredImg.text, new RegExp(`"mediaType":"image/png".*"data":"${pngBytes.toString('base64')}"`))
+
+  // Plain-text follow-up while suspended/running also passes blocks through sendInput.
+  const askText = await collect(adapter.stream(options('c-steer-txt', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(askText.finish?.kind, 'tool-calls')
+  const steeredText = await collect(adapter.stream(options('c-steer-txt', [
+    user('m1', 'ask-claude-perm'),
+    user('m2', 'steer text only'),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredText.finish?.kind, 'stop')
+  assert.equal(steeredText.text, 'ok: steer text only')
+
+  // Direct string steer via ClaudeEngine.steer keeps working as well.
+  const live = adapter.live.get('c-steer-txt')
+  await live.engine.steer(live.engineSession, 'direct string steer')
+  const evs = []
+  while (true) {
+    const ev = await live.next()
+    evs.push(ev)
+    if (ev.type === 'done' || ev.type === 'error') break
+  }
+  assert.equal(evs.filter(ev => ev.type === 'text').map(ev => ev.text).join(''), 'ok: direct string steer')
+})
+
 test('acp receives {type:"image", mimeType, data} when promptCapabilities.image is true', async (t) => {
   const webpBytes = Buffer.from([82, 73, 70, 70, 1, 2, 3])
   const ref = { attachmentId: 'att-a1', mediaType: 'image/webp', bytes: webpBytes.length, width: 1, height: 1 }
@@ -1696,4 +1758,355 @@ test('replay drops images outside the replay window without reading their attach
   const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
+})
+
+test('AcpEngine cwdPerProcess does not close a worker while another open is in-flight or a non-ephemeral session shared it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-worker-'))
+  const dirA = join(dir, 'ws-a')
+  const dirHold = join(dir, 'ws-hold')
+  const dirRace = join(dir, 'ws-race')
+  const dirFailOne = join(dir, 'ws-fail-one')
+  const dirFailBoth = join(dir, 'ws-fail-both')
+  for (const d of [dirA, dirHold, dirRace, dirFailOne, dirFailBoth]) mkdirSync(d, { recursive: true })
+
+  const script = `
+    let buf = '', next = 0
+    const held = [], race = [], failBoth = []
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          const cwd = String(params.cwd || '')
+          if (cwd.endsWith('ws-hold')) { held.push(id); continue }
+          if (cwd.endsWith('ws-fail-one')) {
+            send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'not signed in' } })
+            continue
+          }
+          if (cwd.endsWith('ws-fail-both')) {
+            failBoth.push(id)
+            if (failBoth.length === 2) {
+              for (const reqId of failBoth.splice(0)) {
+                send({ jsonrpc: '2.0', id: reqId, error: { code: -32000, message: 'both failed' } })
+              }
+            }
+            continue
+          }
+          if (cwd.endsWith('ws-race')) {
+            race.push(id)
+            if (race.length === 2) {
+              const [firstId, secondId] = race
+              send({ jsonrpc: '2.0', id: firstId, error: { code: -32000, message: 'first failed' } })
+              setTimeout(() => send({ jsonrpc: '2.0', id: secondId, result: { sessionId: 'acp-race-2', configOptions: [] } }), 30)
+            }
+            continue
+          }
+          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (held.length > 0) {
+            const heldId = held.shift()
+            setTimeout(() => send({ jsonrpc: '2.0', id: heldId, result: { sessionId: 'acp-' + (++next), configOptions: [] } }), 250)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
+
+  // Case 1: first ephemeral session closes while a second ephemeral open on the same worker is still pending.
+  const s1 = await engine.open('side-1', { cwd: dirA, ephemeral: true })
+  const worker = engine.workerOf(s1)
+  const p2 = engine.open('side-2', { cwd: dirHold, ephemeral: true })
+  while ((worker.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(s1)
+  const s2 = await p2
+  assert.ok(s2.acpSessionId)
+  await engine.closeSession(s2)
+  assert.equal(engine.workers.size, 0)
+
+  // Case 2: a non-ephemeral session shares an existing ephemeral worker and keeps it reusable after closing.
+  const s3 = await engine.open('side-3', { cwd: dirA, ephemeral: true })
+  const sharedWorker = engine.workerOf(s3)
+  const p4 = engine.open('main-4', { cwd: dirA, ephemeral: false })
+  await engine.closeSession(s3)
+  const s4 = await p4
+  assert.equal(engine.workerOf(s4), sharedWorker)
+  await engine.closeSession(s4)
+  assert.equal(engine.workers.size, 1)
+
+  // Case 3: concurrent opens on a fresh cwd worker where the first fails must not kill the second in-flight open.
+  const pFail = engine.open('race-1', { cwd: dirRace })
+  const pOk = engine.open('race-2', { cwd: dirRace })
+  await assert.rejects(pFail, /first failed/)
+  const sOk = await pOk
+  assert.equal(sOk.acpSessionId, 'acp-race-2')
+
+  // Case 4: a single failed session/new cleans up the placeholder, removes the worker, and terminates its child.
+  const beforeFailOne = new Set(children)
+  await assert.rejects(engine.open('fail-1', { cwd: dirFailOne }), /not signed in/)
+  assert.equal(engine.workers.has(dirFailOne), false)
+  engine.forget('fail-1')
+  const failOneChildren = [...children].filter(child => !beforeFailOne.has(child))
+  assert.equal(failOneChildren.length, 1)
+  await waitExited(failOneChildren[0])
+
+  // Case 5: concurrent opens on a fresh worker that all fail clean up the worker and terminate its child.
+  const beforeFailBoth = new Set(children)
+  const [rA, rB] = await Promise.allSettled([
+    engine.open('fail-both-1', { cwd: dirFailBoth }),
+    engine.open('fail-both-2', { cwd: dirFailBoth }),
+  ])
+  assert.equal(rA.status, 'rejected')
+  assert.equal(rB.status, 'rejected')
+  assert.equal(engine.workers.has(dirFailBoth), false)
+  const failBothChildren = [...children].filter(child => !beforeFailBoth.has(child))
+  assert.equal(failBothChildren.length, 1)
+  await waitExited(failBothChildren[0])
+})
+
+test('AcpEngine cwdPerProcess retires workers when concurrent opens fail after forget or ephemeral close', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-retire-'))
+  const dirForget = join(dir, 'ws-forget')
+  const dirEph = join(dir, 'ws-eph')
+  const dirInFlightForget = join(dir, 'ws-inflight-forget')
+  for (const d of [dirForget, dirEph, dirInFlightForget]) mkdirSync(d, { recursive: true })
+
+  // Deterministic fake ACP worker controlled via session/new order per workspace:
+  // - ws-forget: 1st session/new succeeds; 2nd session/new delays 80ms then fails.
+  // - ws-eph: 1st session/new succeeds; 2nd session/new holds until session/close completes, then fails.
+  // - ws-inflight-forget: 1st session/new delays 80ms then succeeds (caller forgets while in flight).
+  const script = `
+    let buf = '', next = 0
+    const counts = Object.create(null)
+    let heldEphFail
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          const cwd = String(params.cwd || '')
+          counts[cwd] = (counts[cwd] || 0) + 1
+          const n = counts[cwd]
+          if (cwd.endsWith('ws-forget')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-f-' + (++next), configOptions: [] } })
+            else setTimeout(() => send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'second open failed' } }), 80)
+          } else if (cwd.endsWith('ws-eph')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-e-' + (++next), configOptions: [] } })
+            else heldEphFail = id
+          } else if (cwd.endsWith('ws-inflight-forget')) {
+            setTimeout(() => send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-i-' + (++next), configOptions: [] } }), 80)
+          } else {
+            send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          }
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (heldEphFail !== undefined) {
+            const failId = heldEphFail
+            heldEphFail = undefined
+            setTimeout(() => send({ jsonrpc: '2.0', id: failId, error: { code: -32000, message: 'promoted open failed' } }), 30)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
+
+  // Case A: persistent s1 is forgotten while s2's newSession is in-flight; when s2 then fails,
+  // the now-empty worker must retire and exit rather than leaking forever.
+  const s1 = await engine.open('persist-1', { cwd: dirForget, ephemeral: false })
+  const workerA = engine.workerOf(s1)
+  const childA = workerA.child
+  const p2 = engine.open('persist-2', { cwd: dirForget, ephemeral: false })
+  while ((workerA.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('persist-1')
+  assert.equal(engine.workers.has(dirForget), true, 'worker stays alive while s2 is still opening')
+  await assert.rejects(p2, /second open failed/)
+  assert.equal(engine.workers.has(dirForget), false, 'worker is removed once the last in-flight open fails')
+  await waitExited(childA)
+
+  // Case B: ephemeral s1 creates a worker, non-ephemeral s2 shares it and starts opening,
+  // s1 closes before s2 settles, and s2 then fails; keepWarm must not have been set prematurely.
+  const e1 = await engine.open('eph-1', { cwd: dirEph, ephemeral: true })
+  const workerB = engine.workerOf(e1)
+  const childB = workerB.child
+  const pPromoted = engine.open('main-promote', { cwd: dirEph, ephemeral: false })
+  while ((workerB.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(e1)
+  await assert.rejects(pPromoted, /promoted open failed/)
+  assert.equal(engine.workers.has(dirEph), false, 'ephemeral worker is removed when the non-ephemeral open fails')
+  await waitExited(childB)
+
+  // Case C: forgetting a session while its only open is still in-flight rejects that open
+  // and retires the worker without leaking the process.
+  const beforeC = new Set(children)
+  const pForgotten = engine.open('inflight-1', { cwd: dirInFlightForget, ephemeral: false })
+  while (engine.workers.get(dirInFlightForget)?.peer?.pending?.size !== 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('inflight-1')
+  await assert.rejects(pForgotten, /session closed while opening/)
+  assert.equal(engine.workers.has(dirInFlightForget), false)
+  const childC = [...children].find(child => !beforeC.has(child))
+  assert.ok(childC)
+  await waitExited(childC)
+})
+
+test('ACP upstream error data preserves code, detail and status (#1806)', async (t) => {
+  const detail = "This request was blocked by Factory's usage policy check."
+  const cases = [
+    { data: { status: 403, code: 'content_policy_rejected', detail }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { status: 403, error: { code: 'content_policy_rejected', message: detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { error: { status: 403, code: 'content_policy_rejected', message: 'Request rejected', detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { message: 'Login required', code: 'auth_failed', status: 401 }, code: 'LOCAL_AGENT_SIGNIN', text: 'Login required', status: 401 },
+    { data: { detail: 'Rate limit reached', code: 'rate_limit_exceeded', status: 429 }, code: 'LOCAL_AGENT_QUOTA', text: 'Rate limit reached', status: 429 },
+    ...['This request exceeded the allowed usage policy limits.', 'This request contains too many tokens prohibited by policy.', 'Unauthorized content was rejected.'].flatMap(text => ['detail', 'message'].map(field => ({
+      data: { status: 403, code: 'content_policy_rejected', [field]: text }, code: 'content_policy_rejected', text, status: 403,
+    }))),
+    { data: { code: 'context_length_exceeded', detail: 'Request rejected' }, code: 'CONTEXT_WINDOW_EXCEEDED', text: 'Request rejected' },
+    { outerCode: 'auth_failed', code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error' },
+    { outerCode: 'rate_limit_exceeded', code: 'LOCAL_AGENT_QUOTA', text: 'Internal error' },
+    { outerCode: 'NO_ADAPTER', code: 'LOCAL_AGENT_MISSING', text: 'Internal error' },
+    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { message: 'Unauthorized content was rejected.', data: { status: 403, code: 'content_policy_rejected' }, code: 'content_policy_rejected', text: 'Unauthorized content was rejected.', status: 403 },
+    { data: { status: 504, code: 'deadline_exceeded', detail: 'The upstream service timed out.' }, code: 'deadline_exceeded', text: 'The upstream service timed out.', status: 504 },
+    { outerCode: 'deadline_exceeded', code: 'deadline_exceeded', text: 'Internal error' },
+    ...['auth_failed', 'unauthorized', 'unauthenticated', 'authentication_failed', 'not_logged_in'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error',
+    })),
+    ...['rate_limit_exceeded', 'quota_exceeded', 'insufficient_quota', 'usage_limit_exceeded'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
+    })),
+    ...[
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+    ].flatMap(([text, code]) => [
+      { data: { detail: text }, code, text },
+      { data: { error: { message: text } }, code, text },
+    ]),
+    ...[
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+    ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
+    { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: '  ', detail, status: 999 }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: null, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+    { data: {}, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+  ]
+  for (const [index, entry] of cases.entries()) {
+    await t.test(`upstream data case ${index + 1}`, async (t) => {
+      const adapter = makeAdapter()
+      t.after(() => adapter.dispose())
+      const peer = new JsonRpcPeer(request => peer.handleLine(JSON.stringify({
+        jsonrpc: '2.0', id: request.id,
+        error: { code: entry.outerCode ?? -32603, message: entry.message ?? 'Internal error', data: entry.data },
+      })))
+      adapter.engine('local-acp-fake').prompt = () => peer.request('session/prompt', {})
+      await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')]))), err => {
+        assert.equal(err.code, entry.code)
+        assert.ok(err.message.includes(entry.text), err.message)
+        assert.equal(err.failure.status, entry.status)
+        return true
+      })
+    })
+  }
+})
+
+test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'rpc-error-number')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled \(JSON-RPC -32603\)/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'rpc-error-empty')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /empty code/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
+  )
 })

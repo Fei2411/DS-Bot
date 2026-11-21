@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -47,6 +47,7 @@
   "scripts": {
     "build": "node scripts/build-client.mjs && node scripts/build-link.mjs",
     "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
+    "test:browser": "node --import ./test/harness-resolve.mjs --test --test-concurrency=1 --test-timeout=120000 --test-force-exit \"test/browser/*.test.js\"",
     "lint": "node scripts/lint.mjs",
     "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
     "check": "sh dev/check.sh"
@@ -86,6 +87,7 @@
     "ws": "8.18.3"
   },
   "bin": {
-    "ds-bot": "./bin/ds-bot-doctor.mjs"
+    "ds-bot": "./bin/ds-bot-doctor.mjs",
+    "ds-bot-mcp": "./bin/ds-bot-mcp.mjs"
   }
 }
