@@ -1075,7 +1075,7 @@ for (const group of [false, true]) {
       { kind: 'schedule', taskId: 't1' },
       { kind: 'peer', from: 'b' },
       { kind: 'bot', role: 'post' },
-      { kind: 'bot', role: 'task-report', taskId: 'desktop-task', ...(group ? { roomId: 'r1' } : {}) },
+      ...(!group ? [{ kind: 'bot', role: 'task-report', taskId: 'desktop-task' }] : []),
       undefined,
     ]) {
       s.emitEvent(sessionId, 'user/message', { source })
@@ -1086,6 +1086,52 @@ for (const group of [false, true]) {
     assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), replies)
   })
 }
+
+for (const working of [true, false]) test(`desktop round after IM group round, member work=${working}`, async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  s.rt.roomActive = () => false
+  s.rt.roomWorkView = () => (working ? { r1: [{ botId: 'b', since: Date.now(), tool: 'task' }] } : {})
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/start', {})
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'private desktop question' }] })
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'private desktop answer' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [])
+  await gm(s, 'u1', 'later IM request')
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'IM answer' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: IM answer']])
+})
+
+for (const active of ['round', 'member']) test(`Web input joining an ongoing group ${active} keeps the IM origin`, async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  s.rt.roomActive = () => active === 'round'
+  if (active === 'member') {
+    s.rt.groupOwners.set('member-session', { roomId: 'r1', botId: 'b' })
+    s.emitEvent('member-session', 'turn/start', { turn: 1 })
+  }
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/start', {})
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web steer' }] })
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'continued answer' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: continued answer']])
+})
 
 test('reply origin: the turn ending stops later output from going out', async (t) => {
   const s = await start()
@@ -2832,7 +2878,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   assert.deepEqual(s.fake.sent, [], 'must not restore IM origin while a non-IM group round is active')
   s.rt.roomActive = () => false
 
-  // A desktop-started sibling task does not withdraw the room's established IM origin.
+  // A desktop-started sibling task has no IM destination, even after an IM task report.
   s.rt.botOf('a').tasks.push({
     id: 'k_grp_desktop',
     title: 'Desktop sibling task',
@@ -2844,7 +2890,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
     startedAt: Date.now(),
     updatedAt: Date.now(),
   })
-  // First restore g1 origin via IM task, then admit the desktop task report.
+  // First restore g1 origin via IM task, then withdraw it for the desktop task report.
   s.emitEvent('grp-r1-a', 'turn/start', { turn: 5 })
   s.emitEvent('grp-r1-a', 'user/message', {
     source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
@@ -2863,7 +2909,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Desktop secret result.' })
   s.emitEvent(roomSid, 'turn/end', { turn: 7, reason: { kind: 'completed' } })
   await s.flush()
-  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: Desktop secret result.']], 'desktop task report keeps the established group IM origin')
+  assert.deepEqual(s.fake.sent, [], 'desktop-started group task report must never leak to IM group')
 
   // A different IM group chat g2 currently owns roomSid: g1's task-report must drop roomSid
   // origin so g1's report is never leaked into g2.

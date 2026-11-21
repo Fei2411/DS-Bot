@@ -1699,7 +1699,9 @@ export function install(rt) {
       if (room === undefined) {
         resetOrigin(session.id)
       } else {
-        const working = rt.roomActive?.(room.id) || (rt.roomWorkView?.()[room.id] ?? []).length > 0
+        const working = rt.roomActive?.(room.id)
+          || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && rt.live.get(id)?.turn !== undefined)
+          || [...rt.switchJobs()].some(job => job.roomId === room.id)
         // A group's own Session can start a turn for the last member's late result after
         // its relay turn ended, when no work looks active. Keep the origin until the
         // turn's first message says whether it continues the work the chat asked for.
@@ -1748,7 +1750,7 @@ export function install(rt) {
                 // A different IM chat currently owns the room; mix so neither chat sees the other's report.
                 dropOrigin(roomSid)
               }
-            } else if (roomSid !== undefined && saved !== undefined) {
+            } else if (roomSid !== undefined) {
               dropOrigin(roomSid)
             }
           } else if (originFromSaved(saved) === undefined) {
