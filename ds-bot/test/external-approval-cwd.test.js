@@ -126,14 +126,27 @@ test('trusted callback evidence reaches the reviewer and cannot be supplied by t
   live.engineSession.dead = false
   live.pending.delete(call.id)
   await rt.localAgentTools[0].execute(forged, exec)
-  for (const value of evidence.slice(1)) assert.equal(value.cwd, undefined)
+  for (const value of evidence.slice(1)) assert.equal(value?.cwd, undefined)
+})
+
+test('a pending driver callback supplies trusted evidence without accepting tool arguments', async t => {
+  const { adapter, rt, evidence } = setup(t)
+  const trusted = { kind: 'external-agent', cwd, action: { action: 'Run Bash', detail: 'rm -rf ./cache' } }
+  adapter.live.set('s', {
+    dead: false, engineSession: { dead: false },
+    pending: new Map([['driver-call', { approvalEvidence: trusted }]]),
+  })
+  await rt.localAgentTools[0].execute({ action: 'Forged action', cwd: '/forged' }, {
+    agent, name: 'approve_agent_action', callId: 'driver-call',
+  })
+  assert.equal(evidence[0], trusted)
 })
 
 test('a direct MCP approval call has no trusted runtime permission evidence', async t => {
   const { adapter, rt, evidence } = setup(t)
   adapter.live.set('s', { engineSession: {}, pending: new Map([['dsbot-model', { name: 'approve_agent_action', mcpCallId: 'model' }]]) })
   await rt.localAgentTools[0].execute({ action: 'Run Bash', cwd, evidence: JSON.stringify({ cwd }) }, { agent, name: 'approve_agent_action', callId: 'dsbot-model' })
-  assert.equal(evidence[0].cwd, undefined)
+  assert.equal(evidence[0]?.cwd, undefined)
 })
 
 test('Claude keeps the actual live process directory when open is called again', async t => {
