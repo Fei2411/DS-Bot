@@ -11,6 +11,8 @@ import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
 const SOCKET_TIMEOUT = 30_000
+const GATEWAY_RETRY_DELAYS = [5_000, 15_000]
+const isPolicyDenial = message => typeof message === 'string' && /^access denied due to platform policy\b/i.test(message)
 const pingInterval = seconds => {
   const ms = Number(seconds) * 1000
   return Number.isFinite(ms) && ms >= 1000 && ms <= 2_147_483_647 ? ms : undefined
@@ -259,7 +261,8 @@ export default {
       connectTimer = pingTimer = heartbeatTimer = undefined
     }
     let openFailures = 0
-    const retry = (gen, error) => {
+    let gatewayRefusals = 0
+    const retry = (gen, error, delay = retryDelay(openFailures)) => {
       if (stopped || generation !== gen) return
       generation += 1
       clearSocketTimers()
@@ -268,7 +271,7 @@ export default {
       try { previous?.close(4001, 'reconnect') } catch { /* already gone */ }
       handlers.onStatus({ state: 'retrying', error })
       clearTimeout(reconnectTimer)
-      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, delay)
       reconnectTimer.unref?.()
       openFailures += 1
     }
@@ -280,16 +283,27 @@ export default {
       try {
         const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${await freshToken()}` },
+          headers: { 'content-type': 'application/json', locale: 'zh', 'user-agent': 'DS-Bot' },
           body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
         })
         const body = await answer.json().catch(() => ({}))
         url = body.data?.URL
-        if (url === undefined || (body.code !== undefined && body.code !== 0)) {
+        if (!answer.ok || url === undefined || (body.code !== undefined && body.code !== 0)) {
+          if (answer.status === 200 && body.code === undefined && isPolicyDenial(body.msg)) {
+            if (stopped || generation !== gen) return
+            const message = `Feishu long-connection discovery: ${body.msg}`
+            // An HTTP 200 with only a gateway message has no app-level error code.
+            const delay = GATEWAY_RETRY_DELAYS[gatewayRefusals]
+            if (delay === undefined) handlers.onStatus({ state: 'error', error: message })
+            else {
+              gatewayRefusals += 1
+              retry(gen, message, delay)
+            }
+            return
+          }
           const reason = body.msg ?? `Feishu answered ${answer.status}`
           const error = new Error(body.code === undefined ? reason : `${reason} (code ${body.code})`)
           error.status = answer.status
-          // A 200 that carries no WebSocket URL is the platform refusing the app.
           error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
           throw error
         }
@@ -373,6 +387,7 @@ export default {
         if (!current()) return
         clearTimeout(connectTimer)
         openFailures = 0
+        gatewayRefusals = 0
         handlers.onStatus({ state: 'ready' })
         ping()
       })
@@ -384,8 +399,7 @@ export default {
 
     handlers.onStatus({ state: 'connecting' })
     // The tenant token is fetched until it arrives: a connection started before the
-    // network is up must connect once it is (#1119). The bot identity is fetched
-    // again per handshake below; here it only fills the mention check.
+    // network is up must connect once it is (#1119). The bot identity fills the mention check.
     void (async () => {
       let attempt = 0
       while (!stopped) {
