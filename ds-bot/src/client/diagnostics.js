@@ -62,6 +62,7 @@ const FAILURES = {
   CONTEXT_WINDOW_EXCEEDED: 'The conversation is too long for the model',
   INVALID_REQUEST: 'The model service refused the request',
   SERVER: 'The model service failed',
+  NO_ADAPTER: 'The model service this Bot is set to no longer exists',
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",

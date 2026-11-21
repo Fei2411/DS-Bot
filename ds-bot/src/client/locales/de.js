@@ -1431,6 +1431,7 @@ export const DE = {
   'The conversation is too long for the model': 'Der Chatverlauf ist zu lang für das Modell',
   'The model service refused the request': 'Der Modelldienst hat die Anfrage abgelehnt',
   'The model service failed': 'Fehler beim Modelldienst',
+  'The model service this Bot is set to no longer exists': 'Der Modelldienst dieses Bots existiert nicht mehr',
   'The model took too long to answer': 'Zeitüberschreitung bei der Modellantwort',
   'Could not reach the model service': 'Modelldienst nicht erreichbar',
   "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",

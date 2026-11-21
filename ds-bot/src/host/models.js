@@ -8,6 +8,9 @@ import { ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
+// Providers register one by one at every start; a provider that was added or removed
+// re-applies the team's models once after the registrations settle (#1937).
+const ADAPTERS_SYNC_MS = 100
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
@@ -158,9 +161,26 @@ export function install(rt) {
   let syncedKey
   const dropCatalog = () => { catalogCache = { at: 0, value: [] } }
   // A key set or a sign-in may be the user's fix for a Bot's failed turn (turns.js); a
-  // key removed or a sign-out is not. A provider that registers or changes fixes
-  // nothing by itself: providers register late at every start.
-  ctx.on?.('llm/adapters-updated', () => { dropCatalog(); syncedKey = undefined; reasoningCache.clear(); return forgetChangedRefusals() })
+  // key removed or a sign-out is not. A provider added or removed changes whether a
+  // Session's selection names a real adapter, so the team's models are applied again:
+  // once after the burst of registrations a start makes, not once per registration,
+  // and without a timer that keeps running (#1937).
+  let adaptersSyncTimer
+  const syncAfterAdapters = () => {
+    if (adaptersSyncTimer !== undefined) clearTimeout(adaptersSyncTimer)
+    adaptersSyncTimer = setTimeout(() => {
+      adaptersSyncTimer = undefined
+      if (closing) return
+      void syncModels().catch(error => rt.warn('ds-bot: models after a provider change not applied: %s', error))
+    }, ADAPTERS_SYNC_MS)
+  }
+  ctx.on?.('llm/adapters-updated', async () => {
+    dropCatalog()
+    syncedKey = undefined
+    reasoningCache.clear()
+    await forgetChangedRefusals()
+    syncAfterAdapters()
+  })
   ctx.on?.('credentials/reference-updated', async (ref) => {
     dropCatalog()
     if (await inPlace(credentials => credentials.describe(ref))) rt.unblockBots?.({ ref })
@@ -465,6 +485,43 @@ export function install(rt) {
 
   const sameSelection = (a, b) => a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 
+  // The Sessions that still owe their model selection, and whether the next try must
+  // write one even when its record looks applied. Recorded per Session, so a retry
+  // rewrites only what failed instead of forcing every part and group Session of the Bot
+  // (#2002 review). A `force` that failed stays forced: the Session may still name the
+  // provider that is gone while the Bot's record matches (#1937).
+  // sessionId -> { botId, force }
+  const sessionRetry = new Map()
+  const noteSessionRetry = (botId, sessionId, force) => {
+    const prior = sessionRetry.get(sessionId)
+    sessionRetry.set(sessionId, { botId, force: force === true || prior?.force === true })
+  }
+  // A plain look that finds the record already matching did not rewrite the Session, so
+  // it settles a forced record only when it was itself forced (#2002 review).
+  const settleSessionRetry = (sessionId, force) => {
+    const record = sessionRetry.get(sessionId)
+    if (record === undefined) return
+    if (record.force === true && force !== true) return
+    sessionRetry.delete(sessionId)
+  }
+  const clearBotRetries = (botId) => {
+    for (const [sessionId, record] of sessionRetry) if (record.botId === botId) sessionRetry.delete(sessionId)
+  }
+  const botHasRetry = (botId) => {
+    for (const record of sessionRetry.values()) if (record.botId === botId) return true
+    return false
+  }
+  const forcedSessionsOf = (botId) => {
+    const forced = new Set()
+    for (const [sessionId, record] of sessionRetry) if (record.botId === botId && record.force === true) forced.add(sessionId)
+    return forced
+  }
+  // A Session the Bot no longer keeps — a group it left, a part moved on to a fresh one —
+  // owes nothing, so its record goes (#2002 review).
+  const pruneSessionRetries = (botId, held) => {
+    for (const [sessionId, record] of sessionRetry) if (record.botId === botId && !held.has(sessionId)) sessionRetry.delete(sessionId)
+  }
+
   async function syncBotRooms(botId) {
     for (const room of Object.values(state.rooms ?? {})) {
       if (room.members?.includes(botId)) await selectRoomSession(rt.sessionOfRoom?.(room) ?? room.sessionId ?? room.id, room)
@@ -472,8 +529,10 @@ export function install(rt) {
   }
 
   // `force` re-selects even when the record says it is applied: the composer's own
-  // model picker can move the Session without telling this plugin.
-  async function applyModel(bot, { force = false, syncGroups = true } = {}) {
+  // model picker can move the Session without telling this plugin. `forceSessions` does
+  // the same for the named Sessions only, which is how a retry touches nothing else
+  // (#2002 review).
+  async function applyModel(bot, { force = false, forceSessions, syncGroups = true } = {}) {
     if (llm() === undefined) return undefined
     const ref = await desiredModel(bot)
     if (ref === undefined) {
@@ -484,15 +543,49 @@ export function install(rt) {
     if (llm() === undefined) return
     const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
+    const own = ownChatSessions(bot)
+    const groups = rt.groupSessionsOf(bot.id)
+    // A Session of a group this Bot left, or a part moved on to a fresh one, owes nothing.
+    pruneSessionRetries(bot.id, new Set([...own, ...groups]))
+    const forced = sessionId => force === true || forceSessions?.has(sessionId) === true
+    // A Session with a record owes its write even when the Bot's record already matches:
+    // an earlier pass that took a shorter Session list can advance `appliedModel` while
+    // a later pass is still writing, and that later pass may fail or stop midway, so a
+    // retry decided by `ownChanged` alone would skip its Sessions for good (#2002 review).
+    const owesWrite = sessionId => ownChanged || forced(sessionId) || sessionRetry.has(sessionId)
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
-    // while the settings show the new one. A part that cannot take it fails the change.
-    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route, { force })
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
+    // while the settings show the new one. A part that cannot take it fails the change,
+    // but the other parts are still written before the failure is reported: stopping at
+    // the first one would leave the later parts unapplied with nothing recorded to retry
+    // them once another pass has advanced the Bot's record (#2002 review).
+    if (own.some(owesWrite)) {
+      let failure
+      for (const sessionId of own) {
+        if (!owesWrite(sessionId)) continue
+        try {
+          await selectSessionModel(sessionId, route, { force: forced(sessionId) })
+          settleSessionRetry(sessionId, forced(sessionId))
+        } catch (error) {
+          noteSessionRetry(bot.id, sessionId, forced(sessionId))
+          failure ??= error
+        }
+      }
+      if (failure !== undefined) throw failure
+    }
+    // Every group this Bot is in carries the same model on its member Session. One that
+    // cannot take it keeps its own record, so the Bot's retry looks done only when every
+    // Session it wrote did succeed (#1937, #2002 review).
+    for (const sessionId of groups) {
       const applied = sessionSelections.get(sessionId)
-      if (!force && applied !== undefined && sameSelection(applied, route)) continue
-      await selectSessionModel(sessionId, route, { force })
-        .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
+      if (!forced(sessionId) && applied !== undefined && sameSelection(applied, route)) { settleSessionRetry(sessionId, false); continue }
+      try {
+        await selectSessionModel(sessionId, route, { force: forced(sessionId) })
+        settleSessionRetry(sessionId, forced(sessionId))
+      } catch (error) {
+        noteSessionRetry(bot.id, sessionId, forced(sessionId))
+        rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error)
+      }
     }
     if (llm() === undefined || !ownChanged) return ref
     bot.appliedModel = ref
@@ -574,20 +667,65 @@ export function install(rt) {
 
   // Sequential, and again whenever the answerable models change (a refused route is
   // not one of them): a provider that registers late still gets its Bots' models selected.
+  // A Session recorded as failed is retried on the next trigger even when the models are
+  // the same, as every state refresh finds them.
   const syncModels = () => {
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
-    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRooms, syncRooms) ?? syncRooms()
+    else if (roomRetry.size > 0 || sessionRetry.size > 0) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
     return modelsSynced
   }
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
   // here, such as a catalog that cannot be read, is logged; the retry record stays.
   const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
+  // A recorded failure is retried at the next trigger — a provider change, or the Bot's
+  // next turn. Every recorded Session is written, forced or not: a Session with a record
+  // owes its write even when the Bot's record already looks applied, because another
+  // pass may have advanced it meanwhile (#2002 review). Only the Sessions recorded as
+  // forced are written with `force`, so a retry rewrites nothing else of the Bot. Each
+  // Session's record is cleared by its own successful write, inside applyModel.
+  const retryBot = (bot) => applyModel(bot, { syncGroups: false, forceSessions: forcedSessionsOf(bot.id) })
+    .catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
   async function syncAll() {
     for (const bot of Object.values(state.bots)) {
-      await applyModel(bot, { syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+      await retryBot(bot)
     }
     await syncRooms()
+  }
+  // Only what failed is tried again; a Bot or group that is now applied costs nothing.
+  async function syncRetry() {
+    for (const botId of new Set([...sessionRetry.values()].map(record => record.botId))) {
+      const bot = state.bots?.[botId]
+      if (bot === undefined) {
+        clearBotRetries(botId)
+        continue
+      }
+      await retryBot(bot)
+    }
+    await syncRooms()
+  }
+
+  // A Bot's turn can only start on a Session DSH can reach, so its start is a good
+  // moment for the one retry a recorded failure is waiting for (#1937). No record, no
+  // work: a team whose models are applied never pays for this.
+  async function retryModel(botId) {
+    if (botId === undefined || !botHasRetry(botId)) return
+    const bot = state.bots?.[botId]
+    if (bot === undefined) {
+      clearBotRetries(botId)
+      return
+    }
+    await retryBot(bot)
+  }
+
+  // A turn refused before its request left — no adapter for the Session's provider, or
+  // a model DSH no longer serves — names the Session whose own selection is wrong. That
+  // Session is rewritten even when the Bot's record already looks applied; the other
+  // Sessions of the Bot are left alone (#1937, #2002 review).
+  async function reapplyModel(bot, sessionId) {
+    if (bot === undefined || llm() === undefined) return
+    if (sessionId === undefined) return applyModel(bot, { force: true })
+    return applyModel(bot, { forceSessions: new Set([sessionId]) })
   }
 
   // A route that refused a request for not being a model endpoint: it stays out of
@@ -614,7 +752,11 @@ export function install(rt) {
   }
 
   const lifetime = new AbortController()
-  ctx.effect?.(() => () => { closing = true; lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  ctx.effect?.(() => () => {
+    closing = true
+    lifetime.abort()
+    if (adaptersSyncTimer !== undefined) clearTimeout(adaptersSyncTimer)
+  }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
@@ -622,6 +764,6 @@ export function install(rt) {
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, retryModel, reapplyModel, routeRefused, dropCatalog, assembleLlm,
   })
 }
