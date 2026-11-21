@@ -17,7 +17,7 @@ const { JSDOM } = requireHarness('jsdom')
 // motion.js; they run in each test's jsdom document through the vm context.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { installStyles, installCompiledStyles, CONVERSATION_CSS } from './src/client/styles.js'",
+    contents: "export { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles } from './src/client/styles.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -238,6 +238,51 @@ test('an active message toolbar stacks above the next message', () => {
   // Later .bt-msg siblings are position:relative in the flat layout and on touch,
   // so without a z-index they paint over a toolbar that hangs below this message.
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
+})
+
+test('dsh-mobile conversation header is opaque and catches hits without altering desktop', () => {
+  const { window, module } = bench([])
+  const { CONVERSATION_CSS, botOwnCss, installCompiledStyles } = module.exports
+  const { document } = window
+  const hostSheet = document.createElement('style')
+  hostSheet.textContent = '.wSkVaW_header{display:grid;border-bottom:.5px solid rgba(0,0,0,.1)}'
+  document.head.appendChild(hostSheet)
+
+  const dispose = installCompiledStyles(CONVERSATION_CSS, 'conversation')
+  try {
+    const [compiled] = tagged(document, 'conversation')
+    const text = compiled.textContent
+    // Desktop floating header keeps its transparent canvas, click-through hit policy, and ::before fade.
+    assert.match(text, /header:is\(\.wSkVaW_header\):has\(\.bt-head\)\{[^}]*background:transparent!important;pointer-events:none/)
+    assert.match(text, /header:is\(\.wSkVaW_header\):has\(\.bt-head\)::before\{[^}]*background:linear-gradient/)
+
+    // When dsh-mobile is active, both html.dsh-native-mobile-active and [data-dsh-mobile-header]
+    // override the transparent floating strip with an opaque --bt-main surface and pointer-events:auto.
+    assert.match(
+      text,
+      /html\.dsh-native-mobile-active header:is\(\.wSkVaW_header\):has\(\.bt-head\),header:is\(\.wSkVaW_header\)\[data-dsh-mobile-header\]:has\(\.bt-head\)\{[^}]*background:var\(--bt-main\)!important;pointer-events:auto/,
+    )
+    assert.match(
+      text,
+      /html\.dsh-native-mobile-active header:is\(\.wSkVaW_header\):has\(\.bt-head\)::before,header:is\(\.wSkVaW_header\)\[data-dsh-mobile-header\]:has\(\.bt-head\)::before\{content:none\}/,
+    )
+    // Leading header button stays stacked above .bt-head and clickable: .bt-head must NOT
+    // receive pointer-events:auto on mobile, or it covers the earlier _headerLeading in DOM order.
+    assert.match(
+      text,
+      /header:is\(\.wSkVaW_header\):has\(\.bt-head\)>\[class\*="_headerLeading"\]\{[^}]*z-index:1;pointer-events:auto/,
+    )
+    assert.doesNotMatch(
+      text,
+      /dsh-(?:native-mobile-active|mobile-header)[^}]*\.bt-head\{[^}]*pointer-events:auto/,
+    )
+
+    // Host header rules stay excluded from botOwnCss so Agent mode never inherits them.
+    assert.equal(botOwnCss(CONVERSATION_CSS).includes('dsh-native-mobile-active'), false)
+    assert.equal(botOwnCss(CONVERSATION_CSS).includes('data-dsh-mobile-header'), false)
+  } finally {
+    dispose()
+  }
 })
 
 test('trigger menu descriptions stay beside their row labels', () => {
