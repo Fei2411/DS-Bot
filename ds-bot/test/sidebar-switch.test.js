@@ -875,6 +875,13 @@ test('installFrameWatch rescans the columns only when one it watches was replace
       assert.equal(observed.has(old), false)
       assert.equal(observed.has(next), true)
       assert.equal(observed.size, 2)
+      const pane = document.createElement('div')
+      pane.className = 'x_centerCol'
+      document.querySelector('.frame').append(pane)
+      await settle()
+      assert.equal(scans.length, 3, 'a column added next to the watched ones is picked up')
+      assert.equal(observed.has(pane), true)
+      assert.equal(observed.size, 3)
     } finally {
       stop()
       delete sandbox.ResizeObserver
