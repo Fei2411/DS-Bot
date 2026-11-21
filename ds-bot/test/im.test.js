@@ -2611,3 +2611,74 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })
+
+// DSH (dsh-tool-jobs) injects a job's completion into a busy owner's next step, and
+// steer.js does the same for a call a steer detached: the result of the turn's own
+// work, not a new asker. The source is DSH's own.
+for (const own of [
+  { kind: 'tool-jobs', form: 'notice', summary: 'job done' },
+  { kind: 'subagent-settled', form: 'notice', runId: 'r1' },
+]) {
+  test(`reply origin: ${own.kind} inside an IM direct turn keeps the reply going to the chat`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    await pairedConn(s)
+    await dm(s, 'u1', 'hi')
+    s.imTurn('a')
+    s.emitEvent('a', 'user/message', { source: own, content: [{ type: 'text', text: 'bg done' }] })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answer with the result' }] } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'answer with the result']])
+  })
+}
+
+test('reply origin: job results inside an IM group turn keep the reply going to the group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'user/message', { source: { kind: 'tool-jobs', form: 'notice', summary: 'job done' }, content: [{ type: 'text', text: 'bg done' }] })
+  await s.flush()
+  s.fake.sent.length = 0
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: reply']])
+})
+
+// Another asker joining the turn still makes it no IM chat's to answer.
+for (const other of [
+  { kind: 'schedule' },
+  { kind: 'agent-message', form: 'relay', sender: 'other' },
+  { kind: 'web' },
+]) {
+  test(`reply origin: ${other.kind} inside an IM direct turn withdraws the IM origin`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    await pairedConn(s)
+    await dm(s, 'u1', 'hi')
+    s.imTurn('a')
+    s.emitEvent('a', 'user/message', { source: other, content: [{ type: 'text', text: 'someone else' }] })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'mixed answer' }] } })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0)
+  })
+}
+
+test('reply origin: a job result that wakes an idle Bot opens a turn no IM chat asked for', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'turn/end', {})
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'time-context', form: 'snapshot', sections: [] }, content: [{ type: 'text', text: 'Current time: now' }] })
+  s.emitEvent('a', 'user/message', { source: { kind: 'tool-jobs', form: 'notice', summary: 'job done' }, content: [{ type: 'text', text: 'bg done' }] })
+  s.emitEvent('a', 'user/message', { source: { kind: 'tool-jobs', form: 'notice', summary: 'second job' }, content: [{ type: 'text', text: 'another' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'not for IM' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+})
