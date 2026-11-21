@@ -69,43 +69,40 @@ export function keepDraft({ chatId, part, text, files }, storage = globalThis.lo
   writeTexts(storage, texts)
 }
 
+// The text of a message that was already sent is not a draft. The shell may close its
+// composer before it commits the emptied draft and hand the sent text back on the next
+// visit; this page remembers the send so that visit can clear the box instead (#1891).
+// The note lives in this page's memory, never in browser storage: storage is shared by
+// every tab, and a mark another tab left is not this page's to act on (#2003).
+const sentTexts = new Map()
+
 /**
- * A message was sent with this text in the composer's part. The shell may close its
- * composer before it commits the emptied draft, and then hand the sent text back on the
- * next visit; this entry (empty `text`, the sent text in `sent`) lets the keeper clear
- * it instead of keeping it as an unsent draft. A send that fails gives the text back
- * while the composer is still open, and a normal keep then replaces this entry.
- * @param {{ chatId: string, part: string, text: string, files: readonly { kind: string, file: File }[] }} draft
- * @param {Storage} [storage]
+ * Remember that this page sent a message with this text in a chat.
+ * @param {{ chatId: string, text: string }} sent
  */
-export function keepSentDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
-  if (files.length === 0) keptFiles.delete(chatId)
-  else keptFiles.set(chatId, { part, files: [...files] })
-  const texts = readTexts(storage)
-  if (text === '') {
-    if (texts[chatId] === undefined) return
-    delete texts[chatId]
-  } else {
-    if (texts[chatId]?.sent === text && texts[chatId]?.part === part) return
-    texts[chatId] = { part, text: '', sent: text }
-  }
-  writeTexts(storage, texts)
+export function keepSentDraft({ chatId, text }) {
+  if (text === '') sentTexts.delete(chatId)
+  else sentTexts.set(chatId, text)
 }
 
 /**
- * The text a send carried whose composer closed before the shell committed it, read
- * once: the keeper clears it if the shell puts it back in the box.
+ * The text this page sent in a chat, read once when that chat's composer opens again.
  * @param {{ chatId: string }} where
- * @param {Storage} [storage]
  * @returns {string}
  */
-export function takeSentDraft({ chatId }, storage = globalThis.localStorage) {
-  const texts = readTexts(storage)
-  const entry = texts[chatId]
-  if (typeof entry?.sent !== 'string' || entry.sent === '') return ''
-  delete texts[chatId]
-  writeTexts(storage, texts)
-  return entry.sent
+export function takeSentDraft({ chatId }) {
+  const text = sentTexts.get(chatId) ?? ''
+  sentTexts.delete(chatId)
+  return text
+}
+
+/**
+ * The composer is open and the send has settled: the shell can no longer hand the text
+ * back, so the mark is no longer needed.
+ * @param {{ chatId: string }} where
+ */
+export function dropSentDraft({ chatId }) {
+  sentTexts.delete(chatId)
 }
 
 /**
@@ -145,4 +142,5 @@ export function pruneDrafts(gone, storage = globalThis.localStorage) {
 /** Test seam: start from an empty page. */
 export function forgetKeptFiles() {
   keptFiles.clear()
+  sentTexts.clear()
 }

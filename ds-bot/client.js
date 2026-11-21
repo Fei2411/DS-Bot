@@ -42423,26 +42423,18 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeTexts(storage, texts2);
 }
-function keepSentDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
-  if (files.length === 0) keptFiles.delete(chatId);
-  else keptFiles.set(chatId, { part, files: [...files] });
-  const texts2 = readTexts(storage);
-  if (text === "") {
-    if (texts2[chatId] === void 0) return;
-    delete texts2[chatId];
-  } else {
-    if (texts2[chatId]?.sent === text && texts2[chatId]?.part === part) return;
-    texts2[chatId] = { part, text: "", sent: text };
-  }
-  writeTexts(storage, texts2);
+var sentTexts = /* @__PURE__ */ new Map();
+function keepSentDraft({ chatId, text }) {
+  if (text === "") sentTexts.delete(chatId);
+  else sentTexts.set(chatId, text);
 }
-function takeSentDraft({ chatId }, storage = globalThis.localStorage) {
-  const texts2 = readTexts(storage);
-  const entry = texts2[chatId];
-  if (typeof entry?.sent !== "string" || entry.sent === "") return "";
-  delete texts2[chatId];
-  writeTexts(storage, texts2);
-  return entry.sent;
+function takeSentDraft({ chatId }) {
+  const text = sentTexts.get(chatId) ?? "";
+  sentTexts.delete(chatId);
+  return text;
+}
+function dropSentDraft({ chatId }) {
+  sentTexts.delete(chatId);
 }
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
@@ -42462,6 +42454,7 @@ function pruneDrafts(gone, storage = globalThis.localStorage) {
 }
 function forgetKeptFiles() {
   keptFiles.clear();
+  sentTexts.clear();
 }
 
 // src/client/composer.js
@@ -42769,16 +42762,14 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
   (0, import_react60.useEffect)(() => {
     if (!current2) return;
     if (frozen) {
-      if (sending && draft !== "") {
-        keepSentDraft({ chatId, part: sessionId, text: draft, files: [] });
-        return;
-      }
-      if (restored.current === `${chatId}:${sessionId}`) keepSentDraft({ chatId, part: sessionId, text: "", files: [] });
+      if (sending && draft !== "") keepSentDraft({ chatId, text: draft });
+      if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: "", files: [] });
       return;
     }
     if (restored.current !== `${chatId}:${sessionId}`) return;
     if (dropped.current !== "" && draft === dropped.current) return;
     dropped.current = "";
+    dropSentDraft({ chatId });
     if (pending.current.text && draft === "") return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };

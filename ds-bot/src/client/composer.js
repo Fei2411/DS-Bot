@@ -7,7 +7,7 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
-import { chatOfSession, keepDraft, keepSentDraft, takeDraft, takeSentDraft } from './draft-keep.js'
+import { chatOfSession, dropSentDraft, keepDraft, keepSentDraft, takeDraft, takeSentDraft } from './draft-keep.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -294,17 +294,14 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
   useEffect(() => {
     if (!current) return
     if (frozen) {
-      // A message on its way out is not a draft any more: its text is recorded as sent,
+      // A message on its way out is not a draft any more: this page remembers its text,
       // so a composer that closes (or opens) before the shell commits the empty draft
       // cannot bring it back. A send that fails returns to the plain phase with its
       // draft, which is then kept again.
-      if (sending && draft !== '') {
-        keepSentDraft({ chatId, part: sessionId, text: draft, files: [] })
-        return
-      }
+      if (sending && draft !== '') keepSentDraft({ chatId, text: draft })
       // Before the take, an earlier part's draft still waits to be carried; only a draft
       // this composer already has is dropped.
-      if (restored.current === `${chatId}:${sessionId}`) keepSentDraft({ chatId, part: sessionId, text: '', files: [] })
+      if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: '', files: [] })
       return
     }
     if (restored.current !== `${chatId}:${sessionId}`) return
@@ -312,6 +309,8 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     // after it is.
     if (dropped.current !== '' && draft === dropped.current) return
     dropped.current = ''
+    // The composer is open and the send has settled: the text cannot come back now.
+    dropSentDraft({ chatId })
     // What was put back lands in the input state a render later; keeping the empty box
     // in between would drop it.
     if (pending.current.text && draft === '') return
