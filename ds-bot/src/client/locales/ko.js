@@ -1497,6 +1497,8 @@ export const KO = {
   'Repeat every 1 minute to 7 days': '반복 주기는 1분에서 7일 사이여야 합니다',
   'Pick when it runs': '실행 시점을 선택하세요',
   'No such task': '해당 작업이 없습니다',
+  'The task just changed. Try again.': '작업이 방금 변경되었습니다. 다시 시도하세요.',
+  'This task’s chat has ended. Delete the task and make it again.': '이 작업의 대화가 끝났습니다. 작업을 삭제하고 다시 만드세요.',
   'Working folder': '작업 폴더',
   'Working folder: {folder}': '작업 폴더: {folder}',
   Folder: '폴더',

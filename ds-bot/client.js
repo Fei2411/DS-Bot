@@ -75,6 +75,8 @@ var PHRASES = [
   ["调用", "呼叫"],
   ["信息", "資訊"],
   ["复制", "複製"],
+  ["恢复", "恢復"],
+  ["复原", "復原"],
   ["重复", "重複"],
   ["回复", "回覆"],
   ["答复", "答覆"],
@@ -1581,6 +1583,8 @@ var JA = {
   "Repeat every 1 minute to 7 days": "繰り返し間隔は 1 分〜7 日の間で設定してください",
   "Pick when it runs": "実行タイミングを選択してください",
   "No such task": "該当するタスクがありません",
+  "The task just changed. Try again.": "タスクが変更されたところです。もう一度お試しください。",
+  "This task’s chat has ended. Delete the task and make it again.": "このタスクの会話は終了しています。タスクを削除して作り直してください。",
   "Working folder": "作業フォルダ",
   "Working folder: {folder}": "作業フォルダ: {folder}",
   "Folder": "フォルダ",
@@ -4194,6 +4198,8 @@ var KO = {
   "Repeat every 1 minute to 7 days": "반복 주기는 1분에서 7일 사이여야 합니다",
   "Pick when it runs": "실행 시점을 선택하세요",
   "No such task": "해당 작업이 없습니다",
+  "The task just changed. Try again.": "작업이 방금 변경되었습니다. 다시 시도하세요.",
+  "This task’s chat has ended. Delete the task and make it again.": "이 작업의 대화가 끝났습니다. 작업을 삭제하고 다시 만드세요.",
   "Working folder": "작업 폴더",
   "Working folder: {folder}": "작업 폴더: {folder}",
   Folder: "폴더",
@@ -6810,6 +6816,8 @@ var ES = {
   "Repeat every 1 minute to 7 days": "Repite cada entre 1 minuto y 7 días",
   "Pick when it runs": "Elige cuándo se ejecuta",
   "No such task": "No existe esa tarea",
+  "The task just changed. Try again.": "La tarea acaba de cambiar. Inténtalo de nuevo.",
+  "This task’s chat has ended. Delete the task and make it again.": "El chat de esta tarea ha terminado. Elimínala y créala de nuevo.",
   "Working folder": "Carpeta de trabajo",
   "Working folder: {folder}": "Carpeta de trabajo: {folder}",
   Folder: "Carpeta",
@@ -9384,6 +9392,8 @@ var FR = {
   "Repeat every 1 minute to 7 days": "L’intervalle de répétition doit être compris entre 1 minute et 7 jours",
   "Pick when it runs": "Choisissez quand l’exécuter",
   "No such task": "Tâche introuvable",
+  "The task just changed. Try again.": "La tâche vient de changer. Réessayez.",
+  "This task’s chat has ended. Delete the task and make it again.": "La discussion de cette tâche est terminée. Supprimez la tâche et recréez-la.",
   "Working folder": "Dossier de travail",
   "Working folder: {folder}": "Dossier de travail : {folder}",
   "Folder": "Dossier",
@@ -11997,6 +12007,8 @@ var DE = {
   "Repeat every 1 minute to 7 days": "Das Wiederholungsintervall muss zwischen 1 Minute und 7 Tagen liegen",
   "Pick when it runs": "Wähle den Ausführungszeitpunkt",
   "No such task": "Aufgabe nicht gefunden",
+  "The task just changed. Try again.": "Die Aufgabe wurde gerade geändert. Versuche es erneut.",
+  "This task’s chat has ended. Delete the task and make it again.": "Der Chat dieser Aufgabe ist beendet. Lösche die Aufgabe und lege sie neu an.",
   "Working folder": "Arbeitsordner",
   "Working folder: {folder}": "Arbeitsordner: {folder}",
   Folder: "Ordner",
@@ -14633,6 +14645,8 @@ var ZH = {
   "Repeat every 1 minute to 7 days": "重复间隔要在 1 分钟到 7 天之间",
   "Pick when it runs": "选择什么时候运行",
   "No such task": "没有这个任务",
+  "The task just changed. Try again.": "任务刚被改过，再试一次。",
+  "This task’s chat has ended. Delete the task and make it again.": "这个任务所在的对话已结束。删掉它再建一个。",
   "Working folder": "工作文件夹",
   "Working folder: {folder}": "工作文件夹：{folder}",
   Folder: "文件夹",
@@ -25639,7 +25653,8 @@ var nextText = (task) => {
   if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
-var canResume = (task) => task.status === "paused" && !((task.kind === "at" || task.kind === "after") && Date.parse(task.scheduledAt) <= Date.now());
+var lateOnce = (task) => (task.kind === "at" || task.kind === "after") && Date.parse(task.scheduledAt) <= Date.now();
+var canPauseTask = (task) => (task.status === "active" || task.status === "paused") && !lateOnce(task);
 function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
   const [expanded, setExpanded] = (0, import_react23.useState)(false);
@@ -25669,38 +25684,42 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
       setFailed(hostText(failure?.message ?? String(failure)));
     });
   };
-  const pausable = canPause && (task.status === "active" || canResume(task));
+  const pausable = canPause && canPauseTask(task);
   const room2 = task.roomId ? roster.roomsById[task.roomId] : void 0;
   return (0, import_react23.createElement)(
-    "div",
-    { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
-    showBot ? (0, import_react23.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
+    import_react23.Fragment,
+    null,
     (0, import_react23.createElement)(
-      "button",
-      { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
-      (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
-      (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
-      failed ? (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, failed) : null
+      "div",
+      { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
+      showBot ? (0, import_react23.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
+      (0, import_react23.createElement)(
+        "button",
+        { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
+        (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
+        (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
+        task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      ),
+      (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+      pausable ? (0, import_react23.createElement)("button", {
+        type: "button",
+        className: "bt-mini bt-task-remove bt-task-pause",
+        disabled: busy,
+        "aria-label": task.status === "active" ? t("Pause task") : t("Resume task"),
+        title: task.status === "active" ? t("Pause task") : t("Resume task"),
+        onClick: toggle
+      }, task.status === "active" ? (0, import_react23.createElement)(PauseIcon) : (0, import_react23.createElement)(ResumeIcon)) : null,
+      (0, import_react23.createElement)("button", {
+        type: "button",
+        className: "bt-mini bt-task-remove",
+        "data-confirm": confirming || void 0,
+        disabled: busy,
+        "aria-label": confirming ? t("Click again to delete") : t("Delete task"),
+        title: confirming ? void 0 : t("Delete task"),
+        onClick: remove
+      }, confirming ? t("Delete") : (0, import_react23.createElement)(TrashIcon))
     ),
-    (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
-    pausable ? (0, import_react23.createElement)("button", {
-      type: "button",
-      className: "bt-mini bt-task-remove bt-task-pause",
-      disabled: busy,
-      "aria-label": task.status === "active" ? t("Pause task") : t("Resume task"),
-      title: task.status === "active" ? t("Pause task") : t("Resume task"),
-      onClick: toggle
-    }, task.status === "active" ? (0, import_react23.createElement)(PauseIcon) : (0, import_react23.createElement)(ResumeIcon)) : null,
-    (0, import_react23.createElement)("button", {
-      type: "button",
-      className: "bt-mini bt-task-remove",
-      "data-confirm": confirming || void 0,
-      disabled: busy,
-      "aria-label": confirming ? t("Click again to delete") : t("Delete task"),
-      title: confirming ? void 0 : t("Delete task"),
-      onClick: remove
-    }, confirming ? t("Delete") : (0, import_react23.createElement)(TrashIcon))
+    failed ? (0, import_react23.createElement)("div", { className: "bt-set-row bt-task-failed", role: "alert" }, (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint" }, failed)) : null
   );
 }
 var pad = (number) => String(number).padStart(2, "0");

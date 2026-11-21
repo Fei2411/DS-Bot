@@ -1465,6 +1465,8 @@ export const FR = {
   "Repeat every 1 minute to 7 days": "L’intervalle de répétition doit être compris entre 1 minute et 7 jours",
   "Pick when it runs": "Choisissez quand l’exécuter",
   "No such task": "Tâche introuvable",
+  "The task just changed. Try again.": "La tâche vient de changer. Réessayez.",
+  "This task’s chat has ended. Delete the task and make it again.": "La discussion de cette tâche est terminée. Supprimez la tâche et recréez-la.",
   "Working folder": "Dossier de travail",
   "Working folder: {folder}": "Dossier de travail : {folder}",
   "Folder": "Dossier",

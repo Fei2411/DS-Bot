@@ -1465,6 +1465,8 @@ export const JA = {
   "Repeat every 1 minute to 7 days": "繰り返し間隔は 1 分〜7 日の間で設定してください",
   "Pick when it runs": "実行タイミングを選択してください",
   "No such task": "該当するタスクがありません",
+  "The task just changed. Try again.": "タスクが変更されたところです。もう一度お試しください。",
+  "This task’s chat has ended. Delete the task and make it again.": "このタスクの会話は終了しています。タスクを削除して作り直してください。",
   "Working folder": "作業フォルダ",
   "Working folder: {folder}": "作業フォルダ: {folder}",
   "Folder": "フォルダ",

@@ -1497,6 +1497,8 @@ export const DE = {
   'Repeat every 1 minute to 7 days': 'Das Wiederholungsintervall muss zwischen 1 Minute und 7 Tagen liegen',
   'Pick when it runs': 'Wähle den Ausführungszeitpunkt',
   'No such task': 'Aufgabe nicht gefunden',
+  'The task just changed. Try again.': 'Die Aufgabe wurde gerade geändert. Versuche es erneut.',
+  'This task’s chat has ended. Delete the task and make it again.': 'Der Chat dieser Aufgabe ist beendet. Lösche die Aufgabe und lege sie neu an.',
   'Working folder': 'Arbeitsordner',
   'Working folder: {folder}': 'Arbeitsordner: {folder}',
   Folder: 'Ordner',

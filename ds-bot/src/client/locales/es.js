@@ -1497,6 +1497,8 @@ export const ES = {
   'Repeat every 1 minute to 7 days': 'Repite cada entre 1 minuto y 7 días',
   'Pick when it runs': 'Elige cuándo se ejecuta',
   'No such task': 'No existe esa tarea',
+  'The task just changed. Try again.': 'La tarea acaba de cambiar. Inténtalo de nuevo.',
+  'This task’s chat has ended. Delete the task and make it again.': 'El chat de esta tarea ha terminado. Elimínala y créala de nuevo.',
   'Working folder': 'Carpeta de trabajo',
   'Working folder: {folder}': 'Carpeta de trabajo: {folder}',
   Folder: 'Carpeta',
