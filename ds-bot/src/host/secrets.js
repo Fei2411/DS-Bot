@@ -748,6 +748,11 @@ export function install(rt) {
   // A value that is part of its own label would be replaced again on every pass, so a
   // request this listener rewrote passes straight through.
   const rewritten = new WeakSet()
+  const freezeCopies = value => {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value
+    for (const key of Reflect.ownKeys(value)) freezeCopies(Object.getOwnPropertyDescriptor(value, key).value)
+    return Object.freeze(value)
+  }
   const immutableData = value => {
     if (value === null || typeof value !== 'object') return typeof value !== 'function'
     const prototype = Object.getPrototypeOf(value)
@@ -768,7 +773,7 @@ export function install(rt) {
         if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
         else {
           replaced = redactDeep(message, redact)
-          if (object && immutableData(message)) redactedMessages.set(message, replaced)
+          if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
         }
         if (replaced !== message) changed = true
         return replaced

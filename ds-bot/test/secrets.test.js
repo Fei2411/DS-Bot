@@ -442,6 +442,18 @@ test('frozen accessor model messages are redacted fresh', async (t) => {
   assert.equal(redactRequest(bench, [message]).messages[0].content, '[secret:TOKEN]')
 })
 
+test('cached redacted copies reject downstream mutation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: value }] })
+  const first = redactRequest(bench, [message]).messages[0]
+  assert.throws(() => { first.content[0].text = value }, TypeError)
+  assert.throws(() => { first.content.push({ type: 'text', text: value }) }, TypeError)
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+})
+
 test('memoized model messages equal the original deep redaction path', async (t) => {
   const bench = start()
   t.after(bench.stop)
