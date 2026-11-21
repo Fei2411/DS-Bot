@@ -8,8 +8,9 @@ import { output } from './tools.js'
 export const PUBLISH_ISSUE = 'publish_ds_bot_issue'
 const DRAFT_TTL = 10 * 60_000
 const LINK_MAX = 4000
-const WINDOWS_HOME = /\b[A-Z]:[\\/]+Users[\\/]+[^\\/:*?<>|\r\n'"\x60]+[\\/]+/gi
-const UNIX_HOME = /(?<![\w/])(?:file:\/\/)?\/(?:Users|home)\/[^/\s'"\x60]+\/+/gi
+const WINDOWS_HOME = /\b[A-Z]:[\\/]+Users[\\/]+(?:[^\\/:*?<>|\r\n'"\x60]+([\\/]+)|(?:[^\\/:*?<>|\s'"\x60.,;)\]-]|-(?!>)|\.(?!$|[\s.,;:)\]'"\x60])| )+(?<! )(?=$|[\s.,;:)\]'"\x60]))/gi
+const UNIX_HOME = /(?<![\w/])(?:file:\/\/)?\/(?:Users|home)\/(?:[^/\s'"\x60]+(\/+)|[^/\s'"\x60,;:)\]]+(?<!\.)(?=$|[\s.,;:)\]'"\x60]))/gi
+const homeMarker = (_match, separator) => separator === undefined ? '~' : '~/'
 
 function issueLink({ title, body, form = { what: body } }) {
   const link = fields => `${ISSUES_URL}?${new URLSearchParams({ template: 'bug.yml', title, ...fields })}`
@@ -57,7 +58,7 @@ export function install(rt) {
       const clean = value => {
         let text = cleanText(value, { redact: rt.redactSecrets })
         for (const home of [rt.dshHome, rt.home]) text = cleanText(text, { home })
-        return text.replace(WINDOWS_HOME, '~/').replace(UNIX_HOME, '~/').replace(/\r\n?/g, '\n').trim()
+        return text.replace(WINDOWS_HOME, homeMarker).replace(UNIX_HOME, homeMarker).replace(/\r\n?/g, '\n').trim()
       }
       const title = clean(args.title).replace(/\s+/g, ' ')
       const what = clean(args.what)

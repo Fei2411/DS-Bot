@@ -188,6 +188,11 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.equal(url.searchParams.has('body'), false)
   assert.equal(url.searchParams.has('clean'), false)
 
+  rt.publishDsBotIssue = async () => { throw new Error('Could not confirm whether GitHub accepted the issue') }
+  await show('writer-now', await prepareIssue())
+  const uncertain = await call('view-reply', await open())
+  assert.match(uncertain.value.issueReportResult, /Check existing issues before submitting manually: https:\/\//)
+
   let writes = 0
   rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei2411/DS-Bot/issues/42' }
   await show('writer-now', await prepareIssue())
@@ -220,13 +225,13 @@ test('someone else’s home paths are redacted from the public preview and manua
   const { call, show, team, stop } = await start()
   t.after(stop)
   const args = await prepareIssue({
-    title: 'Could not open /Users/Shared/Documents/notes.txt',
-    what: 'Reload fails in /home/user/work/project',
-    diagnostics: 'Windows failed in C:\\Users\\John Smith\\AppData\\x.log',
+    title: 'Could not open /Users/Shared/Documents/notes.txt from /Users/Shared.',
+    what: 'Reload fails in /home/user/work/project (/home/user)',
+    diagnostics: 'Windows failed in C:\\Users\\John Smith\\AppData\\x.log\nProfile: C:\\Users\\Jane Doe',
   })
-  assert.equal(args.title, 'Could not open ~/Documents/notes.txt')
-  assert.match(args.view.children[1].text, /Reload fails in ~\/work\/project/)
-  assert.match(args.view.children[1].text, /Windows failed in ~\/AppData\\x\.log/)
+  assert.equal(args.title, 'Could not open ~/Documents/notes.txt from ~.')
+  assert.match(args.view.children[1].text, /Reload fails in ~\/work\/project \(~\)/)
+  assert.match(args.view.children[1].text, /Windows failed in ~\/AppData\\x\.log\nProfile: ~\n/)
   assert.equal((await show('writer-now', args)).concluded, true)
   const { id, view } = (await team()).views['writer-now']
   const reply = await call('view-reply', {
@@ -234,8 +239,8 @@ test('someone else’s home paths are redacted from the public preview and manua
   })
   const url = new URL(reply.value.issueReportResult.match(/https:\/\/\S+/)[0])
   assert.equal(url.searchParams.get('title'), args.title)
-  assert.equal(url.searchParams.get('what'), 'Reload fails in ~/work/project')
-  assert.match(url.searchParams.get('diagnostics'), /Windows failed in ~\/AppData\\x\.log/)
+  assert.equal(url.searchParams.get('what'), 'Reload fails in ~/work/project (~)')
+  assert.match(url.searchParams.get('diagnostics'), /Windows failed in ~\/AppData\\x\.log\nProfile: ~$/)
 })
 
 test('issue report redaction preserves the destination of a failed rename', async (t) => {
@@ -248,7 +253,13 @@ test('issue report redaction preserves the destination of a failed rename', asyn
     'rename C:\\Users\\Public -> D:\\data\\notes.txt',
   ]
   const args = await prepareIssue({ what: messages.join('\n') })
-  for (const message of messages) assert.ok(args.view.children[1].text.includes(message))
+  const expected = [
+    "rename '~' -> '/opt/notes.txt'",
+    'rename ~ -> /opt/notes.txt',
+    'rename "~" -> "D:\\data\\notes.txt"',
+    'rename ~ -> D:\\data\\notes.txt',
+  ]
+  assert.ok(args.view.children[1].text.includes(expected.join('\n')))
 })
 
 test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
