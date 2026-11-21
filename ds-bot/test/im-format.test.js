@@ -83,3 +83,24 @@ test('chunkMarkdown trims the edges of a message cut into several chunks', () =>
   assert.deepEqual(chunks, [body, body])
   for (const chunk of chunks) assert.ok(Array.from(chunk).length <= 60)
 })
+
+test('chunkMarkdown never cuts an emoji in half', () => {
+  // `limit` is counted in code points but the cut index was used as a UTF-16 offset, so
+  // every astral character before it moved the cut one unit early -- onto the middle of
+  // a surrogate pair. Each chunk then held half an emoji, which renders as nothing.
+  const emoji = '\u{1F600}'.repeat(10)
+  const chunks = chunkMarkdown(emoji, 5)
+  assert.deepEqual(chunks, ['\u{1F600}'.repeat(5), '\u{1F600}'.repeat(5)])
+  assert.equal(chunks.join(''), emoji)
+  for (const chunk of chunks) {
+    assert.ok(!/[\uD800-\uDBFF]$/.test(chunk), 'a chunk must not end on a lone high surrogate')
+    assert.ok(!/^[\uDC00-\uDFFF]/.test(chunk), 'a chunk must not start on a lone low surrogate')
+  }
+})
+
+test('chunkMarkdown keeps a mixed message whole when it fits', () => {
+  const body = 'a\u{1F600}b'.repeat(20)
+  const chunks = chunkMarkdown(body, 20)
+  assert.equal(chunks.join(''), body)
+  for (const chunk of chunks) assert.ok(Array.from(chunk).length <= 20)
+})
