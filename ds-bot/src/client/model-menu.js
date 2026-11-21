@@ -494,15 +494,14 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
 // up, the last) menuitemradio, matching how the trigger behaves. Escape is left to
 // bubble so the menu's window handler closes it from the input too.
 const modelSearch = ({ models, query, setQuery }, menu) => {
-  const field = useRef(null)
   return models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
     h('input', {
-      ref: field, type: 'search', className: 'bt-input bt-model-search-input',
+      type: 'search', className: 'bt-input bt-model-search-input',
       placeholder: t('Search models…'), 'aria-label': t('Search models'),
       value: query, autoFocus: true, autoComplete: 'off', spellCheck: false,
       onChange: event => setQuery(event.target.value),
       onKeyDown: event => {
-        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) stepMenuFocus(menu.current, event, field.current)
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) stepMenuFocus(menu.current, event, event.currentTarget)
       },
     })) : null
 }
