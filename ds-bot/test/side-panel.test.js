@@ -5,34 +5,6 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { drawerMenuKeys, panelHasStrip, stripMenuKeys } from '../src/client/side-model.js'
 
-// The strip shows whenever the Bot has a browser tab or a side chat; side chats
-// need no browser bridge, so DSH Web gets them too.
-test('the strip shows with only side chats and no browser', () => {
-  assert.equal(panelHasStrip(false, 0, 1), true)
-  assert.equal(panelHasStrip(false, 0, 0), false)
-  assert.equal(panelHasStrip(true, 0, 0), false)
-  assert.equal(panelHasStrip(true, 1, 0), true)
-  assert.equal(panelHasStrip(true, 0, 2), true)
-})
-
-test('the strip `···` offers a browser tab only where the browser works', () => {
-  assert.deepEqual(stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }),
-    ['new-tab', 'side', 'sep', 'terminal', 'files'])
-  assert.deepEqual(stripMenuKeys({ canBrowse: false, canTerminal: false, canFiles: false }), ['side'])
-  assert.deepEqual(stripMenuKeys({ canBrowse: false, canTerminal: true, canFiles: false }),
-    ['side', 'sep', 'terminal'])
-})
-
-test('the details `···` hides when it would be empty', () => {
-  assert.deepEqual(drawerMenuKeys({ bot: true, canBrowse: true, canTerminal: true, canFiles: true }),
-    ['browser', 'side', 'sep', 'terminal', 'files'])
-  assert.deepEqual(drawerMenuKeys({ bot: true, canBrowse: false, canTerminal: false, canFiles: false }), ['side'])
-  assert.deepEqual(drawerMenuKeys({ bot: false, room: true, canBrowse: false, canTerminal: true, canFiles: true }),
-    ['terminal', 'files'])
-  assert.deepEqual(drawerMenuKeys({ bot: false, room: true, canBrowse: false, canTerminal: false, canFiles: false }), [])
-  assert.deepEqual(drawerMenuKeys({ bot: false, room: false, canBrowse: false, canTerminal: true, canFiles: true }), [])
-})
-
 // The `···` popover, bundled once and rendered with a minimal React stand-in;
 // the useState for `open` starts true so the items are on the tree.
 const bundle = await build({
@@ -70,33 +42,6 @@ const find = (node, match, out = []) => {
   return out
 }
 
-test('the `···` button opens the menu with an item per entry', () => {
-  const actions = { openBrowser: () => {}, browserNewTab: () => {}, newSideChat: () => {}, newTerminal: () => {}, openFiles: () => {} }
-  const items = stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }).map(key => menuItemFor(key, actions, 's'))
-  const tree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'More' })
-  const [button] = find(tree, node => node.type === 'button' && node.props?.className === 'bt-ptab-new')
-  assert.equal(button.props['aria-label'], 'More')
-  assert.equal(button.props['aria-haspopup'], 'menu')
-  const labels = find(tree, node => node.props?.role === 'menuitem').map(node => node.children.flat(Infinity).at(-1)?.children?.[0])
-  assert.deepEqual([...labels], ['New browser tab', 'Side chat', 'Terminal', 'Files'])
-  assert.equal(find(tree, node => node.props?.className === 'bt-pmenu-sep').length, 1)
-})
-
-test('an empty list renders no button', () => {
-  assert.equal(PanelMenu({ items: [], className: 'bt-round', 'aria-label': 'More' }), null)
-})
-
-test('a rejecting menu action reports through reportError', async () => {
-  const calls = []
-  const actions = {
-    newSideChat: () => Promise.reject(new Error('no model yet')),
-    reportError: (error, area) => calls.push([area, error.message]),
-  }
-  menuItemFor('side', actions, 's').onPick()
-  await new Promise(resolve => setTimeout(resolve, 0))
-  assert.deepEqual(calls, [['panel-menu', 'no model yet']])
-})
-
 // side-chat.js, bundled the same way; useState returns queued pairs so a test
 // controls draft/fail and records what the setters get.
 const sideBundle = await build({
@@ -130,6 +75,61 @@ const sideExports = (states) => {
 }
 
 const chat = { id: 'c1', entries: [{ id: 'e1', status: 'done', question: 'q?', answer: 'a.', createdAt: 1, finishedAt: 2 }] }
+
+// The strip shows whenever the Bot has a browser tab or a side chat; side chats
+// need no browser bridge, so DSH Web gets them too.
+test('the strip shows with only side chats and no browser', () => {
+  assert.equal(panelHasStrip(false, 0, 1), true)
+  assert.equal(panelHasStrip(false, 0, 0), false)
+  assert.equal(panelHasStrip(true, 0, 0), false)
+  assert.equal(panelHasStrip(true, 1, 0), true)
+  assert.equal(panelHasStrip(true, 0, 2), true)
+})
+
+test('the strip `···` offers a browser tab only where the browser works', () => {
+  assert.deepEqual(stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }),
+    ['new-tab', 'side', 'sep', 'terminal', 'files'])
+  assert.deepEqual(stripMenuKeys({ canBrowse: false, canTerminal: false, canFiles: false }), ['side'])
+  assert.deepEqual(stripMenuKeys({ canBrowse: false, canTerminal: true, canFiles: false }),
+    ['side', 'sep', 'terminal'])
+})
+
+test('the details `···` hides when it would be empty', () => {
+  assert.deepEqual(drawerMenuKeys({ bot: true, canBrowse: true, canTerminal: true, canFiles: true }),
+    ['browser', 'side', 'sep', 'terminal', 'files'])
+  assert.deepEqual(drawerMenuKeys({ bot: true, canBrowse: false, canTerminal: false, canFiles: false }), ['side'])
+  assert.deepEqual(drawerMenuKeys({ bot: false, room: true, canBrowse: false, canTerminal: true, canFiles: true }),
+    ['terminal', 'files'])
+  assert.deepEqual(drawerMenuKeys({ bot: false, room: true, canBrowse: false, canTerminal: false, canFiles: false }), [])
+  assert.deepEqual(drawerMenuKeys({ bot: false, room: false, canBrowse: false, canTerminal: true, canFiles: true }), [])
+})
+
+test('the `···` button opens the menu with an item per entry', () => {
+  const actions = { openBrowser: () => {}, browserNewTab: () => {}, newSideChat: () => {}, newTerminal: () => {}, openFiles: () => {} }
+  const items = stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }).map(key => menuItemFor(key, actions, 's'))
+  const tree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'More' })
+  const [button] = find(tree, node => node.type === 'button' && node.props?.className === 'bt-ptab-new')
+  assert.equal(button.props['aria-label'], 'More')
+  assert.equal(button.props['aria-haspopup'], 'menu')
+  const labels = find(tree, node => node.props?.role === 'menuitem').map(node => node.children.flat(Infinity).at(-1)?.children?.[0])
+  assert.deepEqual([...labels], ['New browser tab', 'Side chat', 'Terminal', 'Files'])
+  assert.equal(find(tree, node => node.props?.className === 'bt-pmenu-sep').length, 1)
+})
+
+test('an empty list renders no button', () => {
+  assert.equal(PanelMenu({ items: [], className: 'bt-round', 'aria-label': 'More' }), null)
+})
+
+test('a rejecting menu action reports through reportError', async () => {
+  const calls = []
+  const actions = {
+    newSideChat: () => Promise.reject(new Error('no model yet')),
+    reportError: (error, area) => calls.push([area, error.message]),
+  }
+  menuItemFor('side', actions, 's').onPick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(calls, [['panel-menu', 'no model yet']])
+})
 
 test('a refused question puts the text back and shows the error', async () => {
   const calls = { draft: [], fail: [] }
