@@ -2374,9 +2374,17 @@ export function install(rt) {
     // Unarchiving awaits, and a delete or another switch can move this history in the
     // meantime: find the part again by id instead of splicing at a stale index, which
     // would drop an unrelated part and save the opened one twice (#1939).
-    if (bot.sessionId !== current) throw Object.assign(new Error('Another conversation was opened meanwhile; try again'), { code: 'bot/busy' })
+    const taken = bot.sessionId !== current
     const at = segments.findIndex(segment => segment.sessionId === partId)
-    if (at === -1) throw Object.assign(new Error('This conversation was deleted meanwhile'), { code: 'bot/not-found' })
+    if (taken || at === -1) {
+      // A refused switch never opens the part, so it goes back where it was: left
+      // unarchived it would stay live with no chat reading it (#1939).
+      await ctx.workspaceRegistry.archiveSession(partId, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: part %s not archived again: %s', partId, error))
+      throw taken
+        ? Object.assign(new Error('Another conversation was opened meanwhile; try again'), { code: 'bot/busy' })
+        : Object.assign(new Error('This conversation was deleted meanwhile'), { code: 'bot/not-found' })
+    }
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
@@ -2458,9 +2466,12 @@ export function install(rt) {
       }
     }
     // A browser handoff raised from a deleted part must not come back into the chat the
-    // user is reading: drop the hold with the part (#1939).
+    // user is reading. The page stays with the user instead of returning to the Bot:
+    // dropping the hold would let another chat drive a browser the user took over (#1939).
     const hold = rt.browserChannel?.holdOf?.(botId)
-    if (hold?.sessionId !== undefined && doomed.includes(hold.sessionId)) rt.browserChannel.setHold(botId, null)
+    if (hold?.sessionId !== undefined && doomed.includes(hold.sessionId)) {
+      rt.browserChannel.setHold(botId, { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' })
+    }
     await rt.save()
     for (const id of doomed.filter(Boolean)) {
       await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })

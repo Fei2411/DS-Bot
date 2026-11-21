@@ -225,7 +225,26 @@ test('a switch whose target was deleted meanwhile refuses instead of saving it t
   assert.deepEqual(stored().bots.b.segments.map(segment => segment.sessionId), ['b1', 'b3'])
 })
 
-test('a browser handoff raised from a deleted part is dropped with it', async (t) => {
+test('a refused switch puts its target back into the archive', async (t) => {
+  const { ctx, rt, archived, stop } = await start(seed({ sessionId: 'b4', segments: earlier('b1', 'b2') }))
+  t.after(stop)
+
+  let release
+  ctx.workspaceRegistry.unarchiveSession = () => new Promise((resolve) => { release = resolve })
+  const switched = rt.switchPart('b', 'b1')
+  await delay(20)
+  // Another window starts a new conversation while B1 is still unarchiving.
+  await rt.newPart('b4')
+  release()
+
+  await assert.rejects(switched, error => error.code === 'bot/busy')
+  // B1 never became current, so it goes back to the archive instead of staying live.
+  const last = archived.at(-1)
+  assert.equal(last.id, 'b1')
+  assert.equal(last.options?.stopActivity, true)
+})
+
+test('a browser handoff raised from a deleted part stays with the user, detached from it', async (t) => {
   const { rt, stored, stop } = await start(seed({
     sessionId: 'b4',
     segments: earlier('b1', 'b2'),
@@ -243,11 +262,15 @@ test('a browser handoff raised from a deleted part is dropped with it', async (t
   await rt.deletePart('b', 'b2')
   assert.deepEqual(holds, [])
 
-  // The hold's own part goes: the hold goes with it, so Give back cannot answer the chat
-  // the user is reading instead.
+  // The hold's own part goes: the page stays in the user's hands with no conversation
+  // attached, so Give back cannot answer the chat the user is reading, and the Bot's
+  // browser tools stay refused until the user gives the page back.
   await rt.deletePart('b', 'b1')
-  assert.deepEqual(holds, [['b', null]])
-  assert.equal(hold, null)
+  assert.deepEqual(holds.map(([botId]) => botId), ['b'])
+  assert.equal(hold.by, 'user')
+  assert.equal(hold.sessionId, undefined)
+  assert.equal(hold.callId, undefined)
+  assert.match(hold.note, /controlling this browser/)
   assert.deepEqual(stored().bots.b.retiredSessions, ['b2', 'b1'])
 })
 
