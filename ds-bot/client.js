@@ -306,6 +306,15 @@ var JA = {
   "URL": "URL",
   "Headers (JSON)": "ヘッダー（JSON）",
   "Skill instructions": "スキルの指示",
+  "Skill source": "スキルのソース",
+  "Skill text": "テキスト",
+  "Skill folder": "スキルフォルダー",
+  "Choose a skill folder": "スキルフォルダーを選択",
+  "Original folder": "元のフォルダー",
+  "DS Bot copies the folder and its files.": "DS Bot はフォルダー全体をコピーします。",
+  "Choose a folder whose SKILL.md is named {name}.": "SKILL.md に記載されたスキル名が {name} のフォルダーを選択してください。",
+  "A capability named {name} already exists.": "{name} という名前の機能が既に存在します。",
+  "Could not load skill: {error}": "スキルを読み込めませんでした：{error}",
   "New skill": "新しいスキル",
   "Awaiting approval": "承認待ち",
   "Added": "追加",
@@ -2880,6 +2889,15 @@ var KO = {
   URL: "URL",
   "Headers (JSON)": "헤더 (JSON)",
   "Skill instructions": "스킬 지침",
+  "Skill source": "스킬 소스",
+  "Skill text": "텍스트",
+  "Skill folder": "스킬 폴더",
+  "Choose a skill folder": "스킬 폴더 선택",
+  "Original folder": "원본 폴더",
+  "DS Bot copies the folder and its files.": "DS Bot이 폴더와 그 안의 파일을 복사합니다.",
+  "Choose a folder whose SKILL.md is named {name}.": "SKILL.md에 스킬 이름이 {name}으로 지정된 폴더를 선택하세요.",
+  "A capability named {name} already exists.": "{name}이라는 이름의 기능이 이미 있습니다.",
+  "Could not load skill: {error}": "스킬을 불러오지 못했습니다: {error}",
   "New skill": "새 스킬",
   "Awaiting approval": "승인 대기 중",
   Added: "추가됨",
@@ -5497,6 +5515,15 @@ var ES = {
   URL: "URL",
   "Headers (JSON)": "Encabezados (JSON)",
   "Skill instructions": "Instrucciones de la habilidad",
+  "Skill source": "Origen de la habilidad",
+  "Skill text": "Texto",
+  "Skill folder": "Carpeta de la habilidad",
+  "Choose a skill folder": "Elegir una carpeta de habilidad",
+  "Original folder": "Carpeta original",
+  "DS Bot copies the folder and its files.": "DS Bot copia la carpeta y sus archivos.",
+  "Choose a folder whose SKILL.md is named {name}.": "Elige una carpeta cuyo SKILL.md defina una habilidad llamada {name}.",
+  "A capability named {name} already exists.": "Ya existe una capacidad llamada {name}.",
+  "Could not load skill: {error}": "No se pudo cargar la habilidad: {error}",
   "New skill": "Nueva habilidad",
   "Awaiting approval": "Esperando aprobación",
   Added: "Añadido",
@@ -8112,6 +8139,15 @@ var FR = {
   "URL": "URL",
   "Headers (JSON)": "En-têtes (JSON)",
   "Skill instructions": "Instructions de la compétence",
+  "Skill source": "Source de la compétence",
+  "Skill text": "Texte",
+  "Skill folder": "Dossier de la compétence",
+  "Choose a skill folder": "Choisir un dossier de compétence",
+  "Original folder": "Dossier d’origine",
+  "DS Bot copies the folder and its files.": "DS Bot copie le dossier et ses fichiers.",
+  "Choose a folder whose SKILL.md is named {name}.": "Choisissez un dossier dont le fichier SKILL.md déclare une compétence nommée {name}.",
+  "A capability named {name} already exists.": "Une capacité nommée {name} existe déjà.",
+  "Could not load skill: {error}": "Impossible de charger la compétence : {error}",
   "New skill": "Nouvelle compétence",
   "Awaiting approval": "En attente d’approbation",
   "Added": "Ajouté",
@@ -10686,6 +10722,15 @@ var DE = {
   URL: "URL",
   "Headers (JSON)": "Header (JSON)",
   "Skill instructions": "Skill-Anweisungen",
+  "Skill source": "Skill-Quelle",
+  "Skill text": "Text",
+  "Skill folder": "Skill-Ordner",
+  "Choose a skill folder": "Skill-Ordner auswählen",
+  "Original folder": "Ursprünglicher Ordner",
+  "DS Bot copies the folder and its files.": "DS Bot kopiert den Ordner und seine Dateien.",
+  "Choose a folder whose SKILL.md is named {name}.": "Wähle einen Ordner, dessen SKILL.md einen Skill namens {name} definiert.",
+  "A capability named {name} already exists.": "Eine Fähigkeit namens {name} existiert bereits.",
+  "Could not load skill: {error}": "Skill konnte nicht geladen werden: {error}",
   "New skill": "Neuer Skill",
   "Awaiting approval": "Wartet auf Freigabe",
   Added: "Hinzugefügt",
@@ -13271,6 +13316,15 @@ var ZH = {
   URL: "URL",
   "Headers (JSON)": "请求头（JSON）",
   "Skill instructions": "技能说明",
+  "Skill source": "技能来源",
+  "Skill text": "文本",
+  "Skill folder": "技能文件夹",
+  "Choose a skill folder": "选择技能文件夹",
+  "Original folder": "原始文件夹",
+  "DS Bot copies the folder and its files.": "DS Bot 会复制整个文件夹。",
+  "Choose a folder whose SKILL.md is named {name}.": "请选择 SKILL.md 中技能名称为 {name} 的文件夹。",
+  "A capability named {name} already exists.": "已存在名为 {name} 的能力。",
+  "Could not load skill: {error}": "无法加载技能：{error}",
   "New skill": "新技能",
   "Awaiting approval": "等待批准",
   Added: "新增",
@@ -15895,6 +15949,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     imLoginStart: (payload) => call2("im-login-start", payload),
     imLoginWait: (payload) => call2("im-login-wait", payload),
     saveCapability: (capability) => after(call2("capability-save", capability)),
+    previewSkillDirectory: (directory) => call2("skill-directory-preview", { directory }),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
     setBotCapability: (botId, name, attached) => after(call2("bot-capability", { botId, name, attached })),
@@ -25431,14 +25486,14 @@ var import_react22 = require("react");
 var import_react_dom2 = require("react-dom");
 var folderName = (path2) => String(path2).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || String(path2);
 var Tick = ({ on }) => (0, import_react22.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, on ? (0, import_react22.createElement)(CheckIcon) : null);
-function FolderMenu({ value, group = false, team = false, actions, run: run2, onPick, wide = false, disabled = false }) {
+function FolderMenu({ value, group = false, team = false, chooseLabel, actions, run: run2, onPick, wide = false, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const [info, setInfo] = (0, import_react22.useState)(null);
   const [view, setView] = (0, import_react22.useState)("list");
   const [draft, setDraft] = (0, import_react22.useState)("");
   const [listing, setListing] = (0, import_react22.useState)(null);
   const [problem, setProblem] = (0, import_react22.useState)("");
-  const fallback = group ? t("Each Bot's own folder") : t("Team workspace");
+  const fallback = chooseLabel ?? (group ? t("Each Bot's own folder") : t("Team workspace"));
   const toggle = () => {
     if (isOpen) {
       close();
@@ -25451,7 +25506,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
   };
   const choose = (path2) => {
     close();
-    if (path2 !== (value ?? "")) void onPick(path2);
+    if (chooseLabel || path2 !== (value ?? "")) void onPick(path2);
   };
   const browse = (path2) => {
     setProblem("");
@@ -25473,7 +25528,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
   const listView = (0, import_react22.createElement)(
     "div",
     { key: "list", className: "bt-folder-view" },
-    team ? null : (0, import_react22.createElement)(
+    team || chooseLabel ? null : (0, import_react22.createElement)(
       "button",
       { type: "button", role: "menuitemradio", "aria-checked": !value, title: group ? void 0 : info?.team ?? void 0, onClick: () => choose("") },
       (0, import_react22.createElement)("span", { className: "bt-menu-label" }, fallback),
@@ -25545,7 +25600,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
         "data-wide": wide || void 0,
         "aria-haspopup": "menu",
         "aria-expanded": isOpen,
-        "aria-label": team ? t("Team workspace: {folder}", { folder: value ?? "" }) : t("Working folder: {folder}", { folder: value ?? fallback }),
+        "aria-label": chooseLabel ?? (team ? t("Team workspace: {folder}", { folder: value ?? "" }) : t("Working folder: {folder}", { folder: value ?? fallback })),
         title: value,
         onClick: toggle,
         disabled
@@ -25560,7 +25615,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
     ),
     shownPlace ? (0, import_react_dom2.createPortal)((0, import_react22.createElement)(
       "div",
-      { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": team ? t("Team workspace") : t("Working folder"), style: shownPlace, "data-leaving": leaving || void 0 },
+      { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": chooseLabel ?? t(team ? "Team workspace" : "Working folder"), style: shownPlace, "data-leaving": leaving || void 0 },
       shownView,
       problem ? (0, import_react22.createElement)("div", { className: "bt-folder-error", role: "alert" }, problem) : null
     ), document.body) : null
@@ -25983,7 +26038,7 @@ var SCHEDULE_CSS = `
 
 // src/client/capability-settings.js
 var import_react24 = require("react");
-var blank = () => ({ name: "", kind: "mcp", description: "", transport: "stdio", command: "", argsText: "", envText: "{}", url: "", headersText: "{}", content: "", items: [] });
+var blank = () => ({ name: "", kind: "mcp", description: "", transport: "stdio", command: "", argsText: "", envText: "{}", url: "", headersText: "{}", content: "", source: "text", items: [] });
 var parseMap = (text, label) => {
   let value;
   try {
@@ -25994,7 +26049,7 @@ var parseMap = (text, label) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(t("{label} must be a JSON object.", { label }));
   return value;
 };
-var statusText = (status) => !status ? void 0 : status.state === "ready" ? t("Ready") : status.state === "needs-approval" ? t("Needs approval") : status.state === "error" ? t("Could not connect: {error}", { error: status.error ?? "" }) : t("Connecting…");
+var statusText = (status, item) => !status ? void 0 : status.state === "ready" ? t("Ready") : status.state === "needs-approval" ? t("Needs approval") : status.state === "error" ? t(item.source === "directory" ? "Could not load skill: {error}" : "Could not connect: {error}", { error: status.error ?? "" }) : t("Connecting…");
 function Field({ label, value, onChange, multiline = false, disabled = false, placeholder }) {
   return (0, import_react24.createElement)(
     "label",
@@ -26011,15 +26066,48 @@ function Field({ label, value, onChange, multiline = false, disabled = false, pl
     })
   );
 }
-function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
+function CapabilityForm({ draft, setDraft, items, actions, busy, setBusy, onClose }) {
   const [error, setError] = (0, import_react24.useState)("");
+  const directorySkill = draft.kind === "skill" && draft.source === "directory";
+  const selectedSkill = directorySkill ? draft.selectedSkill : void 0;
+  const name = selectedSkill?.name ?? draft.name;
+  const description = selectedSkill?.description ?? draft.description;
+  const canSave = !busy && (!directorySkill || !!draft.originalName || !!selectedSkill);
   const set = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
-  const submit = async (event) => {
+  const run2 = async (task) => {
+    setBusy(true);
+    setError("");
+    try {
+      await task;
+    } catch (failure) {
+      setError(failure?.message ?? String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pickDirectory = async (directory) => {
+    set("selectedSkill", void 0);
+    await run2(actions.previewSkillDirectory(directory).then((preview) => {
+      if (draft.originalName && preview.name !== draft.originalName) {
+        throw new Error(t("Choose a folder whose SKILL.md is named {name}.", { name: draft.originalName }));
+      }
+      if (!draft.originalName && items.some((item) => item.name === preview.name)) {
+        throw new Error(t("A capability named {name} already exists.", { name: preview.name }));
+      }
+      set("selectedSkill", preview);
+    }));
+  };
+  const changeSource = (source) => {
+    setError("");
+    set("source", source);
+  };
+  const submit = (event) => {
     event.preventDefault();
+    if (!canSave) return;
     setError("");
     let payload;
     try {
-      payload = { name: draft.name.trim(), kind: draft.kind, description: draft.description };
+      payload = { name: name.trim(), kind: draft.kind, description };
       if (draft.kind === "mcp" && draft.transport === "stdio") {
         payload.transport = "stdio";
         payload.command = draft.command;
@@ -26029,35 +26117,63 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
         payload.transport = "streamable-http";
         payload.url = draft.url;
         payload.headers = parseMap(draft.headersText, t("Headers"));
+      } else if (directorySkill) {
+        payload.source = "directory";
+        payload.originalName = draft.originalName;
+        if (selectedSkill) payload.directory = selectedSkill.directory;
       } else if (draft.kind === "skill") payload.content = draft.content;
       else payload.items = draft.items;
     } catch (failure) {
       setError(failure?.message ?? String(failure));
       return;
     }
-    try {
-      await actions.saveCapability(payload);
-      onClose();
-    } catch (failure) {
-      setError(failure?.message ?? String(failure));
-    }
+    void run2(actions.saveCapability(payload).then(onClose));
   };
   const available = items.filter((item) => item.name !== draft.name && ["mcp", "skill"].includes(item.kind));
   return (0, import_react24.createElement)(
     "form",
     { className: "bt-set-card bt-task-form", onSubmit: submit },
-    (0, import_react24.createElement)(Field, { label: "Name", value: draft.name, disabled: draft.originalName !== void 0, onChange: (value) => set("name", value), placeholder: "my-tool" }),
+    (0, import_react24.createElement)(Field, { label: "Name", value: name, disabled: busy || directorySkill || draft.originalName !== void 0, onChange: (value) => set("name", value), placeholder: "my-tool" }),
     (0, import_react24.createElement)(
       "label",
       { className: "bt-set-row bt-bs-row" },
       (0, import_react24.createElement)("span", { className: "bt-set-copy" }, (0, import_react24.createElement)("span", { className: "bt-bs-label" }, t("Type"))),
       (0, import_react24.createElement)(
         "select",
-        { className: "bt-select bt-task-bot", value: draft.kind, disabled: draft.originalName !== void 0, onChange: (event) => set("kind", event.target.value) },
+        { className: "bt-select bt-task-bot", value: draft.kind, disabled: busy || draft.originalName !== void 0, onChange: (event) => set("kind", event.target.value) },
         ["mcp", "skill", "pack"].map((kind) => (0, import_react24.createElement)("option", { key: kind, value: kind }, t(kind === "mcp" ? "MCP server" : kind === "skill" ? "Skill" : "Pack")))
       )
     ),
-    (0, import_react24.createElement)(Field, { label: "Description", value: draft.description, onChange: (value) => set("description", value) }),
+    draft.kind === "skill" ? (0, import_react24.createElement)(
+      "label",
+      { className: "bt-set-row bt-bs-row" },
+      (0, import_react24.createElement)("span", { className: "bt-set-copy" }, (0, import_react24.createElement)("span", { className: "bt-bs-label" }, t("Skill source"))),
+      (0, import_react24.createElement)(
+        "select",
+        { className: "bt-select bt-task-bot", value: draft.source, disabled: busy || draft.originalName !== void 0, onChange: (event) => changeSource(event.target.value) },
+        (0, import_react24.createElement)("option", { value: "text" }, t("Skill text")),
+        (0, import_react24.createElement)("option", { value: "directory" }, t("Skill folder"))
+      )
+    ) : null,
+    directorySkill ? (0, import_react24.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row" },
+      (0, import_react24.createElement)(
+        "span",
+        { className: "bt-set-copy" },
+        (0, import_react24.createElement)("span", { className: "bt-bs-label" }, t("Original folder")),
+        (0, import_react24.createElement)("span", { className: "bt-set-hint" }, t("DS Bot copies the folder and its files."))
+      ),
+      (0, import_react24.createElement)(FolderMenu, {
+        value: selectedSkill?.directory ?? draft.directory,
+        chooseLabel: t("Choose a skill folder"),
+        actions,
+        run: run2,
+        onPick: pickDirectory,
+        disabled: busy
+      })
+    ) : null,
+    (0, import_react24.createElement)(Field, { label: "Description", value: description, disabled: busy || directorySkill, onChange: (value) => set("description", value) }),
     draft.kind === "mcp" ? (0, import_react24.createElement)(
       "label",
       { className: "bt-set-row bt-bs-row" },
@@ -26082,7 +26198,7 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
       (0, import_react24.createElement)(Field, { label: "URL", value: draft.url, onChange: (value) => set("url", value) }),
       (0, import_react24.createElement)(Field, { label: "Headers (JSON)", value: draft.headersText, onChange: (value) => set("headersText", value), multiline: true, placeholder: t('{"API_KEY": "$DSH_SECRET_MY_KEY"}') })
     ) : null,
-    draft.kind === "skill" ? (0, import_react24.createElement)(Field, { label: "Skill instructions", value: draft.content, onChange: (value) => set("content", value), multiline: true }) : null,
+    draft.kind === "skill" && !directorySkill ? (0, import_react24.createElement)(Field, { label: "Skill instructions", value: draft.content, disabled: busy, onChange: (value) => set("content", value), multiline: true }) : null,
     draft.kind === "pack" ? (0, import_react24.createElement)(
       import_react24.Fragment,
       null,
@@ -26090,21 +26206,21 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
         "label",
         { key: item.name, className: "bt-set-row bt-bs-row" },
         (0, import_react24.createElement)("span", { className: "bt-set-copy" }, (0, import_react24.createElement)("span", { className: "bt-bs-label" }, item.name)),
-        (0, import_react24.createElement)("input", { type: "checkbox", checked: draft.items.includes(item.name), onChange: (event) => set("items", event.target.checked ? [...draft.items, item.name] : draft.items.filter((name) => name !== item.name)) })
+        (0, import_react24.createElement)("input", { type: "checkbox", checked: draft.items.includes(item.name), onChange: (event) => set("items", event.target.checked ? [...draft.items, item.name] : draft.items.filter((name2) => name2 !== item.name)) })
       ))
     ) : null,
     error ? (0, import_react24.createElement)("div", { className: "bt-set-row" }, (0, import_react24.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error)) : null,
     (0, import_react24.createElement)(
       "div",
       { className: "bt-set-row bt-task-foot" },
-      (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onClose }, t("Cancel")),
-      (0, import_react24.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm" }, draft.originalName ? t("Save changes") : t("Add capability"))
+      (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: onClose }, t("Cancel")),
+      (0, import_react24.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm", disabled: !canSave }, draft.originalName ? t("Save changes") : t("Add capability"))
     )
   );
 }
-function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
+function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming, disabled }) {
   const detail = item.kind === "pack" ? `${t("Pack")}: ${(item.items ?? []).join(", ") || t("No items")}` : item.kind === "mcp" ? item.transport === "stdio" ? t("Local command") : t("HTTP server") : t("Skill");
-  const badge = item.kind === "mcp" ? "MCP" : item.kind === "skill" ? t("Skill") : t("Pack");
+  const badge = item.kind === "mcp" ? "MCP" : item.kind === "skill" ? t(item.source === "directory" ? "Skill folder" : "Skill") : t("Pack");
   const secondary = item.kind === "pack" ? [item.description, (item.items ?? []).join(", ") || t("No items")].filter(Boolean).join(" · ") : item.description || detail;
   return (0, import_react24.createElement)(
     "div",
@@ -26126,9 +26242,9 @@ function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
       (0, import_react24.createElement)(
         "span",
         { className: "bt-connector-actions" },
-        item.kind === "mcp" && item.transport === "stdio" && !item.approved ? (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onApprove }, t("Allow")) : null,
-        (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onEdit }, t("Edit")),
-        (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDelete }, confirming ? t("Click again to delete.") : t("Delete"))
+        item.kind === "mcp" && item.transport === "stdio" && !item.approved ? (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onApprove, disabled }, t("Allow")) : null,
+        (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onEdit, disabled }, t("Edit")),
+        (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDelete, disabled }, confirming ? t("Click again to delete.") : t("Delete"))
       )
     )
   );
@@ -26136,6 +26252,7 @@ function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
 function CapabilitiesPage({ roster, actions, run: run2 }) {
   const items = [...roster.capabilities ?? []].sort((a, b) => a.name.localeCompare(b.name));
   const [draft, setDraft] = (0, import_react24.useState)(null);
+  const [busy, setBusy] = (0, import_react24.useState)(false);
   const [confirming, setConfirming] = (0, import_react24.useState)("");
   (0, import_react24.useEffect)(() => {
     if (!confirming) return void 0;
@@ -26169,13 +26286,14 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
       (0, import_react24.createElement)("h3", null, t("Shared capabilities")),
       draft ? null : (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: startNew }, (0, import_react24.createElement)(PlusIcon), t("Add capability"))
     ),
-    draft ? (0, import_react24.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
+    draft ? (0, import_react24.createElement)(CapabilityForm, { draft, setDraft, items, actions, busy, setBusy, onClose: () => setDraft(null) }) : null,
     (0, import_react24.createElement)(
       "div",
       { className: "bt-set-card bt-connectors-card" },
       items.length === 0 ? (0, import_react24.createElement)("div", { className: "bt-set-row" }, (0, import_react24.createElement)("span", { className: "bt-set-hint" }, t("No capabilities saved"))) : items.map((item) => (0, import_react24.createElement)(CapabilityRow, {
         key: item.name,
         item,
+        disabled: busy,
         confirming: confirming === item.name,
         onEdit: () => edit(item),
         onDelete: () => remove(item),
@@ -26195,7 +26313,7 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3, Swi
     items.map((item) => (0, import_react24.createElement)(SwitchRow2, {
       key: item.name,
       label: item.name,
-      hint: attached.has(item.name) ? statusText(statuses[item.name]) : void 0,
+      hint: attached.has(item.name) ? statusText(statuses[item.name], item) : void 0,
       on: attached.has(item.name),
       onChange: (enabled) => void run2(actions.setBotCapability(bot.id, item.name, enabled))
     }))

@@ -638,6 +638,7 @@ export function install(rt) {
         case 'phone-pair-cancel':
         case 'phone-remove':
           return ok(await rt.phoneEndpoint(endpoint, body))
+        case 'skill-directory-preview':
         case 'capability-save':
         case 'capability-delete':
         case 'capability-approve':

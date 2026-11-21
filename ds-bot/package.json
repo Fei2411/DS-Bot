@@ -84,7 +84,8 @@
     "pngjs": "7.0.0",
     "semver": "^7.8.6",
     "undici": "8.11.2",
-    "ws": "8.18.3"
+    "ws": "8.18.3",
+    "yaml": "2.9.1"
   },
   "bin": {
     "ds-bot": "./bin/ds-bot-doctor.mjs"

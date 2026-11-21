@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { discardDirectorySkill, importDirectorySkill, isManagedSkillResource, loadDirectorySkill, previewDirectorySkill } from './capability-skill-directories.js'
 import { encodeUrlComponent } from './secrets.js'
 import { own } from './store.js'
 
@@ -6,6 +7,7 @@ const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 const SECRET_REFERENCE = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const ENSURE_TIMEOUT_MS = 15_000
+const directorySkill = item => item?.kind === 'skill' && item.source === 'directory'
 
 // Connector ids are reserved: a capability named like one would collide with
 // its mcp__<id>__* tool prefix. The connectors module registers its ids here.
@@ -67,6 +69,13 @@ export function install(rt) {
   let scheduled = null
   let loadingSecrets = 0
   let stopped = false
+  let editing = Promise.resolve()
+
+  const edit = operation => {
+    const result = editing.then(operation)
+    editing = result.catch(() => {})
+    return result
+  }
 
   const library = () => state.capabilities.items
   const ensureLibrary = () => {
@@ -89,7 +98,7 @@ export function install(rt) {
     if (!allowedToEdit(item, botId)) throw new Error(`Only ${item.createdBy ? 'its creator or a Main Bot' : 'a Main Bot'} can ${verb} ${item.name}.`)
     if (!rt.isMain(botId) && usedByOthers(item.name, botId)) throw new Error(`Another Bot uses ${item.name}, so only a Main Bot can ${verb} it.`)
   }
-  const itemInput = (body, { botId, ui }) => {
+  const itemInput = async (body, { botId, ui }) => {
     const name = validateCapabilityName(body.name)
     const kind = body.kind
     if (!['mcp', 'skill', 'pack'].includes(kind)) throw new Error('Choose an MCP server, skill, or pack.')
@@ -125,7 +134,27 @@ export function install(rt) {
         Object.assign(item, { transport, url, headers: stringMap(body.headers, 'Headers'), approved: true })
       }
     } else if (kind === 'skill') {
-      item.content = String(body.content ?? '').trim()
+      if (body.source === 'directory') {
+        if (!ui) throw new Error('Import directory skills in DS Bot settings.')
+        if (body.originalName === undefined && previous) throw new Error(`A capability named ${name} already exists.`)
+        if (body.originalName !== undefined && (body.originalName !== name || !directorySkill(previous))) {
+          throw new Error(`No directory skill named ${name}.`)
+        }
+        item.source = 'directory'
+        if (body.directory === undefined && directorySkill(previous)) {
+          await loadDirectorySkill(rt, previous, validateCapabilityName)
+          item.directory = previous.directory
+          item.bundleId = previous.bundleId
+          if (body.description === undefined) item.description = previous.description
+        } else {
+          const imported = await importDirectorySkill(rt, body.directory, name, validateCapabilityName)
+          Object.assign(item, imported)
+          if (body.description !== undefined) item.description = String(body.description).trim().slice(0, 2000)
+        }
+      } else {
+        if (directorySkill(previous)) throw new Error('Edit this directory skill in DS Bot settings.')
+        item.content = String(body.content ?? '').trim()
+      }
     } else {
       const names = [...new Set(strings(body.items))]
       for (const childName of names) {
@@ -134,29 +163,55 @@ export function install(rt) {
       }
       item.items = names
     }
-    items[name] = item
-    return item
+    return { item, previous }
   }
-  const capabilitySave = async (body, options = {}) => {
+  const discard = async item => {
+    if (directorySkill(item)) await discardDirectorySkill(rt, item.bundleId)
+      .catch(error => rt.warn('ds-bot: could not remove a managed skill: %s', error))
+  }
+  const viewItem = ({ bundleId: _bundleId, ...item }) => item
+  const capabilitySave = (body, options = {}) => edit(async () => {
     await rt.load()
     writeCheck()
-    const item = itemInput(body ?? {}, options)
-    await rt.save()
-    return item
-  }
-  const capabilityDelete = async (name, { botId, ui } = {}) => {
+    const { item, previous } = await itemInput(body ?? {}, options)
+    const items = ensureLibrary()
+    items[item.name] = item
+    try {
+      await rt.save({ required: directorySkill(item) })
+    } catch (error) {
+      if (items[item.name] === item) {
+        if (previous === undefined) delete items[item.name]
+        else items[item.name] = previous
+      }
+      if (item.bundleId !== previous?.bundleId) await discard(item)
+      throw error
+    }
+    if (item.bundleId !== previous?.bundleId) await discard(previous)
+    return viewItem(item)
+  })
+  const capabilityDelete = (name, { botId, ui } = {}) => edit(async () => {
     await rt.load()
     writeCheck()
     const items = ensureLibrary()
     const item = own(items, String(name ?? ''))
     if (!item) throw new Error(`No capability named ${name}.`)
     if (!ui) editCheck(item, botId, 'delete')
+    const packs = Object.values(items).filter(pack => pack.kind === 'pack' && pack.items?.includes(item.name)).map(pack => [pack, pack.items])
+    const bots = Object.values(state.bots).filter(bot => bot.capabilities?.includes(item.name)).map(bot => [bot, bot.capabilities])
     delete items[item.name]
-    for (const pack of Object.values(items)) if (pack.kind === 'pack') pack.items = (pack.items ?? []).filter(child => child !== item.name)
-    for (const bot of Object.values(state.bots)) bot.capabilities = (bot.capabilities ?? []).filter(attached => attached !== item.name)
-    await rt.save()
+    for (const [pack, children] of packs) pack.items = children.filter(child => child !== item.name)
+    for (const [bot, capabilities] of bots) bot.capabilities = capabilities.filter(attached => attached !== item.name)
+    try {
+      await rt.save({ required: directorySkill(item) })
+    } catch (error) {
+      items[item.name] = item
+      for (const [pack, children] of packs) pack.items = children
+      for (const [bot, capabilities] of bots) bot.capabilities = capabilities
+      throw error
+    }
+    await discard(item)
     return true
-  }
+  })
   // Called with the Bot being deleted, after it left the team. The shared list belongs to
   // the user, so only a local MCP this Bot added, nobody approved and no other Bot or pack
   // uses goes: no one is left to ask for it, and approving it would start a server for no one.
@@ -185,7 +240,8 @@ export function install(rt) {
     return { bot: target.name, attached: endpoint === 'attach' }
   }
   // Changes one name against the saved list, so two quick changes both land.
-  const setAttached = async (bot, name, attached) => {
+  const setAttached = (bot, name, attached) => edit(async () => {
+    if (!own(library(), name)) throw new Error(`No capability named ${name}.`)
     bot.capabilities ??= []
     const wasEmpty = bot.capabilities.length === 0
     if (attached && !bot.capabilities.includes(name)) bot.capabilities.push(name)
@@ -196,7 +252,7 @@ export function install(rt) {
       void scheduleReconcile()
     }
     return bot.capabilities
-  }
+  })
 
   const statusSet = (botId, itemName, sessionId, status) => {
     statusesCache = undefined
@@ -266,7 +322,7 @@ export function install(rt) {
     return result
   }
   const libraryView = () => Object.values(library()).map(item => ({
-    ...item,
+    ...viewItem(item),
     ...(item.env ? { env: { ...item.env } } : {}),
     ...(item.headers ? { headers: { ...item.headers } } : {}),
     ...(item.items ? { items: [...item.items] } : {}),
@@ -298,6 +354,7 @@ export function install(rt) {
   const resolveUrl = (url, botId) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId)))
   const resolveList = (list, botId) => (list ?? []).map(raw => String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId)))
   const configFor = (item, botId) => {
+    if (directorySkill(item)) return loadDirectorySkill(rt, item, validateCapabilityName)
     if (item.kind === 'skill') return { name: item.name, description: item.description, content: item.content }
     if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: resolveList(item.args, botId), env: resolveValues(item.env, botId), failOnStartupError: true }
     return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId), headers: resolveValues(item.headers, botId), failOnStartupError: true }
@@ -319,7 +376,7 @@ export function install(rt) {
     }
     let config
     try {
-      config = configFor(item, bot.id)
+      config = await configFor(item, bot.id)
     } catch (error) {
       await drop()
       statusSet(bot.id, name, sessionId, { state: 'error', error: rt.redactSecrets(error.message).slice(0, 300) })
@@ -335,7 +392,7 @@ export function install(rt) {
           name: `ds-bot-capability-skill-${name}`,
           inject: ['skills'],
           apply(c) {
-            c.effect(() => c.skills.register({ name: config.name, description: config.description, source: 'runtime', content: config.content }))
+            c.effect(() => c.skills.register({ ...config, source: 'runtime' }))
           },
         }
         : await loadMcpPlugin()
@@ -488,6 +545,7 @@ export function install(rt) {
   }
 
   async function capabilityEndpoint(endpoint, body = {}) {
+    if (endpoint === 'skill-directory-preview') return previewDirectorySkill(rt, body.directory, validateCapabilityName)
     if (endpoint === 'capability-save') return capabilitySave(body, { ui: true })
     if (endpoint === 'capability-delete') return capabilityDelete(body.name, { ui: true })
     if (endpoint === 'capability-approve') {
@@ -552,6 +610,15 @@ export function install(rt) {
     dropOrphanCapabilities,
     capabilityEndpoint,
     capabilityLibraryView: libraryView,
+    async canReadSkillResource(botId, path) {
+      const bot = rt.botOf(botId)
+      if (!bot?.capabilities?.length) return false
+      for (const name of expandCapabilityNames(bot.capabilities, library())) {
+        const item = own(library(), name)
+        if (directorySkill(item) && await isManagedSkillResource(rt, item.bundleId, path)) return true
+      }
+      return false
+    },
     capabilityStatusesView,
     reconcileCapabilities: reconcile,
     scheduleCapabilitiesReconcile: scheduleReconcile,

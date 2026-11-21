@@ -13,14 +13,14 @@ const Tick = ({ on }) => h('span', { className: 'bt-model-tick', 'aria-hidden': 
 // one a Bot works in the team workspace and a group member in its own folder. `onPick`
 // gets the chosen path, or '' for that default. `team` is the menu for the team workspace
 // itself, which has no default.
-export function FolderMenu({ value, group = false, team = false, actions, run, onPick, wide = false, disabled = false }) {
+export function FolderMenu({ value, group = false, team = false, chooseLabel, actions, run, onPick, wide = false, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const [info, setInfo] = useState(null)
   const [view, setView] = useState('list')
   const [draft, setDraft] = useState('')
   const [listing, setListing] = useState(null)
   const [problem, setProblem] = useState('')
-  const fallback = group ? t("Each Bot's own folder") : t('Team workspace')
+  const fallback = chooseLabel ?? (group ? t("Each Bot's own folder") : t('Team workspace'))
   const toggle = () => {
     if (isOpen) { close(); return }
     setView('list')
@@ -31,7 +31,7 @@ export function FolderMenu({ value, group = false, team = false, actions, run, o
   }
   const choose = (path) => {
     close()
-    if (path !== (value ?? '')) void onPick(path)
+    if (chooseLabel || path !== (value ?? '')) void onPick(path)
   }
   const browse = (path) => {
     setProblem('')
@@ -49,7 +49,7 @@ export function FolderMenu({ value, group = false, team = false, actions, run, o
   const known = info?.folders ?? []
   const folders = value && !known.some(folder => folder.path === value) ? [{ path: value, title: folderName(value) }, ...known] : known
   const listView = h('div', { key: 'list', className: 'bt-folder-view' },
-    team ? null : h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': !value, title: group ? undefined : info?.team ?? undefined, onClick: () => choose('') },
+    team || chooseLabel ? null : h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': !value, title: group ? undefined : info?.team ?? undefined, onClick: () => choose('') },
       h('span', { className: 'bt-menu-label' }, fallback), h(Tick, { on: !value })),
     folders.length > 0 ? h('div', { className: 'bt-model-group', role: 'presentation' }, t('Folders')) : null,
     folders.map(folder => h('button', { key: folder.path, type: 'button', role: 'menuitemradio', 'aria-checked': folder.path === value, title: folder.path, onClick: () => choose(folder.path) },
@@ -83,14 +83,14 @@ export function FolderMenu({ value, group = false, team = false, actions, run, o
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
-      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': team ? t('Team workspace: {folder}', { folder: value ?? '' }) : t('Working folder: {folder}', { folder: value ?? fallback }),
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': chooseLabel ?? (team ? t('Team workspace: {folder}', { folder: value ?? '' }) : t('Working folder: {folder}', { folder: value ?? fallback })),
       title: value, onClick: toggle, disabled,
     },
     h('span', { className: 'bt-model-copy' },
       h('span', { className: 'bt-model-name' }, value ? folderName(value) : fallback),
       value ? h('span', { className: 'bt-model-provider' }, value) : null),
     h(Caret)),
-    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': team ? t('Team workspace') : t('Working folder'), style: shownPlace, 'data-leaving': leaving || undefined },
+    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': chooseLabel ?? t(team ? 'Team workspace' : 'Working folder'), style: shownPlace, 'data-leaving': leaving || undefined },
       shownView,
       problem ? h('div', { className: 'bt-folder-error', role: 'alert' }, problem) : null), document.body) : null)
 }
