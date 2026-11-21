@@ -19,14 +19,20 @@ function issueLink({ title, body, form = { what: body } }) {
   const capped = limit => link(Object.fromEntries(fields.map(([id, chars]) => [
     id, chars.length <= limit ? chars.join('') : `${chars.slice(0, limit).join('')}…`,
   ])))
-  let low = 0
-  let high = Math.max(...fields.map(([, chars]) => chars.length))
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2)
-    if (capped(mid).length <= LINK_MAX) low = mid
-    else high = mid - 1
+  const limits = [...new Set([0, ...fields.map(([, chars]) => chars.length)])].sort((a, b) => a - b)
+  // A field that becomes complete drops its encoded ellipsis; search between completions.
+  for (let i = limits.length - 1; i > 0; i -= 1) {
+    let low = limits[i - 1]
+    let high = limits[i] - 1
+    if (capped(low).length > LINK_MAX) continue
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2)
+      if (capped(mid).length <= LINK_MAX) low = mid
+      else high = mid - 1
+    }
+    return capped(low)
   }
-  return capped(low)
+  return capped(0)
 }
 
 export function install(rt) {

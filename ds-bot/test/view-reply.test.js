@@ -198,6 +198,24 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.equal(writes, 1)
 })
 
+test('the capped fallback keeps a complete field when dropping its ellipsis makes it fit', async (t) => {
+  const { call, show, team, stop } = await start()
+  t.after(stop)
+  rt.diagnostics.issueFacts = () => 'OS: mocked'
+  const steps = 'x'.repeat(443) + 'turn automatic refresh off.'
+  const args = await prepareIssue({ what: '故'.repeat(365) + 'x'.repeat(405), steps })
+  assert.equal((await show('writer-now', args)).concluded, true)
+  const { id, view } = (await team()).views['writer-now']
+  const reply = await call('view-reply', {
+    sessionId: 'writer-now', viewId: id, action: view.children.at(-1).id, values: { confirmed: true },
+  })
+  const link = reply.value.issueReportResult.match(/https:\/\/\S+/)[0]
+  const url = new URL(link)
+  assert.ok(link.length <= 4000)
+  assert.match(url.searchParams.get('what'), /…$/)
+  assert.equal(url.searchParams.get('steps'), steps)
+})
+
 test('someone else’s home paths are redacted from the public preview and manual report', async (t) => {
   const { call, show, team, stop } = await start()
   t.after(stop)
