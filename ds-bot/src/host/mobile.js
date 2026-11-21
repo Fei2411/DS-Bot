@@ -42,6 +42,7 @@ export const CAPABILITIES = [
   'memory-edit',
   'usage-summary',
   'stop-chat',
+  'stop-agent',
   'row-meta',
   'chat-steps',
   'link-feed',

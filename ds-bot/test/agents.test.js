@@ -131,6 +131,20 @@ test('agent-chat pages the newest Session of the DSH Agent and refuses an unknow
   assert.equal(missing.error.code, 'bot/not-found')
 })
 
+test('a running DSH Agent shows in the work view, and stop-agent cancels its turn', async (t) => {
+  const { call, stop } = start(TEAM)
+  t.after(stop)
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  assert.equal((await call('stop-agent', { agentId: agent.id })).value, false)
+  const cancels = []
+  rt.resolveAgent = async sessionId => ({ cancel: reason => cancels.push([sessionId, reason.kind]) })
+  Object.assign(rt.liveOf(agent.sessions[0]), { turn: 1, since: 5 })
+  assert.equal(rt.agentWorkView()[agent.id].since, 5)
+  assert.equal((await call('stop-agent', { agentId: agent.id })).value, true)
+  assert.deepEqual(cancels, [[agent.sessions[0], 'user']])
+})
+
 test('a team holds at most one DSH Agent', async (t) => {
   const { call, stop } = start(TEAM)
   t.after(stop)

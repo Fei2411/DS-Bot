@@ -414,6 +414,27 @@ export function install(rt) {
     }
   }
 
+  // Per DSH Agent, the turn one of its Sessions is running, for the phone.
+  const agentWorkView = () => {
+    const agents = {}
+    for (const [id, entry] of live) {
+      const agent = entry.turn === undefined ? undefined : rt.agentOf?.(id)
+      if (agent !== undefined) agents[agent.id] = { since: entry.since, ...doingOf(entry) }
+    }
+    return agents
+  }
+
+  // The phone's Stop for a DSH Agent: end the running turn of each of its Sessions.
+  async function stopAgent(agentId) {
+    await rt.load()
+    const running = (rt.agentById?.(agentId)?.sessions ?? []).filter(id => live.get(id)?.turn !== undefined)
+    for (const sessionId of running) {
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      agent?.cancel?.({ kind: 'user' })
+    }
+    return running.length > 0
+  }
+
   // The phone's Stop for a Bot's own-chat turn: the same cancel the group's
   // member stop uses — end the running turn and any subagents it spawned.
   async function stopChat(botId) {
@@ -1453,5 +1474,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
 }
