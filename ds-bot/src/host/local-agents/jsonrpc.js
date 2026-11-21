@@ -55,7 +55,10 @@ export class JsonRpcPeer {
         resolve: (value) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(value) },
         reject: (error) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(error) },
       }
-      const onAbort = () => call.reject(signal.reason ?? new Error('aborted'))
+      const onAbort = () => {
+        this.pending.delete(id)
+        call.reject(signal.reason ?? new Error('aborted'))
+      }
       this.pending.set(id, call)
       if (timeout > 0) timer = setTimeout(() => { if (this.pending.delete(id)) call.reject(new Error(`${method} timed out`)) }, timeout)
       if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })

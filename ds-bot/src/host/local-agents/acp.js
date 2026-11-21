@@ -15,6 +15,7 @@ const CLIENT = { name: 'ds-bot', version: '1' }
 const MCP_SERVER = 'dsbot'
 const AUTH_ERROR = /not signed in|not logged in|login required|unauthorized|authentication/i
 const TIMEOUT_ERROR = /timed out|timeout/i
+const CANCEL_ACK_TIMEOUT_MS = 3_000
 const BUNDLED_MCP_STDIO = join(dirname(fileURLToPath(import.meta.url)), 'mcp-stdio.js')
 
 const extractedBridges = new Map()
@@ -43,12 +44,13 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map() }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
     this.sessionEfforts = sessionEfforts
+    this.cancelAckTimeoutMs = cancelAckTimeoutMs
     this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
@@ -117,7 +119,7 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
     )
   }
 
@@ -493,12 +495,37 @@ export class AcpEngine {
     return (this.workerOf(session) ?? this).caps.image
   }
 
+  async waitForPrompt(session, signal) {
+    signal?.throwIfAborted()
+    if (session.pendingPrompt === undefined) return
+    const turn = session.promptTurn
+    let timer
+    let onAbort
+    try {
+      await Promise.race([
+        session.pendingPrompt.catch(() => {}),
+        new Promise((resolve, reject) => {
+          onAbort = () => reject(signal.reason ?? new Error('aborted'))
+          signal?.addEventListener('abort', onAbort, { once: true })
+          if (turn?.cancelled) timer = setTimeout(() => {
+            turn.controller.abort(new Error('cancel acknowledgement timed out'))
+            resolve()
+          }, this.cancelAckTimeoutMs)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    signal?.throwIfAborted()
+  }
+
   async prompt(session, blocks, { signal, effort } = {}) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
-    // ACP notices have no turn id. Wait for the cancelled prompt's wire reply
+    // ACP notices have no turn id. Give cancellation a bounded grace period
     // before accepting notices for another prompt on the same session.
-    await session.pendingPrompt?.catch(() => {})
+    await this.waitForPrompt(session, signal)
     signal?.throwIfAborted()
     const peer = await this.ensure()
     if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined || session.defaultEffort !== undefined || session.effort !== undefined) {
@@ -518,16 +545,16 @@ export class AcpEngine {
       }
     }
     signal?.throwIfAborted()
-    const turn = session.promptTurn = { cancelled: false }
+    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
-    const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { timeout: 0 })
+    const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
       result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
       error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
     ).finally(() => {
-      session.running = false
+      if (session.promptTurn === turn) session.running = false
       signal?.removeEventListener('abort', onAbort)
     })
     return reply.catch((error) => { if (!turn.cancelled) throw error })
