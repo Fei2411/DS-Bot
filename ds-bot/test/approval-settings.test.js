@@ -308,6 +308,21 @@ test('group mode changes restart task CLIs and stale requests leave newer ones a
   assert.equal(modes.get('task-session'), 'read-only')
 })
 
+test('an unchanged effective group mode does not interrupt a running task', async () => {
+  const { rt, bot, room, closed, modes } = setup()
+  room.members = ['b']
+  bot.permission = 'workspace-write'
+  bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
+  rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  await rt.setRoomPermission(room, 'workspace-write')
+  assert.deepEqual(closed, ['g'], 'the member chat reapplies its mode but the unchanged task keeps running')
+  assert.equal(modes.get('task-session'), 'workspace-write')
+  closed.length = 0
+  await rt.setRoomPermission(room, 'read-only')
+  assert.deepEqual(closed, ['g', 'task-session'], 'a genuinely different mode still restarts the task')
+  assert.equal(modes.get('task-session'), 'read-only')
+})
+
 test('applying an explicit mode clears legacy saved policy on that Session', async () => {
   const { rt, bot, policies } = setup()
   rt.state.approvalPolicies = { b: 'never' }

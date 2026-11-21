@@ -42211,7 +42211,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const activeTasks = chatTasks.filter(isActiveTask);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.answerable === true)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.roomId === void 0 && entry.answerable === true)) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
   const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
