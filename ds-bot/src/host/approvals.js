@@ -81,6 +81,19 @@ export function install(rt) {
   const requestActionApproval = (request, evidence) => actionScope.run(evidence,
     () => ctx.get('approval').request(request))
 
+  const ownerAt = (sessionId, id, seen) => {
+    const group = rt.groupOwners.get(id)
+    const taskOwner = rt.taskOwners?.get(id)
+    const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
+    if (botId === undefined) return undefined
+    const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.title
+    return {
+      sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId,
+      ...(group ? { roomId: group.roomId } : taskOwner?.roomId !== undefined ? { roomId: taskOwner.roomId } : {}),
+      ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
+    }
+  }
+
   async function ownerOf(agent) {
     const sessionId = sessionOf(agent)
     let current = agent
@@ -89,22 +102,26 @@ export function install(rt) {
       const id = sessionOf(current)
       if (id === undefined || seen.has(id)) break
       seen.add(id)
-      const group = rt.groupOwners.get(id)
-      const taskOwner = rt.taskOwners?.get(id)
-      const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
-      if (botId !== undefined) {
-        const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.title
-        return {
-          sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId,
-          ...(group ? { roomId: group.roomId } : taskOwner?.roomId !== undefined ? { roomId: taskOwner.roomId } : {}),
-          ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
-        }
-      }
+      const owner = ownerAt(sessionId, id, seen)
+      if (owner) return owner
       const parent = current.session?.header?.parentSession
       if (!parent || current.session.header.origin !== 'subagent') break
       current = await rt.resolveAgent(parent).catch(() => undefined)
       if (sessionOf(current) !== parent) break
     }
+    return undefined
+  }
+
+  // ownerOf only awaits while it walks a subagent's parent chain; a directly owned
+  // Session resolves here, so the request's card exists before the listener returns.
+  const followParent = {}
+  const ownerNow = (agent) => {
+    const id = sessionOf(agent)
+    if (id === undefined) return undefined
+    const owner = ownerAt(id, id, new Set([id]))
+    if (owner) return owner
+    const parent = agent.session?.header?.parentSession
+    if (parent && agent.session.header.origin === 'subagent') return followParent
     return undefined
   }
   const enabled = owner => (rt.roomOf(owner.roomId)?.permission ?? rt.botOf(owner.botId)?.permission) === 'review'
@@ -120,9 +137,14 @@ export function install(rt) {
   }
 
   // Ahead of DSH's own answerer, which would hold a hidden Session's request unseen.
-  ctx.on('approval/request', async (request, next) => {
+  ctx.on('approval/request', (request, next) => {
     const explicit = actionScope.getStore()
-    const owner = await ownerOf(request.agent)
+    const owner = ownerNow(request.agent)
+    if (owner === followParent) return ownerOf(request.agent).then(resolved => handleRequest(request, next, resolved, explicit))
+    return handleRequest(request, next, owner, explicit)
+  }, { prepend: true })
+
+  function handleRequest(request, next, owner, explicit) {
     if (!owner) return next()
     if (request.signal?.aborted) return 'cancelled'
     const captured = executions.get(keyOf(request.agent, request.callId))
@@ -233,7 +255,7 @@ export function install(rt) {
         try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
       }).finally(() => clearTimeout(timer))
     })
-  }, { prepend: true })
+  }
 
   const approvalsView = () => [...pending.values()].map(view)
   const approvalReviewsView = () => rt.state.approvalReviews ?? []

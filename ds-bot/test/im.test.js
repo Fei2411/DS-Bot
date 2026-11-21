@@ -751,7 +751,7 @@ test('automatic review updates keep one IM card open until its answer', async t 
   assert.equal(await racing, 'rejected')
   await s.flush()
   assert.equal(s.fake.edited.length, 1)
-  assert.equal(s.fake.edited[0].messageId, 1)
+  assert.equal(s.fake.edited[0].messageId, '1')
   assert.equal(s.fake.edited[0].buttons, undefined)
 })
 
