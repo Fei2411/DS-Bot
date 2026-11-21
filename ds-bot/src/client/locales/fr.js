@@ -1915,6 +1915,15 @@ export const FR = {
   "Compact": "Compacte",
   "Standard": "Standard",
   "Roomy": "Aérée",
+  "Background color": "Couleur de fond",
+  "Text color": "Couleur du texte",
+  "Light mode": "Clair",
+  "Dark mode": "Sombre",
+  "More colors": "Plus de couleurs",
+  "Fewer colors": "Moins de couleurs",
+  "Window background": "Arrière-plan de la fenêtre",
+  "Start color": "Couleur de départ",
+  "End color": "Couleur d’arrivée",
 }
 
 export const HOST_ERRORS_FR = [

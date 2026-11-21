@@ -2029,7 +2029,16 @@ var JA = {
   "Your bubble text": "自分の吹き出しの文字",
   "Compact": "コンパクト",
   "Standard": "標準",
-  "Roomy": "ゆったり"
+  "Roomy": "ゆったり",
+  "Background color": "背景色",
+  "Text color": "文字色",
+  "Light mode": "ライト",
+  "Dark mode": "ダーク",
+  "More colors": "ほかの色",
+  "Fewer colors": "色を折りたたむ",
+  "Window background": "ウインドウの背景",
+  "Start color": "開始色",
+  "End color": "終了色"
 };
 var HOST_ERRORS_JA = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
@@ -4705,7 +4714,16 @@ var KO = {
   "Your bubble text": "내 말풍선 글자",
   "Compact": "좁게",
   "Standard": "표준",
-  "Roomy": "넓게"
+  "Roomy": "넓게",
+  "Background color": "배경색",
+  "Text color": "글자색",
+  "Light mode": "라이트",
+  "Dark mode": "다크",
+  "More colors": "색 더 보기",
+  "Fewer colors": "색 접기",
+  "Window background": "창 배경",
+  "Start color": "시작 색",
+  "End color": "끝 색"
 };
 var HOST_ERRORS_KO = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
@@ -7382,7 +7400,16 @@ var ES = {
   "Your bubble text": "Texto de tu burbuja",
   "Compact": "Compacta",
   "Standard": "Estándar",
-  "Roomy": "Amplia"
+  "Roomy": "Amplia",
+  "Background color": "Color de fondo",
+  "Text color": "Color del texto",
+  "Light mode": "Claro",
+  "Dark mode": "Oscuro",
+  "More colors": "Más colores",
+  "Fewer colors": "Menos colores",
+  "Window background": "Fondo de la ventana",
+  "Start color": "Color inicial",
+  "End color": "Color final"
 };
 var HOST_ERRORS_ES = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
@@ -10015,7 +10042,16 @@ var FR = {
   "Your bubble text": "Texte de votre bulle",
   "Compact": "Compacte",
   "Standard": "Standard",
-  "Roomy": "Aérée"
+  "Roomy": "Aérée",
+  "Background color": "Couleur de fond",
+  "Text color": "Couleur du texte",
+  "Light mode": "Clair",
+  "Dark mode": "Sombre",
+  "More colors": "Plus de couleurs",
+  "Fewer colors": "Moins de couleurs",
+  "Window background": "Arrière-plan de la fenêtre",
+  "Start color": "Couleur de départ",
+  "End color": "Couleur d’arrivée"
 };
 var HOST_ERRORS_FR = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
@@ -12691,7 +12727,16 @@ var DE = {
   "Your bubble text": "Text deiner Blase",
   "Compact": "Kompakt",
   "Standard": "Standard",
-  "Roomy": "Großzügig"
+  "Roomy": "Großzügig",
+  "Background color": "Hintergrundfarbe",
+  "Text color": "Textfarbe",
+  "Light mode": "Hell",
+  "Dark mode": "Dunkel",
+  "More colors": "Weitere Farben",
+  "Fewer colors": "Weniger Farben",
+  "Window background": "Fensterhintergrund",
+  "Start color": "Startfarbe",
+  "End color": "Endfarbe"
 };
 var HOST_ERRORS_DE = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
@@ -15180,7 +15225,16 @@ var ZH = {
   "Your bubble text": "你的气泡文字",
   "Compact": "紧凑",
   "Standard": "标准",
-  "Roomy": "宽松"
+  "Roomy": "宽松",
+  "Background color": "背景色",
+  "Text color": "文字色",
+  "Light mode": "浅色",
+  "Dark mode": "深色",
+  "More colors": "更多颜色",
+  "Fewer colors": "收起颜色",
+  "Window background": "窗口背景",
+  "Start color": "起始色",
+  "End color": "结束色"
 };
 var HOST_ERRORS = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
@@ -16534,6 +16588,27 @@ var surfaceVars = (mode, alpha) => `--bt-pane:transparent;--bt-wash:${washColor(
 var surfaceColors = (theme) => ({ light: { bg: "transparent", sidebar: rgba(theme.light.sidebar, SIDEBAR_TINT) }, dark: { bg: "transparent", sidebar: rgba(theme.dark.sidebar, SIDEBAR_TINT) } });
 var veilColors = (alpha) => ({ light: rgba("#ffffff", alpha), dark: rgba("#000000", alpha) });
 var BACKGROUND_STARTS = { color: { light: "#dfe6f5", dark: "#1d2433" }, from: "#9ab6ff", to: "#f7c6d9" };
+var channels = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+var toHex = (rgb) => `#${rgb.map((value) => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, "0")).join("")}`;
+var near = (a, b) => channels(a).every((value, index) => Math.abs(value - channels(b)[index]) <= 24);
+var SPAN = 16;
+function followBasics(mode, change) {
+  const next = { ...mode, ...change };
+  const [bg, text, newBg, newText] = [mode.bg, mode.text, next.bg, next.text].map(channels);
+  const spans = bg.map((value, index) => text[index] - value);
+  for (const key of ["sidebar", "bubble", "card"]) {
+    const at = channels(mode[key]).map((value, index) => Math.abs(spans[index]) >= SPAN ? (value - bg[index]) / spans[index] : void 0);
+    const known = at.filter((value) => value !== void 0);
+    if (known.length === 0) continue;
+    const mean = known.reduce((sum, value) => sum + value, 0) / known.length;
+    next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])));
+  }
+  for (const key of ["user", "userText"]) {
+    if (near(mode[key], mode.text)) next[key] = next.text;
+    else if (near(mode[key], mode.bg)) next[key] = next.bg;
+  }
+  return next;
+}
 function themeVars(mode, dark, accent = mode.accent) {
   return {
     "--bt-ink": mode.text,
@@ -16562,6 +16637,7 @@ var darkAccent = (accent) => {
   const ink = ACCENT_INKS.find((id) => INKS[id][0] === accent);
   return ink === void 0 ? accent : INKS[ink][1];
 };
+var accentIn = (theme, modeName, accent) => (modeName === "dark" ? darkAccent(accent) : accent) ?? theme[modeName].accent;
 var themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
 html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
 ${theme.css ?? ""}`;
@@ -16672,9 +16748,15 @@ function appearanceCss({ appearance, theme, background, pictureUrl: pictureUrl2 
   const vars = [];
   const rules = [];
   if (look.radius !== void 0) vars.push(`--bt-r:${look.radius / 100}`);
+  if (look.uiFont) {
+    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`);
+    rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`);
+  }
+  if (look.codeFont) {
+    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`);
+    rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`);
+  }
   if (fonts) {
-    if (look.uiFont) rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`);
-    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`);
     if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`);
     if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`);
   }
@@ -27692,11 +27774,12 @@ function MemoryDialog({ owner, actions, leaving = false }) {
 // src/client/appearance-page.js
 var import_react27 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
-var COLOR_LABELS = { bg: "Main", sidebar: "Sidebar", bubble: "Bubble", card: "Card", text: "Text", user: "Your bubble", userText: "Your bubble text", accent: "Accent" };
+var BASIC_LABELS = { accent: "Accent", bg: "Background color", text: "Text color" };
+var MORE_LABELS = { sidebar: "Sidebar", bubble: "Bubble", card: "Card", user: "Your bubble", userText: "Your bubble text" };
 var READ_ON = { text: "bg", userText: "user" };
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
 var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
-var MODES2 = [["light", "Light"], ["dark", "Dark"], ["system", "System"]];
+var MODES2 = [["light", "Light mode"], ["dark", "Dark mode"], ["system", "System"]];
 var DENSITY_LABELS = { compact: "Compact", standard: "Standard", roomy: "Roomy" };
 var KINDS2 = [["none", "None"], ["color", "Color"], ["gradient", "Gradient"], ["image", "Picture"]];
 var FITS2 = [["cover", "Fill"], ["contain", "Fit"], ["tile", "Tile"]];
@@ -27748,6 +27831,30 @@ function ColorField({ label, value, save, hint }) {
     (0, import_react27.createElement)("input", { type: "color", value: shown, "aria-label": label, onChange: (event) => pick2(event.target.value) }),
     (0, import_react27.createElement)("span", null, label),
     hint ? (0, import_react27.createElement)("span", { className: "bt-look-warn" }, hint) : null
+  );
+}
+var HEX3 = /^#?([0-9a-f]{6})$/i;
+function ColorInput({ label, value, save, hint }) {
+  const [shown, pick2] = useResting(value, save);
+  const [text, setText] = (0, import_react27.useState)(value.toUpperCase());
+  (0, import_react27.useEffect)(() => setText(shown.toUpperCase()), [shown]);
+  const commit = () => {
+    const match = HEX3.exec(text.trim());
+    if (match === null) {
+      setText(shown.toUpperCase());
+      return;
+    }
+    const next = `#${match[1].toLowerCase()}`;
+    if (next !== shown) pick2(next);
+  };
+  return (0, import_react27.createElement)(
+    "span",
+    { className: "bt-look-cin" },
+    hint ? (0, import_react27.createElement)("span", { className: "bt-look-warn" }, hint) : null,
+    (0, import_react27.createElement)("input", { className: "bt-input bt-look-hex", value: text, spellCheck: false, maxLength: 7, "aria-label": `${label} #RRGGBB`, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+      if (event.key === "Enter") event.target.blur();
+    } }),
+    (0, import_react27.createElement)("input", { type: "color", className: "bt-look-well", value: shown, "aria-label": label, onChange: (event) => pick2(event.target.value) })
   );
 }
 function Preview({ background }) {
@@ -27909,42 +28016,44 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
     )
   );
 }
-function ColorsSection({ prefs, actions, run: run2, Section: Section2, Choice: Choice3 }) {
+function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4, Choice: Choice3 }) {
   const themes = themesOf(prefs);
   const current2 = themes[prefs.theme] ? prefs.theme : "deepseek";
   const theme = themes[current2];
   const [mode, setMode] = (0, import_react27.useState)(isDark() ? "dark" : "light");
+  const [more, setMore] = (0, import_react27.useState)(false);
   const target = (0, import_react27.useRef)(null);
   (0, import_react27.useEffect)(() => {
     target.current = null;
   }, [current2]);
   const draft = (0, import_react27.useRef)(null);
-  const save = (key, color) => {
+  const save = (change, extra = {}) => {
     const id = theme.own ? current2 : target.current ??= newThemeId();
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme;
     const next = { label: theme.own ? base.label : t("{name} (mine)", { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } };
-    next[mode][key] = color;
+    next[mode] = change(next[mode]);
     draft.current = { id, theme: next };
     const settle = () => {
       if (draft.current?.theme === next) draft.current = null;
     };
-    return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...theme.own ? {} : { theme: id } }))).finally(settle);
+    return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...theme.own ? {} : { theme: id }, ...extra }))).finally(settle);
   };
   const colors = theme[mode];
+  const field = (key, label, value, change, extra) => {
+    const ratio = READ_ON[key] === void 0 ? void 0 : contrast(colors[key], colors[READ_ON[key]]);
+    const hint = ratio !== void 0 && ratio < READABLE ? t("Hard to read · {ratio}:1", { ratio: ratio.toFixed(1) }) : void 0;
+    return (0, import_react27.createElement)(Row4, { key: `${mode}-${key}`, label: t(label) }, (0, import_react27.createElement)(ColorInput, { label: t(label), value, save: (color) => save((colors2) => change(colors2, color), extra), hint }));
+  };
   return (0, import_react27.createElement)(
     Section2,
-    { title: theme.own ? t("Colors · {name}", { name: theme.label }) : t("Colors"), action: (0, import_react27.createElement)(Choice3, { label: t("Colors"), value: mode, options: [["light", "Light"], ["dark", "Dark"]], pick: setMode }) },
+    { title: theme.own ? t("Colors · {name}", { name: theme.label }) : t("Colors"), action: (0, import_react27.createElement)(Choice3, { label: t("Colors"), value: mode, options: [["light", "Light mode"], ["dark", "Dark mode"]], pick: setMode }) },
     theme.own ? null : (0, import_react27.createElement)("div", { className: "bt-look-note" }, t("Changing a color saves a theme of your own; {name} stays as it is.", { name: t(theme.label) })),
-    (0, import_react27.createElement)("div", { className: "bt-look-colors" }, THEME_KEYS.map((key) => {
-      const ratio = READ_ON[key] === void 0 ? void 0 : contrast(colors[key], colors[READ_ON[key]]);
-      return (0, import_react27.createElement)(ColorField, {
-        key: `${current2}-${mode}-${key}`,
-        label: t(COLOR_LABELS[key]),
-        value: colors[key],
-        save: (color) => save(key, color),
-        hint: ratio !== void 0 && ratio < READABLE ? t("Hard to read · {ratio}:1", { ratio: ratio.toFixed(1) }) : void 0
-      });
-    }))
+    // The accent here is the theme's; the team's accent above gives way to it.
+    field("accent", BASIC_LABELS.accent, accentIn(theme, mode, prefs.accent), (colors2, accent) => ({ ...colors2, accent }), { accent: null }),
+    field("bg", BASIC_LABELS.bg, colors.bg, (colors2, bg) => followBasics(colors2, { bg })),
+    field("text", BASIC_LABELS.text, colors.text, (colors2, text) => followBasics(colors2, { text })),
+    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], (colors2, color) => ({ ...colors2, [key]: color }))) : null,
+    (0, import_react27.createElement)("button", { type: "button", className: "bt-look-more", "aria-expanded": more, onClick: () => setMore((open) => !open) }, more ? t("Fewer colors") : t("More colors"))
   );
 }
 function useLocalFonts() {
@@ -27972,7 +28081,7 @@ function FontField({ label, value, save, fonts, load }) {
     (0, import_react27.createElement)("datalist", { id: list }, fonts.map((font) => (0, import_react27.createElement)("option", { key: font, value: font })))
   );
 }
-function TextSection({ prefs, actions, run: run2, Section: Section2, Row: Row4 }) {
+function TextSection({ prefs, actions, run: run2, Section: Section2, Row: Row4, ownWindow, dshRows }) {
   const appearance = readAppearance(prefs.appearance);
   const [fonts, load] = useLocalFonts();
   const set = (change) => run2(actions.setPrefs({ appearance: change }));
@@ -27981,8 +28090,9 @@ function TextSection({ prefs, actions, run: run2, Section: Section2, Row: Row4 }
     { title: t("Text") },
     (0, import_react27.createElement)(Row4, { label: t("Interface font") }, (0, import_react27.createElement)(FontField, { label: t("Interface font"), value: appearance.uiFont, save: (uiFont) => set({ uiFont }), fonts, load })),
     (0, import_react27.createElement)(Row4, { label: t("Code font") }, (0, import_react27.createElement)(FontField, { label: t("Code font"), value: appearance.codeFont, save: (codeFont) => set({ codeFont }), fonts, load })),
-    (0, import_react27.createElement)(Row4, { label: t("Font size") }, (0, import_react27.createElement)(Slider, { label: t("Font size"), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, save: (fontSize) => set({ fontSize }) })),
-    (0, import_react27.createElement)(Row4, { label: t("Line height") }, (0, import_react27.createElement)(Slider, { label: t("Line height"), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: (value) => value.toFixed(2), save: (lineHeight) => set({ lineHeight }) }))
+    ownWindow ? (0, import_react27.createElement)(Row4, { label: t("Font size") }, (0, import_react27.createElement)(Slider, { label: t("Font size"), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, save: (fontSize) => set({ fontSize }) })) : null,
+    ownWindow ? (0, import_react27.createElement)(Row4, { label: t("Line height") }, (0, import_react27.createElement)(Slider, { label: t("Line height"), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: (value) => value.toFixed(2), save: (lineHeight) => set({ lineHeight }) })) : null,
+    ownWindow ? null : dshRows.filter((row) => dshRowId(row) !== "appearance")
   );
 }
 function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: Choice3 }) {
@@ -28023,7 +28133,7 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
     kind === "gradient" ? (0, import_react27.createElement)(
       import_react27.Fragment,
       null,
-      (0, import_react27.createElement)(Row4, { label: t("Colors") }, (0, import_react27.createElement)("span", { className: "bt-look-pair" }, (0, import_react27.createElement)(ColorField, { label: t("From"), value: value.from, save: (from) => set({ from }) }), (0, import_react27.createElement)(ColorField, { label: t("To"), value: value.to, save: (to) => set({ to }) }))),
+      (0, import_react27.createElement)(Row4, { label: t("Colors") }, (0, import_react27.createElement)("span", { className: "bt-look-pair" }, (0, import_react27.createElement)(ColorField, { label: t("Start color"), value: value.from, save: (from) => set({ from }) }), (0, import_react27.createElement)(ColorField, { label: t("End color"), value: value.to, save: (to) => set({ to }) }))),
       (0, import_react27.createElement)(Row4, { label: t("Angle") }, (0, import_react27.createElement)(Slider, { label: t("Angle"), value: value.angle ?? 180, min: 0, max: 359, step: 1, format: (angle) => `${angle}°`, save: (angle) => set({ angle }) }))
     ) : null,
     kind === "image" ? (0, import_react27.createElement)(Row4, { label: t("Fit") }, (0, import_react27.createElement)(Choice3, { label: t("Fit"), value: value.fit ?? "cover", options: FITS2, pick: (fit3) => set({ fit: fit3 }) })) : null,
@@ -28075,8 +28185,8 @@ function AppearancePage({ roster, actions, run: run2, Section: Section2, Row: Ro
     ) : null,
     (0, import_react27.createElement)(Preview, { key: "preview", background: safe2 ? void 0 : appearance.background }),
     (0, import_react27.createElement)(ThemeSection, { key: "theme", prefs, actions, run: run2, Section: Section2, Row: Row4, Choice: Choice3, ownWindow, dshRows }),
-    (0, import_react27.createElement)(ColorsSection, { key: "colors", prefs, actions, run: run2, Section: Section2, Choice: Choice3 }),
-    ownWindow ? (0, import_react27.createElement)(TextSection, { key: "text", prefs, actions, run: run2, Section: Section2, Row: Row4 }) : (0, import_react27.createElement)(Section2, { key: "text", title: t("Text") }, dshRows.filter((row) => dshRowId(row) !== "appearance")),
+    (0, import_react27.createElement)(ColorsSection, { key: "colors", prefs, actions, run: run2, Section: Section2, Row: Row4, Choice: Choice3 }),
+    (0, import_react27.createElement)(TextSection, { key: "text", prefs, actions, run: run2, Section: Section2, Row: Row4, ownWindow, dshRows }),
     (0, import_react27.createElement)(
       Section2,
       { key: "shape", title: t("Shape and density") },
@@ -28085,7 +28195,7 @@ function AppearancePage({ roster, actions, run: run2, Section: Section2, Row: Ro
     ),
     (0, import_react27.createElement)(
       Section2,
-      { key: "background", title: t("Background") },
+      { key: "background", title: t("Window background") },
       (0, import_react27.createElement)(BackgroundEditor, { value: appearance.background, save: (background) => set({ background }), actions, run: run2, Row: Row4, Choice: Choice3 })
       // The window material switch comes with the desktop window's own frame (docs/plans/2026-11-21-own-frontend.md).
     ),
@@ -28160,13 +28270,20 @@ var APPEARANCE_PAGE_CSS = `
 .bt-look-new{align-items:center;justify-content:center;gap:6px;min-height:78px;border-style:dashed;background:none}
 .bt-look-new .bt-look-tact{font-size:12px}
 .bt-look-rename{height:24px;font-size:12px;padding:0 6px}
-.bt-look-colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 16px;padding:12px 16px}
 .bt-look-color{display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink);cursor:pointer;flex-wrap:wrap}
 .bt-look-color input{width:24px;height:24px;padding:0;border:.5px solid var(--bt-line-2);border-radius:6px;background:none;cursor:pointer}
 .bt-look-color input::-webkit-color-swatch-wrapper{padding:0}
 .bt-look-color input::-webkit-color-swatch{border:0;border-radius:6px}
 .bt-look-warn{flex-basis:100%;padding-left:32px;color:var(--bt-warn);font-size:11px}
 .bt-look-pair{display:flex;gap:16px}
+.bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
+.bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;text-transform:uppercase}
+.bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
+.bt-look-well::-webkit-color-swatch-wrapper{padding:0}
+.bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
+.bt-look-more{align-self:flex-start;margin:4px 16px 10px;padding:0;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer}
+.bt-look-more:hover{color:var(--bt-ink)}
 .bt-look-font{width:216px}
 .bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px 4px}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}
@@ -28749,10 +28866,10 @@ var ExaMark = () => svg(
   (0, import_react29.createElement)("rect", { x: 4.2, y: 4.2, width: 15.6, height: 15.6, rx: 1.5, stroke: "#254BF6", strokeWidth: 2.1 }),
   (0, import_react29.createElement)("path", { d: "M5.6 5.6L11 12 5.6 18.4M18.4 5.6L11 12 18.4 18.4", stroke: "#254BF6", strokeWidth: 2.1 })
 );
-var HEX3 = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
+var HEX4 = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
 var DeepwikiMark = mark(
-  path(HEX3(7.2, 6.9, 4.4) + HEX3(7.2, 17.1, 4.4), "#2B7FFF"),
-  path(HEX3(15.6, 12, 4.4), "#0D9488")
+  path(HEX4(7.2, 6.9, 4.4) + HEX4(7.2, 17.1, 4.4), "#2B7FFF"),
+  path(HEX4(15.6, 12, 4.4), "#0D9488")
 );
 var Context7Mark = () => (0, import_react29.createElement)(
   "svg",
@@ -34844,7 +34961,7 @@ function Profile({ face, share, range }) {
 }
 var monthOf = (ms) => Date.UTC(yearOf(ms), new Date(ms).getUTCMonth(), 1);
 var addMonths = (ms, count) => Date.UTC(yearOf(ms), new Date(ms).getUTCMonth() + count, 1);
-function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
+function SpanPicker({ span, today, oldest, active, near: near2, onPick, onClose }) {
   const box = (0, import_react42.useRef)(null);
   const todayMs = hourMs(today);
   const thisMonth = monthOf(todayMs);
@@ -34853,7 +34970,7 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
   const [hover, setHover] = (0, import_react42.useState)(null);
   (0, import_react42.useEffect)(() => {
     const onDown = (event) => {
-      if (![box, near].some((ref) => ref.current?.contains(event.target))) onClose();
+      if (![box, near2].some((ref) => ref.current?.contains(event.target))) onClose();
     };
     const onKey = (event) => {
       if (event.key === "Escape") {

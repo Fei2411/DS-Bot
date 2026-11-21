@@ -53,7 +53,7 @@ export function backgroundPaint(background, pictureUrl) {
  * @param {{ light: object, dark: object }} [options.theme] - the theme in use; its surface colors let the background through
  * @param {unknown} [options.background] - the open chat's own background, over the team's
  * @param {(id: string) => string | undefined} [options.pictureUrl]
- * @param {boolean} [options.fonts] - the window owns fonts and sizes (the desktop app); in DSH they are DSH's settings
+ * @param {boolean} [options.fonts] - the window owns font size and line height (the desktop app); in DSH they are DSH's settings
  * @param {boolean} [options.safe] - this window was opened in safe appearance: no background, no user stylesheet
  * @param {boolean} [options.user] - end with the user stylesheet; false when it gets a sheet of its own (userCss)
  * @returns {string}
@@ -63,10 +63,18 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
   const vars = []
   const rules = []
   if (look.radius !== undefined) vars.push(`--bt-r:${look.radius / 100}`)
+  // Fonts in both forms. DSH's own font variables (`--dsh-font-family-text`, `-code`, ahead
+  // of its built-in stacks) carry them into what DSH draws. A font the device does not have
+  // falls through to the system font.
+  if (look.uiFont) {
+    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`)
+    rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`)
+  }
+  if (look.codeFont) {
+    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`)
+    rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
+  }
   if (fonts) {
-    // A font the device does not have falls through to the system font.
-    if (look.uiFont) rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`)
-    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
     if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`)
     if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`)
   }

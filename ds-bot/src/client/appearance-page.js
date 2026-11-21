@@ -4,20 +4,22 @@
 // background editor. The settings page hands in its own rows and controls.
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
-import { BACKGROUND_STARTS, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
+import { accentIn, BACKGROUND_STARTS, followBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
 import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafeAppearance, pictureUrl, safeAppearance } from './appearance.js'
 import { call } from './api.js'
-import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, RADIUS, READABLE, readAppearance, readThemeFile, SURFACE, THEME_KEYS, themeFile, utf8Length } from '../shared/appearance.js'
+import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, RADIUS, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
 import { Segmented } from './motion.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
-const COLOR_LABELS = { bg: 'Main', sidebar: 'Sidebar', bubble: 'Bubble', card: 'Card', text: 'Text', user: 'Your bubble', userText: 'Your bubble text', accent: 'Accent' }
+// The three colors most people change, then the rest of the theme's colors.
+const BASIC_LABELS = { accent: 'Accent', bg: 'Background color', text: 'Text color' }
+const MORE_LABELS = { sidebar: 'Sidebar', bubble: 'Bubble', card: 'Card', user: 'Your bubble', userText: 'Your bubble text' }
 // Each text color and the surface it is read on.
 const READ_ON = { text: 'bg', userText: 'user' }
 const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
 const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
-const MODES = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']]
+const MODES = [['light', 'Light mode'], ['dark', 'Dark mode'], ['system', 'System']]
 const DENSITY_LABELS = { compact: 'Compact', standard: 'Standard', roomy: 'Roomy' }
 const KINDS = [['none', 'None'], ['color', 'Color'], ['gradient', 'Gradient'], ['image', 'Picture']]
 const FITS = [['cover', 'Fill'], ['contain', 'Fit'], ['tile', 'Tile']]
@@ -70,6 +72,24 @@ function ColorField({ label, value, save, hint }) {
     h('input', { type: 'color', value: shown, 'aria-label': label, onChange: event => pick(event.target.value) }),
     h('span', null, label),
     hint ? h('span', { className: 'bt-look-warn' }, hint) : null)
+}
+
+// A color as a row's control: the swatch and its #rrggbb code, either one to change it.
+const HEX = /^#?([0-9a-f]{6})$/i
+function ColorInput({ label, value, save, hint }) {
+  const [shown, pick] = useResting(value, save)
+  const [text, setText] = useState(value.toUpperCase())
+  useEffect(() => setText(shown.toUpperCase()), [shown])
+  const commit = () => {
+    const match = HEX.exec(text.trim())
+    if (match === null) { setText(shown.toUpperCase()); return }
+    const next = `#${match[1].toLowerCase()}`
+    if (next !== shown) pick(next)
+  }
+  return h('span', { className: 'bt-look-cin' },
+    hint ? h('span', { className: 'bt-look-warn' }, hint) : null,
+    h('input', { className: 'bt-input bt-look-hex', value: text, spellCheck: false, maxLength: 7, 'aria-label': `${label} #RRGGBB`, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: (event) => { if (event.key === 'Enter') event.target.blur() } }),
+    h('input', { type: 'color', className: 'bt-look-well', value: shown, 'aria-label': label, onChange: event => pick(event.target.value) }))
 }
 
 // A small picture of the window: sidebar, the other side's bubble and yours, over the
@@ -176,37 +196,46 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
           h('input', { type: 'color', value: accent, 'aria-label': t('Custom accent'), onChange: event => pickAccent(event.target.value) })))))
 }
 
-// The colors of the theme in use, for one mode. A built-in theme is copied into a theme of
-// your own on the first change, so the built-in one stays as it is.
-function ColorsSection({ prefs, actions, run, Section, Choice }) {
+// The colors of the theme in use, for one mode: accent, background and text first, the
+// other surfaces following them (themes.js followBasics); "More colors" sets each one. A
+// built-in theme is copied into a theme of your own on the first change, so the built-in
+// one stays as it is.
+function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
   const themes = themesOf(prefs)
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const theme = themes[current]
   const [mode, setMode] = useState(isDark() ? 'dark' : 'light')
+  const [more, setMore] = useState(false)
   const target = useRef(null)
   useEffect(() => { target.current = null }, [current])
   // Edits sent but not yet back from the host: the next edit starts from them, so two quick
   // edits of different colors both land.
   const draft = useRef(null)
-  const save = (key, color) => {
+  const save = (change, extra = {}) => {
     const id = theme.own ? current : (target.current ??= newThemeId())
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme
     const next = { label: theme.own ? base.label : t('{name} (mine)', { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } }
-    next[mode][key] = color
+    next[mode] = change(next[mode])
     draft.current = { id, theme: next }
     const settle = () => { if (draft.current?.theme === next) draft.current = null }
-    return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...(theme.own ? {} : { theme: id }) }))).finally(settle)
+    return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...(theme.own ? {} : { theme: id }), ...extra }))).finally(settle)
   }
   const colors = theme[mode]
-  return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light'], ['dark', 'Dark']], pick: setMode }) },
+  const field = (key, label, value, change, extra) => {
+    const ratio = READ_ON[key] === undefined ? undefined : contrast(colors[key], colors[READ_ON[key]])
+    const hint = ratio !== undefined && ratio < READABLE ? t('Hard to read · {ratio}:1', { ratio: ratio.toFixed(1) }) : undefined
+    // Keyed by the color alone: the first change copies a built-in theme into your own, and
+    // the fields must stay as they are then, or a color being typed in another one is lost.
+    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, save: color => save(colors => change(colors, color), extra), hint }))
+  }
+  return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light mode'], ['dark', 'Dark mode']], pick: setMode }) },
     theme.own ? null : h('div', { className: 'bt-look-note' }, t('Changing a color saves a theme of your own; {name} stays as it is.', { name: t(theme.label) })),
-    h('div', { className: 'bt-look-colors' }, THEME_KEYS.map((key) => {
-      const ratio = READ_ON[key] === undefined ? undefined : contrast(colors[key], colors[READ_ON[key]])
-      return h(ColorField, {
-        key: `${current}-${mode}-${key}`, label: t(COLOR_LABELS[key]), value: colors[key], save: color => save(key, color),
-        hint: ratio !== undefined && ratio < READABLE ? t('Hard to read · {ratio}:1', { ratio: ratio.toFixed(1) }) : undefined,
-      })
-    })))
+    // The accent here is the theme's; the team's accent above gives way to it.
+    field('accent', BASIC_LABELS.accent, accentIn(theme, mode, prefs.accent), (colors, accent) => ({ ...colors, accent }), { accent: null }),
+    field('bg', BASIC_LABELS.bg, colors.bg, (colors, bg) => followBasics(colors, { bg })),
+    field('text', BASIC_LABELS.text, colors.text, (colors, text) => followBasics(colors, { text })),
+    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], (colors, color) => ({ ...colors, [key]: color }))) : null,
+    h('button', { type: 'button', className: 'bt-look-more', 'aria-expanded': more, onClick: () => setMore(open => !open) }, more ? t('Fewer colors') : t('More colors')))
 }
 
 // Fonts on this computer, once the user opens the list: the browser asks before it tells.
@@ -230,15 +259,18 @@ function FontField({ label, value, save, fonts, load }) {
     h('datalist', { id: list }, fonts.map(font => h('option', { key: font, value: font }))))
 }
 
-function TextSection({ prefs, actions, run, Section, Row }) {
+// Fonts in both forms: DSH's documented font variables carry them into what DSH draws.
+// Size and line height are DS Bot's in the desktop app; in DSH they are DSH's own rows.
+function TextSection({ prefs, actions, run, Section, Row, ownWindow, dshRows }) {
   const appearance = readAppearance(prefs.appearance)
   const [fonts, load] = useLocalFonts()
   const set = change => run(actions.setPrefs({ appearance: change }))
   return h(Section, { title: t('Text') },
     h(Row, { label: t('Interface font') }, h(FontField, { label: t('Interface font'), value: appearance.uiFont, save: uiFont => set({ uiFont }), fonts, load })),
     h(Row, { label: t('Code font') }, h(FontField, { label: t('Code font'), value: appearance.codeFont, save: codeFont => set({ codeFont }), fonts, load })),
-    h(Row, { label: t('Font size') }, h(Slider, { label: t('Font size'), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, save: fontSize => set({ fontSize }) })),
-    h(Row, { label: t('Line height') }, h(Slider, { label: t('Line height'), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: value => value.toFixed(2), save: lineHeight => set({ lineHeight }) })))
+    ownWindow ? h(Row, { label: t('Font size') }, h(Slider, { label: t('Font size'), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, save: fontSize => set({ fontSize }) })) : null,
+    ownWindow ? h(Row, { label: t('Line height') }, h(Slider, { label: t('Line height'), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: value => value.toFixed(2), save: lineHeight => set({ lineHeight }) })) : null,
+    ownWindow ? null : dshRows.filter(row => dshRowId(row) !== 'appearance'))
 }
 
 /**
@@ -271,7 +303,7 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
     failure ? h('div', { className: 'bt-set-note', role: 'alert' }, failure) : null,
     kind === 'color' ? h(Row, { label: t('Color') }, h(ColorField, { label: t('Color'), value: value.color, save: color => set({ color }) })) : null,
     kind === 'gradient' ? h(Fragment, null,
-      h(Row, { label: t('Colors') }, h('span', { className: 'bt-look-pair' }, h(ColorField, { label: t('From'), value: value.from, save: from => set({ from }) }), h(ColorField, { label: t('To'), value: value.to, save: to => set({ to }) }))),
+      h(Row, { label: t('Colors') }, h('span', { className: 'bt-look-pair' }, h(ColorField, { label: t('Start color'), value: value.from, save: from => set({ from }) }), h(ColorField, { label: t('End color'), value: value.to, save: to => set({ to }) }))),
       h(Row, { label: t('Angle') }, h(Slider, { label: t('Angle'), value: value.angle ?? 180, min: 0, max: 359, step: 1, format: angle => `${angle}°`, save: angle => set({ angle }) }))) : null,
     kind === 'image' ? h(Row, { label: t('Fit') }, h(Choice, { label: t('Fit'), value: value.fit ?? 'cover', options: FITS, pick: fit => set({ fit }) })) : null,
     kind === 'image' ? h(Row, { label: t('Blur') }, h(Slider, { label: t('Blur'), value: value.blur ?? 0, min: BLUR.min, max: BLUR.max, step: 1, format: blur => `${blur} px`, save: blur => set({ blur }) })) : null,
@@ -316,12 +348,12 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: leaveSafeAppearance }, t('Turn them back on'))) : null,
     h(Preview, { key: 'preview', background: safe ? undefined : appearance.background }),
     h(ThemeSection, { key: 'theme', prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }),
-    h(ColorsSection, { key: 'colors', prefs, actions, run, Section, Choice }),
-    ownWindow ? h(TextSection, { key: 'text', prefs, actions, run, Section, Row }) : h(Section, { key: 'text', title: t('Text') }, dshRows.filter(row => dshRowId(row) !== 'appearance')),
+    h(ColorsSection, { key: 'colors', prefs, actions, run, Section, Row, Choice }),
+    h(TextSection, { key: 'text', prefs, actions, run, Section, Row, ownWindow, dshRows }),
     h(Section, { key: 'shape', title: t('Shape and density') },
       h(Row, { label: t('Corners') }, h(Slider, { label: t('Corners'), value: appearance.radius ?? RADIUS.initial, min: RADIUS.min, max: RADIUS.max, step: RADIUS.step, format: radius => `${radius}%`, save: radius => set({ radius }) })),
       h(Row, { label: t('Density') }, h(Choice, { label: t('Density'), value: appearance.density ?? 'standard', options: DENSITIES.map(id => [id, DENSITY_LABELS[id]]), pick: density => set({ density }) }))),
-    h(Section, { key: 'background', title: t('Background') },
+    h(Section, { key: 'background', title: t('Window background') },
       h(BackgroundEditor, { value: appearance.background, save: background => set({ background }), actions, run, Row, Choice }),
       // The window material switch comes with the desktop window's own frame (docs/plans/2026-11-21-own-frontend.md).
     ),
@@ -387,13 +419,20 @@ export const APPEARANCE_PAGE_CSS = `
 .bt-look-new{align-items:center;justify-content:center;gap:6px;min-height:78px;border-style:dashed;background:none}
 .bt-look-new .bt-look-tact{font-size:12px}
 .bt-look-rename{height:24px;font-size:12px;padding:0 6px}
-.bt-look-colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 16px;padding:12px 16px}
 .bt-look-color{display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink);cursor:pointer;flex-wrap:wrap}
 .bt-look-color input{width:24px;height:24px;padding:0;border:.5px solid var(--bt-line-2);border-radius:6px;background:none;cursor:pointer}
 .bt-look-color input::-webkit-color-swatch-wrapper{padding:0}
 .bt-look-color input::-webkit-color-swatch{border:0;border-radius:6px}
 .bt-look-warn{flex-basis:100%;padding-left:32px;color:var(--bt-warn);font-size:11px}
 .bt-look-pair{display:flex;gap:16px}
+.bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
+.bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;text-transform:uppercase}
+.bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
+.bt-look-well::-webkit-color-swatch-wrapper{padding:0}
+.bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
+.bt-look-more{align-self:flex-start;margin:4px 16px 10px;padding:0;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer}
+.bt-look-more:hover{color:var(--bt-ink)}
 .bt-look-font{width:216px}
 .bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px 4px}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}

@@ -197,8 +197,11 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.match(css, /html body::after\{[^}]*background:linear-gradient\(rgba\(252,252,252,0\.8\),rgba\(252,252,252,0\.8\)\),linear-gradient\(rgba\(255,255,255,0\.3\)/)
   assert.match(css, /html body\[data-ds-dark-theme\]::after\{background:linear-gradient\(rgba\(20,20,20,0\.8\)/)
   assert.ok(css.endsWith('.x{color:red}'))
-  // In DSH the fonts are DSH's settings.
-  assert.doesNotMatch(appearanceCss({ appearance, theme }), /font-family|--bt-fs/)
+  // In DSH the font size is DSH's setting; the fonts go through DSH's own font variables too.
+  const inDsh = appearanceCss({ appearance, theme })
+  assert.doesNotMatch(inDsh, /--bt-fs/)
+  assert.match(inDsh, /--dsh-font-family-text:"Inter"/)
+  assert.match(inDsh, /font-family:"Inter",-apple-system/)
   // A chat's own background takes the place of the team's.
   assert.match(appearanceCss({ appearance, theme, background: { kind: 'color', color: '#112233' } }), /background:#112233/)
   // A picture still loading paints nothing yet, so the surfaces stay solid.
@@ -281,4 +284,43 @@ test('a theme of your own is listed after the built-in ones, and a broken one is
   assert.equal(themes['my-broken'], undefined)
   assert.equal(themes.plain, undefined)
   assert.ok(themes.deepseek)
+})
+
+test('a new background or text color moves the other surfaces with it, keeping the theme tint and its own bubble color', async () => {
+  const { followBasics, themesOf, accentIn } = await import('../src/client/themes.js')
+  const { contrast } = await import('../src/shared/appearance.js')
+  const themes = themesOf({})
+  // DeepSeek light on a warm paper: the sidebar and bubble stay a step towards the text,
+  // the card a step away from it; your bubble follows the text, its text the background.
+  const warm = followBasics(themes.deepseek.light, { bg: '#f7f4eb', text: '#1a1c1f' })
+  assert.equal(warm.bg, '#f7f4eb')
+  assert.equal(warm.text, '#1a1c1f')
+  assert.equal(warm.card, '#faf7ee')
+  assert.ok(warm.sidebar < warm.bg && warm.bubble < warm.sidebar)
+  assert.equal(warm.user, '#1a1c1f')
+  assert.equal(warm.userText, '#f7f4eb')
+  assert.ok(contrast(warm.userText, warm.user) >= 4.5)
+  // A light mode turned dark: the surfaces still sit between the new background and text.
+  const night = followBasics(themes.deepseek.light, { bg: '#202020' , text: '#eeeeee' })
+  assert.ok(night.sidebar > night.bg && night.bubble > night.sidebar && night.card < night.bg)
+  // Moonlight's blue bubble keeps its color.
+  const moon = followBasics(themes.moonlight.light, { bg: '#ffffff' })
+  assert.equal(moon.user, themes.moonlight.light.user)
+  assert.equal(moon.userText, themes.moonlight.light.userText)
+  // The accent shown is the team's when one is picked, in its dark form in dark mode.
+  assert.equal(accentIn(themes.deepseek, 'light', null), themes.deepseek.light.accent)
+  assert.equal(accentIn(themes.deepseek, 'dark', '#123456'), '#123456')
+})
+
+test('the Appearance page words are its own, not a word from another page that reads differently', async () => {
+  const { readFileSync } = await import('node:fs')
+  const page = readFileSync(new URL('../src/client/appearance-page.js', import.meta.url), 'utf8')
+  const { DICTIONARY } = await import('../src/client/i18n.js')
+  // Computer use's "Background", mail's "From" and "To", and the "Light" of an amount.
+  for (const word of ['Background', 'From', 'To', 'Light']) {
+    assert.doesNotMatch(page, new RegExp(`t\\('${word}'\\)|, '${word}'\\]`), word)
+  }
+  for (const word of ['Window background', 'Start color', 'End color', 'Light mode', 'Dark mode', 'Background color', 'Text color', 'More colors', 'Fewer colors']) {
+    for (const lang of ['zh', 'ja', 'ko', 'es', 'fr', 'de']) assert.ok(Object.hasOwn(DICTIONARY[lang], word), `${lang}: ${word}`)
+  }
 })

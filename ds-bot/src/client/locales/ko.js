@@ -1950,6 +1950,15 @@ export const KO = {
   "Compact": "좁게",
   "Standard": "표준",
   "Roomy": "넓게",
+  "Background color": "배경색",
+  "Text color": "글자색",
+  "Light mode": "라이트",
+  "Dark mode": "다크",
+  "More colors": "색 더 보기",
+  "Fewer colors": "색 접기",
+  "Window background": "창 배경",
+  "Start color": "시작 색",
+  "End color": "끝 색",
 }
 
 export const HOST_ERRORS_KO = [

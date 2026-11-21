@@ -1915,6 +1915,15 @@ export const JA = {
   "Compact": "コンパクト",
   "Standard": "標準",
   "Roomy": "ゆったり",
+  "Background color": "背景色",
+  "Text color": "文字色",
+  "Light mode": "ライト",
+  "Dark mode": "ダーク",
+  "More colors": "ほかの色",
+  "Fewer colors": "色を折りたたむ",
+  "Window background": "ウインドウの背景",
+  "Start color": "開始色",
+  "End color": "終了色",
 }
 
 export const HOST_ERRORS_JA = [

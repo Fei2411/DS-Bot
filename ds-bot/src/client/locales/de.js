@@ -1950,6 +1950,15 @@ export const DE = {
   "Compact": "Kompakt",
   "Standard": "Standard",
   "Roomy": "Großzügig",
+  "Background color": "Hintergrundfarbe",
+  "Text color": "Textfarbe",
+  "Light mode": "Hell",
+  "Dark mode": "Dunkel",
+  "More colors": "Weitere Farben",
+  "Fewer colors": "Weniger Farben",
+  "Window background": "Fensterhintergrund",
+  "Start color": "Startfarbe",
+  "End color": "Endfarbe",
 }
 
 export const HOST_ERRORS_DE = [

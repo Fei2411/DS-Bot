@@ -49,6 +49,38 @@ export const surfaceColors = theme => ({ light: { bg: 'transparent', sidebar: rg
 export const veilColors = alpha => ({ light: rgba('#ffffff', alpha), dark: rgba('#000000', alpha) })
 // Where a new background starts when the user picks its kind (appearance-page.js).
 export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' }, from: '#9ab6ff', to: '#f7c6d9' }
+// The basic colors (Settings → Appearance): a new background or text color moves the other
+// surfaces with it. Each surface keeps its place between background and text, channel by
+// channel, so a theme's tint (Paper's warm sidebar) carries over. Your bubble and its text
+// follow the text and background when they were near them, and keep their own color when
+// the theme gave them one (Moonlight's blue).
+const channels = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16))
+const toHex = rgb => `#${rgb.map(value => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, '0')).join('')}`
+const near = (a, b) => channels(a).every((value, index) => Math.abs(value - channels(b)[index]) <= 24)
+// A channel where background and text are this close says nothing about a surface's place.
+const SPAN = 16
+/**
+ * @param {object} mode - a theme's eight colors for one mode
+ * @param {{ bg?: string, text?: string }} change
+ * @returns {object} the mode with the change and the surfaces that follow it
+ */
+export function followBasics(mode, change) {
+  const next = { ...mode, ...change }
+  const [bg, text, newBg, newText] = [mode.bg, mode.text, next.bg, next.text].map(channels)
+  const spans = bg.map((value, index) => text[index] - value)
+  for (const key of ['sidebar', 'bubble', 'card']) {
+    const at = channels(mode[key]).map((value, index) => (Math.abs(spans[index]) >= SPAN ? (value - bg[index]) / spans[index] : undefined))
+    const known = at.filter(value => value !== undefined)
+    if (known.length === 0) continue
+    const mean = known.reduce((sum, value) => sum + value, 0) / known.length
+    next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])))
+  }
+  for (const key of ['user', 'userText']) {
+    if (near(mode[key], mode.text)) next[key] = next.text
+    else if (near(mode[key], mode.bg)) next[key] = next.bg
+  }
+  return next
+}
 export function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
@@ -72,6 +104,8 @@ const darkAccent = (accent) => {
   const ink = ACCENT_INKS.find(id => INKS[id][0] === accent)
   return ink === undefined ? accent : INKS[ink][1]
 }
+/** The accent a mode shows: the team's accent when one is picked, else the theme's. */
+export const accentIn = (theme, modeName, accent) => (modeName === 'dark' ? darkAccent(accent) : accent) ?? theme[modeName].accent
 // `html body` outranks the base sheet's `body` rules without !important.
 export const themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
 html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}

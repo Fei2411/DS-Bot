@@ -1773,6 +1773,15 @@ const ZH = {
   "Compact": "紧凑",
   "Standard": "标准",
   "Roomy": "宽松",
+  "Background color": "背景色",
+  "Text color": "文字色",
+  "Light mode": "浅色",
+  "Dark mode": "深色",
+  "More colors": "更多颜色",
+  "Fewer colors": "收起颜色",
+  "Window background": "窗口背景",
+  "Start color": "起始色",
+  "End color": "结束色",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the
