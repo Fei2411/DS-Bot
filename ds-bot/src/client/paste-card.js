@@ -145,9 +145,20 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     return () => observer.disconnect()
   }, [ids, blocks])
   // The shell drops a draft attachment the user removed; the card goes with it. Only the
-  // cards' own buttons put text back, so a dropped paste stays dropped.
+  // cards' own buttons put text back, so a dropped paste stays dropped. Only ids this
+  // composer has shown count: one that opens again starts without the files its draft
+  // gets back (draft-keep.js), and their cards wait for them.
+  const shown = useRef(new Set())
+  // A card whose file this composer does not have (the shell let it go when an earlier
+  // composer closed) waits for it again: it binds by name if the draft gets the file
+  // back, and otherwise its text goes back into the box after the wait below.
   useEffect(() => {
-    const gone = latest.current.blocks.filter(block => !blockLives(block, ids))
+    const stale = latest.current.blocks.filter(block => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId))
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map(block => block.id))
+  }, [sessionId])
+  useEffect(() => {
+    const gone = latest.current.blocks.filter(block => !blockLives(block, ids) && shown.current.has(block.attachmentId))
+    for (const id of ids) shown.current.add(id)
     if (gone.length > 0) actions.removePaste(sessionId, gone.map(block => block.id))
   }, [ids])
   // A refused upload leaves a card with no attachment; its text goes back into the box
