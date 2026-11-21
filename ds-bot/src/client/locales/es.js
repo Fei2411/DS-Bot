@@ -1461,6 +1461,8 @@ export const ES = {
   'in {name}': 'en {name}',
   'Click again to delete': 'Haz clic de nuevo para eliminar',
   'Delete task': 'Eliminar tarea',
+  'Pause task': 'Pausar tarea',
+  'Resume task': 'Reanudar tarea',
   Once: 'Una vez',
   'Every week': 'Cada semana',
   Repeat: 'Repetir',

@@ -1429,6 +1429,8 @@ export const JA = {
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
+  "Pause task": "タスクを一時停止",
+  "Resume task": "タスクを再開",
   "Once": "1 回のみ",
   "Every week": "毎週",
   "Repeat": "繰り返し",
