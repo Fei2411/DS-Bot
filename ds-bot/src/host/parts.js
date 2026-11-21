@@ -2178,15 +2178,40 @@ export function install(rt) {
   }
 
   // "New session" in a Bot's chat: a manual move to a fresh part with the
-  // deterministic handoff package, no model call. While the Bot is working the fresh
-  // part starts at once and the part it replaces keeps running in the background.
-  // A member's conversation in a group moves the same way, but only while it is idle.
-  async function newPart(sessionId) {
+  // deterministic handoff package, no model call. `blank` opens a fresh part with
+  // neither the handoff package nor the old chat, and is the same part the working Bot
+  // gets: it starts at once and the part it replaces stays live in the background, at
+  // an idle Bot too. `handoff` asks for the note explicitly; a client that sends
+  // neither keeps the older behavior. A member's conversation in a group moves the
+  // handoff way only.
+  async function newPart(sessionId, { blank = false, handoff = false } = {}) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
-    const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
+    if (blank) {
+      const bot = rt.botOf(place.botId)
+      if (bot === undefined || place.roomId !== undefined) throw Object.assign(new Error('A blank part starts only in a Bot\'s own conversation'), { code: 'bot/invalid' })
+      if (switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      await openPartNow(bot, agent)
+      return true
+    }
+    // A subagent or a waiting approval keeps the part busy in a private chat too, not
+    // only in a group where the room decides; `busyHere` stays what the older callers
+    // use, the handoff below reads the same work directly.
+    const working = rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true
+    const busyHere = place.roomId !== undefined && working
+    if (handoff) {
+      // The note is written before the fresh part starts, so a handoff cannot wait out
+      // the turn: that would leave a delayed action with no visible failure, on a part
+      // that may change again. Refuse now and let the user ask again when it is idle.
+      // Archiving the part stops its background jobs, so a job that still runs keeps it
+      // too; a list that cannot be read proves nothing and is treated the same way.
+      const jobs = rt.runningJobs === undefined ? [] : rt.runningJobs(sessionId)
+      if (agent.status !== 'idle' || working || switches.has(sessionId) || jobs === undefined || jobs.length > 0) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
+      return true
+    }
     if (agent.status === 'idle' && !busyHere) {
       // Answers once the fresh part is there, so a switch that fails reaches the user.
       if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
