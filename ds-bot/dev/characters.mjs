@@ -356,11 +356,115 @@ const GEOMETRIC = {
     eyes: [[-0.2, 0.2], [0.2, 0.2]],
     eye: 0.8,
   },
+  octopus: {
+    label: 'Octopus',
+    sdf: smin(0.16,
+      ellipsoid([0, 0.26, 0.02], [0.56, 0.48, 0.5]),
+      roundCone([-0.3, 0.0, 0.0], [-0.58, -0.5, 0.04], 0.17, 0.08),
+      roundCone([-0.1, -0.04, 0.06], [-0.18, -0.64, 0.1], 0.16, 0.08),
+      roundCone([0.12, -0.04, 0.04], [0.24, -0.6, 0.08], 0.16, 0.08),
+      roundCone([0.32, 0.0, -0.02], [0.62, -0.44, 0.0], 0.16, 0.08)),
+    eyes: [[-0.17, 0.2], [0.17, 0.2]],
+    eye: 0.82,
+    paints: [decal(circle2(0.04, -0.24, 0.12), '#fff')],
+  },
+  jelly: {
+    label: 'Jellyfish',
+    sdf: smin(0.1,
+      clipBelow(ellipsoid([0, 0.42, 0], [0.74, 0.34, 0.58]), 0.16),
+      torus([0, 0.2, 0], 0.52, 0.12),
+      roundCone([-0.34, 0.14, 0.02], [-0.42, -0.34, 0.04], 0.12, 0.075),
+      roundCone([-0.1, 0.12, 0.05], [-0.12, -0.46, 0.08], 0.12, 0.075),
+      roundCone([0.14, 0.12, 0.04], [0.18, -0.4, 0.05], 0.12, 0.075),
+      roundCone([0.36, 0.14, 0], [0.44, -0.3, 0.02], 0.11, 0.07)),
+    eyes: [[-0.16, 0.52], [0.16, 0.52]],
+    eye: 0.74,
+  },
+  starfish: {
+    label: 'Starfish',
+    // One point up. The extrude's round is most of the thickness, so the tips stay bulbs.
+    sdf: smin(0.22,
+      extrude((x, y) => polygonDistance([[[0, 0.58], [-0.16, 0.23], [-0.55, 0.18], [-0.27, -0.09], [-0.34, -0.47], [0, -0.28], [0.34, -0.47], [0.27, -0.09], [0.55, 0.18], [0.16, 0.23]]], x, y), 0.08, 0.18),
+      ellipsoid([0, 0.02, 0.08], [0.36, 0.32, 0.3])),
+    eyes: [[-0.12, 0.02], [0.12, 0.02]],
+    eye: 0.75,
+  },
+  turtle: {
+    label: 'Turtle',
+    sdf: smin(0.16,
+      clipBelow(ellipsoid([-0.08, 0.12, 0], [0.56, 0.44, 0.5]), -0.06),
+      ellipsoid([0.62, 0.0, 0.3], [0.3, 0.27, 0.26]),
+      roundCone([-0.22, 0.02, 0.04], [-0.84, -0.1, 0.08], 0.16, 0.09),
+      roundCone([0.08, 0.0, 0.12], [0.2, -0.48, 0.2], 0.16, 0.09)),
+    eyes: [[0.5, 0.04], [0.72, 0.06]],
+    eye: 0.7,
+    paints: [decal(circle2(-0.2, 0.2, 0.12), '#fff')],
+  },
+  // Aquatic set. Beak, snout and claws sit toward +x, the same way the whale faces.
+  dolphin: {
+    label: 'Dolphin',
+    sdf: smin(0.13,
+      ellipsoid([0.02, -0.02, 0], [0.56, 0.4, 0.4]),
+      roundCone([0.34, 0.0, 0.05], [0.84, 0.02, 0.16], 0.18, 0.08),
+      ellipsoid([-0.1, 0.36, -0.04], [0.11, 0.28, 0.07], 18),
+      roundCone([-0.38, -0.02, 0], [-0.72, 0.02, 0], 0.16, 0.07),
+      ellipsoid([-0.8, 0.18, 0], [0.1, 0.22, 0.06], 36),
+      ellipsoid([-0.82, -0.14, 0], [0.09, 0.18, 0.055], -40),
+      ellipsoid([0.16, -0.22, 0.24], [0.2, 0.07, 0.05], 22)),
+    eyes: [[-0.12, 0.08], [0.18, 0.08]],
+    eye: 0.78,
+    paints: [decal((x, y) => Math.max(circle2(0.08, -0.18, 0.2)(x, y), y), '#fff')],
+  },
+  puffer: {
+    label: 'Pufferfish',
+    sdf: smin(0.08,
+      sphere([0, 0, 0], 0.62),
+      roundCone([0.0, 0.48, 0.08], [0.02, 0.78, 0.1], 0.13, 0.05),
+      roundCone([0.36, 0.28, 0.16], [0.56, 0.46, 0.2], 0.12, 0.05),
+      roundCone([-0.32, 0.32, 0.08], [-0.5, 0.52, 0.1], 0.12, 0.05),
+      roundCone([0.48, -0.12, 0.16], [0.74, -0.16, 0.2], 0.12, 0.045),
+      roundCone([-0.48, -0.08, 0.1], [-0.74, -0.06, 0.12], 0.12, 0.045),
+      roundCone([0.16, 0.44, 0.2], [0.26, 0.66, 0.26], 0.11, 0.045),
+      roundCone([0.06, -0.48, 0.18], [0.08, -0.72, 0.24], 0.12, 0.045),
+      roundCone([-0.24, -0.36, 0.18], [-0.38, -0.56, 0.24], 0.11, 0.04),
+      ellipsoid([0.2, -0.4, 0.24], [0.18, 0.07, 0.05], 18)),
+    eyes: [[-0.18, 0.1], [0.18, 0.1]],
+    eye: 0.95,
+    paints: [decal((x, y) => Math.max(circle2(0.02, -0.34, 0.18)(x, y), y + 0.14), '#fff')],
+  },
+  seahorse: {
+    label: 'Seahorse',
+    sdf: smin(0.18,
+      ellipsoid([0.0, 0.44, 0.06], [0.38, 0.34, 0.3]),
+      roundCone([0.2, 0.36, 0.16], [0.62, 0.28, 0.28], 0.16, 0.09),
+      roundCone([0.02, 0.66, 0.06], [0.16, 0.86, 0.1], 0.12, 0.07),
+      roundCone([0.02, 0.16, 0.04], [-0.2, -0.04, 0.04], 0.22, 0.26),
+      roundCone([-0.2, -0.04, 0.04], [0.18, -0.32, 0.08], 0.26, 0.22),
+      roundCone([0.18, -0.32, 0.08], [-0.08, -0.52, 0.04], 0.18, 0.12),
+      roundCone([-0.08, -0.52, 0.04], [0.22, -0.72, 0.08], 0.12, 0.08),
+      sphere([0.3, -0.8, 0.08], 0.1)),
+    eyes: [[-0.12, 0.5], [0.12, 0.48]],
+    eye: 0.78,
+    paints: [decal(circle2(0.04, -0.3, 0.12), '#fff', 0.35)],
+  },
+  crab: {
+    label: 'Crab',
+    sdf: smin(0.055,
+      clipBelow(ellipsoid([0, 0.02, 0], [0.62, 0.32, 0.46]), -0.14),
+      smin(0.05, sphere([0.62, 0.02, 0.34], 0.2), roundCone([0.78, 0.1, 0.42], [0.94, 0.24, 0.46], 0.11, 0.055)),
+      smin(0.05, sphere([-0.72, -0.14, 0.16], 0.26), roundCone([-0.86, -0.24, 0.2], [-1.02, -0.4, 0.26], 0.12, 0.055)),
+      roundCone([0.22, -0.04, 0.2], [0.38, -0.38, 0.34], 0.13, 0.065),
+      roundCone([-0.24, -0.02, 0.14], [-0.4, -0.36, 0.24], 0.13, 0.065)),
+    eyes: [[-0.2, 0.12], [0.2, 0.12]],
+    eye: 0.78,
+    paints: [decal(polyline2([[-0.14, -0.06], [0, -0.14], [0.14, -0.06]], 0.05), '#fff')],
+  },
 }
 
-// Picker order: the mascots lead, the star second.
-const ORDER = ['whale', 'star', 'moon', 'wave', 'squircle', 'zed', 'hex']
-const MODELS = { ...Object.fromEntries(ORDER.map(id => [id, MASCOTS[id]])), ...GEOMETRIC }
+// Picker order: the mascots lead, the star second, then the sea's other animals so the
+// whale is not the only one. The rest of GEOMETRIC follows in its own order.
+const ORDER = ['whale', 'star', 'dolphin', 'octopus', 'turtle', 'crab', 'puffer', 'jelly', 'starfish', 'seahorse', 'moon', 'wave', 'squircle', 'zed', 'hex']
+const MODELS = { ...Object.fromEntries(ORDER.map(id => [id, MASCOTS[id] ?? GEOMETRIC[id]])), ...GEOMETRIC }
 
 function contours(field) {
   const at = (i, j) => field[i * (N + 1) + j]
