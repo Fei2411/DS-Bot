@@ -15828,6 +15828,41 @@ function countCards(state, sessionId, callIds, delta) {
   return { ...state, [sessionId]: own };
 }
 
+// src/client/avatar-refs.js
+function createAvatarResolver(fetchAvatar) {
+  let cache = /* @__PURE__ */ new Map();
+  let missing = 0;
+  async function resolveAvatars(value) {
+    if (!Array.isArray(value?.bots)) return value;
+    const next = /* @__PURE__ */ new Map();
+    const pending = /* @__PURE__ */ new Map();
+    let failed = 0;
+    const bots = await Promise.all(value.bots.map(async (bot) => {
+      const ref = bot.avatar?.imageRef;
+      if (typeof ref !== "string") return bot;
+      const { imageRef: _ref, ...avatar } = bot.avatar;
+      const known = cache.get(ref) ?? next.get(ref);
+      if (known !== void 0) {
+        next.set(ref, known);
+        return { ...bot, avatar: { ...avatar, image: known } };
+      }
+      if (!pending.has(ref)) pending.set(ref, fetchAvatar(bot.id).catch(() => null));
+      const answer = await pending.get(ref);
+      if (typeof answer?.image !== "string") {
+        failed += 1;
+        return { ...bot, avatar };
+      }
+      if (typeof answer.ref === "string") next.set(answer.ref, answer.image);
+      return { ...bot, avatar: { ...avatar, image: answer.image } };
+    }));
+    cache = next;
+    missing = failed;
+    return { ...value, bots };
+  }
+  resolveAvatars.missing = () => missing > 0;
+  return resolveAvatars;
+}
+
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
@@ -50640,10 +50675,11 @@ function apply(ctx) {
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
   let applied = 0;
+  const resolveAvatars = createAvatarResolver((botId) => call("avatar", { botId }));
   const pull = async () => {
     const order = ++pulls;
     const known = roster.getSnapshot();
-    const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language() });
+    const value = await resolveAvatars(await call("state", { since: resolveAvatars.missing() ? void 0 : known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" }));
     if (order < applied) return;
     applied = order;
     const prevLiveKey = liveKey;

@@ -2,6 +2,7 @@ import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
+import { createAvatarResolver } from './avatar-refs.js'
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
@@ -198,10 +199,11 @@ export function apply(ctx) {
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const resolveAvatars = createAvatarResolver(botId => call('avatar', { botId }))
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
+    const value = await resolveAvatars(await call('state', { since: resolveAvatars.missing() ? undefined : known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' }))
     if (order < applied) return
     applied = order
     const prevLiveKey = liveKey
