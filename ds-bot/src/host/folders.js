@@ -181,6 +181,8 @@ export function install(rt) {
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
     const agent = exec.agent
+    const places = folderPlaces(options)
+    const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
     if (policy !== undefined) {
       const presets = ctx.get?.('permissionPresets')
       if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
@@ -200,8 +202,6 @@ export function install(rt) {
           return 'workspace-write'
         }
       }
-      const places = folderPlaces(options)
-      const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
       const modes = places.length === 0 ? [fallback] : [
         ...agents.map(entry => policy.resolve({ session: entry.session }).mode),
