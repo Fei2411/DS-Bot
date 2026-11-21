@@ -9,6 +9,8 @@ import type { ChatItem } from '../screens/chat/items.tsx'
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
 // with exactly the shapes the real host returns (channel.js `state` view + live(),
 // parts.js `chat` pages). Only compiled in when the env var is set at bundle time.
+export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+
 export function demoLink() {
   const data = useMemo(demoData, [])
   const [, setTick] = useState(0)
@@ -35,7 +37,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { applied: body.approve === true }
       }
       case 'hello':
-        return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+        return DEMO_HELLO
       case 'notices':
         return { boot: 'demo', seq: 0, notices: [], reset: false }
       case 'add-agent': {
