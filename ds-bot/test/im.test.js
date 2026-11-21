@@ -1008,7 +1008,7 @@ test('reply origin: a peer Bot message and a scheduled task do not reach IM', as
   assert.equal(s.fake.sent.length, 0)
 })
 
-test('reply origin: another source in the same turn withdraws the IM origin', async (t) => {
+test('reply origin: another source in the same turn keeps the IM origin', async (t) => {
   const s = await start()
   t.after(s.stop)
   await pairedConn(s)
@@ -1017,8 +1017,75 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   s.emitEvent('a', 'user/message', { source: { kind: 'peer', from: 'b' }, content: [{ type: 'text', text: 'also this' }] })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
   await s.flush()
-  assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'reply']])
 })
+
+for (const group of [false, true]) {
+  for (const before of [false, true]) {
+    test(`whole-turn IM origin: card answer ${before ? 'before' : 'after'} IM admission in a ${group ? 'group' : 'direct'} turn`, async (t) => {
+      const s = await start()
+      t.after(s.stop)
+      const { one } = await pairedConn(s)
+      if (group) {
+        one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+        await s.rt.save()
+        await gm(s, 'u1', 'hello group')
+      } else {
+        await dm(s, 'u1', 'hi')
+      }
+      const sessionId = group ? 'r1' : 'a'
+      const admit = () => s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+      const answer = () => s.emitEvent(sessionId, 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' } })
+      s.emitEvent(sessionId, 'turn/start', {})
+      if (before) { answer(); admit() } else { admit(); answer() }
+      s.fake.sent.length = 0
+      if (group) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply' })
+      else s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+      await s.flush()
+      assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [[group ? 'g1' : 'dm-u1', group ? '**Writer**: reply' : 'reply']])
+    })
+  }
+
+  test(`whole-turn IM origin: every reply survives mid-turn non-IM input in a ${group ? 'group' : 'direct'} turn`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    if (group) {
+      one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+      await s.rt.save()
+      await gm(s, 'u1', 'hello group')
+    } else {
+      await dm(s, 'u1', 'hi')
+    }
+    const sessionId = group ? 'r1' : 'a'
+    s.imTurn(sessionId)
+    s.fake.sent.length = 0
+    const replies = []
+    const reply = () => {
+      const text = `reply ${replies.length + 1}`
+      replies.push([group ? 'g1' : 'dm-u1', group ? `**Writer**: ${text}` : text])
+      if (group) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text })
+      else s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text }] } })
+    }
+    reply()
+    for (const source of [
+      { kind: 'user' },
+      { kind: 'web' },
+      { kind: 'phone' },
+      { kind: 'schedule', taskId: 't1' },
+      { kind: 'peer', from: 'b' },
+      { kind: 'bot', role: 'post' },
+      { kind: 'bot', role: 'task-report', taskId: 'desktop-task', ...(group ? { roomId: 'r1' } : {}) },
+      undefined,
+    ]) {
+      s.emitEvent(sessionId, 'user/message', { source })
+      reply()
+      reply()
+    }
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), replies)
+  })
+}
 
 test('reply origin: the turn ending stops later output from going out', async (t) => {
   const s = await start()
@@ -1041,6 +1108,87 @@ test('reply origin: an IM message this process never registered sends nothing', 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+for (const group of [false, true]) {
+  test(`whole-turn IM origin: an unknown IM request blocks later claims in a ${group ? 'group' : 'direct'} turn`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    if (group) {
+      one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+      await s.rt.save()
+      await gm(s, 'u1', 'first')
+    } else {
+      await dm(s, 'u1', 'first')
+    }
+    const sessionId = group ? 'r1' : 'a'
+    s.imTurn(sessionId)
+    s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: 'im:telegram:unknown' } })
+    if (group) await gm(s, 'u1', 'second')
+    else await dm(s, 'u1', 'second')
+    s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    s.fake.sent.length = 0
+    if (group) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'withheld' })
+    else s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: 'withheld' }] } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent, [])
+  })
+}
+
+for (const conflict of ['connection', 'chat', 'sender']) {
+  test(`whole-turn IM origin: a conflicting ${conflict} cannot be reclaimed by non-IM input`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.paired.push({ id: 'u2', name: 'U2', at: 1 })
+    await s.rt.save()
+    let incoming = s.fake
+    if (conflict === 'connection') {
+      incoming = fakeAdapter()
+      const original = adapters.dingtalk
+      adapters.dingtalk = incoming
+      t.after(() => { adapters.dingtalk = original })
+      const conn = await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+      s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
+      await s.rt.save()
+      await s.flush()
+    }
+    await dm(s, 'u1', 'first')
+    s.imTurn('a')
+    await incoming.handlers.onMessage({
+      chat: { key: conflict === 'chat' ? 'dm-other' : 'dm-u1', kind: 'direct', title: 'Chat' },
+      sender: { id: conflict === 'sender' ? 'u2' : 'u1', name: 'User' }, text: 'conflicting request',
+    })
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    s.emitEvent('a', 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' } })
+    await dm(s, 'u1', 'try to reclaim')
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    s.fake.sent.length = 0
+    incoming.sent.length = 0
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'withheld' }] } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent, [])
+    assert.deepEqual(incoming.sent, [])
+  })
+}
+
+test('whole-turn IM origin: a task report cannot reopen a conflicting group round', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  for (const chatKey of ['g1', 'g2']) one.chats[chatKey] = { kind: 'group', title: chatKey, target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'first')
+  s.imTurn('r1')
+  s.rt.botOf('a').tasks = [{ id: 'im-task', sessionId: 'task-1', status: 'completed', imOrigin: s.rt.captureImOrigin('r1') }]
+  await gm(s, 'u1', 'conflicting', { chat: { key: 'g2', kind: 'group', title: 'G2' } })
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+  s.emitEvent('r1', 'user/message', { source: { kind: 'bot', role: 'task-report', taskId: 'im-task', roomId: 'r1' } })
+  s.fake.sent.length = 0
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'withheld' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [])
 })
 
 test('reply origin: the group line follows the turn that started it', async (t) => {
@@ -1329,6 +1477,8 @@ test('a Web question answer cannot inherit a previous IM destination', async t =
   await pairedConn(s)
   await dm(s, 'u1', 'first')
   s.imTurn('a')
+  s.emitEvent('a', 'turn/end', {})
+  s.emitEvent('a', 'turn/start', {})
   s.emitEvent('a', 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' } })
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private answer' }] } })
@@ -1728,7 +1878,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await delay(30)
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'recovered after overflow']])
 
-  // 2. A turn already joined by Web UI input before switching does NOT carry the IM origin across parts.
+  // 2. Web UI input joining the turn before switching keeps the IM origin across parts.
   await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'mixed task' })
   const req2 = prompts.at(-1)?.requestId
   fake.sent.length = 0
@@ -1745,12 +1895,14 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   assert.ok(handoff3)
   emitEvent(part3, 'turn/start', { turn: 1 })
   emitEvent(part3, 'user/message', { source: handoff3.source, content: handoff3.content })
-  emitEvent(part3, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'must stay internal' }] } })
+  emitEvent(part3, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'reply after web steer' }] } })
   emitEvent(part3, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await delay(30)
-  assert.deepEqual(fake.sent, [])
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'reply after web steer']])
 
-  // 3. A turn that turns mixed after startSwitch held the origin does not leak it to the fresh part either.
+  // 3. A conflicting IM claim after startSwitch held the origin cannot leak to the fresh part.
+  rt.state.im.connections[conn.id].paired.push({ id: 'u2', name: 'U2', at: 1 })
+  await rt.save()
   await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'late mixed task' })
   const req3 = prompts.at(-1)?.requestId
   fake.sent.length = 0
@@ -1760,7 +1912,8 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await preStep(part3, [{ content: [{ type: 'text', text: 'late mixed task' }], source: { kind: 'user', rpcId: req3 } }], 1)
   emitEvent(part3, 'user/message', { source: { kind: 'user', rpcId: req3 }, content: [{ type: 'text', text: 'late mixed task' }] })
   await fireRequestError(part3, 'CONTEXT_WINDOW_EXCEEDED')
-  emitEvent(part3, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'late web steer' }] })
+  await fake.handlers.onMessage({ chat: { key: 'dm-u2', kind: 'direct', title: 'U2' }, sender: { id: 'u2', name: 'U2' }, text: 'conflicting task' })
+  emitEvent(part3, 'user/message', { source: { kind: 'user', rpcId: prompts.at(-1).requestId }, content: [{ type: 'text', text: 'conflicting task' }] })
   emitEvent(part3, 'turn/end', { turn: 2, reason: { kind: 'error' } })
   releaseIdle()
   setIdleGate(undefined)
@@ -1806,7 +1959,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await delay(30)
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: member finished after switch']])
 
-  // 5. Group folder switch invalidated by a Web UI message while switching does not re-attach the old IM origin.
+  // 5. Web UI input during the group folder switch keeps the IM origin for the ongoing work.
   fake.sent.length = 0
   agentOf(roomPart2).session.header.cwd = '/tmp/stale-group-dir-2'
   let onCreateEntered
@@ -1833,12 +1986,12 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(roomPart3, 'turn/start', { turn: 2 })
   emitEvent(roomPart3, 'user/message', {
     source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e-room-web', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
-    content: [{ type: 'text', text: 'must not leak after web takeover' }],
+    content: [{ type: 'text', text: 'reply after group web steer' }],
   })
-  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak after web takeover' })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'reply after group web steer' })
   emitEvent(roomPart3, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await delay(30)
-  assert.deepEqual(fake.sent, [])
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: reply after group web steer']])
 
   // 6. Group folder switch invalidated by another IM chat while switching does not leak to the old IM chat.
   rt.state.im.connections[conn.id].chats.g2 = { kind: 'group', title: 'Group Two', target: { roomId: 'r1' }, at: 1 }
@@ -2360,8 +2513,7 @@ test('P0-5/P0-B: group task-report restores persisted IM origin across restart a
     updatedAt: Date.now(),
     imOrigin: captured,
   }]
-  // Simulate a desktop/Web message in the same group (dropOrigin adds roomSid to `mixed`),
-  // whose round has already finished (roomActive === false).
+  // Start and finish a fresh desktop/Web round without an IM claim.
   s.emitEvent(roomSid, 'turn/start', { turn: 2 })
   s.emitEvent(roomSid, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'desktop ping' }] })
   s.emitEvent(roomSid, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
@@ -2388,7 +2540,7 @@ test('P0-5/P0-B: group task-report restores persisted IM origin across restart a
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
     [['g1', '**Writer**: Group task finished and verified.']],
-    'group task-report must clear stale mixed from finished desktop round and deliver via real room post path',
+    'group task-report must restore the origin after a finished desktop round and deliver via real room post path',
   )
 })
 
@@ -2556,8 +2708,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   assert.deepEqual(s.fake.sent, [], 'must not restore IM origin while a non-IM group round is active')
   s.rt.roomActive = () => false
 
-  // A desktop-started sibling task (no imOrigin) finishing right after must drop roomSid
-  // origin so its desktop result is NEVER forwarded to IM group g1!
+  // A desktop-started sibling task does not withdraw the room's established IM origin.
   s.rt.botOf('a').tasks.push({
     id: 'k_grp_desktop',
     title: 'Desktop sibling task',
@@ -2569,7 +2720,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
     startedAt: Date.now(),
     updatedAt: Date.now(),
   })
-  // First restore g1 origin via IM task, then let desktop task report drop it.
+  // First restore g1 origin via IM task, then admit the desktop task report.
   s.emitEvent('grp-r1-a', 'turn/start', { turn: 5 })
   s.emitEvent('grp-r1-a', 'user/message', {
     source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
@@ -2588,7 +2739,7 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Desktop secret result.' })
   s.emitEvent(roomSid, 'turn/end', { turn: 7, reason: { kind: 'completed' } })
   await s.flush()
-  assert.deepEqual(s.fake.sent, [], 'desktop-started group task report must never leak to IM group')
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: Desktop secret result.']], 'desktop task report keeps the established group IM origin')
 
   // A different IM group chat g2 currently owns roomSid: g1's task-report must drop roomSid
   // origin so g1's report is never leaked into g2.
