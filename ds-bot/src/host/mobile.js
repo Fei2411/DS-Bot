@@ -384,7 +384,7 @@ export function install(rt) {
     const sessionId = String(body.sessionId ?? '')
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
     const botId = room === undefined ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId : undefined
-    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const attachments = ctx.get?.('attachments')
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
     const sessions = [...new Set([
@@ -492,8 +492,10 @@ export function install(rt) {
     const botId = memberBotId ?? (room === undefined
       ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id
       : undefined)
-    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const dshAgent = botId === undefined && room === undefined ? rt.agentOf?.(sessionId) : undefined
+    if (botId === undefined && room === undefined && dshAgent === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const owned = new Set([
+      ...(dshAgent !== undefined ? [sessionId] : []),
       ...(room !== undefined && memberBotId === undefined ? [rt.sessionOfRoom(room)] : []),
       ...(room !== undefined && memberBotId !== undefined && room.sessions?.[memberBotId] ? [room.sessions[memberBotId]] : []),
       ...(room === undefined && botId !== undefined ? [rt.chatOf(botId)] : []),
@@ -605,7 +607,7 @@ export function install(rt) {
     const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
     const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
       ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
-    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const authorId = room !== undefined && typeof body.botId === 'string' && rt.botOf(body.botId) !== undefined
       && (room.members?.includes(body.botId) || rt.botOf(body.botId)?.private !== true)
       ? body.botId
