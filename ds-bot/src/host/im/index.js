@@ -20,6 +20,7 @@ const RETRY_MS = 5_000
 const RETRY_MAX_MS = 30_000
 const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
+const CONSUMED_REQUESTS_KEEP = 200
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 // A quoted reply is answered with the message it quotes: the last messages sent
 // to a chat are kept by the ids the platform named them, and only their start.
@@ -610,6 +611,8 @@ export function install(rt) {
   const pendingReset = new Set()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
+  const consumedRequests = new Set()
+  const withheldOrigins = new Map()
   // IM origin held across a part switch until the resumed/handoff message opens.
   const resumedOrigins = new Map()
   const holdImOrigin = (sessionId) => {
@@ -650,7 +653,10 @@ export function install(rt) {
   }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
-    if (mixed.has(sessionId)) return
+    if (mixed.has(sessionId)) {
+      if (!withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
+      return
+    }
     const previous = origins.get(sessionId)
     if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey || previous.senderId !== senderId)) {
       dropOrigin(sessionId)
@@ -669,6 +675,7 @@ export function install(rt) {
     origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
   }
   const dropOrigin = (sessionId) => {
+    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
     origins.delete(sessionId)
     mixed.add(sessionId)
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
@@ -676,6 +683,12 @@ export function install(rt) {
   const resetOrigin = (sessionId) => {
     origins.delete(sessionId)
     mixed.delete(sessionId)
+    withheldOrigins.delete(sessionId)
+  }
+  const warnWithheldOrigin = (sessionId) => {
+    if (withheldOrigins.get(sessionId) !== false) return
+    withheldOrigins.set(sessionId, true)
+    rt.warn('ds-bot: IM reply withheld: turn origin was dropped or mixed')
   }
   const clearImOrigin = (sessionId) => {
     resetOrigin(sessionId)
@@ -1735,6 +1748,7 @@ export function install(rt) {
       // in-turn notices) joins a turn without naming who asked: it neither claims nor
       // withdraws the IM origin, and does not consume a group's pending reset.
       if (isAttachedContextSource(source)) return
+      if (typeof source?.rpcId === 'string' && consumedRequests.has(source.rpcId)) return
       // Pure context notice injected before the user's message on a newly forked foreground;
       // never touch pendingReset or drop/mix the IM origin for this turn.
       if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
@@ -1787,12 +1801,16 @@ export function install(rt) {
           }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
-          // The chat this message came from is the one its turn answers. A message this
-          // process never registered — after a restart, or a redelivery — leaves no origin.
+          // Unknown requests cannot claim a chat. Consumed requests are ignored above,
+          // including redelivery after their turn ended; they must not claim it again.
           const asked = requests.get(rpcId)
           requests.delete(rpcId)
           if (asked === undefined) dropOrigin(session.id)
-          else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+          else {
+            consumedRequests.add(rpcId)
+            if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
+            claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+          }
         } else if (source?.kind === REPLY_KIND) {
           // Web and phone answers carry no registered IM request.
           dropOrigin(session.id)
@@ -1825,9 +1843,12 @@ export function install(rt) {
       return
     }
     const origin = originOf(session.id)
-    if (origin === undefined) return
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
+      if (origin === undefined) {
+        warnWithheldOrigin(session.id)
+        continue
+      }
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
       sendReply(origin, body, { sessionId: session.id, botId })
     }
@@ -1837,7 +1858,10 @@ export function install(rt) {
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
     const roomSessionId = room.sessionId ?? room.id
     const origin = originOf(roomSessionId)
-    if (origin === undefined) return
+    if (origin === undefined) {
+      warnWithheldOrigin(roomSessionId)
+      return
+    }
     sendReply(origin, line.text, { sessionId: roomSessionId, botId: line.botId, prefix: `**${line.who}**: ` })
   })
 
