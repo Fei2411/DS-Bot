@@ -547,11 +547,11 @@ export function install(rt) {
   // turn starts — the Web UI, a peer Bot's message, a scheduled task, work picked up
   // after a restart — has no IM origin, and its replies, views and cards stay in the app.
   // Nothing is persisted: after a restart there is no origin, so nothing goes out. A
-  // Bot's origin lives until its turn ends or a conflicting IM source joins it, however long the
-  // turn runs; a group's own Session ends its relay turn at once while its members keep
-  // working, so its origin lives until a new round starts in the group or the user
-  // is unpaired. A request lives until the message it names is admitted, however long
-  // that message waits in the queue behind a busy Bot.
+  // Bot's origin lives until its turn ends, a conflicting IM source joins it, or a
+  // background result with no known owner enters it. A group's own Session ends its
+  // relay turn at once while its members keep working, so its origin lives until a
+  // new round starts in the group or the user is unpaired. A request lives until its
+  // message is admitted, however long it waits in the queue behind a busy Bot.
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
   // Session id → the chat its running turn came from.
   const origins = new Map()
@@ -1725,7 +1725,18 @@ export function install(rt) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
-        if (typeof imOrigin === 'string') {
+        if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
+          // A job notice has no launch ID; a child ID can be reused by another subagent run.
+          dropOrigin(session.id)
+          const member = rt.groupOwners.get(session.id)
+          if (member !== undefined) {
+            const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
+            if (roomSid !== undefined) {
+              pendingReset.delete(roomSid)
+              dropOrigin(roomSid)
+            }
+          }
+        } else if (typeof imOrigin === 'string') {
           const resumed = resumedOrigins.get(imOrigin)
           resumedOrigins.delete(imOrigin)
           if (resumed === undefined) dropOrigin(session.id)
