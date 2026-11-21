@@ -6,7 +6,6 @@ import { botState, BotMark, BotAvatar } from './mark.js'
 import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
-import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
 import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
@@ -14,13 +13,14 @@ import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
-import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
+import { FreshMemberPart, MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { TaskBoard } from './task-board.js'
 import { DetailsTaskList, isActiveTask, tasksForChat } from './bot-tasks.js'
 import { BotConnectors } from './connectors.js'
 import { ComputerView } from './computer.js'
+import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 function transcriptOf(list, id, name, hiddenTurns = []) {
@@ -172,7 +172,8 @@ function MemberPile({ room, roster }) {
 const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
-// Stop beside it while it works here, and the approvals it waits on below.
+// Stop beside it while it works here, New session when idle with a group session, and
+// the approvals it waits on below.
 function MemberRow({ member, entry, room, roster, actions }) {
   return h('div', { role: 'listitem', className: 'bt-member' },
     h('div', { className: 'bt-member-row' },
@@ -183,7 +184,8 @@ function MemberRow({ member, entry, room, roster, actions }) {
             h('span', { className: 'bt-member-name' }, member.name),
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
-      h(StopMemberWork, { entry, bot: member, room, actions })),
+      h(StopMemberWork, { entry, bot: member, room, actions }),
+      h(FreshMemberPart, { entry, bot: member, room, actions })),
     h(MemberApprovals, { entry, bot: member, actions }))
 }
 
@@ -289,12 +291,20 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
   const isMainBot = isMainOf(roster, owner?.id)
-  const [tab, setTab] = useState(startTab === 'tasks' ? 'tasks' : 'details')
+  const [tab, setTab] = useState(
+    startTab === 'tasks' ? 'tasks'
+      : startTab === 'computer' && owner && roster.computer?.enabled === true ? 'computer'
+      : startTab === 'browser' && owner ? 'browser'
+      : 'details',
+  )
   const room = roster.roomsById[sessionId]
   // The info pane swaps its overview for the Bot or group settings view in place.
   const [view, setView] = useState(startTab === 'settings' && (owner || room) ? 'settings' : 'overview')
   const [editing, setEditing] = useState(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])))
   const [draftName, setDraftName] = useState(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ''))
+  const cancellingRename = useRef(false)
+  const cancelRename = () => { cancellingRename.current = true; setEditing(false) }
+  useEscape(cancelRename, editing)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const glide = useGlide(tab)
@@ -306,7 +316,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const move = last.current.move
   const side = move === 'tab' ? undefined : move
   const close = () => actions.closeOverlay()
-  useEscape(close)
   const bot = owner
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
@@ -352,6 +361,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   }
   const current = bot?.name ?? room.name
   const saveName = async () => {
+    if (cancellingRename.current) { cancellingRename.current = false; return }
     setEditing(false)
     const next = draftName.trim()
     if (next === current || (room && !room.named && next === '')) return
@@ -379,9 +389,17 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
             className: 'bt-drawer-name-input', autoFocus: true, value: draftName, 'aria-label': bot ? t('Bot name') : t('Group name'),
             placeholder: room ? t('Name after members') : undefined,
             onChange: event => setDraftName(event.target.value), onBlur: saveName,
-            onKeyDown: (event) => { if (event.key === 'Enter') void saveName(); if (event.key === 'Escape') { event.stopPropagation(); setEditing(false) } },
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && !event.nativeEvent?.isComposing && event.keyCode !== 229) void saveName()
+              if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+                event.preventDefault?.()
+                event.stopPropagation?.()
+                event.nativeEvent?.stopPropagation?.()
+                cancelRename()
+              }
+            },
           })
-        : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
+        : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { cancellingRename.current = false; setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
       bot
         ? (roster.readOnly
             ? (bot.role ? h('span', { className: 'bt-drawer-role' }, bot.role) : null)

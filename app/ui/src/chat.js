@@ -11,50 +11,198 @@ import { ReadOnlyDock } from '../../../ds-bot/src/client/read-only-dock.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
-const sameItem = (a, b) => a.kind === b.kind && a.time === b.time && a.text === b.text
+const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
+  ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
+  : a.kind === b.kind && a.time === b.time && a.text === b.text)
 
-// A Bot's own chat: pages from the `chat` endpoint, new entries and the reply being
-// written from the feed. Entries that arrive while the first page loads wait for it.
-function useChat(botId, part, feed) {
-  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: botId !== undefined, failed: false })
+// `room-chat` speaks the mobile API contract (kind: 'bot' with botId/name/color,
+// kind: 'event' with event: 'done'|'failed'|'schedule'|...). `ChatRows` expects
+// group rows as 'post' and 'relay' so members stay distinct and round events render
+// with RelayEvent instead of falling into the 1:1 'Message from a Bot' row.
+export function adaptRoomItem(item) {
+  if (!item || typeof item !== 'object') return item
+  if (item.kind === 'bot') {
+    return {
+      id: item.id,
+      kind: 'post',
+      seq: item.id,
+      botId: item.botId,
+      name: item.name,
+      color: item.color,
+      text: item.text,
+      time: item.time,
+      ...(Number.isFinite(item.duration) ? { duration: item.duration } : {}),
+      ...(item.whole?.file ? { file: item.whole.file, length: item.whole.length } : {}),
+    }
+  }
+  if (item.kind === 'event') {
+    return {
+      id: item.id,
+      kind: 'relay',
+      time: item.time,
+      reply: {
+        kind: item.event,
+        botId: item.botId,
+        name: item.name,
+        color: item.color,
+        text: item.text,
+        code: item.code,
+        time: item.time,
+      },
+    }
+  }
+  return item
+}
+
+export const adaptRoomItems = items => (Array.isArray(items) ? items.map(adaptRoomItem) : [])
+
+// Merges a refreshed newest page onto already-loaded history without discarding
+// earlier pages or rewinding the cursor.
+export function mergeLatestPage(currentItems, currentCursor, nextItems, nextCursor) {
+  if (currentItems.length === 0) return { items: nextItems, cursor: nextCursor }
+  if (nextItems.length === 0) return { items: [], cursor: nextCursor }
+  let cut = -1
+  for (const next of nextItems) {
+    for (let i = currentItems.length - 1; i >= 0; i -= 1) {
+      if (sameItem(currentItems[i], next)) { cut = i; break }
+    }
+    if (cut !== -1) break
+  }
+  if (cut > 0) return { items: [...currentItems.slice(0, cut), ...nextItems], cursor: currentCursor }
+  if (cut === 0) return { items: nextItems, cursor: nextCursor }
+  if (nextCursor && nextCursor.beforeSeq === undefined && Number.isInteger(nextCursor.part)) {
+    return { items: [...currentItems, ...nextItems], cursor: currentCursor }
+  }
+  return { items: nextItems, cursor: nextCursor }
+}
+
+const userItemKey = item => (item.id !== undefined ? `id:${item.id}` : `t:${item.time ?? ''}:${item.text}`)
+
+// A Bot's own chat or a group chat: pages from `chat` / `room-chat`, new entries and
+// the reply being written from the feed. Entries that arrive while the first page loads wait for it.
+function useChat(botId, roomId, part, feed) {
+  const active = botId !== undefined || roomId !== undefined
+  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
   const [stream, setStream] = useState(null)
   const [pending, setPending] = useState([])
   const ready = useRef(false)
   const early = useRef([])
   const busy = useRef(false)
+  const reloadQueued = useRef(false)
+  const gen = useRef(0)
+  const hasLoaded = useRef(false)
+  const knownUserIds = useRef(new Set())
   const keep = useRef(null)
 
-  const load = useCallback(async (cursor, scroller) => {
-    if (busy.current || botId === undefined) return
+  const load = useCallback(async (cursor, scroller, refresh = false) => {
+    if (!active) return
+    if (busy.current) {
+      if (cursor === undefined) reloadQueued.current = true
+      return
+    }
+    const myGen = gen.current
     busy.current = true
-    if (cursor === undefined) ready.current = false
-    setView(current => ({ ...current, loading: true, failed: false }))
+    if (cursor === undefined && !refresh) ready.current = false
+    if (!refresh) setView(current => ({ ...current, loading: true, failed: false }))
     try {
-      const page = await call('chat', { botId, ...(cursor ? { cursor } : {}) })
+      const page = roomId !== undefined
+        ? await call('room-chat', { roomId, ...(cursor ? { cursor } : {}) })
+        : await call('chat', { botId, ...(cursor ? { cursor } : {}) })
+      if (gen.current !== myGen) return
+      const pageItems = roomId !== undefined ? adaptRoomItems(page.items) : (Array.isArray(page.items) ? page.items : [])
+      const pageSessionId = page.sessionId ?? part
       if (cursor === undefined) {
-        const later = early.current.filter(entry => entry.sessionId === page.sessionId && !page.items.some(item => sameItem(item, entry.item)))
+        const later = roomId !== undefined
+          ? []
+          : early.current.filter(entry => entry.sessionId === pageSessionId && !pageItems.some(item => sameItem(item, entry.item)))
         early.current = []
         ready.current = true
-        setView({ sessionId: page.sessionId, items: [...page.items, ...later.map(entry => entry.item)], cursor: page.cursor, loading: false, failed: false })
+        const mergedItems = [...pageItems, ...later.map(entry => entry.item)]
+        setView((current) => {
+          if (refresh && current.sessionId === pageSessionId && current.items.length > 0) {
+            const merged = mergeLatestPage(current.items, current.cursor, mergedItems, page.cursor)
+            return { ...current, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
+          }
+          return { sessionId: pageSessionId, items: mergedItems, cursor: page.cursor, loading: false, failed: false }
+        })
+        if (roomId !== undefined) {
+          const initial = !hasLoaded.current
+          hasLoaded.current = true
+          const freshUsers = []
+          for (const item of pageItems) {
+            if (item.kind !== 'user') continue
+            const key = userItemKey(item)
+            if (knownUserIds.current.has(key)) continue
+            knownUserIds.current.add(key)
+            freshUsers.push(item)
+          }
+          if (freshUsers.length > 0) {
+            setPending((list) => {
+              if (list.length === 0) return list
+              const next = list.slice()
+              for (const item of freshUsers) {
+                const at = next.findIndex(entry => entry.text === item.text
+                  && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
+                if (at >= 0) next.splice(at, 1)
+              }
+              return next.length === list.length ? list : next
+            })
+          }
+        }
       } else {
+        if (roomId !== undefined) {
+          for (const item of pageItems) {
+            if (item.kind === 'user') knownUserIds.current.add(userItemKey(item))
+          }
+        }
         // Content added above the viewport would push the view down; keep its distance from the end.
         if (scroller) keep.current = scroller.scrollHeight - scroller.scrollTop
-        setView(current => ({ ...current, items: [...page.items, ...current.items], cursor: page.cursor, loading: false }))
+        setView(current => ({ ...current, items: [...pageItems, ...current.items], cursor: page.cursor, loading: false }))
       }
     } catch {
-      ready.current = cursor !== undefined || ready.current
-      setView(current => ({ ...current, loading: false, failed: true }))
+      if (gen.current !== myGen) return
+      ready.current = cursor !== undefined || refresh || ready.current
+      if (!refresh) setView(current => ({ ...current, loading: false, failed: true }))
     } finally {
-      busy.current = false
+      if (gen.current === myGen) {
+        busy.current = false
+        if (reloadQueued.current) {
+          reloadQueued.current = false
+          void loadRef.current(undefined, undefined, true)
+        }
+      }
     }
-  }, [botId])
+  }, [active, botId, roomId, part])
+  const loadRef = useRef(load)
+  loadRef.current = load
 
   // A new part starts the chat over.
-  useEffect(() => { void load(undefined) }, [load, part])
+  useEffect(() => {
+    const myGen = ++gen.current
+    busy.current = false
+    reloadQueued.current = false
+    ready.current = false
+    hasLoaded.current = false
+    early.current = []
+    knownUserIds.current.clear()
+    setPending([])
+    setStream(null)
+    setView({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
+    if (active) void loadRef.current(undefined)
+    return () => {
+      if (gen.current === myGen) gen.current += 1
+      busy.current = false
+      reloadQueued.current = false
+    }
+  }, [active, botId, roomId, part])
 
   useEffect(() => feed.on((event, data) => {
     // The feed came back after a break: entries may have been missed.
-    if (event === 'hello') { if (ready.current) void load(undefined); return }
+    if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
+    if (roomId !== undefined) {
+      if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
+      return
+    }
     if (botId === undefined || data?.botId !== botId || data.sessionId !== part) return
     if (event === 'message') {
       if (!ready.current) { early.current.push(data); return }
@@ -71,17 +219,18 @@ function useChat(botId, part, feed) {
       else if (data.phase === 'end') setStream(current => (current?.attemptId === data.attemptId ? null : current))
       else setStream(current => (current?.attemptId === data.attemptId ? { ...current, text: current.text + data.text } : current))
     }
-  }), [feed, botId, part, load])
+  }), [feed, botId, roomId, part])
 
   // Shown at once: the message can come back on the feed before the request returns.
   const send = async (text, actions, sessionId) => {
+    const myGen = gen.current
     const entry = { kind: 'user', text, time: Date.now() }
     setPending(list => [...list, entry])
     actions.noteSent(sessionId)
     try {
       await actions.send(sessionId, text)
     } catch (error) {
-      setPending(list => list.filter(item => item !== entry))
+      if (gen.current === myGen) setPending(list => list.filter(item => item !== entry))
       throw error
     }
   }
@@ -139,7 +288,7 @@ function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, us
           'data-composer-input': '',
           onChange: event => setText(event.target.value),
           onKeyDown: (event) => {
-            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
               event.preventDefault()
               void submit()
             }
@@ -155,8 +304,13 @@ export function Chat({ sessionId, team }) {
   const { actions, hooks, chat: feed } = team
   const roster = hooks.useRoster(value => value)
   const bot = roster.byId[sessionId]
-  const name = bot?.name ?? roster.roomsById[sessionId]?.name ?? ''
-  const { view, stream, pending, load, send, keep } = useChat(bot?.id, sessionId, feed)
+  const room = roster.roomsById[sessionId]
+  const name = bot?.name ?? room?.name ?? ''
+  const { view, stream, pending, load, send, keep } = useChat(bot?.id, room?.id, sessionId, feed)
+  useEffect(() => {
+    document.body?.toggleAttribute?.('data-bt-room', room !== undefined)
+    return () => { document.body?.removeAttribute?.('data-bt-room') }
+  }, [room !== undefined])
   const scroller = useRef(null)
   const follow = useRef(true)
   const question = roster.questions?.[sessionId]

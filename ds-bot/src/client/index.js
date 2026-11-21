@@ -13,6 +13,7 @@ import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
+import { watchAgentTerminals } from './agent-terminals.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
@@ -36,7 +37,7 @@ import { SECRET_CSS, SecretDock } from './secret-card.js'
 import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
 import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { PROVIDERS_CSS } from './providers-page.js'
-import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
+import { LearningDock, LearningTurnTail, PendingLearning, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { ReadOnlyDock, READ_ONLY_CSS } from './read-only-dock.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
@@ -800,13 +801,17 @@ export function apply(ctx) {
         await bridge.views.hold(botId, false)
         return result
       } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge.importSources === 'function' ? {
         sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
         pick: () => bridge.importPick(),
-        live: (source, close) => bridge.importLive(source, close),
-        apply: (botId, pending) => bridge.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
@@ -1042,6 +1047,8 @@ export function apply(ctx) {
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
   actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
+  // The tabs of the terminals a shown Bot starts, as DSH's own header opens them.
+  actions.watchAgentTerminals = sessionId => watchAgentTerminals(ctx.slots, sessionId, error => actions.reportError(error, 'right-sidebar'))
   actions.newTerminal = () => {
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
@@ -1110,7 +1117,7 @@ export function apply(ctx) {
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name, ...options, ...(options.priority === undefined ? {} : { priority: freePriority(ctx.slots.entries(name), options) }),
   }, component))
-  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY))
+  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY))
 
   // The "@" menu's Bot group and the chats "+" references. The composer's controller
   // for a Session is the shell's own, so the chats open at its caret.

@@ -1,13 +1,59 @@
 import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTurnFacts } from './btw.js'
-import { answerFailure, answerKeepsCard, editLines, lineDiff, proposalCards, proposalPlacement, withoutEntry } from './learning-card-model.js'
+import { agentEditRows, answerFailure, answerKeepsCard, lineDiff, proposalCards, proposalPlacement, withoutEntry } from './learning-card-model.js'
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
-import { spring, SPRING_TAP } from './motion.js'
+import { spring, SPRING_TAP, useLinger } from './motion.js'
+import { useEscape } from './overlay-hooks.js'
 
 // One entry per proposal still waiting for another try, kept across remounts.
 const failedAnswers = new Map()
+
+export function PendingLearning({ sessionId, useRoster, actions }) {
+  const roster = useRoster(value => value)
+  const bot = roster.byId?.[sessionId]
+  const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : []
+  const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
+  const [open, setOpen] = useState(false)
+  const root = useRef(null)
+  const [shown, leaving] = useLinger(open, 120)
+  useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
+  useEffect(() => {
+    if (settledIds.length === 0) return
+    for (const id of settledIds) failedAnswers.delete(id)
+  }, [settledIds.join('|')])
+  useEffect(() => {
+    if (!open) return
+    const outside = event => { if (!root.current?.contains(event.target)) setOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [open])
+  if (proposals.length === 0) return null
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
+    else failedAnswers.delete(proposal.id)
+  }
+  const onResolved = id => { failedAnswers.delete(id) }
+  return h('div', { className: 'bt-learning-pending', ref: root },
+    h('button', { type: 'button', className: 'bt-learning-pending-toggle', 'aria-expanded': open, onClick: () => setOpen(!open) },
+      h('span', { className: 'bt-learning-dot', 'aria-hidden': true }),
+      h('span', { className: 'bt-learning-pending-label' }, t('Awaiting approval'), ` · ${proposals.length}`)),
+    shown ? h(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
+}
+
+function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
+  useEscape(close)
+  return h('div', { className: 'bt-learning-pending-panel', 'data-leaving': leaving || undefined, role: 'region', 'aria-label': t('Awaiting approval') },
+    proposals.map(proposal => h(ProposalCard, {
+      key: proposal.id,
+      proposal,
+      initialError: failedAnswers.get(proposal.id)?.error,
+      onFailure,
+      onResolved,
+      actions,
+    })))
+}
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
 // it was, how it ended, its name); the row opens the change.
@@ -38,10 +84,7 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
   const rows = useMemo(() => lineDiff(update ? proposal.previous?.content : '', proposal.content), [update, proposal.previous?.content, proposal.content])
   const change = agents
     ? [
-      h(FileBox, { key: 'file', name: 'AGENTS.md', path: proposal.folder, state: proposal.exists === false ? 'Added' : 'Modified', blocks: proposal.edits.map(edit => [
-        ...(edit.op === 'add' ? [] : editLines(edit.old)).map(line => ({ kind: 'removed', line })),
-        ...(edit.op === 'remove' ? [] : editLines(edit.text)).map(line => ({ kind: 'added', line })),
-      ]) }),
+      h(FileBox, { key: 'file', name: 'AGENTS.md', path: proposal.folder, state: proposal.exists === false ? 'Added' : 'Modified', blocks: proposal.edits.map(agentEditRows) }),
       ...proposal.edits.map((edit, index) => edit.why ? h('p', { className: 'bt-learning-why', key: `why-${index}` }, edit.why) : null),
     ]
     : [
@@ -126,10 +169,9 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   // holds only the answers still waiting for another try (#1339).
   const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
   useEffect(() => {
-    const gone = Object.keys(failed).filter(id => settledIds.includes(id))
-    if (gone.length === 0) return
-    for (const id of gone) failedAnswers.delete(id)
-    setFailed(current => gone.reduce((next, id) => withoutEntry(next, id), current))
+    if (settledIds.length === 0) return
+    for (const id of settledIds) failedAnswers.delete(id)
+    setFailed(current => settledIds.reduce((next, id) => withoutEntry(next, id), current))
   }, [settledIds.join('|')])
   if (!bot || currentPart(bot) !== sessionId) return null
   const proposals = roster.learning?.[bot.id] ?? []
@@ -175,6 +217,19 @@ export function LearningDock(props) {
 }
 
 export const LEARNING_CSS = `
+.bt-learning-pending{pointer-events:auto;position:static;flex:0 1 auto;min-width:0;max-width:45%;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-learning-pending-toggle:hover{background:var(--bt-hover)}
+.bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
+.bt-learning-pending-panel{animation:bt-learning-in .12s ease}
+.bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-learning-pending-panel .bt-q-head{flex-wrap:wrap}
+.bt-learning-pending-panel .bt-q-text{flex-basis:140px}
+.bt-learning-pending-panel .bt-learning-status{margin-left:auto}
+@keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
 .bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}
@@ -183,7 +238,7 @@ export const LEARNING_CSS = `
 .bt-learning-description{margin:6px 0 0;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-learning-old{color:var(--bt-ink-3)}
 .bt-learning-status{display:inline-flex;align-items:center;gap:6px;border-style:solid;border-color:color-mix(in srgb,var(--bt-star) 35%,transparent);color:color-mix(in srgb,var(--bt-star) 80%,var(--bt-ink))}
-.bt-learning-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
+.bt-learning-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
 .bt-learning-file{border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bt-ink) 2.5%,var(--bt-card));box-shadow:inset 0 0 0 1px var(--bt-q-rule)}
 .bt-learning-filehead{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 12px;box-shadow:inset 0 -1px 0 var(--bt-q-rule-2);font-size:12px;line-height:18px}
 .bt-learning-name{flex:none;font-weight:600;color:var(--bt-ink)}

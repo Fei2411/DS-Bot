@@ -18,6 +18,7 @@ import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
+import { useEscape } from './overlay-hooks.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -543,7 +544,7 @@ export function TeamSidebar(props) {
     const stamps = JSON.parse(updated)
     const entries = [
       ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
+      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[currentPart(room)] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
     ]
@@ -754,20 +755,15 @@ export function TeamSidebar(props) {
   }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed])
 
   // The drawer closes on a row pick, on Escape and on a press outside it.
+  useEscape(() => actions.setLeftDrawer?.(false), mode === 'drawer')
   useEffect(() => {
     if (mode !== 'drawer') return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest('.bt-leftcol')) return
       actions.setLeftDrawer?.(false)
     }
-    const onKey = (event) => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      actions.setLeftDrawer?.(false)
-    }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [mode])
 
   const navigate = (open, id) => {
@@ -885,7 +881,7 @@ function UpdateButton({ useUpdate, actions }) {
       if (event.target instanceof Element && (event.target.closest('.bt-update-pop') || button.current?.contains(event.target))) return
       setOpen(false)
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); button.current?.focus() } }
+    const onKey = (event) => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() } }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
@@ -1010,7 +1006,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
     }
     const onKey = (event) => {
       if (stepMenuFocus(menuRef.current, event, button.current)) return
-      if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); button.current?.focus() }
+      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -1289,7 +1285,7 @@ export function BrandName() {
 // FooterAccount only shows when the seat went to no one. The shell's footer classes
 // are CSS-module names, so they match on their stems.
 export const SIDEBAR_CSS = `
-.bt-confirm{width:260px;max-width:72vw;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.bt-confirm{width:100%;max-width:260px;box-sizing:border-box;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
 .bt-confirm-text{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
 .bt-confirm-error{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
 .bt-confirm-row{display:flex;justify-content:flex-end;gap:8px}
@@ -1336,7 +1332,7 @@ export const SIDEBAR_CSS = `
 
 /* The DSH Agent row and its expanding Session list. The black whale is the
    harness's own mark, so the row reads as "plain dsh" next to the Bot marks. */
-.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-ava.bt-run{animation:bt-agent-pulse 1.4s ease-in-out infinite}
 @keyframes bt-agent-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -1375,9 +1371,9 @@ export const SIDEBAR_CSS = `
 .bt-sec-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none}
 .bt-sec-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .bt-sec-count{font-size:11px;line-height:16px;font-weight:500;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-count-hide{display:none}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-count-hide{display:none}
 .bt-sec-tail{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-tail{padding-right:44px}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-tail{padding-right:44px}
 .bt-sec-pile{display:inline-flex;align-items:center;animation:bt-sec-pile-in ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 @keyframes bt-sec-pile-in{from{opacity:0;transform:translateX(6px) scale(.82)}to{opacity:1;transform:none}}
 .bt-sec-pile-item{display:inline-flex;border-radius:50%;corner-shape:round;background:var(--bt-sidebar);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -1387,9 +1383,10 @@ export const SIDEBAR_CSS = `
 .bt-sec-status[data-kind=working]{background:var(--bt-green);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-green) 22%,transparent)}
 .bt-sec-status[data-kind=alert]{width:12px;height:12px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:8.5px;line-height:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .bt-sec-status[data-kind=unread]{background:var(--bt-accent)}
-.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:none;align-items:center;gap:2px}
-.bt-sec-head-wrap:hover .bt-sec-acts,.bt-sec-acts:focus-within{display:inline-flex}
-.bt-sec-act{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:2px;opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-acts{opacity:1;pointer-events:auto}
+.bt-sec-act{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-act::after{content:"";position:absolute;inset:-4px}
 .bt-sec-act:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-sec-act:active{transform:scale(.9)}
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -1420,5 +1417,5 @@ export const SIDEBAR_CSS = `
 .bt-menu-color-dot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `

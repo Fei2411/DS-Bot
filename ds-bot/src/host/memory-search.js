@@ -6,10 +6,13 @@ import { wordsOf } from './memory-entries.js'
 const K1 = 1.2
 const B = 0.75
 
+export const entryWords = entry => wordsOf(`${entry.text} ${entry.file?.topic ?? ''}`)
+
+// An entry may bring its words along, worked out once while its file is unchanged.
 export function rankEntries(entries, query) {
   const asked = wordsOf(query)
   if (asked.size === 0) return []
-  const docs = entries.map(entry => ({ entry, words: wordsOf(`${entry.text} ${entry.file?.topic ?? ''}`) }))
+  const docs = entries.map(entry => ({ entry, words: entry.words ?? entryWords(entry) }))
   const average = docs.reduce((sum, doc) => sum + doc.words.size, 0) / Math.max(docs.length, 1)
   const seenIn = new Map()
   for (const doc of docs) for (const word of doc.words) if (asked.has(word)) seenIn.set(word, (seenIn.get(word) ?? 0) + 1)

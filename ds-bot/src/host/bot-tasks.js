@@ -8,10 +8,11 @@
 // bubbles approvals to the foreground/mobile/IM, and exposes hooks for v0.4.0 events.
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { activeTasksOf, isActiveTask, threadCurrentOfPart, threadOfPart } from './threads.js'
@@ -58,6 +59,7 @@ export function install(rt) {
     const payload = {
       type,
       botId: bot.id,
+      ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
       taskId: task.id,
       sessionId: task.sessionId,
       title: task.title,
@@ -71,10 +73,11 @@ export function install(rt) {
   }
 
   const tasksOf = bot => (Array.isArray(bot?.tasks) ? bot.tasks : [])
-  const findTask = (bot, ref) => {
+  const scopedTasksOf = (bot, roomId) => tasksOf(bot).filter(task => (task?.roomId ?? undefined) === roomId)
+  const findTask = (bot, ref, roomId) => {
     const key = oneLine(ref, TITLE_MAX)
     if (key === '') return undefined
-    const list = tasksOf(bot)
+    const list = roomId === null ? tasksOf(bot) : scopedTasksOf(bot, roomId)
     return list.find(task => task?.id === key) ?? list.filter(task => task?.title === key).at(-1)
   }
   const findTaskGlobal = (taskId) => {
@@ -160,7 +163,9 @@ export function install(rt) {
     if (lines.length === 0) return ''
     const recent = lines.slice(-CONTEXT_FALLBACK_ITEMS).join('\n')
     const clipped = recent.length > CONTEXT_FALLBACK_MAX ? `${recent.slice(0, CONTEXT_FALLBACK_MAX)}…` : recent
-    return `\n\n[Recent context from your own chat]\n${clipped}`
+    const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
+    const label = room !== undefined ? `group "${room.name}"` : 'your own chat'
+    return `\n\n[Recent context from ${label}]\n${clipped}`
   }
 
   const lastReplyOf = (session, workDir) => {
@@ -193,6 +198,7 @@ export function install(rt) {
     title: task.title,
     status: statusOf(task),
     sessionId: task.sessionId,
+    ...(task.roomId ? { roomId: task.roomId } : {}),
     ...(task.origin ? { origin: task.origin } : {}),
     ...(Array.isArray(task.segments) && task.segments.length > 0 ? { parts: task.segments.map(segment => segment.sessionId) } : {}),
     startedAt: task.startedAt,
@@ -275,11 +281,22 @@ export function install(rt) {
       }
 
       if (!notifyForeground && parentWork === undefined) return
-      // Keep moved-foreground reports targeting the latest foreground chat even if
-      // `task.from` was later moved into a second successive background task.
-      const targetSession = task.origin === 'fg-handoff' || threadOfPart(bot, task.from)?.thread === 'task'
-        ? rt.chatOf(bot.id)
-        : (threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id))
+      let targetSession
+      if (task.roomId !== undefined) {
+        const room = rt.roomOf(task.roomId)
+        if (room === undefined || !room.members.includes(bot.id)) return
+        targetSession = room.sessions?.[bot.id]
+        if (targetSession === undefined) {
+          await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
+          return
+        }
+      } else {
+        // Keep moved-foreground reports targeting the latest foreground chat even if
+        // `task.from` was later moved into a second successive background task.
+        targetSession = task.origin === 'fg-handoff' || threadOfPart(bot, task.from)?.thread === 'task'
+          ? rt.chatOf(bot.id)
+          : (threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id))
+      }
       let body
       let note
       if (outcome === 'completed') {
@@ -298,30 +315,40 @@ export function install(rt) {
         body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
       }
 
-      await rt.deliver({
-        toId: bot.id,
-        sessionId: targetSession,
-        text: body,
-        role: 'task-report',
-        note,
-        taskId: task.id,
-        recordExchange: false,
-        ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
-      })
+      try {
+        await rt.deliver({
+          toId: bot.id,
+          sessionId: targetSession,
+          text: body,
+          role: 'task-report',
+          note,
+          taskId: task.id,
+          ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
+          recordExchange: false,
+          ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
+        })
+      } catch (error) {
+        if (task.roomId !== undefined) {
+          await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
+        }
+        throw error
+      }
     } finally {
       settling.delete(task.id)
     }
   }
 
-  // Starts a background task for the Bot whose foreground own chat `fromSessionId` is.
+  // Starts a background task for a Bot from either its foreground own chat or a group member Session.
   async function startTask(fromSessionId, { title, brief, workdir }, exec) {
     if (rt.taskOwners?.has(fromSessionId)) {
-      throw Object.assign(new Error('Background tasks cannot start nested background tasks. Finish this task and report back to your own chat instead.'), { code: 'bot/invalid' })
+      throw Object.assign(new Error('Background tasks cannot start nested background tasks. Finish this task and report back to your chat instead.'), { code: 'bot/invalid' })
     }
-    const botId = rt.chatOwners.get(fromSessionId)
-    const bot = botId === undefined || rt.groupOwners.has(fromSessionId) ? undefined : rt.botOf(botId)
-    if (bot === undefined) {
-      throw Object.assign(new Error('Only a Bot\'s own chat can start background tasks.'), { code: 'bot/invalid' })
+    const groupOwner = rt.groupOwners.get(fromSessionId)
+    const room = groupOwner === undefined ? undefined : rt.roomOf(groupOwner.roomId)
+    const botId = groupOwner !== undefined ? groupOwner.botId : rt.chatOwners.get(fromSessionId)
+    const bot = botId === undefined ? undefined : rt.botOf(botId)
+    if (bot === undefined || (groupOwner !== undefined && (room === undefined || !room.members.includes(bot.id)))) {
+      throw Object.assign(new Error('Only a Bot\'s own chat or a group chat member can start background tasks.'), { code: 'bot/invalid' })
     }
     const name = oneLine(title, TITLE_MAX)
     const detail = String(brief ?? '').trim()
@@ -332,6 +359,23 @@ export function install(rt) {
     let resolvedDir
     if (workdir !== undefined && String(workdir).trim() !== '') {
       const cleaned = await rt.cleanWorkDir?.(String(workdir).trim())
+      const candidate = cleaned ?? rt.teamFolder?.()
+      if (candidate !== undefined) {
+        if (room?.workDir !== undefined) {
+          const realCandidate = await (rt.real ? rt.real(candidate) : Promise.resolve(resolve(candidate)))
+          const realRoom = await (rt.real ? rt.real(room.workDir) : Promise.resolve(resolve(room.workDir)))
+          if (!within(realCandidate, realRoom)) {
+            throw Object.assign(new Error(`Every member of "${room.name}" works in ${room.workDir} here, so background tasks in this group must stay inside it.`), { code: 'bot/invalid' })
+          }
+        }
+        if (bot.private === true && bot.workDir !== undefined) {
+          const realCandidate = await (rt.real ? rt.real(candidate) : Promise.resolve(resolve(candidate)))
+          const realOwn = await (rt.real ? rt.real(bot.workDir) : Promise.resolve(resolve(bot.workDir)))
+          if (!within(realCandidate, realOwn)) {
+            throw Object.assign(new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`), { code: 'bot/invalid' })
+          }
+        }
+      }
       if (cleaned !== undefined) {
         if (await rt.inData?.(cleaned)) {
           throw Object.assign(new Error('A task cannot work inside the DSH or DS Bot data folder.'), { code: 'bot/invalid' })
@@ -339,13 +383,6 @@ export function install(rt) {
         const clash = await rt.privateClash?.(cleaned, { except: bot.id })
         if (clash !== undefined) {
           throw Object.assign(new Error(`${cleaned} is in or around the folder of ${clash.name}, a private Bot, so this task cannot work there.`), { code: 'bot/invalid' })
-        }
-        if (bot.private === true && bot.workDir !== undefined) {
-          const realCleaned = resolve(cleaned)
-          const realOwn = resolve(bot.workDir)
-          if (realCleaned !== realOwn && !realCleaned.startsWith(realOwn + sep)) {
-            throw Object.assign(new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`), { code: 'bot/invalid' })
-          }
         }
         if (exec !== undefined && typeof rt.approveFolder === 'function') {
           await rt.approveFolder(exec, {
@@ -355,15 +392,18 @@ export function install(rt) {
           })
         }
         resolvedDir = cleaned
+      } else {
+        resolvedDir = null
       }
     }
 
     const id = newId()
     const now = Date.now()
-    const imOrigin = rt.captureImOrigin?.(fromSessionId)
-    // Link into the handoff tree when the foreground turn is answering another Bot.
+    const imOrigin = room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
+    // Link into the DM handoff tree when a foreground DM turn is answering another Bot.
+    // Group tasks participate in group dispatch batches via `hasRoomTasks` instead.
     const liveEntry = rt.live.get(fromSessionId)
-    const parentWork = rt.workOf?.(liveEntry?.info)
+    const parentWork = room === undefined ? rt.workOf?.(liveEntry?.info) : undefined
     const linkWork = parentWork !== undefined && rt.ownsWork?.(bot.id, parentWork)
     const taskWorkId = linkWork ? `task:${id}` : undefined
 
@@ -375,6 +415,7 @@ export function install(rt) {
       status: 'running',
       startedAt: now,
       updatedAt: now,
+      ...(room !== undefined ? { roomId: room.id } : {}),
       ...(taskWorkId !== undefined ? { workId: taskWorkId, parentWorkId: parentWork } : {}),
       ...(imOrigin !== undefined ? { imOrigin } : {}),
     }
@@ -383,12 +424,14 @@ export function install(rt) {
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, name: `task "${name}"`, child: id })
     }
+    if (room !== undefined) rt.workRoomTurn?.(fromSessionId, 'task')
 
     const isLocal = isLocalCliBot(bot, ctx.get('agents')?.get(fromSessionId)?.session)
     const contextNote = forked ? '' : fallbackContextSummary(fromSessionId)
     const localNote = isLocal ? '\nNote: You are running in a separate local CLI session that does not share in-memory state with the foreground chat.' : ''
     const dirNote = resolvedDir ? `\nWorking directory: ${resolvedDir}` : ''
-    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ask_user, show_view, request_secret, or task_* tools. When you finish, your final reply is sent back to your own chat, so make it complete and self-contained.`
+    const reportDest = room !== undefined ? `your session in group "${room.name}"` : 'your own chat'
+    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ask_user, show_view, request_secret, or task_* tools. When you finish, your final reply is sent back to ${reportDest}, so make it complete and self-contained.`
 
     try {
       await rt.deliver({
@@ -433,8 +476,14 @@ export function install(rt) {
   }
 
   async function stopAllTasksOfBot(bot, reason = 'stopped') {
+    const rooms = new Set()
     for (const task of activeTasksOf(bot)) {
+      if (task.roomId !== undefined) rooms.add(task.roomId)
       await stopTask(bot, task, reason, { notifyForeground: false })
+    }
+    for (const roomId of rooms) {
+      await rt.reconcileStoppedRoomTask?.(roomId, bot.id)
+        .catch(error => rt.warn('ds-bot: reconciling stopped group task for %s in %s failed: %s', bot.name, roomId, error))
     }
   }
 
@@ -492,7 +541,7 @@ export function install(rt) {
     const events = Array.isArray(seen?.events) ? seen.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)
-    const folder = task.workDir ?? rt.workDirOf?.({ botId: bot.id })
+    const folder = task.workDir !== undefined ? (task.workDir ?? rt.teamFolder?.()) : rt.workDirOf?.({ botId: bot.id, ...(task.roomId ? { roomId: task.roomId } : {}) })
     const said = slice
       .filter(event => event?.type === 'assistant/message')
       .map(event => textOf(event.data?.message?.content ?? []).trim())
@@ -825,6 +874,7 @@ export function install(rt) {
       title,
       brief: oneLine(text, BRIEF_KEPT),
       from: fromSessionId,
+      ...(target.segments?.length ? { inheritedSegments: target.segments.map(seg => ({ ...seg })) } : {}),
       origin: 'bot-handoff',
       exchangeId,
       status: 'running',
@@ -879,6 +929,12 @@ export function install(rt) {
       }
       if (pulled.length === 0) return
       void (async () => {
+        if (taskOwner.roomId !== undefined) {
+          const room = rt.roomOf(taskOwner.roomId)
+          const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+          if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name)
+          return
+        }
         const pending = handoffing.get(taskOwner.botId)
         if (pending !== undefined) await pending.promise.catch(() => {})
         const ownerBot = rt.botOf(taskOwner.botId)
@@ -980,19 +1036,53 @@ export function install(rt) {
     await settleTask(bot, task, 'completed', { text: finalText, notifyForeground: true })
   }
 
-  const foregroundBotOf = (exec) => {
+  const callerScopeOf = (exec) => {
     const id = exec.agent?.id
-    if (id === undefined || rt.groupOwners.has(id) || rt.taskOwners?.has(id)) return undefined
+    if (id === undefined || rt.taskOwners?.has(id)) return undefined
+    const groupOwner = rt.groupOwners.get(id)
+    if (groupOwner !== undefined) {
+      const bot = rt.botOf(groupOwner.botId)
+      return bot === undefined ? undefined : { bot, roomId: groupOwner.roomId }
+    }
     const botId = rt.chatOwners.get(id)
-    return botId === undefined ? undefined : rt.botOf(botId)
+    const bot = botId === undefined ? undefined : rt.botOf(botId)
+    return bot === undefined ? undefined : { bot, roomId: undefined }
   }
   const rejectIfTask = (exec) => (rt.taskOwners?.has(exec.agent?.id)
-    ? 'Background tasks cannot manage other background tasks. Finish your work and report back to your own chat.'
+    ? 'Background tasks cannot manage other background tasks. Finish your work and report back to your chat.'
     : undefined)
+
+  const hasRoomTasks = (roomId, botId) => activeTasksOf(rt.botOf(botId)).some(task => task.roomId === roomId)
+  const activeRoomTasks = () => {
+    const out = []
+    for (const bot of Object.values(state.bots)) {
+      for (const task of activeTasksOf(bot)) {
+        if (task.roomId !== undefined) out.push({ roomId: task.roomId, botId: bot.id, task })
+      }
+    }
+    return out
+  }
+  async function stopMemberRoomTasks(roomId, botId, reason = 'stopped') {
+    const bot = rt.botOf(botId)
+    if (bot === undefined) return false
+    let stopped = false
+    for (const task of activeTasksOf(bot)) {
+      if (task.roomId !== roomId) continue
+      stopped = (await stopTask(bot, task, reason, { notifyForeground: false })) || stopped
+    }
+    return stopped
+  }
+  async function stopRoomTasks(roomId, reason = 'stopped') {
+    let stopped = false
+    for (const bot of Object.values(state.bots)) {
+      stopped = (await stopMemberRoomTasks(roomId, bot.id, reason)) || stopped
+    }
+    return stopped
+  }
 
   rt.teamTools.push(defineTool({
     name: 'task_start',
-    description: 'Start a background task in a separate Session of your own chat while this chat stays free to talk. It inherits your chat context when possible (on local CLI agents it starts a fresh CLI session with a recent summary). Its final reply comes back here when it finishes. Only available in your own foreground chat.',
+    description: 'Start a background task in a separate Session while this chat stays free. Works in your own chat and in group chats (inheriting the group folder, permissions, and memory). It inherits chat context when possible (on local CLI agents it starts a fresh CLI session with a recent summary), and its final reply comes back here when it finishes.',
     parameters: {
       title: { type: 'string', required: true, description: `Short name for the task, at most ${TITLE_MAX} characters, in the user's language` },
       brief: { type: 'string', required: true, description: 'Clear goal, scope, and what to report back' },
@@ -1006,7 +1096,7 @@ export function install(rt) {
       try {
         const task = await startTask(exec.agent?.id, args, exec)
         const mode = task.forked ? 'with full chat context' : 'in a fresh session with recent summary'
-        return `Started background task "${task.title}" (${task.id}) ${mode}. Its result will come back here when it finishes; tell the user it is running and do not wait for it.`
+        return `Started background task "${task.title}" (${task.id}) ${mode}. Its result will come back here when it finishes; do not wait for it.`
       } catch (error) {
         return error.message
       }
@@ -1015,7 +1105,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'task_send',
-    description: 'Send a follow-up instruction to one of your active background tasks. Only available in your own foreground chat.',
+    description: 'Send a follow-up instruction to one of your active background tasks in this chat.',
     parameters: {
       task: { type: 'string', required: true, description: 'Task id or title from task_list' },
       text: { type: 'string', required: true, description: 'Follow-up message for the task' },
@@ -1025,8 +1115,8 @@ export function install(rt) {
       await rt.load()
       const blocked = rejectIfTask(exec)
       if (blocked !== undefined) return blocked
-      const bot = foregroundBotOf(exec)
-      const task = findTask(bot, ref)
+      const scope = callerScopeOf(exec)
+      const task = scope === undefined ? undefined : findTask(scope.bot, ref, scope.roomId)
       if (task === undefined) return 'No such task of yours. See task_list.'
       if (!isActiveTask(task)) return `Task "${task.title}" (${task.id}) is ${task.status}. Start a new task if more work is needed.`
       await deliverToTask(task.id, { text, steer: true })
@@ -1045,25 +1135,26 @@ export function install(rt) {
       await rt.load()
       const blocked = rejectIfTask(exec)
       if (blocked !== undefined) return blocked
-      const bot = foregroundBotOf(exec)
-      const task = findTask(bot, ref)
+      const scope = callerScopeOf(exec)
+      const task = scope === undefined ? undefined : findTask(scope.bot, ref, scope.roomId)
       if (task === undefined) return 'No such task of yours. See task_list.'
       if (!isActiveTask(task)) return `Task "${task.title}" (${task.id}) is already ${task.status}.`
-      await stopTask(bot, task, 'stopped by the Bot', { notifyForeground: false })
+      await stopTask(scope.bot, task, 'stopped by the Bot', { notifyForeground: false })
       return `Stopped task "${task.title}" (${task.id}).`
     },
   }))
 
   rt.teamTools.push(defineTool({
     name: 'task_list',
-    description: 'List your background tasks with id, title, status, and start time.',
+    description: 'List your background tasks in this chat with id, title, status, and start time.',
     parameters: {},
     output,
     async execute(_args, exec) {
       await rt.load()
       const blocked = rejectIfTask(exec)
       if (blocked !== undefined) return blocked
-      const list = tasksOf(foregroundBotOf(exec))
+      const scope = callerScopeOf(exec)
+      const list = scope === undefined ? [] : scopedTasksOf(scope.bot, scope.roomId)
       if (list.length === 0) return 'No background tasks.'
       return list.map(task => `${task.id} · ${task.title} · ${statusOf(task)} · started ${new Date(task.startedAt).toISOString()}`).join('\n')
     },
@@ -1071,7 +1162,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'task_read',
-    description: 'Read the full report or latest reply of one of your background tasks.',
+    description: 'Read the full report or latest reply of one of your background tasks in this chat.',
     parameters: {
       task: { type: 'string', required: true, description: 'Task id or title from task_list' },
     },
@@ -1080,8 +1171,8 @@ export function install(rt) {
       await rt.load()
       const blocked = rejectIfTask(exec)
       if (blocked !== undefined) return blocked
-      const bot = foregroundBotOf(exec)
-      const task = findTask(bot, ref)
+      const scope = callerScopeOf(exec)
+      const task = scope === undefined ? undefined : findTask(scope.bot, ref, scope.roomId)
       if (task === undefined) return 'No such task of yours. See task_list.'
       const header = `${task.id} · ${task.title} · ${statusOf(task)}`
       const saved = readReportFile(task.reportFile)
@@ -1102,11 +1193,19 @@ export function install(rt) {
     spawnBotHandoffTask,
     stopTask: async (botId, taskId, reason = 'cancelled by the user') => {
       const bot = rt.botOf(botId)
-      const task = findTask(bot, taskId)
+      const task = findTask(bot, taskId, null)
       if (task === undefined) throw Object.assign(new Error('Unknown task'), { code: 'bot/not-found' })
-      return stopTask(bot, task, reason, { notifyForeground: false })
+      const stopped = await stopTask(bot, task, reason, { notifyForeground: false })
+      if (stopped && task.roomId !== undefined) {
+        await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id)
+      }
+      return stopped
     },
     stopAllTasksOfBot,
+    hasRoomTasks,
+    activeRoomTasks,
+    stopMemberRoomTasks,
+    stopRoomTasks,
     deliverToTask,
     taskViewOf,
     taskById: findTaskGlobal,
