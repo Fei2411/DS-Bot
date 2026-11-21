@@ -123,8 +123,9 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
   const anchor = useRef(null)
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
-  const latest = useRef({ blocks, ids })
-  latest.current = { blocks, ids }
+  const draft = useInput?.(state => state.draft) ?? ''
+  const latest = useRef({ blocks, ids, draft })
+  latest.current = { blocks, ids, draft }
   // Bind a waiting card only when its own file shows up in the rail. A file the user
   // attaches while the card waits keeps its id, so dismissing the card cannot delete it.
   // The rail draws after the id lands, and again while the file uploads.
@@ -144,9 +145,20 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     return () => observer.disconnect()
   }, [ids, blocks])
   // The shell drops a draft attachment the user removed; the card goes with it. Only the
-  // cards' own buttons put text back, so a dropped paste stays dropped.
+  // cards' own buttons put text back, so a dropped paste stays dropped. Only ids this
+  // composer has shown count: one that opens again starts without the files its draft
+  // gets back (draft-keep.js), and their cards wait for them.
+  const shown = useRef(new Set())
+  // A card whose file this composer does not have (the shell let it go when an earlier
+  // composer closed) waits for it again: it binds by name if the draft gets the file
+  // back, and otherwise its text goes back into the box after the wait below.
   useEffect(() => {
-    const gone = latest.current.blocks.filter(block => !blockLives(block, ids))
+    const stale = latest.current.blocks.filter(block => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId))
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map(block => block.id))
+  }, [sessionId])
+  useEffect(() => {
+    const gone = latest.current.blocks.filter(block => !blockLives(block, ids) && shown.current.has(block.attachmentId))
+    for (const id of ids) shown.current.add(id)
     if (gone.length > 0) actions.removePaste(sessionId, gone.map(block => block.id))
   }, [ids])
   // A refused upload leaves a card with no attachment; its text goes back into the box
@@ -155,10 +167,11 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     const waiting = blocks.filter(block => block.attachmentId === null)
     if (waiting.length === 0) return undefined
     const timer = setTimeout(() => {
+      let currentDraft = latest.current.draft
       for (const block of waiting) {
         const now = latest.current.blocks.find(item => item.id === block.id)
         if (now === undefined || now.attachmentId !== null) continue
-        inputActions?.insertText?.(block.text, inputActions?.captureInsertion?.())
+        if (putBackText({ block: now, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now.text}`
         actions.removePaste(sessionId, [block.id])
       }
     }, ORPHAN_MS)
@@ -167,6 +180,7 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
   // The shell draws its own file card for the pasted attachment; the card above the box
   // is the same paste, so the shell's copy is hidden rather than drawn twice.
   useEffect(() => {
+    if (!blocks.some(block => block.attachmentId !== null)) return undefined
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
     const mark = () => {
@@ -202,6 +216,7 @@ export const PASTE_CSS = `
 .bt-paste-label{min-width:0;flex:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-paste-put{flex:none;border:0;border-radius:8px;background:none;color:var(--bt-accent);font:inherit;font-size:13px;line-height:18px;padding:4px 6px;cursor:pointer}
 .bt-paste-put:hover{background:color-mix(in srgb,var(--bt-accent) 10%,transparent)}
-.bt-paste-x{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x::after{content:"";position:absolute;inset:-4px}
 .bt-paste-x:hover{background:color-mix(in srgb,var(--bt-ink) 8%,transparent);color:var(--bt-ink)}
 `

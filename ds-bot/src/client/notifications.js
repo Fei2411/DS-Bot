@@ -42,6 +42,7 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   const previous = useRef(new Map())
+  const seeded = useRef(false)
   useEffect(() => {
     const shell = bridge()
     shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
@@ -54,7 +55,9 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
     const next = new Map()
     for (const row of rows) {
       const { id, sessionId, name, group, status: after } = row
-      const before = previous.current.get(id)
+      // On first ready snapshot, record the baseline silently; afterwards, a newly created
+      // Bot or group chat starts from an empty baseline so its first reply/question notifies.
+      const before = previous.current.get(id) ?? (seeded.current ? {} : undefined)
       next.set(id, after)
       const kind = notifyKind({
         before, after,
@@ -67,6 +70,7 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
       if (kind === undefined) continue
       void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) })
     }
+    if (roster.ready !== false) seeded.current = true
     previous.current = next
     bridge()?.setBadge?.(badgeOf(rows))
   }, [statuses, viewing, roster, work])
