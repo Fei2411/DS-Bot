@@ -164,11 +164,12 @@ export function install(rt) {
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
   }
-  // Recall runs on every step, so it keeps each topic parsed and tokenized until the
-  // file changes. The file is looked at before it is read: a write in between is read
-  // again on the next step instead of being kept under the old revision. The entries
-  // are shared between steps; callers must not change them.
+  // Recall runs on every step, and a Bot may search on every turn, so each file is kept
+  // parsed and tokenized until it changes. The file is looked at before it is read: a
+  // write in between is read again on the next call instead of being kept under the old
+  // revision. The entries are shared between calls; callers must not change them.
   const recallCache = new Map()
+  const mainCache = new Map()
   const revisionOf = (path) => {
     try {
       const stat = statSync(path, { bigint: true, throwIfNoEntry: false })
@@ -177,25 +178,37 @@ export function install(rt) {
       return unreadable(path, error)
     }
   }
-  const recallEntries = (scope) => {
+  const parsedFile = (dir, topic, cached) => {
+    const file = topic === undefined ? MAIN : `${topic}.md`
+    const path = join(dir, file)
+    const revision = revisionOf(path)
+    if (revision === undefined) return undefined
+    if (cached?.revision === revision) return cached
+    const content = readText(path)
+    const parsed = { topic, file, path, content, ...parseMemory(content) }
+    return { revision, entries: parsed.entries.map(entry => ({ ...entry, file: parsed })).map(entry => ({ ...entry, words: entryWords(entry) })) }
+  }
+  const recallEntries = (scope, names = topicNames(scope)) => {
     const dir = dirOf(scope)
     const cached = recallCache.get(dir)
     const topics = new Map()
-    for (const topic of topicNames(scope)) {
-      const path = join(dir, `${topic}.md`)
-      const revision = revisionOf(path)
-      if (revision === undefined) continue
-      let parsed = cached?.get(topic)
-      if (parsed?.revision !== revision) {
-        const content = readText(path)
-        const file = { topic, file: `${topic}.md`, path, content, ...parseMemory(content) }
-        parsed = { revision, entries: file.entries.map(entry => ({ ...entry, file })).map(entry => ({ ...entry, words: entryWords(entry) })) }
-      }
-      topics.set(topic, parsed)
+    for (const topic of names) {
+      const parsed = parsedFile(dir, topic, cached?.get(topic))
+      if (parsed !== undefined) topics.set(topic, parsed)
     }
     if (topics.size === 0) recallCache.delete(dir)
     else recallCache.set(dir, topics)
     return [...topics.values()].flatMap(parsed => parsed.entries)
+  }
+  // Every entry of a scope, MEMORY.md first, read in loadScope's order so an unreadable
+  // file fails the same way.
+  const searchEntries = (scope) => {
+    const dir = dirOf(scope)
+    const names = topicNames(scope)
+    const main = parsedFile(dir, undefined, mainCache.get(dir))
+    if (main === undefined) mainCache.delete(dir)
+    else mainCache.set(dir, main)
+    return [...(main?.entries ?? []), ...recallEntries(scope, names)]
   }
   const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
@@ -1207,13 +1220,16 @@ export function install(rt) {
       const self = caller.bot.id
       const { scopes, error } = readScopes(args.scope, self, caller.roomId)
       if (error) return error
+      const wantsTopic = args.topic !== undefined && String(args.topic).trim() !== ''
+      const query = String(args.query ?? '').trim().slice(0, 120)
+      const searching = !wantsTopic && query !== ''
       let loaded
       try {
-        loaded = await settled(() => scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope) })))
+        loaded = await settled(() => scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), ...(searching ? { entries: searchEntries(scope) } : { files: loadScope(scope) }) })))
       } catch (failure) {
         return failure.message
       }
-      if (args.topic !== undefined && String(args.topic).trim() !== '') {
+      if (wantsTopic) {
         const topic = cleanTopic(args.topic)
         for (const { scope, label, files } of loaded) {
           const file = files.find(item => item.topic === topic)
@@ -1223,8 +1239,7 @@ export function install(rt) {
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
       }
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
-      const query = String(args.query ?? '').trim().slice(0, 120)
-      if (query === '') {
+      if (!searching) {
         return loaded.map(({ scope, tag, label, files }) => {
           const [main, ...topics] = files
           return [
@@ -1246,7 +1261,7 @@ export function install(rt) {
         for (const run of word.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) parts.add(run.slice(at, at + 2))
         return [word, ...parts]
       }))]
-      const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
+      const scored = loaded.flatMap(({ tag, entries }) => entries.map((entry) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
