@@ -456,6 +456,29 @@ test('frozen arrays with custom prototypes are redacted fresh', async (t) => {
   assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
 })
 
+test('frozen sparse array proxies are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  let text = 'clean'
+  let reads = 0
+  const content = new Proxy(Object.freeze(new Array(1)), {
+    has: (target, key) => key === '0' || Reflect.has(target, key),
+    get: (target, key, receiver) => {
+      if (key !== '0') return Reflect.get(target, key, receiver)
+      reads++
+      return text
+    },
+  })
+  const message = Object.freeze({ role: 'user', content })
+  assert.equal(redactDeep(content, text => text), content)
+  assert.equal(reads, 1)
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0], '[secret:TOKEN]')
+})
+
 test('cached redacted copies reject downstream mutation', async (t) => {
   const bench = start()
   t.after(bench.stop)

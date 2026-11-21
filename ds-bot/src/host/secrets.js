@@ -756,7 +756,11 @@ export function install(rt) {
   const immutableData = value => {
     if (value === null || typeof value !== 'object') return typeof value !== 'function'
     const prototype = Object.getPrototypeOf(value)
-    if (!Object.isFrozen(value) || (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)) return false
+    if (!Object.isFrozen(value)) return false
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return false
+      for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) return false
+    } else if (prototype !== Object.prototype && prototype !== null) return false
     return Reflect.ownKeys(value).every(key => {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       return Object.hasOwn(descriptor, 'value') && immutableData(descriptor.value)
