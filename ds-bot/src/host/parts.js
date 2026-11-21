@@ -2205,7 +2205,10 @@ export function install(rt) {
       // The note is written before the fresh part starts, so a handoff cannot wait out
       // the turn: that would leave a delayed action with no visible failure, on a part
       // that may change again. Refuse now and let the user ask again when it is idle.
-      if (agent.status !== 'idle' || working || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      // Archiving the part stops its background jobs, so a job that still runs keeps it
+      // too; a list that cannot be read proves nothing and is treated the same way.
+      const jobs = rt.runningJobs === undefined ? [] : rt.runningJobs(sessionId)
+      if (agent.status !== 'idle' || working || switches.has(sessionId) || jobs === undefined || jobs.length > 0) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
       if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
       return true
     }
