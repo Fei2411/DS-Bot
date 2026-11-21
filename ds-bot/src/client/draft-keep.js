@@ -70,6 +70,45 @@ export function keepDraft({ chatId, part, text, files }, storage = globalThis.lo
 }
 
 /**
+ * A message was sent with this text in the composer's part. The shell may close its
+ * composer before it commits the emptied draft, and then hand the sent text back on the
+ * next visit; this entry (empty `text`, the sent text in `sent`) lets the keeper clear
+ * it instead of keeping it as an unsent draft. A send that fails gives the text back
+ * while the composer is still open, and a normal keep then replaces this entry.
+ * @param {{ chatId: string, part: string, text: string, files: readonly { kind: string, file: File }[] }} draft
+ * @param {Storage} [storage]
+ */
+export function keepSentDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+  if (files.length === 0) keptFiles.delete(chatId)
+  else keptFiles.set(chatId, { part, files: [...files] })
+  const texts = readTexts(storage)
+  if (text === '') {
+    if (texts[chatId] === undefined) return
+    delete texts[chatId]
+  } else {
+    if (texts[chatId]?.sent === text && texts[chatId]?.part === part) return
+    texts[chatId] = { part, text: '', sent: text }
+  }
+  writeTexts(storage, texts)
+}
+
+/**
+ * The text a send carried whose composer closed before the shell committed it, read
+ * once: the keeper clears it if the shell puts it back in the box.
+ * @param {{ chatId: string }} where
+ * @param {Storage} [storage]
+ * @returns {string}
+ */
+export function takeSentDraft({ chatId }, storage = globalThis.localStorage) {
+  const texts = readTexts(storage)
+  const entry = texts[chatId]
+  if (typeof entry?.sent !== 'string' || entry.sent === '') return ''
+  delete texts[chatId]
+  writeTexts(storage, texts)
+  return entry.sent
+}
+
+/**
  * What a chat's current part takes back when its composer opens: the files when it has
  * none attached, and the text when the draft was typed in an earlier part and the box
  * is empty (the shell keeps the text of the same part itself).

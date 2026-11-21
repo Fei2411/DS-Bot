@@ -7,7 +7,7 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
-import { chatOfSession, keepDraft, takeDraft } from './draft-keep.js'
+import { chatOfSession, keepDraft, keepSentDraft, takeDraft, takeSentDraft } from './draft-keep.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -234,9 +234,15 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
   const phase = useInput?.(state => state.phase) ?? 'plain'
   const frozen = FROZEN_PHASES.has(phase)
+  // Only an ordinary message send has a text that may never come back: a command's
+  // draft is still the user's, however its slash adjudication settles.
+  const sending = phase === 'sending'
   const restored = useRef('')
   // What was just put back and has not reached the input state yet.
   const pending = useRef({ text: false, files: false })
+  // The text of a message that was sent while the shell closed its composer before
+  // committing the emptied draft: the shell hands it back on the next visit.
+  const dropped = useRef('')
   // Take back first, so the empty box of a composer that just opened is not kept over
   // the draft it is about to get. While a send is in flight the shell refuses edits, so
   // wait for the submit plane to settle and leave the kept draft untouched.
@@ -244,6 +250,14 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     if (!current || frozen || inputActions === undefined) return
     const key = `${chatId}:${sessionId}`
     if (restored.current === key) return
+    // The box may hold the text of a message that was already sent, when its send closed
+    // the composer before the shell committed the empty draft (#1891). It is not a draft:
+    // clear the box, and never carry that text from the kept draft either.
+    const sent = takeSentDraft({ chatId })
+    if (sent !== '') {
+      dropped.current = sent
+      if (draft === sent) inputActions.setDraft('')
+    }
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
     let added = []
     let attached = false
@@ -278,20 +292,32 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
   }, [current, frozen, chatId, sessionId, inputActions])
   useEffect(() => {
-    if (!current || restored.current !== `${chatId}:${sessionId}`) return
-    // A draft on its way out is no longer kept: should the composer close before the
-    // Host takes it, the sent images must not come back as a draft. A send that fails
-    // returns to the plain phase with its draft, which is then kept again.
+    if (!current) return
     if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: '', files: [] })
+      // A message on its way out is not a draft any more: its text is recorded as sent,
+      // so a composer that closes (or opens) before the shell commits the empty draft
+      // cannot bring it back. A send that fails returns to the plain phase with its
+      // draft, which is then kept again.
+      if (sending && draft !== '') {
+        keepSentDraft({ chatId, part: sessionId, text: draft, files: [] })
+        return
+      }
+      // Before the take, an earlier part's draft still waits to be carried; only a draft
+      // this composer already has is dropped.
+      if (restored.current === `${chatId}:${sessionId}`) keepSentDraft({ chatId, part: sessionId, text: '', files: [] })
       return
     }
+    if (restored.current !== `${chatId}:${sessionId}`) return
+    // The sent text the shell just brought back is not kept again; what the user types
+    // after it is.
+    if (dropped.current !== '' && draft === dropped.current) return
+    dropped.current = ''
     // What was put back lands in the input state a render later; keeping the empty box
     // in between would drop it.
     if (pending.current.text && draft === '') return
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, files: false }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) })
-  }, [current, frozen, chatId, sessionId, draft, ids])
+  }, [current, sending, frozen, chatId, sessionId, draft, ids])
   return null
 }

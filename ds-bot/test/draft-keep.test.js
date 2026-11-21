@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { chatOfSession, forgetKeptFiles, keepDraft, pruneDrafts, takeDraft } from '../src/client/draft-keep.js'
+import { chatOfSession, forgetKeptFiles, keepDraft, keepSentDraft, pruneDrafts, takeDraft, takeSentDraft } from '../src/client/draft-keep.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
 import { STORAGE } from '../src/client/storage.js'
@@ -91,6 +91,24 @@ test('a send or an emptied box leaves nothing to take back', () => {
   assert.equal(storage.getItem(STORAGE.drafts), '{}')
   const back = takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, storage)
   assert.deepEqual(back, { text: '', files: [], from: undefined })
+})
+
+test('a sent text is remembered as sent, not kept as a draft, and read once', () => {
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [] }, storage)
+  keepSentDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [] }, storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '', sent: 'hello' } })
+  const back = takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, storage)
+  assert.deepEqual(back, { text: '', files: [], from: undefined }, 'a sent message is never carried')
+  assert.equal(takeSentDraft({ chatId: 'bee' }, storage), 'hello')
+  assert.equal(takeSentDraft({ chatId: 'bee' }, storage), '', 'the sent text is read once')
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), {})
+})
+
+test('the shell returning a sent text after a failed send keeps it as the draft again', () => {
+  keepSentDraft({ chatId: 'bee', part: 'bee', text: 'hello', files: [image('red.png')] }, storage)
+  keepDraft({ chatId: 'bee', part: 'bee', text: 'hello', files: [] }, storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { bee: { part: 'bee', text: 'hello' } })
+  assert.equal(takeSentDraft({ chatId: 'bee' }, storage), '')
 })
 
 test('a removed image stays removed', () => {
@@ -203,7 +221,13 @@ function loadKeeper(localStorage) {
     mod.exports.DraftKeeper(props)
     for (const fn of pendingEffects.splice(0)) fn()
   }
-  return { ...mod.exports, render, warnings }
+  // A fresh mount of the same module: the component's refs start empty, the kept draft
+  // stays in storage, as when the user leaves the chat and comes back.
+  const remount = (props) => {
+    slots.length = 0
+    render(props)
+  }
+  return { ...mod.exports, render, remount, warnings }
 }
 
 test('DraftKeeper releases refused drafts, tells the user, and does not retry on every later send', () => {
@@ -359,4 +383,80 @@ test('DraftKeeper stops keeping a draft that is being sent, and keeps it again i
   const back = take({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls)
   assert.equal(back.text, 'look at this')
   assert.deepEqual(Array.from(back.files, item => item.file.name), ['img.png'])
+})
+
+test('DraftKeeper clears the sent text the shell hands back after the composer closed mid-send (#1891)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const actions = {
+    draftFiles: () => [],
+    restoreDraftFiles: () => [],
+    releaseDraftFiles: () => {},
+    reopenPastes: () => {},
+  }
+  const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
+  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain' }
+  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+
+  // The user types, sends, and leaves before the shell commits the emptied draft.
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // The next visit: the shell restores the sent text into the box, which is not a draft.
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [''], 'the sent text is cleared from the box')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {}, 'and it is not carried to a newer part')
+})
+
+test('DraftKeeper does not carry a sent text to the part the chat moved to', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const actions = {
+    draftFiles: () => [],
+    restoreDraftFiles: () => [],
+    releaseDraftFiles: () => {},
+    reopenPastes: () => {},
+  }
+  const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
+  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain' }
+  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+
+  remount(props)
+  state.phase = 'sending'
+  render(props)
+  // The chat moved on to a newer part while the reply finished; its box starts empty.
+  state.phase = 'plain'
+  state.draft = ''
+  const moved = { ...props, sessionId: 'bee-4', useRoster: pick => pick({ byId: { 'bee-4': { id: 'bee', sessionId: 'bee-4', parts: ['bee', 'bee-2'] } }, roomsById: {} }) }
+  remount(moved)
+  assert.deepEqual(setDrafts, [], 'the new part opens empty')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {}, 'the sent text is gone for good')
+})
+
+test('DraftKeeper keeps a command draft even though its composer closed while it settled', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const actions = {
+    draftFiles: () => [],
+    restoreDraftFiles: () => [],
+    releaseDraftFiles: () => {},
+    reopenPastes: () => {},
+  }
+  const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
+  const state = { draft: '/goal ship it', attachmentIds: [], phase: 'plain' }
+  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+
+  remount(props)
+  state.phase = 'submitting'
+  render(props)
+  // A command is not a message that went out: the text stays the user's.
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'the command text is not cleared')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '/goal ship it' } })
 })

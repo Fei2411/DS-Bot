@@ -42423,6 +42423,27 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeTexts(storage, texts2);
 }
+function keepSentDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+  if (files.length === 0) keptFiles.delete(chatId);
+  else keptFiles.set(chatId, { part, files: [...files] });
+  const texts2 = readTexts(storage);
+  if (text === "") {
+    if (texts2[chatId] === void 0) return;
+    delete texts2[chatId];
+  } else {
+    if (texts2[chatId]?.sent === text && texts2[chatId]?.part === part) return;
+    texts2[chatId] = { part, text: "", sent: text };
+  }
+  writeTexts(storage, texts2);
+}
+function takeSentDraft({ chatId }, storage = globalThis.localStorage) {
+  const texts2 = readTexts(storage);
+  const entry = texts2[chatId];
+  if (typeof entry?.sent !== "string" || entry.sent === "") return "";
+  delete texts2[chatId];
+  writeTexts(storage, texts2);
+  return entry.sent;
+}
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
   const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
@@ -42701,12 +42722,19 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
   const frozen = FROZEN_PHASES.has(phase);
+  const sending = phase === "sending";
   const restored = (0, import_react60.useRef)("");
   const pending = (0, import_react60.useRef)({ text: false, files: false });
+  const dropped = (0, import_react60.useRef)("");
   (0, import_react60.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
     const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
+    const sent = takeSentDraft({ chatId });
+    if (sent !== "") {
+      dropped.current = sent;
+      if (draft === sent) inputActions.setDraft("");
+    }
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
     let added = [];
     let attached = false;
@@ -42739,16 +42767,23 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react60.useEffect)(() => {
-    if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (!current2) return;
     if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      if (sending && draft !== "") {
+        keepSentDraft({ chatId, part: sessionId, text: draft, files: [] });
+        return;
+      }
+      if (restored.current === `${chatId}:${sessionId}`) keepSentDraft({ chatId, part: sessionId, text: "", files: [] });
       return;
     }
+    if (restored.current !== `${chatId}:${sessionId}`) return;
+    if (dropped.current !== "" && draft === dropped.current) return;
+    dropped.current = "";
     if (pending.current.text && draft === "") return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
-  }, [current2, frozen, chatId, sessionId, draft, ids]);
+  }, [current2, sending, frozen, chatId, sessionId, draft, ids]);
   return null;
 }
 
