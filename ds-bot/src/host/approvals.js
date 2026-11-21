@@ -90,8 +90,16 @@ export function install(rt) {
       if (id === undefined || seen.has(id)) break
       seen.add(id)
       const group = rt.groupOwners.get(id)
-      const botId = group?.botId ?? rt.chatOwners.get(id)
-      if (botId !== undefined) return { sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId, ...(group ? { roomId: group.roomId } : {}) }
+      const taskOwner = rt.taskOwners?.get(id)
+      const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
+      if (botId !== undefined) {
+        const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.title
+        return {
+          sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId,
+          ...(group ? { roomId: group.roomId } : taskOwner?.roomId !== undefined ? { roomId: taskOwner.roomId } : {}),
+          ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
+        }
+      }
       const parent = current.session?.header?.parentSession
       if (!parent || current.session.header.origin !== 'subagent') break
       current = await rt.resolveAgent(parent).catch(() => undefined)
@@ -111,14 +119,10 @@ export function install(rt) {
     await rt.save()
   }
 
+  // Ahead of DSH's own answerer, which would hold a hidden Session's request unseen.
   ctx.on('approval/request', async (request, next) => {
     const explicit = actionScope.getStore()
-    const sessionId = sessionOf(request.agent)
-    const group = rt.groupOwners.get(sessionId)
-    const botId = group?.botId ?? rt.chatOwners.get(sessionId)
-    const owner = botId !== undefined
-      ? { sessionId, ownerSessionId: sessionId, lineageSessionIds: [sessionId], botId, ...(group ? { roomId: group.roomId } : {}) }
-      : await ownerOf(request.agent)
+    const owner = await ownerOf(request.agent)
     if (!owner) return next()
     if (request.signal?.aborted) return 'cancelled'
     const captured = executions.get(keyOf(request.agent, request.callId))
@@ -136,6 +140,7 @@ export function install(rt) {
     const entry = {
       id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds, botId: owner.botId,
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
+      ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
@@ -160,7 +165,7 @@ export function install(rt) {
         linked.abort()
         if (request.signal === linked.signal) request.signal = original
         rt.noteApproval?.(owner.ownerSessionId, undefined)
-        emit('settled', { id, outcome })
+        emit('settled', { id, outcome, ...(owner.taskId ? { taskId: owner.taskId } : {}) })
         return true
       }
       const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }
@@ -170,9 +175,13 @@ export function install(rt) {
         clearTimeout(timer)
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
         changed(entry)
-        rt.yieldRoomTurn?.(owner.ownerSessionId)
-        // Group sessions have DS Bot's member card. Own-chat children still need
-        // the host path, since their Bot may have no group approval controls.
+        // Group sessions have DS Bot's member card; a background task's card sits
+        // on the member's group Session. Own-chat children still need the host
+        // path, since their Bot may have no group approval controls.
+        const yieldSession = owner.taskId === undefined || owner.roomId === undefined
+          ? owner.ownerSessionId
+          : rt.roomOf(owner.roomId)?.sessions?.[owner.botId] ?? owner.ownerSessionId
+        rt.yieldRoomTurn?.(yieldSession)
         if (owner.roomId !== undefined) return
         request.signal = linked.signal
         Promise.resolve().then(next).then(outcome => {

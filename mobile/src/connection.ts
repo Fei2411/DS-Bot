@@ -1,7 +1,9 @@
 import { Platform } from 'react-native'
+import { phoneName } from './phone-name.ts'
 import { RelayTransport, RpcClient, SecureTransport } from '../../link/src/index.ts'
 import type { PhoneIdentity, SavedComputer } from './store.ts'
 import type { ConnectorsView } from './team/connectors.ts'
+import type { LearningProposal } from './screens/chat/learning.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -37,6 +39,7 @@ export interface Bot {
 export interface Room {
   id: string
   name: string
+  workDir?: string
   preview?: string
   lastAt?: number
   members?: string[]
@@ -111,6 +114,7 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
@@ -132,12 +136,6 @@ export interface TeamState {
   prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number }
 }
 
-function phoneName(): string {
-  const constants = Platform.constants as { Manufacturer?: string; Model?: string; interfaceIdiom?: string }
-  if (Platform.OS === 'android') return [constants.Manufacturer, constants.Model].filter(Boolean).join(' ') || 'Android phone'
-  return constants.interfaceIdiom === 'pad' ? 'iPad' : 'iPhone'
-}
-
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
 export interface ShownView { id?: string; title?: string; view?: unknown }
 
@@ -150,7 +148,7 @@ export async function openLink(computer: SavedComputer, identity: PhoneIdentity,
     targetDeviceId: computer.hostDeviceId,
   })
   const secure = new SecureTransport(relay, identity, { deviceId: computer.hostDeviceId, identityKey: computer.hostKey }, {
-    hello: { name: phoneName(), ...(pairingCode === undefined ? {} : { pairingCode }) },
+    hello: { name: phoneName(Platform.OS, Platform.constants as Parameters<typeof phoneName>[1]), ...(pairingCode === undefined ? {} : { pairingCode }) },
   })
   const client = new RpcClient(secure)
   await client.connect()

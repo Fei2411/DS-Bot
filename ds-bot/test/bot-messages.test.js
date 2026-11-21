@@ -453,6 +453,33 @@ const replySource = (role, extra = {}) => ({ kind: SOURCE_KIND, role, senderSess
 const textBlock = (content) => [{ type: 'text', text: content }]
 const assistantText = text => ({ message: { content: textBlock(text) } })
 
+for (const [name, source, hidden] of [
+  ['private work continuation', replySource('reply', { work: 'parent' }), true],
+  ['restarted private work continuation', replySource('resume', { work: 'parent', resumed: true }), true],
+  ['part-switched private work continuation', replySource('reply', { work: 'parent', handoff: true, resume: true }), true],
+  ['direct private request', replySource('request', { exchangeId: 'parent' }), true],
+  ['user-owned reply', replySource('reply', { work: 'user-work' }), false],
+  ['ordinary reply', replySource('reply'), false],
+  ['missing work reply', replySource('reply', { work: 'missing' }), false],
+  ['another Bot\'s work reply', replySource('reply', { work: 'other-work' }), false],
+  ['explicit user-audience request', replySource('request', { audience: 'user', work: 'parent' }), false],
+]) {
+  for (const pending of [false, true]) {
+    test(`${name} is ${hidden ? 'hidden' : 'visible'} when claimed ${pending ? 'from pending input' : 'during a turn'}`, async (t) => {
+      const { rt, emit, stop } = await start(team())
+      t.after(stop)
+      rt.openWork('parent', { from: 'a', to: 'b' })
+      rt.openWork('user-work', { to: 'b' })
+      rt.openWork('other-work', { from: 'a', to: 'a' })
+      const message = () => emit('b', 'user/message', { content: textBlock('result'), source })
+      if (pending) message()
+      emit('b', 'turn/start', { turn: 7 })
+      if (!pending) message()
+      assert.deepEqual(rt.state.exchangeTurns.b ?? [], hidden ? [7] : [])
+    })
+  }
+}
+
 test('a stopped notice routes the acknowledgement back like a request', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })
@@ -1279,6 +1306,107 @@ test('a failed turn past the hard line keeps the real error instead of switching
   await delay(50)
   assert.equal(made, 0)
   assert.equal(agent.session.eventAt(1).data.reason.error, error)
+})
+
+// #1716: an endpoint behind a gateway or compatible proxy turns an oversized request
+// down without DSH's overflow code. The part moves on the way an overflow moves it.
+for (const [id, failure] of [
+  ['b', { code: 'INVALID_REQUEST', message: '413 Payload Too Large' }],
+  ['b', { code: 'INVALID_REQUEST', status: 413, message: 'Request failed' }],
+  ['b', { code: 'INVALID_REQUEST', message: '413 status code (no body)' }],
+  ['gb', { code: 'INVALID_REQUEST', message: 'failed to buffer the request body: length limit exceeded' }],
+]) {
+  test(`a request turned down as too large moves the part on without a model call (${id}, ${failure.status ?? failure.message})`, async (t) => {
+    const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
+    t.after(stop)
+    let made = 0
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    let tokens = 10_000
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: tokens }) } : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+    let streamed = 0
+    ctx.llm.stream = async function* () {
+      streamed += 1
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+    const agent = agentOf(id)
+    agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+    emit(id, 'assistant/message', assistantText('Earlier work'))
+    const refuse = failure => fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+
+    // A generic refusal of a part below its hard line says nothing about its size.
+    await refuse({ code: 'INVALID_REQUEST', status: 400, message: 'invalid tool schema' })
+    await delay(30)
+    assert.equal(made, 0)
+
+    await refuse(failure)
+    for (let at = 0; at < 200 && made === 0; at += 1) await delay(5)
+    assert.equal(made, 1)
+    assert.equal(streamed, 0)
+  })
+}
+
+test('a generic refusal of a part past its hard line moves it on; one below does not', async (t) => {
+  const { ctx, agentOf, emit, fire, stop } = await start(team())
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  let tokens = 10_000
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: tokens }) } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+  const agent = agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  emit('b', 'assistant/message', assistantText('Earlier work'))
+  const failure = { code: 'INVALID_REQUEST', status: 400, message: 'Bad Request' }
+  await fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+  await delay(30)
+  assert.equal(made, 0)
+  tokens = 120_000
+  await fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+  for (let at = 0; at < 200 && made === 0; at += 1) await delay(5)
+  assert.equal(made, 1)
+})
+
+test('New session on an idle group member moves its group conversation on; a working member, a member without a group session, or a non-member is refused', async (t) => {
+  const seed = team({ group: true })
+  seed.bots.c = { id: 'c', name: 'Scout', role: 'Scout', sessionId: 'c', createdAt: 3 }
+  const { rt: runtime, ctx, agentOf, call, stop } = await start(seed)
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  const stateView = await call('state', {})
+  assert.equal(stateView.ok, true)
+  const roomView = (stateView.value ?? stateView).rooms.find(r => r.id === 'r1')
+  assert.deepEqual(roomView.sessionMembers, ['b'], 'only members with a group Session are advertised as having one')
+  const noSession = await call('bot-new-part', { botId: 'a', roomId: 'r1' })
+  assert.equal(noSession.ok, false)
+  assert.equal(noSession.error.message, 'This Bot has no session in this group yet')
+  const nonMember = await call('bot-new-part', { botId: 'c', roomId: 'r1' })
+  assert.equal(nonMember.ok, false)
+  assert.equal(nonMember.error.message, 'Not a member of that group')
+  const missingRoom = await call('bot-new-part', { botId: 'b', roomId: 'r-missing' })
+  assert.equal(missingRoom.ok, false)
+  assert.equal(missingRoom.error.message, 'Unknown group chat')
+  agentOf('gb').status = 'working'
+  assert.equal((await call('bot-new-part', { botId: 'b', roomId: 'r1' })).ok, false)
+  agentOf('gb').status = 'idle'
+  const moved = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  for (let at = 0; at < 200 && runtime.state.rooms.r1.sessions.b === 'gb'; at += 1) await delay(5)
+  assert.equal(runtime.state.rooms.r1.sessions.b, 's1')
+  assert.equal(runtime.state.bots.b.sessionId, 'b')
+})
+
+test('New session on a group member answers with an error when the fresh part cannot be made, and the member keeps its session', async (t) => {
+  const { rt: runtime, ctx, call, stop } = await start(team({ group: true }))
+  t.after(stop)
+  ctx.sessionController.create = async () => { throw new Error('disk full') }
+  const failed = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
+  assert.equal(failed.ok, false, JSON.stringify(failed))
+  assert.equal(failed.error.message, 'The new session did not start; the Bot stays in its current one')
+  assert.equal(runtime.state.rooms.r1.sessions.b, 'gb')
 })
 
 for (const id of ['b', 'gb']) {

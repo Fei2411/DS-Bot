@@ -3,7 +3,7 @@
 // sends its prompt to the Bot's chat when it is due.
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
-import { ClockIcon, PlusIcon, TrashIcon } from './icons.js'
+import { ClockIcon, PauseIcon, PlusIcon, ResumeIcon, TrashIcon } from './icons.js'
 import { Segmented } from './motion.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
@@ -83,7 +83,10 @@ const nextText = (task) => {
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
 }
 
-function TaskRow({ task, actions, onView, showBot, roster }) {
+// A paused one-time task whose time has passed has nothing to resume to.
+const canResume = task => task.status === 'paused' && !((task.kind === 'at' || task.kind === 'after') && Date.parse(task.scheduledAt) <= Date.now())
+
+function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -97,14 +100,29 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     setBusy(true)
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false))
   }
+  const [failed, setFailed] = useState('')
+  const toggle = () => {
+    setBusy(true)
+    setFailed('')
+    void actions.schedulePause(task.sessionId, task.id, task.status !== 'active').then((next) => { setBusy(false); onView(next) }, (failure) => {
+      setBusy(false)
+      setFailed(hostText(failure?.message ?? String(failure)))
+    })
+  }
+  const pausable = canPause && (task.status === 'active' || canResume(task))
   const room = task.roomId ? roster.roomsById[task.roomId] : undefined
   return h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
     showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     h('button', { type: 'button', className: 'bt-set-copy bt-task-copy', 'aria-expanded': expanded || undefined, onClick: () => setExpanded(open => !open) },
       h('span', { className: 'bt-task-title' }, task.title),
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
-      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
+      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null,
+      failed ? h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, failed) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
+    pausable ? h('button', {
+      type: 'button', className: 'bt-mini bt-task-remove bt-task-pause', disabled: busy,
+      'aria-label': task.status === 'active' ? t('Pause task') : t('Resume task'), title: task.status === 'active' ? t('Pause task') : t('Resume task'), onClick: toggle,
+    }, task.status === 'active' ? h(PauseIcon) : h(ResumeIcon)) : null,
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
@@ -133,9 +151,21 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const [unit, setUnit] = useState('hours')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const validAt = kind !== 'at' || (at !== '' && Number.isFinite(Date.parse(at)))
+  const validDays = kind !== 'weekly' || weekdays.length > 0
+  const validEvery = kind !== 'every' || (Number.isFinite(Number(count)) && Number(count) >= 1)
   const timing = () => {
-    if (kind === 'at') return { kind, at: new Date(at).toISOString() }
-    if (kind === 'every') return { kind, minutes: Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1]) }
+    if (kind === 'at') {
+      const parsed = new Date(at)
+      if (!Number.isFinite(parsed.getTime())) throw new Error('invalid date')
+      return { kind, at: parsed.toISOString() }
+    }
+    if (kind === 'every') {
+      const minutes = Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1])
+      if (!Number.isFinite(minutes) || minutes < 1) throw new Error('invalid interval')
+      return { kind, minutes }
+    }
+    if (kind === 'weekly' && weekdays.length === 0) throw new Error('pick a day')
     return { kind, time, timeZone: localZone(), ...(kind === 'weekly' ? { weekdays } : {}) }
   }
   const submit = (event) => {
@@ -144,7 +174,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     setBusy(true)
     setError('')
     let when
-    try { when = timing() } catch { setError(t('Pick a date and time')); setBusy(false); return }
+    try { when = timing() } catch { setError(kind === 'weekly' ? t('Pick at least one day') : t('Pick a date and time')); setBusy(false); return }
     void actions.scheduleCreate({ target, title, prompt, when })
       .then(onDone, (failure) => { setError(hostText(failure?.message ?? String(failure))); setBusy(false) })
   }
@@ -178,7 +208,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     error ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-danger bt-set-hint' }, error)) : null,
     h('div', { className: 'bt-set-row bt-task-foot' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !target || title.trim() === '' || prompt.trim() === '' }, busy ? t('Creating…') : t('Create task'))))
+      h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !target || title.trim() === '' || prompt.trim() === '' || !validAt || !validDays || !validEvery }, busy ? t('Creating…') : t('Create task'))))
 }
 
 // Settings has no schedule service to show: Automation tasks are off in DSH.
@@ -217,7 +247,7 @@ export function SchedulesPage({ roster, actions, start }) {
           index === 0
             ? h('div', { className: 'bt-la-sec-head' }, h('h3', { className: 'bt-task-head' }, avatar, name), addBar)
             : h('h3', { className: 'bt-task-head' }, avatar, name),
-          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish }))))),
+          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish }))))),
   ]
 }
 
@@ -234,7 +264,7 @@ export function BotSchedules({ bot, roster, actions }) {
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.'))),
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
         : [
-            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish })),
+            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
             h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
           ]))
 }

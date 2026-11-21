@@ -20,6 +20,224 @@ export function linkMentions(text, bots, selfId) {
   return cursor === 0 ? text : out + text.slice(cursor)
 }
 
+const DRIVE_BACKSLASH_PATH = /^[A-Za-z]:\\/
+const isEscaped = (text, index) => {
+  let slashes = 0
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i -= 1) slashes += 1
+  return (slashes & 1) === 1
+}
+const lineEnd = (text, from) => {
+  const nl = text.indexOf('\n', from)
+  return nl === -1 ? text.length : nl + 1
+}
+const isBlankLine = (text, start, end) => /^[ \t]*\r?\n?$/.test(text.slice(start, end))
+
+function fenceOpen(line) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?\n?$/.exec(line)
+  if (!match) return null
+  const marker = match[1]
+  // CommonMark: backtick fence info strings may not contain backticks.
+  if (marker[0] === '`' && match[2].includes('`')) return null
+  return { char: marker[0], length: marker.length }
+}
+
+function fenceClose(line, fence) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*\r?\n?$/.exec(line)
+  return Boolean(match && match[1][0] === fence.char && match[1].length >= fence.length)
+}
+
+// Find the closing run of exactly `ticks` backticks for a CommonMark code span.
+// Code spans may cross single newlines, not blank lines; unmatched ticks are literal.
+function findCodeSpanEnd(text, from, ticks) {
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '\n') {
+      const next = i + 1
+      const nextEnd = lineEnd(text, next)
+      if (next < text.length && isBlankLine(text, next, nextEnd)) return -1
+      i = next
+      continue
+    }
+    if (text[i] === '`') {
+      let end = i
+      while (end < text.length && text[end] === '`') end += 1
+      if (end - i === ticks) return end
+      i = end
+      continue
+    }
+    i += 1
+  }
+  return -1
+}
+
+// Skip optional CommonMark inline-link whitespace (spaces/tabs and up to one newline).
+function skipLinkWs(text, from) {
+  let i = from
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1
+  if (text[i] === '\r' && text[i + 1] === '\n') i += 2
+  else if (text[i] === '\n') i += 1
+  else return i
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1
+  return i
+}
+
+// Scan an optional CommonMark link title ("...", '...', (...)) followed by closing ')'.
+function skipOptionalTitleAndClose(text, from) {
+  let i = skipLinkWs(text, from)
+  if (i >= text.length) return -1
+  if (text[i] === ')') return i + 1
+  const open = text[i]
+  if (open !== '"' && open !== "'" && open !== '(') return -1
+  // A title must be separated from the destination by at least one whitespace character.
+  if (i === from) return -1
+  const close = open === '(' ? ')' : open
+  i += 1
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '\\' && i + 1 < text.length) { i += 2; continue }
+    if (ch === '\n') {
+      const nextEnd = lineEnd(text, i + 1)
+      if (i + 1 < text.length && isBlankLine(text, i + 1, nextEnd)) return -1
+      i += 1
+      continue
+    }
+    if (open === '(' && ch === '(') return -1
+    if (ch === close) {
+      const after = skipLinkWs(text, i + 1)
+      return text[after] === ')' ? after + 1 : -1
+    }
+    i += 1
+  }
+  return -1
+}
+
+// CommonMark eats the backslash before ASCII punctuation in a link destination, so a
+// Windows path like `[report.md](C:\work\.dsh\bot\report.md)` loses the separator in
+// front of `.dsh`. Rewrite drive-letter backslash destinations (`C:\...`) to forward
+// slashes before Markdown parses them, while leaving code blocks, code spans, link
+// titles, UNC paths (`\\server`), and already-forward-slash destinations (`C:/...`
+// that may contain valid Markdown escapes like `\[`) untouched.
+export function normalizeFileLinks(text) {
+  if (typeof text !== 'string' || !text.includes('](') || !text.includes('\\')) return text
+  let out = ''
+  let cursor = 0
+  let i = 0
+  let atLineStart = true
+  let canIndentCode = true
+  let fence = null
+
+  while (i < text.length) {
+    if (atLineStart) {
+      const end = lineEnd(text, i)
+      const line = text.slice(i, end)
+      if (fence !== null) {
+        if (fenceClose(line, fence)) fence = null
+        i = end
+        canIndentCode = false
+        continue
+      }
+      if (isBlankLine(text, i, end)) {
+        i = end
+        canIndentCode = true
+        continue
+      }
+      const opened = fenceOpen(line)
+      if (opened !== null) {
+        fence = opened
+        i = end
+        canIndentCode = false
+        continue
+      }
+      if (canIndentCode && /^(?: {4}|\t)/.test(line)) {
+        i = end
+        continue
+      }
+      atLineStart = false
+      canIndentCode = false
+    }
+
+    const ch = text[i]
+    if (ch === '\n') {
+      atLineStart = true
+      i += 1
+      continue
+    }
+
+    if (ch === '`' && !isEscaped(text, i)) {
+      let ticksEnd = i
+      while (ticksEnd < text.length && text[ticksEnd] === '`') ticksEnd += 1
+      const spanEnd = findCodeSpanEnd(text, ticksEnd, ticksEnd - i)
+      if (spanEnd !== -1) {
+        i = spanEnd
+        atLineStart = text[i - 1] === '\n'
+        continue
+      }
+      i = ticksEnd
+      continue
+    }
+
+    if (ch === ']' && text[i + 1] === '(' && !isEscaped(text, i)) {
+      const destStart = skipLinkWs(text, i + 2)
+      let destInnerStart = destStart
+      let destInnerEnd = -1
+      let afterDest = -1
+
+      if (text[destStart] === '<') {
+        destInnerStart = destStart + 1
+        let j = destInnerStart
+        while (j < text.length && text[j] !== '>' && text[j] !== '\n' && text[j] !== '\r') {
+          if (text[j] === '\\' && j + 1 < text.length && !DRIVE_BACKSLASH_PATH.test(text.slice(destInnerStart, destInnerStart + 3))) {
+            j += 2
+            continue
+          }
+          j += 1
+        }
+        if (text[j] === '>') {
+          destInnerEnd = j
+          afterDest = j + 1
+        }
+      } else {
+        const isWinDrive = DRIVE_BACKSLASH_PATH.test(text.slice(destStart, destStart + 3))
+        let j = destStart
+        let depth = 0
+        while (j < text.length) {
+          const c = text[j]
+          if (c === ' ' || c === '\t' || c === '\n' || c === '\r') break
+          if (!isWinDrive && c === '\\' && j + 1 < text.length) { j += 2; continue }
+          if (c === '(') depth += 1
+          else if (c === ')') {
+            if (depth === 0) break
+            depth -= 1
+          }
+          j += 1
+        }
+        if (j > destStart && depth === 0) {
+          destInnerEnd = j
+          afterDest = j
+        }
+      }
+
+      if (afterDest !== -1) {
+        const linkEnd = skipOptionalTitleAndClose(text, afterDest)
+        if (linkEnd !== -1) {
+          const dest = text.slice(destInnerStart, destInnerEnd)
+          if (DRIVE_BACKSLASH_PATH.test(dest)) {
+            out += text.slice(cursor, destInnerStart) + dest.replace(/\\/g, '/')
+            cursor = destInnerEnd
+          }
+          i = linkEnd
+          atLineStart = text[i - 1] === '\n'
+          continue
+        }
+      }
+    }
+
+    i += 1
+  }
+
+  return cursor === 0 ? text : out + text.slice(cursor)
+}
+
 export function mentionTarget(event) {
   const anchor = event.target instanceof Element ? event.target.closest(`a[href^="${MENTION_ORIGIN}"]`) : null
   return anchor ? anchor.getAttribute('href').slice(MENTION_ORIGIN.length) : null

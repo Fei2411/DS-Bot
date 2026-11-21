@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 import wecom from '../src/host/im/platforms/wecom.js'
 import { fakeWsServer } from './fake-ws.js'
+
+const execFileP = promisify(execFile)
 
 // A fake WeCom stream: aibot_subscribe gets an errcode 0 reply, callbacks get
 // pushed frames, aibot_send_msg answers through pending req_ids. Like the real
@@ -435,4 +439,25 @@ test('a declared oversized length cancels the response body', async (t) => {
   const delivered = await until(() => messages.find(msg => msg.messageId === 'm-cxl'))
   assert.equal(delivered.files.length, 0)
   assert.ok(cancelled, 'the rejected transfer was cancelled rather than left open')
+})
+
+test('loading wecom does not load ws at import time', async () => {
+  const script = `
+    import { registerHooks } from 'node:module'
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier === 'ws') throw new Error('ws loaded at import time')
+      return next(specifier, context)
+    } })
+    await import(${JSON.stringify(new URL('../src/host/im/platforms/wecom.js', import.meta.url).href)})
+  `
+  await execFileP(process.execPath, ['--input-type=module', '-e', script])
+})
+
+test('stop before opening prevents creating a socket', async (t) => {
+  const fake = await fakeWecom()
+  t.after(() => fake.close())
+  const handle = wecom.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  handle.stop()
+  await new Promise(done => setTimeout(done, 80))
+  assert.equal(fake.upgrades.length, 0)
 })

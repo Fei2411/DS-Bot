@@ -4,6 +4,8 @@ import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 // Session it speaks from, so a fresh part or a new group Session keeps it. A group may
 // set one preset for all its members there, in place of each member's own, as it may
 // set one working folder.
+import { activeTasksOf } from './threads.js'
+
 // DSH offers Auto review for the current Session only, so neither a Bot nor a group keeps it.
 const SESSION_ONLY = 'auto'
 
@@ -23,7 +25,7 @@ export function install(rt) {
     return { options: choices, defaultPreset }
   }
 
-  const roomOfSession = sessionId => rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+  const roomOfSession = sessionId => rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
 
   // `name` may be a function: it is read once the agent resolves, so a change asked
   // for while the resolve ran wins over the one still being applied.
@@ -92,10 +94,15 @@ export function install(rt) {
     }
     // The Bot's own chat may have background parts opened while it was busy: a stricter
     // preset must reach those live Sessions too, or the user would think it applied.
-    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)]
+    // Group tasks follow their group's permission below (inheriting bot.permission if unset).
+    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId), ...activeTasksOf(bot).filter(task => task.roomId === undefined).map(task => task.sessionId)]
       .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+    const groupSessions = () => [
+      ...rt.groupSessionsOf(bot.id),
+      ...activeTasksOf(bot).filter(task => task.roomId !== undefined).map(task => task.sessionId),
+    ].filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groups = async (warnFail) => {
-      for (const sessionId of rt.groupSessionsOf(bot.id)) {
+      for (const sessionId of groupSessions()) {
         if (request.seq !== mine) break
         if (roomOfSession(sessionId)?.permission) continue
         await applyTo(sessionId).catch(warnFail)
@@ -125,7 +132,7 @@ export function install(rt) {
           if (request.seq !== mine) break
           await restoreTo(sessionId).catch(warnFail)
         }
-        for (const sessionId of rt.groupSessionsOf(bot.id)) {
+        for (const sessionId of groupSessions()) {
           if (request.seq !== mine) break
           if (roomOfSession(sessionId)?.permission) continue
           await restoreTo(sessionId).catch(warnFail)
@@ -161,6 +168,15 @@ export function install(rt) {
         && (room.permission !== undefined || requests.get(botId)?.seq === seq)
         ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, true)
         .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', bot.name, room.name, error))
+    }
+    for (const botId of room.members ?? []) {
+      const bot = rt.botOf(botId)
+      if (bot === undefined) continue
+      for (const task of activeTasksOf(bot)) {
+        if (task.roomId !== room.id) continue
+        await setPreset(task.sessionId, () => room.permission ?? bot.permission ?? service.catalog().defaultPreset)
+          .catch(error => rt.warn('ds-bot: permission for task %s of %s in %s not applied: %s', task.id, bot.name, room.name, error))
+      }
     }
     return true
   }
