@@ -155,9 +155,26 @@ test('links in the data lead inside the copy, not back into the old folder', asy
   assert.equal(readFileSync(join(to, 'bot', 'absolute', 'g', 's1', 'log.jsonl'), 'utf8'), 'chat')
 })
 
-// Windows makes a link to nothing that is not a folder only with special rights, which the
-// tests do not have, so there it is a link the copy cannot make again.
+// Windows makes a link to nothing that is not a folder only with special rights, which a
+// user's tests do not have, so there it is a link the copy cannot make again. An
+// administrator (as on CI runners) has them, and then the link copies like any other.
+const canLinkFiles = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-link-probe-'))
+  try {
+    symlinkSync(join(dir, 'nothing'), join(dir, 'probe'), 'file')
+    return true
+  } catch {
+    return false
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 test('a link the move cannot make again stops the move; the import skips it', { skip: process.platform !== 'win32' }, async (t) => {
+  if (canLinkFiles()) {
+    t.skip('this process may make file links, so every link copies')
+    return
+  }
   const { root, from } = setup(t)
   symlinkSync(join(root, 'gone'), join(from, 'lost'), 'junction')
   const to = join(root, 'new')

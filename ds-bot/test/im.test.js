@@ -1191,6 +1191,130 @@ test('whole-turn IM origin: a task report cannot reopen a conflicting group roun
   assert.deepEqual(s.fake.sent, [])
 })
 
+test('reply origin: a consumed IM rpcId is ignored without withdrawing or claiming an origin', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  const source = { kind: 'user', rpcId: s.prompts.at(-1).requestId }
+  s.imTurn('a')
+  s.emitEvent('a', 'user/message', { source })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'reply']])
+
+  s.emitEvent('a', 'turn/end', {})
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'not a new IM request' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1, 'a duplicate cannot claim a later turn')
+
+  await dm(s, 'u1', 'next')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'next reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.text), ['reply', 'next reply'], 'a duplicate does not poison a later claim')
+})
+
+test('reply origin: withheld mixed output warns once per turn without message content', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'user' } })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'ordinary Web reply' }] } })
+  await s.flush()
+  assert.deepEqual(warnings, [], 'ordinary non-IM output does not warn')
+  for (let turn = 0; turn < 2; turn++) {
+    await dm(s, 'u1', 'hi')
+    if (turn === 0) s.imTurn('a')
+    else s.emitEvent('a', 'turn/start', {})
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'im:telegram:unknown' } })
+    if (turn === 1) s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    assert.equal(warnings.length, turn, 'no warning before output is withheld')
+    for (let reply = 0; reply < 2; reply++) {
+      s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private reply body' }] } })
+    }
+    await s.flush()
+    assert.equal(warnings.length, turn + 1)
+    await dm(s, 'u1', 'another request in the mixed turn')
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'still withheld' }] } })
+    await s.flush()
+    assert.equal(warnings.length, turn + 1, 'a blocked claim cannot warn twice in one turn')
+    s.emitEvent('a', 'turn/end', {})
+  }
+  assert.equal(s.fake.sent.length, 0)
+  assert.deepEqual(warnings, [
+    ['ds-bot: IM reply withheld: turn origin was dropped or mixed'],
+    ['ds-bot: IM reply withheld: turn origin was dropped or mixed'],
+  ])
+})
+
+test('reply origin: an unknown IM rpcId still withdraws a live origin and warns on output', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'im:telegram:unknown' } })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'withheld' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+  assert.deepEqual(warnings, [['ds-bot: IM reply withheld: turn origin was dropped or mixed']])
+})
+
+test('reply origin: group redelivery keeps the chat and mixed group output warns once', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'hello group')
+  const source = { kind: 'user', rpcId: s.prompts.at(-1).requestId }
+  s.imTurn('r1')
+  s.emitEvent('r1', 'user/message', { source })
+  s.fake.sent.length = 0
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: reply']])
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: 'im:telegram:unknown' } })
+  for (let reply = 0; reply < 2; reply++) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'withheld' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+  assert.deepEqual(warnings, [['ds-bot: IM reply withheld: turn origin was dropped or mixed']])
+})
+
+test('reply origin: consumed IM rpcIds are bounded and an evicted id fails closed', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  let oldest
+  for (let request = 0; request <= 200; request++) {
+    await dm(s, 'u1', 'hi')
+    oldest ??= s.prompts.at(-1).requestId
+    s.imTurn('a')
+    s.emitEvent('a', 'turn/end', {})
+  }
+  await dm(s, 'u1', 'latest')
+  s.imTurn('a')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-2).requestId } })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'recent duplicate ignored' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.text), ['recent duplicate ignored'])
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: oldest } })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'evicted request withheld' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+})
+
 test('reply origin: the group line follows the turn that started it', async (t) => {
   const s = await start()
   t.after(s.stop)
