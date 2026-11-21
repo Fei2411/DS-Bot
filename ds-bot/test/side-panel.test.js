@@ -5,6 +5,8 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { drawerMenuKeys, panelHasStrip, stripMenuKeys } from '../src/client/side-model.js'
 
+// The `···` popover, bundled once and rendered with a minimal React stand-in;
+// the useState for `open` starts true so the items are on the tree.
 const bundle = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/browser-pane.js', import.meta.url))],
   bundle: true, format: 'cjs', platform: 'node', write: false,
@@ -40,6 +42,8 @@ const find = (node, match, out = []) => {
   return out
 }
 
+// side-chat.js, bundled the same way; useState returns queued pairs so a test
+// controls draft/fail and records what the setters get.
 const sideBundle = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/side-chat.js', import.meta.url))],
   bundle: true, format: 'cjs', platform: 'node', write: false,
@@ -100,9 +104,6 @@ test('the details `···` hides when it would be empty', () => {
   assert.deepEqual(drawerMenuKeys({ bot: false, room: false, canBrowse: false, canTerminal: true, canFiles: true }), [])
 })
 
-// The `···` popover, bundled once and rendered with a minimal React stand-in;
-// the useState for `open` starts true so the items are on the tree.
-
 test('the `···` button opens the menu with an item per entry', () => {
   const actions = { openBrowser: () => {}, browserNewTab: () => {}, newSideChat: () => {}, newTerminal: () => {}, openFiles: () => {} }
   const items = stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }).map(key => menuItemFor(key, actions, 's'))
@@ -129,9 +130,6 @@ test('a rejecting menu action reports through reportError', async () => {
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.deepEqual(calls, [['panel-menu', 'no model yet']])
 })
-
-// side-chat.js, bundled the same way; useState returns queued pairs so a test
-// controls draft/fail and records what the setters get.
 
 test('a refused question puts the text back and shows the error', async () => {
   const calls = { draft: [], fail: [] }
