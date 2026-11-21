@@ -17,8 +17,8 @@ async function fakeFeishu() {
   let failResources = false
   // The resource endpoint sends the file itself, not a JSON envelope.
   const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
-  const json = (res, body) => {
-    res.writeHead(200, { 'content-type': 'application/json' })
+  const json = (res, body, { status = 200, headers } = {}) => {
+    res.writeHead(status, { 'content-type': 'application/json', ...headers })
     res.end(JSON.stringify(body))
   }
   // A tenant token also dies when its two hours are up, like the real one.
@@ -31,7 +31,7 @@ async function fakeFeishu() {
       const params = JSON.parse(body || '{}')
       calls.push({ method: req.method, path: req.url, params, auth: req.headers.authorization, locale: req.headers.locale, userAgent: req.headers['user-agent'] })
       const override = replies[req.url]
-      if (override !== undefined) { json(res, override.result); return }
+      if (override !== undefined) { json(res, override.result, override); return }
       if (req.url === '/open-apis/auth/v3/tenant_access_token/internal') {
         if (params.app_id !== 'cli_a1' || params.app_secret !== 'sec') { json(res, { code: 10003, msg: 'invalid param' }); return }
         const token = `fs-tok-${tokens.length + 1}`
@@ -153,6 +153,44 @@ test('check asks for a tenant token and names the bot with it', async () => {
   assert.equal(info.auth, `Bearer ${fake.tokens[0]}`)
   await fake.close()
 })
+
+for (const [path, status, secretField] of [
+  ['/open-apis/auth/v3/tenant_access_token/internal', 307, 'app_secret'],
+  ['/callback/ws/endpoint', 308, 'AppSecret'],
+]) {
+  test(`Feishu does not forward app credentials on HTTP ${status} from ${path}`, async (t) => {
+    const fake = await fakeFeishu()
+    t.after(() => fake.close())
+    let forwarded = 0
+    const otherOrigin = createServer((req, res) => {
+      forwarded += 1
+      req.resume()
+      res.end('{}')
+    })
+    await new Promise(resolve => otherOrigin.listen(0, '127.0.0.1', resolve))
+    t.after(() => { otherOrigin.closeAllConnections(); otherOrigin.close() })
+    fake.replies[path] = {
+      status,
+      headers: { location: `http://127.0.0.1:${otherOrigin.address().port}/redirected` },
+      result: { msg: 'Untrusted redirect response' },
+    }
+    const redirectError = 'Feishu/Lark returned an unexpected redirect; app credentials were not forwarded.'
+    if (path === '/callback/ws/endpoint') {
+      const statuses = []
+      const handle = feishu.connect(FIELDS, env(fake), { onStatus: next => statuses.push(next), onMessage() {}, onAction() {} })
+      t.after(() => handle.stop())
+      const failure = await until(() => statuses.find(next => next.state === 'error'))
+      assert.equal(forwarded, 0)
+      assert.deepEqual(failure, { state: 'error', error: redirectError })
+      assert.deepEqual(statuses.map(next => next.state), ['connecting', 'error'])
+    } else {
+      await assert.rejects(feishu.check(FIELDS, env(fake)), { message: redirectError, status, permanent: true })
+      assert.equal(forwarded, 0)
+    }
+    const request = fake.calls.find(call => call.path === path)
+    assert.equal(request.params[secretField], FIELDS.appSecret)
+  })
+}
 
 test('the fake refuses the old path, lowercase discovery fields and an object OpenAPI token', async (t) => {
   const fake = await fakeFeishu()

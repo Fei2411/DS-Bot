@@ -6,7 +6,8 @@ import feishu, { decodeFrame, encodeFrame } from '../src/host/im/platforms/feish
 
 const FIELDS = { appId: 'fixture', appSecret: 'fixture', clientId: 'fixture', clientSecret: 'fixture' }
 const adapters = { feishu, dingtalk }
-const POLICY_DENIAL = 'Access denied due to platform policy. If you have questions, contact customer support for help.'
+const POLICY_DENIAL = 'Access denied due to platform policy. Untrusted gateway response.'
+const POLICY_ERROR = 'Feishu denied long-connection discovery under its platform policy. Contact Feishu support if the problem persists.'
 
 function fixture(t, name, { autoOpen = true, constructFailures = 0, pauseHandshake = false, gatewayRefusals = 0 } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 })
@@ -96,7 +97,7 @@ const inbound = name => name === 'feishu' ? encodeFrame({
 test('Feishu retries a code-less gateway policy refusal and recovers', async (t) => {
   const fake = fixture(t, 'feishu', { gatewayRefusals: 1 })
   await flush()
-  assert.equal(fake.statuses.at(-1).state, 'retrying')
+  assert.deepEqual(fake.statuses.at(-1), { state: 'retrying', error: POLICY_ERROR })
   await fake.advance(4_999)
   assert.equal(fake.sockets.length, 0)
   await fake.advance(1)
@@ -117,7 +118,7 @@ test('Feishu stops after two retries of a code-less gateway policy refusal', asy
   await fake.advance(60_000)
   assert.equal(attempts(), 3)
   assert.equal(fake.sockets.length, 0)
-  assert.deepEqual(fake.statuses.at(-1), { state: 'error', error: `Feishu long-connection discovery: ${POLICY_DENIAL}` })
+  assert.deepEqual(fake.statuses.at(-1), { state: 'error', error: POLICY_ERROR })
 })
 
 test('Feishu sends a control ping using the handshake service id and interval', async (t) => {
