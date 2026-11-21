@@ -681,3 +681,105 @@ test('reconcileEnded settles distinct parent works that steered into the same fa
   )
   await host.stop()
 })
+
+// A turn that completed successfully but crashed before the deferred delivery of a
+// request it read as steering leaves that request open: its caller or parent waits
+// forever. The durable log still holds it, so the next start hands it back.
+test('a completed turn hands a steered request back after a restart', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-reconcile-completed-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    p1: { from: 'c', to: 'a', open: ['req-1'], results: [], at: 1 },
+    p2: { from: 'c', to: 'a', open: ['req-2'], results: [], at: 1 },
+    'req-1': { from: 'a', to: 'b', parent: 'p1', open: [], results: [], at: 2 },
+    'req-2': { from: 'a', to: 'b', parent: 'p2', open: [], results: [], at: 3 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const req1 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-1', senderName: 'Chief', senderSessionId: 'a' }
+  const req2 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-2', senderName: 'Chief', senderSessionId: 'a' }
+  const image = { id: 'img-1', name: 'shot.png', mediaType: 'image/png' }
+  const logs = new Map([
+    ['a', []],
+    ['b', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: req1, content: [{ type: 'text', text: 'first' }] } },
+      { type: 'user/message', seq: 3, data: { source: req2, content: [{ type: 'text', text: 'second' }, { type: 'image', attachment: image }] } },
+      { type: 'assistant/message', seq: 4, data: { message: { content: [{ type: 'text', text: 'first answer' }] } } },
+      { type: 'turn/end', seq: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { b: { botId: 'b', since: 1, trigger: { role: 'request', exchangeId: 'req-1', senderSessionId: 'a' } } },
+    queued: {},
+  }))
+
+  const host = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('a').calls.length >= 1 && host.agentOf('b').calls.length >= 1)
+
+  const replies = host.agentOf('a').calls
+  assert.equal(replies.filter(msg => msg.source.replyTo === 'req-1').length, 1, 'the primary request is answered once')
+  assert.equal(replies.filter(msg => msg.source.replyTo === 'req-2').length, 0, 'the steered request is not answered with the turn\'s text')
+  const handed = host.agentOf('b').calls
+  assert.equal(handed.length, 1, 'the steered request is handed back once')
+  assert.equal(handed[0].source.exchangeId, 'req-2')
+  assert.equal(handed[0].source.role, 'request')
+  assert.equal(handed[0].source.deferred, true, 'it reads as one the Bot already read')
+  assert.match(textOf(handed[0]), /second/, 'the request keeps its text')
+  assert.match(textOf(handed[0]), /answer it now/, 'it asks for the turn it still owes')
+  assert.deepEqual(handed[0].content.filter(block => block.type === 'image').map(block => block.attachment), [image], 'the attachments are kept')
+
+  const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(state.works['req-1'], undefined, 'the answered request is closed')
+  assert.deepEqual(state.works['req-2'], seed.works['req-2'], 'the handed-back request keeps its work and parent')
+  assert.deepEqual(state.works['p2'].open, ['req-2'], 'its parent work still waits for it')
+  await host.stop()
+})
+
+// The deferred delivery may already be in the durable log when the crash happens; it
+// must not be handed back a second time.
+test('a request already deferred before the crash is not handed back twice', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-reconcile-deferred-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    p1: { from: 'c', to: 'a', open: ['req-1'], results: [], at: 1 },
+    p2: { from: 'c', to: 'a', open: ['req-2'], results: [], at: 1 },
+    'req-1': { from: 'a', to: 'b', parent: 'p1', open: [], results: [], at: 2 },
+    'req-2': { from: 'a', to: 'b', parent: 'p2', open: [], results: [], at: 3 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const req1 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-1', senderName: 'Chief', senderSessionId: 'a' }
+  const req2 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-2', senderName: 'Chief', senderSessionId: 'a' }
+  const logs = new Map([
+    ['a', []],
+    ['b', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: req1, content: [{ type: 'text', text: 'first' }] } },
+      { type: 'user/message', seq: 3, data: { source: req2, content: [{ type: 'text', text: 'second' }] } },
+      { type: 'assistant/message', seq: 4, data: { message: { content: [{ type: 'text', text: 'first answer' }] } } },
+      { type: 'turn/end', seq: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'user/message', seq: 6, data: { source: { ...req2, deferred: true }, content: [{ type: 'text', text: '[Message from Chief · you read it during your last task; answer it now]\nsecond' }] } },
+    ]],
+  ])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { b: { botId: 'b', since: 1, trigger: { role: 'request', exchangeId: 'req-1', senderSessionId: 'a' } } },
+    queued: {},
+  }))
+
+  const host = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('a').calls.length >= 1)
+  await realDelay(30)
+  assert.equal(host.agentOf('a').calls.filter(msg => msg.source.replyTo === 'req-1').length, 1, 'the primary request is answered once')
+  assert.equal(host.agentOf('b').calls.length, 0, 'the deferred request is not handed back again')
+  assert.deepEqual(host.rt.state.works['p2'].open, ['req-2'], 'its parent work is still waiting for its own turn')
+  await host.stop()
+})
