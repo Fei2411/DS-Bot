@@ -582,6 +582,21 @@ test('file-download sends a file attachment and refuses an unknown session or at
   assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
 })
 
+test('image and file-download serve a DSH Agent Session to the phone', async (t) => {
+  const { rt, call, ctx, history, stop } = start()
+  t.after(stop)
+  await team(call)
+  const own = rt.agentOf
+  rt.agentOf = id => (id === 's-agent' ? { id: 'a1', sessions: ['s-agent'] } : own?.(id))
+  const photo = await ctx.get('attachments').saveImage({ data: Buffer.from('PNG bytes'), mediaType: 'image/png', width: 4, height: 4 })
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('agent notes'), name: 'notes.txt' })
+  history['s-agent'] = [{ seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: photo }, { type: 'file', attachment: ref }] } }]
+  const img = await call('image', { sessionId: 's-agent', attachmentId: photo.attachmentId })
+  assert.equal(Buffer.from(img.value.data, 'base64').toString(), 'PNG bytes')
+  const saved = await call('file-download', { sessionId: 's-agent', attachmentId: ref.attachmentId })
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), 'agent notes')
+})
+
 test('a presented file rides on the closing Bot row so the phone can save it', async (t) => {
   const { rt, stop } = start()
   t.after(stop)
