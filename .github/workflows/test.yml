@@ -391,6 +391,8 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+      - name: Run desktop app unit tests (Windows)
+        run: npm test
       - run: node scripts/seed-electron-checksums.mjs
       - name: Cache the locked runtime archives
         uses: actions/cache@v4

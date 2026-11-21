@@ -110,6 +110,13 @@ export function install(rt) {
   }
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
 
+  // A Host-wide task delivering to this team Session, or nothing.
+  const teamTask = async (id, sessionId) => {
+    if (ownerOf(sessionId) === undefined) return undefined
+    const entry = (await service.catalog()).find(task => task.id === id)
+    return entry === undefined || sessionOf(entry) !== sessionId ? undefined : entry
+  }
+
   async function schedulesView() {
     if (service === null) return { available: false, tasks: [] }
     const now = Date.now()
@@ -125,7 +132,8 @@ export function install(rt) {
         : entry.status === 'paused' ? 'paused' : 'finished'
       tasks.push({ ...entry, sessionId, ...owner, state })
     }
-    return { available: true, tasks }
+    // DSH 0.2.1 keeps tasks by Session and has no pause.
+    return { available: true, canPause: hostWide(service), tasks }
   }
 
   const endpoints = {
@@ -151,11 +159,30 @@ export function install(rt) {
       if (ownerOf(body.sessionId) === undefined) throw invalid('No such task')
       if (hostWide(service)) {
         // Ids are Host-wide here, so the task must still deliver to the team Session named.
-        const entry = (await service.catalog()).find(task => task.id === body.id)
-        if (entry === undefined || sessionOf(entry) !== body.sessionId) throw invalid('No such task')
+        if (await teamTask(body.id, body.sessionId) === undefined) throw invalid('No such task')
         await service.edit({ id: body.id, action: 'delete' })
       } else {
         await service.delete({ sessionId: body.sessionId, id: body.id })
+      }
+      return schedulesView()
+    },
+    // Pause keeps the task and its timing; resume picks the next time it comes round.
+    async 'schedule-pause'(body) {
+      if (service === null) throw invalid('Automation tasks are off in DSH')
+      if (!hostWide(service)) throw invalid('No such task')
+      const entry = await teamTask(body.id, body.sessionId)
+      const active = body.active === true
+      if (entry === undefined || entry.status === 'ended') throw invalid('No such task')
+      if (entry.status !== (active ? 'active' : 'paused')) {
+        let result
+        try {
+          result = await service.edit({ id: body.id, action: 'update', patch: { active } })
+        } catch (error) {
+          // A one-time task whose time has passed has nothing left to resume to.
+          if (error?.code === 'not_future' || error?.details?.code === 'not_future' || /no future occurrence/i.test(error?.message ?? '')) throw invalid('Pick a time in the future')
+          throw error
+        }
+        if (result?.code === 'schedule_not_found') throw invalid('No such task')
       }
       return schedulesView()
     },

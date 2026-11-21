@@ -192,7 +192,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: botId => after(call('bot-new-part', { botId })),
+    newPart: (botId, roomId) => after(call('bot-new-part', roomId === undefined ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
       return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
@@ -280,6 +280,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call('schedule-pause', { sessionId, id, active }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),

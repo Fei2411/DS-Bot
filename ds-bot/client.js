@@ -3,11 +3,9 @@ window.__ModuleLoader__.load({
   id: 'ds-bot',
   factory: (require) => {
 const module = { exports: {} }
-var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -21,14 +19,6 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/client/index.js
@@ -146,7 +136,12 @@ var JA = {
   "Scan this code with the DS Bot app on your phone.": "スマートフォンの DS Bot アプリでこのコードをスキャンしてください。",
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",
+  "Open in a browser": "ブラウザーで開く",
+  "Web browser": "ウェブブラウザー",
+  "Copy browser link": "ブラウザーのリンクをコピー",
+  "Clipboard is not available": "クリップボードを利用できません",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "ブラウザーはサーバーから送信されたページを実行します。信頼できるサーバーのみを使用してください。",
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
   "The Server address must start with ws:// or wss://": "サーバーのアドレスは ws:// または wss:// で始める必要があります",
@@ -916,6 +911,9 @@ var JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
+  "Started": "開始しました",
+  "Started a new session for {name} in this group": "このグループで {name} の新しいセッションを開始しました",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
@@ -1547,6 +1545,8 @@ var JA = {
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
+  "Pause task": "タスクを一時停止",
+  "Resume task": "タスクを再開",
   "Once": "1 回のみ",
   "Every week": "毎週",
   "Repeat": "繰り返し",
@@ -1752,6 +1752,10 @@ var JA = {
   "A group chat needs at least two Bots": "グループチャットには少なくとも 2 つの Bot が必要です",
   "The admin must be a member of the group": "管理者はグループのメンバーである必要があります",
   "Unknown group chat": "該当するグループチャットが見つかりません",
+  "Not a member of that group": "この Bot はそのグループのメンバーではありません",
+  "This Bot has no session in this group yet": "この Bot にはこのグループのセッションがまだありません",
+  "The Bot is working; wait for it to finish or stop it first": "この Bot は作業中です。完了を待つか先に停止してください",
+  "The new session did not start; the Bot stays in its current one": "新しいセッションを開始できませんでした。Bot は現在のセッションのままです",
   "No Bot is left in this group chat": "このグループチャットに Bot が残っていません",
   "That group chat has been deleted": "そのグループチャットは削除されています",
   "Hand the admin role to another member instead of leaving the group without one": "グループを管理者なしにするのではなく、他のメンバーに管理者を引き継いでください",
@@ -2703,7 +2707,12 @@ var KO = {
   "Scan this code with the DS Bot app on your phone.": "휴대폰의 DS Bot 앱으로 이 코드를 스캔하세요.",
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
+  "Open in a browser": "브라우저에서 열기",
+  "Web browser": "웹 브라우저",
+  "Copy browser link": "브라우저 링크 복사",
+  "Clipboard is not available": "클립보드를 사용할 수 없습니다",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "서버는 암호화된 메시지를 전달합니다. 브라우저 접근은 서버가 제공하는 페이지도 신뢰합니다.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "브라우저는 서버가 보낸 페이지를 실행합니다. 신뢰하는 서버만 사용하세요.",
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
   "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
@@ -3497,6 +3506,9 @@ var KO = {
   "Add DSH Agent": "DSH Agent 추가",
   "Remove DSH Agent": "DSH Agent 제거",
   "New session": "새 세션",
+  "Start a new session for {name} in this group": "이 그룹에서 {name}의 새 세션 시작",
+  Started: "시작됨",
+  "Started a new session for {name} in this group": "이 그룹에서 {name}의 새 세션을 시작했습니다",
   Archive: "보관",
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
@@ -4146,6 +4158,8 @@ var KO = {
   "in {name}": "{name}에서",
   "Click again to delete": "삭제하려면 한 번 더 클릭하세요",
   "Delete task": "작업 삭제",
+  "Pause task": "작업 일시 중지",
+  "Resume task": "작업 재개",
   Once: "한 번",
   "Every week": "매주",
   Repeat: "반복",
@@ -4352,6 +4366,10 @@ var KO = {
   "A group chat needs at least two Bots": "그룹 채팅에는 최소 2개의 Bot이 필요합니다",
   "The admin must be a member of the group": "관리자는 그룹 멤버여야 합니다",
   "Unknown group chat": "찾을 수 없는 그룹 채팅입니다",
+  "Not a member of that group": "이 봇은 해당 그룹의 멤버가 아닙니다",
+  "This Bot has no session in this group yet": "이 봇은 아직 이 그룹에 세션이 없습니다",
+  "The Bot is working; wait for it to finish or stop it first": "봇이 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요",
+  "The new session did not start; the Bot stays in its current one": "새 세션을 시작하지 못했습니다. 봇은 현재 세션에 그대로 있습니다",
   "No Bot is left in this group chat": "이 그룹 채팅에 남은 Bot이 없습니다",
   "That group chat has been deleted": "이미 삭제된 그룹 채팅입니다",
   "Hand the admin role to another member instead of leaving the group without one": "그룹에 관리자가 없도록 비워 두는 대신 다른 멤버에게 관리자 역할을 넘기세요",
@@ -5305,7 +5323,12 @@ var ES = {
   "Scan this code with the DS Bot app on your phone.": "Escanea este código con la app DS Bot de tu teléfono.",
   "Server": "Servidor",
   "Show a QR code": "Mostrar un código QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
+  "Open in a browser": "Abrir en un navegador",
+  "Web browser": "Navegador web",
+  "Copy browser link": "Copiar enlace del navegador",
+  "Clipboard is not available": "El portapapeles no está disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "El navegador ejecuta la página que envía el servidor. Usa solo un servidor de confianza.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
   "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
@@ -6099,6 +6122,9 @@ var ES = {
   "Add DSH Agent": "Añadir DSH Agent",
   "Remove DSH Agent": "Quitar DSH Agent",
   "New session": "Nueva sesión",
+  "Start a new session for {name} in this group": "Iniciar una nueva sesión para {name} en este grupo",
+  Started: "Iniciada",
+  "Started a new session for {name} in this group": "Nueva sesión iniciada para {name} en este grupo",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
@@ -6748,6 +6774,8 @@ var ES = {
   "in {name}": "en {name}",
   "Click again to delete": "Haz clic de nuevo para eliminar",
   "Delete task": "Eliminar tarea",
+  "Pause task": "Pausar tarea",
+  "Resume task": "Reanudar tarea",
   Once: "Una vez",
   "Every week": "Cada semana",
   Repeat: "Repetir",
@@ -6954,6 +6982,10 @@ var ES = {
   "A group chat needs at least two Bots": "Un chat grupal necesita al menos dos Bots",
   "The admin must be a member of the group": "El administrador debe ser miembro del grupo",
   "Unknown group chat": "Chat grupal desconocido",
+  "Not a member of that group": "Este Bot no es miembro de ese grupo",
+  "This Bot has no session in this group yet": "Este Bot aún no tiene una sesión en este grupo",
+  "The Bot is working; wait for it to finish or stop it first": "El Bot está trabajando; espera a que termine o detenlo primero",
+  "The new session did not start; the Bot stays in its current one": "La nueva sesión no se inició; el Bot sigue en la actual",
   "No Bot is left in this group chat": "No queda ningún Bot en este chat grupal",
   "That group chat has been deleted": "Ese chat grupal ha sido eliminado",
   "Hand the admin role to another member instead of leaving the group without one": "Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador",
@@ -7907,7 +7939,12 @@ var FR = {
   "Scan this code with the DS Bot app on your phone.": "Scannez ce code avec l’app DS Bot sur votre téléphone.",
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",
+  "Open in a browser": "Ouvrir dans un navigateur",
+  "Web browser": "Navigateur web",
+  "Copy browser link": "Copier le lien du navigateur",
+  "Clipboard is not available": "Le presse-papiers n’est pas disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Le serveur transmet les messages chiffrés. L’accès par navigateur fait aussi confiance à la page qu’il fournit.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Le navigateur exécute la page envoyée par le serveur. Utilisez uniquement un serveur de confiance.",
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
   "The Server address must start with ws:// or wss://": "L’adresse du serveur doit commencer par ws:// ou wss://",
@@ -8677,6 +8714,9 @@ var FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
+  "Started": "Démarrée",
+  "Started a new session for {name} in this group": "Nouvelle session démarrée pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
@@ -9308,6 +9348,8 @@ var FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "Pause task": "Mettre la tâche en pause",
+  "Resume task": "Reprendre la tâche",
   "Once": "Une fois",
   "Every week": "Toutes les semaines",
   "Repeat": "Répéter",
@@ -9513,6 +9555,10 @@ var FR = {
   "A group chat needs at least two Bots": "Une discussion de groupe nécessite au moins deux Bots",
   "The admin must be a member of the group": "L’admin doit être membre du groupe",
   "Unknown group chat": "Discussion de groupe introuvable",
+  "Not a member of that group": "Ce Bot n'est pas membre de ce groupe",
+  "This Bot has no session in this group yet": "Ce Bot n'a pas encore de session dans ce groupe",
+  "The Bot is working; wait for it to finish or stop it first": "Le Bot travaille ; attendez qu'il termine ou arrêtez-le d'abord",
+  "The new session did not start; the Bot stays in its current one": "La nouvelle session n'a pas démarré ; le Bot reste dans sa session actuelle",
   "No Bot is left in this group chat": "Il ne reste plus aucun Bot dans cette discussion de groupe",
   "That group chat has been deleted": "Cette discussion de groupe a été supprimée",
   "Hand the admin role to another member instead of leaving the group without one": "Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin",
@@ -10464,7 +10510,12 @@ var DE = {
   "Scan this code with the DS Bot app on your phone.": "Scanne diesen Code mit der DS Bot-App auf deinem Telefon.",
   "Server": "Server",
   "Show a QR code": "QR-Code anzeigen",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
+  "Open in a browser": "Im Browser öffnen",
+  "Web browser": "Webbrowser",
+  "Copy browser link": "Browser-Link kopieren",
+  "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Der Browser führt die vom Server gesendete Seite aus. Verwende nur einen Server, dem du vertraust.",
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
   "The Server address must start with ws:// or wss://": "Die Serveradresse muss mit ws:// oder wss:// beginnen",
@@ -11258,6 +11309,9 @@ var DE = {
   "Add DSH Agent": "DSH Agent hinzufügen",
   "Remove DSH Agent": "DSH Agent entfernen",
   "New session": "Neue Sitzung",
+  "Start a new session for {name} in this group": "Eine neue Sitzung für {name} in dieser Gruppe starten",
+  Started: "Gestartet",
+  "Started a new session for {name} in this group": "Neue Sitzung für {name} in dieser Gruppe gestartet",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
@@ -11907,6 +11961,8 @@ var DE = {
   "in {name}": "in {name}",
   "Click again to delete": "Zum Löschen erneut klicken",
   "Delete task": "Aufgabe löschen",
+  "Pause task": "Aufgabe pausieren",
+  "Resume task": "Aufgabe fortsetzen",
   Once: "Einmalig",
   "Every week": "Jede Woche",
   Repeat: "Wiederholen",
@@ -12113,6 +12169,10 @@ var DE = {
   "A group chat needs at least two Bots": "Ein Gruppenchat benötigt mindestens zwei Bots",
   "The admin must be a member of the group": "Der Admin muss Mitglied der Gruppe sein",
   "Unknown group chat": "Gruppenchat nicht gefunden",
+  "Not a member of that group": "Kein Mitglied dieser Gruppe",
+  "This Bot has no session in this group yet": "Dieser Bot hat noch keine Sitzung in dieser Gruppe",
+  "The Bot is working; wait for it to finish or stop it first": "Der Bot arbeitet noch; warte, bis er fertig ist, oder stoppe ihn zuerst",
+  "The new session did not start; the Bot stays in its current one": "Die neue Sitzung wurde nicht gestartet; der Bot bleibt in seiner aktuellen Sitzung",
   "No Bot is left in this group chat": "In diesem Gruppenchat ist kein Bot mehr übrig",
   "That group chat has been deleted": "Dieser Gruppenchat wurde gelöscht",
   "Hand the admin role to another member instead of leaving the group without one": "Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen",
@@ -13837,11 +13897,16 @@ var ZH = {
   "Phone app": "手机 App",
   "Android beta": "Android 测试版",
   Server: "服务器",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "服务器转发加密消息。浏览器访问还需要信任服务器提供的网页。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "浏览器运行服务器发来的网页。请只使用你信任的服务器。",
   "Pair a phone": "配对手机",
   "Scan this code with the DS Bot app on your phone.": "用手机上的 DS Bot App 扫这个码。",
   "The code works once. It stops working in {count} min.": "这个码只能用一次，{count} 分钟后失效。",
   "Show a QR code": "显示二维码",
+  "Open in a browser": "在浏览器中打开",
+  "Web browser": "网页浏览器",
+  "Copy browser link": "复制浏览器链接",
+  "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
   "Turn on phone access first": "请先打开手机访问",
   Phones: "手机",
@@ -13872,6 +13937,9 @@ var ZH = {
   "Add DSH Agent": "添加 DSH Agent",
   "Remove DSH Agent": "移除 DSH Agent",
   "New session": "新会话",
+  "Start a new session for {name} in this group": "为 {name} 在本群开始新会话",
+  Started: "已开始",
+  "Started a new session for {name} in this group": "已为 {name} 在本群开始新会话",
   Archive: "归档",
   "Session actions": "会话操作",
   Plugins: "插件",
@@ -14529,6 +14597,8 @@ var ZH = {
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
+  "Pause task": "暂停任务",
+  "Resume task": "恢复任务",
   Once: "一次",
   "Every week": "每周",
   Repeat: "重复",
@@ -14844,6 +14914,10 @@ var HOST_ZH = {
   "A group chat needs at least two Bots": "群聊至少要两个 Bot",
   "The admin must be a member of the group": "管理员必须是群成员",
   "Unknown group chat": "找不到这个群聊",
+  "Not a member of that group": "这个 Bot 不在这个群聊里",
+  "This Bot has no session in this group yet": "这个 Bot 在本群还没有会话",
+  "The Bot is working; wait for it to finish or stop it first": "这个 Bot 正在工作中，请等它完成或先停止它",
+  "The new session did not start; the Bot stays in its current one": "新会话没有开始，这个 Bot 还在当前会话里",
   "No Bot is left in this group chat": "这个群聊里已经没有 Bot 了",
   "That group chat has been deleted": "这个群聊已经删除了",
   "Hand the admin role to another member instead of leaving the group without one": "请把管理员交给其他成员，不要让群聊没有管理员",
@@ -15098,31 +15172,43 @@ function installLocale(locale) {
   for (const [langId, dict] of Object.entries(DICTIONARY)) {
     pushOff(locale.register(NAMESPACE, langId, dict));
   }
+  const supplements = /* @__PURE__ */ new Map();
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`;
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key);
+    if (!entry) return;
+    supplements.delete(key);
+    entry.off();
+  };
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId);
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return;
+    try {
+      const off = locale.register(ns, langId, make());
+      if (typeof off === "function") supplements.set(key, { ns, source, off });
+    } catch {
+    }
+  };
   let syncing = false;
   let disposed = false;
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return;
     syncing = true;
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns);
+        if (![...map?.values() ?? []].includes(entry.source)) dropSupplement(key);
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns);
-          if (!map || map.has(langId.toLowerCase())) continue;
-          try {
-            pushOff(locale.register(ns, langId, dict));
-          } catch {
-          }
+          const source = map?.get("en") ?? map?.get("zh");
+          if (source) supplement(ns, langId, source, () => dict);
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has("zh-tw")) continue;
         const zhDict = map.get("zh");
-        if (zhDict) {
-          try {
-            pushOff(locale.register(ns, "zh-TW", convertDict(zhDict)));
-          } catch {
-          }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, "zh-TW", zhDict, () => convertDict(zhDict));
       }
     } finally {
       syncing = false;
@@ -15132,6 +15218,9 @@ function installLocale(locale) {
   if (typeof locale.subscribe === "function") {
     pushOff(locale.subscribe(syncDshNamespaces));
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key);
+  });
   const origResolveText = typeof locale.resolveText === "function" ? locale.resolveText.bind(locale) : null;
   if (origResolveText) {
     locale.resolveText = (text) => {
@@ -15498,47 +15587,47 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   let pastes = 0;
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
-    ui2.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
+    ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
   };
   const openSettings = (page = "general", id = null) => {
-    ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+    ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
     openPalette: (query = "") => {
-      ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
-      ui2.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
+      ui.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
     },
     // Searching one group's own history, from its header.
     openGroupSearch: (roomId) => {
-      if (roomId) ui2.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
+      if (roomId) ui.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
     },
     closeGroupSearch: (token) => {
-      ui2.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
+      ui.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
     },
     openExchange: (a, b) => {
-      if (a && b) ui2.set((state) => ({ ...state, exchange: [a, b] }));
+      if (a && b) ui.set((state) => ({ ...state, exchange: [a, b] }));
     },
     openVoice: (id) => {
-      if (id) ui2.set((state) => ({ ...state, voice: id, menu: null }));
+      if (id) ui.set((state) => ({ ...state, voice: id, menu: null }));
     },
     closeVoice: () => {
-      ui2.set((state) => state.voice ? { ...state, voice: null } : state);
+      ui.set((state) => state.voice ? { ...state, voice: null } : state);
     },
     toggleDetails: (id, force) => {
-      ui2.set((state) => {
+      ui.set((state) => {
         const details = force || state.details !== id || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
@@ -15548,7 +15637,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // chat, an outside Session) settles on the details view. So does one that
     // does not own the open side chat.
     followPanel: (id) => {
-      ui2.set((state) => {
+      ui.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view;
@@ -15556,30 +15645,30 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       });
     },
     showDetails: (id, tab = null) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
     },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
     },
     openSettings,
     // DS Bot's own Models page: the providers DSH serves, their keys and models.
     openModels: () => openSettings("models"),
     closeSettings: () => {
-      ui2.set((state) => state.settings ? { ...state, settings: null } : state);
+      ui.set((state) => state.settings ? { ...state, settings: null } : state);
     },
     openMemory: (id) => {
-      ui2.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
+      ui.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
     },
     closeMemory: () => {
-      ui2.set((state) => state.memory ? { ...state, memory: null } : state);
+      ui.set((state) => state.memory ? { ...state, memory: null } : state);
     },
     openConnectors: () => {
-      ui2.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+      ui.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
     },
     setPanelView: (view) => {
       if (view !== "details" && view !== "browser" && view !== "side") return;
-      ui2.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
+      ui.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
     },
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
@@ -15595,22 +15684,22 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     askSide: (sessionId, chatId, text) => after(call2("side-ask", { sessionId, chatId, text })),
     cancelSide: (chatId, entryId) => after(call2("side-cancel", { chatId, entryId })),
     closeSideChat: (chatId) => {
-      ui2.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
+      ui.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
       return after(call2("side-close", { chatId }));
     },
     closePanel: () => {
-      ui2.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
+      ui.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
     },
-    quote: (sessionId, text) => ui2.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    quote: (sessionId, text) => ui.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
       pastes += 1;
       const block = { id: `paste-${pastes}`, text, name, attachmentId: null };
-      ui2.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
+      ui.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
       return block.id;
     },
     // The shell attachment whose label is that waiting card's own file name.
-    linkPastes: (sessionId, links) => ui2.set((state) => {
+    linkPastes: (sessionId, links) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const byBlock = /* @__PURE__ */ new Map();
       for (const link of links) byBlock.set(link.blockId, link.attachmentId);
@@ -15623,7 +15712,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     }),
     // Files put back into a draft get new attachment ids: the cards of `from` wait for
     // their files again in `to`, and bind by name as on a paste.
-    reopenPastes: (from, to) => ui2.set((state) => {
+    reopenPastes: (from, to) => ui.set((state) => {
       const blocks = state.paste?.[from] ?? [];
       if (blocks.length === 0) return state;
       const waiting = blocks.map((block) => ({ ...block, attachmentId: null }));
@@ -15631,27 +15720,27 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       const { [from]: _left, ...rest } = state.paste;
       return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
     }),
-    removePaste: (sessionId, blockIds) => ui2.set((state) => {
+    removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const kept = blocks.filter((block) => !blockIds.includes(block.id));
       return kept.length === blocks.length ? state : pasteState(state, sessionId, kept);
     }),
-    clearQuote: (token) => ui2.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
+    clearQuote: (token) => ui.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
     saveSection: (payload) => after(call2("section-save", payload)),
     reorderSections: (ids) => after(call2("section-order", { ids })),
     deleteSection: (id) => after(call2("section-delete", { id })),
-    beginSectionRename: (id) => ui2.set((state) => ({ ...state, renameSection: id })),
-    endSectionRename: () => ui2.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
+    beginSectionRename: (id) => ui.set((state) => ({ ...state, renameSection: id })),
+    endSectionRename: () => ui.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
     deleteRoom: (id) => after(call2("delete-room", { id })),
     openMenu: (menu) => {
-      ui2.set((state) => ({ ...state, menu, palette: null }));
+      ui.set((state) => ({ ...state, menu, palette: null }));
     },
     closeMenu: () => {
-      ui2.set((state) => state.menu ? { ...state, menu: null } : state);
+      ui.set((state) => state.menu ? { ...state, menu: null } : state);
     },
     closeOverlay: () => {
-      ui2.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
+      ui.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
     },
     createBot: (payload) => after(call2("create-bot", payload)),
     // The avatar library: photos the user imported once, kept by the host.
@@ -15713,17 +15802,17 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: (botId) => after(call2("bot-new-part", { botId })),
+    newPart: (botId, roomId) => after(call2("bot-new-part", roomId === void 0 ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
-      ui2.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
+      ui.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
       return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
-        ui2.set((state) => state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state);
+        ui.set((state) => state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state);
         throw error;
       });
     },
-    clearReadOnlyPart: () => ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }),
+    clearReadOnlyPart: () => ui.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }),
     stopChat: (botId) => {
-      ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null });
+      ui.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null });
       return after(call2("stop-chat", { botId }));
     },
     stopRoomWork: (roomId) => after(call2("stop-room-work", { roomId })),
@@ -15736,18 +15825,18 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // The goal / approval island: `goalCompose` holds the room whose draft form is
     // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
     // whose approval panel is open. Goal and approval panels stay mutually exclusive.
-    composeGoal: (roomId) => ui2.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
-    closeGoalCompose: () => ui2.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
-    toggleGoal: (roomId) => ui2.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
-    closeGoal: () => ui2.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
-    toggleApproval: (roomId) => ui2.set((state) => ({
+    composeGoal: (roomId) => ui.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
+    closeGoalCompose: () => ui.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
+    toggleGoal: (roomId) => ui.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
+    closeGoal: () => ui.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
+    toggleApproval: (roomId) => ui.set((state) => ({
       ...state,
       approvalOpen: state.approvalOpen === roomId ? null : roomId,
       goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null
     })),
-    openApproval: (roomId) => ui2.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
-    closeApproval: () => ui2.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
+    openApproval: (roomId) => ui.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
     // Values go out in these requests and never come back in a response.
     secretSet: (payload) => after(call2("secret-set", payload)),
     secretAllow: (requestId) => after(call2("secret-allow", { requestId })),
@@ -15801,6 +15890,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     schedules: () => call2("schedules"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
@@ -15829,12 +15919,12 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = "action") => {
       noteClientError(where, error);
-      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
+      ui.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
     // A message with no failure behind it (a review that expired, a window without the
     // column): a toast, but not in the client-error log.
-    notice: (text) => ui2.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
-    dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    notice: (text) => ui.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
+    dismissToast: (token) => ui.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
@@ -17178,7 +17268,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-dot-wait{background:var(--bt-star)}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
-.bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;min-width:0;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-pill:hover{background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-glass-bg))}
 .bt-pill:active{transform:scale(.965)}
 .bt-pill-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
@@ -17694,6 +17784,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
@@ -18214,6 +18305,9 @@ header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head
@@ -19022,8 +19116,14 @@ var AlertIcon = lineIcon(["M10 3.4 2.8 16.3h14.4z", "M10 8.3v3.4", "M10 14.2h.01
 var StarLineIcon = lineIcon(["M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z"]);
 var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z", "M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13"]);
 var HideIcon = lineIcon(["M3 3l14 14", "M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4", "M8.5 8.5a2 2 0 0 0 3 3"]);
+var PauseIcon = lineIcon(["M7.5 5v10", "M12.5 5v10"]);
+var ResumeIcon = lineIcon(["M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z"]);
 var TrashIcon = lineIcon(["M3.5 5.5h13", "M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10", "M8.5 9v4.5M11.5 9v4.5"]);
 var DuplicateIcon = lineIcon(["M7 7h8.5v9.5H7z", "M4.5 13V3.5H13", "M11.25 9.5v4.5M9 11.75h4.5"]);
+var PersonIcon = lineIcon(["M10 3.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6z", "M4 16.5c.7-3 3.1-4.8 6-4.8s5.3 1.8 6 4.8"]);
+var ArchiveIcon = lineIcon(["M3.5 4.5h13v3h-13z", "M4.5 7.5v8h11v-8", "M8.5 10.5h3"]);
+var StackIcon = lineIcon(["M10 3.5l6.5 3.25L10 10 3.5 6.75z", "M3.5 10L10 13.25 16.5 10", "M3.5 13.25L10 16.5l6.5-3.25"]);
+var SpinnerIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1-6.5 6.5"]);
 var SlidersIcon = lineIcon(["M4 6.5h5M12.5 6.5H16M4 13.5h4M11.5 13.5H16", "M10.5 4.5v4M9.5 11.5v4"]);
 var MemoryIcon = lineIcon(["M5.5 3.5h8A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-8z", "M5.5 3.5v13", "M8.5 7.5h3.5M8.5 10.5h2.5", "M12 3.5v4l1-.8 1 .8"]);
 var TerminalIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-9A1.5 1.5 0 0 1 4.5 4z", "M6.5 8l2.5 2.5L6.5 13", "M11 13h3.5"]);
@@ -22123,9 +22223,9 @@ var TableIcon = () => (0, import_react14.createElement)(
   (0, import_react14.createElement)("path", { d: "M3 8.5h14M8 8.5V16" })
 );
 function ChartTable({ data }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const { categories, series, unit } = data;
-  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui2.t("Value") : `${ui2.t("Series")} ${index + 1}`));
+  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui.t("Value") : `${ui.t("Series")} ${index + 1}`));
   return (0, import_react14.createElement)(
     "div",
     { className: "dv-widget-table" },
@@ -22143,7 +22243,7 @@ function ChartTable({ data }) {
   );
 }
 function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const data = chartData(node, lookup);
   const { kind, categories, series, unit } = data;
   const box = (0, import_react14.useRef)(null);
@@ -22162,7 +22262,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     if (hidden.includes(index)) setHidden(hidden.filter((item) => item !== index));
     else if (shown.filter(Boolean).length > 1) setHidden([...hidden, index]);
   };
-  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui2.t("Chart");
+  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui.t("Chart");
   const isDonut = kind === "donut";
   const legendBeside = isDonut && width >= 360;
   const drawn = isDonut ? donut(data, legendBeside ? width - 200 : width, active, setActive) : kind === "hbar" ? rows(data, width, active, shown) : columns(data, width, active, shown);
@@ -22181,7 +22281,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
   const share = (at) => unit === "%" ? withUnit(drawn.values[at], unit) : `${withUnit(drawn.values[at], unit)} · ${drawn.total > 0 ? Math.round(drawn.values[at] / drawn.total * 100) : 0}%`;
   const tipRows = active === null || isDonut ? [] : series.filter((_, index) => shown[index]).map((item) => ({ color: item.color, name: item.name, value: withUnit(item.values[active], unit) }));
   const copy2 = () => {
-    void navigator.clipboard?.writeText(chartCsv(data, ui2.t)).then(() => {
+    void navigator.clipboard?.writeText(chartCsv(data, ui.t)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
@@ -22225,7 +22325,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     className: "dv-chart-key",
     "aria-pressed": shown[index],
     onClick: () => toggle(index)
-  }, (0, import_react14.createElement)("i", { style: { background: item.color } }), item.name || `${ui2.t("Series")} ${index + 1}`))) : null;
+  }, (0, import_react14.createElement)("i", { style: { background: item.color } }), item.name || `${ui.t("Series")} ${index + 1}`))) : null;
   const plot = (0, import_react14.createElement)(
     "div",
     { className: "dv-chart-plot", style: isDonut ? { width: svgWidth } : void 0 },
@@ -22267,7 +22367,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     body,
     // The SVG stays mounted under the table, so the image can still be saved from it.
     asTable ? (0, import_react14.createElement)("div", { hidden: true }, plot) : null,
-    copied ? (0, import_react14.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui2.t("Copied")) : null,
+    copied ? (0, import_react14.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui.t("Copied")) : null,
     typeof node.caption === "string" && node.caption !== "" ? (0, import_react14.createElement)("figcaption", { className: "dv-view-caption" }, node.caption) : null
   );
 }
@@ -22353,7 +22453,7 @@ function frameDocument(html, vars = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_POLICY}"><style>:root{${root}}html,body{margin:0;padding:0;background:transparent;color:var(--view-ink,var(--bt-ink));font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}*{box-sizing:border-box}</style><script>${report}<\/script></head><body>${html}</body></html>`;
 }
 function HtmlFrame({ node }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const frame2 = (0, import_react15.useRef)(null);
   const loads = (0, import_react15.useRef)(0);
   const [height, setHeight] = (0, import_react15.useState)(Number.isFinite(node.height) ? node.height : 120);
@@ -22374,7 +22474,7 @@ function HtmlFrame({ node }) {
       observer?.disconnect();
     };
   }, []);
-  if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui2.t("This view tried to open a page and was stopped."));
+  if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui.t("This view tried to open a page and was stopped."));
   return (0, import_react15.createElement)("iframe", {
     ref: frame2,
     className: "dv-view-frame",
@@ -22396,7 +22496,7 @@ var HTML_CSS = `
 
 // node_modules/deep-view/src/react/card.js
 var import_react16 = require("react");
-var mdLabels2 = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
+var mdLabels2 = (ui) => ({ code: { copyLabel: ui.t("Copy"), copiedLabel: ui.t("Copied") }, footnotes: ui.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
 var CALLOUT_TONES2 = ["info", "good", "warn", "bad"];
 var optionsOf2 = (node) => (Array.isArray(node?.options) ? node.options : []).map((option) => typeof option === "string" ? { label: option } : option).filter((option) => option !== null && typeof option === "object" && option.label !== void 0);
@@ -22416,7 +22516,7 @@ var hasControls = (node) => {
 };
 var answerValues = (answer, node) => answer?.action === node.id ? answer.values : void 0;
 function OptionsInput({ node, onSubmit, keys, busy = false }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const [picked, setPicked] = (0, import_react16.useState)([]);
   const options = optionsOf2(node);
   const multi = node.multi === true;
@@ -22456,23 +22556,23 @@ function OptionsInput({ node, onSubmit, keys, busy = false }) {
           (0, import_react16.createElement)("span", { className: "dv-q-label" }, option.label),
           option.description ? (0, import_react16.createElement)("span", { className: "dv-q-desc" }, option.description) : null
         ),
-        selected ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
+        selected ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
       );
     })),
     multi ? (0, import_react16.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui2.t("Submit"))
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui.t("Submit"))
     ) : null
   );
 }
 function SettledOptions({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const selected = answerValues(answer, node)?.selected;
   const chosen = Array.isArray(selected) ? selected : [];
   return (0, import_react16.createElement)(
     "div",
-    { className: "dv-q-list", role: "group", "aria-label": ui2.t("Your answer") },
+    { className: "dv-q-list", role: "group", "aria-label": ui.t("Your answer") },
     optionsOf2(node).map((option) => (0, import_react16.createElement)(
       "div",
       { key: option.label, className: "dv-q-opt" },
@@ -22482,36 +22582,36 @@ function SettledOptions({ node, answer }) {
         (0, import_react16.createElement)("span", { className: "dv-q-label" }, option.label),
         option.description ? (0, import_react16.createElement)("span", { className: "dv-q-desc" }, option.description) : null
       ),
-      chosen.includes(option.label) ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
+      chosen.includes(option.label) ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
     ))
   );
 }
 function ConfirmInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-q-foot" },
     footStart ? (0, import_react16.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui2.t("Cancel")),
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui2.t("Confirm"))
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui.t("Cancel")),
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui.t("Confirm"))
   );
 }
 function SettledConfirm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const confirmed = answerValues(answer, node)?.confirmed;
   if (confirmed !== true && confirmed !== false) {
     return (0, import_react16.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui2.t("Cancel")),
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui2.t("Confirm"))
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui.t("Cancel")),
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui.t("Confirm"))
     );
   }
-  const label = confirmed ? node.confirmLabel ?? ui2.t("Confirm") : node.cancelLabel ?? ui2.t("Cancel");
+  const label = confirmed ? node.confirmLabel ?? ui.t("Confirm") : node.cancelLabel ?? ui.t("Cancel");
   return (0, import_react16.createElement)("span", { className: "dv-q-badge" }, label);
 }
 function FormInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const fields = fieldsOf(node);
   const [draft, setDraft] = (0, import_react16.useState)(() => Object.fromEntries(fields.map((field) => [field.id, field.value ?? ""])));
   const submit = () => {
@@ -22593,17 +22693,17 @@ function FormInput({ node, onSubmit, busy = false, footStart = null }) {
       { className: "dv-q-foot" },
       footStart ? (0, import_react16.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
       node.cancelLabel ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: cancel }, node.cancelLabel) : null,
-      (0, import_react16.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit"))
+      (0, import_react16.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui.t("Submit"))
     )
   );
 }
 function SettledForm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const ans = answerValues(answer, node);
   const fields = ans?.fields;
   const values = fields !== null && typeof fields === "object" ? fields : {};
   const canceled = ans?.canceled === true;
-  const badge = canceled ? node.cancelLabel ?? ui2.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui2.t("Submit") : null;
+  const badge = canceled ? node.cancelLabel ?? ui.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui.t("Submit") : null;
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-widget-form" },
@@ -22635,12 +22735,12 @@ function SettledForm({ node, answer }) {
   );
 }
 function SubmitInput({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   if (ctx.settled) return null;
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-q-foot" },
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui2.t("Send"))
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui.t("Send"))
   );
 }
 function WidgetTable({ node, lookup }) {
@@ -22666,7 +22766,7 @@ function WidgetTable({ node, lookup }) {
   );
 }
 function WidgetProgress({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   let percent3;
   if (node.percent !== void 0) percent3 = Number(resolve(node.percent, lookup, 0));
   else {
@@ -22686,7 +22786,7 @@ function WidgetProgress({ node, lookup }) {
       "aria-valuenow": Math.round(percent3),
       "aria-valuemin": 0,
       "aria-valuemax": 100,
-      "aria-label": node.label ?? ui2.t("Progress"),
+      "aria-label": node.label ?? ui.t("Progress"),
       "aria-valuetext": right
     }, (0, import_react16.createElement)("div", { className: "dv-widget-progress-fill", style: { width: `${percent3}%` } }))
   );
@@ -22703,13 +22803,13 @@ function WidgetMetric({ node, lookup }) {
   );
 }
 function WidgetCallout({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const tone = resolve(node.tone, lookup);
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-view-callout", "data-tone": CALLOUT_TONES2.includes(tone) ? tone : "info" },
     (0, import_react16.createElement)("span", { className: "dv-view-callout-icon", "aria-hidden": true }, (0, import_react16.createElement)(InfoIcon2)),
-    (0, import_react16.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react16.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui2), variant: "compact" }))
+    (0, import_react16.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react16.createElement)(ui.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui), variant: "compact" }))
   );
 }
 var LinkIcon = () => (0, import_react16.createElement)(
@@ -22720,11 +22820,11 @@ var LinkIcon = () => (0, import_react16.createElement)(
   (0, import_react16.createElement)("path", { d: "M13 10.5l1.5-1.5A2.5 2.5 0 0 0 11 5.5L9.5 7" })
 );
 function WidgetSources({ node }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const items = (Array.isArray(node.items) ? node.items : []).filter((item) => typeof item?.url === "string" && /^https?:\/\//i.test(item.url));
   return (0, import_react16.createElement)(
     "div",
-    { className: "dv-view-sources", role: "list", "aria-label": ui2.t("Sources") },
+    { className: "dv-view-sources", role: "list", "aria-label": ui.t("Sources") },
     items.map((item, index) => (0, import_react16.createElement)("a", { key: index, role: "listitem", className: "dv-view-source", href: item.url, target: "_blank", rel: "noopener noreferrer", title: item.url }, (0, import_react16.createElement)(LinkIcon), item.label))
   );
 }
@@ -22840,7 +22940,7 @@ function ToggleInput({ node, ctx }) {
   );
 }
 function WidgetNode({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   if (node === null || typeof node !== "object") return null;
   const { lookup } = ctx;
   switch (node.type) {
@@ -22854,7 +22954,7 @@ function WidgetNode({ node, ctx }) {
       );
     }
     case "text": {
-      const text = (0, import_react16.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui2), variant: "compact" });
+      const text = (0, import_react16.createElement)(ui.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui), variant: "compact" });
       return node.tone === "muted" ? (0, import_react16.createElement)("div", { className: "dv-view-muted" }, text) : text;
     }
     case "metric":
@@ -22934,7 +23034,7 @@ function useChartHandles() {
   return { charts: [...charts.current.values()], ...fns.current };
 }
 function ViewMenuList({ charts, pick: pick2 }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-menu dv-view-menu", role: "menu" },
@@ -22945,16 +23045,16 @@ function ViewMenuList({ charts, pick: pick2 }) {
         import_react16.Fragment,
         null,
         index > 0 ? (0, import_react16.createElement)("div", { className: "dv-menu-sep", role: "separator" }) : null,
-        (0, import_react16.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui2.t("Chart {n}", { n: index + 1 }))
+        (0, import_react16.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui.t("Chart {n}", { n: index + 1 }))
       ) : null,
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react16.createElement)(TableIcon), chart.asTable ? ui2.t("View as chart") : ui2.t("View as table")),
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react16.createElement)(CopyIcon2), ui2.t("Copy data")),
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react16.createElement)(DownloadIcon2), ui2.t("Download image"))
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react16.createElement)(TableIcon), chart.asTable ? ui.t("View as chart") : ui.t("View as table")),
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react16.createElement)(CopyIcon2), ui.t("Copy data")),
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react16.createElement)(DownloadIcon2), ui.t("Download image"))
     ))
   );
 }
 function ViewMenu({ charts }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const [open, setOpen] = (0, import_react16.useState)(false);
   const root = (0, import_react16.useRef)(null);
   (0, import_react16.useEffect)(() => {
@@ -22979,12 +23079,12 @@ function ViewMenu({ charts }) {
   return (0, import_react16.createElement)(
     "div",
     { ref: root, className: "dv-view-tools", "data-open": open ? "" : void 0 },
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui2.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react16.createElement)(DotsIcon2)),
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react16.createElement)(DotsIcon2)),
     open ? (0, import_react16.createElement)(ViewMenuList, { charts, pick: pick2 }) : null
   );
 }
 function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const titleId = (0, import_react16.useId)();
   const { charts, registerChart, refreshCharts } = useChartHandles();
   const framed = raised || hasControls(view);
@@ -22995,7 +23095,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
     icon2 ? (0, import_react16.createElement)("span", { className: "dv-view-icon", "aria-hidden": true }, icon2) : null,
     title ? (0, import_react16.createElement)("p", { className: "dv-view-title", id: titleId }, title) : (0, import_react16.createElement)("span", { className: "dv-view-title" }),
     countType(view, "chart") > 0 ? (0, import_react16.createElement)(ViewMenu, { charts }) : null,
-    onDismiss ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui2.t("Dismiss view"), title: ui2.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react16.createElement)(CloseIcon2)) : null
+    onDismiss ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui.t("Dismiss view"), title: ui.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react16.createElement)(CloseIcon2)) : null
   ) : null;
   return (0, import_react16.createElement)(
     "div",
@@ -23003,7 +23103,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
       className,
       role: "group",
       "aria-labelledby": title ? titleId : void 0,
-      "aria-label": title ? void 0 : ui2.t("View"),
+      "aria-label": title ? void 0 : ui.t("View"),
       "aria-busy": busy || void 0
     },
     head,
@@ -25550,7 +25650,8 @@ var nextText = (task) => {
   if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
-function TaskRow2({ task, actions, onView, showBot, roster }) {
+var canResume = (task) => task.status === "paused" && !((task.kind === "at" || task.kind === "after") && Date.parse(task.scheduledAt) <= Date.now());
+function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
   const [expanded, setExpanded] = (0, import_react23.useState)(false);
   const [busy, setBusy] = (0, import_react23.useState)(false);
@@ -25567,6 +25668,19 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
     setBusy(true);
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false));
   };
+  const [failed, setFailed] = (0, import_react23.useState)("");
+  const toggle = () => {
+    setBusy(true);
+    setFailed("");
+    void actions.schedulePause(task.sessionId, task.id, task.status !== "active").then((next) => {
+      setBusy(false);
+      onView(next);
+    }, (failure) => {
+      setBusy(false);
+      setFailed(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  const pausable = canPause && (task.status === "active" || canResume(task));
   const room2 = task.roomId ? roster.roomsById[task.roomId] : void 0;
   return (0, import_react23.createElement)(
     "div",
@@ -25577,9 +25691,18 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
+      failed ? (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, failed) : null
     ),
     (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    pausable ? (0, import_react23.createElement)("button", {
+      type: "button",
+      className: "bt-mini bt-task-remove bt-task-pause",
+      disabled: busy,
+      "aria-label": task.status === "active" ? t("Pause task") : t("Resume task"),
+      title: task.status === "active" ? t("Pause task") : t("Resume task"),
+      onClick: toggle
+    }, task.status === "active" ? (0, import_react23.createElement)(PauseIcon) : (0, import_react23.createElement)(ResumeIcon)) : null,
     (0, import_react23.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -25753,7 +25876,7 @@ function SchedulesPage({ roster, actions, start }) {
       "section",
       { key: id, className: "bt-set-section" },
       index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name),
-      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })))
+      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })))
     ))
   ];
 }
@@ -25774,7 +25897,7 @@ function BotSchedules({ bot, roster, actions }) {
         (0, import_react23.createElement)("span", { className: "bt-set-copy" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
         (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
       ) : [
-        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })),
+        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react23.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react23.createElement)(PlusIcon), t("New task"))
       ]
     )
@@ -29161,8 +29284,7 @@ var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.starts
 
 // src/client/user-message.js
 var import_react33 = require("react");
-var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
-var projects = typeof ui.projectUserText === "function";
+var projects = typeof import_dsh_client_ui_primitives.projectUserText === "function";
 var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
 var USER_SOURCE_SLOT = "conversation.chat.user.before";
 function installUserBubble(slots, drawRows) {
@@ -29239,7 +29361,7 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
     (0, import_react33.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react33.createElement)(import_react33.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react33.createElement)(import_react33.Fragment, { key: index }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
@@ -29255,11 +29377,11 @@ function Attachments({ attachments, renderMessageImages }) {
       return renderMessageImages ? (0, import_react33.createElement)(import_react33.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
-    const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
+    const meta = [import_dsh_client_ui_primitives.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), import_dsh_client_ui_primitives.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react33.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui.FileTypeIcon ? (0, import_react33.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      import_dsh_client_ui_primitives.FileTypeIcon ? (0, import_react33.createElement)(import_dsh_client_ui_primitives.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
       (0, import_react33.createElement)("span", { className: "bt-ufile-text" }, (0, import_react33.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react33.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
@@ -29291,7 +29413,7 @@ function ProjectedContent({ data, text, shown, folded, control, roster, sessionI
       { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
       control ? (0, import_react33.createElement)("div", { className: "bt-fold-body" }, body) : body,
       control,
-      rest.map((block, index) => ui.JsonBlock ? (0, import_react33.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+      rest.map((block, index) => import_dsh_client_ui_primitives.JsonBlock ? (0, import_react33.createElement)(import_dsh_client_ui_primitives.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
     ) : null,
     referenceLabels.length > 0 ? (0, import_react33.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
   );
@@ -33258,27 +33380,35 @@ function titleOf2(range, bucket) {
   if (bucket.end && (new Date(bucket.start).getUTCDate() !== 1 || new Date(bucket.end).getUTCDate() !== 1)) return spanText(dayKey(bucket.start), dayKey(bucket.end - DAY_MS));
   return dates({ year: "numeric", month: "long" }).format(bucket.start);
 }
-function useTween(value) {
-  const [shown, setShown] = (0, import_react41.useState)(0);
-  const from = (0, import_react41.useRef)(0);
-  (0, import_react41.useEffect)(() => {
-    if (reducedMotion() || typeof requestAnimationFrame !== "function") {
+function useTween(value, rangeKey) {
+  const instant = reducedMotion() || typeof requestAnimationFrame !== "function";
+  const [shown, setShown] = (0, import_react41.useState)(() => instant ? value : 0);
+  const from = (0, import_react41.useRef)(instant ? value : 0);
+  const key = (0, import_react41.useRef)(rangeKey);
+  (0, import_react41.useLayoutEffect)(() => {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== "function" || from.current === value) {
+      key.current = rangeKey;
       from.current = value;
       setShown(value);
       return void 0;
     }
     const begin = from.current;
     const started = performance.now();
+    let active = true;
     let frame2;
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650);
+      if (!active) return;
+      const progress = Math.min(1, Math.max(0, (now - started) / 650));
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
       if (progress < 1) frame2 = requestAnimationFrame(step);
     };
     frame2 = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame2);
-  }, [value]);
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame2);
+    };
+  }, [value, rangeKey]);
   return shown;
 }
 var glyphBox = (size, icon2) => (0, import_react41.createElement)("span", { className: "bt-us-glyph", style: { width: size, height: size } }, (0, import_react41.createElement)(icon2));
@@ -33340,7 +33470,8 @@ ${names}`, { box: boxRef });
   );
 }
 function Stats({ range, total, previous }) {
-  const shown = useTween(total.total);
+  const rangeKey = `${range.id}:${range.from ?? ""}:${range.to ?? ""}`;
+  const shown = useTween(total.total, rangeKey);
   const change = previous > 0 ? Math.round((total.total - previous) / previous * 100) : null;
   const cell = (label, value) => (0, import_react41.createElement)("div", { className: "bt-us-stat" }, (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, label), (0, import_react41.createElement)("span", { className: "bt-us-stat-value" }, value));
   return (0, import_react41.createElement)(
@@ -33349,18 +33480,17 @@ function Stats({ range, total, previous }) {
     (0, import_react41.createElement)(
       "div",
       { className: "bt-us-stat bt-us-stat-main" },
-      (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
       (0, import_react41.createElement)(
-        "span",
-        { className: "bt-us-stat-value" },
-        compact(shown),
-        (0, import_react41.createElement)("small", null, t("tokens")),
+        "div",
+        { className: "bt-us-stat-head" },
+        (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
         change === null ? null : (0, import_react41.createElement)(
           "span",
           { className: "bt-us-delta", title: compareText(range) },
           `${change >= 0 ? "↑" : "↓"} ${Math.abs(change)}%`
         )
-      )
+      ),
+      (0, import_react41.createElement)("span", { className: "bt-us-stat-value" }, compact(shown), (0, import_react41.createElement)("small", null, t("tokens")))
     ),
     cell(t("Cache hit rate"), `${hitRate(total)}%`),
     cell(t("Output"), compact(total.output)),
@@ -33989,11 +34119,12 @@ var USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
@@ -36053,6 +36184,17 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
+// src/client/phone-browser.js
+function browserPairingUrl(server, browserUri) {
+  const url = new URL(server);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("The Server address must start with ws:// or wss://");
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = `${url.pathname.replace(/\/v1\/link\/?$/, "").replace(/\/+$/, "")}/web/`;
+  url.search = "";
+  url.hash = `pair=${encodeURIComponent(browserUri)}`;
+  return url.href;
+}
+
 // src/client/phone-page.js
 var import_react43 = require("react");
 var OFF = { server: "", on: false, status: "off", phones: [], pairing: null };
@@ -36090,11 +36232,16 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [server, setServer] = (0, import_react43.useState)(phone.server);
   const [busy, setBusy] = (0, import_react43.useState)(false);
   const [error, setError] = (0, import_react43.useState)(null);
+  const [copied, setCopied] = (0, import_react43.useState)(false);
+  const copyTimer = (0, import_react43.useRef)(null);
   const [, tick] = (0, import_react43.useState)(0);
   (0, import_react43.useEffect)(() => {
     setServer(phone.server);
   }, [phone.server]);
+  (0, import_react43.useEffect)(() => () => clearTimeout(copyTimer.current), []);
   (0, import_react43.useEffect)(() => {
+    setCopied(false);
+    clearTimeout(copyTimer.current);
     if (!phone.pairing) return void 0;
     const timer = setInterval(() => tick((count) => count + 1), 15e3);
     return () => clearInterval(timer);
@@ -36108,7 +36255,26 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     if (busy || server.trim() === phone.server) return;
     void run2(actions.phoneSet({ server }));
   };
+  const copyBrowserLink = (url) => {
+    const task = navigator.clipboard?.writeText(url);
+    if (task === void 0) {
+      setError(t("Clipboard is not available"));
+      return;
+    }
+    void run2(task.then(() => {
+      setCopied(true);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2e3);
+    }));
+  };
   const online = phone.on && phone.status === "online";
+  let browserUrl = null;
+  if (phone.pairing?.browserUri) {
+    try {
+      browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri);
+    } catch {
+    }
+  }
   return (0, import_react43.createElement)(
     "div",
     { className: "bt-phone" },
@@ -36120,7 +36286,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { label: t("Phone access"), hint: statusText3(phone), className: phone.error || phone.status === "offline" ? "bt-phone-warn" : "" },
         (0, import_react43.createElement)(Switch, { on: phone.on, label: t("Phone access"), disabled: busy, onChange: (on) => void run2(actions.phoneSet({ on })) })
       ),
-      (0, import_react43.createElement)(Row4, { label: t("Server"), hint: t("The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.") }),
+      (0, import_react43.createElement)(Row4, { label: t("Server"), hint: t("The Server forwards encrypted messages. Browser access also trusts the page it serves.") }),
       (0, import_react43.createElement)(
         "div",
         { className: "bt-set-row bt-phone-server" },
@@ -36149,6 +36315,13 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { className: "bt-phone-pair-copy" },
         (0, import_react43.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
         (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
+        browserUrl !== null ? (0, import_react43.createElement)(
+          "div",
+          { className: "bt-phone-pair-actions" },
+          (0, import_react43.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+          (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+        ) : null,
+        browserUrl !== null ? (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
         (0, import_react43.createElement)("div", null, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : (0, import_react43.createElement)(
@@ -36158,7 +36331,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     )),
     (0, import_react43.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react43.createElement)(Row4, { label: t("No phones yet") }) : phone.phones.map((entry) => (0, import_react43.createElement)(Row4, {
       key: entry.id,
-      label: entry.name || t("Phone"),
+      label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
       hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
     }, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")))))
   );
@@ -38420,7 +38593,6 @@ var BOT_MODELS_CSS = `
 // src/client/settings-preferences.js
 var import_react52 = require("react");
 var import_react_dom8 = require("react-dom");
-var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 var PREFERENCE_ITEMS = /* @__PURE__ */ new Set(["language", "transcript-view", "link-opening", "composer-enter", "performance-usage", "permission"]);
 var CHAT_CHOICES = {
   transcriptView: ["compact", "standard", "detailed", "verbose"],
@@ -38649,7 +38821,7 @@ function PermissionPreference({ preferences }) {
       " ",
       (0, import_react52.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
     ) : null,
-    (0, import_react52.createElement)(import_dsh_client_ui_primitives2.RiskConfirmation, {
+    (0, import_react52.createElement)(import_dsh_client_ui_primitives.RiskConfirmation, {
       open: confirmation !== null,
       title: tr("confirm.title"),
       description: tr("confirm.description"),
@@ -38708,13 +38880,12 @@ function settingsPreferences(ctx) {
 
 // src/client/settings.js
 var import_react53 = require("react");
-var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
 var SETTINGS_PAGES = [["general", "General"], ["models", "Models"], ["local-agents", "Local agents"], ["bots", "Bots"], ["bot-models", "Bot models"], ["groups", "Group chats"], ["connectors", "Connectors"], ["im", "IM"], ["phone", "Phone"], ["capabilities", "Capabilities"], ["deepseek-services", "DeepSeek services"], ["browser", "Browser"], ["computer", "Computer use"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["about", "About DS Bot"]];
 var LAST_PAGES = /* @__PURE__ */ new Set(["feedback", "about"]);
 var MERGED_SECTIONS = /* @__PURE__ */ new Set(["general", "models"]);
 var LOOK_ITEMS = ["appearance", "font-size"];
-var DSH_ICONS = { account: import_dsh_client_ui_primitives3.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives3.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives3.IconArchiveOutlineMedium };
+var DSH_ICONS = { account: import_dsh_client_ui_primitives.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives.IconArchiveOutlineMedium };
 var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !MERGED_SECTIONS.has(row.id));
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
 var dshItem = (dsh, id) => (0, import_react53.createElement)(
@@ -38722,7 +38893,7 @@ var dshItem = (dsh, id) => (0, import_react53.createElement)(
   { key: id, className: "bt-dsh-item", "data-item": id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react53.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
 );
-var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var MEMORY_SIZES = [
   { scope: "group", label: "Group memory size", size: 12e3 },
   { scope: "bot", label: "Bot memory size", size: 8e3 },
@@ -39192,7 +39363,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           onClick: () => actions.openSettings("dsh", row.id)
         }, (0, import_react53.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section?.id === row.id }, {
           only: row.id,
-          fallback: (0, import_react53.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives3.IconSettingsOutlineMedium, { size: 16 })
+          fallback: (0, import_react53.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives.IconSettingsOutlineMedium, { size: 16 })
         })), row.label)),
         (0, import_react53.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }),
         pages.filter(([key]) => LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text))
@@ -39545,7 +39716,6 @@ function createConnectionFeedback(onChange, {
 // src/client/settings-shell.js
 var import_react55 = require("react");
 var import_react_dom9 = require("react-dom");
-var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
 var SETTINGS_CHILDREN = {
   "settings.launcher": { kind: "single", scope: "root" },
   "settings.trigger": { kind: "single", scope: "root" },
@@ -39695,7 +39865,7 @@ function DesktopUpdatePill({ view, hidden, onOpen }) {
   const error = view.failed || view.presentation?.phase === "error";
   const busy = view.opening || BUSY_PHASES.has(view.presentation?.phase);
   return (0, import_react55.createElement)(
-    import_dsh_client_ui_primitives4.Tooltip,
+    import_dsh_client_ui_primitives.Tooltip,
     { label: copy2.detail, side: "top" },
     (0, import_react55.createElement)(
       "button",
@@ -39705,7 +39875,7 @@ function DesktopUpdatePill({ view, hidden, onOpen }) {
       (0, import_react55.createElement)(
         "span",
         { className: "bt-dsh-update-icon", "aria-hidden": true },
-        error ? (0, import_react55.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react55.createElement)(import_dsh_client_ui_primitives4.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react55.createElement)(import_dsh_client_ui_primitives4.IconDownloadOutlineRegular, { size: 14 })
+        error ? (0, import_react55.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react55.createElement)(import_dsh_client_ui_primitives.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react55.createElement)(import_dsh_client_ui_primitives.IconDownloadOutlineRegular, { size: 14 })
       ),
       (0, import_react55.createElement)("span", null, copy2.label)
     )
@@ -39716,7 +39886,7 @@ function DesktopUpdateBadge({ useDesktopUpdate, useConnectionState }) {
   const connection = useConnectionState((value) => value);
   if ((connection === "disconnected" || connection === "connecting") && view.presentation?.phase !== "installing" || !updateShown(view)) return null;
   const copy2 = updateCopy(view);
-  return (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react55.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
+  return (0, import_react55.createElement)(import_dsh_client_ui_primitives.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react55.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
 }
 function TriggerContent({ wide }) {
   return (0, import_react55.createElement)(import_react55.Fragment, null, (0, import_react55.createElement)(GearIcon), wide ? (0, import_react55.createElement)("span", { className: "bt-settings-trigger-label" }, t("Settings")) : null);
@@ -39791,7 +39961,7 @@ function SettingsShell(props) {
         ...shortcut?.keys?.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}
       }, {
         fallback: (0, import_react55.createElement)(
-          import_dsh_client_ui_primitives4.Tooltip,
+          import_dsh_client_ui_primitives.Tooltip,
           { disabled: open, label: t("Settings"), shortcutKeys: shortcut?.keys },
           (0, import_react55.createElement)("button", {
             type: "button",
@@ -39804,7 +39974,7 @@ function SettingsShell(props) {
           }, renderSlot("settings.trigger", { wide }))
         )
       }),
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.ConnectionIndicator, {
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.ConnectionIndicator, {
         state: wide && !installing ? indicator : void 0,
         disconnectedLabel: t("Connection lost. Refresh to retry"),
         connectingLabel: t("Reconnecting"),
@@ -39860,7 +40030,7 @@ function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
   const unknown = t("Unknown");
   const [serviceFrom, serviceTo] = transitionText(change.previous, change.host, unknown);
   const [pageFrom, pageTo] = transitionText(change.page, change.host, unknown);
-  return (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Modal, {
+  return (0, import_react55.createElement)(import_dsh_client_ui_primitives.Modal, {
     open: true,
     title: t("The service version changed"),
     description: t("This page paused live updates. Reload to load the new version."),
@@ -39870,8 +40040,8 @@ function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
     footer: (0, import_react55.createElement)(
       import_react55.Fragment,
       null,
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
     )
   }, (0, import_react55.createElement)(
     "div",
@@ -39972,7 +40142,7 @@ function seatHold(held) {
     }
   };
 }
-function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
+function installSettingsShell(ctx, { face, actions, ui, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
   const request = snapshotStore(void 0);
@@ -40062,7 +40232,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
         regions: ["page", "editable", "terminal"],
         modals: ["settings"],
         resolve: ({ modal }) => {
-          if (ui2.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
+          if (ui.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
           if (modal !== null && modal !== "settings") return { status: "blocked", reason: "modal" };
           return { status: "handled", run: () => actions.openSettings("general") };
         }
@@ -40163,6 +40333,7 @@ var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var NO_COMPUTER = { asks: {} };
 var FACES_MAX2 = 3;
 var DOCK_EXIT_MS = 160;
+var FRESH_DONE_MS = 1800;
 function roomApprovals(room2, work = NO_WORK, computer = NO_COMPUTER, roster = { byId: {} }) {
   if (!room2) return [];
   const byId = roster?.byId ?? {};
@@ -40359,6 +40530,70 @@ function StopMemberWork({ entry, bot, room: room2, actions }) {
   };
   return (0, import_react56.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
+function FreshMemberPart({ entry, bot, room: room2, actions }) {
+  const scope = `${room2?.id ?? ""}:${bot?.id ?? ""}`;
+  const [status, setStatus] = (0, import_react56.useState)(null);
+  const timer = (0, import_react56.useRef)(null);
+  const mounted = (0, import_react56.useRef)(true);
+  const scopeRef = (0, import_react56.useRef)(scope);
+  const inFlight = (0, import_react56.useRef)(null);
+  scopeRef.current = scope;
+  const clear = () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  (0, import_react56.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      inFlight.current = null;
+      clear();
+    };
+  }, []);
+  (0, import_react56.useEffect)(() => () => {
+    clear();
+    inFlight.current = null;
+  }, [scope]);
+  const phase = status?.scope === scope ? status.phase : "idle";
+  const hasSession = Array.isArray(room2?.sessionMembers) && room2.sessionMembers.includes(bot.id);
+  if (actions.newPart === void 0 || !hasSession || entry !== void 0 && entry.state !== "idle") return null;
+  const start = () => {
+    if (phase !== "idle" || inFlight.current === scope) return;
+    clear();
+    const current2 = scope;
+    inFlight.current = current2;
+    setStatus({ scope: current2, phase: "starting" });
+    void Promise.resolve(actions.newPart(bot.id, room2.id)).then(
+      () => {
+        if (!mounted.current || scopeRef.current !== current2) return;
+        setStatus({ scope: current2, phase: "done" });
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (inFlight.current === current2) inFlight.current = null;
+          if (!mounted.current) return;
+          setStatus((prev) => prev?.scope === current2 && prev.phase === "done" ? null : prev);
+        }, FRESH_DONE_MS);
+      },
+      (error) => {
+        if (inFlight.current === current2) inFlight.current = null;
+        if (mounted.current && scopeRef.current === current2) setStatus(null);
+        actions.reportError?.(error, "new-part");
+      }
+    );
+  };
+  const done = phase === "done";
+  return (0, import_react56.createElement)("button", {
+    type: "button",
+    className: "bt-member-stop bt-member-fresh",
+    "data-state": phase === "idle" ? void 0 : phase,
+    disabled: phase !== "idle",
+    title: done ? t("Started a new session for {name} in this group", { name: bot.name }) : t("Start a new session for {name} in this group", { name: bot.name }),
+    "aria-label": `${done ? t("Started") : t("New session")} · ${bot.name}`,
+    onClick: start
+  }, done ? [(0, import_react56.createElement)("span", { key: "ok", className: "bt-member-fresh-ok bt-pop-in" }, (0, import_react56.createElement)(CheckIcon)), t("Started")] : t("New session"));
+}
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const [stopping, setStopping] = (0, import_react56.useState)(false);
   if (!entries2.some((entry) => entry.here)) return null;
@@ -40457,7 +40692,7 @@ var MEMBER_CSS = `
 .bt-members-head>.bt-soft-sm{margin:-6px 0}
 .bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
-.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row{position:relative;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}
 .bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-member-open>.bt-mark{flex:none}
@@ -40469,10 +40704,18 @@ var MEMBER_CSS = `
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:var(--bt-warn)}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-stop{flex:none;height:28px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;touch-action:manipulation;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop:hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-main));color:var(--bt-ink)}
+.bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-fresh{position:absolute;right:8px;top:0;bottom:0;z-index:1;margin:auto 0;display:inline-flex;align-items:center;gap:4px;box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh[data-state]{opacity:1;pointer-events:auto}
+.bt-member-fresh[data-state=done]{color:var(--bt-ink)}
+.bt-member-fresh[data-state=done]:disabled{opacity:1}
+.bt-member-fresh-ok{display:inline-flex;color:var(--bt-green)}
+.bt-member-fresh-ok svg{width:13px;height:13px}
+@media (hover:none){.bt-member-fresh{position:static;margin:0;box-shadow:inset 0 0 0 .5px var(--bt-line-2);opacity:1;pointer-events:auto}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-head{display:flex;align-items:center;gap:6px;min-width:0}
@@ -40485,7 +40728,7 @@ var MEMBER_CSS = `
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop,.bt-member-fresh{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `;
 
 // src/client/header.js
@@ -40519,7 +40762,7 @@ function MemoryNotice({ shown }) {
     (0, import_react57.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react57.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react57.createElement)(MemoryIcon)), label)
   );
 }
-function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions }) {
+function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
   const roster = useRoster((value) => value);
   const selectedView = useStore?.((state) => state.view);
   const away = useConversationViews?.((views) => views.some((view2) => view2.id === selectedView && view2.id !== "chat")) === true && typeof selectView === "function";
@@ -40622,6 +40865,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     "div",
     { className: "bt-head" },
     showIsland ? (0, import_react57.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, roomWork, roster, actions, pill }) : pill,
+    !away && PendingLearning2 ? (0, import_react57.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
     (0, import_react57.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
     room2 !== void 0 && !away ? (0, import_react57.createElement)("button", {
       type: "button",
@@ -44522,7 +44766,8 @@ function MemberRow({ member, entry, room: room2, roster, actions }) {
           (0, import_react70.createElement)(MemberState, { entry, bot: member, room: room2, roster })
         )
       ),
-      (0, import_react70.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+      (0, import_react70.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions }),
+      (0, import_react70.createElement)(FreshMemberPart, { entry, bot: member, room: room2, actions })
     ),
     (0, import_react70.createElement)(MemberApprovals, { entry, bot: member, actions })
   );
@@ -46379,7 +46624,7 @@ function openingPastWait(pending, target) {
   if (!pending || pending.target !== target || pending.slow === true) return pending ?? null;
   return { ...pending, slow: true };
 }
-function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
+function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
   let timer = null;
   const stop = () => {
     if (timer === null) return;
@@ -46388,13 +46633,13 @@ function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout,
   };
   return {
     begin(pending) {
-      ui2.set((state) => ({ ...state, pendingOpen: pending }));
+      ui.set((state) => ({ ...state, pendingOpen: pending }));
       stop();
       const target = pending?.target;
       timer = schedule(() => {
         timer = null;
         let held = false;
-        ui2.set((state) => {
+        ui.set((state) => {
           const pendingOpen = openingPastWait(state.pendingOpen, target);
           held = pendingOpen !== state.pendingOpen;
           return held ? { ...state, pendingOpen } : state;
@@ -46404,7 +46649,7 @@ function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout,
     },
     end() {
       stop();
-      ui2.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+      ui.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
     }
   };
 }
@@ -46456,7 +46701,7 @@ var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
   const roster = useRoster((value) => value);
-  const ui2 = useUi((value) => value);
+  const ui = useUi((value) => value);
   useRegistry((value) => value);
   const frameSnap = useFrame ? useFrame((value) => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = useSidebarPref ? useSidebarPref((value) => value) : "open";
@@ -46467,13 +46712,13 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     previous.current = current2;
     if (current2) actions.followPanel?.(current2);
   }, [current2]);
-  const open = ui2.details ? { id: ui2.details, view: ui2.view ?? "details", renaming: ui2.renaming, tab: ui2.tab, side: ui2.side } : null;
+  const open = ui.details ? { id: ui.details, view: ui.view ?? "details", renaming: ui.renaming, tab: ui.tab, side: ui.side } : null;
   const layout = frameLayout({
     viewport: frameSnap.viewport,
     sidebarWidth: frameSnap.sidebarWidth,
     pref,
-    drawer: ui2.leftDrawer === true,
-    panel: open ? { view: open.view, yielded: ui2.panelYield === true } : null
+    drawer: ui.leftDrawer === true,
+    panel: open ? { view: open.view, yielded: ui.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
   const [kept, setKept] = (0, import_react73.useState)(shown);
@@ -46484,31 +46729,31 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     }
     const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS);
     return () => clearTimeout(timer);
-  }, [ui2.details, ui2.view, ui2.renaming, ui2.tab, shown === null]);
+  }, [ui.details, ui.view, ui.renaming, ui.tab, shown === null]);
   const pane = shown ?? kept;
   const shellHeld = useSettingsShellHeld ? useSettingsShellHeld((value) => value) : false;
-  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui2.settings, DIALOG_EXIT_MS2);
+  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui.settings, DIALOG_EXIT_MS2);
   const memoryOwner = (id) => {
     const bot = roster.byId[id];
     if (bot) return { id: bot.id, name: bot.name };
     const room2 = roster.roomsById[id];
     return room2 ? { id: room2.id, name: room2.name, group: true } : null;
   };
-  const [memory, memoryLeaving] = useLinger(ui2.memory && memoryOwner(ui2.memory) ? ui2.memory : null, DIALOG_EXIT_MS2);
+  const [memory, memoryLeaving] = useLinger(ui.memory && memoryOwner(ui.memory) ? ui.memory : null, DIALOG_EXIT_MS2);
   const owner = memory ? memoryOwner(memory) : null;
-  const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
-  const opening = openingModel({ pending: ui2.pendingOpen ?? null, current: current2, roster });
+  const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS3);
+  const opening = openingModel({ pending: ui.pendingOpen ?? null, current: current2, roster });
   return (0, import_react73.createElement)(
     import_react73.Fragment,
     null,
     (0, import_react73.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
     opening ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
     pane ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.groupSearch && roster.roomsById[ui2.groupSearch.roomId] ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(GroupSearch, { key: ui2.groupSearch.token, room: roster.roomsById[ui2.groupSearch.roomId], roster, token: ui2.groupSearch.token, actions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui.newChat ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui.palette ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body) : null,
+    ui.exchange ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui.voice ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
@@ -47528,6 +47773,12 @@ function fileLines(text) {
 function editLines(text) {
   return typeof text === "string" ? text.split(/\r?\n/) : [];
 }
+function agentEditRows(edit) {
+  return [
+    ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
+    ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
+  ];
+}
 var DIFF_CELLS = 25e4;
 function lineDiff(before, after) {
   const a = fileLines(before);
@@ -47591,6 +47842,67 @@ function proposalCards({ proposals = [], settled = [], failures = {} }) {
 // src/client/learning-card.js
 var import_react74 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
+function PendingLearning({ sessionId, useRoster, actions }) {
+  const roster = useRoster((value) => value);
+  const bot = roster.byId?.[sessionId];
+  const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : [];
+  const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
+  const [open, setOpen] = (0, import_react74.useState)(false);
+  const root = (0, import_react74.useRef)(null);
+  const [shown, leaving] = useLinger(open, 120);
+  (0, import_react74.useEffect)(() => {
+    setOpen(false);
+  }, [sessionId, proposals.length === 0]);
+  (0, import_react74.useEffect)(() => {
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
+  }, [settledIds.join("|")]);
+  (0, import_react74.useEffect)(() => {
+    if (!open) return;
+    const outside = (event) => {
+      if (!root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  if (proposals.length === 0) return null;
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) });
+    else failedAnswers.delete(proposal.id);
+  };
+  const onResolved = (id) => {
+    failedAnswers.delete(id);
+  };
+  return (0, import_react74.createElement)(
+    "div",
+    { className: "bt-learning-pending", ref: root },
+    (0, import_react74.createElement)(
+      "button",
+      { type: "button", className: "bt-learning-pending-toggle", "aria-expanded": open, onClick: () => setOpen(!open) },
+      (0, import_react74.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
+      (0, import_react74.createElement)("span", { className: "bt-learning-pending-label" }, t("Awaiting approval"), ` · ${proposals.length}`)
+    ),
+    shown ? (0, import_react74.createElement)(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => {
+      setOpen(false);
+      root.current?.querySelector("button")?.focus();
+    } }) : null
+  );
+}
+function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
+  useEscape(close);
+  return (0, import_react74.createElement)(
+    "div",
+    { className: "bt-learning-pending-panel", "data-leaving": leaving || void 0, role: "region", "aria-label": t("Awaiting approval") },
+    proposals.map((proposal) => (0, import_react74.createElement)(ProposalCard, {
+      key: proposal.id,
+      proposal,
+      initialError: failedAnswers.get(proposal.id)?.error,
+      onFailure,
+      onResolved,
+      actions
+    }))
+  );
+}
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
   const outcome = proposal.outcome;
   const [busy, setBusy] = (0, import_react74.useState)(false);
@@ -47615,10 +47927,7 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   const agents = proposal.kind === "agents";
   const rows2 = (0, import_react74.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   const change = agents ? [
-    (0, import_react74.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map((edit) => [
-      ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
-      ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
-    ]) }),
+    (0, import_react74.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
     ...proposal.edits.map((edit, index) => edit.why ? (0, import_react74.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
   ] : [
     (0, import_react74.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
@@ -47733,10 +48042,9 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
   (0, import_react74.useEffect)(() => {
-    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
-    if (gone.length === 0) return;
-    for (const id of gone) failedAnswers.delete(id);
-    setFailed((current2) => gone.reduce((next, id) => withoutEntry(next, id), current2));
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
+    setFailed((current2) => settledIds.reduce((next, id) => withoutEntry(next, id), current2));
   }, [settledIds.join("|")]);
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
@@ -47776,6 +48084,19 @@ function LearningDock(props) {
   return (0, import_react74.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
+.bt-learning-pending{pointer-events:auto;position:static;flex:0 1 auto;min-width:0;max-width:45%;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-learning-pending-toggle:hover{background:var(--bt-hover)}
+.bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
+.bt-learning-pending-panel{animation:bt-learning-in .12s ease}
+.bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-learning-pending-panel .bt-q-head{flex-wrap:wrap}
+.bt-learning-pending-panel .bt-q-text{flex-basis:140px}
+.bt-learning-pending-panel .bt-learning-status{margin-left:auto}
+@keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
 .bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}
@@ -47784,7 +48105,7 @@ var LEARNING_CSS = `
 .bt-learning-description{margin:6px 0 0;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-learning-old{color:var(--bt-ink-3)}
 .bt-learning-status{display:inline-flex;align-items:center;gap:6px;border-style:solid;border-color:color-mix(in srgb,var(--bt-star) 35%,transparent);color:color-mix(in srgb,var(--bt-star) 80%,var(--bt-ink))}
-.bt-learning-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
+.bt-learning-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
 .bt-learning-file{border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bt-ink) 2.5%,var(--bt-card));box-shadow:inset 0 0 0 1px var(--bt-q-rule)}
 .bt-learning-filehead{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 12px;box-shadow:inset 0 -1px 0 var(--bt-q-rule-2);font-size:12px;line-height:18px}
 .bt-learning-name{flex:none;font-weight:600;color:var(--bt-ink)}
@@ -48812,7 +49133,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
+  const ui = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -48837,21 +49158,21 @@ function apply(ctx) {
   };
   let expected2 = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
-  const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
+  const dropPanels = () => ui.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
   const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
   ctx.effect(() => {
-    const onPageHide = () => leaveVisits(Object.keys(ui2.getSnapshot().visits ?? {}));
+    const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}));
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
   }, "ds-bot: remember visits on page hide");
   ctx.effect(() => {
     const onStorage = (event) => {
       if (event.storageArea !== localStorage) return;
-      if (event.key === null || event.key === unreadStore.key) ui2.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
-      if (event.key === null || event.key === reactionStore.key) ui2.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
+      if (event.key === null || event.key === unreadStore.key) ui.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
+      if (event.key === null || event.key === reactionStore.key) ui.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
     };
     window.addEventListener("storage", onStorage);
@@ -48881,8 +49202,8 @@ function apply(ctx) {
     ])));
   };
   const writeUnread = (id, value) => {
-    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
-    ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
+    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui.getSnapshot().unread);
+    ui.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
@@ -48971,13 +49292,13 @@ function apply(ctx) {
       try {
         unchanged = await pull() ? 0 : unchanged + 1;
         misses = 0;
-        ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
+        ui.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
         if (!stopped) {
           console.warn("[ds-bot] state", error);
           if (error?.code === "HTTP_404") {
             misses += 1;
-            if (misses >= 10 && !roster.getSnapshot().ready) ui2.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
+            if (misses >= 10 && !roster.getSnapshot().ready) ui.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
           }
         }
       } finally {
@@ -49069,7 +49390,7 @@ function apply(ctx) {
           stopReads = null;
         }
         void browsers.retain(snapshot.bots.map((bot) => bot.id));
-        ui2.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
+        ui.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
       };
       sync();
       const offRoster = roster.subscribe(sync);
@@ -49245,7 +49566,7 @@ function apply(ctx) {
     if (snapshot.roomsById[sessionId] !== void 0) return snapshot.roomsById[sessionId];
     return Object.values(snapshot.byId).find((bot) => currentPart(bot) === sessionId) ?? Object.values(snapshot.roomsById).find((room2) => (room2.sessionId ?? room2.id) === sessionId);
   };
-  const openingWait = bindOpeningWait(ui2, {
+  const openingWait = bindOpeningWait(ui, {
     onSlow: () => {
       void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
     }
@@ -49262,7 +49583,7 @@ function apply(ctx) {
     ctx.uiWorkspace.openSession(target);
   }, current: mainView, begin: beginOpening, done: endOpening });
   const panelFolded = (view) => {
-    const state = ui2.getSnapshot();
+    const state = ui.getSnapshot();
     if (state.details === null) return false;
     const f = frame2.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
@@ -49287,7 +49608,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -49318,7 +49639,7 @@ function apply(ctx) {
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
+      ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
       setPlain(false);
       const target = partFor(id);
       show2(target);
@@ -49326,7 +49647,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui2.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null }));
+      ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null }));
       setPlain(true);
       show2(sessionId);
     },
@@ -49372,8 +49693,8 @@ function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
     },
     renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    beginAgentRename: (sessionId) => ui2.set((state) => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui2.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
+    beginAgentRename: (sessionId) => ui.set((state) => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -49409,7 +49730,7 @@ function apply(ctx) {
       sidebarPref.set(next);
     },
     toggleLeftHidden: () => {
-      ui2.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
+      ui.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
       actions.setSidebarPref(toggledPref(sidebarPref.getSnapshot(), sidebarSaved.shown));
     },
     setSidebarWidth: (width) => {
@@ -49417,8 +49738,8 @@ function apply(ctx) {
       writeSidebar(sidebarSaved);
       frame2.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
-    setLeftDrawer: (on) => ui2.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
-    setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
+    setLeftDrawer: (on) => ui.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
+    setPanelYield: (on) => ui.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
     surfaceMode: () => surface.getSnapshot().mode,
@@ -49429,7 +49750,7 @@ function apply(ctx) {
         return;
       }
       if (mode === "agent") {
-        ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
+        ui.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
@@ -49441,11 +49762,11 @@ function apply(ctx) {
     beginVisit: (id) => {
       const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id];
       const seen = seenAt[seenKey(id)] ?? (made?.createdBy && Number.isFinite(made.createdAt) ? made.createdAt : null);
-      ui2.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
+      ui.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
     },
     endVisit: (id) => {
       leaveVisits([id]);
-      ui2.set((state) => {
+      ui.set((state) => {
         if (!(id in (state.visits ?? {}))) return state;
         const visits = { ...state.visits };
         delete visits[id];
@@ -49453,8 +49774,8 @@ function apply(ctx) {
       });
     },
     toggleReaction: (key, index, emoji) => {
-      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui2.getSnapshot().reactions);
-      ui2.set((state) => ({ ...state, reactions }));
+      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui.getSnapshot().reactions);
+      ui.set((state) => ({ ...state, reactions }));
     },
     clearUnread: (id) => writeUnread(id, false)
   };
@@ -49466,7 +49787,7 @@ function apply(ctx) {
         if (!bot) return;
         browsers.ensureTabs(bot.id);
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
@@ -49474,7 +49795,7 @@ function apply(ctx) {
         if (!bot) return null;
         browsers.ensureTabs(bot.id);
         const tabId = browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
         return tabId;
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -49482,7 +49803,7 @@ function apply(ctx) {
         const bot = roster.getSnapshot().byId[id];
         if (!bot) return;
         browsers.activate(bot.id, tabId);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
       },
       browserEnsure: (botId) => browsers.ensureTabs(botId),
       browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
@@ -49524,8 +49845,8 @@ function apply(ctx) {
   }
   actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
   actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
-  actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
+  actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
+  actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
   actions.hasPlugins = () => ctx.get("pluginNavigation") !== void 0;
   actions.openPlugins = () => ctx.get("pluginNavigation")?.openList();
@@ -49546,7 +49867,7 @@ function apply(ctx) {
       return null;
     }
   };
-  actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
+  actions.seatAccount = (on) => ui.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {
     const value = await call("update-install");
     update.set((previous) => ({ ...previous, ...value }));
@@ -49661,12 +49982,12 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
-    settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });
+    settingsShell = installSettingsShell(ctx, { face, actions, ui, held: settingsShellHeld });
     return () => {
       settingsShell?.dispose();
       settingsShell = null;
@@ -49792,7 +50113,7 @@ function apply(ctx) {
       const next = rightColumnOpen(document);
       const opening = next && !open;
       open = next;
-      const verdict = opening ? columnOpened(ui2.getSnapshot().details !== null, switchWindow.pending) : null;
+      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
       if (verdict === "close-drawer") actions.closePanel();
       else if (verdict === "collapse-column") collapseColumn();
     });
@@ -49802,9 +50123,9 @@ function apply(ctx) {
       attributeFilter: RIGHTBAR_ATTRIBUTES
     });
     const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui2.getSnapshot().details !== null;
-    const offUi = ui2.subscribe(() => {
-      const next = ui2.getSnapshot().details !== null;
+    let drawer = ui.getSnapshot().details !== null;
+    const offUi = ui.subscribe(() => {
+      const next = ui.getSnapshot().details !== null;
       if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
       drawer = next;
     });
@@ -49820,7 +50141,7 @@ function apply(ctx) {
     ...options,
     ...options.priority === void 0 ? {} : { priority: freePriority(ctx.slots.entries(name), options) }
   }, component));
-  const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY));
+  const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY));
   let atMenu = null;
   const installAtMenu = () => {
     const fiber = ctx.inject(["inputTriggers"], (scope) => {
@@ -49851,9 +50172,9 @@ function apply(ctx) {
     controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
   };
   const installFrameSync = () => {
-    let lastDetails = ui2.getSnapshot().details;
+    let lastDetails = ui.getSnapshot().details;
     const sync = () => {
-      const s = ui2.getSnapshot();
+      const s = ui.getSnapshot();
       const f = frame2.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
@@ -49864,7 +50185,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui2.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };

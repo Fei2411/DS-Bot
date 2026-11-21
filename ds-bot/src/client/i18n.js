@@ -779,11 +779,16 @@ const ZH = {
   'Phone app': '手机 App',
   'Android beta': 'Android 测试版',
   Server: '服务器',
-  'The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.': '在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。',
+  'The Server forwards encrypted messages. Browser access also trusts the page it serves.': '服务器转发加密消息。浏览器访问还需要信任服务器提供的网页。',
+  'The browser runs the page the Server sends. Only use a Server you trust.': '浏览器运行服务器发来的网页。请只使用你信任的服务器。',
   'Pair a phone': '配对手机',
   'Scan this code with the DS Bot app on your phone.': '用手机上的 DS Bot App 扫这个码。',
   'The code works once. It stops working in {count} min.': '这个码只能用一次，{count} 分钟后失效。',
   'Show a QR code': '显示二维码',
+  'Open in a browser': '在浏览器中打开',
+  'Web browser': '网页浏览器',
+  'Copy browser link': '复制浏览器链接',
+  'Clipboard is not available': '剪贴板不可用',
   'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',
   'Turn on phone access first': '请先打开手机访问',
   Phones: '手机',
@@ -815,6 +820,9 @@ const ZH = {
   'Add DSH Agent': '添加 DSH Agent',
   'Remove DSH Agent': '移除 DSH Agent',
   'New session': '新会话',
+  'Start a new session for {name} in this group': '为 {name} 在本群开始新会话',
+  Started: '已开始',
+  'Started a new session for {name} in this group': '已为 {name} 在本群开始新会话',
   Archive: '归档',
   'Session actions': '会话操作',
   Plugins: '插件',
@@ -1485,6 +1493,8 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'Pause task': '暂停任务',
+  'Resume task': '恢复任务',
   Once: '一次',
   'Every week': '每周',
   Repeat: '重复',
@@ -1804,6 +1814,10 @@ const HOST_ZH = {
   'A group chat needs at least two Bots': '群聊至少要两个 Bot',
   'The admin must be a member of the group': '管理员必须是群成员',
   'Unknown group chat': '找不到这个群聊',
+  'Not a member of that group': '这个 Bot 不在这个群聊里',
+  'This Bot has no session in this group yet': '这个 Bot 在本群还没有会话',
+  'The Bot is working; wait for it to finish or stop it first': '这个 Bot 正在工作中，请等它完成或先停止它',
+  'The new session did not start; the Bot stays in its current one': '新会话没有开始，这个 Bot 还在当前会话里',
   'No Bot is left in this group chat': '这个群聊里已经没有 Bot 了',
   'That group chat has been deleted': '这个群聊已经删除了',
   'Hand the admin role to another member instead of leaving the group without one': '请把管理员交给其他成员，不要让群聊没有管理员',
@@ -2068,35 +2082,60 @@ export function installLocale(locale) {
     pushOff(locale.register(NAMESPACE, langId, dict))
   }
 
-  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  // DS Bot fills locales that other plugins' namespaces lack. Each supplement is tied to
+  // the owner dictionary it was made from, so it leaves when that owner unloads or
+  // re-registers. DSH has no lower-priority registration, so an owner's own locale
+  // registered while the supplement stands still collides with it.
+  const supplements = new Map()
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key)
+    if (!entry) return
+    supplements.delete(key)
+    entry.off()
+  }
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId)
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return
+    try {
+      const off = locale.register(ns, langId, make())
+      if (typeof off === 'function') supplements.set(key, { ns, source, off })
+    } catch { /* already registered */ }
+  }
+
   let syncing = false
   let disposed = false
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return
     syncing = true
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns)
+        if (![...(map?.values() ?? [])].includes(entry.source)) dropSupplement(key)
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns)
-          if (!map || map.has(langId.toLowerCase())) continue
-          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+          const source = map?.get('en') ?? map?.get('zh')
+          if (source) supplement(ns, langId, source, () => dict)
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has('zh-tw')) continue
         const zhDict = map.get('zh')
-        if (zhDict) {
-          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, 'zh-TW', zhDict, () => convertDict(zhDict))
       }
     } finally {
       syncing = false
     }
   }
+
   syncDshNamespaces()
   if (typeof locale.subscribe === 'function') {
     pushOff(locale.subscribe(syncDshNamespaces))
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key)
+  })
 
   const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
   if (origResolveText) {

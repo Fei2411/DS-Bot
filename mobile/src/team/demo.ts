@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
 import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
-import { ensureUnlock } from './gate.ts'
+import { ensureUnlock } from './gate'
 import { validateViewAnswer } from 'deep-view/core'
 import type { ChatItem } from '../screens/chat/items.tsx'
 
@@ -29,6 +29,11 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     const touch = () => { state.revision += 1; bump() }
 
     switch (endpoint) {
+      case 'learning-answer': {
+        for (const [botId, proposals] of Object.entries(state.learning ?? {})) state.learning![botId] = proposals.filter(proposal => proposal.id !== body.id)
+        touch()
+        return { applied: body.approve === true }
+      }
       case 'hello':
         return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
       case 'notices':

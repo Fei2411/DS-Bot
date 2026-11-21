@@ -13,7 +13,7 @@ import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
-import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
+import { FreshMemberPart, MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { TaskBoard } from './task-board.js'
@@ -171,7 +171,8 @@ function MemberPile({ room, roster }) {
 const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
-// Stop beside it while it works here, and the approvals it waits on below.
+// Stop beside it while it works here, New session when idle with a group session, and
+// the approvals it waits on below.
 function MemberRow({ member, entry, room, roster, actions }) {
   return h('div', { role: 'listitem', className: 'bt-member' },
     h('div', { className: 'bt-member-row' },
@@ -182,7 +183,8 @@ function MemberRow({ member, entry, room, roster, actions }) {
             h('span', { className: 'bt-member-name' }, member.name),
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
-      h(StopMemberWork, { entry, bot: member, room, actions })),
+      h(StopMemberWork, { entry, bot: member, room, actions }),
+      h(FreshMemberPart, { entry, bot: member, room, actions })),
     h(MemberApprovals, { entry, bot: member, actions }))
 }
 
