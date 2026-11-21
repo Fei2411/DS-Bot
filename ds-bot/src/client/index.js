@@ -13,6 +13,7 @@ import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
+import { watchAgentTerminals } from './agent-terminals.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
@@ -36,7 +37,7 @@ import { SECRET_CSS, SecretDock } from './secret-card.js'
 import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
 import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { PROVIDERS_CSS } from './providers-page.js'
-import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
+import { LearningDock, LearningTurnTail, PendingLearning, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { ReadOnlyDock, READ_ONLY_CSS } from './read-only-dock.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
@@ -72,6 +73,7 @@ import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
+import { installAgentForks } from './agent-fork.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -91,7 +93,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
+  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -716,7 +718,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -798,13 +800,17 @@ export function apply(ctx) {
         await bridge.views.hold(botId, false)
         return result
       } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge.importSources === 'function' ? {
         sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
         pick: () => bridge.importPick(),
-        live: (source, close) => bridge.importLive(source, close),
-        apply: (botId, pending) => bridge.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
@@ -1040,6 +1046,8 @@ export function apply(ctx) {
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
   actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
+  // The tabs of the terminals a shown Bot starts, as DSH's own header opens them.
+  actions.watchAgentTerminals = sessionId => watchAgentTerminals(ctx.slots, sessionId, error => actions.reportError(error, 'right-sidebar'))
   actions.newTerminal = () => {
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
@@ -1108,7 +1116,7 @@ export function apply(ctx) {
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name, ...options, ...(options.priority === undefined ? {} : { priority: freePriority(ctx.slots.entries(name), options) }),
   }, component))
-  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY))
+  const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY))
 
   // The "@" menu's Bot group and the chats "+" references. The composer's controller
   // for a Session is the shell's own, so the chats open at its caret.
@@ -1318,10 +1326,35 @@ export function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, 'computer'), 'ds-bot: computer styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
+  ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: id => roster.getSnapshot().agentOf[id],
+      hasAgent: id => roster.getSnapshot().agentsById[id] !== undefined,
+      pending: pendingAdopt,
+      ready: async () => { if (!roster.getSnapshot().ready) await pull() },
+      adopt: (agentId, sessionId) => call('agent-adopt', { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage,
+    })
+    const reconcile = () => { void forks.reconcile().catch(error => actions.reportError(error, 'agent-fork-reconcile')) }
+    const offRoster = roster.subscribe(reconcile)
+    const offList = ctx.sessions.list.subscribe(reconcile)
+    const timer = setInterval(reconcile, 5000)
+    reconcile()
+    return () => {
+      offRoster()
+      offList()
+      clearInterval(timer)
+      return forks.dispose()
+    }
+  }, 'ds-bot: Agent forks')
+
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but
-  // withdraws the conversation replacements, so the native dsh page shows. A jump
-  // this plugin did not start — the hero's workspace picker or a fork — opens an
-  // unowned Session; coming from a DSH Agent Session it is adopted into that Agent.
+  // withdraws the conversation replacements, so the native dsh page shows. The
+  // hero's workspace picker creates a blank Session, adopted into the same Agent;
+  // forks are captured at creation above, without depending on list metadata.
   ctx.effect(() => {
     let previous
     const sync = () => {
@@ -1343,18 +1376,13 @@ export function apply(ctx) {
       if (agentId === undefined) return
       const snapshot = roster.getSnapshot()
       if (snapshot.byId[main] !== undefined || snapshot.roomsById[main] !== undefined || agentOfSession(main) !== undefined) return
-      // Only a Session this jump created joins the Agent: a blank one from the
-      // workspace picker, or a fork of a Session the same Agent owns. An existing
-      // Session the user opened from the sidebar keeps its team tools and stays out.
+      // Only a blank Session from the workspace picker joins here. Existing
+      // Sessions opened from the native sidebar keep their tools and stay out.
       const row = list.byId[main]
       // A subagent child reports the Agent Session as its parent, but adopting it
       // would steal it from subagent routing — the Host refuses anyway, so skip.
       if (row?.origin === 'subagent') return
-      // The client list maps the fork's parent to `parentId`; the raw field is
-      // the fallback for shapes that skip the mapping.
-      const parent = row?.parentId ?? row?.parentSessionId
-      const forkedFromAgent = parent !== undefined && agentOfSession(parent) === agentId
-      if (row?.blank !== true && !forkedFromAgent) return
+      if (row?.blank !== true) return
       pendingAdopt.set(main, agentId)
       setPlain(true)
       void call('agent-adopt', { agentId, sessionId: main }).then(() => pull()).catch((error) => {

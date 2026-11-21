@@ -257,8 +257,55 @@ export default {
       return { messageId }
     }
 
+    const sendImage = async (chat, image) => {
+      const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+      if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+      const upload = async (method, field) => {
+        const form = new FormData()
+        form.append('chat_id', String(chat.key))
+        form.append(field, new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        const abort = new AbortController()
+        inFlight.add(abort)
+        if (stopped) abort.abort(stoppedError())
+        const timer = setTimeout(() => abort.abort(new Error('timeout')), 30_000)
+        try {
+          const response = await env.fetch(`${base}/${method}`, { method: 'POST', body: form, signal: abort.signal })
+          const body = await response.json().catch(() => ({}))
+          if (!body.ok) {
+            const error = new Error(String(body.description ?? `Telegram answered ${response.status}`))
+            error.status = body.error_code ?? response.status
+            if (body.parameters?.retry_after !== undefined) error.retryAfter = Number(body.parameters.retry_after)
+            error.permanent = error.status >= 400 && error.status < 500 && error.status !== 429
+            throw error
+          }
+          return { messageId: body.result?.message_id }
+        } catch (error) {
+          if (stopped) throw stoppedError()
+          if (abort.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+            throw Object.assign(new Error('Telegram did not answer in time'), { unknown: true })
+          }
+          throw error
+        } finally {
+          clearTimeout(timer)
+          inFlight.delete(abort)
+        }
+      }
+      if (image.mediaType === 'image/gif') return upload('sendAnimation', 'animation')
+      try {
+        return await upload('sendPhoto', 'photo')
+      } catch (error) {
+        // Tall screenshots or WebP files can exceed sendPhoto's dimension/format limits;
+        // fall back to sendDocument so the user still gets the original image intact.
+        if (/PHOTO_INVALID_DIMENSIONS|IMAGE_PROCESS_FAILED|PHOTO_SAVE_FILE_INVALID/i.test(String(error?.message ?? ''))) {
+          return upload('sendDocument', 'document')
+        }
+        throw error
+      }
+    }
+
     return {
       send,
+      sendImage,
       edit: async (chat, messageId, { text, buttons }) => {
         const markup = { reply_markup: { inline_keyboard: (buttons ?? []).map(button => [{ text: button.label, callback_data: button.data }]) } }
         try {

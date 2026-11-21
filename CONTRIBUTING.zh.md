@@ -133,7 +133,7 @@ node scripts/build-client.mjs --check  # client.js 与 src/client 一致
 npm run lint                           # oxlint
 ```
 
-CI 在每个 Pull Request 上，在 Linux 和 Windows 上跑同样的三项检查。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
+对改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request（以及 `dev`/`main` 分支），CI 会在 Linux 和 Windows 上跑 `npm test`（含生成文件一致性校验），在 Linux 上跑 `npm run lint`。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree

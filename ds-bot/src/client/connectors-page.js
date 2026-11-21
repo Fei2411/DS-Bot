@@ -190,6 +190,10 @@ export function ConnectorsPage({ roster, actions }) {
     body = [
       h(Section, { key: 'featured', place: 'featured', signInPlaces, title: t('Recommended'), apps: featured, actions, open }),
       ...CATEGORIES.map(([id, label]) => h(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      // An added server has no catalog category. Without its own section a new OAuth
+      // entry, which stays off until its sign-in finishes, would be on neither the
+      // default page nor Connected, leaving Connect and Remove reachable by search only.
+      h(Section, { key: 'custom', place: 'custom', signInPlaces, title: t('Other MCP server'), apps: inCategory('custom'), actions, open, onAll: () => setCategory('custom') }),
     ]
   }
   return h('div', { className: 'bt-apps' },

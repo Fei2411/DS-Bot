@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
-import { ensureUnlock } from './gate.ts'
+import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
+import { ensureUnlock } from './gate'
 import { validateViewAnswer } from 'deep-view/core'
 import type { ChatItem } from '../screens/chat/items.tsx'
 
@@ -28,6 +29,11 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     const touch = () => { state.revision += 1; bump() }
 
     switch (endpoint) {
+      case 'learning-answer': {
+        for (const [botId, proposals] of Object.entries(state.learning ?? {})) state.learning![botId] = proposals.filter(proposal => proposal.id !== body.id)
+        touch()
+        return { applied: body.approve === true }
+      }
       case 'hello':
         return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
       case 'notices':
@@ -150,8 +156,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'update-room': {
         const room = state.rooms?.find(r => r.id === String(body.id ?? ''))
         if (room === undefined) throw Object.assign(new Error('Unknown group'), { code: 'bot/not-found' })
-        const { id: _ignored, ...patch } = body as Record<string, unknown>
-        Object.assign(room, { name: undefined, notice: undefined, mode: undefined, admin: undefined, members: undefined }, patch)
+        demoUpdateRoom(room, body as Record<string, unknown>)
         state.revision += 1; touch()
         return { ok: true }
       }
@@ -189,12 +194,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       ] }
       case 'schedule-create': case 'schedule-delete': return { ok: true }
       case 'folders': return { team: '/work', picker: 'browse', folders: [{ path: '/work/ds-bot', title: 'ds-bot' }, { path: '/work/docs', title: 'docs' }] }
-      case 'folder-list': {
-        const path = String(body.path ?? '')
-        const tree: Record<string, string[]> = { '': ['work'], '/work': ['ds-bot', 'docs', 'notes'], '/work/ds-bot': ['mobile', 'ds-bot', 'app'] }
-        const kids = tree[path] ?? []
-        return { path, parent: path.split('/').slice(0, -1).join('/') || null, entries: kids.map(name => ({ name, path: `${path}/${name}` })), truncated: false }
-      }
+      case 'folder-list': return demoFolderListing((body as { path?: unknown }).path)
       case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
       case 'run-stats': return { sessionStats: { turns: 96, steps: 311 }, tokenUsage: { uncachedInputTokens: 52000, outputTokens: 9000, cacheReadTokens: 480000, cacheWriteTokens: 0 }, contextPressure: { pressureTokens: 61000, contextWindow: 1000000 } }
       case 'providers': return { available: true, protocols: ['openai'], providers: [

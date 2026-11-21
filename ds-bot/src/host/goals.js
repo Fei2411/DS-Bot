@@ -715,7 +715,7 @@ export function install(rt) {
       const member = rt.botOf(self)
       if (member === undefined) return 'Only Bots on the team can use group_goal.'
       const action = String(args.action ?? '')
-      let room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      let room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId ?? rt.taskOwners?.get(exec.agent?.id)?.roomId)
       if (room === undefined) {
         if (String(args.group ?? '').trim() === '') return required('group', action)
         const picked = rt.pickRoom(args.group, self)

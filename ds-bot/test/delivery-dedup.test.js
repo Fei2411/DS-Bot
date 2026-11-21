@@ -10,7 +10,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
 import { answerSender } from '../src/host/turns.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 const settle = async (check, ms = 4000) => {
   const until = Date.now() + ms
@@ -147,6 +147,8 @@ async function createLoopRig(t, seed = baseSeed()) {
   })
 
   const rt = createRuntime(ctx, { home })
+  // Exercise the in-turn steering path, not busy-foreground task spawning.
+  t.mock.method(rt, 'shouldMoveForeground', () => false)
   t.after(async () => {
     stepGate.resolve()
     await ctx.dispose()
@@ -158,8 +160,8 @@ async function createLoopRig(t, seed = baseSeed()) {
   return { home, rt, agents, tool, stepGate, modes, deliveries }
 }
 
-async function createRestartHost(t, home, logs) {
-  const ctx = fakeContext()
+async function createRestartHost(t, home, logs, services) {
+  const ctx = fakeContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
@@ -403,6 +405,73 @@ test('resumeAll settles already-ended turns from disk without re-running or dupl
   assert.equal(second.agentOf('b').calls.length, 0)
   assert.equal(second.agentOf('a').calls.length, 0, 'already-delivered reply must not be sent again')
   await second.stop()
+})
+
+test('restart keeps the full attachment-backed reply in the parent work without re-delivery', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-attachment-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const services = { attachments: fakeAttachments() }
+  const seed = baseSeed()
+  seed.works = {
+    parent: { from: 'user', to: 'a', open: ['child'], results: [], at: 1 },
+    child: { from: 'a', to: 'b', parent: 'parent', open: [], results: [], at: 1 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const logs = new Map()
+  const first = await createRestartHost(t, home, logs, services)
+  const full = '结论\n'.repeat(70_000) + 'End of report.'
+  const attachment = await first.rt.attachLong(full, 'Answer from Writer.txt')
+  await first.rt.deliver({ fromId: 'b', toId: 'a', ...attachment, role: 'reply', replyTo: 'child' })
+  first.emit('a', 'user/message', { source: first.agentOf('a').calls[0].source })
+  await first.stop()
+
+  const request = { kind: 'bot', role: 'request', exchangeId: 'child', senderSessionId: 'a' }
+  logs.set('b', [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'user/message', data: { source: request } },
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { b: { botId: 'b', since: 1, trigger: request } },
+    queued: {},
+  }))
+  const restarted = await createRestartHost(t, home, logs, services)
+  t.mock.timers.tick(3000)
+  await settle(() => restarted.rt.state.works.child === undefined)
+  assert.ok(restarted.rt.answerText('parent', '', 'Chief').endsWith(full), 'parent keeps the entire reply, not its preview or a dialog-sized prefix')
+  assert.equal(restarted.agentOf('a').calls.length, 0)
+  assert.equal(restarted.agentOf('b').calls.length, 0)
+  await restarted.stop()
+})
+
+test('restart settles a completed peer handoff task from disk and replies to the asking Bot', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-task-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Peer request', origin: 'bot-handoff', status: 'running', exchangeId: 'child' }]
+  seed.works = { child: { from: 'a', to: 'b', open: [], results: [], at: 1 } }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const request = { kind: 'bot', role: 'request', exchangeId: 'child', senderSessionId: 'a' }
+  const logs = new Map([['b-task', [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'user/message', data: { source: request } },
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Peer task finished.' }] } } },
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]]])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { 'b-task': { botId: 'b', since: 1, trigger: request } },
+    queued: {},
+  }))
+  const host = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => host.rt.state.bots.b.tasks[0].status === 'completed' && host.agentOf('a').calls.length > 0)
+  assert.equal(host.agentOf('a').calls.length, 1)
+  assert.match(textOf(host.agentOf('a').calls[0]), /Peer task finished\./)
+  assert.equal(host.agentOf('b-task').calls.length, 0)
+  assert.equal(host.agentOf('b').calls.length, 0)
+  await host.stop()
 })
 
 test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {

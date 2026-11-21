@@ -63,8 +63,9 @@ function render(el, vars = {}) {
     return CODE.has(part) ? Object.assign(document.createElement('code'), { textContent: value }) : value
   }))
 }
+const HTML_LANG = { zh: 'zh-CN', 'zh-TW': 'zh-TW', ja: 'ja', ko: 'ko', es: 'es', fr: 'fr', de: 'de', en: 'en' }
 function renderStatic() {
-  root.lang = lang === 'zh' ? 'zh-CN' : 'en'
+  root.lang = HTML_LANG[lang] ?? lang ?? 'en'
   for (const el of document.querySelectorAll('.track [data-t], .footrow [data-t], .caption [data-t]')) render(el)
   $('.track').setAttribute('aria-label', say('status.track'))
   for (const st of document.querySelectorAll('.station')) st.querySelector('.sr').textContent = say(`status.state.${st.dataset.state}`)

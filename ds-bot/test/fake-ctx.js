@@ -1,16 +1,29 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 // DSH's `attachments` service (dsh-attachment-local), in memory. A file ref has a
 // name and is read as a stream, in small chunks that split characters as a stream
 // may. An image ref, as a prompt's image block stores it, has no name: only
 // readImage reads it, and a file read refuses it as DSH does.
-export function fakeAttachments() {
+export function fakeAttachments(directory) {
   const files = new Map()
+  const paths = new Map()
+  const stats = { streamBytes: 0 }
   let next = 0
   const id = () => `sha256:${String(++next).padStart(64, '0')}`
   return {
     files,
+    paths,
+    stats,
+    fileHostPath: ref => paths.get(ref.attachmentId),
     async saveFile({ data, name }) {
       const ref = { attachmentId: id(), name, bytes: data.length }
       files.set(ref.attachmentId, data)
+      if (directory !== undefined) {
+        const path = join(directory, String(next))
+        writeFileSync(path, data)
+        paths.set(ref.attachmentId, path)
+      }
       return ref
     },
     async saveImage({ data, mediaType, width, height }) {
@@ -22,7 +35,11 @@ export function fakeAttachments() {
       if (typeof ref.name !== 'string' || ref.name === '') throw Object.assign(new Error('File attachment reference is invalid.'), { code: 'INVALID_ATTACHMENT_REF' })
       const data = files.get(ref.attachmentId)
       if (data === undefined) throw new Error('no such file')
-      for (let at = 0; at < data.length; at += 1001) yield data.subarray(at, at + 1001)
+      for (let at = 0; at < data.length; at += 1001) {
+        const chunk = data.subarray(at, at + 1001)
+        stats.streamBytes += chunk.length
+        yield chunk
+      }
     },
     async readImage(ref) {
       const data = files.get(ref.attachmentId)
