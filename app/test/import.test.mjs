@@ -8,7 +8,7 @@ import { after, before, describe, test } from 'node:test'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
-import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -51,6 +51,30 @@ const TEAM = {
   agents: { x: { id: 'x' } },
 }
 const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--team--', 'session-r1'], ['--site--', 'session-b']]
+
+describe('teamSizes', () => {
+  let root
+  before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-app-sizes-')) })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('counts discovery against the budget and omits sizes when it expires', async () => {
+    let time = 0
+    const team = { bots: { bot: { id: 'bot', get segments() { time += 2; return [] } } } }
+    mkdirSync(join(root, 'sessions', 'group', 'bot'), { recursive: true })
+    assert.deepEqual(await teamSizes(root, team, { budget: 1, now: () => time }), { sessions: 1 })
+  })
+
+  test('measures a discovered Session within the budget', async () => {
+    write(join(root, 'sessions', 'group', 'sized', 'chat.txt'), 'chat')
+    assert.deepEqual(await teamSizes(root, { bots: { sized: { id: 'sized' } } }, { now: () => 0 }), {
+      sessions: 1, chats: 4, work: 0, regen: 0,
+    })
+  })
+
+  test('measures an empty team', async () => {
+    assert.deepEqual(await teamSizes(root, {}, { now: () => 0 }), { sessions: 0, chats: 0, work: 0, regen: 0 })
+  })
+})
 
 function oldHome(root) {
   const from = join(root, 'dsh')
