@@ -361,6 +361,88 @@ test('tool results and model requests lose the values', async (t) => {
   assert.equal(passed.length, 2)
 })
 
+function redactRequest(bench, messages, system) {
+  const options = { provider: 'p', model: 'm', messages, system }
+  let sent = options
+  const before = bench.streamed.length
+  bench.listeners['llm/stream'].at(-2)(options, () => (async function* () {})())
+  if (bench.streamed.length > before) sent = bench.streamed.at(-1)
+  return sent
+}
+
+const freezeMessage = value => {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeMessage(child)
+    Object.freeze(value)
+  }
+  return value
+}
+
+test('model message memo invalidates when a secret is added', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  await bench.call('secret-set', { name: 'FIRST', value: fresh() })
+  const value = fresh()
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: value }] })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  await bench.call('secret-set', { name: 'SECOND', value })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:SECOND]')
+})
+
+test('model message memo invalidates when a secret is replaced or deleted', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const first = fresh()
+  const second = fresh()
+  await bench.call('secret-set', { name: 'KEEP', value: fresh() })
+  await bench.call('secret-set', { name: 'TOKEN', value: first })
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: `${first} ${second}` }] })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, `[secret:TOKEN] ${second}`)
+  await bench.call('secret-set', { name: 'TOKEN', value: second })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, `${first} [secret:TOKEN]`)
+  await bench.call('secret-delete', { name: 'TOKEN' })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+})
+
+test('mutable model messages are redacted fresh after mutation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const message = { role: 'user', content: [{ type: 'text', text: 'clean' }] }
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  message.content[0].text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+  message.content[0].text = 'clean again'
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+})
+
+test('memoized model messages equal the original deep redaction path', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = `${fresh()} /+"\\ 中文`
+  const entries = [{ name: 'TOKEN', value }, { name: 'PIN', value: '4821' }]
+  for (const entry of entries) await bench.call('secret-set', entry)
+  const messages = freezeMessage([
+    { role: 'system', content: [{ type: 'text', text: value }] },
+    { role: 'user', content: [{ type: 'text', text: 'clean' }, { type: 'text', text: encodeUrlComponent(value) }] },
+    { role: 'assistant', content: [{ type: 'tool-call', arguments: { nested: [value, null, 42, true, { text: JSON.stringify(value) }] } }] },
+    { role: 'tool', content: [{ type: 'text', text: '4821 x4821 中文4821中文' }], meta: { text: value } },
+    { role: 'user', content: [] },
+  ])
+  const originalPath = Object.freeze(redactDeep)
+  const expected = originalPath(messages, redactor(entries))
+  const system = { text: value }
+  const first = redactRequest(bench, messages, system)
+  const second = redactRequest(bench, messages, system)
+  assert.deepEqual(first.messages, expected)
+  assert.deepEqual(second.messages, expected)
+  assert.equal(second.messages[0], first.messages[0])
+  assert.equal(second.messages[4], messages[4])
+  assert.deepEqual(second.system, originalPath(system, redactor(entries)))
+  assert.deepEqual(redactRequest(bench, []).messages, [])
+})
+
 test('a restarted host resolves its team Sessions and their keys before the first shell call', (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
   const value = fresh()

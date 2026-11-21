@@ -116,6 +116,7 @@ export function install(rt) {
     return job
   }
   let redact = text => text
+  let redactedMessages = new WeakMap()
   let refreshEnv = () => {}
   let refreshQueued = false
   let seenStamp = ''
@@ -138,6 +139,7 @@ export function install(rt) {
 
   const notify = ({ declare = true } = {}) => {
     redact = redactor([...secrets.values()])
+    redactedMessages = new WeakMap()
     if (declare) refreshEnv()
     else scheduleRefreshEnv()
     rt.secretsChanged?.()
@@ -748,7 +750,22 @@ export function install(rt) {
   const rewritten = new WeakSet()
   ctx.on('llm/stream', (options, next) => {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
-    const messages = redactDeep(options.messages, redact)
+    let messages = options.messages
+    if (Array.isArray(messages)) {
+      let changed = false
+      const nextMessages = messages.map((message) => {
+        const frozen = message !== null && typeof message === 'object' && Object.isFrozen(message)
+        let replaced
+        if (frozen && redactedMessages.has(message)) replaced = redactedMessages.get(message)
+        else {
+          replaced = redactDeep(message, redact)
+          if (frozen) redactedMessages.set(message, replaced)
+        }
+        if (replaced !== message) changed = true
+        return replaced
+      })
+      if (changed) messages = nextMessages
+    } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
     const fresh = [...(messages ?? [])]
