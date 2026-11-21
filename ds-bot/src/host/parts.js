@@ -2196,12 +2196,16 @@ export function install(rt) {
       await openPartNow(bot, agent)
       return true
     }
-    const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
+    // A subagent or a waiting approval keeps the part busy in a private chat too, not
+    // only in a group where the room decides; `busyHere` stays what the older callers
+    // use, the handoff below reads the same work directly.
+    const working = rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true
+    const busyHere = place.roomId !== undefined && working
     if (handoff) {
       // The note is written before the fresh part starts, so a handoff cannot wait out
       // the turn: that would leave a delayed action with no visible failure, on a part
       // that may change again. Refuse now and let the user ask again when it is idle.
-      if (agent.status !== 'idle' || busyHere || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      if (agent.status !== 'idle' || working || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
       if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
       return true
     }
