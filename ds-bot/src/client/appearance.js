@@ -64,14 +64,15 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
   const rules = []
   if (look.radius !== undefined) vars.push(`--bt-r:${look.radius / 100}`)
   // Fonts in both forms. DSH's own font variables (`--dsh-font-family-text`, `-code`, ahead
-  // of its built-in stacks) carry them into what DSH draws. A font the device does not have
-  // falls through to the system font.
+  // of its built-in stacks) carry them into what DSH draws; DS Bot's own (`--bt-font`,
+  // `--bt-mono`) into what DS Bot draws, also where no DSH stylesheet sets DSH's (the desktop
+  // app's own window). A font the device does not have falls through to the system font.
   if (look.uiFont) {
-    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`)
+    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`)
     rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`)
   }
   if (look.codeFont) {
-    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`)
+    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`, `--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`)
     rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
   }
   if (fonts) {

@@ -224,6 +224,12 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.doesNotMatch(inDsh, /--bt-fs/)
   assert.match(inDsh, /--dsh-font-family-text:"Inter"/)
   assert.match(inDsh, /font-family:"Inter",-apple-system/)
+  // DS Bot's own surfaces read its own font variables, in DSH and in the desktop window
+  // alike (where no DSH stylesheet sets DSH's).
+  for (const sheet of [css, inDsh]) assert.match(sheet, /html body\{[^}]*--bt-font:"Inter",-apple-system/)
+  const coded = appearanceCss({ appearance: { codeFont: 'JetBrains Mono' }, theme })
+  assert.match(coded, /--bt-mono:"JetBrains Mono",ui-monospace/)
+  assert.match(coded, /--dsh-font-family-code:"JetBrains Mono"/)
   // A chat's own background takes the place of the team's.
   assert.match(appearanceCss({ appearance, theme, background: { kind: 'color', color: '#112233' } }), /background:#112233/)
   // A picture still loading paints nothing yet, so the surfaces stay solid.

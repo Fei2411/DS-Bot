@@ -17003,11 +17003,11 @@ function appearanceCss({ appearance, theme, background, pictureUrl: pictureUrl2 
   const rules = [];
   if (look.radius !== void 0) vars.push(`--bt-r:${look.radius / 100}`);
   if (look.uiFont) {
-    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`);
+    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`);
     rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`);
   }
   if (look.codeFont) {
-    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`);
+    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`, `--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`);
     rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`);
   }
   if (fonts) {
