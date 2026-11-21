@@ -22,13 +22,21 @@ async function loadBundle(contents) {
 function makeStatefulReact() {
   const states = new Map()
   const effects = new Map()
-  let cleanups = []
+  const prevDeps = new Map()
+  const activeCleanups = new Map()
   let activePath = ''
   let hookIdx = 0
 
   const nextSlot = () => {
     const key = `${activePath}#${hookIdx++}`
     return key
+  }
+
+  const depsChanged = (prev, next) => {
+    if (prev === undefined || next === undefined) return true
+    if (prev.length !== next.length) return true
+    for (let i = 0; i < prev.length; i += 1) if (!Object.is(prev[i], next[i])) return true
+    return false
   }
 
   const React = {
@@ -98,10 +106,13 @@ function makeStatefulReact() {
   }
 
   const runEffects = () => {
-    for (const c of cleanups.splice(0)) c()
-    for (const { fn } of effects.values()) {
+    for (const [key, { fn, deps }] of effects.entries()) {
+      if (!depsChanged(prevDeps.get(key), deps)) continue
+      activeCleanups.get(key)?.()
+      prevDeps.set(key, deps)
       const cleanup = fn()
-      if (typeof cleanup === 'function') cleanups.push(cleanup)
+      if (typeof cleanup === 'function') activeCleanups.set(key, cleanup)
+      else activeCleanups.delete(key)
     }
     effects.clear()
   }
@@ -115,7 +126,9 @@ function makeStatefulReact() {
       return tree
     },
     unmount() {
-      for (const c of cleanups.splice(0)) c()
+      for (const c of activeCleanups.values()) c()
+      activeCleanups.clear()
+      prevDeps.clear()
       states.clear()
       effects.clear()
     },
@@ -304,19 +317,33 @@ test('Settings search filters bilingual keywords, clears on Escape without closi
     assert.equal(hits.length, 1)
     assert.match(textOf(hits[0]), /IM/)
 
-    // Escape while search has text clears query without closing dialog.
-    let prevented = false
-    searchInput().props.onKeyDown({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() {} })
-    assert.equal(prevented, true)
-    assert.equal(closed, 0)
-    // Also ensure window Escape listener is inactive while query was non-empty.
-    for (const fn of listeners) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
-    assert.equal(closed, 0)
+    // IME composition Enter & Escape (isComposing and legacy keyCode 229) must not navigate or clear search.
+    searchInput().props.onKeyDown({ key: 'Enter', isComposing: true, preventDefault() {}, stopPropagation() {} })
+    searchInput().props.onKeyDown({ key: 'Enter', isComposing: false, keyCode: 229, preventDefault() {}, stopPropagation() {} })
+    searchInput().props.onKeyDown({ key: 'Escape', isComposing: true, preventDefault() {}, stopPropagation() {} })
+    assert.deepEqual(opened, [])
+    tree = draw()
+    assert.equal(searchInput().props.value, '微信')
 
+    // Window Escape (e.g. focus outside search input) clears search without closing Settings.
+    for (const fn of [...listeners]) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    assert.equal(closed, 0)
     tree = draw()
     assert.equal(searchInput().props.value, '')
 
-    // Searching "memory" and clicking jumps to general with Advanced auto-expanded.
+    // Second Escape when search is empty closes Settings.
+    for (const fn of [...listeners]) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    assert.equal(closed, 1)
+
+    // Exact visible control labels match in search.
+    for (const q of ['Show thinking', 'Bot animation', 'Bring up related memory', 'Background commands']) {
+      searchInput().props.onChange({ target: { value: q } })
+      tree = draw()
+      assert.ok(findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit').length >= 1, `search should match "${q}"`)
+    }
+
+    // Searching "memory" opens General with Advanced expanded; manually collapsing and
+    // searching another Advanced item re-expands Advanced.
     searchInput().props.onChange({ target: { value: 'memory' } })
     tree = draw()
     const memHit = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')[0]
@@ -324,8 +351,22 @@ test('Settings search filters bilingual keywords, clears on Escape without closi
     memHit.props.onClick()
     assert.deepEqual(opened, [['general', null]])
     tree = draw()
-    const collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
+    let collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
     assert.equal(collapseBtn.props['aria-expanded'], true, 'jumping to Memory via search must auto-expand Advanced')
+    collapseBtn.props.onClick()
+    tree = draw()
+    collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
+    assert.equal(collapseBtn.props['aria-expanded'], false, 'manual click collapses Advanced')
+
+    searchInput().props.onChange({ target: { value: 'Background commands' } })
+    tree = draw()
+    const bgHit = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')[0]
+    assert.ok(bgHit)
+    bgHit.props.onClick()
+    draw()
+    tree = draw()
+    collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
+    assert.equal(collapseBtn.props['aria-expanded'], true, 'second Advanced search hit must re-expand Advanced')
     harness.unmount()
   })
 })
@@ -423,6 +464,49 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     phone = { ...phone, on: true, status: 'online' }
     tree = draw()
     assert.deepEqual(calls, [['set', { on: true }], ['pair']])
+    // Relay online with 0 connected phones reads Ready, not Phone online.
+    assert.match(textOf(tree), /Ready/)
+    assert.doesNotMatch(textOf(tree), /Phone online/)
+
+    // Failed phoneSet clears wantPair and keeps server editor open.
+    harness.unmount()
+    const failingActions = {
+      phoneSet: () => Promise.reject(new Error('host locked')),
+      phonePair: () => Promise.resolve(),
+      phonePairCancel: () => Promise.resolve(),
+      phoneRemove: () => Promise.resolve(),
+    }
+    phone = { on: false, status: 'off', server: '', phones: [], pairing: null }
+    const drawFail = () => harness.render(harness.React.createElement(PhonePage, {
+      roster: { phone }, actions: failingActions, Section, Row,
+    }))
+    let failTree = drawFail()
+    findAll(failTree, n => n.type === 'button' && textOf(n) === 'Edit')[0].props.onClick()
+    failTree = drawFail()
+    findAll(failTree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server')[0].props.onChange({ target: { value: 'wss://bad.example' } })
+    failTree = drawFail()
+    findAll(failTree, n => n.type === 'button' && textOf(n) === 'Save')[0].props.onClick()
+    await new Promise(resolve => setImmediate(resolve))
+    failTree = drawFail()
+    assert.equal(findAll(failTree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server').length, 1, 'failed save must keep server editor open')
+
+    findAll(failTree, n => n.type === 'button' && textOf(n) === 'Turn on & pair')[0].props.onClick()
+    await new Promise(resolve => setImmediate(resolve))
+    failTree = drawFail()
+    assert.ok(findAll(failTree, n => n.type === 'button' && textOf(n) === 'Turn on & pair').length === 1, 'failed phoneSet must clear wantPair')
+
+    // Browser pairing retains relay trust warning.
+    harness.unmount()
+    phone = {
+      on: true,
+      status: 'online',
+      server: 'wss://relay.example/v1/link',
+      phones: [{ id: 'p1', name: 'Pixel', connected: true, pairedAt: Date.now() }],
+      pairing: { uri: 'dsbot://pair?t=1', browserUri: '#pair=1', expiresAt: Date.now() + 60_000 },
+    }
+    const pairTree = draw()
+    assert.match(textOf(pairTree), /Phone online/)
+    assert.match(textOf(pairTree), /Only use a Server you trust/)
     harness.unmount()
   })
 })

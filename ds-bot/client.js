@@ -18220,7 +18220,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-theme-card:active{scale:.97}
 .bt-theme-preview{position:relative;display:flex;height:66px;border-radius:10px;border:1.5px solid var(--bt-line-2);overflow:hidden;box-sizing:border-box;transition:border-color .14s ease,box-shadow .14s ease}
 .bt-theme-card:hover .bt-theme-preview{border-color:color-mix(in srgb,var(--bt-ink) 28%,transparent)}
-.bt-theme-card[aria-pressed=true] .bt-theme-preview{box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 24%,transparent)}
+.bt-theme-card[aria-pressed=true] .bt-theme-preview{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 24%,transparent)}
 .bt-theme-preview-side{width:30%;padding:8px 6px;display:flex;flex-direction:column;gap:5px;box-sizing:border-box}
 .bt-theme-preview-dot{width:8px;height:8px;border-radius:50%;corner-shape:round}
 .bt-theme-preview-bar{height:4px;border-radius:999px;opacity:.22;width:100%}
@@ -18266,11 +18266,6 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-browser-action-choice:active{scale:.96}
 .bt-browser-action-choice:has(input:checked){background:var(--bt-accent-soft);border-color:color-mix(in srgb,var(--bt-accent) 42%,transparent);color:var(--bt-ink)}
 .bt-browser-action-choice input{margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-browser-duration{display:inline-flex;gap:2px;flex-wrap:wrap;align-items:center;padding:2px;border-radius:10px;background:var(--bt-hover)}
-.bt-browser-duration-choice{height:28px;border:0;border-radius:8px;padding:0 12px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .14s ease,color .14s ease,box-shadow .14s ease,${spring(SPRING_TAP, "scale")}}
-.bt-browser-duration-choice:hover{color:var(--bt-ink)}
-.bt-browser-duration-choice:active{scale:.96}
-.bt-browser-duration-choice[aria-pressed=true]{background:var(--bt-card);color:var(--bt-ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-browser-form>.bt-set-row>.bt-set-control{flex:0 1 64%;min-width:0;justify-content:flex-end}
 .bt-browser-form .bt-select{width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
@@ -18573,8 +18568,8 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
 :where([class^="bt-"],[class*=" bt-"]):where(button,a,[tabindex],[role="button"],[role="tab"],[role="menuitem"]):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
-:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-browser-duration-choice,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-checks,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-checks,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row,.bt-guide-head,.bt-set-search-hit):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
@@ -18741,7 +18736,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   /* Right padding is not honored inside a scrolling flex row; a transparent
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
-  .bt-settings-rail>.bt-settings-nav{padding:6px 8px 8px;border-right:0;border-bottom:0}
+  .bt-settings-rail>.bt-settings-nav{flex:none;padding:6px 8px 8px;border-right:0;border-bottom:0}
   .bt-settings-nav>.bt-thumb{left:0;right:auto;top:6px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
@@ -37643,7 +37638,9 @@ var QUIET = 4;
 function statusText3(phone) {
   if (phone.error) return phone.error;
   if (!phone.on) return t("Off");
-  if (phone.status === "online") return t("Phone online");
+  if (phone.status === "online") {
+    return (phone.phones ?? []).some((entry) => entry.connected) ? t("Phone online") : t("Ready");
+  }
   if (phone.status === "offline") return t("Cannot reach the Server. Trying again…");
   return t("Connecting…");
 }
@@ -37686,6 +37683,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [error, setError] = (0, import_react44.useState)(null);
   const [copied, setCopied] = (0, import_react44.useState)(false);
   const copyTimer = (0, import_react44.useRef)(null);
+  const prevState = (0, import_react44.useRef)({ on: phone.on, status: phone.status, error: phone.error });
   const [, tick] = (0, import_react44.useState)(0);
   (0, import_react44.useEffect)(() => {
     setServer(phone.server);
@@ -37701,15 +37699,23 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const run2 = (task) => {
     setBusy(true);
     setError(null);
-    return task.catch((failure) => setError(failure?.message ?? String(failure))).finally(() => setBusy(false));
+    return Promise.resolve(task).then(() => true, (failure) => {
+      setError(failure?.message ?? String(failure));
+      return false;
+    }).finally(() => setBusy(false));
   };
   (0, import_react44.useEffect)(() => {
+    const prev = prevState.current;
+    prevState.current = { on: phone.on, status: phone.status, error: phone.error };
     if (!wantPair) return;
     if (phone.pairing) {
       setWantPair(false);
       return;
     }
-    if (phone.error || phone.status === "offline") {
+    const newlyFailed = Boolean(phone.error) && phone.error !== prev.error;
+    const newlyOffline = phone.status === "offline" && prev.status !== "offline";
+    const turnedOff = !phone.on && prev.on;
+    if (newlyFailed || newlyOffline || turnedOff) {
       setWantPair(false);
       return;
     }
@@ -37720,7 +37726,9 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   }, [wantPair, phone.on, phone.status, phone.pairing, phone.error]);
   const saveServer = () => {
     if (busy || server.trim() === phone.server) return;
-    void run2(actions.phoneSet({ server })).then(() => setEditingServer(false));
+    void run2(actions.phoneSet({ server })).then((ok) => {
+      if (ok) setEditingServer(false);
+    });
   };
   const startPair = () => {
     if (busy) return;
@@ -37730,7 +37738,9 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     }
     setWantPair(true);
     if (!phone.on) {
-      void run2(actions.phoneSet({ on: true })).catch(() => setWantPair(false));
+      void run2(actions.phoneSet({ on: true })).then((ok) => {
+        if (!ok) setWantPair(false);
+      });
     }
   };
   const copyBrowserLink = (url) => {
@@ -37802,6 +37812,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
           (0, import_react44.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
           (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
         ) : null,
+        browserUrl !== null ? (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
         (0, import_react44.createElement)("div", null, (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : [
@@ -38816,6 +38827,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
         setSite("");
         setAdding(false);
       }
+    }, () => {
     }).finally(() => setBusy(false));
   };
   const toggleKind = (kind, checked) => {
@@ -40250,9 +40262,11 @@ function GuidePage({ roster, actions, run: run2, dsh }) {
   const connData = roster?.connectors ?? {};
   const readyApps = (connData.mail?.accounts?.length ?? 0) + (connData.connectors ?? []).filter((entry) => entry.id !== "mail" && entry.state === "ready").length;
   const enabledIm = (roster?.im?.connections ?? []).filter((entry) => entry.enabled).length;
-  const phoneOnline = Boolean(roster?.phone?.on && roster?.phone?.status === "online");
+  const connectedPhones = (roster?.phone?.phones ?? []).filter((entry) => entry.connected).length;
+  const phoneOnline = Boolean(roster?.phone?.on && roster?.phone?.status === "online" && connectedPhones > 0);
+  const phoneReady = Boolean(roster?.phone?.on && roster?.phone?.status === "online");
   const mcpOn = roster?.mcp?.on === true;
-  const connectCount = readyApps + enabledIm + (phoneOnline ? 1 : 0) + (mcpOn ? 1 : 0);
+  const connectCount = readyApps + enabledIm + connectedPhones + (mcpOn ? 1 : 0);
   const computerOn = roster?.computer?.enabled === true;
   const secretsCount = (roster?.secrets ?? []).length;
   const secretsEncrypted = roster?.secretStore?.mode === "encrypted";
@@ -40270,7 +40284,7 @@ function GuidePage({ roster, actions, run: run2, dsh }) {
       rooms.length > 0 ? t("{count} groups", { count: rooms.length }) : null
     ].filter(Boolean).join(" · "))
   );
-  const connectStatus = phoneOnline && connectCount === 1 ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("Phone online") }) : connectCount > 0 ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("{count} connected", { count: connectCount }) }) : (0, import_react54.createElement)(StatusPill, { tone: "muted", text: t("Off") });
+  const connectStatus = phoneOnline && connectCount === connectedPhones ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("Phone online") }) : connectCount > 0 ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("{count} connected", { count: connectCount }) }) : phoneReady ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("Ready") }) : (0, import_react54.createElement)(StatusPill, { tone: "muted", text: t("Off") });
   const toolsSummary = computerOn ? t("On") : secretsCount > 0 ? [t("{count} secrets", { count: secretsCount }), secretsEncrypted ? t("Encrypted") : null].filter(Boolean).join(" · ") : t("Off");
   const toolsStatus = (0, import_react54.createElement)(StatusPill, { tone: computerOn || secretsEncrypted ? "ok" : "muted", text: toolsSummary });
   const defaultModelName = prefs.defaultBotModel ? models.find((entry) => entry.ref === prefs.defaultBotModel)?.name ?? prefs.defaultBotModel : t("Default");
@@ -40365,7 +40379,9 @@ function GuidePage({ roster, actions, run: run2, dsh }) {
                 type: "button",
                 className: "bt-guide-theme-pill",
                 "aria-pressed": currentTheme === id,
-                onClick: () => run2(actions.setPrefs({ theme: id }))
+                onClick: () => {
+                  if (currentTheme !== id) run2(actions.setPrefs({ theme: id }));
+                }
               },
               (0, import_react54.createElement)(
                 "span",
@@ -40743,13 +40759,13 @@ var SEARCH_ENTRIES = [
   { id: "general", label: "General", group: "General", page: "general", icon: "general", keywords: "basics language workspace 语言 工作区 默认模型" },
   { id: "default-model", label: "Default model", group: "General", page: "general", icon: "general", keywords: "new bots model 默认模型" },
   { id: "enter-send", label: "Enter sends message", group: "General", page: "general", icon: "general", keywords: "input keyboard enter 回车 发送" },
-  { id: "locations", label: "Locations", group: "General", page: "general", icon: "general", keywords: "team workspace data folder path 目录 位置 文件夹" },
-  { id: "memory", label: "Memory", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "recall memory limits 记忆 上限 召回" },
-  { id: "background", label: "Background work", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "background commands timeout seconds 后台 命令 超时" },
-  { id: "mode", label: "Classic Agent mode", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "bot mode agent mode surface 经典模式 切换" },
-  { id: "appearance", label: "Appearance", group: "Appearance", page: "appearance", icon: "appearance", keywords: "theme accent color dark light font 主题 强调色 颜色 深色 浅色 字体" },
-  { id: "layout", label: "Message layout", group: "Appearance", page: "appearance", icon: "appearance", keywords: "bubble flat width thinking 气泡 平铺 宽度 思考" },
-  { id: "motion", label: "Motion", group: "Appearance", page: "appearance", icon: "appearance", keywords: "interface motion animation quiet lively 动效 动画 安静 活泼" },
+  { id: "locations", label: "Locations", group: "General", page: "general", icon: "general", keywords: "team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置" },
+  { id: "memory", label: "Memory", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回" },
+  { id: "background", label: "Background work", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "background commands after seconds timeout 后台 命令 超时 秒" },
+  { id: "mode", label: "Classic Agent mode", group: "General", page: "general", icon: "general", expandAdvanced: true, requiresSurface: true, keywords: "bot mode agent mode surface 经典模式 切换" },
+  { id: "appearance", label: "Appearance", group: "Appearance", page: "appearance", icon: "appearance", keywords: "theme accent color dark light font size 主题 强调色 颜色 深色 浅色 字体 字号" },
+  { id: "layout", label: "Message layout", group: "Appearance", page: "appearance", icon: "appearance", keywords: "bubble flat text bubble width show thinking 气泡 平铺 宽度 显示思考过程 思考" },
+  { id: "motion", label: "Motion", group: "Appearance", page: "appearance", icon: "appearance", keywords: "interface motion bot animation quiet normal lively full reduced 界面动效 动画 安静 正常 活泼" },
   { id: "models", label: "Providers", group: "Models", page: "models", icon: "models", keywords: "api key openai anthropic gemini deepseek 模型 服务商 密钥" },
   { id: "bot-models", label: "Bot models", group: "Models", page: "bot-models", icon: "bot-models", keywords: "batch switch models 批量 切换 模型" },
   { id: "local-agents", label: "Local agents", group: "Models", page: "local-agents", icon: "local-agents", keywords: "cli claude codex antigravity acp 本地 代理" },
@@ -40860,19 +40876,6 @@ function WidthSlider({ label, value, save }) {
     (0, import_react56.createElement)("output", null, `${width}%`)
   );
 }
-var isDarkNow2 = () => typeof document !== "undefined" && document.body?.hasAttribute?.("data-ds-dark-theme") === true;
-function useDarkMode2() {
-  const [dark, setDark] = (0, import_react56.useState)(isDarkNow2);
-  (0, import_react56.useEffect)(() => {
-    if (typeof document === "undefined" || !document.body || typeof MutationObserver !== "function") return void 0;
-    const sync = () => setDark(isDarkNow2());
-    sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
-    return () => observer.disconnect();
-  }, []);
-  return dark;
-}
 function ThemeGallery({ themes, current: current2, dark, onPick }) {
   return (0, import_react56.createElement)(
     "div",
@@ -40893,7 +40896,7 @@ function ThemeGallery({ themes, current: current2, dark, onPick }) {
         },
         (0, import_react56.createElement)(
           "span",
-          { className: "bt-theme-preview", style: { background: palette.bg, borderColor: active ? palette.accent : void 0 } },
+          { className: "bt-theme-preview", style: { background: palette.bg } },
           (0, import_react56.createElement)(
             "span",
             { className: "bt-theme-preview-side", style: { background: palette.sidebar } },
@@ -40919,7 +40922,7 @@ function ThemeGallery({ themes, current: current2, dark, onPick }) {
   );
 }
 function AppearancePage({ roster, actions, run: run2, dsh }) {
-  const dark = useDarkMode2();
+  const dark = useDarkMode();
   const items = (dsh?.items ?? []).map((row) => row.id).filter((id) => id !== "");
   const look = LOOK_ITEMS.filter((id) => items.includes(id));
   const prefs = roster.prefs ?? {};
@@ -41002,13 +41005,13 @@ function AppearancePage({ roster, actions, run: run2, dsh }) {
     )
   ];
 }
-function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = false }) {
+function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
   const items = (dsh?.items ?? []).map((row) => row.id).filter((id) => id !== "");
   const basicDsh = BASIC_ITEMS.filter((id) => items.includes(id));
   const more = items.filter((id) => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id));
   const prefs = roster.prefs ?? {};
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === "agent");
-  const [advancedOpen, setAdvancedOpen] = (0, import_react56.useState)(openAdvanced);
+  const [advancedOpen, setAdvancedOpen] = (0, import_react56.useState)(() => Boolean(openAdvanced));
   (0, import_react56.useEffect)(() => {
     if (openAdvanced) setAdvancedOpen(true);
   }, [openAdvanced]);
@@ -41239,10 +41242,18 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const [error, setError] = (0, import_react56.useState)("");
   const [query, setQuery] = (0, import_react56.useState)("");
   const [hitIndex, setHitIndex] = (0, import_react56.useState)(0);
-  const [expandAdvanced, setExpandAdvanced] = (0, import_react56.useState)(false);
-  const close = (0, import_react56.useCallback)(() => actions.closeSettings(), []);
+  const [advancedToken, setAdvancedToken] = (0, import_react56.useState)(0);
+  const searchListRef = (0, import_react56.useRef)(null);
+  const close = (0, import_react56.useCallback)(() => actions.closeSettings(), [actions]);
   const trimmed2 = query.trim().toLowerCase();
-  useEscape(close, !leaving && trimmed2 === "");
+  const onEscape = (0, import_react56.useCallback)(() => {
+    if (query !== "") {
+      setQuery("");
+      return;
+    }
+    actions.closeSettings();
+  }, [query, actions]);
+  useEscape(onEscape, !leaving);
   const [narrowNav, setNarrowNav] = (0, import_react56.useState)(() => typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 640px)").matches : false);
   (0, import_react56.useEffect)(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return void 0;
@@ -41261,6 +41272,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   });
   const hasProviders = actions.providers !== void 0;
   const hasServices = actions.deepseekServices !== void 0;
+  const hasSurface = typeof actions.setSurface === "function";
   const pageAvailable = (key) => (key !== "models" || actions.providers !== void 0) && (key !== "deepseek-services" || actions.deepseekServices !== void 0);
   const groups = (0, import_react56.useMemo)(() => NAV_GROUPS.map((group) => ({
     ...group,
@@ -41286,12 +41298,12 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   }, [navKey, trimmed2, narrowNav]);
   const usableModels = (roster.models ?? []).filter((entry) => entry.needsKey !== true && !isLocalRoute(entry.ref));
   const needsModel = hasProviders && usableModels.length === 0;
-  const phoneOnline = Boolean(roster.phone?.on && roster.phone?.status === "online");
+  const phoneConnected = Boolean(roster.phone?.on && roster.phone?.status === "online" && (roster.phone?.phones ?? []).some((entry) => entry.connected));
   const searchHits = (0, import_react56.useMemo)(() => {
     if (trimmed2 === "") return [];
     const tokens = trimmed2.split(/\s+/).filter(Boolean);
     const allEntries = [
-      ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page)).map((entry) => ({
+      ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
         ...entry,
         title: t(entry.label),
         groupTitle: t(entry.group),
@@ -41308,14 +41320,18 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       }))
     ];
     return allEntries.filter((entry) => tokens.every((token) => entry.haystack.includes(token)));
-  }, [trimmed2, hasProviders, hasServices, extra]);
+  }, [trimmed2, hasProviders, hasServices, hasSurface, extra]);
   (0, import_react56.useEffect)(() => {
     setHitIndex(0);
   }, [trimmed2]);
+  (0, import_react56.useEffect)(() => {
+    if (trimmed2 === "") return;
+    searchListRef.current?.querySelector("[aria-selected=true]")?.scrollIntoView?.({ block: "nearest" });
+  }, [hitIndex, trimmed2]);
   const pickHit = (hit) => {
     if (!hit) return;
     setQuery("");
-    if (hit.expandAdvanced) setExpandAdvanced(true);
+    if (hit.expandAdvanced) setAdvancedToken((token) => token + 1);
     if (hit.page === "dsh") actions.openSettings("dsh", hit.dshId);
     else actions.openSettings(hit.page);
   };
@@ -41324,7 +41340,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     setError("");
   }, [pageKey]);
   (0, import_react56.useEffect)(() => {
-    if (shown !== "general" && expandAdvanced) setExpandAdvanced(false);
+    if (shown !== "general" && advancedToken !== 0) setAdvancedToken(0);
   }, [shown]);
   const depth = bot || room2 || advanced ? 1 : 0;
   const last = (0, import_react56.useRef)({ key: pageKey, depth, move: "up" });
@@ -41336,7 +41352,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const errorLine = error ? (0, import_react56.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id;
-    const dotTone = (group.id === "guide" || group.id === "models") && needsModel ? "warn" : group.id === "connect" && phoneOnline ? "ok" : null;
+    const dotTone = (group.id === "guide" || group.id === "models") && needsModel ? "warn" : group.id === "connect" && phoneConnected ? "ok" : null;
     return (0, import_react56.createElement)(
       "button",
       {
@@ -41377,9 +41393,11 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             "aria-label": t("Search settings"),
             onChange: (event) => setQuery(event.target.value),
             onKeyDown: (event) => {
+              if (isImeComposing(event)) return;
               if (event.key === "Escape" && query !== "") {
                 event.preventDefault();
                 event.stopPropagation();
+                event.nativeEvent?.stopPropagation?.();
                 setQuery("");
                 return;
               }
@@ -41405,7 +41423,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         ),
         trimmed2 !== "" ? (0, import_react56.createElement)(
           "div",
-          { className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
+          { ref: searchListRef, className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
           searchHits.length === 0 ? (0, import_react56.createElement)("div", { className: "bt-set-search-empty" }, t("No matching settings")) : searchHits.map((hit, index) => (0, import_react56.createElement)(
             "button",
             {
@@ -41462,7 +41480,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           { className: "bt-settings-subnav" },
           (0, import_react56.createElement)(
             Segmented,
-            { label: t(activeGroup.label), value: shown, className: "bt-settings-tabs" },
+            { key: activeGroup.id, label: t(activeGroup.label), value: shown, className: "bt-settings-tabs" },
             subTabs.map(([subKey, subLabel]) => (0, import_react56.createElement)(
               "button",
               {
@@ -41486,7 +41504,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             PageBoundary,
             null,
             shown === "guide" ? (0, import_react56.createElement)(GuidePage, { roster, actions, run: run2, dsh }) : null,
-            shown === "general" ? (0, import_react56.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: expandAdvanced }) : null,
+            shown === "general" ? (0, import_react56.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
             shown === "appearance" ? (0, import_react56.createElement)(AppearancePage, { roster, actions, run: run2, dsh }) : null,
             shown === "computer" ? (0, import_react56.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
             shown === "models" && !advanced ? (0, import_react56.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
@@ -42337,7 +42355,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
           if (modal !== null && modal !== "settings") return { status: "blocked", reason: "modal" };
-          return { status: "handled", run: () => actions.openSettings("general") };
+          return { status: "handled", run: () => actions.openSettings("guide") };
         }
       }), "ds-bot: settings command");
     }),

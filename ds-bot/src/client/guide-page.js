@@ -8,7 +8,7 @@ import { t } from './i18n.js'
 
 const isDarkNow = () => typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true
 
-function useDarkMode() {
+export function useDarkMode() {
   const [dark, setDark] = useState(isDarkNow)
   useEffect(() => {
     if (typeof document === 'undefined' || !document.body || typeof MutationObserver !== 'function') return undefined
@@ -64,9 +64,11 @@ export function GuidePage({ roster, actions, run, dsh }) {
   const readyApps = (connData.mail?.accounts?.length ?? 0)
     + (connData.connectors ?? []).filter(entry => entry.id !== 'mail' && entry.state === 'ready').length
   const enabledIm = (roster?.im?.connections ?? []).filter(entry => entry.enabled).length
-  const phoneOnline = Boolean(roster?.phone?.on && roster?.phone?.status === 'online')
+  const connectedPhones = (roster?.phone?.phones ?? []).filter(entry => entry.connected).length
+  const phoneOnline = Boolean(roster?.phone?.on && roster?.phone?.status === 'online' && connectedPhones > 0)
+  const phoneReady = Boolean(roster?.phone?.on && roster?.phone?.status === 'online')
   const mcpOn = roster?.mcp?.on === true
-  const connectCount = readyApps + enabledIm + (phoneOnline ? 1 : 0) + (mcpOn ? 1 : 0)
+  const connectCount = readyApps + enabledIm + connectedPhones + (mcpOn ? 1 : 0)
 
   const computerOn = roster?.computer?.enabled === true
   const secretsCount = (roster?.secrets ?? []).length
@@ -88,11 +90,13 @@ export function GuidePage({ roster, actions, run, dsh }) {
       rooms.length > 0 ? t('{count} groups', { count: rooms.length }) : null,
     ].filter(Boolean).join(' · ')))
 
-  const connectStatus = phoneOnline && connectCount === 1
+  const connectStatus = phoneOnline && connectCount === connectedPhones
     ? h(StatusPill, { tone: 'ok', text: t('Phone online') })
     : connectCount > 0
       ? h(StatusPill, { tone: 'ok', text: t('{count} connected', { count: connectCount }) })
-      : h(StatusPill, { tone: 'muted', text: t('Off') })
+      : phoneReady
+        ? h(StatusPill, { tone: 'ok', text: t('Ready') })
+        : h(StatusPill, { tone: 'muted', text: t('Off') })
 
   const toolsSummary = computerOn
     ? t('On')
@@ -150,7 +154,7 @@ export function GuidePage({ roster, actions, run, dsh }) {
               type: 'button',
               className: 'bt-guide-theme-pill',
               'aria-pressed': currentTheme === id,
-              onClick: () => run(actions.setPrefs({ theme: id })),
+              onClick: () => { if (currentTheme !== id) run(actions.setPrefs({ theme: id })) },
             },
             h('span', { className: 'bt-guide-theme-swatch', style: { background: palette.bg, borderColor: palette.accent } },
               h('span', { style: { background: palette.accent } })),

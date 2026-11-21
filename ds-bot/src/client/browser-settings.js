@@ -65,7 +65,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
       browserGrants: [...(selectedBot.browserGrants ?? []).filter(entry => !expired(entry)), grant],
     }))).then((ok) => {
       if (ok !== false) { setSite(''); setAdding(false) }
-    }).finally(() => setBusy(false))
+    }, () => {}).finally(() => setBusy(false))
   }
   const toggleKind = (kind, checked) => {
     setKinds(current => checked

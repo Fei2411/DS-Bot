@@ -474,7 +474,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
-          return { status: 'handled', run: () => actions.openSettings('general') }
+          return { status: 'handled', run: () => actions.openSettings('guide') }
         },
       }), 'ds-bot: settings command')
     }),

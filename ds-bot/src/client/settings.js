@@ -27,10 +27,11 @@ import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
 import { BotModelsPage } from './bot-models-page.js'
-import { GuidePage } from './guide-page.js'
+import { GuidePage, useDarkMode } from './guide-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
+import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 
@@ -101,13 +102,13 @@ const SEARCH_ENTRIES = [
   { id: 'general', label: 'General', group: 'General', page: 'general', icon: 'general', keywords: 'basics language workspace 语言 工作区 默认模型' },
   { id: 'default-model', label: 'Default model', group: 'General', page: 'general', icon: 'general', keywords: 'new bots model 默认模型' },
   { id: 'enter-send', label: 'Enter sends message', group: 'General', page: 'general', icon: 'general', keywords: 'input keyboard enter 回车 发送' },
-  { id: 'locations', label: 'Locations', group: 'General', page: 'general', icon: 'general', keywords: 'team workspace data folder path 目录 位置 文件夹' },
-  { id: 'memory', label: 'Memory', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'recall memory limits 记忆 上限 召回' },
-  { id: 'background', label: 'Background work', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'background commands timeout seconds 后台 命令 超时' },
-  { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
-  { id: 'appearance', label: 'Appearance', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'theme accent color dark light font 主题 强调色 颜色 深色 浅色 字体' },
-  { id: 'layout', label: 'Message layout', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'bubble flat width thinking 气泡 平铺 宽度 思考' },
-  { id: 'motion', label: 'Motion', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'interface motion animation quiet lively 动效 动画 安静 活泼' },
+  { id: 'locations', label: 'Locations', group: 'General', page: 'general', icon: 'general', keywords: 'team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置' },
+  { id: 'memory', label: 'Memory', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回' },
+  { id: 'background', label: 'Background work', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'background commands after seconds timeout 后台 命令 超时 秒' },
+  { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, requiresSurface: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
+  { id: 'appearance', label: 'Appearance', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'theme accent color dark light font size 主题 强调色 颜色 深色 浅色 字体 字号' },
+  { id: 'layout', label: 'Message layout', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'bubble flat text bubble width show thinking 气泡 平铺 宽度 显示思考过程 思考' },
+  { id: 'motion', label: 'Motion', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'interface motion bot animation quiet normal lively full reduced 界面动效 动画 安静 正常 活泼' },
   { id: 'models', label: 'Providers', group: 'Models', page: 'models', icon: 'models', keywords: 'api key openai anthropic gemini deepseek 模型 服务商 密钥' },
   { id: 'bot-models', label: 'Bot models', group: 'Models', page: 'bot-models', icon: 'bot-models', keywords: 'batch switch models 批量 切换 模型' },
   { id: 'local-agents', label: 'Local agents', group: 'Models', page: 'local-agents', icon: 'local-agents', keywords: 'cli claude codex antigravity acp 本地 代理' },
@@ -208,21 +209,6 @@ function WidthSlider({ label, value, save }) {
     h('output', null, `${width}%`))
 }
 
-const isDarkNow = () => typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true
-
-function useDarkMode() {
-  const [dark, setDark] = useState(isDarkNow)
-  useEffect(() => {
-    if (typeof document === 'undefined' || !document.body || typeof MutationObserver !== 'function') return undefined
-    const sync = () => setDark(isDarkNow())
-    sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
-    return () => observer.disconnect()
-  }, [])
-  return dark
-}
-
 function ThemeGallery({ themes, current, dark, onPick }) {
   return h('div', { className: 'bt-theme-grid', role: 'group', 'aria-label': t('Theme') },
     Object.entries(themes).map(([id, theme]) => {
@@ -235,7 +221,7 @@ function ThemeGallery({ themes, current, dark, onPick }) {
         'aria-pressed': active,
         onClick: () => { if (!active) onPick(id) },
       },
-      h('span', { className: 'bt-theme-preview', style: { background: palette.bg, borderColor: active ? palette.accent : undefined } },
+      h('span', { className: 'bt-theme-preview', style: { background: palette.bg } },
         h('span', { className: 'bt-theme-preview-side', style: { background: palette.sidebar } },
           h('span', { className: 'bt-theme-preview-dot', style: { background: palette.accent } }),
           h('span', { className: 'bt-theme-preview-bar', style: { background: palette.text } }),
@@ -307,13 +293,13 @@ function AppearancePage({ roster, actions, run, dsh }) {
   ]
 }
 
-function GeneralPage({ roster, actions, run, dsh, openAdvanced = false }) {
+function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
   const items = (dsh?.items ?? []).map(row => row.id).filter(id => id !== '')
   const basicDsh = BASIC_ITEMS.filter(id => items.includes(id))
   const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === 'agent')
-  const [advancedOpen, setAdvancedOpen] = useState(openAdvanced)
+  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(openAdvanced))
   useEffect(() => { if (openAdvanced) setAdvancedOpen(true) }, [openAdvanced])
   const advancedSummary = [t('Memory'), t('Background work'), actions.setSurface && !inAgentMode ? t('Classic Agent mode') : null].filter(Boolean).join(' · ')
   return [
@@ -472,10 +458,15 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [hitIndex, setHitIndex] = useState(0)
-  const [expandAdvanced, setExpandAdvanced] = useState(false)
-  const close = useCallback(() => actions.closeSettings(), [])
+  const [advancedToken, setAdvancedToken] = useState(0)
+  const searchListRef = useRef(null)
+  const close = useCallback(() => actions.closeSettings(), [actions])
   const trimmed = query.trim().toLowerCase()
-  useEscape(close, !leaving && trimmed === '')
+  const onEscape = useCallback(() => {
+    if (query !== '') { setQuery(''); return }
+    actions.closeSettings()
+  }, [query, actions])
+  useEscape(onEscape, !leaving)
   const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
@@ -491,6 +482,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
 
   const hasProviders = actions.providers !== undefined
   const hasServices = actions.deepseekServices !== undefined
+  const hasSurface = typeof actions.setSurface === 'function'
   const pageAvailable = key => (key !== 'models' || actions.providers !== undefined) && (key !== 'deepseek-services' || actions.deepseekServices !== undefined)
   const groups = useMemo(() => NAV_GROUPS.map(group => ({
     ...group,
@@ -521,13 +513,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
 
   const usableModels = (roster.models ?? []).filter(entry => entry.needsKey !== true && !isLocalRoute(entry.ref))
   const needsModel = hasProviders && usableModels.length === 0
-  const phoneOnline = Boolean(roster.phone?.on && roster.phone?.status === 'online')
+  const phoneConnected = Boolean(roster.phone?.on && roster.phone?.status === 'online' && (roster.phone?.phones ?? []).some(entry => entry.connected))
 
   const searchHits = useMemo(() => {
     if (trimmed === '') return []
     const tokens = trimmed.split(/\s+/).filter(Boolean)
     const allEntries = [
-      ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page)).map(entry => ({
+      ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map(entry => ({
         ...entry,
         title: t(entry.label),
         groupTitle: t(entry.group),
@@ -544,14 +536,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       })),
     ]
     return allEntries.filter(entry => tokens.every(token => entry.haystack.includes(token)))
-  }, [trimmed, hasProviders, hasServices, extra])
+  }, [trimmed, hasProviders, hasServices, hasSurface, extra])
 
   useEffect(() => { setHitIndex(0) }, [trimmed])
+  useEffect(() => {
+    if (trimmed === '') return
+    searchListRef.current?.querySelector('[aria-selected=true]')?.scrollIntoView?.({ block: 'nearest' })
+  }, [hitIndex, trimmed])
 
   const pickHit = (hit) => {
     if (!hit) return
     setQuery('')
-    if (hit.expandAdvanced) setExpandAdvanced(true)
+    if (hit.expandAdvanced) setAdvancedToken(token => token + 1)
     if (hit.page === 'dsh') actions.openSettings('dsh', hit.dshId)
     else actions.openSettings(hit.page)
   }
@@ -561,7 +557,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // across its own levels, so they share one page.
   const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
   useEffect(() => { setError('') }, [pageKey])
-  useEffect(() => { if (shown !== 'general' && expandAdvanced) setExpandAdvanced(false) }, [shown])
+  useEffect(() => { if (shown !== 'general' && advancedToken !== 0) setAdvancedToken(0) }, [shown])
   const depth = bot || room || advanced ? 1 : 0
   const last = useRef({ key: pageKey, depth, move: 'up' })
   if (last.current.key !== pageKey) {
@@ -577,7 +573,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id
     const dotTone = (group.id === 'guide' || group.id === 'models') && needsModel ? 'warn'
-      : group.id === 'connect' && phoneOnline ? 'ok'
+      : group.id === 'connect' && phoneConnected ? 'ok'
       : null
     return h('button', {
       key: group.id,
@@ -610,9 +606,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
             'aria-label': t('Search settings'),
             onChange: event => setQuery(event.target.value),
             onKeyDown: (event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Escape' && query !== '') {
                 event.preventDefault()
                 event.stopPropagation()
+                event.nativeEvent?.stopPropagation?.()
                 setQuery('')
                 return
               }
@@ -629,7 +627,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
             onClick: () => setQuery(''),
           }, h(CloseIcon)) : null),
         trimmed !== ''
-          ? h('div', { className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
+          ? h('div', { ref: searchListRef, className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
               searchHits.length === 0
                 ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings'))
                 : searchHits.map((hit, index) => h('button', {
@@ -669,7 +667,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           h('h2', { key: bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : activeGroup.id) }, bot?.name ?? room?.name ?? label),
           dsh ? h('div', { className: 'bt-settings-actions' }, dsh.renderSlot('settings.action', {})) : null),
         subTabs ? h('div', { className: 'bt-settings-subnav' },
-          h(Segmented, { label: t(activeGroup.label), value: shown, className: 'bt-settings-tabs' },
+          h(Segmented, { key: activeGroup.id, label: t(activeGroup.label), value: shown, className: 'bt-settings-tabs' },
             subTabs.map(([subKey, subLabel]) => h('button', {
               key: subKey,
               type: 'button',
@@ -682,7 +680,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           errorLine,
           h(PageBoundary, null,
           shown === 'guide' ? h(GuidePage, { roster, actions, run, dsh }) : null,
-          shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: expandAdvanced }) : null,
+          shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
           shown === 'appearance' ? h(AppearancePage, { roster, actions, run, dsh }) : null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,

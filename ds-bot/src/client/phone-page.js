@@ -11,7 +11,9 @@ const QUIET = 4
 function statusText(phone) {
   if (phone.error) return phone.error
   if (!phone.on) return t('Off')
-  if (phone.status === 'online') return t('Phone online')
+  if (phone.status === 'online') {
+    return (phone.phones ?? []).some(entry => entry.connected) ? t('Phone online') : t('Ready')
+  }
   if (phone.status === 'offline') return t('Cannot reach the Server. Trying again…')
   return t('Connecting…')
 }
@@ -54,6 +56,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef(null)
+  const prevState = useRef({ on: phone.on, status: phone.status, error: phone.error })
   const [, tick] = useState(0)
   useEffect(() => { setServer(phone.server) }, [phone.server])
   useEffect(() => () => clearTimeout(copyTimer.current), [])
@@ -67,13 +70,21 @@ export function PhonePage({ roster, actions, Section, Row }) {
   const run = task => {
     setBusy(true)
     setError(null)
-    return task.catch(failure => setError(failure?.message ?? String(failure))).finally(() => setBusy(false))
+    return Promise.resolve(task)
+      .then(() => true, (failure) => { setError(failure?.message ?? String(failure)); return false })
+      .finally(() => setBusy(false))
   }
   // One-click pairing: turning on phone access from the Pair button starts pairing as soon as online.
+  // Only cancel pending intent on fresh transitions (not stale pre-click error/offline state).
   useEffect(() => {
+    const prev = prevState.current
+    prevState.current = { on: phone.on, status: phone.status, error: phone.error }
     if (!wantPair) return
     if (phone.pairing) { setWantPair(false); return }
-    if (phone.error || phone.status === 'offline') { setWantPair(false); return }
+    const newlyFailed = Boolean(phone.error) && phone.error !== prev.error
+    const newlyOffline = phone.status === 'offline' && prev.status !== 'offline'
+    const turnedOff = !phone.on && prev.on
+    if (newlyFailed || newlyOffline || turnedOff) { setWantPair(false); return }
     if (phone.on && phone.status === 'online') {
       setWantPair(false)
       void run(actions.phonePair())
@@ -82,7 +93,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
 
   const saveServer = () => {
     if (busy || server.trim() === phone.server) return
-    void run(actions.phoneSet({ server })).then(() => setEditingServer(false))
+    void run(actions.phoneSet({ server })).then((ok) => { if (ok) setEditingServer(false) })
   }
   const startPair = () => {
     if (busy) return
@@ -92,7 +103,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
     }
     setWantPair(true)
     if (!phone.on) {
-      void run(actions.phoneSet({ on: true })).catch(() => setWantPair(false))
+      void run(actions.phoneSet({ on: true })).then((ok) => { if (!ok) setWantPair(false) })
     }
   }
   const copyBrowserLink = (url) => {
@@ -141,6 +152,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
               h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
               h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t('Copied') : t('Copy browser link')))
             : null,
+          browserUrl !== null ? h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')) : null,
           h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : [
           h(Row, { key: 'qr', label: t('Show QR code') },
