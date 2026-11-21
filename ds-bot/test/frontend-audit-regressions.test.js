@@ -998,3 +998,61 @@ test('room-chat adapter renders distinct group members and round events in ChatR
     globalThis.document = origDoc
   }
 })
+
+test('Settings nav icons are unique and KeyIcon uses valid circle geometry', async () => {
+  const settingsSrc = readFileSync(join(clientDir, 'settings.js'), 'utf8')
+  const pageIconsMatch = settingsSrc.match(/const PAGE_ICONS = \{([^}]+)\}/)
+  assert.ok(pageIconsMatch, 'PAGE_ICONS map should exist in settings.js')
+  assert.doesNotMatch(pageIconsMatch[1], /\bim:\s*ChatsIcon\b/, 'IM must not reuse ChatsIcon (Group chats)')
+  assert.doesNotMatch(pageIconsMatch[1], /\bcapabilities:\s*PlugIcon\b/, 'Capabilities must not reuse PlugIcon (MCP)')
+  assert.doesNotMatch(pageIconsMatch[1], /'bot-models':\s*IconPersonalizationOutlineMedium\b/, 'Bot models must not reuse DSH plugins icon')
+  const pairs = [...pageIconsMatch[1].matchAll(/(?:'([^']+)'|([A-Za-z_]\w*))\s*:\s*([A-Za-z_]\w*)/g)]
+  const seenIcons = new Map()
+  for (const [, quoted, bare, icon] of pairs) {
+    const page = quoted ?? bare
+    assert.ok(!seenIcons.has(icon), `Settings page "${page}" shares icon "${icon}" with "${seenIcons.get(icon)}"`)
+    seenIcons.set(icon, page)
+  }
+
+  const code = await loadClientBundle("export { KeyIcon, SecretsPage } from './src/client/secret-card.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => fake.React)
+  const { KeyIcon, SecretsPage } = mod.exports
+
+  const keyTree = KeyIcon()
+  const circles = findAll(keyTree, n => n.type === 'circle')
+  assert.equal(circles.length, 1, 'KeyIcon should render a real circle for the key bow')
+  assert.doesNotMatch(JSON.stringify(keyTree), /\.01z/, 'KeyIcon must not use degenerate .01z arc')
+
+  const Section = ({ title, children }) => fake.React.createElement('section', { className: 'bt-set-section' },
+    fake.React.createElement('h3', null, title),
+    fake.React.createElement('div', { className: 'bt-set-card' }, children))
+  for (const mode of ['plaintext', 'encrypted']) {
+    fake.clear()
+    const tree = fake.React.createElement('div', null, SecretsPage({
+      roster: { bots: [], byId: {}, secrets: [], secretStore: { mode } },
+      actions: {},
+      run: p => p,
+      Section,
+    }))
+    const cards = findAll(tree, n => n.props?.className === 'bt-set-card')
+    for (const card of cards) {
+      for (const child of card.children) {
+        assert.notEqual(child.props?.className, 'bt-actions', `SecretStoreCard (${mode}) must not put unpadded .bt-actions directly inside .bt-set-card`)
+      }
+    }
+  }
+})
+
+test('styles.js places .bt-set-card divider rule after .bt-set-row and preserves .bt-phone-server override', async () => {
+  const code = await loadClientBundle("export { SHELL_CSS } from './src/client/styles.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}))
+  const { SHELL_CSS } = mod.exports
+  const rowPos = SHELL_CSS.indexOf('.bt-set-row{')
+  const dividerPos = SHELL_CSS.indexOf('.bt-set-card>*+*{border-top:')
+  const phonePos = SHELL_CSS.indexOf('.bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}')
+  assert.ok(rowPos > 0 && dividerPos > rowPos, '.bt-set-card>*+* must follow .bt-set-row so border:0 does not strip card dividers')
+  assert.ok(phonePos > dividerPos, '.bt-phone-server must override .bt-set-card>*+* without clipping input padding')
+})
