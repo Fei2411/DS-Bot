@@ -6,7 +6,7 @@
 // the group like a message from the user (see reminderText). DSH 0.2.0 mounts the service only with its Automation tasks bundle on, so
 // the service is optional and every endpoint reports whether it is there.
 
-import { threadCurrentOfPart } from './threads.js'
+import { threadCurrentOfPart, threadOfPart } from './threads.js'
 
 const MAX_TITLE = 120
 // A time input reports HH:mm, or HH:mm:ss when the browser's picker shows seconds.
@@ -110,14 +110,19 @@ export function install(rt) {
     if (room !== undefined) return { roomId: room.id }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
-  // The part that now carries the thread a task's Session belongs to: a Bot's chat, an
-  // older chat still open beside it, or a running background task each go on in their
-  // own thread. A group member's own part and a finished task's part have none here.
+  // The part that now carries the thread a task's Session belongs to: a Bot's chat and an
+  // older chat still open beside it each go on in their own thread. A group member's own
+  // part has none here.
   const currentSessionOf = (owner, sessionId) => {
     if (owner === undefined || (owner.botId !== undefined && owner.roomId !== undefined)) return undefined
     if (owner.botId !== undefined) {
       const bot = rt.botOf(owner.botId)
-      return bot === undefined ? undefined : threadCurrentOfPart(bot, sessionId)
+      if (bot === undefined) return undefined
+      // A background task's Session holds no schedules: the hand-off moves them to the
+      // foreground chat, and a task may not make one. One found there was left by a move
+      // that failed, so it goes back to the foreground chat.
+      if (threadOfPart(bot, sessionId)?.thread === 'task') return rt.chatOf(owner.botId)
+      return threadCurrentOfPart(bot, sessionId)
     }
     const room = rt.roomOf(owner.roomId)
     return room === undefined ? undefined : rt.sessionOfRoom(room)
