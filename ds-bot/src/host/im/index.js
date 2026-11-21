@@ -21,6 +21,7 @@ const RETRY_MAX_MS = 30_000
 const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const CONSUMED_REQUESTS_KEEP = 200
+const WEIXIN_REQUESTS_KEEP = 200
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 // A quoted reply is answered with the message it quotes: the last messages sent
 // to a chat are kept by the ids the platform named them, and only their start.
@@ -928,6 +929,37 @@ export function install(rt) {
     return undefined
   }
 
+  const rememberWeixinRequest = async (conn, requestId, chatKey, senderId) => {
+    // DSH can restore its queued prompt after a restart. Commit the route
+    // before handing it the request so the two cannot be saved in the wrong order.
+    const entry = { chatKey, senderId, binding: bindingOf(conn, chatKey), pairedAt: conn.paired?.find(peer => peer.id === senderId)?.at }
+    const recent = conn.weixinRequests = { ...conn.weixinRequests, [requestId]: entry }
+    const ids = Object.keys(recent)
+    for (let i = 0; i < ids.length - WEIXIN_REQUESTS_KEEP; i++) delete recent[ids[i]]
+    try {
+      await rt.save({ required: true })
+    } catch (error) {
+      delete conn.weixinRequests[requestId]
+      throw error
+    }
+  }
+
+  const weixinRequestOf = (source, sessionId) => {
+    const rpcId = source?.rpcId
+    if (typeof rpcId !== 'string' || !rpcId.startsWith('im:weixin:') || source.kind !== 'user' || source.principal !== undefined) return undefined
+    for (const conn of Object.values(connections())) {
+      if (conn.platform !== 'weixin' || conn.enabled === false) continue
+      const entry = rt.own(conn.weixinRequests, rpcId)
+      if (entry?.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) continue
+      if (!conn.paired?.some(peer => peer.id === entry.senderId && peer.at === entry.pairedAt)) continue
+      const target = resolveTarget(conn, conn.chats[entry.chatKey])
+      if (target === undefined) continue
+      const targetSession = target.botId !== undefined ? chatOfBot(target.botId) : rt.sessionOfRoom(rt.roomOf(target.roomId))
+      if (targetSession === sessionId && (entry.consumedOn === undefined || entry.consumedOn === sessionId)) return { conn, entry }
+    }
+    return undefined
+  }
+
   // One card this chat was sent and has not answered yet. A button names its own
   // card, so it must never fall through to a newer card of the same kind.
   const openCard = (conn, chatKey, cardKey) => {
@@ -1090,7 +1122,8 @@ export function install(rt) {
     if (content.length === 0) return
     const requestId = `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
+    if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
+    else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
     await rt.sendUser({ sessionId, content, requestId })
   }
 
@@ -1711,6 +1744,8 @@ export function install(rt) {
     if (event.type === 'user/message') {
       const source = event.data?.source
       if (typeof source?.rpcId === 'string' && consumedRequests.has(source.rpcId)) return
+      const savedRequest = weixinRequestOf(source, session.id)
+      if (savedRequest?.entry.consumedOn !== undefined) return
       // Pure context notice injected before the user's message on a newly forked foreground;
       // never touch pendingReset or drop/mix the IM origin for this turn.
       if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
@@ -1775,7 +1810,12 @@ export function install(rt) {
           // including redelivery after their turn ended; they must not claim it again.
           const asked = requests.get(rpcId)
           requests.delete(rpcId)
-          if (asked === undefined) dropOrigin(session.id)
+          if (savedRequest !== undefined) {
+            const { conn, entry } = savedRequest
+            entry.consumedOn = session.id
+            void rt.save().catch(() => {})
+            claimOrigin(session.id, conn.id, entry.chatKey, entry.senderId, entry.binding)
+          } else if (asked === undefined) dropOrigin(session.id)
           else {
             consumedRequests.add(rpcId)
             if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
