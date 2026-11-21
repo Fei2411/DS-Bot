@@ -223,15 +223,19 @@ export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
   const target = useRef(null)
   const live = useRef(current)
   live.current = current
+  // The team as last read: a change that rests after an earlier one came back builds on it.
+  const latest = useRef(prefs)
+  latest.current = prefs
   useEffect(() => { if (target.current?.id !== current) target.current = null }, [current])
   // Edits sent but not yet back from the host: the next edit starts from them, so two quick
   // edits of different colors both land.
   const draft = useRef(null)
-  // A save is bound to the theme and mode of the render the change was made in.
+  // A save goes to the theme and mode of the render the change was made in, and builds on
+  // that theme's newest colors: the edit still on its way, else the team as last read.
   const save = (change, extra = {}) => {
     if (!theme.own && target.current?.from !== current) target.current = { from: current, id: newThemeId() }
     const id = theme.own ? current : target.current.id
-    const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme
+    const base = draft.current?.id === id ? draft.current.theme : themesOf(latest.current)[id] ?? theme
     const next = { label: theme.own ? base.label : t('{name} (mine)', { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } }
     next[mode] = change(next[mode])
     draft.current = { id, theme: next }

@@ -28389,6 +28389,8 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
   const target = (0, import_react27.useRef)(null);
   const live = (0, import_react27.useRef)(current2);
   live.current = current2;
+  const latest = (0, import_react27.useRef)(prefs);
+  latest.current = prefs;
   (0, import_react27.useEffect)(() => {
     if (target.current?.id !== current2) target.current = null;
   }, [current2]);
@@ -28396,7 +28398,7 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
   const save = (change, extra = {}) => {
     if (!theme.own && target.current?.from !== current2) target.current = { from: current2, id: newThemeId() };
     const id = theme.own ? current2 : target.current.id;
-    const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme;
+    const base = draft.current?.id === id ? draft.current.theme : themesOf(latest.current)[id] ?? theme;
     const next = { label: theme.own ? base.label : t("{name} (mine)", { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } };
     next[mode] = change(next[mode]);
     draft.current = { id, theme: next };

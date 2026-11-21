@@ -138,3 +138,31 @@ test('a color typed in one theme is saved to it when another theme is picked bef
   assert.equal(sent.length, 1)
   harness.unmount()
 })
+
+test('two quick color changes both land when the first comes back before the second rests', async (t) => {
+  withDocument(t)
+  const { harness, ColorsSection } = await load()
+  const colors = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  let themes = { 'my-dawn': { label: 'Dawn', light: colors, dark: colors } }
+  const sent = []
+  const back = []
+  const actions = { setPrefs: (change) => { sent.push(change); return new Promise((resolve) => { back.push(resolve) }) } }
+  const draw = () => harness.render(harness.React.createElement(ColorsSection, { prefs: { theme: 'my-dawn', themes }, actions, run: p => p, Section, Row, Choice }))
+  // Both colors are picked on the same drawing, the second a moment after the first.
+  const tree = draw()
+  byLabel(tree, 'Background color').props.onChange({ target: { value: '#203040' } })
+  await sleep(200)
+  byLabel(tree, 'Text color').props.onChange({ target: { value: '#eeeeee' } })
+  await sleep(250)
+  // The background is saved and comes back before the text rests.
+  assert.equal(sent.length, 1)
+  themes = { 'my-dawn': { ...sent[0].themes['my-dawn'], light: sent[0].themes['my-dawn'].light } }
+  back[0]()
+  await sleep(5)
+  draw()
+  await sleep(REST_MS)
+  assert.equal(sent.length, 2)
+  assert.equal(sent[1].themes['my-dawn'].light.bg, '#203040')
+  assert.equal(sent[1].themes['my-dawn'].light.text, '#eeeeee')
+  harness.unmount()
+})
