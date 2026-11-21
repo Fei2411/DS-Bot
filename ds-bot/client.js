@@ -42423,6 +42423,22 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeTexts(storage, texts2);
 }
+var sentTexts = /* @__PURE__ */ new Map();
+var sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ""}`;
+function keepSentDraft({ chatId, sessionId, text }) {
+  const key = sentKey(chatId, sessionId);
+  if (text === "") sentTexts.delete(key);
+  else sentTexts.set(key, text);
+}
+function takeSentDraft({ chatId, sessionId }) {
+  const key = sentKey(chatId, sessionId);
+  const text = sentTexts.get(key) ?? "";
+  sentTexts.delete(key);
+  return text;
+}
+function dropSentDraft({ chatId, sessionId }) {
+  sentTexts.delete(sentKey(chatId, sessionId));
+}
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
   const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
@@ -42432,7 +42448,11 @@ function takeDraft({ chatId, part, text, attached }, storage = globalThis.localS
 }
 function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
-  for (const chatId of gone) keptFiles.delete(chatId);
+  for (const chatId of gone) {
+    keptFiles.delete(chatId);
+    const prefix = `${chatId}:`;
+    for (const key of sentTexts.keys()) if (key.startsWith(prefix)) sentTexts.delete(key);
+  }
   const texts2 = readTexts(storage);
   const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
   if (listed.length === 0) return;
@@ -42441,6 +42461,7 @@ function pruneDrafts(gone, storage = globalThis.localStorage) {
 }
 function forgetKeptFiles() {
   keptFiles.clear();
+  sentTexts.clear();
 }
 
 // src/client/composer.js
@@ -42701,12 +42722,19 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
   const frozen = FROZEN_PHASES.has(phase);
+  const sending = phase === "sending";
   const restored = (0, import_react60.useRef)("");
   const pending = (0, import_react60.useRef)({ text: false, files: false });
+  const dropped = (0, import_react60.useRef)("");
   (0, import_react60.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
     const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
+    const sent = takeSentDraft({ chatId, sessionId });
+    if (sent !== "") {
+      dropped.current = sent;
+      if (draft === sent) inputActions.setDraft("");
+    }
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
     let added = [];
     let attached = false;
@@ -42739,16 +42767,21 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react60.useEffect)(() => {
-    if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (!current2) return;
     if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      if (sending && draft !== "") keepSentDraft({ chatId, sessionId, text: draft });
+      if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: "", files: [] });
       return;
     }
+    if (restored.current !== `${chatId}:${sessionId}`) return;
+    if (dropped.current !== "" && draft === dropped.current) return;
+    dropped.current = "";
+    dropSentDraft({ chatId, sessionId });
     if (pending.current.text && draft === "") return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
-  }, [current2, frozen, chatId, sessionId, draft, ids]);
+  }, [current2, sending, frozen, chatId, sessionId, draft, ids]);
   return null;
 }
 

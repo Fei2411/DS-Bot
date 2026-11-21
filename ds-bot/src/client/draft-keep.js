@@ -69,6 +69,48 @@ export function keepDraft({ chatId, part, text, files }, storage = globalThis.lo
   writeTexts(storage, texts)
 }
 
+// The text of a message that was already sent is not a draft. The shell may close its
+// composer before it commits the emptied draft and hand the sent text back on the next
+// visit; this page remembers the send so that visit can clear the box instead (#1891).
+// The note lives in this page's memory, never in browser storage: storage is shared by
+// every tab, and a mark another tab left is not this page's to act on (#2003). It belongs
+// to the Session that sent it, so a parallel Session of the same chat, which the user may
+// switch to, neither reads it nor consumes it (#2003 review).
+const sentTexts = new Map()
+
+const sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ''}`
+
+/**
+ * Remember that this page sent a message with this text in one Session of a chat.
+ * @param {{ chatId: string, sessionId: string, text: string }} sent
+ */
+export function keepSentDraft({ chatId, sessionId, text }) {
+  const key = sentKey(chatId, sessionId)
+  if (text === '') sentTexts.delete(key)
+  else sentTexts.set(key, text)
+}
+
+/**
+ * The text this page sent in this Session, read once when its composer opens again.
+ * @param {{ chatId: string, sessionId: string }} where
+ * @returns {string}
+ */
+export function takeSentDraft({ chatId, sessionId }) {
+  const key = sentKey(chatId, sessionId)
+  const text = sentTexts.get(key) ?? ''
+  sentTexts.delete(key)
+  return text
+}
+
+/**
+ * The composer is open and the send has settled: the shell can no longer hand the text
+ * back, so the mark is no longer needed.
+ * @param {{ chatId: string, sessionId: string }} where
+ */
+export function dropSentDraft({ chatId, sessionId }) {
+  sentTexts.delete(sentKey(chatId, sessionId))
+}
+
 /**
  * What a chat's current part takes back when its composer opens: the files when it has
  * none attached, and the text when the draft was typed in an earlier part and the box
@@ -95,7 +137,11 @@ export function takeDraft({ chatId, part, text, attached }, storage = globalThis
  */
 export function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return
-  for (const chatId of gone) keptFiles.delete(chatId)
+  for (const chatId of gone) {
+    keptFiles.delete(chatId)
+    const prefix = `${chatId}:`
+    for (const key of sentTexts.keys()) if (key.startsWith(prefix)) sentTexts.delete(key)
+  }
   const texts = readTexts(storage)
   const listed = gone.filter(chatId => texts[chatId] !== undefined)
   if (listed.length === 0) return
@@ -106,4 +152,5 @@ export function pruneDrafts(gone, storage = globalThis.localStorage) {
 /** Test seam: start from an empty page. */
 export function forgetKeptFiles() {
   keptFiles.clear()
+  sentTexts.clear()
 }
