@@ -64,6 +64,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on system-prompt/assemble',
     'on llm/stream',
     'on session/event',
+    'effect ds-bot: deepseek services',
     'effect ds-bot: chat index',
     'effect ds-bot: group rounds',
     'effect ds-bot: group step lines',
@@ -95,6 +96,9 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
+    'on session/event',
+    // bot-tasks.js: approval status bridge and turn/end task settlement.
+    'effect ds-bot: bot-tasks approval bridge',
     'on session/event',
     // changes.js: the announced workspace/changes turn, remembered for the group row.
     'on session/event',

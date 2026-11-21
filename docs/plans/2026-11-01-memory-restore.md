@@ -8,8 +8,8 @@ issue: 464
 ## What and why
 
 `journal.jsonl` (and a private Bot's own log) already keeps every memory change with
-the line before and after, but nothing reads it for undo: a wrong remember, replace,
-or forget is permanent unless the files are edited by hand. This adds a restore —
+the line before and after, but nothing reads it for undo: a wrong bot_remember, replace,
+or bot_forget is permanent unless the files are edited by hand. This adds a restore —
 `memory-restore` on the `api/bot` channel — that applies the inverse of one journal
 row, and the Change history page in the memory dialog that lists those rows with an
 Undo button each (`memory-history`).
@@ -33,7 +33,7 @@ Undo button each (`memory-history`).
   as the row left it:
   - `add` → the recorded `after` line is taken back out, verbatim. A topic left
     with only its title is removed, and its `## Index` link with it — the same
-    cleanup a forget does.
+    cleanup a bot_forget does.
   - `remove` → the `before` line is put back where a new entry would go (the
     original position is not in the row). A topic the remove took away is made
     again with its link; a line already back is not duplicated.

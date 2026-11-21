@@ -3,8 +3,8 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { downloadFile } from '../team/file-download.ts'
-import * as Sharing from 'expo-sharing'
+import { downloadFile } from '../team/file-download'
+import { shareFile } from '../team/share-file'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
@@ -17,6 +17,7 @@ import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
+import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
@@ -243,7 +244,31 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
   const question: Question | undefined = team?.questions?.[sessionId]
-  const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
+  const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => (
+    entry.sessionId === sessionId
+    || (entry.roomId !== undefined && entry.roomId === room?.id)
+    || (bot !== undefined && entry.roomId === undefined && entry.botId === bot.id && entry.taskId !== undefined)
+  ))
+  const activeTasks = useMemo(() => {
+    const active = new Set(['running', 'waiting_work', 'waiting_approval'])
+    if (room !== undefined) {
+      const list: { botId: string; botName: string; task: NonNullable<Bot['tasks']>[number] }[] = []
+      for (const memberId of room.members ?? []) {
+        const member = (team?.bots ?? []).find(b => b.id === memberId)
+        if (!member) continue
+        for (const task of member.tasks ?? []) {
+          if (task.roomId === room.id && active.has(task.status)) list.push({ botId: member.id, botName: member.name, task })
+        }
+      }
+      return list
+    }
+    if (bot !== undefined) {
+      return (bot.tasks ?? [])
+        .filter(task => !task.roomId && active.has(task.status))
+        .map(task => ({ botId: bot.id, botName: bot.name, task }))
+    }
+    return []
+  }, [bot, room, team?.bots])
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
@@ -275,8 +300,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     void (async () => {
       try {
         const saved = await downloadFile(call, payload)
-        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
-        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
+        await shareFile(saved)
       } catch (failure) {
         const msg = (failure as { message?: string })?.message
         setFileError(msg ?? t('Could not save this file'))
@@ -321,7 +345,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     if (online && !wasOnline.current) { void refresh(generation.current); refreshTeam?.() }
     wasOnline.current = online
   }, [online, refresh, refreshTeam])
-  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined
+  const learning = learningForChat(team?.learning, bot?.id, bot?.sessionId ?? bot?.id, sessionId)
+  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined || learning.length > 0
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
@@ -438,6 +463,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={KEYBOARD_GAP - insets.bottom} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
+      {activeTasks.length > 0 ? <TasksBar tasks={activeTasks} inRoom={inRoom} call={call} p={p} /> : null}
       <View style={styles.list} onLayout={event => setChatWidth(event.nativeEvent.layout.width - 24)}>
         {gone
           ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
@@ -496,7 +522,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
@@ -549,6 +575,46 @@ function stampOf(items: ChatItem[], index: number): string | undefined {
 interface Goal { status?: string; idle?: boolean; title?: string; current?: number; stages?: { title?: string; status?: string; tasks?: { status?: string }[] }[] }
 const REPORTED = new Set(['reported', 'done'])
 const RUNNING = new Set(['active', 'paused'])
+function TasksBar({ tasks, inRoom, call, p }: { tasks: { botId: string; botName: string; task: NonNullable<Bot['tasks']>[number] }[]; inRoom: boolean; call: (endpoint: string, body?: Record<string, unknown>) => Promise<unknown>; p: ReturnType<typeof useTheme>['p'] }) {
+  const [open, setOpen] = useState(false)
+  const [stopping, setStopping] = useState<string | null>(null)
+  const waiting = tasks.filter(item => item.task.status === 'waiting_approval').length
+  const label = tasks.length === 1 ? tasks[0].task.title : t('{count} background tasks running', { count: tasks.length })
+  const stopOne = async (botId: string, taskId: string) => {
+    setStopping(taskId)
+    try { await call('bot-stop-task', { botId, taskId }) }
+    catch { /* host refresh reconciles */ }
+    finally { setStopping(curr => (curr === taskId ? null : curr)) }
+  }
+  return (
+    <View style={[styles.goal, { backgroundColor: p.card, borderColor: p.line }]}>
+      <Pressable accessibilityRole="button" onPress={() => setOpen(v => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: waiting > 0 ? '#e3a008' : p.accent }} />
+        <Text style={[type.small, { color: p.ink, fontWeight: '500', flex: 1 }]} numberOfLines={1}>{label}</Text>
+        <Text style={[type.caption, { color: p.ink3 }]}>{tasks.length}</Text>
+      </Pressable>
+      {open ? (
+        <View style={{ marginTop: 10, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingTop: 10 }}>
+          {tasks.map(({ botId, botName, task }) => (
+            <View key={task.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{task.title}</Text>
+                <Text style={[type.caption, { color: task.status === 'waiting_approval' ? '#e3a008' : p.ink3 }]} numberOfLines={1}>
+                  {[inRoom ? botName : '', task.status === 'waiting_approval' ? t('Waiting for approval') : t('Running')].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              <Pressable accessibilityRole="button" disabled={stopping === task.id} onPress={() => void stopOne(botId, task.id)}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: p.hover, opacity: stopping === task.id ? 0.45 : 1 }}>
+                <Text style={[type.caption, { color: p.danger, fontWeight: '600' }]}>{t('Stop')}</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] }) {
   const [open, setOpen] = useState(false)
   const stages = goal.stages ?? []

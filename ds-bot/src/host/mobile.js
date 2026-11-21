@@ -231,7 +231,7 @@ export function install(rt) {
     }
     if (event.type !== 'assistant/message') return
     const botId = rt.chatOwners.get(id)
-    if (botId === undefined || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
+    if (botId === undefined || rt.taskOwners?.has(id) || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
     const text = textOf(event.data?.message?.content)
     // The fixed reply that opens a fresh part is not the Bot speaking.
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })
@@ -437,6 +437,41 @@ export function install(rt) {
   const mimeOf = value => FILE_MIMES[(nameOf(value).split('.').pop() ?? '').toLowerCase()] ?? 'application/octet-stream'
   const tooLarge = () => Object.assign(new Error('This file is too large to save here (over 16 MB)'), { code: 'bot/refused' })
   const unavailable = () => Object.assign(new Error('This file is no longer available'), { code: 'bot/not-found' })
+  const fileLocators = new Map()
+  const FILE_LOCATOR_TTL = 60_000
+  const FILE_LOCATORS_KEPT = 200
+
+  async function attachmentChunk(attachments, ref, offset) {
+    const path = attachments.fileHostPath?.(ref)
+    if (path !== undefined) {
+      const handle = await open(path, 'r').catch(error => {
+        if (error.code === 'ENOENT') throw unavailable()
+        throw error
+      })
+      try {
+        const info = await handle.stat()
+        if (!info.isFile() || info.size !== ref.bytes || offset > info.size) throw unavailable()
+        const bytes = Buffer.alloc(Math.min(FILE_CHUNK_BYTES, info.size - offset))
+        const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset)
+        if (bytesRead !== bytes.length) throw unavailable()
+        return { name: nameOf(ref.name), mime: mediaOf(ref) ?? mimeOf(ref.name), bytes: bytes.toString('base64'), size: info.size, version: ref.attachmentId, nextOffset: offset + bytesRead, done: offset + bytesRead === info.size }
+      } finally { await handle.close() }
+    }
+    const chunks = []
+    let seen = 0
+    let length = 0
+    for await (const chunk of attachments.readFileStream(ref, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
+      const start = Math.max(0, offset - seen)
+      seen += chunk.length
+      const data = Buffer.from(chunk).subarray(start, start + FILE_CHUNK_BYTES - length)
+      if (data.length > 0) { chunks.push(data); length += data.length }
+      if (length === FILE_CHUNK_BYTES) break
+    }
+    const size = ref.bytes
+    if (offset > size || (length === 0 && offset < size)) throw unavailable()
+    const nextOffset = offset + length
+    return { name: nameOf(ref.name), mime: mediaOf(ref) ?? mimeOf(ref.name), bytes: Buffer.concat(chunks).toString('base64'), size, version: ref.attachmentId, nextOffset, done: nextOffset >= size }
+  }
 
   async function fileDownload(body) {
     const chunked = body.offset !== undefined
@@ -466,6 +501,11 @@ export function install(rt) {
     // Presented files keep their own part's sessionId, because seq is local to one Session.
     if (presentedSeq !== undefined && !owned.has(sessionId)) throw unavailable()
     const sessions = presentedSeq !== undefined ? [sessionId] : [...owned].reverse()
+    const locatorKey = chunked && attachmentId !== undefined && presentedSeq === undefined ? `${sessionId}\n${attachmentId}` : undefined
+    const locator = fileLocators.get(locatorKey)
+    if (locator !== undefined && locator.expires > Date.now() && sessions.includes(locator.targetId)) {
+      return attachmentChunk(attachments, locator.ref, offset)
+    }
     for (const targetId of sessions) {
       let beforeSeq
       for (;;) {
@@ -504,21 +544,12 @@ export function install(rt) {
           for (const block of content) {
             if (block?.type !== 'file' || String(block.attachment?.attachmentId) !== attachmentId) continue
             if (chunked) {
-              // Attachment ids are content hashes. Stream only as far as this chunk needs.
-              const chunks = []
-              let seen = 0
-              let length = 0
-              for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
-                const start = Math.max(0, offset - seen)
-                seen += chunk.length
-                const data = Buffer.from(chunk).subarray(start, start + FILE_CHUNK_BYTES - length)
-                if (data.length > 0) { chunks.push(data); length += data.length }
-                if (length === FILE_CHUNK_BYTES) break
+              if (locatorKey !== undefined) {
+                fileLocators.delete(locatorKey)
+                fileLocators.set(locatorKey, { targetId, ref: block.attachment, expires: Date.now() + FILE_LOCATOR_TTL })
+                if (fileLocators.size > FILE_LOCATORS_KEPT) fileLocators.delete(fileLocators.keys().next().value)
               }
-              const size = block.attachment.bytes
-              if (offset > size || (length === 0 && offset < size)) throw unavailable()
-              const nextOffset = offset + length
-              return { name: nameOf(block.attachment.name), mime: mediaOf(block.attachment) ?? mimeOf(block.attachment.name), bytes: Buffer.concat(chunks).toString('base64'), size, version: attachmentId, nextOffset, done: nextOffset >= size }
+              return attachmentChunk(attachments, block.attachment, offset)
             }
             const chunks = []
             let size = 0
@@ -588,10 +619,27 @@ export function install(rt) {
     const agent = await rt.resolveAgent(targetSessionId).catch(() => undefined)
     const baseDir = rt.sessionFolder?.(agent?.session) ?? rt.workDirOf?.({ botId, roomId: room?.id }) ?? rt.teamFolder?.() ?? rt.defaultTeamFolder?.()
     if (!baseDir) throw Object.assign(new Error('Workspace unavailable'), { code: 'bot/not-found' })
-    const realBase = await rt.real(baseDir)
+    const realBase = await (rt.realBeyond?.(baseDir) ?? rt.real(baseDir))
     const candidate = resolve(realBase, cleanPath)
-    const realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
+    let realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
     let allowed = within(realPath, realBase)
+    // When a group member has its own working folder distinct from the group's
+    // session folder, check the validated author's folder first for relative paths
+    // so a same-named file in the team workspace never shadows the author's image.
+    if (!isAbsolute(cleanPath) && authorId !== undefined) {
+      const authorDir = rt.workDirOf?.({ botId: authorId, roomId: room?.id })
+      if (authorDir) {
+        const realAuthorBase = await (rt.realBeyond?.(authorDir) ?? rt.real(authorDir))
+        if (realAuthorBase !== realBase) {
+          const authorCandidate = resolve(realAuthorBase, cleanPath)
+          const realAuthorPath = await (rt.realBeyond?.(authorCandidate) ?? rt.real(authorCandidate))
+          if (within(realAuthorPath, realAuthorBase) && await stat(realAuthorPath).then(info => info.isFile(), () => false)) {
+            realPath = realAuthorPath
+            allowed = true
+          }
+        }
+      }
+    }
     if (!allowed && isAbsolute(cleanPath)) {
       const extraDirs = [
         rt.teamFolder?.(),

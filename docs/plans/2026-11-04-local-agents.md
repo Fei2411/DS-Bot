@@ -67,7 +67,7 @@ and model changes all work the same way.
   together (see Run mode), because a CLI session cannot move between modes.
 - The after-turn memory review and the memory panel's model calls run on the
   Bot's own CLI and model, in a one-off read-only session, as the steward does. Abots get memory in the system prompt and the
-  remember, forget, and recall tools like any Bot.
+  bot_remember, bot_forget, and bot_recall tools like any Bot.
 - Abots are full peers: a Main Bot, a group admin, or a member.
 - Steering while a CLI turn runs is passed to the CLI when it supports it, else
   it goes out as the next prompt in the same step.

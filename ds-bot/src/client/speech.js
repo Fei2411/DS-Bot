@@ -1,6 +1,7 @@
-// The recognizer of DSH's Voice Input plugin (local SenseVoice). Its `speech` Remote
-// exists only while that plugin is on; the browser's own speech service stays the
-// fallback. The plugin takes one complete 16 kHz mono PCM16 WAV per request.
+// The recognizer of DSH's Voice Input plugin (local SenseVoice, or a cloud
+// provider such as deepseek-asr). Its `speech` Remote exists only while that
+// plugin is on; the browser's own speech service stays the fallback. The
+// plugin takes one complete 16 kHz mono PCM16 WAV per request.
 export const VOICE_BUNDLE = '@deepseek-ai/dsh-experimental-voice-input-bundle'
 const USABLE = new Set(['ready', 'standby', 'waking'])
 
@@ -9,7 +10,9 @@ export async function speechCatalog(speech) {
   if (!result?.ok) throw new Error(result?.error?.message ?? 'Speech catalog failed')
   const catalog = result.value
   const provider = catalog.providers.find(item => item.id === catalog.selection.providerId)
-  return { catalog, usable: USABLE.has(provider?.preparation?.phase) }
+  // A provider without preparation (a cloud recognizer) is usable right away;
+  // the selection naming a provider that is not in the catalog at all is not.
+  return { catalog, usable: provider !== undefined && (provider.preparation === undefined || USABLE.has(provider.preparation.phase)) }
 }
 
 // Ask the provider to prepare. A refused request resolves as a result, not a
@@ -29,8 +32,10 @@ export async function requestPreparation(speech, providerId) {
 // setup step shows again and can be retried; anything else keeps waiting,
 // 'pct' carrying download progress when the provider reports byte totals.
 export function preparationStep(catalog) {
-  const preparation = catalog.providers.find(item => item.id === catalog.selection.providerId)?.preparation
-  if (preparation === undefined) return { state: 'done', failed: false }
+  const provider = catalog.providers.find(item => item.id === catalog.selection.providerId)
+  if (provider === undefined) return { state: 'done', failed: false }
+  const { preparation } = provider
+  if (preparation === undefined) return { state: 'usable' }
   if (USABLE.has(preparation.phase)) return { state: 'usable' }
   if (preparation.phase === 'failed' || preparation.phase === 'cancelled' || preparation.phase === 'unprepared') {
     return { state: 'done', failed: preparation.phase === 'failed' }

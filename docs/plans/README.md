@@ -43,11 +43,15 @@
 | [群聊 Goal](2026-11-01-group-goal.md) | 管理员先对齐再写 Goal；分阶段派给成员、每阶段带证据验收；每轮带 Goal 账本防跑偏；空闲时自动推进；暂停、纠偏、终止；会话头胶囊和吊舱显示进度与分工 |
 | [Bot 聊天和群聊的 `/` 菜单](2026-11-13-bot-slash-commands.md) | `/` 菜单里 DSH 命令行的执行被按 agent 作用域遮蔽（菜单行仍在）；DS Bot 动作进菜单：`/scheduled-task`、群里 bare `/goal` 打开群 Goal；技能不受影响 |
 | [iOS 出包与 TestFlight](2026-11-13-ios-release.md) | 用户要办的 Apple 账号、App ID、App Store Connect API Key；拿到后的签名、archive、上传 TestFlight 和排查；真机配对等账号和设备 |
+| [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页版与 Relay 同源部署；浏览器链接配对、独立设备身份、localStorage 与 CSP 安全边界 |
 | [群聊任务面板](2026-11-12-group-task-board.md) | Bot 用 `group_task` 显式登记群里的任务：负责人、目标、状态、最新进展、结果摘要、历史；面板上补备注以 `@负责人` 的用户消息下发；数据随群保存 |
 | [群聊里的改动](2026-11-12-group-changes.md) | 群里每个 Bot 的一轮下面有一行改动：改了几个文件、增删行数、前几个文件名；点开是 DSH 自己的改动审查（英文文档） |
 | [群聊共享待办](2026-11-10-group-todos.md) | 每个群一份清单：成员用 `group_todo` 加、勾、删、清空已完成、看，用户在群详情里看、勾、删；随群保存和删除；上限 100 条，满了删一条或清空已完成后再加 |
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
+| [搜索来源摘要](2026-11-14-search-summaries.md) | `auto` 联网搜索的新增官方 Search API 候选：同源 key、空结果不计费、声明式 API 仅 https、来源 summary 透传；跨模型 Search/Fetch 在 DSH Plugins → Web search |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | 可选的 `secrets.json` 口令加密：同一文件原子切换成 scrypt + AES-256-GCM 信封；无人值守用环境变量或口令文件解锁；锁定时的行为和回滚 |
+| [DeepSeek 文档识别](2026-11-14-read-document.md) | 官方 API key 给任意主模型独立 OCR：`read_document` 会话归属 / 只读 / 长文留存；凭据网关隔离、缺 key / 费用与验收 |
+| [DeepSeek 语音](2026-11-14-deepseek-services.md) | 官方 API key 给任意主模型独立 ASR / TTS：`deepseek-asr` 走现有语音输入选择、TTS 分段串行与停止取消；偏好只存 `tts` / `voice`，配置 key 不自动切语音 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
@@ -64,6 +68,7 @@
 | [读长回复](2026-11-13-long-reply-reading.md) | 比可见区域高的 Bot 回复，开头滚出去后顶部出现阅读胶囊：回到开头、显示读到哪一节、按标题跳转 |
 | [桌面应用](2026-10-16-desktop-app.md) | 壳、引擎和界面怎么分；锁定的 DSH 版本、独立的数据位置、首次启动和导入、插件怎么兼容 DSH、安装和更新 |
 | [Linux 桌面包](2026-10-21-linux-app-package.md) | AppImage（自更新）加 deb（Debian/Ubuntu 沙箱兜底），同一轮构建产出 |
+| [Bot 异步工作](2026-11-16-async-work.md) | shell 命令超过等待时间（默认 5 秒，可改）转成后台 job，完成后回到会话；后台任务；改了 #783 的决定 |
 | [Bot 之间派活](2026-10-16-bot-handoffs.md) | Bot 看得到对方的状态；没读的消息合成一条；派活树：下面的活交回后才往上交，不许发给在等结果的 Bot；不设总量和链长上限 |
 | [Bot 视图](2026-10-20-widget-views.md) | Bot 在回答里画视图：固定组件目录的 JSON 蓝图（含图表、输入和本地公式），目录外的放沙箱 html；提问卡回路的泛化 |
 | [Side chat（侧边对话）](2026-10-21-btw.md) | 人顺带问一句：侧栏里的常驻对话，以与会话同构的请求回答、不执行工具、不打断、不进模型可见历史；可追问、可开多条；Bot 之间的 `ask_bot` 另行提案 |
@@ -72,7 +77,7 @@
 | [Windows 上手流程](2026-10-26-windows-onboarding.md) | 从下载到第一条回复：下载区和信任说明、安装、窗口先出来的启动页、一个位置和推荐盘、启动页上的一键导入、Main Bot 聊天里的模型设置卡（登录或检查过的 key、自动选模型）、修复卡、第一个小时的 Windows 问题、卸载时问一次 |
 | [启动窗口](2026-10-26-start-window.md) | 启动页的样子和动作：单独的小窗口（待定），Main Bot 的鲸鱼浮在水线上，围着它三段弧的圆环就是三个真实阶段，顺利时没有字，点它会喷水；等待越久越慢，卡片和失败页在同一张纸面上变形，就绪时圆环合上、鲸鱼跳到团队窗口里 Main Bot 的头像上、团队窗口在同一处盖上来 |
 | [启动页文案](2026-10-29-start-copy.md) | 启动页和壳里系统对话框的字：按页面位置分层，每层一条写法规则；`text.mjs` 一张表、旧键到新键的对照、扫全表的测试 |
-| [IM](2026-11-04-im.md) | 在微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 里和 Bot 或群说话：IM 机器人绑一个 Bot，群绑 DS Bot 群；只认配对过的账号；回复和卡片发回聊天软件；只有占着团队锁的 dsh 连接 |
+| [IM](2026-11-04-im.md) | 在微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 里和 Bot 或群说话：IM 机器人绑一个 Bot，群绑 DS Bot 群；只认配对过的账号；回复和卡片发回聊天软件；只有占着团队锁的 dsh 连接；微信引用回复会带上被引用的内容 |
 | [手机 App](2026-10-24-mobile-app.md) | iOS 和 Android 远程操控电脑上的 Bot 团队：手机不跑 Agent；扫码配对、端到端加密、电脑只往外连；完整功能，高权限操作要解锁手机 |
 | [移动端客户端 API](2026-10-24-mobile-api.md) | 自己画界面的客户端（手机）用的接口：握手和版本、群聊条目、提醒和补发、头像按引用取、直接改记忆、单个 Bot 的用量 |
 | [Office 文档](2026-10-27-office-documents.md) | Bot 离线处理 .docx/.pptx/.xlsx：应用带的 payload、`office.js` 命令行、office 路由换成带 `office-tools` 的版本 |

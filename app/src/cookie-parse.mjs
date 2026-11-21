@@ -19,7 +19,7 @@
 import { domainToASCII } from 'node:url';
 import { isIP } from 'node:net';
 
-export const FORMATS = ['netscape', 'cookie-editor', 'playwright'];
+export const FORMATS = ['netscape', 'cookie-editor', 'playwright', 'curl', 'header-string'];
 
 const CTL_ANY = /[\x00-\x1f\x7f]/;
 const CTL_EXCEPT_TAB = /[\x00-\x08\x0a-\x1f\x7f]/;
@@ -77,8 +77,30 @@ function lineEndingsOf(text) {
 
 // ------------------------------------------------------------------ detection
 
-/** → { format, flavor?, data?, error? }. format: one of FORMATS, or 'header-string' | 'invalid-json' | 'unknown-json' | 'empty' | 'unknown'. */
-export function detectFormat(text) {
+function validHttpUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDefaultUrl(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const direct = validHttpUrl(trimmed);
+  if (direct) return direct;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/\s/.test(trimmed) && (trimmed.includes('.') || /^localhost(?::\d+)?(?:\/|$)/i.test(trimmed))) {
+    return validHttpUrl(`https://${trimmed}`);
+  }
+  return null;
+}
+
+/** → { format, flavor?, data?, error? }. format: one of FORMATS, or 'invalid-json' | 'unknown-json' | 'empty' | 'unknown'. */
+export function detectFormat(text, opts = {}) {
   const t = text.replace(/^\uFEFF/, '').trim();
   if (!t) return { format: 'empty', error: 'the file is empty' };
   if (t[0] === '[' || t[0] === '{') {
@@ -88,6 +110,7 @@ export function detectFormat(text) {
     if (data && typeof data === 'object' && Array.isArray(data.cookies)) return { format: 'playwright', flavor: 'origins' in data ? 'storageState' : 'object with cookies', data };
     return { format: 'unknown-json', error: 'JSON, but neither an array of cookies nor an object with a "cookies" array' };
   }
+  if (/^curl(?:\.exe)?\s+/i.test(t)) return { format: 'curl', flavor: 'devtools' };
   const lines = t.split(/\r\n|\n|\r/);
   if (/^#\s*(netscape\s+)?http\s+cookie\s+file/i.test(lines[0].trim())) return { format: 'netscape', flavor: 'header' };
   if (lines.some((l) => /^#HttpOnly_/i.test(l) || (!l.trimStart().startsWith('#') && l.split('\t').length >= 6))) {
@@ -95,9 +118,10 @@ export function detectFormat(text) {
   }
   const one = t.replace(/^cookie:\s*/i, '');
   if (!one.includes('\n') && /^[^=;\s]+=[^;]*(;\s*[^=;\s]+=[^;]*)*;?$/.test(one)) {
+    if (normalizeDefaultUrl(opts.defaultUrl)) return { format: 'header-string', flavor: 'url-scoped', header: one };
     return { format: 'header-string', error: 'a Cookie header string ("a=1; b=2") has no domain, path or flags; it needs the site URL to import' };
   }
-  return { format: 'unknown', error: 'not a known cookie export format (Netscape cookies.txt, JSON cookie array, Playwright storageState)' };
+  return { format: 'unknown', error: 'not a known cookie export format (Netscape cookies.txt, JSON cookie array, Playwright storageState, cURL)' };
 }
 
 function jsonFlavor(arr) {
@@ -111,14 +135,16 @@ function jsonFlavor(arr) {
 
 // ------------------------------------------------------------------ entry point
 
-/** Detect the format from the content and parse. opts: { now (seconds), sameSiteNoneInsecure: 'drop-samesite'|'skip'|'keep' } */
+/** Detect the format from the content and parse. opts: { now (seconds), sameSiteNoneInsecure: 'drop-samesite'|'skip'|'keep', defaultUrl?: string } */
 export function parseCookieFile(input, opts = {}) {
   const dec = decodeInput(input);
-  const det = detectFormat(dec.text);
+  const det = detectFormat(dec.text, opts);
   let res;
   if (det.format === 'netscape') res = parseNetscape(dec.text, opts);
   else if (det.format === 'cookie-editor') res = parseCookieEditor(det.data, opts);
   else if (det.format === 'playwright') res = parsePlaywright(det.data, opts);
+  else if (det.format === 'curl') res = parseCurl(dec.text, opts);
+  else if (det.format === 'header-string' && !det.error) res = parseHeaderString(det.header, opts.defaultUrl, opts);
   else res = finish(newCtx(det.format, opts), det.error);
   res.flavor = det.flavor ?? null;
   res.encoding = dec.encoding;
@@ -222,12 +248,154 @@ export function parsePlaywright(input, opts = {}) {
     addCookie(ctx, where, raw);
   });
   const origins = Array.isArray(data.origins) ? data.origins : [];
-  const withStorage = origins.filter((o) => Array.isArray(o?.localStorage) && o.localStorage.length);
-  ctx.info.origins = origins.length;
-  ctx.info.localStorageOrigins = withStorage.map((o) => ({ origin: String(o.origin), entries: o.localStorage.length }));
-  if (withStorage.length) {
-    ctx.warnings.push({ where: 'origins', code: 'local-storage-not-imported', message: `${withStorage.length} origin(s) with localStorage (${withStorage.reduce((s, o) => s + o.localStorage.length, 0)} entries) were not imported; only cookies are` });
+  const parsedOrigins = [];
+  for (const o of origins) {
+    const parsedUrl = validHttpUrl(o?.origin);
+    if (!parsedUrl || !Array.isArray(o?.localStorage)) continue;
+    const localStorage = [];
+    for (const item of o.localStorage) {
+      if (item && typeof item.name === 'string' && typeof item.value === 'string') {
+        localStorage.push({ name: item.name, value: item.value });
+      }
+    }
+    if (localStorage.length > 0) parsedOrigins.push({ origin: parsedUrl.origin, localStorage });
   }
+  ctx.origins = parsedOrigins;
+  ctx.info.origins = origins.length;
+  ctx.info.localStorageOrigins = parsedOrigins.map((o) => ({ origin: o.origin, entries: o.localStorage.length }));
+  return finish(ctx);
+}
+
+// ------------------------------------------------------------------ cURL & Cookie header string
+
+function tokenizeCurl(text) {
+  // Collapse bash (`\` + newline) and cmd (`^` + newline) line continuations.
+  const joined = String(text).replace(/\\\r?\n/g, ' ').replace(/\^\r?\n/g, ' ');
+  const tokens = [];
+  let i = 0;
+  while (i < joined.length) {
+    while (i < joined.length && /\s/.test(joined[i])) i++;
+    if (i >= joined.length) break;
+    let tok = '';
+    while (i < joined.length && !/\s/.test(joined[i])) {
+      const ch = joined[i];
+      if (ch === '$' && joined[i + 1] === "'") {
+        i += 2;
+        while (i < joined.length && joined[i] !== "'") {
+          if (joined[i] === '\\' && i + 1 < joined.length) { tok += joined[i + 1]; i += 2; }
+          else { tok += joined[i++]; }
+        }
+        if (joined[i] === "'") i++;
+      } else if (ch === "'") {
+        i++;
+        while (i < joined.length && joined[i] !== "'") tok += joined[i++];
+        if (joined[i] === "'") i++;
+      } else if (ch === '^' && joined[i + 1] === '"') {
+        // Chrome DevTools "Copy as cURL (cmd)" wraps arguments in ^"…^".
+        i += 2;
+        while (i < joined.length) {
+          if (joined[i] === '^' && joined[i + 1] === '"') { i += 2; break; }
+          if (joined[i] === '\\' && joined[i + 1] === '^' && joined[i + 2] === '"') { tok += '"'; i += 3; }
+          else if (joined[i] === '^' && i + 1 < joined.length) { tok += joined[i + 1]; i += 2; }
+          else { tok += joined[i++]; }
+        }
+      } else if (ch === '"') {
+        i++;
+        while (i < joined.length && joined[i] !== '"') {
+          if (joined[i] === '\\' && i + 1 < joined.length) { tok += joined[i + 1]; i += 2; }
+          else if (joined[i] === '^' && i + 1 < joined.length && /["^%&|<>]/.test(joined[i + 1])) { tok += joined[i + 1]; i += 2; }
+          else { tok += joined[i++]; }
+        }
+        if (joined[i] === '"') i++;
+      } else if (ch === '\\' && i + 1 < joined.length) {
+        tok += joined[i + 1]; i += 2;
+      } else if (ch === '^' && i + 1 < joined.length) {
+        tok += joined[i + 1]; i += 2;
+      } else {
+        tok += ch; i++;
+      }
+    }
+    if (tok) tokens.push(tok);
+  }
+  return tokens;
+}
+
+function addHeaderCookies(ctx, headerValue, targetUrl) {
+  const secure = targetUrl.protocol === 'https:';
+  const parts = String(headerValue).split(';');
+  parts.forEach((part, index) => {
+    const trimmed = part.trim();
+    if (!trimmed) return;
+    const eq = trimmed.indexOf('=');
+    const where = `cookie ${index + 1}`;
+    if (eq === -1) { ctx.entries++; skip(ctx, where, {}, 'bad-pair', 'missing "=" in Cookie pair'); return; }
+    const name = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    // Scope pasted request cookies to "/" on the target host rather than an API endpoint subpath.
+    addCookie(ctx, where, {
+      name, value, domain: targetUrl.hostname, path: '/', secure, httpOnly: false,
+      hasField: (k) => k === 'secure' || k === 'httpOnly',
+    });
+  });
+}
+
+const CURL_VALUE_FLAGS = new Set([
+  '-X', '--request', '-d', '--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--json',
+  '-e', '--referer', '-A', '--user-agent', '-u', '--user', '-F', '--form', '-o', '--output', '-m', '--max-time',
+  '--connect-timeout', '-x', '--proxy', '-U', '--proxy-user', '-c', '--cookie-jar', '-w', '--write-out',
+]);
+
+export function parseCurl(text, opts = {}) {
+  const ctx = newCtx('curl', opts);
+  const tokens = tokenizeCurl(text);
+  let targetUrl = null;
+  const cookieHeaders = [];
+  const pushHeader = (header) => {
+    const m = String(header).match(/^cookie\s*:\s*(.*)$/i);
+    if (m && m[1].trim()) cookieHeaders.push(m[1].trim());
+  };
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    if ((t === '-H' || t === '--header') && i + 1 < tokens.length) {
+      pushHeader(tokens[++i]);
+    } else if (t.startsWith('--header=')) {
+      pushHeader(t.slice('--header='.length));
+    } else if (t.startsWith('-H') && t.length > 2) {
+      pushHeader(t.slice(2));
+    } else if ((t === '-b' || t === '--cookie') && i + 1 < tokens.length) {
+      const val = tokens[++i].trim();
+      if (val.includes('=')) cookieHeaders.push(val);
+    } else if (t.startsWith('--cookie=')) {
+      const val = t.slice('--cookie='.length).trim();
+      if (val.includes('=')) cookieHeaders.push(val);
+    } else if (t.startsWith('-b') && t.length > 2) {
+      const val = t.slice(2).trim();
+      if (val.includes('=')) cookieHeaders.push(val);
+    } else if (t === '--url' && i + 1 < tokens.length) {
+      const u = validHttpUrl(tokens[++i]);
+      if (u && !targetUrl) targetUrl = u;
+    } else if (t.startsWith('--url=')) {
+      const u = validHttpUrl(t.slice('--url='.length));
+      if (u && !targetUrl) targetUrl = u;
+    } else if (CURL_VALUE_FLAGS.has(t)) {
+      i++;
+    } else if (!t.startsWith('-') && !targetUrl) {
+      const u = validHttpUrl(t);
+      if (u) targetUrl = u;
+    }
+  }
+  if (!targetUrl) targetUrl = normalizeDefaultUrl(opts.defaultUrl);
+  if (!targetUrl) return finish(ctx, 'cURL command contains no http(s) URL');
+  if (cookieHeaders.length === 0) return finish(ctx, 'cURL command contains no Cookie header (-H "cookie: ..." or -b "...")');
+  for (const h of cookieHeaders) addHeaderCookies(ctx, h, targetUrl);
+  return finish(ctx);
+}
+
+export function parseHeaderString(header, defaultUrl, opts = {}) {
+  const ctx = newCtx('header-string', opts);
+  const targetUrl = normalizeDefaultUrl(defaultUrl);
+  if (!targetUrl) return finish(ctx, 'a Cookie header string ("a=1; b=2") has no domain, path or flags; it needs the site URL to import');
+  addHeaderCookies(ctx, header, targetUrl);
   return finish(ctx);
 }
 
@@ -257,6 +425,7 @@ function newCtx(format, opts) {
     sameSiteNoneInsecure: opts.sameSiteNoneInsecure ?? 'drop-samesite',
     entries: 0,
     items: [],
+    origins: [],
     skipped: [],
     warnings: [],
     info: {},
@@ -281,6 +450,7 @@ function finish(ctx, error = null) {
     error,
     entries: ctx.entries,
     cookies: kept.map((it) => it.cookie),
+    origins: ctx.origins,
     where: kept.map((it) => it.where),
     skipped: ctx.skipped,
     warnings: ctx.warnings,
@@ -492,24 +662,32 @@ export function describeCookie(c) {
   return d;
 }
 
-/** Group cookies by site (domain without the leading dot) for a user-facing summary. */
+/** Group cookies (and optional localStorage origins) by site for a user-facing summary. */
 export function summarizeBySite(result) {
   const sites = new Map();
   const get = (domain) => {
-    const site = String(domain || '(no domain)').replace(/^\./, '');
-    if (!sites.has(site)) sites.set(site, { site, cookies: 0, session: 0, httpOnly: 0, skipped: 0, skippedReasons: {} });
+    const site = String(domain || '(no domain)').replace(/^\./, '').toLowerCase();
+    if (!sites.has(site)) sites.set(site, { site, cookies: 0, session: 0, httpOnly: 0, localStorage: 0, skipped: 0, skippedReasons: {} });
     return sites.get(site);
   };
-  for (const c of result.cookies) {
+  for (const c of result.cookies ?? []) {
     const s = get(c.domain);
     s.cookies++;
     if (c.expires === undefined) s.session++;
     if (c.httpOnly) s.httpOnly++;
   }
-  for (const k of result.skipped) {
-    const s = get(k.domain);
+  for (const o of result.origins ?? []) {
+    const parsed = validHttpUrl(o?.origin);
+    if (!parsed || !Array.isArray(o?.localStorage) || o.localStorage.length === 0) continue;
+    const s = get(parsed.hostname);
+    s.localStorage += o.localStorage.length;
+  }
+  for (const k of result.skipped ?? []) {
+    const site = String(k.domain || '').replace(/^\./, '').toLowerCase();
+    const s = site ? sites.get(site) : undefined;
+    if (!s) continue;
     s.skipped++;
     s.skippedReasons[k.code] = (s.skippedReasons[k.code] || 0) + 1;
   }
-  return [...sites.values()].sort((a, b) => b.cookies - a.cookies || a.site.localeCompare(b.site));
+  return [...sites.values()].sort((a, b) => (b.cookies + b.localStorage) - (a.cookies + a.localStorage) || a.site.localeCompare(b.site));
 }

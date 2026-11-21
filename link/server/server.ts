@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { Gateway, type GatewayOptions } from './gateway.ts'
 import { DeviceStore } from './store.ts'
 import { LINK_PATH } from '../src/frames.ts'
+import { serveWeb } from './web.ts'
 
 export { LINK_PATH }
 
@@ -10,6 +11,7 @@ export interface RelayServerOptions extends Omit<GatewayOptions, 'store' | 'serv
   port?: number
   host?: string
   dataFile?: string
+  webDir?: string
 }
 
 export interface RelayServer {
@@ -21,7 +23,7 @@ export interface RelayServer {
 const VERSION = 'ds-bot-link/0.1.0'
 
 export async function startRelayServer(options: RelayServerOptions = {}): Promise<RelayServer> {
-  const { port: listenPort, host, dataFile, ...limits } = options
+  const { port: listenPort, host, dataFile, webDir, ...limits } = options
   const store = new DeviceStore(dataFile)
   const gateway = new Gateway({ ...limits, store, serverVersion: VERSION })
   const server = createServer((req, res) => {
@@ -29,6 +31,7 @@ export async function startRelayServer(options: RelayServerOptions = {}): Promis
       res.writeHead(200, { 'content-type': 'text/plain' }).end('ok\n')
       return
     }
+    if (webDir && serveWeb(req, res, webDir)) return
     res.writeHead(404).end()
   })
   server.on('upgrade', (req, socket, head) => {
