@@ -7,7 +7,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
-import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE, STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -56,6 +56,8 @@ export function install(rt) {
 
   // Photos staged by `stage-image`, kept until the message that names them is sent.
   const staged = new Map()
+  // Files staged by `stage-file`, kept until the message that names them is sent.
+  const stagedFiles = new Map()
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -740,21 +742,67 @@ export function install(rt) {
           staged.set(id, { mediaType, data, at: now })
           return ok({ id })
         }
+        // A file for the next `send`, one per call: a phone's link carries a few MB per
+        // message, so files travel one by one and the message names them.
+        case 'stage-file': {
+          const name = typeof body.name === 'string' ? body.name.trim() : ''
+          const data = typeof body.data === 'string' ? body.data : ''
+          if (name === '' || name.length > 255) return fail('No file name', 'bot/invalid')
+          if (data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a file DS Bot can send', 'bot/invalid')
+          let bytes
+          try {
+            bytes = Buffer.from(data, 'base64')
+          } catch {
+            return fail('This is not a file DS Bot can send', 'bot/invalid')
+          }
+          if (bytes.length === 0 || bytes.length > STAGED_FILE_MAX_BYTES) return fail('This file is too big', 'bot/invalid')
+          const now = Date.now()
+          for (const [id, entry] of stagedFiles) if (entry.at < now - STAGED_MS) stagedFiles.delete(id)
+          // Refuse a new stage if the accumulated buffers would exceed the cap; the
+          // caller can send or retry after older staged files expire.
+          let pending = 0
+          for (const entry of stagedFiles.values()) pending += entry.buffer.byteLength
+          if (pending + bytes.length > STAGED_FILES_MAX_BYTES) return fail('Too many files waiting to send', 'bot/invalid')
+          const id = randomUUID()
+          stagedFiles.set(id, { name, buffer: bytes, at: now })
+          return ok({ id })
+        }
         case 'send': {
           const text = String(body.text ?? '').trim()
-          const ids = Array.isArray(body.images) ? body.images.map(String) : []
-          if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
-          const images = ids.map(id => staged.get(id))
+          const imageIds = Array.isArray(body.images) ? body.images.map(String) : []
+          const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
+          if ((text === '' && imageIds.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const images = imageIds.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          const files = fileIds.map(id => stagedFiles.get(id))
+          if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
+          // The upload service is only needed when a file actually rides along; a
+          // text- or photo-only message must work on a host with no such service.
+          let uploads
+          if (files.length > 0) {
+            uploads = ctx.get?.('fileUploads')
+            if (typeof uploads?.uploadStream !== 'function') return fail('Files cannot be sent on this computer', 'bot/refused')
+          }
           await rt.load()
-          await rt.sendUser({
-            sessionId: body.sessionId,
-            content: [
-              ...(text === '' ? [] : [{ type: 'text', text }]),
-              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
-            ],
-          })
-          for (const id of ids) staged.delete(id)
+          // Resolve the destination ONCE (including a foreground handoff). The upload
+          // receipt and the prompt must name the same Session, or DSH drops the file.
+          // Only pre-resolve when a file rides along: with no file, leave the override
+          // undefined so sendUser resolves the ref normally (bot/group lookup,
+          // current-part routing, foreground handoff). Passing the raw ref as an
+          // override skipped all of that and queued the prompt on the wrong Session.
+          const sessionId = files.length > 0 ? await resolveSendSession(body.sessionId) : undefined
+          const content = [
+            ...(text === '' ? [] : [{ type: 'text', text }]),
+            ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+          ]
+          for (const file of files) {
+            const data = (async function* () { yield file.buffer })()
+            const value = await uploads.uploadStream({ sessionId, data, name: file.name })
+            content.push({ type: 'file', receiptId: value.receiptId })
+          }
+          await rt.sendUser({ sessionId: body.sessionId, content, resolvedSessionId: sessionId })
+          for (const id of imageIds) staged.delete(id)
+          for (const id of fileIds) stagedFiles.delete(id)
           return ok(true)
         }
         case 'btw-delete': {
@@ -983,8 +1031,13 @@ export function install(rt) {
     }
     return undefined
   }
-
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  // Resolve the Session a message actually lands on: a Bot's own chat, a group's
+  // current part, or the part that raised the thread — including a foreground
+  // handoff when a Bot is busy in an older part. Both `sendUser` and the file
+  // upload path need this ONCE so a receipt is bound to the very Session that
+  // receives the prompt. Resolving twice (as an earlier version did) bound the
+  // upload to the pre-handoff Session and silently dropped the file.
+  async function resolveSendSession(ref) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
     let sessionId = ownThreadTarget(ref, past)
@@ -997,6 +1050,14 @@ export function install(rt) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
+    return sessionId
+  }
+
+  // `resolvedSessionId` lets the file-send path reuse the Session it uploaded
+  // against, so the prompt is submitted to the same Session and no second
+  // handoff happens. Ordinary callers pass only a ref and keep the old behavior.
+  async function sendUser({ sessionId: ref, content, requestId = randomUUID(), resolvedSessionId }) {
+    const sessionId = resolvedSessionId ?? await resolveSendSession(ref)
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,

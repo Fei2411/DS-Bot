@@ -1931,8 +1931,10 @@ export function install(rt) {
         const imageRefs = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
           .map(block => ({ attachmentId: block.attachment.attachmentId, mime: block.attachment.mediaType ?? block.attachment.mime ?? block.attachment.mimeType, name: block.attachment.name }))
         const images = content.filter(block => block?.type === 'image').length
+        const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined)
+          .map(block => ({ attachmentId: block.attachment.attachmentId, name: block.attachment.name, bytes: block.attachment.size ?? block.attachment.bytes }))
         const via = viaOf(source)
-        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), ...(imageRefs.length > 0 ? { imageRefs } : {}), ...(via ? { via } : {}), time: event.time })
+        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), ...(imageRefs.length > 0 ? { imageRefs } : {}), ...(files.length > 0 ? { files } : {}), ...(via ? { via } : {}), time: event.time })
       } else if (source?.kind === REPLY_KIND) {
         const text = textOf(event.data.content)
         const reply = readReply(text)

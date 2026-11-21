@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STAGED_FILE_MAX_BYTES } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
@@ -31,6 +31,7 @@ export const CAPABILITIES = [
   'agents',
   'send',
   'send-images',
+  'send-files',
   'feed',
   'feed-room',
   'notices',
@@ -122,7 +123,9 @@ export function roomItems(events, rowsOf = () => []) {
       if (source?.kind === 'user') {
         const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
         const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
+        const fileBlocks = content.filter(block => block?.type === 'file' && block.attachment !== undefined)
+        const files = fileBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, name: block.attachment.name, bytes: block.attachment.size ?? block.attachment.bytes }))
+        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), ...(files.length > 0 ? { files } : {}), time: event.time ?? null })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -271,6 +274,9 @@ export function install(rt) {
       apiMin: API_MIN,
       apiMax: API_VERSION,
       plugin: { name: PKG.name, version: PKG.version },
+      // A client must check a file's size against this BEFORE base64-encoding an RPC:
+      // the encrypted link drops whole messages over ~3 MiB of raw payload.
+      fileMaxBytes: STAGED_FILE_MAX_BYTES,
       capabilities: rpc ? [...CAPABILITIES, 'rpc'] : CAPABILITIES,
       boot,
       seq,
