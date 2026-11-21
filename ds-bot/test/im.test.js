@@ -1063,6 +1063,50 @@ test('reply origin: a background job from one IM turn must not be reported to th
     .map(entry => [entry.chat.key, entry.text]), [], 'U2 must not receive U1’s background result')
 })
 
+for (const beforeClaim of [false, true]) {
+  test(`reply origin: a late subagent result blocks IM delivery ${beforeClaim ? 'before' : 'after'} the next chat claims its turn`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.paired.push({ id: 'u2', name: 'U2', at: 1 })
+    await s.rt.save()
+
+    const reply = text => s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text }] } })
+    await dm(s, 'u1', 'Delegate a private review')
+    s.imTurn('a')
+    s.emitEvent('a', 'tool/call', { callId: 's1', name: 'subagent', arguments: JSON.stringify({ description: 'Review the private draft' }) })
+    s.emitEvent('a', 'subagent/catalog', { childId: 'sub-1', label: 'Review the private draft', mode: 'continuable' })
+    s.emitEvent('a', 'tool/result', { callId: 's1' })
+    reply('Review started')
+    s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    await dm(s, 'u2', 'Hello')
+    assert.deepEqual(s.prompts.map(prompt => prompt.sessionId), ['a', 'a'])
+    s.emitEvent('a', 'turn/start', { turn: 2 })
+    const claim = () => s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+    if (!beforeClaim) claim()
+    const result = 'U1 private review: three findings'
+    s.emitEvent('a', 'user/message', {
+      content: [{ type: 'text', text: result }],
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 finished.', senderSessionId: 'sub-1' },
+    })
+    if (beforeClaim) claim()
+    reply(result)
+    s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'Review started']])
+
+    await dm(s, 'u2', 'Hello again')
+    s.imTurn('a')
+    reply('Hello, U2')
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [
+      ['dm-u1', 'Review started'],
+      ['dm-u2', 'Hello, U2'],
+    ])
+  })
+}
+
 test('reply origin: a Web turn does not reach IM', async (t) => {
   const s = await start()
   t.after(s.stop)
