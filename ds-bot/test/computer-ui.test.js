@@ -103,7 +103,7 @@ test('the settings page draws the switch, the provider line and one level picker
 })
 
 test('a missing provider package shows the install command and says the levels wait (#1050)', () => {
-  const install = { packages: ['@deepseek-ai/dsh-computer-use@0.2.2-rc.1'], command: 'pnpm --dir "/p" add @deepseek-ai/dsh-computer-use@0.2.2-rc.1' }
+  const install = { packages: ['@deepseek-ai/dsh-computer-use@0.2.2-rc.5'], command: 'pnpm --dir "/p" add @deepseek-ai/dsh-computer-use@0.2.2-rc.5' }
   const roster = { bots: [{ id: 'w1', name: 'Writer' }], computer: { enabled: true, provider: { state: 'missing', message: 'x is not installed in this DSH.', install } } }
   const Row = props => ({ type: 'row', props })
   const tree = render('ComputerPage', {
