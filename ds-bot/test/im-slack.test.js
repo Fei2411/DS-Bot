@@ -163,3 +163,27 @@ test('bold Markdown reaches Slack as bold, not as italic', async (t) => {
   const first = fake.calls.find(call => call.method === 'chat.postMessage')
   assert.equal(first.params.blocks[0].text.text, '*Start* of the line')
 })
+
+test('a long message keeps every section block under Slack\'s 3000-character limit', async (t) => {
+  // Slack rejects the whole message with invalid_blocks when a section's text runs past
+  // 3000 characters, so a single 3500-character reply never reached the channel at all.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = Array.from({ length: 70 }, (_, index) => `line ${index} ${'x'.repeat(40)}`).join('\n')
+  assert.ok(text.length > 3000 && text.length < 4000, `fixture is ${text.length} characters`)
+  await handle.send({ key: 'D1', kind: 'direct' }, { text, buttons: [{ data: 'q:q1:0', label: 'yes' }] })
+  const posts = fake.calls.filter(call => call.method === 'chat.postMessage')
+  assert.ok(posts.length > 0, 'chat.postMessage called')
+  for (const post of posts) {
+    const sections = post.params.blocks.filter(block => block.type === 'section')
+    for (const section of sections) {
+      assert.ok(section.text.text.length <= 3000, `section text is ${section.text.text.length} characters`)
+    }
+    const joined = sections.map(section => section.text.text).join('\n')
+    assert.ok(joined.includes('line 0 '), 'the first line still arrives')
+    assert.ok(joined.includes('line 69 '), 'the last line still arrives')
+  }
+  assert.equal(posts.at(-1).params.blocks.at(-1).type, 'actions')
+})

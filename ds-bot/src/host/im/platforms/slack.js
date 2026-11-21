@@ -8,6 +8,10 @@ import { chunkMarkdown } from '../format.js'
 
 const API = 'https://slack.com/api/'
 const TEXT_LIMIT = 4000
+// A section block's `text` is capped at 3000 characters. Slack rejects the whole
+// message with invalid_blocks when one is longer, so the blocks have to be split
+// by that limit even though the message-level `text` field allows more.
+const SECTION_LIMIT = 3000
 
 const apiBase = env => `${String(env.config?.api ?? API).replace(/\/+$/, '')}/`
 
@@ -148,7 +152,7 @@ export default {
     })()
 
     const blocksFor = (text, buttons) => {
-      const blocks = [{ type: 'section', text: { type: 'mrkdwn', text } }]
+      const blocks = sectionsOf(String(text ?? '')).map(section => ({ type: 'section', text: { type: 'mrkdwn', text: section } }))
       if (buttons?.length > 0) {
         blocks.push({
           type: 'actions',
@@ -246,7 +250,8 @@ export default {
         return { messageId: String(meta.file_id) }
       },
       edit: async (chat, messageId, { text, buttons }) => {
-        await api('chat.update', { channel: chat.key, ts: messageId, text: toMrkdwn(text).slice(0, TEXT_LIMIT), blocks: blocksFor(toMrkdwn(text).slice(0, TEXT_LIMIT), buttons) })
+        const rendered = toMrkdwn(text)
+        await api('chat.update', { channel: chat.key, ts: messageId, text: rendered.slice(0, TEXT_LIMIT), blocks: blocksFor(rendered, buttons) })
       },
       stop: () => {
         stopped = true
@@ -277,4 +282,22 @@ async function download(url, token, env) {
   const response = await env.fetch(String(url ?? ''), { headers: { authorization: `Bearer ${token}` } })
   if (!response.ok) return undefined
   return new Uint8Array(await response.arrayBuffer())
+}
+
+// Slack caps a section block's text at SECTION_LIMIT characters and rejects the whole
+// message when one is longer. Converted Markdown can also grow (a [label](url) link
+// becomes <url|link>), so the split is applied to the rendered text rather than to the
+// Markdown that chunkMarkdown measured. A cut falls on a line break when one is close
+// enough, so a split only lands mid-line when a single line is over the limit.
+function sectionsOf(text) {
+  const parts = []
+  let rest = text
+  while (rest.length > SECTION_LIMIT) {
+    let at = rest.lastIndexOf('\n', SECTION_LIMIT)
+    if (at <= 0) at = SECTION_LIMIT
+    parts.push(rest.slice(0, at))
+    rest = rest.slice(at).replace(/^\n+/, '')
+  }
+  if (rest !== '' || parts.length === 0) parts.push(rest)
+  return parts
 }
