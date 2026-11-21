@@ -176,27 +176,45 @@ export function install(rt) {
   }
 
   const deliver = rt.deliver
+  // Deliveries on their way right now, by Session and exchangeId. A deferred delivery is
+  // one request handed back for a turn of its own; the normal path and a restart
+  // recovery can both reach it, and the later caller waits for the one already going.
+  // A failed delivery leaves the note (the next start sends it again) but not this
+  // entry, so a retry in this run really sends it.
+  const sending = new Map()
   rt.deliver = async (args) => {
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
-    // A deferred delivery is one request handed back for a turn of its own; the normal
-    // path and a restart recovery can both reach it. The note already waiting for it
-    // says it is on its way, so the second delivery is the same message. A resend is
-    // that note going out again, so it passes.
-    if (noted.deferred === true && noted.resent !== true
-      && (queued[sessionId] ?? []).some(item => item.args.exchangeId === noted.exchangeId)) return noted.exchangeId
-    // Noted before it is sent: a turn may take it up before the send returns. Notes
-    // are kept whole; nothing waits out a delivery silently.
-    queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }] }
-    persist()
-    try {
-      return await deliver(noted)
-    } catch (error) {
-      // A delivery that never reached the inbox stays noted: the next start sends
-      // it again. One whose Bot is gone is dropped, since it can never be sent.
-      if (rt.botOf(noted.toId) === undefined) forgetQueued(noted.exchangeId)
-      throw error
+    const repeat = noted.deferred === true && noted.resent !== true
+    const key = `${sessionId}\u0000${noted.exchangeId}`
+    if (repeat) {
+      const running = sending.get(key)
+      if (running !== undefined) return running
     }
+    // Noted before it is sent: a turn may take it up before the send returns. Notes
+    // are kept whole; nothing waits out a delivery silently. A retry replaces its own
+    // note instead of stacking a second one.
+    const waiting = queued[sessionId] ?? []
+    const at = waiting.findIndex(item => item.args?.exchangeId === noted.exchangeId)
+    const note = { at: Date.now(), args: noted }
+    queued = { ...queued, [sessionId]: at === -1 ? [...waiting, note] : waiting.with(at, note) }
+    persist()
+    const run = (async () => {
+      try {
+        return await deliver(noted)
+      } catch (error) {
+        // A delivery that never reached the inbox stays noted: the next start sends
+        // it again. One whose Bot is gone is dropped, since it can never be sent.
+        if (rt.botOf(noted.toId) === undefined) forgetQueued(noted.exchangeId)
+        throw error
+      }
+    })()
+    if (repeat) {
+      sending.set(key, run)
+      const done = () => { if (sending.get(key) === run) sending.delete(key) }
+      run.then(done, done)
+    }
+    return run
   }
 
   // What a Session was sent and no turn has read yet.

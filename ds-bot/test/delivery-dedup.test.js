@@ -847,7 +847,8 @@ function commitBeforeRecovery(host, req2) {
   host.rt.deliver = async (args) => {
     if (!injected && args.deferred === true && args.exchangeId === req2.exchangeId) {
       injected = true
-      await real({ fromId: 'a', toId: 'b', sessionId: 'b', text: 'second', role: 'request', exchangeId: req2.exchangeId, deferred: true })
+      // In flight, not awaited: recovery must meet the delivery already going.
+      void real({ fromId: 'a', toId: 'b', sessionId: 'b', text: 'second', role: 'request', exchangeId: req2.exchangeId, deferred: true })
     }
     return real(args)
   }
@@ -865,6 +866,53 @@ test('recovery does not hand a request back again when the normal path delivered
   const handed = host.agentOf('b').calls.filter(msg => msg.source.exchangeId === 'req-2' && msg.source.deferred === true)
   assert.equal(handed.length, 1, 'the request is handed back exactly once')
   await host.stop()
+})
+
+
+test('a deferred delivery that failed is sent again on retry in the same run', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-retry-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(() => host.stop())
+  const agent = host.agentOf('b')
+  const followup = agent.followup
+  let follows = 0
+  agent.followup = (message) => {
+    follows += 1
+    if (follows === 1) throw new Error('transient delivery failure')
+    followup.call(agent, message)
+  }
+  const args = { fromId: 'a', toId: 'b', sessionId: 'b', text: 'retry me', role: 'request', exchangeId: 'req-retry', deferred: true }
+  await assert.rejects(() => host.rt.deliver(args), /transient delivery failure/)
+  await host.rt.deliver(args)
+  assert.equal(follows, 2, 'the retry reaches the delivery again')
+  assert.equal(host.agentOf('b').calls.filter(msg => msg.source.exchangeId === 'req-retry').length, 1, 'the retry lands in the inbox')
+})
+
+test('a concurrent duplicate waits for the delivery already going and shares its failure', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-concurrent-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(() => host.stop())
+  const agent = host.agentOf('b')
+  const followup = agent.followup
+  let follows = 0
+  agent.followup = (message) => {
+    follows += 1
+    if (follows === 1) throw new Error('transient delivery failure')
+    followup.call(agent, message)
+  }
+  const args = { fromId: 'a', toId: 'b', sessionId: 'b', text: 'send once', role: 'request', exchangeId: 'req-once', deferred: true }
+  const first = host.rt.deliver(args)
+  const second = host.rt.deliver({ ...args })
+  await assert.rejects(first, /transient delivery failure/)
+  await assert.rejects(second, /transient delivery failure/)
+  assert.equal(follows, 1, 'the duplicate never starts a second delivery')
+  assert.equal(host.agentOf('b').calls.filter(msg => msg.source.exchangeId === 'req-once').length, 0, 'nothing reached the inbox')
 })
 
 test('recovery does not hand a request back after its work closed while it checked', async (t) => {
