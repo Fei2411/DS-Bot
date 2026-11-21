@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -37,7 +37,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path, cancelAckTimeoutMs })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
@@ -216,6 +216,63 @@ test('acp: a stopped prompt cannot fail or finish the following turns', async (t
     assert.equal(out.text, `ok: ${text}`)
     assert.equal(out.finish.kind, 'stop')
   }
+})
+
+test('acp: a missing cancel acknowledgement cannot freeze subsequent turns', async (t) => {
+  for (const late of [false, true]) await t.test(late ? 'late reply is ignored' : 'no reply', async (t) => {
+    const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack', ...(late ? ['--late-cancel-reply'] : [])], cancelAckTimeoutMs: 20 })
+    t.after(() => adapter.dispose())
+    await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+    const engine = adapter.engine('local-acp-fake')
+    const peer = engine.peer
+    const control = new AbortController()
+    const stopped = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')], { signal: control.signal })))
+    // The fake CLI has received the hung prompt before Stop is pressed.
+    const request = peer.request.bind(peer)
+    let sent
+    const ready = new Promise(resolve => { sent = resolve })
+    peer.request = (...args) => {
+      const result = request(...args)
+      if (args[0] === 'session/prompt') sent()
+      return result
+    }
+    await ready
+    const oldId = peer.nextId
+    control.abort()
+    assert.equal((await stopped).finish.kind, 'aborted')
+    const messages = [user('m0', 'hello'), user('m1', 'hang'), user('m2', 'second')]
+    const next = await collect(adapter.stream(options('s1', messages, { signal: AbortSignal.timeout(1000) })))
+    assert.equal(next.finish.kind, 'stop')
+    assert.equal(next.text, 'ok: second')
+    assert.equal(peer.pending.has(oldId), false)
+    messages.push(user('m3', 'third'))
+    const third = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(third.text, 'ok: third')
+    assert.equal(third.finish.kind, 'stop')
+  })
+})
+
+test('acp: Stop interrupts a new prompt waiting for a missing cancel acknowledgement', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'], cancelAckTimeoutMs: 10_000 })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const session = adapter.live.get('s1').engineSession
+  const control = new AbortController()
+  const first = engine.prompt(session, [{ type: 'text', text: 'hang' }], { signal: control.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  const oldId = engine.peer.nextId
+  control.abort()
+  engine.cancel(session)
+  const nextControl = new AbortController()
+  const second = engine.prompt(session, [{ type: 'text', text: 'must not send' }], { signal: nextControl.signal })
+  const rejected = assert.rejects(second, { name: 'AbortError' })
+  await new Promise(resolve => setImmediate(resolve))
+  nextControl.abort()
+  await Promise.race([rejected, new Promise((_, reject) => setTimeout(() => reject(new Error('Stop did not release the waiting prompt')), 200))])
+  assert.equal(engine.peer.nextId, oldId)
+  await adapter.dispose()
+  await first
 })
 
 test('after Stop the next turn receives its first text or permission event', async (t) => {
@@ -1037,6 +1094,22 @@ test('an open-ended request outlives the default deadline', async () => {
   assert.equal(await settled, 'timeout', 'a positive timeout still fires')
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
+})
+
+test('an aborted JSON-RPC request is removed and its late reply is ignored', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const control = new AbortController()
+  const first = peer.request('session/prompt', {}, { signal: control.signal, timeout: 0 })
+  control.abort()
+  await assert.rejects(first, { name: 'AbortError' })
+  assert.equal(peer.pending.size, 0)
+  const second = peer.request('session/prompt', {}, { timeout: 0 })
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'cancelled' } }))
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'late failure' } }))
+  assert.equal(peer.pending.size, 1)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { stopReason: 'end_turn' } }))
+  assert.deepEqual(await second, { stopReason: 'end_turn' })
+  assert.equal(peer.pending.size, 0)
 })
 
 // #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
