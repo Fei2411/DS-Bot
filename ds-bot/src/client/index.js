@@ -79,6 +79,8 @@ import { installAgentForks } from './agent-fork.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
+const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
+
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   migrateStorage()
@@ -436,6 +438,7 @@ export function apply(ctx) {
       document.body.dataset.btMotion = motion
       document.body.dataset.btLayout = layout
       document.body.dataset.btEffects = effects
+      if (WINDOWS) document.body.dataset.btOs = 'windows'
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
       const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
@@ -466,6 +469,7 @@ export function apply(ctx) {
         delete document.body.dataset.btMotion
         delete document.body.dataset.btLayout
         delete document.body.dataset.btEffects
+        delete document.body.dataset.btOs
         document.body.style.removeProperty('--bt-msg-w')
         document.body.style.removeProperty('--bt-flat-w')
         style.remove()
@@ -1240,6 +1244,7 @@ export function apply(ctx) {
     const syncEffects = () => {
       const current = roster.getSnapshot()
       document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs)
+      if (WINDOWS) document.body.dataset.btOs = 'windows'
     }
     syncEffects()
     const snapshot = roster.getSnapshot()
@@ -1253,6 +1258,7 @@ export function apply(ctx) {
     ]
     return () => {
       delete document.body.dataset.btEffects
+      delete document.body.dataset.btOs
       for (const off of offs) off()
     }
   }
