@@ -22,7 +22,10 @@ function setup(t) {
   const rt = {
     state: { bots: { b: { model: 'local-claude-code/default' } } },
     ctx: {
-      llm: { registerAdapter(routes, value) { adapter = value; return Object.assign(() => {}, { replace() {} }) } },
+      llm: {
+        listProviders: () => [],
+        registerAdapter(routes, value) { adapter = value; return Object.assign(() => {}, { replace() {} }) },
+      },
       effect() {},
       // serviceOf prefers get(). The llm must be the real adapter registrar;
       // other lookups stay present so approval requests are not refused.
