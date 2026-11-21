@@ -481,6 +481,49 @@ test('restart settles a completed peer handoff task from disk and replies to the
   await host.stop()
 })
 
+async function checkUnreadTaskReply(t, inInbox) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-task-queued-'))
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Reviewer', role: 'Reviewer', sessionId: 'c', createdAt: 3 }
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Peer request', origin: 'bot-handoff', status: 'waiting_work', exchangeId: 'request' }]
+  seed.works = {
+    request: { from: 'a', to: 'b', open: ['review'], results: [{ id: 'review', name: 'Reviewer', text: 'Review result.' }], at: 1 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const request = { kind: 'bot', role: 'request', exchangeId: 'request', senderSessionId: 'a' }
+  const reply = { fromId: 'c', toId: 'b', sessionId: 'b-task', role: 'reply', replyTo: 'review', work: 'request', exchangeId: 'review-reply', text: 'Review result.' }
+  const logs = new Map([['b-task', [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'user/message', data: { source: request } },
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Waiting for review.' }] } } },
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]]])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { 'b-task': { botId: 'b', since: 1, trigger: request } },
+    queued: inInbox ? {} : { 'b-task': [{ at: 2, args: reply }] },
+  }))
+  const host = await createRestartHost(t, home, logs)
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  if (inInbox) host.agentOf('b-task').inbox.nextTurn.push({ source: { kind: 'bot', exchangeId: reply.exchangeId } })
+  const reconciliation = t.mock.method(host.rt, 'reconcileTasksAfterRestart')
+  t.mock.timers.tick(3000)
+  await settle(() => reconciliation.mock.callCount() > 0)
+  await reconciliation.mock.calls[0].result
+  assert.deepEqual(host.agentOf('b-task').calls.map(({ source }) => source.exchangeId), inInbox ? [] : ['review-reply'])
+  assert.equal(host.agentOf('b').calls.length, 0)
+  assert.equal(host.agentOf('a').calls.length, 0)
+  assert.equal(host.rt.state.bots.b.tasks[0].status, 'waiting_work')
+  assert.deepEqual(host.rt.state.works.request.open, ['review'])
+}
+
+test('restart replays an unread child reply in its background task without rerunning the earlier turn', t => checkUnreadTaskReply(t, false))
+
+test('restart keeps a task active when a child reply is still in the agent inbox', t => checkUnreadTaskReply(t, true))
+
 test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-parents-'))
   const seed = baseSeed()

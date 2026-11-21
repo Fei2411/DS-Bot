@@ -511,7 +511,10 @@ test('reconcileTasksAfterRestart marks orphaned idle tasks interrupted while pre
   assert.match(interruptReport.text, /restarted/)
 
   // reconcileEndedTask settles a task whose turn ended during plugin reload using durable log.
-  env.agentMap.get(tInflight.sessionId).session.events.push(
+  const inflightAgent = env.agentMap.get(tInflight.sessionId)
+  const firstMsg = inflightAgent.followups[0]
+  await env.emit(tInflight.sessionId, 'user/message', { source: firstMsg.source, content: firstMsg.content })
+  inflightAgent.session.events.push(
     { type: 'turn/start', seq: 10, data: { turn: 1 } },
     { type: 'assistant/message', seq: 11, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Reload finished work.' }] } } },
   )
