@@ -73,7 +73,7 @@ export const DRIVER_GLOBAL = new Set([
   'list_apps', 'list_windows', 'get_screen_size', 'get_cursor_position',
   'get_config', 'set_config', 'check_permissions', 'health_report',
   'get_session', 'list_sessions', 'get_session_state', 'get_recording_state',
-  'get_agent_cursor_state',
+  'get_agent_cursor_state', 'get_accessibility_tree',
   'start_session', 'end_session',
 ])
 

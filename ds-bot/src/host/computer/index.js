@@ -631,6 +631,30 @@ export function install(rt) {
     if (props === null || typeof props !== 'object' || !('session' in props)) return
     exec.arguments = { ...(exec.arguments ?? {}), session: driverSessionOf(botId) }
   }
+  // Driver sessions end after five idle minutes and ordinary calls never revive
+  // them (#1821): a Bot back after a pause starts the session its call will use,
+  // its own label or the shared implicit one, again first.
+  const DRIVER_SESSION_FRESH_MS = 4 * 60_000
+  const driverSessionSeen = new Map()
+  const driverSessionKey = (exec) => typeof exec.arguments?.session === 'string' ? exec.arguments.session : ''
+  const startDriverSession = async (exec, key) => {
+    driverSessionSeen.set(key, Date.now())
+    if (key !== '') driverCursorOff.delete(key)
+    try {
+      await ctx.tools?.get?.('cua_driver_native__start_session', exec.agent)?.execute(key === '' ? {} : { session: key }, exec)
+    } catch {}
+  }
+  const ensureDriverSession = async (exec, call) => {
+    if (call.method === 'start_session' || call.method === 'end_session') return
+    const key = driverSessionKey(exec)
+    const seen = driverSessionSeen.get(key)
+    if (seen !== undefined && Date.now() - seen < DRIVER_SESSION_FRESH_MS) {
+      driverSessionSeen.set(key, Date.now())
+      return
+    }
+    await startDriverSession(exec, key)
+  }
+  const isSessionEnded = (error) => /session has ended/i.test(String(error?.message ?? error))
   const driverCursorOff = new Set()
   const ensureDriverCursorOff = async (exec, botId) => {
     const session = driverSessionOf(botId)
@@ -823,11 +847,17 @@ export function install(rt) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
       injectDriverSession(exec, call, bot.id)
+      await ensureDriverSession(exec, call)
       await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
+        if (call.method === 'get_desktop_state') {
+          return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
+        }
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
+      } else if (app.unknown === true && DRIVER_GLOBAL.has(call.method)) {
+        // A listing filtered by a pid not seen yet is metadata; its result records the app.
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
@@ -922,6 +952,10 @@ export function install(rt) {
       return result
     } catch (error) {
       noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: String(error?.message ?? error).slice(0, 200) })
+      if (call.provider === 'cua-driver' && isSessionEnded(error)) {
+        await startDriverSession(exec, driverSessionKey(exec))
+        throw new Error('The computer-use session had ended. DS Bot started it again; call the tool again.', { cause: error })
+      }
       throw error
     } finally {
       if (typeof exec.callId === 'string') inFlight.delete(exec.callId)
