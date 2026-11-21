@@ -1,5 +1,6 @@
 import { createElement as h, useState } from 'react'
 import { Switch } from './bot-settings.js'
+import { writeClipboard } from './dsh-primitives.js'
 import { dateLocale, t } from './i18n.js'
 
 const OFF = { on: false, port: 8797, status: 'off', error: null, url: 'http://127.0.0.1:8797/mcp', clients: [] }
@@ -47,13 +48,14 @@ export function McpPage({ roster, actions, Section, Row }) {
     }))
   }
   const copy = () => {
-    const task = navigator.clipboard?.writeText(token.value)
-    if (task === undefined) return setError(t('Clipboard is not available'))
-    void run(task.then(() => setCopied(true)))
+    void run(writeClipboard(token.value).then((ok) => {
+      if (!ok) throw new Error(t('Clipboard is not available'))
+      setCopied(true)
+    }))
   }
   const names = client => [...client.bots.map(id => bots.find(bot => bot.id === id)?.name), ...client.rooms.map(id => rooms.find(room => room.id === id)?.name)].filter(Boolean)
   return h('div', { className: 'bt-mcp' },
-    error ? h('p', { className: 'bt-set-hint bt-phone-warn', role: 'alert' }, error) : null,
+    error ? h('p', { className: 'bt-set-hint bt-danger', role: 'alert' }, error) : null,
     h(Section, { title: t('Connection') },
       h(Row, { label: t('MCP access'), hint: statusText(mcp), className: mcp.error ? 'bt-phone-warn' : '' },
         h(Switch, { on: mcp.on, label: t('MCP access'), disabled: busy, onChange: on => void run(actions.mcpSet({ on })) })),
@@ -71,7 +73,7 @@ export function McpPage({ roster, actions, Section, Row }) {
         h('span', { className: 'bt-set-hint' }, t('Clients that start a command use: {command}', { command: `DSBOT_MCP_TOKEN=… npx -p ds-bot ds-bot-mcp --url ${mcp.url}` })))
         : null),
     h(Section, { title: t('Clients') }, mcp.clients.length === 0
-      ? h(Row, { label: t('No clients yet') })
+      ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No clients yet')))
       : mcp.clients.map(client => h('div', { key: client.id, className: 'bt-mcp-client' },
         h(Row, {
           label: client.name,

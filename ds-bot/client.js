@@ -18533,8 +18533,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-nav>.bt-thumb{left:0;right:auto;top:8px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
+  .bt-settings-close{top:9px;right:10px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
-  .bt-settings-head{padding:14px 52px 4px 16px}
+  .bt-settings-head{padding:14px 16px 4px 16px}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
@@ -37605,15 +37606,16 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
     }));
   };
   const copy2 = () => {
-    const task = navigator.clipboard?.writeText(token.value);
-    if (task === void 0) return setError(t("Clipboard is not available"));
-    void run2(task.then(() => setCopied(true)));
+    void run2((0, import_dsh_client_ui_primitives.writeClipboard)(token.value).then((ok) => {
+      if (!ok) throw new Error(t("Clipboard is not available"));
+      setCopied(true);
+    }));
   };
   const names = (client) => [...client.bots.map((id) => bots.find((bot) => bot.id === id)?.name), ...client.rooms.map((id) => rooms.find((room2) => room2.id === id)?.name)].filter(Boolean);
   return (0, import_react45.createElement)(
     "div",
     { className: "bt-mcp" },
-    error ? (0, import_react45.createElement)("p", { className: "bt-set-hint bt-phone-warn", role: "alert" }, error) : null,
+    error ? (0, import_react45.createElement)("p", { className: "bt-set-hint bt-danger", role: "alert" }, error) : null,
     (0, import_react45.createElement)(
       Section2,
       { title: t("Connection") },
@@ -37649,7 +37651,7 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
         (0, import_react45.createElement)("span", { className: "bt-set-hint" }, t("Clients that start a command use: {command}", { command: `DSBOT_MCP_TOKEN=… npx -p ds-bot ds-bot-mcp --url ${mcp.url}` }))
       ) : null
     ),
-    (0, import_react45.createElement)(Section2, { title: t("Clients") }, mcp.clients.length === 0 ? (0, import_react45.createElement)(Row4, { label: t("No clients yet") }) : mcp.clients.map((client) => (0, import_react45.createElement)(
+    (0, import_react45.createElement)(Section2, { title: t("Clients") }, mcp.clients.length === 0 ? (0, import_react45.createElement)("div", { className: "bt-set-row" }, (0, import_react45.createElement)("span", { className: "bt-set-hint" }, t("No clients yet"))) : mcp.clients.map((client) => (0, import_react45.createElement)(
       "div",
       { key: client.id, className: "bt-mcp-client" },
       (0, import_react45.createElement)(Row4, {
@@ -38218,7 +38220,7 @@ var SERVICES_CSS = `
 .bt-svc-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3);corner-shape:round}
 .bt-svc-state[data-state=ready] .bt-svc-dot{background:var(--bt-green)}
 .bt-svc-state[data-state=missing] .bt-svc-dot{background:var(--bt-danger)}
-.bt-svc-line{padding:0 12px 10px}
+.bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal}
 .bt-svc-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3);overflow-wrap:anywhere}
 .bt-svc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -38330,11 +38332,11 @@ function ServicesForm({
         { label: t("DeepSeek Web Search API"), hint: t("Find it in Plugins → Web search.") },
         pluginsAvailable ? (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Open Plugins")) : null
       ),
-      (0, import_react47.createElement)(
+      saved || busy ? (0, import_react47.createElement)(
         "div",
         { className: "bt-svc-line" },
-        (0, import_react47.createElement)("span", { className: "bt-svc-note", role: "status" }, saved ? t("Saved.") : busy ? t("Saving…") : "")
-      )
+        (0, import_react47.createElement)("span", { className: "bt-svc-note", role: "status" }, saved ? t("Saved.") : t("Saving…"))
+      ) : null
     ),
     (0, import_react47.createElement)(
       Section2,
@@ -40143,7 +40145,7 @@ function PermissionPreference({ preferences }) {
       { className: "bt-set-note", role: "alert" },
       tr("unavailable"),
       " ",
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
+      (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
     ) : null,
     (0, import_react54.createElement)(import_dsh_client_ui_primitives.RiskConfirmation, {
       open: confirmation !== null,
