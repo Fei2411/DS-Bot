@@ -2184,6 +2184,51 @@ test('recall reads a topic again only once its file has changed', async (t) => {
   assert.equal(await recallOf(ctx, 'b2', asked), undefined)
 })
 
+test('bot_recall search reads a file again only once it has changed, and still fails on an unreadable one', async (t) => {
+  const { tool, home, stop } = start()
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Release check runs on a real phone' }, 'b2')
+  await tool('bot_remember', { text: 'Release check needs the signed build', topic: 'release' }, 'b2')
+  await tool('bot_remember', { text: 'Lunch is noodles', topic: 'food' }, 'b2')
+  const search = () => tool('bot_recall', { query: 'release check' }, 'b2')
+  const first = await search()
+  assert.match(first, /\[yours · MEMORY\.md\] Release check runs on a real phone/)
+  assert.match(first, /\[yours · \[\[release\]\]\] Release check needs the signed build/)
+  const memory = join(home, 'memory')
+  const reads = []
+  const realRead = fs.readFileSync
+  fs.readFileSync = (path, ...rest) => {
+    if (String(path).startsWith(memory) && String(path).endsWith('.md')) reads.push(String(path))
+    return realRead(path, ...rest)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fs.readFileSync = realRead
+    syncBuiltinESMExports()
+  })
+  assert.equal(await search(), first)
+  assert.deepEqual(reads, [])
+  // An edit by hand, even one of the same length, a tool's write and a removal are
+  // seen on the next search.
+  const release = join(memory, 'bots', 'b2', 'release.md')
+  const main = join(memory, 'bots', 'b2', 'MEMORY.md')
+  const before = realRead(release, 'utf8')
+  writeFileSync(release, before.replace('signed', 'tagged'))
+  assert.equal(realRead(release, 'utf8').length, before.length)
+  writeFileSync(main, realRead(main, 'utf8').replace('real phone', 'test phone'))
+  const edited = await search()
+  assert.match(edited, /Release check needs the tagged build/)
+  assert.match(edited, /Release check runs on a test phone/)
+  assert.doesNotMatch(edited, /signed|real phone/)
+  assert.deepEqual(reads, [main, release])
+  await tool('bot_remember', { text: 'Release check waits for the changelog', topic: 'release' }, 'b2')
+  assert.match(await search(), /Release check waits for the changelog/)
+  unlinkSync(release)
+  assert.doesNotMatch(await search(), /\[\[release\]\]/)
+  mkdirSync(join(memory, 'bots', 'b2', 'broken.md'))
+  assert.match(await search(), /^Memory file .*broken\.md could not be read \(EISDIR\)\. DS Bot leaves it as it is/)
+})
+
 test('bot_recall puts the entry that matches best first', () => {
   const entries = ['Ships on Friday and also lots of other words here', 'Friday ships'].map(text => ({ text, file: {} }))
   const ranked = rankEntries(entries, 'ships friday')
