@@ -611,9 +611,8 @@ export const TASKS_CSS = `
 .bt-task-bar[data-approval]{color:var(--bt-ink);font-weight:500}
 .bt-task-bar-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-bar-time{flex:none;font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
-.bt-task-bar-count{flex:none;min-width:18px;height:18px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent);font-size:11px;line-height:18px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums;box-shadow:inset 0 .5px 0 rgba(255,255,255,.5)}
+.bt-task-bar-count{flex:none;min-width:18px;height:18px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent);font-size:11px;line-height:18px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
 .bt-task-bar[data-approval] .bt-task-bar-count{background:color-mix(in srgb,var(--bt-star) 16%,transparent);color:var(--bt-warn)}
-body[data-ds-dark-theme] .bt-task-bar-count{box-shadow:inset 0 .5px 0 rgba(255,255,255,.12)}
 .bt-task-bar[aria-expanded=true] .bt-task-bar-count,.bt-task-bar[aria-expanded=true] .bt-task-bar-time{display:none}
 .bt-task-bar[aria-expanded=true] .bt-goal-chev{margin-left:auto}
 .bt-task-bar[aria-expanded=true] .bt-goal-chev svg{transform:rotate(180deg)}
@@ -634,23 +633,20 @@ body[data-ds-dark-theme] .bt-task-bar-count{box-shadow:inset 0 .5px 0 rgba(255,2
 .bt-btask-time{color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 
 /* Unified Left/Right glass stepper pill */
-.bt-task-stepper{flex:none;display:inline-flex;align-items:center;gap:1px;height:24px;padding:1px;border-radius:999px;border:.5px solid color-mix(in srgb,var(--bt-ink) 10%,transparent);background:color-mix(in srgb,var(--bt-ink) 3.5%,transparent)}
-body[data-ds-dark-theme] .bt-task-stepper{border-color:rgba(255,255,255,.11);background:rgba(255,255,255,.05)}
+.bt-task-stepper{flex:none;display:inline-flex;align-items:center;gap:1px;height:24px;padding:1px;border-radius:999px;border:.5px solid var(--bt-line-2);background:var(--bt-island-well)}
 .bt-task-pcount{padding:0 5px;font-size:11px;line-height:20px;font-weight:500;color:var(--bt-ink-2);font-variant-numeric:tabular-nums;user-select:none}
 .bt-task-arrow{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;background:transparent;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
-.bt-task-arrow:hover{background:color-mix(in srgb,var(--bt-ink) 8%,transparent);color:var(--bt-ink)}
+.bt-task-arrow:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-task-arrow:active{scale:.9}
 .bt-task-arrow svg{width:12px;height:12px}
-body[data-ds-dark-theme] .bt-task-arrow:hover{background:rgba(255,255,255,.12);color:var(--bt-ink)}
 
 .bt-btask-title{font-size:15px;line-height:21px;font-weight:600;letter-spacing:-.012em;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-btask-reason{font-size:12.5px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 
 /* Clean inset monospace command strip (zero card-in-card clutter) */
-.bt-btask-cmd{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border-radius:11px;background:color-mix(in srgb,var(--bt-ink) 4.5%,transparent);border:.5px solid color-mix(in srgb,var(--bt-ink) 8%,transparent);overflow-x:auto}
-body[data-ds-dark-theme] .bt-btask-cmd{background:rgba(0,0,0,.3);border-color:rgba(255,255,255,.08)}
-.bt-btask-cmd-tool{flex:none;font-size:10.5px;line-height:16px;font-weight:600;letter-spacing:.02em;color:var(--bt-ink-3);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;user-select:none}
-.bt-btask-cmd-code{flex:1 1 auto;min-width:0;font-size:12px;line-height:17px;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.bt-btask-cmd{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bt-island-well);border:.5px solid var(--bt-line);overflow-x:auto}
+.bt-btask-cmd-tool{flex:none;font-size:10.5px;line-height:16px;font-weight:600;letter-spacing:.02em;color:var(--bt-ink-3);font-family:var(--bt-mono);user-select:none}
+.bt-btask-cmd-code{flex:1 1 auto;min-width:0;font-size:12px;line-height:17px;color:var(--bt-ink);font-family:var(--bt-mono);white-space:pre-wrap;overflow-wrap:anywhere}
 
 .bt-btask-desc{font-size:13px;line-height:19px;color:var(--bt-ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-btask-err{font-size:12px;line-height:17px;color:var(--bt-danger);padding:7px 10px;border-radius:10px;background:var(--bt-danger-soft)}
@@ -658,10 +654,8 @@ body[data-ds-dark-theme] .bt-btask-cmd{background:rgba(0,0,0,.3);border-color:rg
 .bt-btask-ok svg{width:14px;height:14px}
 
 /* Recessed liquid glass follow-up capsule */
-.bt-btask-reply{display:flex;align-items:flex-end;gap:8px;margin-top:2px;padding:6px 6px 6px 13px;border:.5px solid color-mix(in srgb,var(--bt-ink) 11%,transparent);border-radius:16px;background:color-mix(in srgb,var(--bt-ink) 3%,transparent);transition:border-color .14s ease,background-color .14s ease}
-.bt-btask-reply:focus-within{border-color:color-mix(in srgb,var(--bt-accent) 60%,transparent);background:color-mix(in srgb,var(--bt-card) 92%,transparent)}
-body[data-ds-dark-theme] .bt-btask-reply{background:rgba(0,0,0,.22);border-color:rgba(255,255,255,.11)}
-body[data-ds-dark-theme] .bt-btask-reply:focus-within{background:rgba(0,0,0,.34);border-color:color-mix(in srgb,var(--bt-accent) 65%,transparent)}
+.bt-btask-reply{display:flex;align-items:flex-end;gap:8px;margin-top:2px;padding:6px 6px 6px 13px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-island-well);transition:border-color .14s ease,background-color .14s ease}
+.bt-btask-reply:focus-within{border-color:color-mix(in srgb,var(--bt-accent) 60%,transparent);background:var(--bt-island-well-focus)}
 .bt-btask-input{flex:1 1 auto;min-width:0;max-height:76px;border:0;outline:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;resize:none;padding:3px 0}
 .bt-btask-input::placeholder{color:var(--bt-ink-3)}
 .bt-btask-send{flex:none;width:26px;height:26px;border:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-user);color:var(--bt-user-ink);cursor:pointer;transition:opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
@@ -671,18 +665,13 @@ body[data-ds-dark-theme] .bt-btask-reply:focus-within{background:rgba(0,0,0,.34)
 .bt-btask-send svg{width:14px;height:14px}
 
 /* Refined glass footer & airtight action buttons */
-.bt-btask-foot{height:44px;padding:0 12px 0 16px;border-top:.5px solid color-mix(in srgb,var(--bt-ink) 7%,transparent)}
-body[data-ds-dark-theme] .bt-btask-foot{border-top-color:rgba(255,255,255,.08)}
-.bt-btask-btn{height:28px;padding:0 13px;border-radius:999px;border:.5px solid color-mix(in srgb,var(--bt-ink) 14%,transparent);background:color-mix(in srgb,var(--bt-card) 75%,transparent);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .14s ease,border-color .14s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
-.bt-btask-btn:not(.is-primary):not(.is-danger):hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 7%,transparent);border-color:color-mix(in srgb,var(--bt-ink) 20%,transparent)}
+.bt-btask-foot{height:44px;padding:0 12px 0 16px;border-top:.5px solid var(--bt-line)}
+.bt-btask-btn{height:28px;padding:0 13px;border-radius:999px;border:.5px solid var(--bt-line-2);background:var(--bt-island-btn);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .14s ease,border-color .14s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-btask-btn:not(.is-primary):not(.is-danger):hover:not(:disabled){background:var(--bt-island-btn-hover);border-color:var(--bt-line-2)}
 .bt-btask-btn:active:not(:disabled){scale:.95}
 .bt-btask-btn:disabled{opacity:.45;cursor:default}
-body[data-ds-dark-theme] .bt-btask-btn{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}
-body[data-ds-dark-theme] .bt-btask-btn:not(.is-primary):not(.is-danger):hover:not(:disabled){background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.22)}
-.bt-btask-btn.is-primary{border-color:transparent;background:var(--bt-user);color:var(--bt-user-ink);box-shadow:0 2px 8px -2px rgba(0,0,0,.22)}
+.bt-btask-btn.is-primary{border-color:transparent;background:var(--bt-user);color:var(--bt-user-ink);box-shadow:var(--bt-island-btn-shadow)}
 .bt-btask-btn.is-primary:hover:not(:disabled){background:var(--bt-user);color:var(--bt-user-ink);opacity:.84}
-body[data-ds-dark-theme] .bt-btask-btn.is-primary{border-color:transparent;background:var(--bt-user);color:var(--bt-user-ink);box-shadow:0 2px 10px -2px rgba(0,0,0,.45)}
-body[data-ds-dark-theme] .bt-btask-btn.is-primary:hover:not(:disabled){background:var(--bt-user);color:var(--bt-user-ink);opacity:.86}
 .bt-btask-btn.is-danger{color:var(--bt-danger);background:color-mix(in srgb,var(--bt-danger) 8%,transparent);border-color:color-mix(in srgb,var(--bt-danger) 24%,transparent)}
 .bt-btask-btn.is-danger:hover:not(:disabled){background:color-mix(in srgb,var(--bt-danger) 14%,transparent);border-color:color-mix(in srgb,var(--bt-danger) 32%,transparent)}
 body[data-ds-dark-theme] .bt-btask-btn.is-danger{color:var(--bt-danger);background:color-mix(in srgb,var(--bt-danger) 12%,transparent);border-color:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
