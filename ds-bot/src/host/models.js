@@ -485,6 +485,32 @@ export function install(rt) {
 
   const sameSelection = (a, b) => a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 
+  // The Bots that still owe a Session a model selection, and whether the next try must
+  // write it even when the record looks applied. A `force` that failed halfway stays
+  // forced: the record may match while the Session still names the provider that is
+  // gone, and a plain retry would find nothing to change (#1937).
+  const botRetry = new Map()
+  const noteBotRetry = (botId, force) => {
+    const prior = botRetry.get(botId)
+    botRetry.set(botId, { force: force === true || prior?.force === true })
+  }
+  // A Bot's model also reaches its member Session in every group it is in. A group's own
+  // Session has its own model (roomRetry); a member Session that failed is kept here, so
+  // the Bot's record is not cleared on a warning alone (#1937).
+  const groupFailures = new Map()
+  const noteGroupFailure = (botId, sessionId, failed) => {
+    let set = groupFailures.get(botId)
+    if (failed !== true) {
+      if (set === undefined) return
+      set.delete(sessionId)
+      if (set.size === 0) groupFailures.delete(botId)
+      return
+    }
+    if (set === undefined) groupFailures.set(botId, set = new Set())
+    set.add(sessionId)
+  }
+  const hasGroupFailure = botId => (groupFailures.get(botId)?.size ?? 0) > 0
+
   async function syncBotRooms(botId) {
     for (const room of Object.values(state.rooms ?? {})) {
       if (room.members?.includes(botId)) await selectRoomSession(rt.sessionOfRoom?.(room) ?? room.sessionId ?? room.id, room)
@@ -508,12 +534,25 @@ export function install(rt) {
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change.
     if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route, { force })
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
+    // Every group this Bot is in carries the same model on its member Session. One that
+    // cannot take it stays recorded: a warning alone would let the Bot's retry look done
+    // and be cleared (#1937).
+    const groups = rt.groupSessionsOf(bot.id)
+    for (const sessionId of groups) {
       const applied = sessionSelections.get(sessionId)
-      if (!force && applied !== undefined && sameSelection(applied, route)) continue
-      await selectSessionModel(sessionId, route, { force })
-        .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
+      if (!force && applied !== undefined && sameSelection(applied, route)) { noteGroupFailure(bot.id, sessionId, false); continue }
+      try {
+        await selectSessionModel(sessionId, route, { force })
+        noteGroupFailure(bot.id, sessionId, false)
+      } catch (error) {
+        noteGroupFailure(bot.id, sessionId, true)
+        rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error)
+      }
     }
+    // A member Session of a group this Bot left, or one moved on to a fresh part, is no
+    // longer this Bot's to fix, so its failure must not keep the Bot retrying forever.
+    for (const sessionId of [...(groupFailures.get(bot.id) ?? [])]) if (!groups.includes(sessionId)) noteGroupFailure(bot.id, sessionId, false)
+    if (hasGroupFailure(bot.id)) noteBotRetry(bot.id, force)
     if (llm() === undefined || !ownChanged) return ref
     bot.appliedModel = ref
     if (effort === undefined) delete bot.appliedEffort
@@ -552,11 +591,6 @@ export function install(rt) {
   // The Sessions whose selection failed. The models may not change again, so the next
   // sync tries them once more instead of waiting for a change that never comes.
   const roomRetry = new Set()
-  // The Bots whose model could not be applied, e.g. because their Session was not
-  // there yet. Each is tried again at the next trigger — a provider change, or its next
-  // turn — so a failure does not last until the next start (#1937). Nothing retries on
-  // a clock: an unchanged team costs one lookup per turn start at most.
-  const botRetry = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
     try {
       const ref = await roomModel(sessionId, room)
@@ -610,12 +644,23 @@ export function install(rt) {
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
   // here, such as a catalog that cannot be read, is logged; the retry record stays.
   const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
-  const retryBot = bot => applyModel(bot, { syncGroups: false })
-    .then(() => { botRetry.delete(bot.id) })
-    .catch(error => {
-      botRetry.add(bot.id)
-      rt.warn('ds-bot: model for %s not applied: %s', bot.name, error)
-    })
+  // A recorded failure is retried at the next trigger — a provider change, or the Bot's
+  // next turn — with the same force it had: a forced write that failed before must not
+  // be skipped because the record looks applied (#1937).
+  const retryBot = (bot) => {
+    const force = botRetry.get(bot.id)?.force === true
+    return applyModel(bot, { syncGroups: false, force })
+      .then(() => {
+        // A group member Session that still failed keeps the record: the write did not
+        // reach everything this Bot's model covers.
+        if (hasGroupFailure(bot.id)) noteBotRetry(bot.id, force)
+        else botRetry.delete(bot.id)
+      })
+      .catch(error => {
+        noteBotRetry(bot.id, force)
+        rt.warn('ds-bot: model for %s not applied: %s', bot.name, error)
+      })
+  }
   async function syncAll() {
     for (const bot of Object.values(state.bots)) {
       await retryBot(bot)
@@ -624,9 +669,13 @@ export function install(rt) {
   }
   // Only what failed is tried again; a Bot or group that is now applied costs nothing.
   async function syncRetry() {
-    for (const botId of [...botRetry]) {
+    for (const botId of [...botRetry.keys()]) {
       const bot = state.bots?.[botId]
-      if (bot === undefined) { botRetry.delete(botId); continue }
+      if (bot === undefined) {
+        botRetry.delete(botId)
+        groupFailures.delete(botId)
+        continue
+      }
       await retryBot(bot)
     }
     await syncRooms()
@@ -638,21 +687,26 @@ export function install(rt) {
   async function retryModel(botId) {
     if (botId === undefined || !botRetry.has(botId)) return
     const bot = state.bots?.[botId]
-    if (bot === undefined) { botRetry.delete(botId); return }
+    if (bot === undefined) {
+      botRetry.delete(botId)
+      groupFailures.delete(botId)
+      return
+    }
     await retryBot(bot)
   }
 
   // A turn refused before its request left — no adapter for the Session's provider, or
   // a model DSH no longer serves — is the first sign that the Session's own selection
   // names something gone. Applying again with `force` writes the selection even when
-  // the Bot's record already looks applied; a failure here keeps the retry record.
+  // the Bot's record already looks applied; a failure here keeps the forced retry.
   async function reapplyModel(bot) {
     if (bot === undefined || llm() === undefined) return
     try {
       await applyModel(bot, { force: true })
-      botRetry.delete(bot.id)
+      if (hasGroupFailure(bot.id)) noteBotRetry(bot.id, true)
+      else botRetry.delete(bot.id)
     } catch (error) {
-      botRetry.add(bot.id)
+      noteBotRetry(bot.id, true)
       throw error
     }
   }

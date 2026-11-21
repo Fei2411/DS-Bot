@@ -805,6 +805,46 @@ test('a model that fails to apply again is kept for the next turn of its Bot to 
   assert.equal(selected.length, 1)
 })
 
+// The case the fix exists for: the record says the model is applied, but the Session's
+// own selection still names the provider that is gone. A forced rewrite that fails must
+// keep its force, or the next retry finds nothing to change and calls it done (#1937).
+test('a forced rewrite that failed is retried with its force, though the record matches', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(bot), /session "b1" not found/)
+  assert.deepEqual(selected, [])
+  // The record matches the model, so only the force the failure carried writes again.
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a group member Session that failed keeps the Bot for another try, then writes', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  rt.groupSessionsOf = () => ['g1']
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'g1' && !failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // The warning is not success: the group Session is written at the next trigger.
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash'])
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {
