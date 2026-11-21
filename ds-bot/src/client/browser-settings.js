@@ -241,7 +241,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     },
     h(StatusChip, { state: status.state }),
     status.installCommand ? h(CopyButton, { text: status.installCommand }) : null,
-    ['error', 'not-installed', 'restart-needed'].includes(status.state) && actions.browserRetry
+    ['error', 'not-installed'].includes(status.state) && actions.browserRetry
       ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: switching !== null, onClick: retryBackend }, t('Retry'))
       : null),
     h(Row, {

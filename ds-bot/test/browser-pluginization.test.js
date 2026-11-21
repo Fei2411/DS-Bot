@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime, defineBrowserProvider } from '../index.js'
+import { resolveStdioCommand, sanitizeMcpForView, splitArgs } from '../src/host/browser/catalog.js'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -448,4 +449,312 @@ test('external DSH plugins never mask DS Bot own built-in tools and custom valid
   const badCmd = await env.call('browser-custom-save', { kind: 'mcp', name: 'Bad', transport: 'stdio', command: 'npx;whoami' })
   assert.equal(badCmd.ok, false)
 })
+
+test('legacy browserPlugin: null and false leave interactive browsing off without throwing', async (t) => {
+  for (const browserPlugin of [null, false, '']) {
+    const env = start({ config: { browserPlugin } })
+    t.after(() => env.stop())
+    await env.rt.load()
+    assert.equal(env.rt.browserStatusView().id, 'readonly')
+    assert.equal(env.rt.browserStatusView().state, 'ready')
+  }
+})
+
+test('installing one Ego plugin does not mark the sibling Ego plugin as installed or usable', async (t) => {
+  const bundles = [
+    { name: 'dsh-ego-browser', availability: 'profile', installed: true, enabled: true, version: '0.14.1' },
+  ]
+  const env = start({
+    globalTools: ['ego_open', 'ego_click'],
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+
+  const listed = await env.call('browser-backends')
+  const first = listed.value.dshPlugins.find(p => p.id === 'dsh:dsh-ego-browser')
+  const second = listed.value.dshPlugins.find(p => p.id === 'dsh:@dshworks/dsh-ego-browser')
+  assert.equal(first.installed, true)
+  assert.equal(first.enabled, true)
+  assert.equal(second.installed, false)
+  assert.equal(second.enabled, false)
+  assert.deepEqual(second.detectedTools, [])
+
+  const pickSecond = await env.call('browser-set-backend', { id: 'dsh:@dshworks/dsh-ego-browser' })
+  assert.equal(pickSecond.value.status.state, 'not-installed')
+  assert.ok(env.rt.teamTools.some(tool => tool.name === 'read_browser'))
+})
+
+test('installing a custom GitHub DSH plugin reconciles guessed repo name with actual result.target package name', async (t) => {
+  let bundles = []
+  const env = start({
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+        installBundle: async () => {
+          bundles = [{ name: '@example/browser-engine', availability: 'profile', installed: true, enabled: true, version: '0.2.0' }]
+          env.servedList.push('acme_nav')
+          return { changed: true, application: 'applied', stage: 'install', target: '@example/browser-engine' }
+        },
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+
+  const saved = await env.call('browser-custom-save', {
+    kind: 'dsh-plugin',
+    name: 'Acme Engine',
+    installSpec: 'github:example/browser-engine',
+    toolPrefixes: 'acme_',
+  })
+  assert.equal(saved.ok, true)
+  const guessed = saved.value.dshPlugins.find(p => p.name === 'Acme Engine')
+  assert.equal(guessed.id, 'dsh:browser-engine')
+
+  const installed = await env.call('browser-install-plugin', { id: guessed.id })
+  assert.equal(installed.ok, true)
+  assert.equal(installed.value.active, 'dsh:@example/browser-engine')
+  assert.equal(installed.value.status.state, 'ready')
+  const updated = installed.value.dshPlugins.find(p => p.id === 'dsh:@example/browser-engine')
+  assert.equal(updated.name, 'Acme Engine')
+  assert.equal(updated.installed, true)
+  assert.deepEqual(updated.toolPrefixes, ['acme_'])
+  assert.equal(installed.value.dshPlugins.some(p => p.id === 'dsh:browser-engine'), false)
+})
+
+test('late-registered native provider reconciles from readonly fallback without bouncing unrelated active backends', async (t) => {
+  const team = { ...TEAM, browser: { active: 'provider:late-engine' } }
+  const env = start({ team })
+  t.after(() => env.stop())
+  await env.rt.load()
+  // Allow startup reconciliation to settle into readonly fallback.
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(env.rt.browserStatusView().id, 'readonly')
+  assert.equal(env.rt.browserStatusView().state, 'ready')
+
+  let mounts = 0
+  const unregister = env.rt.dsBotBrowser.registerProvider(defineBrowserProvider({
+    id: 'provider:late-engine',
+    name: 'Late Engine',
+    mount() {
+      mounts += 1
+      return { dispose() {} }
+    },
+  }))
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(env.rt.browserStatusView().id, 'provider:late-engine')
+  assert.equal(env.rt.browserStatusView().state, 'ready')
+  assert.equal(mounts, 1)
+
+  // Registering and unregistering an unrelated provider must NOT remount the active provider.
+  const dropOther = env.rt.dsBotBrowser.registerProvider(defineBrowserProvider({
+    id: 'provider:unrelated',
+    name: 'Unrelated',
+    mount() { return { dispose() {} } },
+  }))
+  await new Promise(resolve => setTimeout(resolve, 25))
+  dropOther()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(mounts, 1)
+
+  // Temporarily unregistering and re-registering the active provider recovers it automatically.
+  unregister()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(env.rt.browserStatusView().id, 'readonly')
+  env.rt.dsBotBrowser.registerProvider(defineBrowserProvider({
+    id: 'provider:late-engine',
+    name: 'Late Engine',
+    mount() {
+      mounts += 1
+      return { dispose() {} }
+    },
+  }))
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(env.rt.browserStatusView().id, 'provider:late-engine')
+  assert.equal(mounts, 2)
+})
+
+test('failed native provider mount cleans up partially registered tools on sync throw and async rejection', async (t) => {
+  const env = start()
+  t.after(() => env.stop())
+  await env.rt.load()
+  const botAgent = await env.addAgent('b2')
+
+  const makeTool = (host, name) => host.defineTool({
+    name,
+    description: 'temp tool',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute() { return 'ok' },
+  })
+
+  env.rt.dsBotBrowser.registerProvider(defineBrowserProvider({
+    id: 'provider:sync-boom',
+    name: 'Sync Boom',
+    mount(host) {
+      host.registerTool(makeTool(host, 'sync_leak_tool'))
+      throw new Error('sync init failed')
+    },
+  }))
+  env.rt.dsBotBrowser.registerProvider(defineBrowserProvider({
+    id: 'provider:async-boom',
+    name: 'Async Boom',
+    async mount(host) {
+      host.registerTool(makeTool(host, 'async_leak_tool'))
+      throw new Error('async init failed')
+    },
+  }))
+
+  const syncRes = await env.call('browser-set-backend', { id: 'provider:sync-boom' })
+  assert.equal(syncRes.value.status.state, 'error')
+  assert.equal(env.rt.teamTools.some(tool => tool.name === 'sync_leak_tool'), false)
+  assert.equal(botAgent.registered.has('sync_leak_tool'), false)
+
+  const asyncRes = await env.call('browser-set-backend', { id: 'provider:async-boom' })
+  assert.equal(asyncRes.value.status.state, 'error')
+  assert.equal(env.rt.teamTools.some(tool => tool.name === 'async_leak_tool'), false)
+  assert.equal(botAgent.registered.has('async_leak_tool'), false)
+})
+
+test('removing an active custom DSH plugin keeps its non-inferable tool prefixes masked while bundle stays installed', async (t) => {
+  const bundles = [
+    { name: 'acme-custom-driver', availability: 'profile', installed: true, enabled: true, version: '1.0.0' },
+  ]
+  const env = start({
+    globalTools: ['acme_click', 'acme_open'],
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+  const botAgent = await env.addAgent('b2')
+
+  const added = await env.call('browser-custom-save', {
+    kind: 'dsh-plugin',
+    name: 'Acme Driver',
+    packageName: 'acme-custom-driver',
+    toolPrefixes: 'acme_',
+    activate: true,
+  })
+  assert.equal(added.ok, true)
+  assert.equal(added.value.status.state, 'ready')
+  assert.equal(botAgent.denied.has('acme_click'), false)
+
+  const removed = await env.call('browser-custom-remove', { id: 'dsh:acme-custom-driver' })
+  assert.equal(removed.ok, true)
+  assert.equal(removed.value.active, 'readonly')
+  assert.ok(botAgent.denied.has('acme_click'))
+  assert.ok(botAgent.denied.has('acme_open'))
+})
+
+test('retry while restart-needed preserves restart-needed state and keeps read_browser visible', async (t) => {
+  const bundles = []
+  const env = start({
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+        installBundle: async () => {
+          bundles.push({ name: 'dsh-ego-browser', availability: 'profile', installed: true, enabled: true, version: '0.14.1' })
+          return { changed: true, application: 'restart-required', stage: 'install', target: 'dsh-ego-browser' }
+        },
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+
+  const installed = await env.call('browser-install-plugin', { id: 'dsh:dsh-ego-browser' })
+  assert.equal(installed.value.status.state, 'restart-needed')
+  assert.ok(env.rt.teamTools.some(tool => tool.name === 'read_browser'))
+
+  const retried = await env.call('browser-retry')
+  assert.equal(retried.ok, true)
+  assert.equal(retried.value.status.state, 'restart-needed')
+  assert.ok(env.rt.teamTools.some(tool => tool.name === 'read_browser'))
+})
+
+test('MCP argument splitting preserves quoted paths, blocks plaintext credentials, redacts views, and handles missing npx', async (t) => {
+  // Quoted args parsing without shell invocation.
+  assert.deepEqual(
+    splitArgs('--user-data-dir="/Users/example/Browser Profiles" --flag=\'a b\' plain'),
+    ['--user-data-dir=/Users/example/Browser Profiles', '--flag=a b', 'plain'],
+  )
+  assert.throws(() => splitArgs('--dir="/unterminated'), /Unclosed quote/)
+
+  // Desktop bundled pnpm fallback and clear missing-npx error.
+  const desktopLaunch = resolveStdioCommand('npx', ['-y', '@playwright/mcp@latest'], { FOO: '1' }, {
+    env: { PATH: '', DS_BOT_APP: '1' },
+    argv: ['node', 'host.mjs', '/app/node_modules/pnpm/bin/pnpm.mjs'],
+    execPath: '/app/Electron',
+    exists: path => path === '/app/node_modules/pnpm/bin/pnpm.mjs',
+  })
+  assert.equal(desktopLaunch.command, '/app/Electron')
+  assert.deepEqual(desktopLaunch.args, ['--expose-internals', '/app/node_modules/pnpm/bin/pnpm.mjs', 'dlx', '@playwright/mcp@latest'])
+  assert.equal(desktopLaunch.env.ELECTRON_RUN_AS_NODE, '1')
+
+  assert.throws(() => resolveStdioCommand('npx', ['-y', '@playwright/mcp@latest'], {}, {
+    env: { PATH: '' },
+    argv: ['node', 'host.mjs'],
+    exists: () => false,
+  }), /npx.*not found/i)
+
+  // View sanitization redacts pre-existing plaintext secrets while preserving $DSH_SECRET_* references.
+  const sanitized = sanitizeMcpForView({
+    url: 'https://alice:hunter2@mcp.example.com/mcp?api_key=sk-123&mode=fast',
+    headers: { Authorization: 'Bearer raw-secret', 'X-Ref': 'Bearer $DSH_SECRET_TOKEN' },
+    env: { RAW: 'plain', REF: '$DSH_SECRET_KEY' },
+  })
+  assert.equal(sanitized.url.includes('hunter2'), false)
+  assert.equal(sanitized.url.includes('sk-123'), false)
+  assert.equal(sanitized.headers.Authorization, '[configured]')
+  assert.equal(sanitized.headers['X-Ref'], 'Bearer $DSH_SECRET_TOKEN')
+  assert.equal(sanitized.env.RAW, '[configured]')
+  assert.equal(sanitized.env.REF, '$DSH_SECRET_KEY')
+
+  // Endpoint rejects plaintext URL/query/header credentials and allows $DSH_SECRET_* refs.
+  let importAttempts = 0
+  const env = start({
+    services: {
+      loader: {
+        import: async () => {
+          importAttempts += 1
+          if (importAttempts === 1) throw new Error('transient import error')
+          return { name: 'recovered-mcp' }
+        },
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+
+  const badUserinfo = await env.call('browser-custom-save', { kind: 'mcp', name: 'Leak1', transport: 'streamable-http', url: 'https://user:pass@example.com/mcp' })
+  assert.equal(badUserinfo.ok, false)
+  assert.match(badUserinfo.error.message, /\$DSH_SECRET_NAME/)
+
+  const badQuery = await env.call('browser-custom-save', { kind: 'mcp', name: 'Leak2', transport: 'streamable-http', url: 'https://example.com/mcp?api_key=sk-live' })
+  assert.equal(badQuery.ok, false)
+
+  const badHeader = await env.call('browser-custom-save', { kind: 'mcp', name: 'Leak3', transport: 'streamable-http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer sk-live' } })
+  assert.equal(badHeader.ok, false)
+
+  const goodSecretRef = await env.call('browser-custom-save', { kind: 'mcp', name: 'Safe', transport: 'streamable-http', url: 'https://example.com/mcp?api_key=$DSH_SECRET_BROWSER_KEY', headers: { Authorization: 'Bearer $DSH_SECRET_BROWSER_KEY' } })
+  assert.equal(goodSecretRef.ok, true)
+
+  // MCP loader does not permanently cache a rejected import promise: retry recovers.
+  const firstTry = await env.call('browser-set-backend', { id: 'mcp:playwright-mcp' })
+  assert.equal(firstTry.value.status.state, 'error')
+  const secondTry = await env.call('browser-retry')
+  assert.equal(secondTry.ok, true)
+  assert.equal(secondTry.value.status.state, 'ready')
+  assert.equal(importAttempts, 2)
+})
+
 

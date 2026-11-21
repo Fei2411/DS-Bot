@@ -26,6 +26,8 @@ import {
   isBrowserBundle,
   mcpServerNameFor,
   normalizeBackendId,
+  resolveStdioCommand,
+  sanitizeMcpForView,
   validateCustomBrowser,
 } from './browser/catalog.js'
 import { encodeUrlComponent } from './secrets.js'
@@ -188,8 +190,9 @@ function changeErrorMessage(result, fallback) {
 export function install(rt) {
   const { ctx, state } = rt
   const configName = rt.config.browserPlugin
+  const hasConfigName = typeof configName === 'string' ? configName.trim() !== '' : Boolean(configName)
   const injected = rt.config.browserPluginApi
-  if (configName !== undefined && configName !== '' && !injected && !BUILTIN_NAMES.includes(configName)) {
+  if (hasConfigName && !injected && !BUILTIN_NAMES.includes(configName)) {
     throw new Error(`Unknown browser plugin "${configName}". Choose ${BUILTIN_NAMES.join(', ')}.`)
   }
   const playwrightUrl = optionalString(rt.config, 'playwrightUrl')
@@ -212,7 +215,7 @@ export function install(rt) {
     })
   }
   if (injected) {
-    const injectedId = injected.id ? (BUILTIN_NAMES.includes(injected.id) ? `${BUILTIN_PREFIX}${injected.id}` : injected.id) : `${BUILTIN_PREFIX}${configName || 'custom'}`
+    const injectedId = injected.id ? (BUILTIN_NAMES.includes(injected.id) ? `${BUILTIN_PREFIX}${injected.id}` : injected.id) : `${BUILTIN_PREFIX}${(hasConfigName ? configName : 'custom')}`
     registry.register({
       id: injectedId,
       name: injected.name ?? injected.label ?? injectedId,
@@ -229,8 +232,8 @@ export function install(rt) {
   }
 
   const initialConfigId = injected
-    ? (injected.id ? (BUILTIN_NAMES.includes(injected.id) ? `${BUILTIN_PREFIX}${injected.id}` : injected.id) : `${BUILTIN_PREFIX}${configName || 'custom'}`)
-    : (configName ? normalizeBackendId(configName) : READONLY_ID)
+    ? (injected.id ? (BUILTIN_NAMES.includes(injected.id) ? `${BUILTIN_PREFIX}${injected.id}` : injected.id) : `${BUILTIN_PREFIX}${(hasConfigName ? configName : 'custom')}`)
+    : (hasConfigName ? normalizeBackendId(configName) : READONLY_ID)
 
   async function downloadRoots(botId) {
     await rt.load()
@@ -273,6 +276,8 @@ export function install(rt) {
   let activePrompt = ''
   let activeAllowedPrefixes = new Set()
   let discoveredBundles = new Map()
+  let bundleDiscoveryAvailable = false
+  const pendingRestartPackages = new Set()
   let mcpPluginPromise = null
   let reconcileChain = Promise.resolve()
   let stopped = false
@@ -296,6 +301,22 @@ export function install(rt) {
     return state.browser
   }
 
+  const knownPrefixesMap = () => {
+    const raw = state.browser?.knownPrefixes
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+    return raw
+  }
+
+  const rememberPackagePrefixes = (pkg, list) => {
+    const clean = [...new Set((list ?? []).filter(item => typeof item === 'string' && item !== ''))]
+    if (!pkg || clean.length === 0) return
+    const saved = browserState()
+    if (!saved.knownPrefixes || typeof saved.knownPrefixes !== 'object' || Array.isArray(saved.knownPrefixes)) {
+      saved.knownPrefixes = {}
+    }
+    saved.knownPrefixes[pkg] = [...new Set([...(Array.isArray(saved.knownPrefixes[pkg]) ? saved.knownPrefixes[pkg] : []), ...clean])]
+  }
+
   const desiredId = () => {
     const saved = state.browser?.active
     if (typeof saved === 'string' && saved.trim() !== '') return normalizeBackendId(saved)
@@ -316,8 +337,10 @@ export function install(rt) {
       if (item.kind !== 'dsh-plugin' || typeof item.packageName !== 'string') continue
       byPkg.set(item.packageName, { ...(byPkg.get(item.packageName) ?? {}), ...item, custom: true })
     }
+    const remembered = knownPrefixesMap()
     for (const [pkg, bundle] of discoveredBundles) {
       if (byPkg.has(pkg)) continue
+      const savedPrefixes = Array.isArray(remembered[pkg]) ? remembered[pkg].filter(item => typeof item === 'string' && item !== '') : []
       byPkg.set(pkg, {
         id: `${DSH_PREFIX}${pkg}`,
         kind: 'dsh-plugin',
@@ -326,7 +349,7 @@ export function install(rt) {
         installSpec: bundle.source || pkg,
         name: bundleTitle(bundle, pkg),
         description: bundle.description || 'Installed DSH browser plugin.',
-        toolPrefixes: inferToolPrefixes(pkg),
+        toolPrefixes: [...new Set([...inferToolPrefixes(pkg), ...savedPrefixes])],
         discovered: true,
       })
     }
@@ -381,14 +404,48 @@ export function install(rt) {
     }
   }
 
+  const sharedDshPrefixes = (entries) => {
+    const counts = new Map()
+    for (const entry of entries) {
+      const list = entry.toolPrefixes?.length ? entry.toolPrefixes : inferToolPrefixes(entry.packageName)
+      for (const prefix of new Set(list)) counts.set(prefix, (counts.get(prefix) ?? 0) + 1)
+    }
+    const shared = new Set()
+    for (const [prefix, count] of counts) {
+      if (count > 1) shared.add(prefix)
+    }
+    return shared
+  }
+
+  // Derive DSH plugin presence from package identity whenever bundle discovery is
+  // available; never infer one package's installation from a prefix shared by siblings.
+  const dshEntryPresence = (entry, allTools, sharedPrefixes) => {
+    const native = registry.byPackage(entry.packageName)
+    const bundle = discoveredBundles.get(entry.packageName)
+    const prefixes = entry.toolPrefixes?.length ? entry.toolPrefixes : inferToolPrefixes(entry.packageName)
+    const matchingTools = prefixes.length > 0
+      ? allTools.filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+      : []
+    const canInferFromTools = !bundleDiscoveryAvailable && prefixes.length > 0 && prefixes.every(prefix => !sharedPrefixes.has(prefix))
+    const installed = Boolean(native) || bundleInstalled(bundle) || (canInferFromTools && matchingTools.length > 0)
+    const enabled = Boolean(native) || bundleEnabled(bundle) || (canInferFromTools && matchingTools.length > 0)
+    const detectedTools = enabled ? matchingTools : []
+    return { native, bundle, prefixes, installed, enabled, detectedTools }
+  }
+
   async function scanBundles() {
     const manager = pluginManager()
-    if (typeof manager?.listBundles !== 'function') return discoveredBundles
+    if (typeof manager?.listBundles !== 'function') {
+      bundleDiscoveryAvailable = false
+      return discoveredBundles
+    }
     try {
       const list = await Promise.resolve(manager.listBundles())
+      const remembered = knownPrefixesMap()
       const known = new Set([
         ...DSH_PLUGIN_CATALOG.map(item => item.packageName),
         ...customList().filter(item => item.kind === 'dsh-plugin').map(item => item.packageName),
+        ...Object.keys(remembered),
       ])
       const next = new Map()
       for (const bundle of Array.isArray(list) ? list : []) {
@@ -396,6 +453,18 @@ export function install(rt) {
         next.set(bundle.name, bundle)
       }
       discoveredBundles = next
+      bundleDiscoveryAvailable = true
+      if (state.browser?.knownPrefixes && typeof state.browser.knownPrefixes === 'object') {
+        const allTools = servedToolNames()
+        for (const [pkg, prefixList] of Object.entries(state.browser.knownPrefixes)) {
+          const bundle = next.get(pkg)
+          const stillServed = Array.isArray(prefixList) && allTools.some(name => prefixList.some(prefix => name.startsWith(prefix)))
+          if (!bundleInstalled(bundle) && !stillServed) {
+            delete state.browser.knownPrefixes[pkg]
+          }
+        }
+        if (Object.keys(state.browser.knownPrefixes).length === 0) delete state.browser.knownPrefixes
+      }
     } catch (error) {
       rt.warn?.('ds-bot: scanning DSH browser plugins failed: %s', error)
     }
@@ -410,6 +479,12 @@ export function install(rt) {
     const set = new Set()
     for (const entry of allDshEntries()) {
       for (const prefix of entry.toolPrefixes ?? []) set.add(prefix)
+    }
+    for (const prefixList of Object.values(knownPrefixesMap())) {
+      if (!Array.isArray(prefixList)) continue
+      for (const prefix of prefixList) {
+        if (typeof prefix === 'string' && prefix !== '') set.add(prefix)
+      }
     }
     for (const provider of registry.list()) {
       if (provider.kind === 'dsh-plugin' || provider.kind === 'provider') {
@@ -521,17 +596,31 @@ export function install(rt) {
   function mountNativeProviderSync(provider, { useEffect = false } = {}) {
     const host = buildHost()
     if (typeof provider.mount === 'function') {
-      const handle = provider.mount(host)
+      const cleanupOwned = () => {
+        for (const name of [...host.ownedTools]) host.unregisterTool(name)
+      }
+      let handle
+      try {
+        handle = provider.mount(host)
+      } catch (error) {
+        cleanupOwned()
+        throw error
+      }
       const wrap = resolved => ({
         drop: botId => resolved?.drop?.(botId),
         frame: botId => resolved?.frame?.(botId),
         systemPrompt: resolved?.systemPrompt ?? provider.systemPrompt ?? '',
         async dispose() {
-          await resolved?.dispose?.()
-          for (const name of [...host.ownedTools]) host.unregisterTool(name)
+          try {
+            await resolved?.dispose?.()
+          } finally {
+            cleanupOwned()
+          }
         },
       })
-      return typeof handle?.then === 'function' ? handle.then(wrap) : wrap(handle)
+      return typeof handle?.then === 'function'
+        ? handle.then(wrap, error => { cleanupOwned(); throw error })
+        : wrap(handle)
     }
     const mounted = {}
     mountBrowserPlugin(ctx, {
@@ -573,7 +662,10 @@ export function install(rt) {
         if (typeof loader?.import !== 'function') throw new Error('This DSH cannot load MCP browser servers.')
         const mod = await loader.import(MCP_CLIENT)
         return loader.unwrapExports?.(mod) ?? mod?.default ?? mod
-      })()
+      })().catch(error => {
+        mcpPluginPromise = null
+        throw error
+      })
     }
     return mcpPluginPromise
   }
@@ -684,14 +776,14 @@ export function install(rt) {
       const pkg = entry.packageName
       const native = registry.byPackage(pkg)
       if (native) {
+        pendingRestartPackages.delete(pkg)
         await activateTarget(native.id)
         return
       }
-      const bundle = discoveredBundles.get(pkg)
-      const prefixes = entry.toolPrefixes?.length ? entry.toolPrefixes : inferToolPrefixes(pkg)
-      const detectedTools = servedToolNames().filter(name => prefixes.some(prefix => name.startsWith(prefix)))
-      const installed = bundleInstalled(bundle) || detectedTools.length > 0
-      const enabled = bundleEnabled(bundle) || detectedTools.length > 0
+      const allEntries = allDshEntries()
+      const shared = sharedDshPrefixes(allEntries)
+      const presence = dshEntryPresence(entry, servedToolNames(), shared)
+      const { prefixes, installed, enabled } = presence
 
       if (!installed) {
         rt.setReadBrowserVisible?.(true)
@@ -723,6 +815,7 @@ export function install(rt) {
               throw new Error(changeErrorMessage(changed, `Could not enable ${entry.name}.`))
             }
             if (changeNeedsRestart(changed)) {
+              pendingRestartPackages.add(pkg)
               rt.setReadBrowserVisible?.(true)
               status = {
                 id: entry.id,
@@ -763,7 +856,33 @@ export function install(rt) {
         }
       }
 
-      const freshTools = servedToolNames().filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+      const freshTools = prefixes.length > 0
+        ? servedToolNames().filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+        : []
+      if (pendingRestartPackages.has(pkg)) {
+        const hasOwnLiveTools = freshTools.length > 0 && prefixes.every(prefix => !shared.has(prefix))
+        if (!hasOwnLiveTools) {
+          rt.setReadBrowserVisible?.(true)
+          status = {
+            id: entry.id,
+            kind: 'dsh-plugin',
+            name: entry.name,
+            packageName: pkg,
+            mode: 'external',
+            state: 'restart-needed',
+            supportsGrants: false,
+            supportsHandoff: false,
+            supportsPerBotProfile: false,
+            message: `${entry.name} requires a restart before its tools are loaded.`,
+            installCommand: null,
+            detectedTools: [],
+          }
+          reapplyBrowserMasks()
+          return
+        }
+        pendingRestartPackages.delete(pkg)
+      }
+
       activeAllowedPrefixes = new Set(prefixes)
       activePrompt = externalPrompt(entry.name, prefixes, freshTools)
       rt.setReadBrowserVisible?.(false)
@@ -806,7 +925,12 @@ export function install(rt) {
         const serverName = mcpServerNameFor(entry.id)
         const mcpConfig = entry.transport === 'streamable-http'
           ? { transport: 'streamable-http', serverName, url: resolveUrl(entry.url), headers: resolveMap(entry.headers), failOnStartupError: true }
-          : { transport: 'stdio', serverName, command: entry.command, args: resolveList(entry.args), env: resolveMap(entry.env), failOnStartupError: true }
+          : {
+              transport: 'stdio',
+              serverName,
+              ...resolveStdioCommand(entry.command, resolveList(entry.args), resolveMap(entry.env)),
+              failOnStartupError: true,
+            }
         const mcpPlugin = await loadMcpPlugin()
         if (stopped) return
         const fiber = ctx.plugin(mcpPlugin, mcpConfig)
@@ -864,7 +988,7 @@ export function install(rt) {
 
   // Mount profile-configured plugin synchronously during install so initial tool
   // registration and legacy unit tests see it immediately.
-  if (configName || injected) {
+  if (hasConfigName || injected) {
     const initialProvider = registry.get(initialConfigId)
     const mounted = mountNativeProviderSync(initialProvider, { useEffect: true })
     if (typeof mounted?.then === 'function') {
@@ -906,13 +1030,10 @@ export function install(rt) {
     const canInstall = typeof pluginManager()?.installBundle === 'function'
     const allTools = servedToolNames()
     const builtins = BUILTIN_CATALOG.map(item => ({ ...item }))
-    const dshPlugins = allDshEntries().map(item => {
-      const bundle = discoveredBundles.get(item.packageName)
-      const prefixes = item.toolPrefixes?.length ? item.toolPrefixes : inferToolPrefixes(item.packageName)
-      const detectedTools = allTools.filter(name => prefixes.some(prefix => name.startsWith(prefix)))
-      const native = registry.byPackage(item.packageName)
-      const installed = Boolean(native) || bundleInstalled(bundle) || detectedTools.length > 0
-      const enabled = Boolean(native) || bundleEnabled(bundle) || detectedTools.length > 0
+    const dshEntries = allDshEntries()
+    const shared = sharedDshPrefixes(dshEntries)
+    const dshPlugins = dshEntries.map(item => {
+      const { native, bundle, installed, enabled, detectedTools } = dshEntryPresence(item, allTools, shared)
       return {
         ...item,
         installed,
@@ -924,7 +1045,7 @@ export function install(rt) {
       }
     })
     const mcpServers = allMcpEntries().map(item => ({
-      ...item,
+      ...sanitizeMcpForView(item),
       serverName: mcpServerNameFor(item.id),
     }))
     const registeredProviders = registry.list()
@@ -964,13 +1085,14 @@ export function install(rt) {
           throw new Error(`Unknown browser backend "${body?.id}".`)
         }
         const saved = browserState()
-        if (target === READONLY_ID && !configName && !injected) delete saved.active
+        if (target === READONLY_ID && !hasConfigName && !injected) delete saved.active
         else saved.active = target
         await enqueueReconcile(target)
         await rt.save()
         return backendView()
       }
       case 'browser-retry': {
+        writeCheck()
         await scanBundles()
         await enqueueReconcile(desiredId())
         return backendView()
@@ -990,7 +1112,8 @@ export function install(rt) {
         const spec = String(body?.spec ?? entry?.installSpec ?? entry?.packageName ?? '').trim()
         if (spec === '') throw new Error('A plugin package name or install spec is required.')
         const previousStatus = { ...status }
-        status = { ...status, state: 'loading', message: `Installing ${spec}…` }
+        const installStatus = { ...status, state: 'loading', message: `Installing ${spec}…` }
+        status = installStatus
         let result
         try {
           result = await manager.installBundle(spec, { activate: true })
@@ -998,18 +1121,52 @@ export function install(rt) {
             throw new Error(changeErrorMessage(result, `Could not install ${spec}.`))
           }
         } catch (error) {
-          status = previousStatus
+          if (status === installStatus) status = previousStatus
           throw error
         }
-        await scanBundles()
         const restartRequired = changeNeedsRestart(result)
         const installedPkg = typeof result?.target === 'string' && result.target.trim() !== ''
           ? result.target.trim()
           : (entry?.packageName ?? derivePackageName(spec))
-        const targetId = entry?.id ?? (id && id.startsWith(DSH_PREFIX) ? id : `${DSH_PREFIX}${installedPkg}`)
         const saved = browserState()
+        let targetId = entry?.id ?? (id && id.startsWith(DSH_PREFIX) ? id : `${DSH_PREFIX}${installedPkg}`)
+        let displayName = entry?.name ?? installedPkg
+
+        // Reconcile a custom entry's guessed package name with the actual package installed by DSH
+        // (for example, github:owner/repo whose package.json declares @owner/repo).
+        if (entry?.custom && installedPkg !== entry.packageName) {
+          const actualId = `${DSH_PREFIX}${installedPkg}`
+          const customIdx = saved.custom.findIndex(item => item.id === entry.id)
+          const matchesCatalog = DSH_PLUGIN_CATALOG.some(item => item.id === actualId)
+          const duplicateCustom = saved.custom.some((item, idx) => idx !== customIdx && item.id === actualId)
+          if (customIdx !== -1) {
+            const customItem = saved.custom[customIdx]
+            if (matchesCatalog || duplicateCustom) {
+              rememberPackagePrefixes(installedPkg, customItem.toolPrefixes)
+              saved.custom.splice(customIdx, 1)
+            } else {
+              const mergedPrefixes = customItem.toolPrefixes?.length
+                ? customItem.toolPrefixes
+                : inferToolPrefixes(installedPkg)
+              saved.custom[customIdx] = {
+                ...customItem,
+                id: actualId,
+                packageName: installedPkg,
+                toolPrefixes: mergedPrefixes,
+              }
+            }
+          }
+          targetId = actualId
+        } else if (!entry && installedPkg) {
+          targetId = `${DSH_PREFIX}${installedPkg}`
+        }
+
+        await scanBundles()
+        const resolved = resolveEntry(targetId)
+        if (resolved?.name) displayName = resolved.name
         saved.active = targetId
         if (restartRequired) {
+          pendingRestartPackages.add(installedPkg)
           reconcileChain = reconcileChain.catch(() => {}).then(async () => {
             if (stopped) return
             await unmountActive()
@@ -1018,20 +1175,21 @@ export function install(rt) {
             status = {
               id: targetId,
               kind: 'dsh-plugin',
-              name: entry?.name ?? installedPkg,
+              name: displayName,
               packageName: installedPkg,
               mode: 'external',
               state: 'restart-needed',
               supportsGrants: false,
               supportsHandoff: false,
               supportsPerBotProfile: false,
-              message: `${entry?.name ?? installedPkg} was installed. Restart DS Bot to load its tools.`,
+              message: `${displayName} was installed. Restart DS Bot to load its tools.`,
               installCommand: null,
             }
             reapplyBrowserMasks()
           })
           await reconcileChain
         } else {
+          pendingRestartPackages.delete(installedPkg)
           await enqueueReconcile(targetId)
         }
         await rt.save()
@@ -1063,13 +1221,18 @@ export function install(rt) {
         writeCheck()
         const id = String(body?.id ?? '').trim()
         const saved = browserState()
-        const before = saved.custom.length
+        const removed = saved.custom.find(item => item.id === id)
+        if (!removed) throw new Error(`Unknown custom browser backend "${id}".`)
         saved.custom = saved.custom.filter(item => item.id !== id)
-        if (saved.custom.length === before) throw new Error(`Unknown custom browser backend "${id}".`)
+        if (removed.kind === 'dsh-plugin' && removed.packageName && Array.isArray(removed.toolPrefixes) && removed.toolPrefixes.length > 0) {
+          rememberPackagePrefixes(removed.packageName, removed.toolPrefixes)
+        }
         if (saved.active === id || activeId === id) {
-          if (!configName && !injected) delete saved.active
+          if (!hasConfigName && !injected) delete saved.active
           else saved.active = READONLY_ID
           await enqueueReconcile(READONLY_ID)
+        } else {
+          reapplyBrowserMasks()
         }
         await rt.save()
         return backendView()
@@ -1107,10 +1270,16 @@ export function install(rt) {
     },
   }), 'ds-bot: browser section')
 
-  const offRegistry = registry.subscribe(() => {
+  const matchesProviderEvent = (target, event) => {
+    if (!event || !target || target === READONLY_ID) return false
+    if (target === event.id) return true
+    if (event.packageName && target === `${DSH_PREFIX}${event.packageName}`) return true
+    return false
+  }
+  const offRegistry = registry.subscribe((event) => {
     if (stopped) return
     const wanted = desiredId()
-    if (wanted !== READONLY_ID && (wanted === activeId || status.state !== 'ready')) {
+    if (matchesProviderEvent(wanted, event) || matchesProviderEvent(activeId, event)) {
       void enqueueReconcile(wanted)
     }
   })

@@ -37553,7 +37553,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
         },
         (0, import_react46.createElement)(StatusChip, { state: status.state }),
         status.installCommand ? (0, import_react46.createElement)(CopyButton2, { text: status.installCommand }) : null,
-        ["error", "not-installed", "restart-needed"].includes(status.state) && actions.browserRetry ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: switching !== null, onClick: retryBackend }, t("Retry")) : null
+        ["error", "not-installed"].includes(status.state) && actions.browserRetry ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: switching !== null, onClick: retryBackend }, t("Retry")) : null
       ),
       (0, import_react46.createElement)(Row4, {
         label: t("Read-only"),

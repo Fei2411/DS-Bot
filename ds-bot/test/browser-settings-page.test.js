@@ -125,3 +125,39 @@ test('the Browser page lists ego lite DSH plugins, MCP servers, native providers
   assert.match(text, /Add custom browser plugin/)
   assert.match(text, /The active external browser plugin handles its own permissions/)
 })
+
+test('the Browser page hides Retry while waiting for a required restart', () => {
+  hook = 0
+  cells.length = 0
+  const roster = {
+    bots: [],
+    browserBackend: {
+      active: 'dsh:dsh-ego-browser',
+      status: {
+        id: 'dsh:dsh-ego-browser',
+        kind: 'dsh-plugin',
+        name: 'Ego Browser (ego lite)',
+        mode: 'external',
+        state: 'restart-needed',
+        supportsGrants: false,
+        message: 'Restart DS Bot to load its tools.',
+        installCommand: null,
+      },
+      canInstall: true,
+      builtins: [],
+      dshPlugins: [],
+      mcpServers: [],
+      providers: [],
+    },
+  }
+  const text = textOf(expand(BrowserPage({
+    roster,
+    actions: { browserRetry: () => {} },
+    run: () => {},
+    Section,
+    Row,
+  })))
+  assert.match(text, /Restart required/)
+  assert.doesNotMatch(text, /Retry/)
+})
+

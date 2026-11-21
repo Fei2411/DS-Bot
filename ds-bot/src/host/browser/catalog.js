@@ -1,5 +1,8 @@
 // Catalog, discovery heuristics, and custom entry validation for pluggable
 // browser backends (built-in Playwright, DSH browser plugins, MCP servers).
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 
 export const READONLY_ID = 'readonly'
 export const BUILTIN_PREFIX = 'builtin:'
@@ -105,9 +108,13 @@ const IGNORED_BUNDLES = new Set([
 ])
 
 const BROWSER_HINT = /(?:^|[-_/])(ego[-_]?browser|browser|playwright|puppeteer|stagehand|cdp[-_]?browser|browser[-_]?use)(?:$|[-_/])/i
+const SECRET_REF_ANY = /\$DSH_SECRET_[A-Z][A-Z0-9_]*/
+const SECRET_REF_EXACT = /^\$DSH_SECRET_[A-Z][A-Z0-9_]*$/
+const SENSITIVE_QUERY_KEYS = new Set(['token', 'key', 'api_key', 'apikey', 'secret', 'password', 'passwd', 'auth', 'access_token', 'client_secret'])
+const SENSITIVE_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie', 'x-api-key', 'api-key', 'x-auth-token'])
 
 export function normalizeBackendId(value) {
-  if (value === undefined || value === null) return READONLY_ID
+  if (value === undefined || value === null || value === false) return READONLY_ID
   const text = String(value).trim()
   if (text === '' || text === 'off' || text === 'none' || text === READONLY_ID) return READONLY_ID
   if (BUILTIN_NAMES.includes(text)) return `${BUILTIN_PREFIX}${text}`
@@ -150,13 +157,69 @@ export function mcpServerNameFor(id) {
   return `browser-${stem}`
 }
 
+/**
+ * Split a CLI argument string into an argv array without invoking a shell.
+ * Supports single quotes, double quotes, and backslash escapes.
+ */
+export function splitArgs(text, label = 'Arguments') {
+  const input = String(text ?? '')
+  if (input.includes('\0') || /[\r\n]/.test(input)) {
+    throw new Error(`${label} must contain single-line text values.`)
+  }
+  const out = []
+  let current = ''
+  let inToken = false
+  let quote = ''
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i]
+    if (quote === '\'') {
+      if (ch === '\'') quote = ''
+      else current += ch
+      continue
+    }
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = ''
+      } else if (ch === '\\' && i + 1 < input.length && (input[i + 1] === '"' || input[i + 1] === '\\')) {
+        current += input[++i]
+      } else {
+        current += ch
+      }
+      continue
+    }
+    if (ch === '\'' || ch === '"') {
+      quote = ch
+      inToken = true
+      continue
+    }
+    if (ch === '\\' && i + 1 < input.length && /[\s"'\\]/.test(input[i + 1])) {
+      current += input[++i]
+      inToken = true
+      continue
+    }
+    if (/\s/.test(ch)) {
+      if (inToken) {
+        out.push(current)
+        current = ''
+        inToken = false
+      }
+      continue
+    }
+    current += ch
+    inToken = true
+  }
+  if (quote !== '') throw new Error(`Unclosed quote in ${label}.`)
+  if (inToken) out.push(current)
+  return out
+}
+
 const strings = (value, label) => {
   if (value === undefined || value === null || value === '') return []
-  const list = Array.isArray(value) ? value : String(value).split(/\s+/).filter(Boolean)
+  const list = Array.isArray(value) ? value : splitArgs(String(value), label)
   if (list.some(item => typeof item !== 'string' || item.includes('\0') || /[\r\n]/.test(item))) {
     throw new Error(`${label} must contain single-line text values.`)
   }
-  return list.map(item => item.trim()).filter(Boolean)
+  return list.filter(item => item !== '')
 }
 
 const prefixes = (value) => {
@@ -201,6 +264,67 @@ export function customBrowserId(kind, name, taken = new Set()) {
     n += 1
   }
   return id
+}
+
+function assertNoPlaintextUrlCredentials(parsed) {
+  const user = parsed.username ? decodeURIComponent(parsed.username) : ''
+  const pass = parsed.password ? decodeURIComponent(parsed.password) : ''
+  if ((user !== '' && !SECRET_REF_EXACT.test(user)) || (pass !== '' && !SECRET_REF_EXACT.test(pass))) {
+    throw new Error('Do not put plaintext credentials in the URL. Store them in Settings → Secrets and reference $DSH_SECRET_NAME instead.')
+  }
+  for (const [key, val] of parsed.searchParams.entries()) {
+    if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase()) && val.trim() !== '' && !SECRET_REF_ANY.test(val)) {
+      throw new Error(`Do not put a plaintext secret in query parameter "${key}". Store it in Settings → Secrets and reference $DSH_SECRET_NAME instead.`)
+    }
+  }
+}
+
+function assertNoPlaintextHeaderSecrets(headers) {
+  for (const [key, val] of Object.entries(headers)) {
+    if (SENSITIVE_HEADERS.has(key.toLowerCase()) && val.trim() !== '' && !SECRET_REF_ANY.test(val)) {
+      throw new Error(`Do not put a plaintext secret in header "${key}". Store it in Settings → Secrets and reference $DSH_SECRET_NAME instead.`)
+    }
+  }
+}
+
+/**
+ * Redact any plaintext credentials before returning MCP configs to clients.
+ */
+export function sanitizeMcpForView(item) {
+  if (!item || typeof item !== 'object') return item
+  const copy = { ...item }
+  if (typeof copy.url === 'string' && copy.url !== '') {
+    try {
+      const parsed = new URL(copy.url)
+      let changed = false
+      const user = parsed.username ? decodeURIComponent(parsed.username) : ''
+      const pass = parsed.password ? decodeURIComponent(parsed.password) : ''
+      if (user !== '' && !SECRET_REF_EXACT.test(user)) { parsed.username = 'REDACTED'; changed = true }
+      if (pass !== '' && !SECRET_REF_EXACT.test(pass)) { parsed.password = 'REDACTED'; changed = true }
+      for (const [key, val] of [...parsed.searchParams.entries()]) {
+        if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase()) && val.trim() !== '' && !SECRET_REF_ANY.test(val)) {
+          parsed.searchParams.set(key, 'REDACTED')
+          changed = true
+        }
+      }
+      if (changed) copy.url = parsed.toString()
+    } catch { /* leave unparseable string untouched */ }
+  }
+  if (copy.headers && typeof copy.headers === 'object') {
+    const clean = {}
+    for (const [k, v] of Object.entries(copy.headers)) {
+      clean[k] = typeof v === 'string' && SECRET_REF_ANY.test(v) ? v : '[configured]'
+    }
+    copy.headers = clean
+  }
+  if (copy.env && typeof copy.env === 'object') {
+    const clean = {}
+    for (const [k, v] of Object.entries(copy.env)) {
+      clean[k] = typeof v === 'string' && SECRET_REF_ANY.test(v) ? v : '[configured]'
+    }
+    copy.env = clean
+  }
+  return copy
 }
 
 /**
@@ -257,13 +381,16 @@ export function validateCustomBrowser(body, takenIds = new Set(), editableIds = 
     return { id, kind: 'mcp', mode: 'external', name, description, transport, command, args, env, custom: true }
   }
   const url = String(body.url ?? '').trim()
+  let parsed
   try {
-    const parsed = new URL(url)
+    parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error()
   } catch {
     throw new Error('Enter a valid HTTP or HTTPS URL.')
   }
+  assertNoPlaintextUrlCredentials(parsed)
   const headers = stringMap(body.headers, 'Headers')
+  assertNoPlaintextHeaderSecrets(headers)
   return { id, kind: 'mcp', mode: 'external', name, description, transport, url, headers, custom: true }
 }
 
@@ -283,3 +410,62 @@ export function derivePackageName(spec) {
   const at = text.indexOf('@')
   return at === -1 ? text : text.slice(0, at)
 }
+
+function findExecutable(command, { env = process.env, platform = process.platform, exists = existsSync } = {}) {
+  const cmd = String(command ?? '').trim()
+  if (cmd === '') return null
+  if (cmd.startsWith('~/')) {
+    const expanded = join(homedir(), cmd.slice(2))
+    return exists(expanded) ? expanded : null
+  }
+  if (isAbsolute(cmd) || cmd.includes('/') || cmd.includes('\\')) {
+    return exists(cmd) ? cmd : null
+  }
+  const pathEnv = env.PATH ?? env.Path ?? ''
+  const sep = platform === 'win32' ? ';' : ':'
+  const dirs = String(pathEnv).split(sep).filter(Boolean)
+  const exts = platform === 'win32' && !/\.[a-z0-9]+$/i.test(cmd) ? ['.exe', '.cmd', '.bat', ''] : ['']
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = join(dir, `${cmd}${ext}`)
+      if (exists(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+/**
+ * Resolve a stdio MCP server launcher. On standalone desktop installs without
+ * system `npx`, falls back to the desktop app's bundled pnpm (`dlx`) or a system
+ * `pnpm` before failing with clear setup instructions.
+ */
+export function resolveStdioCommand(command, args = [], envMap = {}, options = {}) {
+  const env = options.env ?? process.env
+  const platform = options.platform ?? process.platform
+  const argv = options.argv ?? process.argv
+  const execPath = options.execPath ?? process.execPath
+  const exists = options.exists ?? existsSync
+
+  if (findExecutable(command, { env, platform, exists })) {
+    return { command, args, env: envMap }
+  }
+  if (command === 'npx') {
+    const dlxArgs = (args[0] === '-y' || args[0] === '--yes') ? args.slice(1) : [...args]
+    const bundledPnpm = env.DS_BOT_APP === '1' && typeof argv[2] === 'string' && argv[2].endsWith('pnpm.mjs')
+      ? argv[2]
+      : null
+    if (bundledPnpm && exists(bundledPnpm)) {
+      return {
+        command: execPath,
+        args: ['--expose-internals', bundledPnpm, 'dlx', ...dlxArgs],
+        env: { ...envMap, ELECTRON_RUN_AS_NODE: '1' },
+      }
+    }
+    if (findExecutable('pnpm', { env, platform, exists })) {
+      return { command: 'pnpm', args: ['dlx', ...dlxArgs], env: envMap }
+    }
+    throw new Error('Command "npx" was not found on PATH. Install Node.js (which includes npx) or configure a custom MCP browser server with a full command path or HTTP URL.')
+  }
+  throw new Error(`Command "${command}" was not found. Install it or provide its full path.`)
+}
+

@@ -49,27 +49,30 @@ export function createBrowserProviderRegistry() {
   const providers = new Map()
   const listeners = new Set()
 
-  const notify = () => {
+  const notify = (event) => {
     for (const listener of listeners) {
-      try { listener() } catch { /* ignore subscriber failure */ }
+      try { listener(event) } catch { /* ignore subscriber failure */ }
     }
   }
 
   function register(spec) {
     const provider = defineBrowserProvider(spec)
     providers.set(provider.id, provider)
-    notify()
+    notify({ action: 'register', id: provider.id, packageName: provider.packageName })
     return () => {
       if (providers.get(provider.id) === provider) {
         providers.delete(provider.id)
-        notify()
+        notify({ action: 'unregister', id: provider.id, packageName: provider.packageName })
       }
     }
   }
 
   function unregister(id) {
-    if (!providers.delete(String(id ?? ''))) return false
-    notify()
+    const key = String(id ?? '')
+    const existing = providers.get(key)
+    if (!existing) return false
+    providers.delete(key)
+    notify({ action: 'unregister', id: existing.id, packageName: existing.packageName })
     return true
   }
 
