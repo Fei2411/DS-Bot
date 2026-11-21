@@ -79,7 +79,7 @@ test('groups inherit member review unless they select a shared mode', async () =
   assert.equal(modes.get('fresh-private'), 'workspace-write')
 })
 
-test('children inherit review, keep read-only boundaries and cap full access', async () => {
+test('children keep inherited policies and read-only boundaries while review caps full access', async () => {
   const { rt, bot, policies, modes } = setup()
   await rt.setPermission(bot, 'review')
   for (const mode of ['read-only', 'danger-full-access']) {
@@ -88,13 +88,13 @@ test('children inherit review, keep read-only boundaries and cap full access', a
     child.session.header.origin = 'subagent'
     modes.set(child.id, mode)
     await rt.applyReviewPolicy(child)
-    assert.equal(policies.get(child.id), 'ask')
+    assert.equal(policies.has(child.id), false, 'an inherited approval policy is never replaced')
     assert.equal(modes.get(child.id), mode === 'read-only' ? mode : 'workspace-write')
   }
   await rt.setPermission(bot, 'danger-full-access')
   const child = await rt.resolveAgent('read-only')
   await rt.applyReviewPolicy(child)
-  assert.equal(policies.get(child.id), 'ask')
+  assert.equal(policies.has(child.id), false)
   assert.equal(modes.get(child.id), 'read-only')
   assert.equal(rt.state.approvalPolicies[child.id], undefined)
 })
