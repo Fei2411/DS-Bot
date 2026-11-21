@@ -15831,9 +15831,12 @@ function countCards(state, sessionId, callIds, delta) {
 // src/client/avatar-refs.js
 function createAvatarResolver(fetchAvatar) {
   let cache = /* @__PURE__ */ new Map();
-  return async function resolveAvatars(value) {
+  let missing = 0;
+  async function resolveAvatars(value) {
     if (!Array.isArray(value?.bots)) return value;
     const next = /* @__PURE__ */ new Map();
+    const pending = /* @__PURE__ */ new Map();
+    let failed = 0;
     const bots = await Promise.all(value.bots.map(async (bot) => {
       const ref = bot.avatar?.imageRef;
       if (typeof ref !== "string") return bot;
@@ -15843,14 +15846,21 @@ function createAvatarResolver(fetchAvatar) {
         next.set(ref, known);
         return { ...bot, avatar: { ...avatar, image: known } };
       }
-      const answer = await fetchAvatar(bot.id).catch(() => null);
-      if (typeof answer?.image !== "string") return { ...bot, avatar };
+      if (!pending.has(ref)) pending.set(ref, fetchAvatar(bot.id).catch(() => null));
+      const answer = await pending.get(ref);
+      if (typeof answer?.image !== "string") {
+        failed += 1;
+        return { ...bot, avatar };
+      }
       if (typeof answer.ref === "string") next.set(answer.ref, answer.image);
       return { ...bot, avatar: { ...avatar, image: answer.image } };
     }));
     cache = next;
+    missing = failed;
     return { ...value, bots };
-  };
+  }
+  resolveAvatars.missing = () => missing > 0;
+  return resolveAvatars;
 }
 
 // src/client/team-actions.js
@@ -50669,7 +50679,7 @@ function apply(ctx) {
   const pull = async () => {
     const order = ++pulls;
     const known = roster.getSnapshot();
-    const value = await resolveAvatars(await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" }));
+    const value = await resolveAvatars(await call("state", { since: resolveAvatars.missing() ? void 0 : known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" }));
     if (order < applied) return;
     applied = order;
     const prevLiveKey = liveKey;

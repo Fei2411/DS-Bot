@@ -29,3 +29,27 @@ test('an unchanged answer passes through and a failed fetch leaves the Bot witho
   const value = await resolve(state({ a: 'r1' }))
   assert.deepEqual(value.bots[0].avatar, { shape: 'circle' })
 })
+
+test('a photo that failed is reported missing until a later answer fetches it', async () => {
+  let up = false
+  const resolve = createAvatarResolver(async (botId) => {
+    if (!up) throw new Error('busy')
+    return { botId, ref: 'r1', image: 'data:a' }
+  })
+  await resolve(state({ a: 'r1' }))
+  assert.equal(resolve.missing(), true)
+  await resolve({ revision: 1, unchanged: true })
+  assert.equal(resolve.missing(), true)
+  up = true
+  const value = await resolve(state({ a: 'r1' }))
+  assert.equal(value.bots[0].avatar.image, 'data:a')
+  assert.equal(resolve.missing(), false)
+})
+
+test('Bots that share a photo fetch it once', async () => {
+  const asked = []
+  const resolve = createAvatarResolver(async (botId) => { asked.push(botId); return { botId, ref: 'r1', image: 'data:logo' } })
+  const value = await resolve(state({ a: 'r1', b: 'r1' }))
+  assert.deepEqual(value.bots.map(bot => bot.avatar.image), ['data:logo', 'data:logo'])
+  assert.deepEqual(asked, ['a'])
+})

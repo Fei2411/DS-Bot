@@ -203,7 +203,7 @@ export function apply(ctx) {
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await resolveAvatars(await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' }))
+    const value = await resolveAvatars(await call('state', { since: resolveAvatars.missing() ? undefined : known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' }))
     if (order < applied) return
     applied = order
     const prevLiveKey = liveKey
