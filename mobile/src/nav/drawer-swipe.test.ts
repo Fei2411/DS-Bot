@@ -19,9 +19,10 @@ test('drawer swipe is a non-overlay ancestor and only opens for deliberate right
   assert.match(shell, /edgeEnabled=\{top === 'Chat'\}/)
 })
 
-test('message code blocks, markdown tables and view-card tables keep native scroll priority', () => {
+test('message scrollers keep native scroll priority without activating on touch-down', () => {
   for (const file of ['markdown.tsx', 'view.tsx']) {
     const source = readFileSync(new URL(`../screens/chat/${file}`, import.meta.url), 'utf8')
-    assert.match(source, /<GHScrollView\s+horizontal\s+disallowInterruption\s+shouldActivateOnStart/)
+    assert.match(source, /<GHScrollView\s+horizontal\s+disallowInterruption/)
+    assert.doesNotMatch(source, /shouldActivateOnStart/)
   }
 })
