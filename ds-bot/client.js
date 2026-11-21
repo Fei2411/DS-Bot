@@ -16398,6 +16398,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
 
 // src/shared/appearance.js
 var THEME_KEYS = ["bg", "sidebar", "bubble", "card", "text", "user", "userText", "accent"];
+var BASE_KEYS = ["bg", "text", "sidebar", "bubble", "card", "user", "userText"];
 var MAX_USER_THEMES = 32;
 var USER_THEME = /^my-[a-z0-9-]{1,28}$/;
 var RADIUS = { min: 0, max: 200, initial: 100, step: 10 };
@@ -16415,7 +16416,7 @@ var MAX_BACKGROUND_BYTES = 12 * 1024 * 1024;
 var IMAGE_ID = /^[0-9a-f]{64}$/;
 var IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 var HEX = /^#[0-9a-f]{6}$/i;
-var FONT_TEXT = /^[^;{}<>\\\n\r]*$/;
+var FONT_TEXT = /^[^;{}<>\\\p{Cc}]*$/u;
 function utf8Length(text) {
   let bytes = 0;
   for (const char of text) {
@@ -16443,6 +16444,10 @@ function cleanTheme(theme) {
       const color = theme[mode]?.[key];
       if (!isHex2(color)) refuse(`Theme ${mode}.${key} must be a #rrggbb color`);
       out[mode][key] = color.toLowerCase();
+    }
+    const base = theme[mode]?.base;
+    if (base !== void 0 && base !== null && typeof base === "object" && BASE_KEYS.every((key) => isHex2(base[key]))) {
+      out[mode].base = Object.fromEntries(BASE_KEYS.map((key) => [key, base[key].toLowerCase()]));
     }
   }
   return out;
@@ -16551,6 +16556,7 @@ function backgroundImages(...backgrounds) {
 }
 var THEME_FILE = "ds-bot-theme";
 var NOT_CARRIED = ["mode", "material", "css"];
+var CARRIED_FIELDS = Object.keys(FIELDS).filter((field) => !NOT_CARRIED.includes(field));
 function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance);
   for (const field of NOT_CARRIED) delete carried[field];
@@ -16569,6 +16575,7 @@ function readThemeFile(text) {
   for (const field of NOT_CARRIED) delete appearance[field];
   const image = typeof parsed.image === "string" && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : void 0;
   if (appearance.background?.kind === "image" && image === void 0) delete appearance.background;
+  for (const field of CARRIED_FIELDS) appearance[field] ??= null;
   return { theme, appearance, ...image ? { image } : {} };
 }
 var channel = (value) => {
@@ -16641,12 +16648,16 @@ function followBasics(mode, change) {
     if (user !== void 0) next.user = next[user];
     if (userText !== void 0) next.userText = next[userText];
   }
+  const basics = [next.bg, next.text];
+  const readOn = (other) => basics.reduce((best, color) => contrast(color, other) > contrast(best, other) ? color : best);
+  if (user === void 0 && userText !== void 0 && contrast(next.userText, next.user) < READABLE) next.userText = readOn(next.user);
+  if (userText === void 0 && user !== void 0 && contrast(next.user, next.userText) < READABLE) next.user = readOn(next.userText);
   return next;
 }
-var FOLLOW_KEYS = ["bg", "text", "sidebar", "bubble", "card", "user", "userText"];
-function moveBasics(from, colors, change) {
-  const moved = followBasics(from, { bg: colors.bg, text: colors.text, ...change });
-  return { ...colors, ...Object.fromEntries(FOLLOW_KEYS.map((key) => [key, moved[key]])) };
+function moveBasics(colors, change) {
+  const base = colors.base ?? Object.fromEntries(BASE_KEYS.map((key) => [key, colors[key]]));
+  const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change });
+  return { ...colors, ...Object.fromEntries(BASE_KEYS.map((key) => [key, moved[key]])), base };
 }
 function themeVars(mode, dark, accent = mode.accent) {
   return {
@@ -16901,8 +16912,11 @@ function watchSafeAppearance(target = globalThis.window, now = () => Date.now(),
       hold = wait(turnOn, SAFE_HOLD_MS);
       return;
     }
+    if (pointerSeen) return;
+    pointerSeen = true;
     if (now() <= until && event.shiftKey === true && !otherModifier(event)) turnOn();
   };
+  let pointerSeen = false;
   const EVENTS = ["keydown", "keyup", "pointermove", "pointerdown"];
   const stop = () => {
     for (const type of EVENTS) target.removeEventListener(type, onEvent, true);
@@ -27997,7 +28011,7 @@ function OwnThemeActions({ id, theme, prefs, actions, run: run2 }) {
     (0, import_react27.createElement)("button", { type: "button", className: "bt-look-tact", onClick: () => setRenaming(true) }, t("Rename")),
     (0, import_react27.createElement)("button", { type: "button", className: "bt-look-tact", onClick: () => save({ [newThemeId()]: { ...theme, label: t("{name} copy", { name: theme.label }) } }) }, t("Duplicate")),
     (0, import_react27.createElement)("button", { type: "button", className: "bt-look-tact", onClick: () => run2(exportTheme()) }, t("Export")),
-    (0, import_react27.createElement)("button", { type: "button", className: "bt-look-tact", onClick: () => save({ [id]: null }) }, t("Delete"))
+    (0, import_react27.createElement)(TwiceButton, { className: "bt-look-tact", label: t("Delete"), armedLabel: t("Click again to delete"), act: () => save({ [id]: null }) })
   );
 }
 function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4, Choice: Choice3, ownWindow, dshRows }) {
@@ -28011,7 +28025,12 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
     return run2(actions.setPrefs({ themes: { [newThemeId()]: { label: t("My theme {n}", { n: ownCount + 1 }), light: base.light, dark: base.dark } } }));
   };
   const importFile = async (file) => {
-    const read = readThemeFile(await readFile(file, "text"));
+    let read;
+    try {
+      read = readThemeFile(await readFile(file, "text"));
+    } catch (error) {
+      throw new Error(hostText(error?.message ?? String(error)));
+    }
     const id = newThemeId();
     const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance };
     if (read.image !== void 0 && read.appearance.background?.kind === "image") {
@@ -28096,13 +28115,12 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
     if (target.current?.id !== current2) target.current = null;
   }, [current2]);
   const draft = (0, import_react27.useRef)(null);
-  const basis = (0, import_react27.useRef)(null);
   const save = (change, extra = {}) => {
     if (!theme.own && target.current?.from !== current2) target.current = { from: current2, id: newThemeId() };
     const id = theme.own ? current2 : target.current.id;
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme;
     const next = { label: theme.own ? base.label : t("{name} (mine)", { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } };
-    next[mode] = change(next[mode], `${id}/${mode}`);
+    next[mode] = change(next[mode]);
     draft.current = { id, theme: next };
     const settle = () => {
       if (draft.current?.theme === next) draft.current = null;
@@ -28110,19 +28128,17 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
     const use = !theme.own && (live.current === current2 || live.current === id) ? { theme: id } : {};
     return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...use, ...extra }))).finally(settle);
   };
-  const basic = (key) => (colors2, color, where) => {
-    if (basis.current?.where !== where) basis.current = { where, colors: colors2 };
-    return moveBasics(basis.current.colors, colors2, { [key]: color });
-  };
+  const basic = (key) => (colors2, color) => moveBasics(colors2, { [key]: color });
   const own = (key) => (colors2, color) => {
-    basis.current = null;
-    return { ...colors2, [key]: color };
+    const { base: _base, ...rest } = colors2;
+    return { ...rest, [key]: color };
   };
   const colors = theme[mode];
+  const folded = Object.keys(MORE_LABELS).filter((key) => READ_ON[key] !== void 0).map((key) => contrast(colors[key], colors[READ_ON[key]])).filter((ratio) => ratio < READABLE).sort((a, b) => a - b)[0];
   const field = (key, label, value, change, extra) => {
     const ratio = READ_ON[key] === void 0 ? void 0 : contrast(colors[key], colors[READ_ON[key]]);
     const hint = ratio !== void 0 && ratio < READABLE ? t("Hard to read · {ratio}:1", { ratio: ratio.toFixed(1) }) : void 0;
-    return (0, import_react27.createElement)(Row4, { key: `${mode}-${key}`, label: t(label) }, (0, import_react27.createElement)(ColorInput, { label: t(label), value, scope: target.current?.id === current2 ? target.current.from : current2, save: (color) => save((colors2, where) => change(colors2, color, where), extra), hint }));
+    return (0, import_react27.createElement)(Row4, { key: `${mode}-${key}`, label: t(label) }, (0, import_react27.createElement)(ColorInput, { label: t(label), value, scope: target.current?.id === current2 ? target.current.from : current2, save: (color) => save((colors2) => change(colors2, color), extra), hint }));
   };
   return (0, import_react27.createElement)(
     Section2,
@@ -28133,7 +28149,13 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
     field("bg", BASIC_LABELS.bg, colors.bg, basic("bg")),
     field("text", BASIC_LABELS.text, colors.text, basic("text")),
     more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], own(key))) : null,
-    (0, import_react27.createElement)("button", { type: "button", className: "bt-look-more", "aria-expanded": more, onClick: () => setMore((open) => !open) }, more ? t("Fewer colors") : t("More colors"))
+    // A color under "More colors" that is hard to read shows its hint while they are folded.
+    (0, import_react27.createElement)(
+      "button",
+      { type: "button", className: "bt-look-more", "aria-expanded": more, onClick: () => setMore((open) => !open) },
+      more ? t("Fewer colors") : t("More colors"),
+      more || folded === void 0 ? null : (0, import_react27.createElement)("span", { className: "bt-look-warn" }, t("Hard to read · {ratio}:1", { ratio: folded.toFixed(1) }))
+    )
   );
 }
 function useLocalFonts() {
@@ -28179,10 +28201,20 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
   const kind = value?.kind ?? "none";
   const common = { ...value?.blur ? { blur: value.blur } : {}, ...value?.dim ? { dim: value.dim } : {}, ...value?.surface ? { surface: value.surface } : {} };
   const [failure, setFailure] = (0, import_react27.useState)("");
+  const latest = (0, import_react27.useRef)(value);
+  latest.current = value;
+  const draft = (0, import_react27.useRef)(null);
+  const send = (next) => {
+    const sent = { value: next };
+    draft.current = sent;
+    return Promise.resolve(save(next)).finally(() => {
+      if (draft.current === sent) draft.current = null;
+    });
+  };
   const pickKind = (next) => {
-    if (next === "none") return save(null);
-    if (next === "color") return save({ kind: "color", color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? "dark" : "light"], ...common });
-    if (next === "gradient") return save({ kind: "gradient", from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common });
+    if (next === "none") return send(null);
+    if (next === "color") return send({ kind: "color", color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? "dark" : "light"], ...common });
+    if (next === "gradient") return send({ kind: "gradient", from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common });
     return void 0;
   };
   const pickPicture = async (file) => {
@@ -28192,9 +28224,12 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
       return;
     }
     const saved = await actions.addBackground(await readFile(file, "url"));
-    await save({ kind: "image", image: saved.id, ...value?.kind === "image" && value.fit ? { fit: value.fit } : {}, ...common });
+    await send({ kind: "image", image: saved.id, ...value?.kind === "image" && value.fit ? { fit: value.fit } : {}, ...common });
   };
-  const set = (change) => save({ ...value, ...change });
+  const set = (change) => {
+    const base = draft.current === null ? latest.current : draft.current.value;
+    return base ? send({ ...base, ...change }) : void 0;
+  };
   return (0, import_react27.createElement)(
     import_react27.Fragment,
     null,
@@ -28222,20 +28257,21 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
     kind === "none" ? null : (0, import_react27.createElement)(Row4, { label: t("Surface opacity") }, (0, import_react27.createElement)(Slider, { label: t("Surface opacity"), value: value.surface ?? SURFACE.initial, min: SURFACE.min, max: SURFACE.max, step: 2, format: (surface) => `${surface}%`, save: (surface) => set({ surface }) }))
   );
 }
-function RestoreButton({ restore }) {
+function TwiceButton({ className, label, armedLabel, act }) {
   const [armed, setArmed] = (0, import_react27.useState)(false);
   (0, import_react27.useEffect)(() => {
     if (!armed) return void 0;
     const timer = setTimeout(() => setArmed(false), 4e3);
     return () => clearTimeout(timer);
   }, [armed]);
-  return (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", "data-armed": armed ? "" : void 0, onClick: () => {
+  return (0, import_react27.createElement)("button", { type: "button", className, "data-armed": armed ? "" : void 0, onClick: () => {
     if (armed) {
       setArmed(false);
-      restore();
+      act();
     } else setArmed(true);
-  } }, armed ? t("Click again to restore") : t("Restore"));
+  } }, armed ? armedLabel : label);
 }
+var RestoreButton = ({ restore }) => (0, import_react27.createElement)(TwiceButton, { className: "bt-soft bt-soft-sm", label: t("Restore"), armedLabel: t("Click again to restore"), act: restore });
 function StylesheetField({ value, save }) {
   const [text, setText] = (0, import_react27.useState)(value ?? "");
   (0, import_react27.useEffect)(() => setText(value ?? ""), [value]);
@@ -28364,6 +28400,7 @@ var APPEARANCE_PAGE_CSS = `
 .bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
 .bt-look-more{align-self:flex-start;margin:4px 16px 10px;padding:0;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer}
 .bt-look-more:hover{color:var(--bt-ink)}
+.bt-look-more .bt-look-warn{padding-left:0;margin-left:8px}
 .bt-look-font{width:216px}
 .bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px 4px}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}

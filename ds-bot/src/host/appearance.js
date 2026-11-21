@@ -81,8 +81,11 @@ export function install(rt) {
   }
 
   const inUse = () => new Set(backgroundImages(state.prefs.appearance?.background, ...Object.values(state.bots).map(bot => bot.background), ...Object.values(state.rooms).map(room => room.background)))
+  // A window that only reads the team leaves the pictures to the one that holds it; the team
+  // is read first, so a picture in use is never taken for an unused one.
   const sweep = () => serial(async () => {
-    if (root === undefined) return
+    if (root === undefined || rt.readOnly?.() !== undefined) return
+    await rt.load?.()
     const used = inUse()
     const now = Date.now()
     for (const name of await readdir(root).catch(() => [])) {
@@ -131,6 +134,14 @@ export function install(rt) {
     void sweep()
     return owner.background ?? null
   }
+
+  // Unused pictures are looked for again every while, so one left a moment before a save,
+  // or by a Bot or group that was removed, goes too.
+  rt.ctx?.effect?.(() => {
+    const timer = setInterval(() => { void sweep() }, UNUSED_KEEP_MS)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'ds-bot: unused background pictures')
 
   Object.assign(rt, { appearancePrefs: applyPrefs, backgroundSweep: sweep, backgroundAdd: addPicture, backgroundPicture: readPicture, setChatBackground })
 }

@@ -1,7 +1,7 @@
 import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
-import { cleanTheme, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
+import { BASE_KEYS, cleanTheme, contrast, READABLE, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
@@ -88,19 +88,26 @@ export function followBasics(mode, change) {
     if (user !== undefined) next.user = next[user]
     if (userText !== undefined) next.userText = next[userText]
   }
+  // One of the pair keeps its own color (Moonlight's blue bubble): the other one follows
+  // whichever basic color reads on it, when the one it sat on no longer does.
+  const basics = [next.bg, next.text]
+  const readOn = other => basics.reduce((best, color) => (contrast(color, other) > contrast(best, other) ? color : best))
+  if (user === undefined && userText !== undefined && contrast(next.userText, next.user) < READABLE) next.userText = readOn(next.user)
+  if (userText === undefined && user !== undefined && contrast(next.user, next.userText) < READABLE) next.user = readOn(next.userText)
   return next
 }
-// What a new background or text color moves; the accent stays.
-const FOLLOW_KEYS = ['bg', 'text', 'sidebar', 'bubble', 'card', 'user', 'userText']
 /**
  * The colors with a new background or text color, the other surfaces placed as they sat in
- * `from` (the colors before the first of a run of such changes), so a background that
- * passes close to the text on its way loses nothing.
- * @param {object} from @param {object} colors @param {{ bg?: string, text?: string }} change
+ * the colors before the first of a run of such changes. Those are kept with the colors
+ * (`base`), so a background that passes close to the text on its way loses nothing, also
+ * when the change after it comes another day. A color set on its own drops `base`.
+ * @param {object} colors - one mode of a theme, maybe with its `base`
+ * @param {{ bg?: string, text?: string }} change
  */
-export function moveBasics(from, colors, change) {
-  const moved = followBasics(from, { bg: colors.bg, text: colors.text, ...change })
-  return { ...colors, ...Object.fromEntries(FOLLOW_KEYS.map(key => [key, moved[key]])) }
+export function moveBasics(colors, change) {
+  const base = colors.base ?? Object.fromEntries(BASE_KEYS.map(key => [key, colors[key]]))
+  const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change })
+  return { ...colors, ...Object.fromEntries(BASE_KEYS.map(key => [key, moved[key]])), base }
 }
 export function themeVars(mode, dark, accent = mode.accent) {
   return {

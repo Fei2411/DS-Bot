@@ -9,7 +9,7 @@ import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafe
 import { call } from './api.js'
 import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, RADIUS, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
 import { Segmented } from './motion.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // The three colors most people change, then the rest of the theme's colors.
@@ -159,7 +159,7 @@ function OwnThemeActions({ id, theme, prefs, actions, run }) {
     h('button', { type: 'button', className: 'bt-look-tact', onClick: () => setRenaming(true) }, t('Rename')),
     h('button', { type: 'button', className: 'bt-look-tact', onClick: () => save({ [newThemeId()]: { ...theme, label: t('{name} copy', { name: theme.label }) } }) }, t('Duplicate')),
     h('button', { type: 'button', className: 'bt-look-tact', onClick: () => run(exportTheme()) }, t('Export')),
-    h('button', { type: 'button', className: 'bt-look-tact', onClick: () => save({ [id]: null }) }, t('Delete')))
+    h(TwiceButton, { className: 'bt-look-tact', label: t('Delete'), armedLabel: t('Click again to delete'), act: () => save({ [id]: null }) }))
 }
 
 function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }) {
@@ -173,7 +173,9 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
     return run(actions.setPrefs({ themes: { [newThemeId()]: { label: t('My theme {n}', { n: ownCount + 1 }), light: base.light, dark: base.dark } } }))
   }
   const importFile = async (file) => {
-    const read = readThemeFile(await readFile(file, 'text'))
+    // The file is read here, not by the host: its refusal is put in the interface language here too.
+    let read
+    try { read = readThemeFile(await readFile(file, 'text')) } catch (error) { throw new Error(hostText(error?.message ?? String(error))) }
     const id = newThemeId()
     const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance }
     if (read.image !== undefined && read.appearance.background?.kind === 'image') {
@@ -223,37 +225,34 @@ function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
   // Edits sent but not yet back from the host: the next edit starts from them, so two quick
   // edits of different colors both land.
   const draft = useRef(null)
-  // The colors the basic ones move the others from, kept while only the basic colors
-  // change: a background set before the text can pass close to it, and nothing is lost then.
-  const basis = useRef(null)
   // A save is bound to the theme and mode of the render the change was made in.
   const save = (change, extra = {}) => {
     if (!theme.own && target.current?.from !== current) target.current = { from: current, id: newThemeId() }
     const id = theme.own ? current : target.current.id
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme
     const next = { label: theme.own ? base.label : t('{name} (mine)', { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } }
-    next[mode] = change(next[mode], `${id}/${mode}`)
+    next[mode] = change(next[mode])
     draft.current = { id, theme: next }
     const settle = () => { if (draft.current?.theme === next) draft.current = null }
     // The copy is put in use only while its theme still is; another theme picked meanwhile stays.
     const use = !theme.own && (live.current === current || live.current === id) ? { theme: id } : {}
     return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...use, ...extra }))).finally(settle)
   }
-  const basic = key => (colors, color, where) => {
-    if (basis.current?.where !== where) basis.current = { where, colors }
-    return moveBasics(basis.current.colors, colors, { [key]: color })
-  }
+  const basic = key => (colors, color) => moveBasics(colors, { [key]: color })
+  // A color set on its own is where the background and text move it from next time.
   const own = key => (colors, color) => {
-    basis.current = null
-    return { ...colors, [key]: color }
+    const { base: _base, ...rest } = colors
+    return { ...rest, [key]: color }
   }
   const colors = theme[mode]
+  const folded = Object.keys(MORE_LABELS).filter(key => READ_ON[key] !== undefined)
+    .map(key => contrast(colors[key], colors[READ_ON[key]])).filter(ratio => ratio < READABLE).sort((a, b) => a - b)[0]
   const field = (key, label, value, change, extra) => {
     const ratio = READ_ON[key] === undefined ? undefined : contrast(colors[key], colors[READ_ON[key]])
     const hint = ratio !== undefined && ratio < READABLE ? t('Hard to read · {ratio}:1', { ratio: ratio.toFixed(1) }) : undefined
     // Keyed by the color alone: the first change copies a built-in theme into your own, and
     // the fields must stay as they are then, or a color being typed in another one is lost.
-    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, scope: target.current?.id === current ? target.current.from : current, save: color => save((colors, where) => change(colors, color, where), extra), hint }))
+    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, scope: target.current?.id === current ? target.current.from : current, save: color => save(colors => change(colors, color), extra), hint }))
   }
   return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light mode'], ['dark', 'Dark mode']], pick: setMode }) },
     theme.own ? null : h('div', { className: 'bt-look-note' }, t('Changing a color saves a theme of your own; {name} stays as it is.', { name: t(theme.label) })),
@@ -262,7 +261,9 @@ function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
     field('bg', BASIC_LABELS.bg, colors.bg, basic('bg')),
     field('text', BASIC_LABELS.text, colors.text, basic('text')),
     more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], own(key))) : null,
-    h('button', { type: 'button', className: 'bt-look-more', 'aria-expanded': more, onClick: () => setMore(open => !open) }, more ? t('Fewer colors') : t('More colors')))
+    // A color under "More colors" that is hard to read shows its hint while they are folded.
+    h('button', { type: 'button', className: 'bt-look-more', 'aria-expanded': more, onClick: () => setMore(open => !open) }, more ? t('Fewer colors') : t('More colors'),
+      more || folded === undefined ? null : h('span', { className: 'bt-look-warn' }, t('Hard to read · {ratio}:1', { ratio: folded.toFixed(1) }))))
 }
 
 // Fonts on this computer, once the user opens the list: the browser asks before it tells.
@@ -308,19 +309,33 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
   const kind = value?.kind ?? 'none'
   const common = { ...(value?.blur ? { blur: value.blur } : {}), ...(value?.dim ? { dim: value.dim } : {}), ...(value?.surface ? { surface: value.surface } : {}) }
   const [failure, setFailure] = useState('')
+  // A change builds on the newest background: the one sent but not back yet, else the saved
+  // one. A slider that rests after another kind was picked changes that kind, and one that
+  // rests after "None" changes nothing.
+  const latest = useRef(value)
+  latest.current = value
+  const draft = useRef(null)
+  const send = (next) => {
+    const sent = { value: next }
+    draft.current = sent
+    return Promise.resolve(save(next)).finally(() => { if (draft.current === sent) draft.current = null })
+  }
   const pickKind = (next) => {
-    if (next === 'none') return save(null)
-    if (next === 'color') return save({ kind: 'color', color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? 'dark' : 'light'], ...common })
-    if (next === 'gradient') return save({ kind: 'gradient', from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common })
+    if (next === 'none') return send(null)
+    if (next === 'color') return send({ kind: 'color', color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? 'dark' : 'light'], ...common })
+    if (next === 'gradient') return send({ kind: 'gradient', from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common })
     return undefined
   }
   const pickPicture = async (file) => {
     setFailure('')
     if (file.size > MAX_BACKGROUND_BYTES) { setFailure(t('The picture is too large: the limit is {mb} MB', { mb: MAX_BACKGROUND_BYTES / 1024 / 1024 })); return }
     const saved = await actions.addBackground(await readFile(file, 'url'))
-    await save({ kind: 'image', image: saved.id, ...(value?.kind === 'image' && value.fit ? { fit: value.fit } : {}), ...common })
+    await send({ kind: 'image', image: saved.id, ...(value?.kind === 'image' && value.fit ? { fit: value.fit } : {}), ...common })
   }
-  const set = change => save({ ...value, ...change })
+  const set = (change) => {
+    const base = draft.current === null ? latest.current : draft.current.value
+    return base ? send({ ...base, ...change }) : undefined
+  }
   return h(Fragment, null,
     h('div', { className: 'bt-look-kinds' }, KINDS.map(([id, label]) => id === 'image'
       ? h('label', { key: id, className: 'bt-look-kind', 'data-on': kind === id ? '' : undefined, 'data-kind': id },
@@ -338,16 +353,18 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
     kind === 'none' ? null : h(Row, { label: t('Surface opacity') }, h(Slider, { label: t('Surface opacity'), value: value.surface ?? SURFACE.initial, min: SURFACE.min, max: SURFACE.max, step: 2, format: surface => `${surface}%`, save: surface => set({ surface }) })))
 }
 
-// "Restore default appearance" asks twice: the first click arms it for a few seconds.
-function RestoreButton({ restore }) {
+// What cannot be undone (restore the default appearance, delete a theme) asks twice: the
+// first click arms it for a few seconds.
+function TwiceButton({ className, label, armedLabel, act }) {
   const [armed, setArmed] = useState(false)
   useEffect(() => {
     if (!armed) return undefined
     const timer = setTimeout(() => setArmed(false), 4000)
     return () => clearTimeout(timer)
   }, [armed])
-  return h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'data-armed': armed ? '' : undefined, onClick: () => { if (armed) { setArmed(false); restore() } else setArmed(true) } }, armed ? t('Click again to restore') : t('Restore'))
+  return h('button', { type: 'button', className, 'data-armed': armed ? '' : undefined, onClick: () => { if (armed) { setArmed(false); act() } else setArmed(true) } }, armed ? armedLabel : label)
 }
+const RestoreButton = ({ restore }) => h(TwiceButton, { className: 'bt-soft bt-soft-sm', label: t('Restore'), armedLabel: t('Click again to restore'), act: restore })
 
 function StylesheetField({ value, save }) {
   const [text, setText] = useState(value ?? '')
@@ -460,6 +477,7 @@ export const APPEARANCE_PAGE_CSS = `
 .bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
 .bt-look-more{align-self:flex-start;margin:4px 16px 10px;padding:0;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer}
 .bt-look-more:hover{color:var(--bt-ink)}
+.bt-look-more .bt-look-warn{padding-left:0;margin-left:8px}
 .bt-look-font{width:216px}
 .bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px 4px}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}

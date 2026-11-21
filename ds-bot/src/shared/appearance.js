@@ -4,6 +4,8 @@
 // never reaches the page (docs/plans/2026-11-21-appearance.md).
 
 export const THEME_KEYS = ['bg', 'sidebar', 'bubble', 'card', 'text', 'user', 'userText', 'accent']
+// The colors a new background or text color moves; the accent stays.
+export const BASE_KEYS = ['bg', 'text', 'sidebar', 'bubble', 'card', 'user', 'userText']
 export const MAX_USER_THEMES = 32
 export const USER_THEME = /^my-[a-z0-9-]{1,28}$/
 export const RADIUS = { min: 0, max: 200, initial: 100, step: 10 }
@@ -26,7 +28,7 @@ export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'
 const HEX = /^#[0-9a-f]{6}$/i
 // A font list is CSS text placed inside a declaration: nothing that can end it or open
 // another rule.
-const FONT_TEXT = /^[^;{}<>\\\n\r]*$/
+const FONT_TEXT = /^[^;{}<>\\\p{Cc}]*$/u
 
 /** The size of text in UTF-8 bytes, where TextEncoder may be missing. */
 export function utf8Length(text) {
@@ -61,6 +63,12 @@ export function cleanTheme(theme) {
       const color = theme[mode]?.[key]
       if (!isHex(color)) refuse(`Theme ${mode}.${key} must be a #rrggbb color`)
       out[mode][key] = color.toLowerCase()
+    }
+    // The colors the surfaces were placed from when the background or text last moved them
+    // (client/themes.js moveBasics); one that is not whole is left out.
+    const base = theme[mode]?.base
+    if (base !== undefined && base !== null && typeof base === 'object' && BASE_KEYS.every(key => isHex(base[key]))) {
+      out[mode].base = Object.fromEntries(BASE_KEYS.map(key => [key, base[key].toLowerCase()]))
     }
   }
   return out
@@ -218,6 +226,7 @@ export const THEME_FILE = 'ds-bot-theme'
 // A theme file never carries a stylesheet: CSS from someone else could redraw the window
 // to mislead or send what is typed to an address of theirs.
 const NOT_CARRIED = ['mode', 'material', 'css']
+export const CARRIED_FIELDS = Object.keys(FIELDS).filter(field => !NOT_CARRIED.includes(field))
 
 export function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance)
@@ -228,7 +237,7 @@ export function themeFile(theme, appearance = {}, image) {
 /**
  * Read a theme file the user picked.
  * @param {string} text
- * @returns {{ theme: object, appearance: Record<string, unknown>, image?: string }}
+ * @returns {{ theme: object, appearance: Record<string, unknown>, image?: string }} - `appearance` names every carried field, `null` for a default
  * @throws {AppearanceError} when the file is not a DS Bot theme
  */
 export function readThemeFile(text) {
@@ -241,6 +250,9 @@ export function readThemeFile(text) {
   const image = typeof parsed.image === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : undefined
   // The picture's id is set again when it is saved on this computer.
   if (appearance.background?.kind === 'image' && image === undefined) delete appearance.background
+  // A field the file leaves out is its default: the look is the file's, not a mix with the
+  // one in use. `appearance` is a change that names every field a file can carry.
+  for (const field of CARRIED_FIELDS) appearance[field] ??= null
   return { theme, appearance, ...(image ? { image } : {}) }
 }
 

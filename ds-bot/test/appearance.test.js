@@ -95,8 +95,15 @@ test('a theme file carries the theme, the appearance and its picture, but no sty
   const read = readThemeFile(JSON.stringify(file))
   assert.equal(read.theme.label, 'Dusk')
   assert.equal(read.image, PNG)
-  // Without its picture, an image background is not carried.
-  assert.equal(readThemeFile(JSON.stringify({ ...file, image: undefined })).appearance.background, undefined)
+  // Read in, every field the file can carry is named: what it leaves out goes back to its
+  // default instead of staying as the team had it.
+  assert.deepEqual(read.appearance, { radius: 40, background: { kind: 'image', image: 'a'.repeat(64), dim: 30 }, density: null, uiFont: null, codeFont: null, fontSize: null, lineHeight: null })
+  assert.deepEqual(patchAppearance({ radius: 140, density: 'roomy', uiFont: 'Georgia', css: 'a{}', mode: 'dark' }, readThemeFile(JSON.stringify(themeFile(THEME, {}))).appearance), { css: 'a{}', mode: 'dark' })
+  // Without its picture, an image background is not carried: the team has none then.
+  assert.equal(readThemeFile(JSON.stringify({ ...file, image: undefined })).appearance.background, null)
+  // A font name with a control character would end the stylesheet's declarations.
+  assert.throws(() => patchAppearance({}, { uiFont: 'Inter\fbody' }), AppearanceError)
+  assert.throws(() => patchAppearance({}, { codeFont: 'Mono\u0000' }), AppearanceError)
   assert.throws(() => readThemeFile('{"format":"other"}'), AppearanceError)
   assert.throws(() => readThemeFile('not json'), AppearanceError)
 })
@@ -265,6 +272,12 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.equal(safeAppearance(), true)
   again()
   leaveSafeAppearance()
+  // Only the first move tells: Shift pressed afterwards to type while the mouse moves does not.
+  const third = watchSafeAppearance(target, () => 0, wait, unwait)
+  key('pointermove', {})
+  key('pointermove', { shiftKey: true })
+  assert.equal(safeAppearance(), false, 'Shift that came after the first move')
+  third()
 })
 
 test('a background is let through only once it is painted: a picture loading or missing keeps the panes solid', async () => {
@@ -332,18 +345,43 @@ test('a background and a text color set one after the other end as if set togeth
   const { contrast } = await import('../src/shared/appearance.js')
   const light = themesOf({}).deepseek.light
   // The background is set first and passes close to the text; then the text is set.
-  const first = moveBasics(light, light, { bg: '#202020' })
-  const second = moveBasics(light, first, { text: '#eeeeee' })
+  const first = moveBasics(light, { bg: '#202020' })
+  const second = moveBasics(first, { text: '#eeeeee' })
   const together = followBasics(light, { bg: '#202020', text: '#eeeeee' })
   for (const key of ['bg', 'text', 'sidebar', 'bubble', 'card', 'user', 'userText']) assert.equal(second[key], together[key], key)
   assert.ok(contrast(second.user, second.userText) >= 4.5)
   // The accent is not moved.
-  assert.equal(moveBasics(light, { ...light, accent: '#123456' }, { bg: '#202020' }).accent, '#123456')
+  assert.equal(moveBasics({ ...light, accent: '#123456' }, { bg: '#202020' }).accent, '#123456')
   // Started from colors where the background already sits on the text, your bubble and its
   // text keep their own colors instead of both landing on one.
   const close = { ...light, bg: '#202020', text: '#1a1c1f', user: '#1a1c1f', userText: '#202020' }
   const moved = followBasics(close, { text: '#eeeeee' })
   assert.notEqual(moved.user, moved.userText)
+})
+
+test('the background and text move the surfaces from where they sat, also across saves; your bubble stays readable', async () => {
+  const { followBasics, moveBasics, themesOf } = await import('../src/client/themes.js')
+  const { cleanTheme } = await import('../src/shared/appearance.js')
+  const themes = themesOf({})
+  const light = themes.deepseek.light
+  const together = followBasics(light, { bg: '#202020', text: '#eeeeee' })
+  // The first change is saved and read back (the page closed in between); the base goes
+  // with the colors through the host's rules.
+  const first = cleanTheme({ label: 'x', light: moveBasics(light, { bg: '#202020' }), dark: themes.deepseek.dark }).light
+  assert.deepEqual(Object.keys(first.base).sort(), ['bg', 'bubble', 'card', 'sidebar', 'text', 'user', 'userText'])
+  const second = moveBasics(first, { text: '#eeeeee' })
+  for (const key of ['sidebar', 'bubble', 'card', 'user', 'userText']) assert.equal(second[key], together[key], key)
+  // A base that is not whole is dropped, not trusted.
+  assert.equal(cleanTheme({ label: 'x', light: { ...light, base: { bg: '#000000' } }, dark: light }).light.base, undefined)
+  // Moonlight keeps its blue bubble; its text moves to the basic color that reads on it.
+  for (const mode of ['light', 'dark']) {
+    const colors = themes.moonlight[mode]
+    for (const change of [{ bg: '#202020', text: '#eeeeee' }, { bg: '#f4f4f4', text: '#111111' }]) {
+      const moved = followBasics(colors, change)
+      assert.equal(moved.user, colors.user)
+      assert.ok(contrast(moved.user, moved.userText) >= 3, `${mode} ${JSON.stringify(change)}`)
+    }
+  }
 })
 
 test('the Appearance page words are its own, not a word from another page that reads differently', async () => {

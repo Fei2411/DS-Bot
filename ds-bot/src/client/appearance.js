@@ -186,8 +186,13 @@ export function watchSafeAppearance(target = globalThis.window, now = () => Date
       hold = wait(turnOn, SAFE_HOLD_MS)
       return
     }
+    // Shift held from before the window opened has no key press: the first move or click
+    // tells, and only that one, so Shift pressed later to type while the mouse moves does not.
+    if (pointerSeen) return
+    pointerSeen = true
     if (now() <= until && event.shiftKey === true && !otherModifier(event)) turnOn()
   }
+  let pointerSeen = false
   const EVENTS = ['keydown', 'keyup', 'pointermove', 'pointerdown']
   const stop = () => { for (const type of EVENTS) target.removeEventListener(type, onEvent, true) }
   for (const type of EVENTS) target.addEventListener(type, onEvent, true)
