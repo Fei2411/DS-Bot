@@ -1429,6 +1429,7 @@ export const FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "The files attached to this draft could not be put back.": "Les fichiers joints à ce brouillon n’ont pas pu être restaurés.",
   "Pause task": "Mettre la tâche en pause",
   "Resume task": "Reprendre la tâche",
   "Once": "Une fois",

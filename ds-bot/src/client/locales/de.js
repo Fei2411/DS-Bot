@@ -1461,6 +1461,7 @@ export const DE = {
   'in {name}': 'in {name}',
   'Click again to delete': 'Zum Löschen erneut klicken',
   'Delete task': 'Aufgabe löschen',
+  'The files attached to this draft could not be put back.': 'Die an diesen Entwurf angehängten Dateien konnten nicht wiederhergestellt werden.',
   'Pause task': 'Aufgabe pausieren',
   'Resume task': 'Aufgabe fortsetzen',
   Once: 'Einmalig',

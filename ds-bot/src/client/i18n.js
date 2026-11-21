@@ -1493,6 +1493,7 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'The files attached to this draft could not be put back.': '没发出去的消息里附带的文件没能放回来。',
   'Pause task': '暂停任务',
   'Resume task': '恢复任务',
   Once: '一次',

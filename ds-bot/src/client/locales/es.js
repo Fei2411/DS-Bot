@@ -1461,6 +1461,7 @@ export const ES = {
   'in {name}': 'en {name}',
   'Click again to delete': 'Haz clic de nuevo para eliminar',
   'Delete task': 'Eliminar tarea',
+  'The files attached to this draft could not be put back.': 'No se pudieron recuperar los archivos adjuntos de este borrador.',
   'Pause task': 'Pausar tarea',
   'Resume task': 'Reanudar tarea',
   Once: 'Una vez',
