@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import fs, { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -82,6 +83,23 @@ test('the log rotates by size and its tail reads across the files', (t) => {
   assert.equal(tail.length, 12)
   assert.equal(tail.at(-2), '2026-10-28T08:00:00.000Z [main] line 39 %USERPROFILE%')
   assert.ok(tail.every(line => !line.includes('测试')))
+})
+
+test('the lines of a chunk go to disk in one write, cut where the file rotates', (t) => {
+  const dir = folder(t)
+  const writes = t.mock.method(fs, 'writeSync')
+  syncBuiltinESMExports()
+  t.after(() => { writes.mock.restore(); syncBuiltinESMExports() })
+  // Each line is 44 bytes: 9 fit under 400, the tenth goes into a fresh file.
+  const line = index => `2026-10-28T08:00:00.000Z [engine] line ${String(index).padStart(2, '0')}\n`
+  const log = new LogFile({ dir, limit: 400, redact: windows, now: at })
+  log.write('engine', 'line 00\nline 01\nline 02\n')
+  assert.equal(writes.mock.callCount(), 1)
+  log.write('engine', Array.from({ length: 12 }, (_, index) => `line ${String(index + 3).padStart(2, '0')}\n`).join(''))
+  assert.equal(writes.mock.callCount(), 3)
+  log.close()
+  assert.equal(readFileSync(join(dir, 'main.1.log'), 'utf8'), Array.from({ length: 9 }, (_, index) => line(index)).join(''))
+  assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), Array.from({ length: 6 }, (_, index) => line(index + 9)).join(''))
 })
 
 test('a log that cannot be written does not stop the app', (t) => {
