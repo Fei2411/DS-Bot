@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -21,6 +21,9 @@ function start(team, { config = {} } = {}) {
   const created = []
   const archived = []
   const failArchive = { on: false }
+  // Session id -> the id a WorkspaceUnknownSessionError names (usually itself):
+  // the Session a third-party manager permanently deleted.
+  const missing = new Map()
   const restricted = []
   const scoped = []
   const renamed = []
@@ -36,6 +39,12 @@ function start(team, { config = {} } = {}) {
         return workspace
       },
       archiveSession: async (sessionId) => {
+        if (missing.has(sessionId)) {
+          throw Object.assign(
+            new Error(`cannot archive session '${missing.get(sessionId)}': live sessions and session persistence hold no such session`),
+            { name: 'WorkspaceUnknownSessionError', sessionId: missing.get(sessionId) },
+          )
+        }
         if (failArchive.on) throw new Error('session is running')
         archived.push(sessionId)
       },
@@ -80,7 +89,7 @@ function start(team, { config = {} } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, created, archived, failArchive, restricted, scoped, renamed, createdAgents, ctx }
+  return { call, stop, home, created, archived, failArchive, missing, restricted, scoped, renamed, createdAgents, ctx, rt }
 }
 
 const TEAM = {
@@ -185,6 +194,84 @@ test('a failed archive keeps the Session in the Agent and answers with the error
   assert.deepEqual(archived, [])
   failArchive.on = false
   assert.equal((await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })).ok, true)
+})
+
+test('agent-archive clears a Session another plugin deleted outright', async (t) => {
+  const { call, stop, archived, missing } = start(TEAM)
+  t.after(stop)
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  // The Session body is gone: only its id is left in the Agent's list.
+  missing.set(second.sessionId, second.sessionId)
+  assert.equal((await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })).ok, true)
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, agent.sessions)
+  assert.deepEqual(archived, [], 'nothing was archived: the Session was already gone')
+  // A miss that names another Session is not this Session's definite miss.
+  const third = (await call('agent-session', { agentId: agent.id })).value
+  missing.set(third.sessionId, 'someone-else')
+  const failed = await call('agent-archive', { agentId: agent.id, sessionId: third.sessionId })
+  assert.equal(failed.ok, false)
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, [...agent.sessions, third.sessionId])
+})
+
+test('remove-agent drops a Session deleted outright and removes the Agent', async (t) => {
+  const { call, stop, archived, missing } = start(TEAM)
+  t.after(stop)
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  missing.set(second.sessionId, second.sessionId)
+  assert.equal((await call('remove-agent', { agentId: agent.id })).ok, true)
+  assert.deepEqual((await call('state', {})).value.agents, [])
+  assert.deepEqual(archived, [agent.sessions[0]])
+})
+
+test('a permanent-delete notification drops the reference, once, and it stays gone', async (t) => {
+  const { call, stop, home, ctx } = start(TEAM)
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId })
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, agent.sessions)
+  // The same notification again, and one naming no Agent Session, change nothing.
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId })
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: 'not-in-any-agent' })
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, agent.sessions)
+  // The reference must not come back on a restart.
+  const saved = readFileSync(join(home, 'state.json'), 'utf8')
+  await stop()
+  const again = start(JSON.parse(saved))
+  t.after(again.stop)
+  assert.deepEqual((await again.call('state', {})).value.agents[0].sessions, agent.sessions)
+})
+
+test('a failed save keeps the reference and its Agent index for a retry', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, stop, home, ctx, rt } = start(TEAM)
+  t.after(async () => { chmodSync(home, 0o700); await stop() })
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  assert.equal(rt.agentOf(second.sessionId)?.id, agent.id)
+  // A write that cannot land, as when the disk is full or the team moved to another
+  // host. The save rebuilds the Agent index before it writes, so the failure leaves
+  // the Session unindexed unless the listener rebuilds it with the reference.
+  chmodSync(home, 0o500)
+  try {
+    await assert.rejects(
+      ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId }),
+      /EACCES|EPERM|permission denied/i,
+    )
+  } finally {
+    chmodSync(home, 0o700)
+  }
+  // The reference is back in the list, and windows still see it as the Agent's own.
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, [agent.sessions[0], second.sessionId])
+  assert.equal(rt.agentOf(second.sessionId)?.id, agent.id)
+  // Once a write can land, the same notice clears the reference and its index entry.
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId })
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, [agent.sessions[0]])
+  assert.equal(rt.agentOf(second.sessionId), undefined)
 })
 
 test('agent-rename retitles an owned Session and refuses others', async (t) => {
