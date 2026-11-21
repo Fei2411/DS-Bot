@@ -257,11 +257,15 @@ export function install(rt) {
       await rt.save()
       await scopeTools()
       // The greeting runs on the Bot's own model, once its provider is registered.
+      // Reading the model catalog can throw: the greeting then goes out on the model
+      // the Bot has, as a released greeting does. Nothing awaits this chain, so an
+      // uncaught rejection here would end the host.
       void rt.waitForModel(bot)
-        .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
+        .then(
+          () => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)),
+          error => rt.warn('ds-bot: model for %s not ready, greeting on its current model: %s', cleanName, error),
+        )
         .then(() => sendKickoff(bot, greeting))
-        // Reading the model catalog can throw; nothing awaits this chain, so an
-        // uncaught rejection here would end the host.
         .catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', cleanName, error))
       return bot
     } catch (error) {

@@ -195,7 +195,7 @@ for (const kind of ['main', 'copy', 'made by a Main Bot', 'made by the user']) {
   })
 }
 
-test('a greeting whose model wait fails is logged, not left as an unhandled rejection', async (t) => {
+test('a greeting whose model wait fails still goes out, with no unhandled rejection', async (t) => {
   const { call, stop, sent, warnings } = start(undefined, { models: ['deepseek-v4-flash'] })
   t.after(stop)
   const unhandled = []
@@ -205,10 +205,10 @@ test('a greeting whose model wait fails is logged, not left as an unhandled reje
   await call('state', {})
   rt.waitForModel = async () => { throw new Error('providers unreadable') }
   const bot = (await call('create-bot', { name: 'Writer' })).value
-  await until(() => warnings.some(line => line.includes('greeting for Writer not sent')))
+  await until(() => warnings.some(line => line.includes('model for Writer not ready')))
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
   await settle()
   assert.deepEqual(unhandled, [])
-  assert.equal(sent.some(entry => entry.sessionId === bot.id), false)
 })
 
 test('a first message from the user is helped with, not replaced by an opening question', async (t) => {
