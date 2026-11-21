@@ -165,7 +165,7 @@ async function runPrompt(session, prompt, requestId) {
   if (text.includes('rpc-error-empty')) { send({ jsonrpc: '2.0', id: requestId, error: { code: '', message: 'Internal error: empty code' } }); return }
   if (text.includes('rpc-error-object')) { send({ jsonrpc: '2.0', id: requestId, error: { code: -32603, message: { reason: 'stopped' } } }); return }
   if (text.includes('count-sessions')) { finish(`sessions: ${sessions.size}`); return }
-  if (/\bhang\b/.test(text)) return // session/cancel releases it below
+  if (/\bhang\b/.test(text)) { session.pendingPrompt = requestId; return }
   if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('late-permission')) {
@@ -425,7 +425,14 @@ process.stdin.on('data', (chunk) => {
         reply(id, {})
         break
       case 'session/cancel':
-        update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })
+        setTimeout(() => {
+          update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })
+          const session = sessions.get(params.sessionId)
+          if (session?.pendingPrompt !== undefined) {
+            reply(session.pendingPrompt, { stopReason: 'cancelled' })
+            delete session.pendingPrompt
+          }
+        }, 30)
         break
       default:
         if (id !== undefined) fail(id, `method not found: ${method}`)

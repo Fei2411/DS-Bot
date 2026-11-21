@@ -332,6 +332,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
+    live.stopped = true
     live.queue.length = 0
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
@@ -648,6 +649,10 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, input, signal, effort) {
+    if (live.stopped) {
+      this.discardTurnOutput(live)
+      live.stopped = false
+    }
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
     // The turn an engine names is the one this stream reads: a finished turn's late
@@ -656,7 +661,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     try {
       const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
       return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
