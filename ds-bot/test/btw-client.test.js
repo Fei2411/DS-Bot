@@ -27,6 +27,42 @@ async function refused(roster, session, line, envelope) {
   assert.deepEqual(session.sent, [])
 }
 
+const btwBundle = await build({
+  entryPoints: [fileURLToPath(new URL('../src/client/btw.js', import.meta.url))],
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+const btwModule = { exports: {} }
+runInNewContext(btwBundle.outputFiles[0].text, {
+  module: btwModule, exports: btwModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
+  window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1280 },
+  require: (name) => {
+    const platform = {
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
+        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+        useState: init => [typeof init === 'function' ? init() : init, () => {}],
+        useEffect: () => {}, useRef: () => ({ current: null }),
+        useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
+        useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+      },
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
+    }
+    if (!(name in platform)) throw new Error(`no platform module ${name}`)
+    return platform[name]
+  },
+})
+const { BtwDock } = btwModule.exports
+
+const findIn = (node, match, out = []) => {
+  if (Array.isArray(node)) node.forEach(child => findIn(child, match, out))
+  else if (node !== null && typeof node === 'object') {
+    if (match(node)) out.push(node)
+    for (const child of node.children ?? []) findIn(child, match, out)
+  }
+  return out
+}
+
 test('a group, an attachment, and an empty /side claim-and-refuse', async () => {
   const group = sessionFor('g')
   await assert.rejects(enter(groupRoster, group, '/side what happened'), /private chat/)
@@ -273,41 +309,6 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
-const btwBundle = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/btw.js', import.meta.url))],
-  bundle: true, format: 'cjs', platform: 'node', write: false,
-  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
-})
-const btwModule = { exports: {} }
-runInNewContext(btwBundle.outputFiles[0].text, {
-  module: btwModule, exports: btwModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
-  window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1280 },
-  require: (name) => {
-    const platform = {
-      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
-        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-        useState: init => [typeof init === 'function' ? init() : init, () => {}],
-        useEffect: () => {}, useRef: () => ({ current: null }),
-        useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
-        useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
-      },
-      'react-dom': { createPortal: node => node },
-      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
-    }
-    if (!(name in platform)) throw new Error(`no platform module ${name}`)
-    return platform[name]
-  },
-})
-const { BtwDock } = btwModule.exports
-
-const findIn = (node, match, out = []) => {
-  if (Array.isArray(node)) node.forEach(child => findIn(child, match, out))
-  else if (node !== null && typeof node === 'object') {
-    if (match(node)) out.push(node)
-    for (const child of node.children ?? []) findIn(child, match, out)
-  }
-  return out
-}
 
 test('an open-turn card renders a delete action in the dock', async () => {
   const card = { id: 'c1', partId: 's', status: 'done', question: 'q?', answer: 'a.', atSeq: null, createdAt: 1, finishedAt: 2 }
