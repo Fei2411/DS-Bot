@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -89,7 +89,7 @@ function start(team, { config = {} } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, created, archived, failArchive, missing, restricted, scoped, renamed, createdAgents, ctx }
+  return { call, stop, home, created, archived, failArchive, missing, restricted, scoped, renamed, createdAgents, ctx, rt }
 }
 
 const TEAM = {
@@ -244,6 +244,34 @@ test('a permanent-delete notification drops the reference, once, and it stays go
   const again = start(JSON.parse(saved))
   t.after(again.stop)
   assert.deepEqual((await again.call('state', {})).value.agents[0].sessions, agent.sessions)
+})
+
+test('a failed save keeps the reference and its Agent index for a retry', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, stop, home, ctx, rt } = start(TEAM)
+  t.after(async () => { chmodSync(home, 0o700); await stop() })
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  assert.equal(rt.agentOf(second.sessionId)?.id, agent.id)
+  // A write that cannot land, as when the disk is full or the team moved to another
+  // host. The save rebuilds the Agent index before it writes, so the failure leaves
+  // the Session unindexed unless the listener rebuilds it with the reference.
+  chmodSync(home, 0o500)
+  try {
+    await assert.rejects(
+      ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId }),
+      /EACCES|EPERM|permission denied/i,
+    )
+  } finally {
+    chmodSync(home, 0o700)
+  }
+  // The reference is back in the list, and windows still see it as the Agent's own.
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, [agent.sessions[0], second.sessionId])
+  assert.equal(rt.agentOf(second.sessionId)?.id, agent.id)
+  // Once a write can land, the same notice clears the reference and its index entry.
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId })
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, [agent.sessions[0]])
+  assert.equal(rt.agentOf(second.sessionId), undefined)
 })
 
 test('agent-rename retitles an owned Session and refuses others', async (t) => {

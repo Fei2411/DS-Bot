@@ -125,7 +125,12 @@ export function install(rt) {
     } catch (error) {
       // The write did not land: keep the reference so the archive action or a
       // later attempt can still clear it, rather than forgetting it in this window.
+      // The failed save had already re-indexed the state without this Session, so
+      // rebuild the Agent index after putting the reference back: until the next
+      // save or adopt, rt.agentOf must still see an owned Agent Session, or every
+      // window treats it as a Session no Agent owns.
       if (!agent.sessions.includes(sessionId)) agent.sessions.splice(Math.min(position, agent.sessions.length), 0, sessionId)
+      rt.indexAgents()
       throw error
     }
   })
