@@ -426,6 +426,7 @@ var JA = {
   "Open this earlier session": "この過去のセッションを開く",
   "Session {number}": "セッション {number}",
   "Current session": "現在のセッション",
+  "Delete this session": "このセッションを削除",
   "This page could not be shown.": "このページを表示できませんでした。",
   "Current": "現在",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "このキーは環境変数など DS Bot の外部で設定されているため、ここでは変更できません。",
@@ -3024,6 +3025,7 @@ var KO = {
   "Open this earlier session": "이 이전 세션 열기",
   "Session {number}": "세션 {number}",
   "Current session": "현재 세션",
+  "Delete this session": "이 세션 삭제",
   "This page could not be shown.": "이 페이지를 표시할 수 없습니다.",
   "Current": "현재",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "이 키는 환경 변수 등 DS Bot 외부에서 설정되었으므로 여기서 변경할 수 없습니다.",
@@ -5662,6 +5664,7 @@ var ES = {
   "Open this earlier session": "Abrir esta sesión anterior",
   "Session {number}": "Sesión {number}",
   "Current session": "Sesión actual",
+  "Delete this session": "Eliminar esta sesión",
   "This page could not be shown.": "No se pudo mostrar esta página.",
   "Current": "Actual",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "Esta clave proviene de fuera de DS Bot, como una variable de entorno, y no se puede cambiar aquí.",
@@ -8295,6 +8298,7 @@ var FR = {
   "Open this earlier session": "Ouvrir cette session précédente",
   "Session {number}": "Session {number}",
   "Current session": "Session actuelle",
+  "Delete this session": "Supprimer cette session",
   "This page could not be shown.": "Cette page n’a pas pu être affichée.",
   "Current": "Actuel",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "Cette clé provient de l’extérieur de DS Bot (comme une variable d’environnement) et ne peut pas être modifiée ici.",
@@ -10893,6 +10897,7 @@ var DE = {
   "Open this earlier session": "Diese frühere Sitzung öffnen",
   "Session {number}": "Sitzung {number}",
   "Current session": "Aktuelle Sitzung",
+  "Delete this session": "Diese Sitzung löschen",
   "This page could not be shown.": "Diese Seite konnte nicht angezeigt werden.",
   "Current": "Aktuell",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "Dieser Schlüssel stammt von außerhalb von DS Bot (z. B. aus einer Umgebungsvariable) und kann hier nicht geändert werden.",
@@ -13500,6 +13505,7 @@ var ZH = {
   "Open this earlier session": "打开这个较早的会话",
   "Session {number}": "会话 {number}",
   "Current session": "当前会话",
+  "Delete this session": "删除这个会话",
   "This page could not be shown.": "这个页面无法显示。",
   "Current": "当前",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "这个 key 来自 DS Bot 之外（例如环境变量），这里改不了。",
@@ -18768,8 +18774,14 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
 .bt-agent-sessions-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--bt-warn) 40%,transparent);border-left:3px solid var(--bt-warn);border-radius:10px;background:color-mix(in srgb,var(--bt-warn) 13%,var(--bt-card));color:var(--bt-warn);font-size:13px;line-height:17px;font-weight:500}
 .bt-agent-sessions-warn svg{flex:none;width:15px;height:15px;margin-top:1px}
-.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
-.bt-agent-session:first-child{border-top:0}
+.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
+.bt-agent-session-row{display:flex;align-items:stretch;border-top:1px solid var(--bt-line-2)}
+.bt-agent-session-row:first-child{border-top:0}
+.bt-agent-session-del{display:flex;flex:none;align-items:center;justify-content:center;width:34px;border:0;background:none;color:var(--bt-ink-3);cursor:pointer;opacity:0;transition:opacity .12s}
+.bt-agent-session-row:hover .bt-agent-session-del,.bt-agent-session-del:focus-visible,.bt-agent-session-del.is-armed{opacity:1}
+.bt-agent-session-del:hover,.bt-agent-session-del.is-armed{background:var(--bt-hover);color:var(--bt-danger)}
+.bt-agent-session-del.is-armed{background:var(--bt-danger-soft)}
+.bt-agent-session-del svg{width:13px;height:13px}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -45955,6 +45967,7 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, useComput
 }
 function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
   const runningOf = (id) => running?.[id] === true;
+  const [pending, setPending] = (0, import_react71.useState)(null);
   const open = (bot.openParts ?? []).map((entry) => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }));
   const backgroundRunning = open.some((entry) => entry.running);
   const earlier = (bot.parts ?? []).filter((id) => id !== part).slice().reverse().map((id) => ({ id, earlier: true }));
@@ -45985,18 +45998,33 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
       (0, import_react71.createElement)(AlertIcon),
       (0, import_react71.createElement)("span", null, t("A running session keeps using model calls in the background."))
     ) : null,
-    (0, import_react71.createElement)(
-      "div",
-      { className: "bt-agent-sessions" },
-      entries2.map((entry, index) => {
-        const row = rows2[index];
-        const when3 = row?.updatedAt ?? row?.createdAt;
-        const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
-        const title = entry.current ? t("Current session") : entry.open && entry.running ? t("Open this running session") : entry.open ? t("Open this session") : t("Open this earlier session");
-        return (0, import_react71.createElement)(
+    (0, import_react71.createElement)("div", { className: "bt-agent-sessions" }, entries2.map((entry, index) => {
+      const row = rows2[index];
+      const when3 = row?.updatedAt ?? row?.createdAt;
+      const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
+      const title = entry.current ? t("Current session") : entry.open && entry.running ? t("Open this running session") : entry.open ? t("Open this session") : t("Open this earlier session");
+      const remove = entry.current ? null : (0, import_react71.createElement)("button", {
+        key: "delete",
+        type: "button",
+        className: `bt-agent-session-del${pending === entry.id ? " is-armed" : ""}`,
+        "aria-label": pending === entry.id ? t("Click again to delete.") : t("Delete this session"),
+        title: pending === entry.id ? t("Click again to delete.") : t("Delete this session"),
+        onClick: (event) => {
+          event.stopPropagation();
+          if (pending !== entry.id) {
+            setPending(entry.id);
+            return;
+          }
+          setPending(null);
+          run2(actions.deletePart !== void 0 ? actions.deletePart(bot.id, entry.id) : call("bot-delete-part", { botId: bot.id, sessionId: entry.id }));
+        }
+      }, (0, import_react71.createElement)(TrashIcon));
+      return (0, import_react71.createElement)(
+        "div",
+        { key: entry.id, className: "bt-agent-session-row" },
+        (0, import_react71.createElement)(
           "button",
           {
-            key: entry.id,
             type: "button",
             disabled: entry.current,
             className: `bt-agent-session${entry.current ? " is-current" : ""}${entry.running ? " is-running" : ""}`,
@@ -46009,9 +46037,10 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
             { className: "bt-agent-session-meta" },
             entry.running ? (0, import_react71.createElement)("span", { className: "bt-agent-session-run", role: "status" }, t("Running")) : entry.current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""
           )
-        );
-      })
-    )
+        ),
+        remove
+      );
+    }))
   );
 }
 var rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt);

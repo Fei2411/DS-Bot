@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
-import { AlertIcon, PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
+import { AlertIcon, PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon, TrashIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
 import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
@@ -241,6 +241,8 @@ function GroupOverview({ room, roster, actions, usage, useWork, useComputer, ope
 // running at once means two model calls.
 function BotSessions({ bot, part, run, useSessions, actions, running }) {
   const runningOf = id => running?.[id] === true
+  // Deleting takes two clicks on the same row: the first only arms it (#1905).
+  const [pending, setPending] = useState(null)
   const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }))
   // Two sessions running at once means two model calls: shown only while a background
   // part really runs, above the list rather than as a quiet footnote.
@@ -267,14 +269,31 @@ function BotSessions({ bot, part, run, useSessions, actions, running }) {
           h(AlertIcon),
           h('span', null, t('A running session keeps using model calls in the background.')))
       : null,
-    h('div', { className: 'bt-agent-sessions' },
-      entries.map((entry, index) => {
-        const row = rows[index]
-        const when = row?.updatedAt ?? row?.createdAt
-        const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
-        const title = entry.current ? t('Current session') : entry.open && entry.running ? t('Open this running session') : entry.open ? t('Open this session') : t('Open this earlier session')
-        return h('button', {
-          key: entry.id, type: 'button', disabled: entry.current,
+    h('div', { className: 'bt-agent-sessions' }, entries.map((entry, index) => {
+      const row = rows[index]
+      const when = row?.updatedAt ?? row?.createdAt
+      const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
+      const title = entry.current ? t('Current session') : entry.open && entry.running ? t('Open this running session') : entry.open ? t('Open this session') : t('Open this earlier session')
+      // The session on screen keeps its place: deleting it would blank the chat the user
+      // is reading, so it is offered only on the others.
+      const remove = entry.current ? null : h('button', {
+        key: 'delete', type: 'button',
+        className: `bt-agent-session-del${pending === entry.id ? ' is-armed' : ''}`,
+        'aria-label': pending === entry.id ? t('Click again to delete.') : t('Delete this session'),
+        title: pending === entry.id ? t('Click again to delete.') : t('Delete this session'),
+        onClick: (event) => {
+          event.stopPropagation()
+          if (pending !== entry.id) {
+            setPending(entry.id)
+            return
+          }
+          setPending(null)
+          run(actions.deletePart !== undefined ? actions.deletePart(bot.id, entry.id) : call('bot-delete-part', { botId: bot.id, sessionId: entry.id }))
+        },
+      }, h(TrashIcon))
+      return h('div', { key: entry.id, className: 'bt-agent-session-row' },
+        h('button', {
+          type: 'button', disabled: entry.current,
           className: `bt-agent-session${entry.current ? ' is-current' : ''}${entry.running ? ' is-running' : ''}`,
           title, onClick: openPart(entry),
         },
@@ -282,8 +301,9 @@ function BotSessions({ bot, part, run, useSessions, actions, running }) {
           h('span', { className: 'bt-agent-session-meta' },
             entry.running ? h('span', { className: 'bt-agent-session-run', role: 'status' }, t('Running'))
               : entry.current ? t('Current')
-                : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
-      })))
+                : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')),
+        remove)
+    })))
 }
 const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt)
 

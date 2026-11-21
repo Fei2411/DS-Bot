@@ -310,6 +310,7 @@ export const JA = {
   "Open this earlier session": "この過去のセッションを開く",
   "Session {number}": "セッション {number}",
   "Current session": "現在のセッション",
+  "Delete this session": "このセッションを削除",
   "This page could not be shown.": "このページを表示できませんでした。",
   "Current": "現在",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "このキーは環境変数など DS Bot の外部で設定されているため、ここでは変更できません。",

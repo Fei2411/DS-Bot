@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { currentSession, focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -2406,5 +2406,56 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Deleting a conversation (#1905): a part the user is not reading leaves the Bot's
+  // chat and its Session is archived, so DSH stops it and keeps its files. A live
+  // parallel part takes its own earlier parts with it, since its thread ends here. The
+  // part on screen is never deleted from under the user: start a new session first.
+  async function deletePart(botId, partId) {
+    await rt.load()
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    if (isTaskSession(bot, partId) || threadOfPart(bot, partId)?.thread === 'task') {
+      throw Object.assign(new Error('Background tasks are read-only and cannot be deleted'), { code: 'bot/invalid' })
+    }
+    if (currentSession(bot) === partId) {
+      throw Object.assign(new Error('The conversation you are reading cannot be deleted; start a new session and delete it here'), { code: 'bot/invalid' })
+    }
+    const openAt = (bot.openParts ?? []).findIndex(part => part?.sessionId === partId)
+    const doomed = []
+    if (openAt !== -1) {
+      // Its turn, its subagents and a pending approval all live in that Session.
+      if (rt.live?.get(partId)?.turn !== undefined || rt.hasSubagents?.(partId) === true || rt.waitsForApproval?.(partId) === true) {
+        throw Object.assign(new Error('The Bot is working in this session; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      }
+      const part = bot.openParts[openAt]
+      doomed.push(part.sessionId, ...(part.segments ?? []).map(segment => segment.sessionId))
+      bot.openParts.splice(openAt, 1)
+      if (bot.openParts.length === 0) delete bot.openParts
+    } else {
+      const at = (bot.segments ?? []).findIndex(segment => segment.sessionId === partId)
+      if (at === -1) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+      doomed.push(partId)
+      bot.segments.splice(at, 1)
+    }
+    for (const id of doomed.filter(Boolean)) {
+      rt.chatOwners.delete(id)
+      rt.pastOwners.delete(id)
+      if (state.questions?.[id] !== undefined) {
+        rt.closeCard(id, state.questions[id], 'dismissed')
+        delete state.questions[id]
+      }
+      if (state.views?.[id] !== undefined) {
+        rt.closeCard(id, state.views[id], 'dismissed')
+        delete state.views[id]
+      }
+    }
+    await rt.save()
+    for (const id of doomed.filter(Boolean)) {
+      await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: deleted session %s not archived: %s', id, error))
+    }
+    return true
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, deletePart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

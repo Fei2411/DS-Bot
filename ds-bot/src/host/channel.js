@@ -888,6 +888,14 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           return ok(await rt.switchPart(bot.id, String(body.sessionId ?? '')))
         }
+        case 'bot-delete-part': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          const sessionId = String(body.sessionId ?? '')
+          if (sessionId === '') return fail('Unknown session', 'bot/not-found')
+          return ok(await rt.deletePart(bot.id, sessionId))
+        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
