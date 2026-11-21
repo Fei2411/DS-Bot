@@ -8,8 +8,8 @@ import { output } from './tools.js'
 export const PUBLISH_ISSUE = 'publish_ds_bot_issue'
 const DRAFT_TTL = 10 * 60_000
 const LINK_MAX = 4000
-const WINDOWS_HOME = /\b[A-Z]:[\\/]+Users[\\/]+[^\\/\r\n]+[\\/]+/gi
-const UNIX_HOME = /(?<![\w/])(?:file:\/\/)?\/(?:Users|home)\/[^/\r\n]+\/+/gi
+const WINDOWS_HOME = /\b[A-Z]:[\\/]+Users[\\/]+[^\\/\s'"\x60]+[\\/]+/gi
+const UNIX_HOME = /(?<![\w/])(?:file:\/\/)?\/(?:Users|home)\/[^/\s'"\x60]+\/+/gi
 
 function issueLink({ title, body, form = { what: body } }) {
   const link = fields => `${ISSUES_URL}?${new URLSearchParams({ template: 'bug.yml', title, ...fields })}`

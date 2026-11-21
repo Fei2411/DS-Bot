@@ -222,7 +222,7 @@ test('someone else’s home paths are redacted from the public preview and manua
   const args = await prepareIssue({
     title: 'Could not open /Users/Shared/Documents/notes.txt',
     what: 'Reload fails in /home/user/work/project',
-    diagnostics: 'Windows failed in C:\\Users\\Another Person\\Documents\\notes.txt',
+    diagnostics: 'Windows failed in C:\\Users\\example\\Documents\\notes.txt',
   })
   assert.equal(args.title, 'Could not open ~/Documents/notes.txt')
   assert.match(args.view.children[1].text, /Reload fails in ~\/work\/project/)
@@ -236,6 +236,18 @@ test('someone else’s home paths are redacted from the public preview and manua
   assert.equal(url.searchParams.get('title'), args.title)
   assert.equal(url.searchParams.get('what'), 'Reload fails in ~/work/project')
   assert.match(url.searchParams.get('diagnostics'), /Windows failed in ~\/Documents\\notes\.txt/)
+})
+
+test('issue report redaction preserves the destination of a failed rename', async (t) => {
+  const { stop } = await start()
+  t.after(stop)
+  const messages = [
+    "rename '/Users/Shared' -> '/opt/notes.txt'",
+    'rename /home/user -> /opt/notes.txt',
+    'rename "C:\\Users\\Public" -> "D:\\data\\notes.txt"',
+  ]
+  const args = await prepareIssue({ what: messages.join('\n') })
+  for (const message of messages) assert.ok(args.view.children[1].text.includes(message))
 })
 
 test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
