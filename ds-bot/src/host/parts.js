@@ -2181,8 +2181,10 @@ export function install(rt) {
   // deterministic handoff package, no model call. `blank` opens a fresh part with
   // neither the handoff package nor the old chat, and is the same part the working Bot
   // gets: it starts at once and the part it replaces stays live in the background, at
-  // an idle Bot too. A member's conversation in a group moves the handoff way only.
-  async function newPart(sessionId, { blank = false } = {}) {
+  // an idle Bot too. `handoff` asks for the note explicitly; a client that sends
+  // neither keeps the older behavior. A member's conversation in a group moves the
+  // handoff way only.
+  async function newPart(sessionId, { blank = false, handoff = false } = {}) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
@@ -2195,6 +2197,14 @@ export function install(rt) {
       return true
     }
     const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
+    if (handoff) {
+      // The note is written before the fresh part starts, so a handoff cannot wait out
+      // the turn: that would leave a delayed action with no visible failure, on a part
+      // that may change again. Refuse now and let the user ask again when it is idle.
+      if (agent.status !== 'idle' || busyHere || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
+      return true
+    }
     if (agent.status === 'idle' && !busyHere) {
       // Answers once the fresh part is there, so a switch that fails reaches the user.
       if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })

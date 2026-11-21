@@ -16081,12 +16081,13 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     computerShot: (attachmentId) => call2("computer-shot", { attachmentId }),
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
-    // The endpoint's own options: `roomId` for a member's group conversation, `blank`
-    // for a Bot's own chat (the default there carries the handoff package).
-    newPart: (botId, { roomId, blank: blank3 = false } = {}) => after(call2("bot-new-part", {
+    // The endpoint's own options: `roomId` for a member's group conversation, and
+    // `blank` or `handoff` for a Bot's own chat (neither keeps the older behavior).
+    newPart: (botId, { roomId, blank: blank3 = false, handoff = false } = {}) => after(call2("bot-new-part", {
       botId,
       ...roomId !== void 0 ? { roomId } : {},
-      ...blank3 ? { blank: true } : {}
+      ...blank3 ? { blank: true } : {},
+      ...handoff ? { handoff: true } : {}
     })),
     // A running part opened from the session list takes no input until it ends.
     openPart: (botId, sessionId, running = false) => {
@@ -45776,7 +45777,7 @@ var import_react71 = require("react");
 var import_react_dom12 = require("react-dom");
 function newPartChoices({ botId, busy = false, actions, run: run2 }) {
   const submit = (promise) => typeof run2 === "function" ? run2(promise) : promise;
-  const start = (mode) => submit(actions?.newPart !== void 0 ? actions.newPart(botId, { blank: mode === "blank" }) : call("bot-new-part", { botId, ...mode === "blank" ? { blank: true } : {} }));
+  const start = (mode) => submit(actions?.newPart !== void 0 ? actions.newPart(botId, mode === "blank" ? { blank: true } : { handoff: true }) : call("bot-new-part", { botId, ...mode === "blank" ? { blank: true } : { handoff: true } }));
   return [
     { mode: "blank", label: t("Blank session"), start: () => start("blank") },
     ...busy ? [] : [{ mode: "handoff", label: t("Continue with handoff"), start: () => start("handoff") }]

@@ -11,8 +11,8 @@ import { t } from './i18n.js'
 export function newPartChoices({ botId, busy = false, actions, run }) {
   const submit = promise => (typeof run === 'function' ? run(promise) : promise)
   const start = mode => submit(actions?.newPart !== undefined
-    ? actions.newPart(botId, { blank: mode === 'blank' })
-    : call('bot-new-part', { botId, ...(mode === 'blank' ? { blank: true } : {}) }))
+    ? actions.newPart(botId, mode === 'blank' ? { blank: true } : { handoff: true })
+    : call('bot-new-part', { botId, ...(mode === 'blank' ? { blank: true } : { handoff: true }) }))
   return [
     { mode: 'blank', label: t('Blank session'), start: () => start('blank') },
     ...(busy ? [] : [{ mode: 'handoff', label: t('Continue with handoff'), start: () => start('handoff') }]),

@@ -195,6 +195,28 @@ test('a blank new part starts while the Bot is idle, carrying no handoff and lea
   assert.equal(rt.chatOwners.get('w5'), 'w1')
 })
 
+// #1792: the New session menu can stay open while the Bot starts a turn. A handoff picked
+// after that must not silently become a blank part: the request says what it wants, and
+// the host refuses when the note cannot be written now.
+test('a handoff asked for while the Bot is busy is refused and starts no part', async (t) => {
+  const { home, call, rt } = await team(t)
+  await call('state')
+  let status = 'idle'
+  rt.resolveAgent = async () => ({ id: 'w2', status, session: { id: 'w2', requestHeader: () => undefined } })
+  const made = []
+  rt.createSession = async (...args) => { made.push(args); return 'w5' }
+  // The menu was opened while the Bot was idle; a turn starts before the click lands.
+  status = 'running'
+  const result = await call('bot-new-part', { botId: 'w1', handoff: true })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'bot/busy')
+  assert.equal(made.length, 0)
+  const writer = saved(home).bots.w1
+  assert.equal(writer.sessionId, 'w2')
+  assert.deepEqual(writer.openParts.map(part => part.sessionId), ['w3'])
+  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w1'])
+})
+
 // A model picked while the new part is being made must reach it: at that moment it is
 // not registered as the Bot's yet, so the sync that ran meanwhile did not see it (and
 // recorded the new model as applied), and the route this part was made with is the old
