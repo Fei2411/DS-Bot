@@ -152,7 +152,7 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [copied, setCopied] = useState(false)
   const tools = useRef(null)
   const pop = useRef(null)
-  const tick = useViewport()
+  const tick = useViewport(panel !== null)
   const close = () => setPanel(null)
   useDismiss(panel !== null, close, [tools, pop])
   const open = (kind, event) => { if (panel?.kind === kind) { close(); return } setPanel({ kind, node: event.currentTarget }) }
