@@ -86,7 +86,7 @@ export function maintenanceProvider() {
     async get(item) {
       const skill = resolveSkill(item)
       if (!skill) return undefined
-      const locator = typeof item?.locator === 'string' && item.locator ? item.locator : locatorFor(skill)
+      const locator = locatorFor(skill)
       const parsed = parseSkill(readFileSync(locator, 'utf8'), locator)
       const entry = candidate(skill, parsed)
       return {

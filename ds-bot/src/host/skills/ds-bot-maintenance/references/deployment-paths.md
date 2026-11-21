@@ -37,7 +37,7 @@ Inspect paths read-only while the host is running; mutate only offline after ver
 - `<bot-home>/state.json.broken-<ts>` — Automatic quarantine copy created if `state.json` failed JSON parse on load.
 - `<bot-home>/secrets.json` — Encrypted secret store (`0o600`). **Do not open or print this file**; inspect names only via `list_secrets`.
 - `<bot-home>/logs/diagnostics.jsonl` & `diagnostics.jsonl.1` — Structured Bot diagnostic events (rotates when exceeding 1 MiB or 200 entries; secrets and home paths redacted).
-- `<bot-home>/chat-index.sqlite` — SQLite FTS/conversation index queried by `recall`.
+- `<bot-home>/chat-index.sqlite` — SQLite FTS/conversation index queried by `read_own_chat`.
 - `<bot-home>/memory/` — Agent memory files: `journal.jsonl`, `journal.torn`, `reviewed.json`, `retired.jsonl`, `bots/<botId>/`, `groups/<roomId>/`, and `team/`.
 - `<bot-home>/ledger/` and `<DSH_HOME>/sessions/*.jsonl` — Bot conversation ledger and underlying DSH session files managed by DSH itself.
 - `<bot-home>/im/<connId>.json` — Persisted IM channel pairing and connection state.

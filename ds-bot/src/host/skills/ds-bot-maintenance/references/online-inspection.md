@@ -7,11 +7,12 @@ Use this reference while the DS Bot host is running. Stick to read-only Bot tool
 - `list_bots`: Inspect all configured Bots, IDs, roles (`Main` indicator), models, disabled/stopped flags, and active session status.
 - `list_bot_models`: Inspect available DSH model routes plus discovered local agent routes (`local-*`, `local-acp-*`) and their readiness.
 - `list_secrets`: Check which secret names exist without revealing any secret values.
-- `recall`: Search indexed conversation history in `bot/chat-index.sqlite` with explicit `scope`:
-  - `"own"` — current Bot's non-private / accessible sessions
-  - `"group"` — current group chat scope
-  - `"team"` — cross-team non-private history
-  - `<botName>` — targeted non-private history for a specific Bot (never bypasses Private Bot isolation or `privateArchives`)
+- `bot_recall`: Search saved Markdown memory under `<bot-home>/memory/` — a Bot's `MEMORY.md` and topic files, plus group and team memory — with explicit `scope`:
+  - `"own"` — the calling Bot's memory
+  - `"group"` — the current group's memory
+  - `"team"` — the shared team memory
+  - `<botName>` — another Bot's memory (refused when that Bot is private)
+  - For indexed conversation history (`bot/chat-index.sqlite`), `read_own_chat` is the tool — `bot_recall` never reads it.
 - `stop_bot`: Gracefully stop a runaway or stuck Bot turn (use only when diagnosing/halting a live loop with user awareness).
 
 ## Diagnostics, Logs, and Journals
@@ -30,7 +31,7 @@ Check these thresholds when investigating truncated context, frequent handoffs, 
   - Reserved headroom/summary defaults: `16,384` response reserve and `4,096` token budget parameters during summary/compaction.
 - **Handoff failure backoff:** Failed handoff retries back off through `1m`, `5m`, and `15m` delays before retrying automatically.
 - **Non-retryable `BLOCKING_CODES`:** Provider/request failures classified as blocking (including HTTP `403` `CONTENT_POLICY`) stop automatic retries immediately instead of looping; inspect `diagnostics.jsonl` for the exact blocking code and status.
-- **Search index (`<bot-home>/chat-index.sqlite`):** Backed conversation parts feed `recall`; check file existence/permissions if `recall` returns empty results on older sessions.
+- **Search index (`<bot-home>/chat-index.sqlite`):** Backed conversation parts feed `read_own_chat`; check file existence/permissions if `read_own_chat` returns empty results on older sessions.
 
 ## Memory Budgets & Nightly Tidy (`memory.js`, `memory-tidy.js`)
 

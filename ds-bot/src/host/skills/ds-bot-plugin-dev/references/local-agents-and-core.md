@@ -4,7 +4,7 @@ Use this reference when wiring a custom ACP-compatible local coding CLI (`local-
 
 ## Custom Local Agent CLIs (`ds-bot/src/host/local-agents/`)
 
-DS Bot supports 24 built-in local agent engines (`ROUTE_PREFIX = 'local-'`, defined in `engines.js`, e.g., `'cursor-cli'`, `'antigravity'`) plus user-registered custom ACP agents (`CUSTOM_PREFIX = 'local-acp-'`).
+DS Bot supports a set of built-in local agent engines (`ROUTE_PREFIX = 'local-'`, defined in `engines.js`, e.g., `'cursor-cli'`, `'antigravity'`) plus user-registered custom ACP agents (`CUSTOM_PREFIX = 'local-acp-'`).
 
 ### Registration & Validation (`local-agents/index.js`)
 

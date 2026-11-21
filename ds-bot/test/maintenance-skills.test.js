@@ -4,6 +4,7 @@ import { dirname, join, sep } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { install, maintenanceProvider, skillResourcePath } from '../src/host/maintenance-skills.js'
+import { TEAM_TOOLS } from '../src/host/constants.js'
 
 const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'host', 'skills')
 
@@ -17,6 +18,11 @@ function skillFiles(skillName) {
     }
   }
   return files
+}
+
+function teamTool(name) {
+  assert.ok(TEAM_TOOLS.includes(name), `${name} is not a team tool`)
+  return `\`${name}\``
 }
 
 function lineCount(text) {
@@ -91,6 +97,17 @@ test('maintenanceProvider.get keeps bundled metadata over caller-supplied fields
   assert.equal(resolved.rank, 550)
 })
 
+test('maintenanceProvider.get never reads a locator the caller supplied', async () => {
+  const provider = maintenanceProvider()
+  const [listed] = await provider.list()
+  const foreign = join(SKILLS_DIR, 'ds-bot-plugin-dev', 'SKILL.md')
+  const resolved = await provider.get({ name: 'ds-bot-maintenance', locator: foreign })
+  assert.ok(resolved)
+  assert.equal(resolved.name, 'ds-bot-maintenance')
+  assert.equal(resolved.path, listed.locator)
+  assert.equal(resolved.content, (await provider.get(listed)).content)
+})
+
 test('skillResourcePath rewrites app.asar to app.asar.unpacked with forward slashes', () => {
   const packed = ['root', 'resources', 'app.asar', 'node_modules', 'ds-bot', 'src', 'host', 'skills', 'ds-bot-maintenance'].join(sep)
   assert.equal(
@@ -141,10 +158,10 @@ test('bundled skills follow progressive disclosure, line budgets, valid referenc
     'DS_BOT_HOME',
     'start.ps1',
     'Docker',
-    'list_bots',
-    'list_bot_models',
-    'list_secrets',
-    'recall',
+    teamTool('list_bots'),
+    teamTool('list_bot_models'),
+    teamTool('list_secrets'),
+    teamTool('bot_recall'),
     'diagnostics.jsonl',
     'main.1.log',
     'memory-tidy.js',
@@ -176,10 +193,10 @@ test('bundled skills follow progressive disclosure, line budgets, valid referenc
 
   const pluginDevCombined = skillFiles('ds-bot-plugin-dev').map((file) => readFileSync(file, 'utf8')).join('\n')
   for (const needle of [
-    'save_capability',
-    'attach_capability',
-    'list_connectors',
-    'request_connector',
+    teamTool('save_capability'),
+    teamTool('attach_capability'),
+    teamTool('list_connectors'),
+    teamTool('request_connector'),
     'request_secret',
     '$DSH_SECRET_',
     'approved: false',
@@ -248,4 +265,18 @@ test('install registers the maintenance provider through ctx.inject when skills 
   assert.deepEqual(items.map((item) => item.name), ['ds-bot-maintenance', 'ds-bot-plugin-dev'])
 
   assert.doesNotThrow(() => install({ ctx: {} }))
+})
+
+test('skill docs name only real team tools, never the old memory tool names', () => {
+  for (const skillName of ['ds-bot-maintenance', 'ds-bot-plugin-dev']) {
+    for (const filePath of skillFiles(skillName)) {
+      const raw = readFileSync(filePath, 'utf8')
+      for (const [token] of raw.matchAll(/`([^`]+)`/g)) {
+        assert.ok(!['remember', 'recall', 'forget'].includes(token), `${filePath} still names the renamed tool \`${token}\``)
+        if (/^bot_[a-z_]+$/.test(token) || /^(list|read)_[a-z_]+$/.test(token) || token === 'message_bot') {
+          assert.ok(TEAM_TOOLS.includes(token), `${filePath} names \`${token}\`, which is not a team tool`)
+        }
+      }
+    }
+  }
 })
