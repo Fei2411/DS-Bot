@@ -36,6 +36,7 @@ const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Se
 // has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
 const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
 const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
+const SCHEDULE_UPDATE_FIELDS = new Set(['id', 'action', 'title', 'prompt', 'rrule', 'target', 'active', 'expectedUpdatedAt'])
 const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
@@ -56,14 +57,14 @@ export function install(rt) {
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
   const callerRoom = (exec) => {
-    const roomId = rt.groupOwners.get(exec.agent?.id)?.roomId
+    const roomId = (rt.groupOwners.get(exec.agent?.id) ?? rt.pastOwners?.get(exec.agent?.id))?.roomId
     return roomId ? { fromRoomId: roomId } : {}
   }
   // The part of its own chat the caller speaks from, so a reply comes back to that part
   // of the thread (a Bot can work in a background part while the user reads another).
   const callerPart = (exec) => {
     const sessionId = exec.agent?.id
-    return sessionId === undefined || rt.groupOwners.has(sessionId) ? {} : { fromPart: sessionId }
+    return sessionId === undefined || callerRoom(exec).fromRoomId !== undefined ? {} : { fromPart: sessionId }
   }
 
   const sectionNameOf = id => (state.sections ?? []).find(sec => sec.id === id)?.name
@@ -159,6 +160,7 @@ export function install(rt) {
   const whereOf = (sessionId) => {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     if (room) return `group "${room.name}"`
+    if (rt.taskOwners?.has(sessionId)) return 'a background task'
     // A Bot's own chat may keep another part live in the background: it is a second
     // conversation of that Bot, not its foreground chat.
     return isOpenPart(rt.botOf(rt.chatOwners.get(sessionId)), sessionId) ? 'another of its conversations' : 'its own chat'
@@ -283,6 +285,10 @@ export function install(rt) {
       const name = typeof args.request_id === 'string' ? args.request_id.trim() : ''
       if (name.length > NAME_MAX) return `The request_id is ${name.length} characters long; a request name is at most ${NAME_MAX}.`
       const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
+      const taskRoomId = rt.taskOwners?.get(exec.agent?.id)?.roomId
+      if (taskRoomId !== undefined) {
+        refuse('Background tasks in a group chat cannot call message_bot directly. Finish your work and mention @Name in your final reply so it goes to the group.')
+      }
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
       // The request the caller named: it is admitted once, and a repeat of it is not sent again.
       const request = name === '' ? undefined : rt.requestIdentity({
@@ -350,6 +356,26 @@ export function install(rt) {
         const working = rt.live.get(chat)?.turn !== undefined
         const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
         const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
+        const spawnInBackground = working && !toUser && !joins && args.when !== 'queue'
+          && rt.shouldMoveForeground?.(target, chat) === true
+          && typeof rt.spawnBotHandoffTask === 'function'
+        if (spawnInBackground) {
+          await rt.spawnBotHandoffTask(target, chat, {
+            fromBot: sender,
+            fromPart,
+            parentWork: work,
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+          })
+          const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
+          const notes = [
+            `Delivered to ${target.name} in a background task while its foreground chat is busy. Its reply will arrive later as a new message; do not wait for it.`,
+            asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
+          ].filter(Boolean)
+          return notes.join(' ')
+        }
         if (joins) rt.forgetDelivery?.(exchangeId)
         else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
         try {
@@ -403,14 +429,22 @@ export function install(rt) {
       if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`)
       if (target.id === sender.id) refuse('You cannot stop yourself.')
       const { running } = activeSessions(target.id)
-      if (running.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
-      for (const sessionId of running) {
+      const activeTasks = (target.tasks ?? []).filter(task => task && ['running', 'waiting_work', 'waiting_approval'].includes(task.status))
+      if (running.length === 0 && activeTasks.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
+      // Separate non-task sessions before stopping tasks (stopping clears taskOwners).
+      const nonTaskRunning = running.filter(sessionId => !rt.taskOwners?.has(sessionId))
+      const places = nonTaskRunning.map(whereOf)
+      if (activeTasks.length > 0) {
+        await rt.stopAllTasksOfBot?.(target, String(args.reason ?? '').trim() || `stopped by ${sender.name}`)
+        places.push(`${activeTasks.length} background task${activeTasks.length === 1 ? '' : 's'}`)
+      }
+      for (const sessionId of nonTaskRunning) {
         const agent = await rt.resolveAgent(sessionId)
         agent.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })
       }
       const why = String(args.reason ?? '').trim() || 'Stop what you are doing; the previous turn was ended on purpose. Acknowledge briefly.'
       await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', ...callerRoom(exec) })
-      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
+      return `Stopped ${target.name} in ${places.join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
     },
   }))
 
@@ -486,9 +520,9 @@ export function install(rt) {
         }
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
-        if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, ...rt.botFolderPermissions(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+        if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, botId: bot.id, who: { en: bot.name, zh: ` ${bot.name} ` } })
         const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
-        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, ...rt.botFolderPermissions(bot.id, { extra: true }), who: { en: bot.name, zh: ` ${bot.name} ` } })
+        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, botId: bot.id, extra: true, who: { en: bot.name, zh: ` ${bot.name} ` } })
         // The photo rides on the Bot's other avatar fields, as the settings page's upload
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
@@ -519,8 +553,10 @@ export function install(rt) {
     await rt.load()
     const bot = callerBot(exec)
     if (bot === undefined) return next()
-    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId)
-    const home = rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
+    const taskEntry = rt.taskBySession?.(exec.agent.id)?.task
+    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId ?? taskEntry?.roomId)
+    const taskDir = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf({ botId: bot.id, roomId: room?.id })
+    const home = taskDir ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
     // An extra folder is one the Bot already works in, so only this Session moves there.
@@ -533,11 +569,28 @@ export function install(rt) {
     // Saved folders are trimmed like typed ones, so such a name would save another folder.
     if (unquote(target) !== target) throw new Error(`${JSON.stringify(target)} cannot be a working folder: its name starts or ends with a space or a quote mark.`)
     const workDir = await rt.workFolder(target)
+    if (taskEntry !== undefined) {
+      // A background task only widens its own Session and updates its own task.workDir
+      // for rollover continuity (null means team workspace, like room.memberDirs); it
+      // never rewrites room.memberDirs or the Bot's workDir, and a private Bot's tasks
+      // stay inside the Bot's own folder (matching startTask).
+      if (bot.private === true && bot.workDir !== undefined && !within(target, await rt.real(bot.workDir))) {
+        throw new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`)
+      }
+      await rt.checkPrivacyChange(bot, { moving: true, workDir })
+      await rt.approveFolder(exec, { path: workDir, sessions: [exec.agent.id], who: { en: `${bot.name}'s background task`, zh: `${bot.name} 的后台任务` } })
+      const result = await next()
+      if (result?.isError !== true) {
+        taskEntry.workDir = workDir ?? null
+        await rt.save()
+      }
+      return result
+    }
     if (room !== undefined) {
       // The folder holds only for this group conversation, so only this Session's
       // writes widen; the private-Bot check is the one updateBot would run.
       await rt.checkPrivacyChange(bot, { moving: true, workDir })
-      await rt.approveFolder(exec, { path: workDir, ...rt.folderPermissions([bot.id], room), sessions: [exec.agent.id], who: { en: bot.name, zh: ` ${bot.name} ` } })
+      await rt.approveFolder(exec, { path: workDir, places: [{ sessionId: exec.agent.id, preset: room.permission ?? bot.permission }], who: { en: bot.name, zh: ` ${bot.name} ` } })
       const result = await next()
       if (result?.isError !== true) {
         ;(room.memberDirs ??= {})[bot.id] = workDir ?? null
@@ -545,7 +598,7 @@ export function install(rt) {
       }
       return result
     }
-    await rt.approveFolder(exec, { path: workDir, ...rt.botFolderPermissions(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+    await rt.approveFolder(exec, { path: workDir, botId: bot.id, who: { en: bot.name, zh: ` ${bot.name} ` } })
     const result = await next()
     if (result?.isError !== true) await rt.updateBot(bot.id, { workDir: workDir ?? '' }, rt.selfOf(exec.agent?.id))
     return result
@@ -655,41 +708,40 @@ export function install(rt) {
       }
       try {
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
-        // A Bot that joins a group with a folder works there from its first turn.
-        const joining = add.bots.filter(bot => !room.members.includes(bot.id))
-        // Members that have not spoken yet inherit these presets on their first Session.
-        const folderPermissions = members => rt.folderPermissions(members, room)
-        if (moving && workDir !== room.workDir) {
-          const members = [...room.members, ...joining.map(bot => bot.id)]
-          await rt.approveFolder(exec, { path: workDir, ...folderPermissions(members), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
-        } else if (joining.length > 0) {
+        const targetDir = moving ? workDir : room.workDir
+        const removing = new Set(remove.bots.map(bot => bot.id))
+        // A Bot that joins a group with a folder works there from its first turn; when a
+        // group has no folder of its own, its preset reaches each member's own folder.
+        const joining = add.bots.filter(bot => !room.members.includes(bot.id) && !removing.has(bot.id))
+        if (moving && workDir !== room.workDir && workDir !== undefined) {
+          const members = [...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)]
+          await rt.approveFolder(exec, { path: workDir, room, botIds: members, who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+        } else if (joining.length > 0 && targetDir !== undefined) {
           const names = joining.map(bot => bot.name)
-          await rt.approveFolder(exec, { path: room.workDir, ...folderPermissions(joining.map(bot => bot.id)), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+          await rt.approveFolder(exec, { path: targetDir, room, botIds: joining.map(bot => bot.id), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
         }
         const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
         if (extraDirs !== undefined) {
-          const members = [...room.members, ...joining.map(bot => bot.id)]
-          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, ...folderPermissions(members), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+          const members = [...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)]
+          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, room, botIds: members, who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
         }
         // A Bot that joins also gets the group's extra folders it keeps, so it asks for those too.
         const kept = (extraDirs ?? room.extraDirs ?? []).filter(path => (room.extraDirs ?? []).includes(path))
         if (joining.length > 0 && kept.length > 0) {
           const names = joining.map(bot => bot.name)
-          await rt.approveExtraDirs(exec, { paths: kept, ...folderPermissions(joining.map(bot => bot.id)), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
-        }
-        // Joining or clearing the group cwd can expose a member's own folders under
-        // the group's preset even when those folders were set under full access.
-        const restoring = moving && room.workDir !== undefined && workDir === undefined
-        if ((moving ? workDir : room.workDir) === undefined) {
-          const inheriting = restoring ? [...room.members.map(id => rt.botOf(id)), ...joining] : joining
-          for (const bot of inheriting) {
-            if (bot === undefined || remove.bots.includes(bot)) continue
-            const permissions = folderPermissions([bot.id])
+          await rt.approveExtraDirs(exec, { paths: kept, room, botIds: joining.map(bot => bot.id), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+        } else if (targetDir === undefined && room.permission !== undefined) {
+          const exposed = moving && room.workDir !== undefined
+            ? [...new Set([...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)])].map(id => rt.botOf(id)).filter(Boolean)
+            : joining
+          for (const bot of exposed) {
+            if (!bot.workDir || (!(moving && room.workDir !== undefined) && Object.hasOwn(room.memberDirs ?? {}, bot.id))) continue
             const who = { en: bot.name, zh: ` ${bot.name} ` }
-            const ownDir = restoring ? bot.workDir : rt.workDirOf({ botId: bot.id, roomId: room.id })
-            await rt.approveFolder(exec, { path: ownDir, ...permissions, who })
+            await rt.approveFolder(exec, { path: bot.workDir, room, botIds: [bot.id], who })
+            // The group's preset reaches the member's extra folders too; a Bot on a
+            // local agent keeps its own file permissions instead.
             if (!rt.onLocalAgent(bot)) {
-              await rt.approveExtraDirs(exec, { paths: bot.extraDirs ?? [], before: extraDirs ?? room.extraDirs, ...permissions, who })
+              await rt.approveExtraDirs(exec, { paths: bot.extraDirs ?? [], before: extraDirs ?? room.extraDirs, room, botIds: [bot.id], who })
             }
           }
         }
@@ -851,17 +903,18 @@ export function install(rt) {
       }
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
-      // Replies the poster waits for, while it works on what a Bot asked it for, are
-      // work handed on for that request (handoffs.js).
+      // Replies the poster waits for, while it works on what a Bot asked it for — or from
+      // a background task that must stay open until the group replies — are tracked as work.
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
-      const sub = work === undefined ? undefined : randomUUID()
-      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
+      const trackTaskWait = reportBack && rt.taskOwners?.has(exec.agent?.id)
+      const sub = work !== undefined || trackTaskWait ? randomUUID() : undefined
+      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, ...(work !== undefined ? { parent: work } : {}), ...callerPart(exec) })
       const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
       const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
@@ -906,6 +959,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
+      if (rt.taskOwners?.has(id)) return 'Background tasks cannot show question cards directly. Put the question in your reply so it goes back to your own chat, where you can ask the user and start a follow-up task if needed.'
       if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const options = (Array.isArray(args.options) ? args.options : [])
@@ -944,6 +998,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
+      if (rt.taskOwners?.has(id)) return 'Background tasks cannot show view cards directly. Report the data or question back to your own chat, where you can show a view to the user.'
       if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const checked = checkShownView(args.title, args.view)
@@ -987,6 +1042,7 @@ export function install(rt) {
     const held = scoped.get(id)
     if (held === undefined) return
     scoped.delete(id)
+    clearTimeout(held.retryTimer)
     for (const dispose of held.disposers) {
       try {
         dispose()
@@ -1008,8 +1064,18 @@ export function install(rt) {
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
-  // A wanted Session whose Agent cannot take scoped tools yet is warned about
-  // once; held.tools stays unset, so the next step's check tries again.
+  const retryBotTools = (agent, held) => {
+    if (held.retryTimer !== undefined || (held.retries ?? 0) >= 5) return
+    held.retryTimer = setTimeout(() => {
+      held.retryTimer = undefined
+      held.retries = (held.retries ?? 0) + 1
+      if (scoped.get(agent.session?.id) !== held) return
+      shareBotTools(agent)
+    }, 1000)
+    held.retryTimer.unref?.()
+  }
+
+  // Warn once, but also retry independently of the next step.
   const registerless = new WeakSet()
   const shareBotTools = (agent) => {
     if (agent === undefined) return
@@ -1031,6 +1097,11 @@ export function install(rt) {
       held = undefined
     }
     if (!wanted) return
+    if (held === undefined) {
+      held = { agent, relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
+      scoped.set(id, held)
+      agent.ctx?.effect?.(() => () => { if (scoped.get(id) === held) unscope(id) })
+    }
     // A live Agent can be scoped while the modules that add tools are still installing:
     // loading the plugin again walks the live Agents from the load the memory module
     // starts, and the tools added after it (memory, secrets, connectors) would never
@@ -1059,6 +1130,12 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && !held.added?.has(def.name))) {
+        retryBotTools(agent, held)
+      } else {
+        clearTimeout(held.retryTimer)
+        held.retryTimer = undefined
+      }
       return
     }
     if (typeof agent.ctx?.tools?.register !== 'function') {
@@ -1066,6 +1143,7 @@ export function install(rt) {
         registerless.add(agent)
         rt.warn('ds-bot: %s needs the team tools but its Agent cannot register them yet', id)
       }
+      retryBotTools(agent, held)
       return
     }
     const disposers = []
@@ -1077,7 +1155,7 @@ export function install(rt) {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
           disposers.push(dispose)
-          ;(held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }).toolLifts ??= new Map()
+          held.toolLifts ??= new Map()
           held.toolLifts.set(def.name, dispose)
         }
         registered.push(def.name)
@@ -1087,7 +1165,6 @@ export function install(rt) {
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
@@ -1099,6 +1176,11 @@ export function install(rt) {
     // assemble adds the pending names to the step's list once, then clears them.
     for (const name of registered) held.unlisted.add(name)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
+    if (failed.length > 0) retryBotTools(agent, held)
+    else {
+      clearTimeout(held.retryTimer)
+      held.retryTimer = undefined
+    }
   }
 
   // The standard preset registers `subagent` (model selection) in each Agent's own
@@ -1117,7 +1199,7 @@ export function install(rt) {
       return {
         ...assembled,
         ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {},
       }
     })
     held.filtered = true
@@ -1130,10 +1212,15 @@ export function install(rt) {
     if (rt.teamTools.some(tool => tool.name === def.name)) return
     rt.teamTools.push(def)
     for (const held of scoped.values()) {
-      if (held.relay || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
       try {
         const dispose = held.agent.ctx.tools.register(def)
-        if (typeof dispose === 'function') held.disposers.push(dispose)
+        if (typeof dispose === 'function') {
+          held.disposers.push(dispose)
+          // removeTeamTool lifts by name from toolLifts, matching both
+          // shareBotTools registration paths.
+          ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+        }
         ;(held.added ??= new Set()).add(def.name)
         held.unlisted.add(def.name)
       } catch { /* an agent that refuses it simply lacks the tool */ }
@@ -1143,8 +1230,17 @@ export function install(rt) {
     const at = rt.teamTools.findIndex(tool => tool.name === name)
     if (at !== -1) rt.teamTools.splice(at, 1)
     // Scoped registrations already handed out are disposed by name.
-    for (const held of scoped.values()) {
-      held.toolLifts?.get(name)?.()
+    for (const [id, held] of scoped) {
+      const dispose = held.toolLifts?.get(name)
+      if (typeof dispose === 'function') {
+        const index = held.disposers.indexOf(dispose)
+        if (index !== -1) held.disposers.splice(index, 1)
+        try {
+          dispose()
+        } catch (error) {
+          rt.warn('ds-bot: a scoped tool %s of %s was not removed: %s', name, id, error)
+        }
+      }
       held.toolLifts?.delete(name)
       held.added?.delete(name)
       held.unlisted.delete(name)
@@ -1197,6 +1293,7 @@ export function install(rt) {
   const reapplyToolMasks = () => {
     for (const held of scoped.values()) {
       if (held.agent === undefined) continue
+      try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
       try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
     }
   }
@@ -1263,6 +1360,14 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    if (rt.taskOwners?.has(exec.agent?.id)) {
+      if (exec.name === 'browser_handoff') return 'Background tasks cannot hand the browser to the user. Report back to your own chat so it can ask the user to take over.'
+      if (SCHEDULE_TARGET_TOOLS.includes(exec.name)) return 'Background tasks cannot create or change schedules on a temporary task session. Report back to your own chat so it can manage schedules there.'
+    }
+    if (exec.name === 'schedule_edit' && exec.arguments?.action === 'update') {
+      const unsupported = Object.keys(exec.arguments).filter(field => !SCHEDULE_UPDATE_FIELDS.has(field))
+      if (unsupported.length > 0) return `These schedule_edit fields are not editable: ${unsupported.join(', ')}. To change frequency, send rrule with a DTSTART anchor in the intended time zone followed by an RRULE line (for example, "DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3"); this converts the task to kind rrule.`
+    }
     const target = exec.arguments?.target
     if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined

@@ -176,30 +176,66 @@ export default {
       payloadType: 'json',
     }))
 
+    const downloadResource = (messageId, key, resourceType) => freshToken()
+      .then(bearer => resource(env, apiBase(env, fields), bearer, messageId, key, resourceType))
+      .catch(() => undefined)
+
     const dispatch = async (type, body) => {
       const payload = JSON.parse(body.toString('utf8'))
       if (type === 'event' && payload.header?.event_type === 'im.message.receive_v1') {
         const event = payload.event ?? {}
         const message = event.message ?? {}
+        if (message.message_type === 'system') return
         const direct = message.chat_type === 'p2p'
-        const mentioned = !direct && (message.mentions ?? []).some(m => m.id?.open_id === botOpenId || m.key === `@_user_${1}`)
+        const mentions = message.mentions ?? []
+        if (!direct && botOpenId === '' && mentions.length > 0) {
+          const me = await rest('/open-apis/bot/v3/info', { method: 'GET' }).catch(() => ({}))
+          botOpenId = String(me?.bot?.open_id ?? me?.open_id ?? '')
+        }
+        const isBotMention = m => botOpenId !== '' && m.id?.open_id === botOpenId
+        const mentioned = !direct && mentions.some(isBotMention)
+        const mentionNames = new Map(mentions.map(m => [m.key, isBotMention(m) ? '' : (m.name ? `@${m.name}` : '')]))
         const content = safeJson(message.content)
-        const text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
+        const post = message.message_type === 'post' ? flattenPost(content, botOpenId, mentionNames) : undefined
+        const rawText = post !== undefined ? post.text : String(content.text ?? '')
+        const note = messageNote(message.message_type, content)
+        const text = [
+          rawText.replace(/@_user_\d+/g, key => mentionNames.get(key) ?? '').trim(),
+          note,
+        ].filter(Boolean).join('\n').trim()
         const images = []
         if (message.message_type === 'image' && content.image_key !== undefined) {
-          const bytes = await freshToken()
-            .then(bearer => resource(env, apiBase(env, fields), bearer, message.message_id, content.image_key, 'image'))
-            .catch(() => undefined)
+          const bytes = await downloadResource(message.message_id, content.image_key, 'image')
           if (bytes !== undefined) {
             const buffer = Buffer.from(bytes)
             images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
           } else env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
         }
+        for (const key of post?.imageKeys ?? []) {
+          const bytes = await downloadResource(message.message_id, key, 'image')
+          if (bytes === undefined) {
+            env.log?.warn?.('ds-bot im: feishu post image download failed for %s', String(message.message_id ?? ''))
+            continue
+          }
+          try {
+            const buffer = Buffer.from(bytes)
+            images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
+          } catch (error) {
+            env.log?.warn?.('ds-bot im: feishu post image skipped for %s: %s', String(message.message_id ?? ''), error?.message ?? error)
+          }
+        }
+        const files = []
+        const fileName = fileAttachmentName(message.message_type, content, message.message_id)
+        if (fileName !== undefined && content.file_key !== undefined) {
+          const bytes = await downloadResource(message.message_id, content.file_key, 'file')
+          if (bytes !== undefined) files.push({ name: fileName, data: bytes })
+          else env.log?.warn?.('ds-bot im: feishu %s download failed for %s', String(message.message_type), String(message.message_id ?? ''))
+        }
         const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
         await handlers.onMessage({
           chat: { key: String(message.chat_id ?? ''), kind: direct ? 'direct' : 'group', title: String(message.chat_id ?? '') },
           sender: { id: String(sender), name: String(sender) },
-          text, images, files: [],
+          text, images, files,
           mentioned, messageId: String(message.message_id ?? ''),
         })
       }
@@ -380,11 +416,19 @@ export default {
         elements: [
           { tag: 'markdown', content: text },
           ...(buttons?.length > 0 ? [{
-            tag: 'action',
-            actions: buttons.slice(0, 5).map(button => ({
-              tag: 'button', type: 'primary',
-              text: { tag: 'plain_text', content: button.label.slice(0, 20) },
-              value: { v: button.data },
+            // Schema 2.0 removed the `action` container; buttons live in column_set with callback behaviors.
+            tag: 'column_set',
+            flex_mode: 'flow',
+            horizontal_spacing: '8px',
+            columns: buttons.slice(0, 5).map(button => ({
+              tag: 'column',
+              width: 'auto',
+              elements: [{
+                tag: 'button',
+                type: 'primary',
+                text: { tag: 'plain_text', content: button.label.slice(0, 20) },
+                behaviors: [{ type: 'callback', value: { v: button.data } }],
+              }],
             })),
           }] : []),
         ],
@@ -408,6 +452,36 @@ export default {
         }
         return { messageId }
       },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('image_type', 'message')
+        form.append('image', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        const upload = await env.fetch(`${apiBase(env, fields)}/open-apis/im/v1/images`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${await freshToken()}` },
+          body: form,
+          signal: AbortSignal.timeout(30_000),
+        })
+        const json = await upload.json().catch(() => ({}))
+        const imageKey = String(json?.data?.image_key ?? '')
+        if (!upload.ok || (json.code !== undefined && json.code !== 0) || imageKey === '') {
+          const error = new Error(String(json.msg ?? `Feishu image upload answered ${upload.status}`))
+          error.status = upload.status
+          error.permanent = upload.status >= 400 && upload.status < 500 && upload.status !== 429
+          if (upload.status === 429) error.retryAfter = Number(upload.headers.get('retry-after'))
+          throw error
+        }
+        const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          body: {
+            receive_id: chat.key,
+            msg_type: 'image',
+            content: JSON.stringify({ image_key: imageKey }),
+          },
+        })
+        return { messageId: String(sent?.data?.message_id ?? '') }
+      },
       edit: async (chat, messageId, { text, buttons }) => {
         await rest(`/open-apis/im/v1/messages/${messageId}`, {
           method: 'PATCH',
@@ -430,6 +504,60 @@ export default {
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
 const toMarkdown = text => String(text ?? '')
+
+const TYPE_NOTES = {
+  sticker: '[Feishu sticker]',
+  merge_forward: '[Feishu merged-and-forwarded chat history: cannot be expanded, ask the user to paste the key content]',
+  share_chat: '[Feishu shared group card]',
+  share_user: '[Feishu shared contact card]',
+  location: '[Feishu shared location]',
+  todo: '[Feishu shared task]',
+  share_calendar_event: '[Feishu shared calendar event]',
+}
+const HANDLED_MESSAGE_TYPES = new Set(['text', 'post', 'image', 'file', 'audio', 'media', 'system'])
+
+function messageNote(messageType, content) {
+  if (!messageType || HANDLED_MESSAGE_TYPES.has(messageType)) return ''
+  if (messageType === 'location' && content.name) return `[Feishu shared location: ${content.name}]`
+  return TYPE_NOTES[messageType] ?? `[Feishu ${messageType} message]`
+}
+
+function fileAttachmentName(messageType, content, messageId) {
+  const id = String(messageId ?? '')
+  if (messageType === 'file') return String(content.file_name || (id ? `file-${id}` : 'file'))
+  if (messageType === 'audio') return String(content.file_name || (id ? `voice-${id}.opus` : 'voice.opus'))
+  if (messageType === 'media') return String(content.file_name || (id ? `video-${id}.mp4` : 'video.mp4'))
+  return undefined
+}
+
+function flattenPost(content, botOpenId, mentionNames) {
+  const body = Array.isArray(content.content) ? content : (Object.values(content).find(v => Array.isArray(v?.content)) ?? {})
+  const imageKeys = []
+  const formatAt = (el) => {
+    const id = String(el.user_id ?? '')
+    if (mentionNames.has(id)) return mentionNames.get(id)
+    if (botOpenId !== '' && id === botOpenId) return ''
+    return el.user_name ? `@${el.user_name}` : String(el.text ?? '')
+  }
+  const formatElement = (el) => {
+    if (el?.tag === 'img' && el.image_key !== undefined && el.image_key !== '') {
+      imageKeys.push(el.image_key)
+      return ''
+    }
+    if (el?.tag === 'a') {
+      if (!el.href) return String(el.text ?? '')
+      return el.text && el.text !== el.href ? `${el.text} (${el.href})` : String(el.href)
+    }
+    if (el?.tag === 'at') return formatAt(el)
+    if (el?.tag === 'emotion') return el.emoji_type ? `[${el.emoji_type}]` : ''
+    if (el?.tag === 'code_block') return `\n\`\`\`${el.language ?? ''}\n${el.text ?? ''}\n\`\`\`\n`
+    if (el?.tag === 'hr') return '---'
+    return String(el?.text ?? '')
+  }
+  const lines = (body.content ?? []).map(row => (Array.isArray(row) ? row : []).map(formatElement).join(''))
+  const text = [body.title, ...lines].filter(line => line !== undefined && line !== '').join('\n')
+  return { text, imageKeys }
+}
 
 function imageMediaType(bytes) {
   if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'

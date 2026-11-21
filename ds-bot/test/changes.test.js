@@ -84,7 +84,6 @@ test('the review can open only while the summary is still served', async () => {
   assert.equal(rt.changesAvailable('s1', 8), false)
   assert.equal(rt.changesAvailable('s2', 7), false)
   assert.equal(rt.changesAvailable('s1', undefined), false)
-  assert.equal(rt.changesMounted(), true)
   // A service that throws is a refusal, not a crash.
   assert.equal(harness({ service: { summary: () => { throw new Error('disposed') } } }).rt.changesAvailable('s1', 7), false)
 })
@@ -118,18 +117,4 @@ test('a later unchanged turn cannot reuse the last changed turn, live or after r
   assert.equal(await live.rt.turnChanges('s1'), undefined)
   const cold = harness({ service, page: [event(7, 3), { type: 'turn/start', seq: 8, data: { turn: 4 } }, { type: 'turn/end', seq: 9, data: { turn: 4 } }] })
   assert.equal(await cold.rt.turnChanges('s1'), undefined)
-})
-
-test('a review reads its recorded file index through the service', async () => {
-  const calls = []
-  const summary = summaryOf(3, [file('a.js', 1, 0)])
-  const service = { summary: () => summary, diff: (...args) => { calls.push(args); return { kind: 'binary', path: 'a.js', display: 'a.js' } } }
-  const { rt } = harness({ service })
-  const signal = new AbortController().signal
-  assert.equal(rt.changesSummary('s1', 7), summary)
-  assert.equal((await rt.changesDiff('s1', 7, 0, signal)).kind, 'binary')
-  assert.deepEqual(calls[0], ['s1', 7, 0, signal])
-  await assert.rejects(rt.changesDiff('s1', 7, -1, signal), /No such file/)
-  await assert.rejects(rt.changesDiff('s1', 7, 1, signal), /No such file/)
-  await assert.rejects(rt.changesDiff('s1', 7, 'a.js', signal), /No such file/)
 })

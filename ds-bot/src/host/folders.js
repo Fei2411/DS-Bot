@@ -2,7 +2,7 @@
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
-import { openSessions } from './threads.js'
+import { ownChatSessions } from './threads.js'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -60,7 +60,9 @@ export function install(rt) {
     const id = session?.id
     const room = rt.roomOf(id)
     if (room !== undefined) return workDirOf({ roomId: room.id }) ?? teamFolder()
-    return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId }) ?? teamFolder()
+    const taskEntry = rt.taskBySession?.(id)?.task
+    if (taskEntry?.workDir !== undefined) return taskEntry.workDir ?? teamFolder()
+    return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId ?? rt.taskOwners?.get(id)?.roomId }) ?? teamFolder()
   }
   // The desktop app runs its own DSH and names the user's, which Bots must not write either.
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
@@ -146,49 +148,71 @@ export function install(rt) {
     return path
   }
 
-  // A Bot's own chat covers every thread it still has open. A group session is that
-  // member's conversation there. Presets are what the Sessions made later inherit.
-  const folderPermissions = (botIds, room) => ({
-    sessions: botIds.flatMap(id => room === undefined ? [rt.chatOf(id), ...openSessions(rt.botOf(id))] : [room.sessions?.[id]]).filter(Boolean),
-    presets: botIds.map(id => room?.permission ?? rt.botOf(id)?.permission ?? rt.permissionCatalog()?.defaultPreset).filter(Boolean),
-  })
-
-  // Match workDirOf and extraDirsOf: a member's own cwd hides only the Bot's cwd,
-  // while a group cwd hides both the Bot's cwd and its extra folders.
-  const botFolderPermissions = (botId, { extra = false } = {}) => {
-    const permissions = folderPermissions([botId])
-    for (const room of Object.values(state.rooms)) {
-      if (!room.members.includes(botId) || room.workDir !== undefined) continue
-      if (!extra && Object.hasOwn(room.memberDirs ?? {}, botId)) continue
-      const inherited = folderPermissions([botId], room)
-      permissions.sessions.push(...inherited.sessions)
-      permissions.presets.push(...inherited.presets)
+  // Every place (its live Session, if made yet, and the preset its fresh part gets) that
+  // would work in the folder being set. A group with its own folder or a member's own
+  // folder pick there does not inherit the Bot's folder; extra folders still do, so
+  // their approval passes extra: true to keep such picks (matching extraDirsOf).
+  const folderPlaces = ({ botId, room, botIds, places, sessions = [], extra = false }) => {
+    if (places !== undefined) return places
+    if (botId !== undefined) {
+      const bot = rt.botOf(botId)
+      const own = [...new Set([rt.chatOf(botId), ...ownChatSessions(bot)].filter(Boolean))]
+      const list = own.length === 0
+        ? [{ preset: bot?.permission }]
+        : own.map(sessionId => ({ sessionId, preset: bot?.permission }))
+      for (const entry of Object.values(state.rooms)) {
+        if (!entry.members.includes(botId) || entry.workDir !== undefined || (!extra && Object.hasOwn(entry.memberDirs ?? {}, botId))) continue
+        list.push({ sessionId: entry.sessions?.[botId], preset: entry.permission ?? bot?.permission })
+      }
+      return list
     }
-    return permissions
+    if (room !== undefined && botIds !== undefined) {
+      return botIds.map(id => ({ sessionId: room.sessions?.[id], preset: room.permission ?? rt.botOf(id)?.permission }))
+    }
+    return [{ preset: undefined }, ...sessions.map(sessionId => ({ sessionId }))]
   }
 
-  // A folder outside the team workspace widens where a Bot may write, so a Bot that
-  // sets one for Bots whose writes are bounded by their folder asks the user first.
-  // Existing Sessions and the presets their future replacements inherit both count.
-  // The deployment policy and the default preset apply only when a place has no explicit preset.
-  async function approveFolder(exec, { path, sessions = [], presets = [], who }) {
+  // A folder outside the team workspace widens where a bounded Session may write, so a
+  // bounded caller that sets one for Sessions bounded by their folder asks the user first.
+  // Both existing Sessions and the presets their fresh parts inherit count; a caller on
+  // Full access (not Auto review or custom review) widens nothing beyond its own reach.
+  async function approveFolder(exec, options) {
+    const { path, who } = options
     const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
+    const agent = exec.agent
     if (policy !== undefined) {
+      const presets = ctx.get?.('permissionPresets')
+      if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
+        if (presets === undefined) return
+        try {
+          if (presets.current?.(agent.session) === 'danger-full-access') return
+        } catch { /* fail closed: keep checking affected places */ }
+      }
+      const fallback = policy.resolve().mode
+      const presetMode = (name) => {
+        if (presets === undefined) return fallback
+        try {
+          const chosen = name || presets.catalog?.()?.defaultPreset
+          if (!chosen) return 'workspace-write'
+          return presets.resolve(chosen)?.sandbox ?? fallback
+        } catch {
+          return 'workspace-write'
+        }
+      }
+      const places = folderPlaces(options)
+      const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
-      const modes = agents.map(agent => policy.resolve({ session: agent.session })).map(entry => entry.mode)
-      const service = ctx.get?.('permissionPresets')
-      const future = presets.length > 0 ? presets : [rt.permissionCatalog()?.defaultPreset].filter(Boolean)
-      modes.push(...future.map(name => service?.resolve(name)?.sandbox))
-      if (future.length === 0) modes.push(policy.resolve().mode)
-      // An unavailable preset service cannot establish that a future Session is unbounded.
-      if (modes.every(mode => mode === 'read-only' || mode === 'danger-full-access')) return
+      const modes = places.length === 0 ? [fallback] : [
+        ...agents.map(entry => policy.resolve({ session: entry.session }).mode),
+        ...places.filter(place => Object.hasOwn(place, 'preset')).map(place => presetMode(place.preset)),
+      ]
+      if (!modes.includes('workspace-write')) return
     }
     // With no policy service a Session's bounds cannot be checked, so a folder outside
     // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
-    const agent = exec.agent
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)
     const outcome = await approval.request({
       agent,
@@ -251,5 +275,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, folderPermissions, botFolderPermissions, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, approveFolder, folderEndpoint })
 }

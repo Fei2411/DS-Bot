@@ -13,10 +13,21 @@ import { LocalAgentAdapter } from './adapter.js'
 import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
-import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
+import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
 import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
+
+// The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
+// a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
+// Session). A hard-coded workspace-write made a local agent open in a stricter mode than
+// the setting the user saw, so its tool calls went through the CLI's permission prompt
+// instead of the mode they asked for (#1539).
+export function presetOf(rt, sessionId) {
+  const bot = rt.botOf(rt.selfOf(sessionId))
+  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
+  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+}
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
@@ -47,7 +58,7 @@ export function install(rt) {
       const spec = ENGINES[route]
       const path = findEngineExecutable(spec, findExecutable)
       if (path === undefined) found.delete(route)
-      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: spec.signIn })
+      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: signInFor(spec, path) })
     }
     applyRoutes()
     return [...found.values()]
@@ -92,15 +103,11 @@ export function install(rt) {
       const record = store().sessions[sessionId]
       if (record !== undefined) Object.assign(record, patch)
     },
-    presetFor: (sessionId) => {
-      const bot = rt.botOf(rt.selfOf(sessionId))
-      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      return room?.permission ?? bot?.permission ?? 'workspace-write'
-    },
+    presetFor: sessionId => presetOf(rt, sessionId),
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)
-        return agent.session.header?.cwd ?? rt.workDirOf?.({ botId: rt.selfOf(sessionId), roomId: rt.groupOwners.get(sessionId)?.roomId }) ?? rt.teamFolder?.() ?? tmpdir()
+        return agent.session.header?.cwd ?? rt.workDirOf?.({ botId: rt.selfOf(sessionId), roomId: rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId }) ?? rt.teamFolder?.() ?? tmpdir()
       } catch {
         return rt.teamFolder?.() ?? tmpdir()
       }
@@ -114,6 +121,7 @@ export function install(rt) {
   })
 
   let registration
+  let registeredRoutes = new Set()
   const llm = () => serviceOf(ctx, 'llm')
   const supported = () => typeof llm()?.registerAdapter === 'function'
   const usedRefs = () => [...new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel]).filter(Boolean))]
@@ -122,18 +130,26 @@ export function install(rt) {
   const servedRoutes = () => [...new Set([...found.keys(), ...customRouteId(), ...usedRefs().map(ref => splitRef(ref)?.provider).filter(isLocalAgentRoute)])]
   function applyRoutes() {
     if (!supported()) return
-    const routes = servedRoutes()
+    const candidates = servedRoutes()
+    if (registration === undefined && candidates.length === 0) return
+    const taken = new Set(llm().listProviders().map(provider => provider.id).filter(route => !registeredRoutes.has(route)))
+    const routes = candidates.filter(route => {
+      if (!taken.has(route)) return true
+      rt.warn?.('ds-bot: skipping local agent route "%s": another adapter is registered', route)
+      return false
+    })
     // The initial registration needs at least one provider; an empty replace
     // is legal and keeps the adapter registered with zero routes.
     if (registration === undefined) {
       if (routes.length === 0) return
       registration = llm().registerAdapter(routes, adapter)
     } else registration.replace(routes)
+    registeredRoutes = new Set(routes)
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
-  applyRoutes()
-  const initialScan = scan()
+  try { applyRoutes() } catch (error) { rt.warn?.('ds-bot: initial local agent registration failed: %s', error) }
+  const initialScan = scan().catch(error => rt.warn?.('ds-bot: initial local agent scan failed: %s', error))
   // Custom agents arrive with the state load; their routes register then too.
   void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
   // The callback returns the disposer: running adapter.dispose() inside the
@@ -201,11 +217,11 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.
 
-  const detected = () => [...found.values()].map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
-  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id) }))
+  const detected = () => [...found.values()].filter(entry => registeredRoutes.has(entry.route)).map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
+  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id), available: registeredRoutes.has(customRoute(agent.id)) }))
 
   // One CLI's models: the first look starts that CLI, later ones read what it said.
-  const localAgentModels = route => (servedRoutes().includes(route) ? adapter.probeModels(route) : Promise.resolve([]))
+  const localAgentModels = route => (registeredRoutes.has(route) ? adapter.probeModels(route) : Promise.resolve([]))
 
   async function localAgentsEndpoint(endpoint, body) {
     switch (endpoint) {
@@ -262,6 +278,7 @@ export function install(rt) {
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
+    isLocalAgentAvailable: route => registeredRoutes.has(route),
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
     // The parts module's view of a CLI session's context, and the requests it makes of

@@ -23,7 +23,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS)
   }
   useEscape(close)
-  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(item => item.id)]
+  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)]
   const found = useSessions((list) => {
     if (wanted.length < 2) return '[]'
     const hits = []

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -55,6 +56,12 @@ runInNewContext(outputFiles[0].text, {
 })
 const { ProviderRow } = module.exports
 const settle = () => new Promise(resolve => setImmediate(resolve))
+
+test('provider styles are included in the sheets shared by Bot mode and Agent-mode Settings (#1546)', () => {
+  const client = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
+  const sheets = client.match(/const SHELL_SHEETS = \[([\s\S]*?)\n  \]/)?.[1] ?? ''
+  assert.match(sheets, /\bPROVIDERS_CSS\b/, 'exporting provider CSS is not enough: both surfaces must install it')
+})
 
 // ModelDraft is a plain function without hooks; expand it so its buttons are visible
 // without running the whole React hook tree a second time.

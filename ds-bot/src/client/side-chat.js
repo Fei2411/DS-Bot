@@ -59,18 +59,18 @@ export function SideChatView({ subject, chat, roster, actions }) {
       setFail(hostText(error?.message ?? ''))
     })
   }
-  return h('div', { className: 'bt-side' },
+  return h('div', { className: 'bt-sidechat' },
     h('p', { className: 'bt-side-note' }, t('Answered from progress so far; nothing was run')),
     h('div', { className: 'bt-side-scroll', ref: scroll },
       entries.map(entry => h(SideEntry, { key: entry.id, chatId: chat.id, entry, actions }))),
     h('div', { className: 'bt-side-form' },
       h('textarea', {
-        className: 'bt-side-input', rows: 1, value: draft, disabled: busy,
+        className: 'bt-side-input', rows: 1, value: draft, autoFocus: true,
         placeholder: t('Ask about the work so far'),
         'aria-label': t('Ask about the work so far'),
         onChange: (event) => { setDraft(event.target.value); if (fail !== null) setFail(null) },
         onKeyDown: (event) => {
-          if (event.key !== 'Enter' || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return
+          if (event.key !== 'Enter' || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return
           event.preventDefault()
           ask()
         },
@@ -131,7 +131,8 @@ export function sideSource({ roster, actions }) {
 }
 
 export const SIDE_CSS = `
-.bt-side{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+.bt-sidechat{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+@media (prefers-reduced-motion:reduce){.bt-sidechat,.bt-pmenu-pop{animation:none}}
 .bt-side-note{flex:none;margin:0;padding:10px 16px 8px;font-size:12px;line-height:17px;color:var(--bt-ink-3);border-bottom:.5px solid var(--bt-line)}
 .bt-side-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:14px 16px}
 .bt-side-pair{display:flex;flex-direction:column;gap:8px}
@@ -142,7 +143,7 @@ export const SIDE_CSS = `
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .bt-side-form>.bt-side-fail{flex-basis:100%}
-.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.bt-side-send{width:36px;height:36px;border-radius:50%;corner-shape:round;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
 .bt-side-send:disabled{opacity:.3;cursor:default}
 .bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
 .bt-side-input::placeholder{color:var(--bt-ink-3)}
