@@ -3,6 +3,8 @@ import { test, beforeEach } from 'node:test'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { build } from 'esbuild'
 import { chatOfSession, forgetKeptFiles, keepDraft, pruneDrafts, takeDraft } from '../src/client/draft-keep.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
@@ -143,6 +145,154 @@ test('the pinned DSH conversation service has the draft intake the keeper uses',
   const service = await readFile(join(dirname(types), 'lib', 'types', 'client', 'service.d.ts'), 'utf8')
   assert.match(service, /createDrafts\(sessionId: SessionId, files: readonly File\[\], uploadImages: boolean\): readonly ComposerAttachment\[\];/)
   assert.match(service, /resolveDraftAttachments\(ids: readonly DraftAttachmentId\[\]\): readonly ComposerAttachment\[\];/)
+  assert.match(service, /releaseDraftAttachment\(id: DraftAttachmentId\): void;/)
   const input = await readFile(join(dirname(types), 'lib', 'types', 'client', 'contract', 'input.d.ts'), 'utf8')
   assert.match(input, /addAttachments\(ids: readonly DraftAttachmentId\[\]\): boolean;/)
+  assert.match(input, /readonly phase: 'plain' \| 'adjudicating' \| 'claimed' \| 'submitting' \| 'sending';/)
+})
+
+const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
+const keeperBundle = await build({
+  stdin: {
+    contents: "export { DraftKeeper } from './src/client/composer.js'; export { keepDraft, takeDraft, forgetKeptFiles } from './src/client/draft-keep.js'",
+    resolveDir: PLUGIN_DIR,
+  },
+  bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+  external: ['react', 'react-dom'],
+})
+
+function loadKeeper(localStorage) {
+  let cursor = 0
+  const slots = []
+  const pendingEffects = []
+  const depsChanged = (prev, next) => prev === undefined || next === undefined || prev.length !== next.length || next.some((v, i) => !Object.is(v, prev[i]))
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    Fragment: 'fragment',
+    useRef: (init) => {
+      const i = cursor++
+      if (slots[i] === undefined) slots[i] = { current: init }
+      return slots[i]
+    },
+    useEffect: (fn, deps) => {
+      const i = cursor++
+      const prev = slots[i]
+      if (prev === undefined || depsChanged(prev.deps, deps)) {
+        slots[i] = { deps }
+        pendingEffects.push(fn)
+      }
+    },
+    useState: init => [typeof init === 'function' ? init() : init, () => {}],
+    useMemo: make => make(),
+    useCallback: fn => fn,
+  }
+  const mod = { exports: {} }
+  const warnings = []
+  runInNewContext(keeperBundle.outputFiles[0].text, {
+    module: mod, exports: mod.exports, localStorage,
+    console: { warn: (...args) => warnings.push(args) },
+    require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
+  })
+  const render = (props) => {
+    cursor = 0
+    pendingEffects.length = 0
+    mod.exports.DraftKeeper(props)
+    for (const fn of pendingEffects.splice(0)) fn()
+  }
+  return { ...mod.exports, render, warnings }
+}
+
+test('DraftKeeper preserves kept files and releases orphan drafts when addAttachments refuses', () => {
+  const ls = memoryStorage()
+  const { keepDraft: keep, takeDraft: take, render } = loadKeeper(ls)
+  keep({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [image('red.png')] }, ls)
+
+  const released = []
+  const reopened = []
+  const actions = {
+    draftFiles: ids => ids.map(id => image(id)),
+    restoreDraftFiles: (_sid, files) => files.map((_, i) => `draft-${i + 1}`),
+    releaseDraftFiles: ids => released.push(...ids),
+    reopenPastes: (from, to) => reopened.push([from, to]),
+  }
+  const inputActions = { setDraft() {}, addAttachments: () => false }
+  const state = { draft: 'hello', attachmentIds: [], phase: 'plain' }
+  render({
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+  })
+
+  assert.deepEqual(released, ['draft-1'], 'refused drafts must be released so uploads do not leak')
+  assert.deepEqual(reopened, [], 'paste cards stay closed when attachments were refused')
+  const stillKept = take({ chatId: 'bee', part: 'bee-2', text: 'hello', attached: 0 }, ls)
+  assert.deepEqual(Array.from(stillKept.files, item => item.file.name), ['red.png'], 'save effect must not wipe kept files after refusal')
+})
+
+test('DraftKeeper waits while a send is in flight and restores once the composer returns to plain', () => {
+  const ls = memoryStorage()
+  const { keepDraft: keep, takeDraft: take, render } = loadKeeper(ls)
+  keep({ chatId: 'bee', part: 'bee', text: 'carry me', files: [image('red.png')] }, ls)
+
+  const setDrafts = []
+  const attached = []
+  const reopened = []
+  const actions = {
+    draftFiles: ids => ids.map(() => image('red.png')),
+    restoreDraftFiles: () => ['draft-9'],
+    releaseDraftFiles: () => assert.fail('should not release when waiting on frozen phase'),
+    reopenPastes: (from, to) => reopened.push([from, to]),
+  }
+  const inputActions = {
+    setDraft: text => setDrafts.push(text),
+    addAttachments: ids => { attached.push(...ids); return true },
+  }
+  const state = { draft: '', attachmentIds: [], phase: 'sending' }
+  const props = {
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+  }
+
+  render(props)
+  assert.deepEqual(setDrafts, [])
+  assert.deepEqual(attached, [])
+  const preserved = take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls)
+  assert.equal(preserved.text, 'carry me')
+  assert.deepEqual(Array.from(preserved.files, item => item.file.name), ['red.png'])
+
+  state.phase = 'plain'
+  render(props)
+  assert.deepEqual(setDrafts, ['carry me'])
+  assert.deepEqual(attached, ['draft-9'])
+  assert.deepEqual(reopened, [['bee', 'bee-2']])
+})
+
+test('DraftKeeper releases unattached drafts and preserves kept text/files if restore throws', () => {
+  const ls = memoryStorage()
+  const { keepDraft: keep, takeDraft: take, render, warnings } = loadKeeper(ls)
+  keep({ chatId: 'bee', part: 'bee', text: 'keep me', files: [image('red.png')] }, ls)
+
+  const released = []
+  const actions = {
+    draftFiles: () => [],
+    restoreDraftFiles: () => ['draft-boom'],
+    releaseDraftFiles: ids => released.push(...ids),
+    reopenPastes: () => {},
+  }
+  const inputActions = {
+    setDraft() {},
+    addAttachments: () => { throw new Error('boom') },
+  }
+  render({
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick({ draft: '', attachmentIds: [], phase: 'plain' }),
+  })
+
+  assert.deepEqual(released, ['draft-boom'])
+  assert.equal(warnings.length, 1)
+  const stillKept = take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls)
+  assert.equal(stillKept.text, 'keep me')
+  assert.deepEqual(Array.from(stillKept.files, item => item.file.name), ['red.png'])
 })

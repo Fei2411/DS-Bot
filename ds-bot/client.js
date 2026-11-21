@@ -41362,35 +41362,52 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   );
 }
 var NO_IDS = [];
+var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
 function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
+  const phase = useInput?.((state) => state.phase) ?? "plain";
+  const frozen = FROZEN_PHASES.has(phase);
   const restored = (0, import_react58.useRef)("");
   const pending = (0, import_react58.useRef)({ text: false, files: false });
   (0, import_react58.useEffect)(() => {
-    if (!current2 || inputActions === void 0) return;
+    if (!current2 || frozen || inputActions === void 0) return;
     const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
-    restored.current = key;
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    let added = [];
+    let attached = false;
+    let restoredText = false;
+    let restoredFiles = false;
+    let ok = true;
     try {
       if (back.text !== "") {
         inputActions.setDraft(back.text);
-        pending.current.text = true;
+        restoredText = true;
       }
       if (back.files.length > 0) {
-        const added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
+        added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
         if (added.length > 0 && inputActions.addAttachments(added) !== false) {
-          pending.current.files = true;
+          attached = true;
+          restoredFiles = true;
           actions.reopenPastes(back.from, sessionId);
+        } else {
+          if (added.length > 0) actions.releaseDraftFiles?.(added);
+          ok = false;
         }
       }
     } catch (error) {
+      if (added.length > 0 && !attached) actions.releaseDraftFiles?.(added);
+      ok = false;
       console.warn("[ds-bot] could not put the draft back", error);
     }
-  }, [current2, chatId, sessionId, inputActions]);
+    if (ok) {
+      pending.current = { text: restoredText, files: restoredFiles };
+      restored.current = key;
+    }
+  }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react58.useEffect)(() => {
     if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
     if (pending.current.text && draft === "") return;
@@ -50077,6 +50094,11 @@ function apply(ctx) {
     const conversation = ctx.get("conversation");
     if (typeof conversation?.createDrafts !== "function") return [];
     return conversation.createDrafts(sessionId, files, true).map((item) => item.id);
+  };
+  actions.releaseDraftFiles = (ids) => {
+    const conversation = ctx.get("conversation");
+    if (typeof conversation?.releaseDraftAttachment !== "function") return;
+    for (const id of ids) conversation.releaseDraftAttachment(id);
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
   actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));

@@ -1067,6 +1067,11 @@ export function apply(ctx) {
     if (typeof conversation?.createDrafts !== 'function') return []
     return conversation.createDrafts(sessionId, files, true).map(item => item.id)
   }
+  actions.releaseDraftFiles = (ids) => {
+    const conversation = ctx.get('conversation')
+    if (typeof conversation?.releaseDraftAttachment !== 'function') return
+    for (const id of ids) conversation.releaseDraftAttachment(id)
+  }
   // A terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
   actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined

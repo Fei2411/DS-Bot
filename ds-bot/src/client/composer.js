@@ -223,6 +223,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
 }
 
 const NO_IDS = []
+const FROZEN_PHASES = new Set(['adjudicating', 'submitting', 'sending'])
 
 // An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
 // and group Session and renders nothing.
@@ -231,34 +232,50 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
   const current = useRoster(roster => chatOfSession(roster, sessionId)?.part === sessionId)
   const draft = useInput?.(state => state.draft) ?? ''
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
+  const phase = useInput?.(state => state.phase) ?? 'plain'
+  const frozen = FROZEN_PHASES.has(phase)
   const restored = useRef('')
   // What was just put back and has not reached the input state yet.
   const pending = useRef({ text: false, files: false })
   // Take back first, so the empty box of a composer that just opened is not kept over
-  // the draft it is about to get.
+  // the draft it is about to get. While a send is in flight the shell refuses edits, so
+  // wait for the submit plane to settle and leave the kept draft untouched.
   useEffect(() => {
-    if (!current || inputActions === undefined) return
+    if (!current || frozen || inputActions === undefined) return
     const key = `${chatId}:${sessionId}`
     if (restored.current === key) return
-    restored.current = key
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
-    // The shell refuses while a send is in flight; the draft then stays kept.
+    let added = []
+    let attached = false
+    let restoredText = false
+    let restoredFiles = false
+    let ok = true
     try {
       if (back.text !== '') {
         inputActions.setDraft(back.text)
-        pending.current.text = true
+        restoredText = true
       }
       if (back.files.length > 0) {
-        const added = actions.restoreDraftFiles(sessionId, back.files.map(item => item.file))
+        added = actions.restoreDraftFiles(sessionId, back.files.map(item => item.file))
         if (added.length > 0 && inputActions.addAttachments(added) !== false) {
-          pending.current.files = true
+          attached = true
+          restoredFiles = true
           actions.reopenPastes(back.from, sessionId)
+        } else {
+          if (added.length > 0) actions.releaseDraftFiles?.(added)
+          ok = false
         }
       }
     } catch (error) {
+      if (added.length > 0 && !attached) actions.releaseDraftFiles?.(added)
+      ok = false
       console.warn('[ds-bot] could not put the draft back', error)
     }
-  }, [current, chatId, sessionId, inputActions])
+    if (ok) {
+      pending.current = { text: restoredText, files: restoredFiles }
+      restored.current = key
+    }
+  }, [current, frozen, chatId, sessionId, inputActions])
   useEffect(() => {
     if (!current || restored.current !== `${chatId}:${sessionId}`) return
     // What was put back lands in the input state a render later; keeping the empty box
