@@ -230,6 +230,11 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   const coded = appearanceCss({ appearance: { codeFont: 'JetBrains Mono' }, theme })
   assert.match(coded, /--bt-mono:"JetBrains Mono",ui-monospace/)
   assert.match(coded, /--dsh-font-family-code:"JetBrains Mono"/)
+  // Code that DS Bot and the desktop window draw reads --bt-mono, not a stack of its own: a
+  // stronger rule with fixed fonts would keep the chosen code font out.
+  const { readFileSync } = await import('node:fs')
+  const sheets = ['../../app/ui/src/app.css', '../src/client/learning-card.js', '../src/client/secret-card.js'].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'))
+  for (const rule of sheets.join('\n').match(/(?:\.md_markdown code|\.bt-learning-code|\.bt-secret-note code)[^{]*\{[^}]*\}/g)) assert.match(rule, /font-family:var\(--bt-mono\)/, rule)
   // A chat's own background takes the place of the team's.
   assert.match(appearanceCss({ appearance, theme, background: { kind: 'color', color: '#112233' } }), /background:#112233/)
   // A picture still loading paints nothing yet, so the surfaces stay solid.

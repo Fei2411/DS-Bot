@@ -82,7 +82,7 @@ body[data-bt-room] [data-composer-card]:has(.dsb-send:disabled) .bt-mic:not([ari
 .md_markdown blockquote{margin:0;padding-left:10px;border-left:2px solid var(--bt-line-2);color:var(--bt-ink-2)}
 .md_markdown hr{border:0;border-top:1px solid var(--bt-line-2)}
 .md_markdown img{max-width:100%}
-.md_markdown code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em}
+.md_markdown code{font-family:var(--bt-mono);font-size:.9em}
 .md_markdown :not(pre)>code{padding:1px 5px;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 6%,transparent)}
 .md_markdown table{border-collapse:collapse;display:block;max-width:100%;overflow-x:auto}
 .md_markdown th,.md_markdown td{padding:4px 8px;border:1px solid var(--bt-line-2);text-align:left}

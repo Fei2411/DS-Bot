@@ -25455,7 +25455,7 @@ var SECRET_CSS = `
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+.bt-secret-note code,.bt-secret-about code{font-family:var(--bt-mono);font-size:11px}
 .bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
@@ -50660,7 +50660,7 @@ var LEARNING_CSS = `
 .bt-learning-minus{color:var(--bt-danger)}
 .bt-learning-state{flex:none;height:20px;padding:0 8px;border-radius:999px;font-size:11px;line-height:20px;font-weight:500;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-learning-state-added{background:color-mix(in srgb,var(--bt-green) 13%,transparent);color:color-mix(in srgb,var(--bt-green) 70%,var(--bt-ink))}
-.bt-learning-code{padding:6px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:20px;color:var(--bt-ink)}
+.bt-learning-code{padding:6px 0;font-family:var(--bt-mono);font-size:12px;line-height:20px;color:var(--bt-ink)}
 .bt-learning-shut{max-height:172px;overflow:hidden}
 .bt-learning-row{display:grid;grid-template-columns:36px 16px 1fr}
 .bt-learning-num{padding-right:6px;text-align:right;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;user-select:none}
