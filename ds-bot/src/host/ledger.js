@@ -10,9 +10,10 @@
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { appendFile, mkdir, rm } from 'node:fs/promises'
+import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
 
@@ -133,6 +134,43 @@ export function install(rt) {
     await Promise.all(writing.values())
   }
 
+  // Prepends earlier records before what the book already holds, once, oldest first.
+  function prepend(book, records) {
+    const entry = open(book)
+    const added = []
+    const seen = new Set()
+    for (const record of records) {
+      if (!Number.isInteger(record?.seq) || entry.bySeq.has(record.seq) || seen.has(record.seq)) continue
+      seen.add(record.seq)
+      added.push(record)
+    }
+    if (added.length === 0) return 0
+    added.sort((a, b) => a.seq - b.seq)
+    entry.records = [...added, ...entry.records]
+    for (const record of added) entry.bySeq.set(record.seq, record)
+    if (!writes()) return added.length
+    const wasTorn = entry.torn
+    const snapshot = entry.records.map(record => `${JSON.stringify(record)}\n`).join('')
+    entry.torn = false
+    entry.size = Buffer.byteLength(snapshot)
+    const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      await mkdir(dir, { recursive: true })
+      const temp = `${pathOf(book)}.${process.pid}.tmp`
+      await writeFile(temp, snapshot, 'utf8')
+      await rename(temp, pathOf(book))
+    })
+    lastWrite.set(book, run)
+    writing.set(book, run.catch((error) => {
+      rt.warn('ds-bot: earlier records of %s were not written: %s', book, error?.message ?? error)
+      if (books.get(book) !== entry) return
+      const dropped = new Set(added)
+      entry.records = entry.records.filter(record => !dropped.has(record))
+      for (const record of added) if (entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
+      if (wasTorn) entry.torn = true
+    }))
+    return added.length
+  }
+
   function drop(book) {
     books.delete(book)
     if (!writes()) return
@@ -143,6 +181,7 @@ export function install(rt) {
   const ledger = {
     open,
     append,
+    prepend,
     flush,
     // Rejects when the last record of the book did not reach the disk.
     written: book => lastWrite.get(book) ?? Promise.resolve(),
@@ -160,9 +199,12 @@ export function install(rt) {
     search: (book, query, pick = record => record.text) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
-      return open(book).records.filter((record) => {
+      const records = open(book).records
+      const lower = searchTextFor(records)
+      return records.filter((record, at) => {
         const text = pick(record)
-        return typeof text === 'string' && words.every(word => text.toLowerCase().includes(word))
+        const value = lower(at, text)
+        return typeof text === 'string' && words.every(word => value.includes(word))
       }).slice(-SEARCH_MAX).reverse()
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`

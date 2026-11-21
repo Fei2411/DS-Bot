@@ -2452,9 +2452,6 @@ function generateKeyPair(privateKeyBytes) {
     publicKey: toBase64Url(x25519.getPublicKey(privateKey))
   };
 }
-function identityFingerprint(publicKey) {
-  return Array.from(sha2562(fromBase64Url(publicKey)).slice(0, 6), (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-}
 function deviceIdFor(publicKey) {
   const key = fromBase64Url(publicKey);
   if (key.byteLength !== 32) throw new Error("X25519 public keys must be 32 bytes");
@@ -7383,6 +7380,7 @@ function pairingUri(offer) {
     code: offer.code,
     name: offer.name
   });
+  if (offer.device !== void 0) query.set("device", offer.device);
   return `${PAIRING_SCHEME}//pair?${query}`;
 }
 function parsePairingUri(uri) {
@@ -7404,6 +7402,9 @@ function parsePairingUri(uri) {
     code: field("code"),
     name: (url.searchParams.get("name") ?? "").slice(0, MAX_NAME)
   };
+  const device = url.searchParams.get("device");
+  if (device !== null && device !== "browser") throw new Error("The pairing device is invalid.");
+  if (device === "browser") offer.device = device;
   if (deviceIdFor(offer.hostKey) !== offer.hostDeviceId) throw new Error("The pairing code does not match its computer.");
   return offer;
 }
@@ -7413,7 +7414,7 @@ var DeviceRegistry = class {
   onChange;
   now;
   constructor(devices = [], onChange, now = Date.now) {
-    for (const device of devices) this.devices.set(device.deviceId, { ...device });
+    for (const device of devices) this.devices.set(device.deviceId, { ...device, kind: device.kind === "browser" ? "browser" : "phone" });
     this.onChange = onChange;
     this.now = now;
   }
@@ -7421,8 +7422,8 @@ var DeviceRegistry = class {
     return [...this.devices.values()].map((device) => ({ ...device }));
   }
   openPairing(ttlMs = 5 * 6e4) {
-    this.pairing = { code: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 };
-    return { code: this.pairing.code, expiresAt: this.pairing.expiresAt };
+    this.pairing = { code: randomToken(18), browserCode: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 };
+    return { code: this.pairing.code, browserCode: this.pairing.browserCode, expiresAt: this.pairing.expiresAt };
   }
   closePairing() {
     this.pairing = void 0;
@@ -7440,13 +7441,14 @@ var DeviceRegistry = class {
     if (this.matches(deviceId, identityKey)) return true;
     if (hello.pairingCode === void 0 || !this.pairingOpen()) return false;
     const pairing = this.pairing;
-    if (!sameText(hello.pairingCode, pairing.code)) {
+    const kind = sameText(hello.pairingCode, pairing.browserCode) ? "browser" : "phone";
+    if (kind === "phone" && !sameText(hello.pairingCode, pairing.code)) {
       pairing.misses += 1;
       if (pairing.misses >= 5) this.pairing = void 0;
       return false;
     }
     this.pairing = void 0;
-    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? "", pairedAt: this.now() });
+    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? "", pairedAt: this.now(), kind });
     this.onChange?.(this.list());
     return true;
   }
@@ -8480,7 +8482,6 @@ export {
   encodeMessage,
   fromBase64Url,
   generateKeyPair,
-  identityFingerprint,
   messageTypes,
   pairingUri,
   parsePairingUri,

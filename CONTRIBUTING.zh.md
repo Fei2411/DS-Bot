@@ -87,8 +87,11 @@
 git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
-# 插件自己的构建工具（只有 esbuild）。
+# 插件的依赖和构建工具（esbuild）。
 npm ci
+
+# 手机链接的依赖：构建时打进 link.js，有一条单元测试也会构建它。
+npm ci --prefix ../link
 
 # 单元测试和 lint 要加载的 DSH 包，从 npm 装进 dev/harness/。
 npm run harness
@@ -130,7 +133,7 @@ node scripts/build-client.mjs --check  # client.js 与 src/client 一致
 npm run lint                           # oxlint
 ```
 
-CI 在每个 Pull Request 上，在 Linux 和 Windows 上跑同样的三项检查。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
+对改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request（以及 `dev`/`main` 分支），CI 会在 Linux 和 Windows 上跑 `npm test`（含生成文件一致性校验），在 Linux 上跑 `npm run lint`。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree
@@ -143,6 +146,13 @@ mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && no
 ```sh
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && node dev/smoke.mjs smoke 3096
 dev/bench.sh smoke 3096 8796 stop
+```
+
+改 Bot 浏览器（`src/host/browser/`）时，还要跑它的测试。它们驱动真实的 Chromium，检查 Bot 没有用户时不能在页面上做的事（付款、删除、提交、上传），以及 Bot 之间不共用 cookie。CI 在 Linux 上跑它们。先装一次 Chromium，再运行：
+
+```sh
+npx playwright-core install --only-shell chromium
+npm run test:browser
 ```
 
 想手动试用插件，启动一个测试台，打开它打印的地址：

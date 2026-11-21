@@ -65,9 +65,9 @@ and model changes all work the same way.
   messages word for word, a list of earlier message anchors, and a line to use
   `read_own_chat` for details — in the Bot's own chat and every group it is in
   together (see Run mode), because a CLI session cannot move between modes.
-- The after-turn memory review uses the team default model when one is set, and
-  is skipped when there is none. Abots get memory in the system prompt and the
-  remember, forget, and recall tools like any Bot.
+- The after-turn memory review and the memory panel's model calls run on the
+  Bot's own CLI and model, in a one-off read-only session, as the steward does. Abots get memory in the system prompt and the
+  bot_remember, bot_forget, and bot_recall tools like any Bot.
 - Abots are full peers: a Main Bot, a group admin, or a member.
 - Steering while a CLI turn runs is passed to the CLI when it supports it, else
   it goes out as the next prompt in the same step.

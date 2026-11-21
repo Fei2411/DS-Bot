@@ -105,10 +105,6 @@ export function foldView(text, limit = FOLD_AT, markdown = true) {
   }
 }
 
-export function foldPreview(text, limit = FOLD_AT, markdown = true) {
-  return foldView(text, limit, markdown)?.head ?? null
-}
-
 // The line a long message that went as a file starts with (the host's attachLong) is
 // for the model; the chat shows "Show all" instead.
 export const stripLongNote = text => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\n/, '')
