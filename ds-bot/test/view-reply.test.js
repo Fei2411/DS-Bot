@@ -220,8 +220,8 @@ test('someone else’s home paths are redacted from the public preview and manua
   const { call, show, team, stop } = await start()
   t.after(stop)
   const args = await prepareIssue({
-    title: 'Could not open /Users/private-test/Documents/notes.txt',
-    what: 'Reload fails in /home/other-person/work/project',
+    title: 'Could not open /Users/Shared/Documents/notes.txt',
+    what: 'Reload fails in /home/user/work/project',
     diagnostics: 'Windows failed in C:\\Users\\Another Person\\Documents\\notes.txt',
   })
   assert.equal(args.title, 'Could not open ~/Documents/notes.txt')
