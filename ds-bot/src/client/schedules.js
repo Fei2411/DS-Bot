@@ -83,8 +83,10 @@ const nextText = (task) => {
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
 }
 
-// A paused one-time task whose time has passed has nothing to resume to.
-const canResume = task => task.status === 'paused' && !((task.kind === 'at' || task.kind === 'after') && Date.parse(task.scheduledAt) <= Date.now())
+// A one-time task whose time has passed has nothing to resume to, so it is not paused
+// either: it could only be deleted afterwards.
+const lateOnce = task => (task.kind === 'at' || task.kind === 'after') && Date.parse(task.scheduledAt) <= Date.now()
+const canPauseTask = task => (task.status === 'active' || task.status === 'paused') && !lateOnce(task)
 
 function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = useState(false)
@@ -107,17 +109,20 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     void actions.schedulePause(task.sessionId, task.id, task.status !== 'active').then((next) => { setBusy(false); onView(next) }, (failure) => {
       setBusy(false)
       setFailed(hostText(failure?.message ?? String(failure)))
+      // The task may have ended or changed meanwhile: show it as it is now.
+      void actions.schedules?.().then(onView, () => {})
     })
   }
-  const pausable = canPause && (task.status === 'active' || canResume(task))
+  const pausable = canPause && canPauseTask(task)
   const room = task.roomId ? roster.roomsById[task.roomId] : undefined
-  return h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
+  // The reason a pause or resume failed goes on a line of its own: not inside the row's
+  // expand button, and not dimmed with a paused row.
+  return h(Fragment, null, h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
     showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     h('button', { type: 'button', className: 'bt-set-copy bt-task-copy', 'aria-expanded': expanded || undefined, onClick: () => setExpanded(open => !open) },
       h('span', { className: 'bt-task-title' }, task.title),
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
-      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null,
-      failed ? h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, failed) : null),
+      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
     pausable ? h('button', {
       type: 'button', className: 'bt-mini bt-task-remove bt-task-pause', disabled: busy,
@@ -126,7 +131,8 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
-    }, confirming ? t('Delete') : h(TrashIcon)))
+    }, confirming ? t('Delete') : h(TrashIcon))),
+  failed ? h('div', { className: 'bt-set-row bt-task-failed', role: 'alert' }, h('span', { className: 'bt-danger bt-set-hint' }, failed)) : null)
 }
 
 const pad = number => String(number).padStart(2, '0')

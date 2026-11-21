@@ -220,6 +220,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
+      else if (endpoint.startsWith('mcp-')) assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
     for (const endpoint of ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel']) {

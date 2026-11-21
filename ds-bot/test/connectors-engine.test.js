@@ -51,6 +51,9 @@ const AS = {
 }
 const notFound = () => new Response('not found', { status: 404 })
 
+const { imapOptions } = await import('../src/host/connectors/mail/transport.js')
+const { IMAP_ID } = await import('../src/host/connectors/mail/presets.js')
+
 test('discovery follows WWW-Authenticate, well-known, and the MCP origin fallback', async () => {
   // WWW-Authenticate points at the PRM; the PRM names the AS.
   const calls = []
@@ -778,8 +781,6 @@ test('removing one of two rows for the same address keeps the shared secret', as
   assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), undefined)
 })
 
-const { imapOptions } = await import('../src/host/connectors/mail/transport.js')
-const { IMAP_ID } = await import('../src/host/connectors/mail/presets.js')
 
 test('163 and 126 presets send the IMAP ID identity', () => {
   for (const domain of ['163.com', '126.com']) {
