@@ -102,6 +102,24 @@ test('the lines of a chunk go to disk in one write, cut where the file rotates',
   assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), Array.from({ length: 6 }, (_, index) => line(index + 9)).join(''))
 })
 
+test('a short write still puts every line of the chunk on disk', (t) => {
+  const dir = folder(t)
+  const write = fs.writeSync
+  const writes = t.mock.method(fs, 'writeSync', (fd, data, offset, length) => {
+    // A string write has no offset; cut it the same way as a buffer write.
+    const buffer = typeof data === 'string' ? Buffer.from(data) : data
+    const start = typeof data === 'string' ? 0 : offset
+    return write(fd, buffer, start, Math.min(typeof data === 'string' ? buffer.length : length, 10))
+  })
+  syncBuiltinESMExports()
+  t.after(() => { writes.mock.restore(); syncBuiltinESMExports() })
+  const log = new LogFile({ dir, redact: windows, now: at })
+  log.write('engine', 'line 00\nline 01\nline 02\n')
+  log.close()
+  const line = index => `2026-10-28T08:00:00.000Z [engine] line ${String(index).padStart(2, '0')}\n`
+  assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), [0, 1, 2].map(line).join(''))
+})
+
 test('a log that cannot be written does not stop the app', (t) => {
   const dir = folder(t)
   const blocked = join(dir, 'file')

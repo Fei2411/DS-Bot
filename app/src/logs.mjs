@@ -161,7 +161,13 @@ export class LogFile {
 
   #put(text, bytes) {
     if (text === '') return
-    writeSync(this.#fd, text)
+    // writeSync may take only part of a buffer; the rest of the batch must still reach the file.
+    const buffer = Buffer.from(text)
+    for (let done = 0; done < buffer.length;) {
+      const wrote = writeSync(this.#fd, buffer, done, buffer.length - done)
+      if (wrote <= 0) throw new Error('log write made no progress')
+      done += wrote
+    }
     this.#size += bytes
   }
 
