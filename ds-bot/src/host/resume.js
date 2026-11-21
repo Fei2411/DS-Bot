@@ -339,7 +339,11 @@ export function install(rt) {
     }
     const file = delivered.files?.[0]
     const stored = file === undefined ? undefined : await rt.fileText(file, delivered.length)
-    return { answered: true, text: stored?.whole === true ? stored.text : delivered.text }
+    if (stored?.whole !== true) return { answered: true, text: delivered.text }
+    // Delivery warnings are prepended to the preview and included in its declared length.
+    const prefixLength = (delivered.length ?? stored.text.length) - stored.text.length
+    const prefix = prefixLength > 0 ? delivered.text.slice(0, prefixLength) : ''
+    return { answered: true, text: prefix + stored.text }
   }
 
   async function alreadyAnswered(botId, sender, where, back, roomId, workId) {

@@ -407,7 +407,7 @@ test('resumeAll settles already-ended turns from disk without re-running or dupl
   await second.stop()
 })
 
-test('restart keeps the full attachment-backed reply in the parent work without re-delivery', async (t) => {
+async function checkAttachmentRecovery(t, prefix) {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-attachment-'))
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
@@ -422,7 +422,10 @@ test('restart keeps the full attachment-backed reply in the parent work without 
   const first = await createRestartHost(t, home, logs, services)
   const full = '结论\n'.repeat(70_000) + 'End of report.'
   const attachment = await first.rt.attachLong(full, 'Answer from Writer.txt')
-  await first.rt.deliver({ fromId: 'b', toId: 'a', ...attachment, role: 'reply', replyTo: 'child' })
+  await first.rt.deliver({
+    fromId: 'b', toId: 'a', ...attachment, role: 'reply', replyTo: 'child',
+    text: prefix + attachment.text, length: prefix.length + attachment.length,
+  })
   first.emit('a', 'user/message', { source: first.agentOf('a').calls[0].source })
   await first.stop()
 
@@ -439,11 +442,15 @@ test('restart keeps the full attachment-backed reply in the parent work without 
   const restarted = await createRestartHost(t, home, logs, services)
   t.mock.timers.tick(3000)
   await settle(() => restarted.rt.state.works.child === undefined)
-  assert.ok(restarted.rt.answerText('parent', '', 'Chief').endsWith(full), 'parent keeps the entire reply, not its preview or a dialog-sized prefix')
+  assert.ok(restarted.rt.answerText('parent', '', 'Chief').endsWith(prefix + full), 'parent keeps the entire reply, not its preview or a dialog-sized prefix')
   assert.equal(restarted.agentOf('a').calls.length, 0)
   assert.equal(restarted.agentOf('b').calls.length, 0)
   await restarted.stop()
-})
+}
+
+test('restart keeps the full attachment-backed reply in the parent work without re-delivery', t => checkAttachmentRecovery(t, ''))
+
+test('restart keeps the fallback notice with the full attachment-backed reply', t => checkAttachmentRecovery(t, 'Writer could not send its reply to you (offline); what it had answered:\n'))
 
 test('restart settles a completed peer handoff task from disk and replies to the asking Bot', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
