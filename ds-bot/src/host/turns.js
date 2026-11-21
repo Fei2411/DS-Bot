@@ -580,7 +580,11 @@ export function install(rt) {
     else next[id] = value
     activity = next
   }
-  const LOCAL_TEAM_CALL = /\bmcp(?:__|[_ ])dsbot\b|\bdsbot[:/]/i
+  // An activity line starts with the tool's name, so only that name may mark a team
+  // call. Reading the whole line would treat a `dsbot/` path in a shell argument as the
+  // team server and hide real work from the group.
+  const LOCAL_TEAM_TOOL = /^(?:mcp(?:__|_)dsbot(?=[_:]|$)|dsbot(?=[_:]|$))/i
+  const localTeamCall = text => LOCAL_TEAM_TOOL.test(String(text ?? '').trim().split(/\s+/)[0] ?? '')
   const LOCAL_READ_TOOL = /^(?:read|view|cat|search|grep|glob|ls|find|list|fetch|browse|web_?search|web_?fetch|notebookread)\b/i
   // A local CLI's activity line is `▸ <tool> <detail>`; keep it short and route read
   // tools to the searching state instead of the generic working one.
@@ -623,8 +627,12 @@ export function install(rt) {
     if (rt.groupOwners.has(id)) rt.touchRoomTurn?.(id)
     if (event.type !== 'activity' && event.type !== 'status') return
     const text = String(event.text ?? '').replace(/^\s*▸\s*/, '').trim()
-    // A call to DS Bot's own MCP server is dispatched by DSH and counted there.
-    if (event.team === true || LOCAL_TEAM_CALL.test(text)) return
+    // A call to DS Bot's own MCP server is dispatched by DSH and counted there. An
+    // adapter that knows the call is a team call marks it; the name fallback covers a
+    // CLI that reports the tool name without that marker, and stays out of the way when
+    // the adapter says the call is the CLI's own.
+    if (event.team === true) return
+    if (event.team !== false && localTeamCall(text)) return
     const doing = localActivityOf(text)
     if (doing === undefined) return
     entry.localDoing = doing

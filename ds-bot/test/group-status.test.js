@@ -370,3 +370,36 @@ test('a local CLI member streams live work, keeps the round alive, frees it afte
   assert.equal(host.agentOf('gb').calls.length, 1)
   assert.equal(text(host.agentOf('r1').calls[0]), '[Group post from Writer]\nI checked src/schema.js.')
 })
+
+test('an unmarked DS Bot MCP call from a local CLI is team work and starts no grace', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  // No team marker: the leading tool name still shows this is DS Bot's own MCP server,
+  // which DSH dispatches and counts, so it must not start the CLI work grace.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ mcp__dsbot__list_bots' })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+})
+
+test('a dsbot/ path inside a local CLI command is the CLI\'s own work', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  // A command that only mentions a local `dsbot/` path is the CLI's own work: it
+  // counts, shows what the member does, and starts the grace.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ ls /home/agent/dsbot/work' })
+  const state = (await host.call('state', {})).value
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/agent/dsbot/work'])
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+})
