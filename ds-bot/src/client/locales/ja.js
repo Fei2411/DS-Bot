@@ -2022,6 +2022,9 @@ export const HOST_ERRORS_JA = [
   [/^The picture is too large: the limit is (\d+) MB$/, "画像が大きすぎます：上限は $1 MB です"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "PNG、JPEG、WebP、GIF の画像を選んでください"],
   [/^This file is not a DS Bot theme$/, "このファイルは DS Bot のテーマではありません"],
+  [/^A theme needs a name and its light and dark colors$/, "テーマには名前とライト・ダークの色が必要です"],
+  [/^A theme needs a name$/, "テーマには名前が必要です"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "テーマ $1.$2 は #rrggbb 形式の色にしてください"],
   [/^You can keep at most (\d+) themes of your own$/, "自分のテーマは最大 $1 個までです"],
 ]
 

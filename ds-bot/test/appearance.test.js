@@ -371,6 +371,10 @@ test('the background and text move the surfaces from where they sat, also across
   assert.deepEqual(Object.keys(first.base).sort(), ['bg', 'bubble', 'card', 'sidebar', 'text', 'user', 'userText'])
   const second = moveBasics(first, { text: '#eeeeee' })
   for (const key of ['sidebar', 'bubble', 'card', 'user', 'userText']) assert.equal(second[key], together[key], key)
+  // A theme file goes without it: colors changed by hand in the file stay as written.
+  const shared = themeFile({ label: 'x', light: first, dark: themes.deepseek.dark })
+  assert.equal(shared.theme.light.base, undefined)
+  assert.equal(readThemeFile(JSON.stringify({ ...shared, theme: { ...shared.theme, light: first } })).theme.light.base, undefined)
   // A base that is not whole is dropped, not trusted.
   assert.equal(cleanTheme({ label: 'x', light: { ...light, base: { bg: '#000000' } }, dark: light }).light.base, undefined)
   // Moonlight keeps its blue bubble; its text moves to the basic color that reads on it.

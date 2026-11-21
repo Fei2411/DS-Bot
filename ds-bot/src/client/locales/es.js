@@ -2058,6 +2058,9 @@ export const HOST_ERRORS_ES = [
   [/^The picture is too large: the limit is (\d+) MB$/, "La imagen es demasiado grande: el límite es $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "Elige una imagen PNG, JPEG, WebP o GIF"],
   [/^This file is not a DS Bot theme$/, "Este archivo no es un tema de DS Bot"],
+  [/^A theme needs a name and its light and dark colors$/, "Un tema necesita un nombre y sus colores claros y oscuros"],
+  [/^A theme needs a name$/, "Un tema necesita un nombre"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "El color $1.$2 del tema debe ser #rrggbb"],
   [/^You can keep at most (\d+) themes of your own$/, "Puedes tener como máximo $1 temas propios"],
 ]
 

@@ -228,10 +228,15 @@ export const THEME_FILE = 'ds-bot-theme'
 const NOT_CARRIED = ['mode', 'material', 'css']
 export const CARRIED_FIELDS = Object.keys(FIELDS).filter(field => !NOT_CARRIED.includes(field))
 
+// A theme travels without the colors its surfaces were last placed from: colors changed by
+// hand in the file would be moved back to them by the next background or text change.
+const withoutBase = theme => ({ ...theme, light: dropBase(theme.light), dark: dropBase(theme.dark) })
+const dropBase = ({ base: _base, ...colors }) => colors
+
 export function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance)
   for (const field of NOT_CARRIED) delete carried[field]
-  return { format: THEME_FILE, version: 1, theme: cleanTheme(theme), appearance: carried, ...(image ? { image } : {}) }
+  return { format: THEME_FILE, version: 1, theme: withoutBase(cleanTheme(theme)), appearance: carried, ...(image ? { image } : {}) }
 }
 
 /**
@@ -244,7 +249,7 @@ export function readThemeFile(text) {
   let parsed
   try { parsed = JSON.parse(text) } catch { refuse('This file is not a DS Bot theme') }
   if (parsed?.format !== THEME_FILE || parsed.version !== 1) refuse('This file is not a DS Bot theme')
-  const theme = cleanTheme(parsed.theme)
+  const theme = withoutBase(cleanTheme(parsed.theme))
   const appearance = readAppearance(parsed.appearance)
   for (const field of NOT_CARRIED) delete appearance[field]
   const image = typeof parsed.image === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : undefined

@@ -1889,6 +1889,9 @@ const HOST_ERRORS = [
   [/^The picture is too large: the limit is (\d+) MB$/, "图片太大：最大 $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "请选 PNG、JPEG、WebP 或 GIF 图片"],
   [/^This file is not a DS Bot theme$/, "这个文件不是 DS Bot 主题"],
+  [/^A theme needs a name and its light and dark colors$/, "这个主题缺少名称或浅色、深色的颜色"],
+  [/^A theme needs a name$/, "主题需要一个名称"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "主题 $1.$2 必须是 #rrggbb 颜色"],
   [/^You can keep at most (\d+) themes of your own$/, "自己的主题最多 $1 套"],
 ]
 const HOST_ZH = {

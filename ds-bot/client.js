@@ -2136,6 +2136,9 @@ var HOST_ERRORS_JA = [
   [/^The picture is too large: the limit is (\d+) MB$/, "画像が大きすぎます：上限は $1 MB です"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "PNG、JPEG、WebP、GIF の画像を選んでください"],
   [/^This file is not a DS Bot theme$/, "このファイルは DS Bot のテーマではありません"],
+  [/^A theme needs a name and its light and dark colors$/, "テーマには名前とライト・ダークの色が必要です"],
+  [/^A theme needs a name$/, "テーマには名前が必要です"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "テーマ $1.$2 は #rrggbb 形式の色にしてください"],
   [/^You can keep at most (\d+) themes of your own$/, "自分のテーマは最大 $1 個までです"]
 ];
 var DSH_JA = {
@@ -4846,6 +4849,9 @@ var HOST_ERRORS_KO = [
   [/^The picture is too large: the limit is (\d+) MB$/, "사진이 너무 큽니다: 최대 $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "PNG, JPEG, WebP, GIF 사진을 고르세요"],
   [/^This file is not a DS Bot theme$/, "이 파일은 DS Bot 테마가 아닙니다"],
+  [/^A theme needs a name and its light and dark colors$/, "테마에는 이름과 라이트·다크 색상이 필요합니다"],
+  [/^A theme needs a name$/, "테마에는 이름이 필요합니다"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "테마 $1.$2 은(는) #rrggbb 색상이어야 합니다"],
   [/^You can keep at most (\d+) themes of your own$/, "내 테마는 최대 $1개까지입니다"]
 ];
 var DSH_KO = {
@@ -7556,6 +7562,9 @@ var HOST_ERRORS_ES = [
   [/^The picture is too large: the limit is (\d+) MB$/, "La imagen es demasiado grande: el límite es $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "Elige una imagen PNG, JPEG, WebP o GIF"],
   [/^This file is not a DS Bot theme$/, "Este archivo no es un tema de DS Bot"],
+  [/^A theme needs a name and its light and dark colors$/, "Un tema necesita un nombre y sus colores claros y oscuros"],
+  [/^A theme needs a name$/, "Un tema necesita un nombre"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "El color $1.$2 del tema debe ser #rrggbb"],
   [/^You can keep at most (\d+) themes of your own$/, "Puedes tener como máximo $1 temas propios"]
 ];
 var DSH_ES = {
@@ -10221,6 +10230,9 @@ var HOST_ERRORS_FR = [
   [/^The picture is too large: the limit is (\d+) MB$/, "L'image est trop grande : la limite est de $1 Mo"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "Choisissez une image PNG, JPEG, WebP ou GIF"],
   [/^This file is not a DS Bot theme$/, "Ce fichier n'est pas un thème DS Bot"],
+  [/^A theme needs a name and its light and dark colors$/, "Un thème a besoin d'un nom et de ses couleurs claires et sombres"],
+  [/^A theme needs a name$/, "Un thème a besoin d'un nom"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "La couleur $1.$2 du thème doit être au format #rrggbb"],
   [/^You can keep at most (\d+) themes of your own$/, "Vous pouvez garder au plus $1 thèmes à vous"]
 ];
 var DSH_FR = {
@@ -12931,6 +12943,9 @@ var HOST_ERRORS_DE = [
   [/^The picture is too large: the limit is (\d+) MB$/, "Das Bild ist zu groß: höchstens $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild"],
   [/^This file is not a DS Bot theme$/, "Diese Datei ist kein DS-Bot-Design"],
+  [/^A theme needs a name and its light and dark colors$/, "Ein Design braucht einen Namen und seine hellen und dunklen Farben"],
+  [/^A theme needs a name$/, "Ein Design braucht einen Namen"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "Die Designfarbe $1.$2 muss eine #rrggbb-Farbe sein"],
   [/^You can keep at most (\d+) themes of your own$/, "Du kannst höchstens $1 eigene Designs behalten"]
 ];
 var DSH_DE = {
@@ -15459,6 +15474,9 @@ var HOST_ERRORS = [
   [/^The picture is too large: the limit is (\d+) MB$/, "图片太大：最大 $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "请选 PNG、JPEG、WebP 或 GIF 图片"],
   [/^This file is not a DS Bot theme$/, "这个文件不是 DS Bot 主题"],
+  [/^A theme needs a name and its light and dark colors$/, "这个主题缺少名称或浅色、深色的颜色"],
+  [/^A theme needs a name$/, "主题需要一个名称"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "主题 $1.$2 必须是 #rrggbb 颜色"],
   [/^You can keep at most (\d+) themes of your own$/, "自己的主题最多 $1 套"]
 ];
 var HOST_ZH = {
@@ -16741,10 +16759,12 @@ function backgroundImages(...backgrounds) {
 var THEME_FILE = "ds-bot-theme";
 var NOT_CARRIED = ["mode", "material", "css"];
 var CARRIED_FIELDS = Object.keys(FIELDS).filter((field) => !NOT_CARRIED.includes(field));
+var withoutBase = (theme) => ({ ...theme, light: dropBase(theme.light), dark: dropBase(theme.dark) });
+var dropBase = ({ base: _base, ...colors }) => colors;
 function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance);
   for (const field of NOT_CARRIED) delete carried[field];
-  return { format: THEME_FILE, version: 1, theme: cleanTheme(theme), appearance: carried, ...image ? { image } : {} };
+  return { format: THEME_FILE, version: 1, theme: withoutBase(cleanTheme(theme)), appearance: carried, ...image ? { image } : {} };
 }
 function readThemeFile(text) {
   let parsed;
@@ -16754,7 +16774,7 @@ function readThemeFile(text) {
     refuse("This file is not a DS Bot theme");
   }
   if (parsed?.format !== THEME_FILE || parsed.version !== 1) refuse("This file is not a DS Bot theme");
-  const theme = cleanTheme(parsed.theme);
+  const theme = withoutBase(cleanTheme(parsed.theme));
   const appearance = readAppearance(parsed.appearance);
   for (const field of NOT_CARRIED) delete appearance[field];
   const image = typeof parsed.image === "string" && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : void 0;
@@ -28290,7 +28310,7 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
       throw new Error(hostText(error?.message ?? String(error)));
     }
     const id = newThemeId();
-    const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance };
+    const change = { themes: { [id]: read.theme }, theme: id, accent: null, appearance: read.appearance };
     if (read.image !== void 0 && read.appearance.background?.kind === "image") {
       const saved = await actions.addBackground(read.image);
       change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } };
@@ -28457,11 +28477,12 @@ function TextSection({ prefs, actions, run: run2, Section: Section2, Row: Row4, 
 }
 function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: Choice3 }) {
   const kind = value?.kind ?? "none";
-  const common = { ...value?.blur ? { blur: value.blur } : {}, ...value?.dim ? { dim: value.dim } : {}, ...value?.surface ? { surface: value.surface } : {} };
   const [failure, setFailure] = (0, import_react27.useState)("");
   const latest = (0, import_react27.useRef)(value);
   latest.current = value;
   const draft = (0, import_react27.useRef)(null);
+  const newest = () => draft.current === null ? latest.current : draft.current.value;
+  const commonOf = (background) => ({ ...background?.blur ? { blur: background.blur } : {}, ...background?.dim ? { dim: background.dim } : {}, ...background?.surface ? { surface: background.surface } : {} });
   const send = (next) => {
     const sent = { value: next };
     draft.current = sent;
@@ -28469,10 +28490,13 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
       if (draft.current === sent) draft.current = null;
     });
   };
+  const choice = (0, import_react27.useRef)(0);
   const pickKind = (next) => {
+    choice.current += 1;
+    const base = newest();
     if (next === "none") return send(null);
-    if (next === "color") return send({ kind: "color", color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? "dark" : "light"], ...common });
-    if (next === "gradient") return send({ kind: "gradient", from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common });
+    if (next === "color") return send({ kind: "color", color: base?.color ?? BACKGROUND_STARTS.color[isDark() ? "dark" : "light"], ...commonOf(base) });
+    if (next === "gradient") return send({ kind: "gradient", from: base?.from ?? BACKGROUND_STARTS.from, to: base?.to ?? BACKGROUND_STARTS.to, angle: base?.angle ?? 135, ...commonOf(base) });
     return void 0;
   };
   const pickPicture = async (file) => {
@@ -28481,11 +28505,14 @@ function BackgroundEditor({ value, save, actions, run: run2, Row: Row4, Choice: 
       setFailure(t("The picture is too large: the limit is {mb} MB", { mb: MAX_BACKGROUND_BYTES / 1024 / 1024 }));
       return;
     }
+    const mine = ++choice.current;
     const saved = await actions.addBackground(await readFile(file, "url"));
-    await send({ kind: "image", image: saved.id, ...value?.kind === "image" && value.fit ? { fit: value.fit } : {}, ...common });
+    if (choice.current !== mine) return;
+    const base = newest();
+    await send({ kind: "image", image: saved.id, ...base?.kind === "image" && base.fit ? { fit: base.fit } : {}, ...commonOf(base) });
   };
   const set = (change) => {
-    const base = draft.current === null ? latest.current : draft.current.value;
+    const base = newest();
     return base ? send({ ...base, ...change }) : void 0;
   };
   return (0, import_react27.createElement)(

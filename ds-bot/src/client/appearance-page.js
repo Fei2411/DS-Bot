@@ -177,7 +177,9 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
     let read
     try { read = readThemeFile(await readFile(file, 'text')) } catch (error) { throw new Error(hostText(error?.message ?? String(error))) }
     const id = newThemeId()
-    const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance }
+    // The look is the file's: the team accent gives way to the theme's, as a theme's own
+    // accent change does.
+    const change = { themes: { [id]: read.theme }, theme: id, accent: null, appearance: read.appearance }
     if (read.image !== undefined && read.appearance.background?.kind === 'image') {
       const saved = await actions.addBackground(read.image)
       change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } }
@@ -211,7 +213,7 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
 // other surfaces following them (themes.js moveBasics); "More colors" sets each one. A
 // built-in theme is copied into a theme of your own on the first change, so the built-in
 // one stays as it is.
-function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
+export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
   const themes = themesOf(prefs)
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const theme = themes[current]
@@ -307,33 +309,42 @@ function TextSection({ prefs, actions, run, Section, Row, ownWindow, dshRows }) 
  */
 export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
   const kind = value?.kind ?? 'none'
-  const common = { ...(value?.blur ? { blur: value.blur } : {}), ...(value?.dim ? { dim: value.dim } : {}), ...(value?.surface ? { surface: value.surface } : {}) }
   const [failure, setFailure] = useState('')
-  // A change builds on the newest background: the one sent but not back yet, else the saved
-  // one. A slider that rests after another kind was picked changes that kind, and one that
-  // rests after "None" changes nothing.
+  // Every change builds on the newest background: the one sent but not back yet, else the
+  // saved one, read when the change is sent (not when the page was drawn). A slider that
+  // rests after another kind was picked changes that kind, one that rests after "None"
+  // changes nothing, and a kind picked keeps the blur, dim and opacity set a moment before.
   const latest = useRef(value)
   latest.current = value
   const draft = useRef(null)
+  const newest = () => (draft.current === null ? latest.current : draft.current.value)
+  const commonOf = background => ({ ...(background?.blur ? { blur: background.blur } : {}), ...(background?.dim ? { dim: background.dim } : {}), ...(background?.surface ? { surface: background.surface } : {}) })
   const send = (next) => {
     const sent = { value: next }
     draft.current = sent
     return Promise.resolve(save(next)).finally(() => { if (draft.current === sent) draft.current = null })
   }
+  // The last kind the user picked; a picture still uploading gives way to one picked after it.
+  const choice = useRef(0)
   const pickKind = (next) => {
+    choice.current += 1
+    const base = newest()
     if (next === 'none') return send(null)
-    if (next === 'color') return send({ kind: 'color', color: value?.color ?? BACKGROUND_STARTS.color[isDark() ? 'dark' : 'light'], ...common })
-    if (next === 'gradient') return send({ kind: 'gradient', from: value?.from ?? BACKGROUND_STARTS.from, to: value?.to ?? BACKGROUND_STARTS.to, angle: value?.angle ?? 135, ...common })
+    if (next === 'color') return send({ kind: 'color', color: base?.color ?? BACKGROUND_STARTS.color[isDark() ? 'dark' : 'light'], ...commonOf(base) })
+    if (next === 'gradient') return send({ kind: 'gradient', from: base?.from ?? BACKGROUND_STARTS.from, to: base?.to ?? BACKGROUND_STARTS.to, angle: base?.angle ?? 135, ...commonOf(base) })
     return undefined
   }
   const pickPicture = async (file) => {
     setFailure('')
     if (file.size > MAX_BACKGROUND_BYTES) { setFailure(t('The picture is too large: the limit is {mb} MB', { mb: MAX_BACKGROUND_BYTES / 1024 / 1024 })); return }
+    const mine = ++choice.current
     const saved = await actions.addBackground(await readFile(file, 'url'))
-    await send({ kind: 'image', image: saved.id, ...(value?.kind === 'image' && value.fit ? { fit: value.fit } : {}), ...common })
+    if (choice.current !== mine) return
+    const base = newest()
+    await send({ kind: 'image', image: saved.id, ...(base?.kind === 'image' && base.fit ? { fit: base.fit } : {}), ...commonOf(base) })
   }
   const set = (change) => {
-    const base = draft.current === null ? latest.current : draft.current.value
+    const base = newest()
     return base ? send({ ...base, ...change }) : undefined
   }
   return h(Fragment, null,

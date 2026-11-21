@@ -172,6 +172,10 @@ test('HOST_ERRORS and DSH_LOCALE_PACKS stay aligned across all locales', () => {
 
 test('user-facing host errors translate across all non-English locales', () => {
   const samples = [
+    // shared/appearance.js: a theme file whose theme is broken
+    'A theme needs a name',
+    'A theme needs a name and its light and dark colors',
+    'Theme light.bg must be a #rrggbb color',
     // channel.js & roster.js
     'This message is no longer kept',
     'No file named',

@@ -84,8 +84,8 @@ export function install(rt) {
   // A window that only reads the team leaves the pictures to the one that holds it; the team
   // is read first, so a picture in use is never taken for an unused one.
   const sweep = () => serial(async () => {
-    if (root === undefined || rt.readOnly?.() !== undefined) return
     await rt.load?.()
+    if (root === undefined || rt.readOnly?.() !== undefined) return
     const used = inUse()
     const now = Date.now()
     for (const name of await readdir(root).catch(() => [])) {

@@ -2058,6 +2058,9 @@ export const HOST_ERRORS_KO = [
   [/^The picture is too large: the limit is (\d+) MB$/, "사진이 너무 큽니다: 최대 $1 MB"],
   [/^Pick a PNG, JPEG, WebP or GIF picture$/, "PNG, JPEG, WebP, GIF 사진을 고르세요"],
   [/^This file is not a DS Bot theme$/, "이 파일은 DS Bot 테마가 아닙니다"],
+  [/^A theme needs a name and its light and dark colors$/, "테마에는 이름과 라이트·다크 색상이 필요합니다"],
+  [/^A theme needs a name$/, "테마에는 이름이 필요합니다"],
+  [/^Theme (light|dark)\.(\w+) must be a #rrggbb color$/, "테마 $1.$2 은(는) #rrggbb 색상이어야 합니다"],
   [/^You can keep at most (\d+) themes of your own$/, "내 테마는 최대 $1개까지입니다"],
 ]
 
