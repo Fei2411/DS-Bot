@@ -1,0 +1,1694 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234d6bfe'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="DS Bot 的 Bot 市场界面构想：逛、看、接入、发布四种页面，以及接入时如何隔离记忆与权限。">
+<meta name="theme-color" content="#fcfcfc">
+<title>DS Bot Market — Bot 市场</title>
+<style>
+/* ─────────────  DS Bot 视觉语言 ───────────── */
+:root{
+  --bt-bg:#fcfcfc; --bt-card:#fff; --bt-sidebar:#f7f7f8; --bt-bubble:#f4f4f5;
+  --bt-ink:#141414; --bt-ink-2:rgba(20,20,20,.6); --bt-ink-3:rgba(20,20,20,.36);
+  --bt-line:rgba(20,20,20,.08); --bt-line-2:rgba(20,20,20,.15);
+  --bt-hover:rgba(20,20,20,.04); --bt-active:rgba(20,20,20,.07);
+  --bt-accent:#4d6bfe; --bt-accent-ink:#fff; --bt-accent-soft:rgba(77,107,254,.1);
+  --bt-user:#4d6bfe; --bt-user-ink:#fff;
+  --bt-green:#00c972; --bt-star:#ff9800; --bt-danger:#e02135; --bt-danger-soft:rgba(224,33,53,.08);
+  --bt-shadow-1:0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --bt-shadow-2:0 10px 20px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);
+  --bt-shadow-3:0 8px 28px rgba(0,0,0,.14);
+  --bt-shadow-4:0 24px 80px rgba(0,0,0,.24);
+  --bt-ease:cubic-bezier(.22,1,.36,1);
+  --bt-spring:cubic-bezier(.2,.9,.28,1.14);
+  /* 角色墨色，浅色主题 */
+  --i-deepseek:#4D6BFE; --i-charcoal:#141416; --i-graphite:#2D2D2D; --i-rose:#EC2F6B;
+  --i-sky:#0AA8D6; --i-tangerine:#FF6900; --i-cobalt:#082DFF; --i-black:#000000;
+  --i-brown:#9A6B44; --i-red:#FF3E51; --i-orange:#FF6B1A; --i-yellow:#FFB020;
+  --i-green:#10B981; --i-cyan:#06B6D4; --i-blue:#2563EB; --i-violet:#8B5CF6;
+  --i-magenta:#F43F85; --i-gray:#8A8F98; --i-aurora:#00B8D4;
+  --g-aurora-0:#A4FFB0; --g-aurora-1:#00F0E4; --g-aurora-2:#2E9EF7;
+}
+body[data-ds-dark-theme]{
+  --bt-bg:#141414; --bt-card:#1c1c1d; --bt-sidebar:#181819; --bt-bubble:#232324;
+  --bt-ink:#f2f2f2; --bt-ink-2:rgba(242,242,242,.6); --bt-ink-3:rgba(242,242,242,.36);
+  --bt-line:rgba(242,242,242,.09); --bt-line-2:rgba(242,242,242,.17);
+  --bt-hover:rgba(242,242,242,.05); --bt-active:rgba(242,242,242,.09);
+  --bt-accent:#5b7bff; --bt-accent-soft:rgba(91,123,255,.16);
+  --bt-shadow-1:0 2px 8px -1px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+  --bt-shadow-2:0 10px 24px -3px rgba(0,0,0,.55),0 4px 8px -4px rgba(0,0,0,.4);
+  --bt-shadow-3:0 8px 28px rgba(0,0,0,.5);
+  --bt-shadow-4:0 24px 80px rgba(0,0,0,.6);
+  --i-deepseek:#6A84FF; --i-charcoal:#F1F2F4; --i-graphite:#D6D6DA; --i-rose:#FF5A7A;
+  --i-sky:#2EE6E0; --i-tangerine:#FF8A2E; --i-cobalt:#5C78FF; --i-black:#FFFFFF;
+  --i-brown:#7C5332; --i-red:#E02135; --i-orange:#FF5E00; --i-yellow:#F59E0B;
+  --i-green:#059669; --i-cyan:#0891B2; --i-blue:#3B82F6; --i-violet:#7C3AED;
+  --i-magenta:#E11D74; --i-gray:#6E737B; --i-aurora:#2EE6E0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bt-bg); color:var(--bt-ink);
+  font:400 13px/18px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  transition:background .16s ease,color .16s ease;
+}
+::selection{background:var(--bt-accent-soft)}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s14{width:14px;height:14px}
+svg.i.s12{width:12px;height:12px}
+svg.i.s20{width:20px;height:20px}
+
+/* ─────────────  顶栏 ───────────── */
+.appbar{
+  position:sticky; top:0; z-index:40; height:60px; display:flex; align-items:center; gap:14px;
+  padding:0 20px; background:color-mix(in srgb,var(--bt-bg) 86%,transparent);
+  backdrop-filter:saturate(160%) blur(14px); border-bottom:1px solid var(--bt-line);
+}
+.brand{display:flex;align-items:center;gap:9px;flex:none;cursor:pointer}
+.brand .mark{width:30px;height:30px;display:grid;place-items:center}
+.brand .mark svg{width:30px;height:30px}
+.brand b{font-weight:600;font-size:15px;line-height:20px;letter-spacing:-.01em}
+.brand i{font-style:normal;font-weight:500;font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:5px;letter-spacing:.04em;text-transform:uppercase}
+.search{
+  flex:1; max-width:420px; height:36px; display:flex; align-items:center; gap:8px; padding:0 10px;
+  background:var(--bt-card); border:1px solid var(--bt-line); border-radius:10px; color:var(--bt-ink-3);
+  transition:border-color .12s,box-shadow .12s,background .12s;
+}
+.search:focus-within{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft);color:var(--bt-ink-2)}
+.search input{flex:1;border:0;background:none;outline:none;font-size:13px;color:var(--bt-ink)}
+.search input::placeholder{color:var(--bt-ink-3)}
+.search kbd{
+  font-weight:500;font-size:10px;line-height:1;color:var(--bt-ink-3);border:1px solid var(--bt-line);border-radius:4px;
+  padding:3px 4px;background:var(--bt-sidebar);letter-spacing:.04em
+}
+.nav{display:flex;align-items:center;gap:2px;margin-left:6px}
+.navlink{
+  height:32px;padding:0 11px;border-radius:8px;display:flex;align-items:center;gap:6px;
+  font-weight:500;font-size:13px;color:var(--bt-ink-2);transition:background .12s,color .12s
+}
+.navlink:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.navlink.on{color:var(--bt-ink);background:var(--bt-hover)}
+.navlink.on::after{content:"";position:absolute}
+.navlink .n{margin-left:5px;font-size:11px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;font-weight:400}
+.grow{flex:1}
+.icon-btn{
+  width:28px;height:28px;display:grid;place-items:center;border-radius:8px;color:var(--bt-ink-2);
+  transition:background .12s,color .12s
+}
+.icon-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.pill-btn{
+  height:36px;padding:0 16px;border-radius:999px;display:flex;align-items:center;gap:7px;
+  background:var(--bt-accent);color:var(--bt-accent-ink);font-weight:500;font-size:13px;
+  box-shadow:0 1px 2px rgba(0,0,0,.06);transition:transform .18s var(--bt-spring),filter .12s,box-shadow .12s
+}
+.pill-btn:hover{filter:brightness(1.06);box-shadow:0 4px 14px -4px color-mix(in srgb,var(--bt-accent) 60%,transparent)}
+.pill-btn:active{transform:scale(.97)}
+.ghost-btn{
+  height:36px;padding:0 14px;border-radius:10px;display:inline-flex;align-items:center;gap:6px;
+  font-weight:500;font-size:13px;color:var(--bt-ink);border:1px solid var(--bt-line);
+  transition:background .12s,border-color .12s,transform .18s var(--bt-spring)
+}
+.ghost-btn:hover{background:var(--bt-hover);border-color:var(--bt-line-2)}
+.ghost-btn:active{transform:scale(.98)}
+.ghost-btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:8px;color:var(--bt-ink-2)}
+.ghost-btn.sm:hover{color:var(--bt-ink)}
+
+/* ─────────────  布局 ───────────── */
+.shell{display:grid;grid-template-columns:216px minmax(0,1fr);gap:36px;max-width:1240px;margin:0 auto;padding:24px 24px 96px}
+.rail{position:sticky;top:84px;align-self:start;display:flex;flex-direction:column;gap:22px}
+.rail h4{
+  margin:0 0 6px;padding:0 8px;font-weight:500;font-size:11px;line-height:16px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--bt-ink-3)
+}
+.rail-item{
+  height:30px;padding:0 8px;border-radius:8px;display:flex;align-items:center;gap:8px;
+  font-size:13px;color:var(--bt-ink-2);width:100%;text-align:left;transition:background .12s,color .12s
+}
+.rail-item:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.rail-item.on{background:var(--bt-active);color:var(--bt-ink);font-weight:500}
+.rail-item .n{margin-left:auto;font-size:11px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.rail-item svg{color:var(--bt-ink-3)}
+.rail-item.on svg{color:var(--bt-ink)}
+.rail-note{
+  margin-top:10px;padding:10px;border-radius:10px;background:var(--bt-sidebar);border:1px solid var(--bt-line);
+  font-size:11px;line-height:16px;color:var(--bt-ink-3)
+}
+.rail-note b{display:block;color:var(--bt-ink-2);font-weight:500;margin-bottom:2px;font-size:11px}
+
+/* 内容列 */
+.col{min-width:0;display:flex;flex-direction:column;gap:34px}
+.sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+.sec-head h2{margin:0;font-weight:600;font-size:15px;line-height:20px;letter-spacing:-.005em}
+.sec-head p{margin:0;font-size:12px;color:var(--bt-ink-2)}
+.sec-head .more{margin-left:auto;font-size:12px;color:var(--bt-ink-2);display:flex;align-items:center;gap:3px}
+.sec-head .more:hover{color:var(--bt-ink)}
+
+/* ─────────────  精选 ───────────── */
+.hero{
+  position:relative;display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:22px;align-items:center;
+  padding:24px 24px 24px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);
+  overflow:hidden;
+}
+.hero::before{
+  content:"";position:absolute;right:-70px;top:-90px;width:420px;height:420px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,var(--bt-accent-soft),transparent 66%);
+  pointer-events:none
+}
+.hero-eyebrow{display:flex;align-items:center;gap:7px;font-weight:500;font-size:11px;line-height:16px;letter-spacing:.06em;color:var(--bt-ink-3);text-transform:uppercase;position:relative}
+.hero h1{margin:10px 0 8px;font-weight:600;font-size:22px;line-height:34px;letter-spacing:-.02em;position:relative}
+.hero p{margin:0 0 18px;font-size:13px;line-height:1.62;color:var(--bt-ink-2);max-width:46ch;position:relative}
+.hero-actions{display:flex;align-items:center;gap:10px;position:relative}
+.hero-meta{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:12px;color:var(--bt-ink-3);position:relative}
+.hero-art{position:relative;display:grid;place-items:center;height:100%}
+.hero-art .orb{
+  position:absolute;inset:8% 0;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,color-mix(in srgb,var(--bt-accent) 18%,transparent),transparent 68%);
+  filter:blur(6px)
+}
+.hero-art svg.char{position:relative;width:152px;height:152px;animation:bob 6s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
+
+/* ─────────────  卡片 ───────────── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:12px}
+.card{
+  position:relative;display:flex;flex-direction:column;gap:10px;padding:14px;
+  background:var(--bt-card);border:1px solid var(--bt-line);border-radius:12px;cursor:pointer;
+  transition:transform .24s var(--bt-spring),box-shadow .16s ease,border-color .12s ease;
+  animation:cardIn .32s var(--bt-ease) both;
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card:hover{transform:translateY(-2px);box-shadow:var(--bt-shadow-2);border-color:var(--bt-line-2)}
+.card:active{transform:translateY(0) scale(.995)}
+.card-top{display:flex;align-items:center;gap:10px;min-width:0}
+.av{
+  position:relative;flex:none;display:grid;place-items:center;border-radius:50%;overflow:hidden;
+  background:var(--bt-hover);transition:transform .3s var(--bt-spring)
+}
+.av svg{display:block;width:112%;height:112%}
+.card:hover .av{transform:scale(1.06) rotate(-3deg)}
+.av.s44{width:44px;height:44px}
+.av.s36{width:36px;height:36px}
+.av.s28{width:28px;height:28px}
+.av.s64{width:64px;height:64px}
+.av.s96{width:96px;height:96px}
+.av.s112{width:112px;height:112px}
+.card-name{min-width:0;flex:1}
+.card-name b{display:block;font-weight:600;font-size:14px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-name span{display:block;font-weight:400;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-tagline{
+  margin:0;font-size:13px;line-height:18px;color:var(--bt-ink-2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px
+}
+.tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{
+  height:20px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;
+  font-size:11px;color:var(--bt-ink-2);background:var(--bt-hover)
+}
+.card-foot{display:flex;align-items:center;gap:6px;margin-top:2px;padding-top:10px;border-top:1px solid var(--bt-line);font-size:11px;color:var(--bt-ink-2)}
+.card-foot .who{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}
+.card-foot .who b{font-weight:400;color:var(--bt-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-foot .dl{display:flex;align-items:center;gap:3px;margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+.add-btn{
+  height:28px;padding:0 10px 0 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:500;color:var(--bt-ink-2);border:1px solid var(--bt-line);
+  transition:background .14s,color .14s,border-color .14s,transform .2s var(--bt-spring)
+}
+.card:hover .add-btn,.card:focus-within .add-btn{background:var(--bt-accent);color:var(--bt-accent-ink);border-color:transparent}
+.add-btn:active{transform:scale(.94)}
+.add-btn.is-in{color:var(--bt-green);border-color:transparent;background:rgba(0,201,114,.08)}
+.card:hover .add-btn.is-in{background:rgba(0,201,114,.12);color:var(--bt-green)}
+.verify{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:500}
+.verify.official{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.verify.verified{background:rgba(0,201,114,.12);color:#00a05c}
+body[data-ds-dark-theme] .verify.verified{color:var(--bt-green)}
+.verify svg{width:10px;height:10px;stroke-width:2}
+
+/* ─────────────  详情页 ───────────── */
+.detail-wrap{animation:pageIn .26s var(--bt-ease) both}
+@keyframes pageIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.crumbs{display:flex;align-items:center;gap:8px;margin-bottom:18px;font-size:12px;color:var(--bt-ink-3)}
+.crumbs button{display:inline-flex;align-items:center;gap:5px;color:var(--bt-ink-2);font-size:12px}
+.crumbs button:hover{color:var(--bt-ink)}
+.detail{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}
+.d-hero{display:flex;gap:16px;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--bt-line);margin-bottom:22px}
+.d-hero .txt{min-width:0;padding-top:2px}
+.d-hero h1{margin:0 0 4px;font-weight:600;font-size:22px;line-height:30px;letter-spacing:-.02em}
+.d-hero .role{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.d-hero .byrow{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:12px;color:var(--bt-ink-3)}
+.d-hero .byrow b{font-weight:500;color:var(--bt-ink-2)}
+.d-hero .byrow .sep{width:3px;height:3px;border-radius:50%;background:var(--bt-ink-3);opacity:.6}
+.d-sec{margin-bottom:26px}
+.d-sec h3{margin:0 0 10px;font-weight:600;font-size:15px;line-height:20px}
+.d-sec h3 small{font-weight:400;font-size:12px;color:var(--bt-ink-3);margin-left:8px}
+.d-sec p{margin:0 0 10px;font-size:13px;line-height:1.72;color:var(--bt-ink-2)}
+.d-sec p strong{color:var(--bt-ink);font-weight:500}
+.ps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.ps li{display:flex;gap:9px;font-size:13px;line-height:1.6;color:var(--bt-ink-2)}
+.ps li svg{margin-top:2px;color:var(--bt-accent);flex:none}
+.ps li b{color:var(--bt-ink);font-weight:500}
+
+/* 示例对话 */
+.chat{padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);display:flex;flex-direction:column;gap:10px}
+.bub{max-width:78%;padding:7px 12px;border-radius:18px;font-size:13px;line-height:20px;position:relative}
+.bub.u{align-self:flex-end;background:var(--bt-user);color:var(--bt-user-ink);border-bottom-right-radius:6px}
+.bub.b{align-self:flex-start;background:var(--bt-bubble);border-bottom-left-radius:6px}
+.bub.b .mini{display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:11px;color:var(--bt-ink-3)}
+.chat-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bt-ink-3);margin:2px 0 4px}
+.chat-label::after{content:"";flex:1;height:1px;background:var(--bt-line)}
+
+/* 权限行 */
+.perm{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card)}
+.perm + .perm{margin-top:8px}
+.perm .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--bt-hover);color:var(--bt-ink-2);flex:none}
+.perm .t{min-width:0;flex:1}
+.perm .t b{display:block;font-weight:500;font-size:13px;line-height:18px}
+.perm .t span{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.risk{height:20px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;font-size:11px;flex:none;margin-top:1px}
+.risk.read{background:var(--bt-hover);color:var(--bt-ink-2)}
+.risk.write{background:rgba(255,152,0,.12);color:#b26a00}
+body[data-ds-dark-theme] .risk.write{color:var(--bt-star)}
+.risk.danger{background:var(--bt-danger-soft);color:var(--bt-danger)}
+
+/* 版本记录 */
+.log{display:flex;flex-direction:column;gap:0}
+.log-row{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--bt-line)}
+.log-row:first-child{border-top:0}
+.log-v{font-weight:500;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;width:52px;flex:none;color:var(--bt-ink-2)}
+.log-t{flex:1;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.log-w{font-size:11px;color:var(--bt-ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.log-row.now .log-v{color:var(--bt-accent)}
+.log-row.now .log-t{color:var(--bt-ink)}
+
+/* 右侧安装卡 */
+.buy{position:sticky;top:84px;display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-shadow-1)}
+.buy .cta{width:100%;height:40px;justify-content:center;font-size:14px}
+.buy .sub{display:flex;gap:8px}
+.buy .sub .ghost-btn{flex:1;justify-content:center;font-size:12px;height:32px}
+.dl{display:flex;flex-direction:column;gap:0;margin-top:2px}
+.dl-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--bt-ink-3)}
+.dl-row b{font-weight:500;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
+.buy-note{display:flex;gap:7px;padding:9px 10px;border-radius:8px;background:var(--bt-sidebar);font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.buy-note svg{flex:none;margin-top:1px;color:var(--bt-accent)}
+.buy-foot{display:flex;gap:14px;padding-top:2px;font-size:11px;color:var(--bt-ink-3)}
+.buy-foot button:hover{color:var(--bt-ink)}
+
+/* ─────────────  我的接入 ───────────── */
+.inst{display:flex;flex-direction:column;gap:8px}
+.inst-row{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--bt-line);
+  border-radius:12px;background:var(--bt-card);transition:border-color .12s,box-shadow .12s
+}
+.inst-row:hover{border-color:var(--bt-line-2);box-shadow:var(--bt-shadow-1)}
+.inst-row .t{flex:1;min-width:0}
+.inst-row .revoked{display:flex;align-items:center;gap:4px;font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-top:2px}
+.inst-row .revoked .i{flex:none}
+.inst-row .t b{display:block;font-weight:500;font-size:13px;line-height:20px}
+.inst-row .t span{font-size:11px;line-height:16px;color:var(--bt-ink-3);display:flex;gap:6px;align-items:center}
+.state{height:22px;padding:0 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;white-space:nowrap}
+.state.up{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.state.ok{background:var(--bt-hover);color:var(--bt-ink-3)}
+.state.local{background:rgba(0,201,114,.1);color:#00a05c}
+.state.on{background:var(--bt-hover);color:var(--bt-ink-2)}
+body[data-ds-dark-theme] .state.local{color:var(--bt-green)}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.bar .t{font-size:12px;color:var(--bt-ink-3)}
+
+/* ─────────────  发布流程 ───────────── */
+.pub{display:grid;grid-template-columns:200px minmax(0,1fr) 300px;gap:32px;align-items:start;animation:pageIn .26s var(--bt-ease) both}
+.steps{position:sticky;top:84px;display:flex;flex-direction:column;gap:2px}
+.step{display:flex;gap:10px;padding:8px;border-radius:8px;font-size:13px;color:var(--bt-ink-3);text-align:left;transition:background .12s,color .12s}
+.step .n{width:20px;height:20px;border-radius:50%;border:1px solid var(--bt-line-2);display:grid;place-items:center;font-size:11px;font-variant-numeric:tabular-nums;flex:none;transition:all .2s var(--bt-spring)}
+.step.on{color:var(--bt-ink);background:var(--bt-hover);font-weight:500}
+.step.on .n{background:var(--bt-ink);color:var(--bt-bg);border-color:transparent}
+.step.done{color:var(--bt-ink-2)}
+.step.done .n{background:var(--bt-green);border-color:transparent;color:#fff}
+.pub-pane{border:1px solid var(--bt-line);border-radius:14px;background:var(--bt-card);padding:24px;min-height:440px;display:flex;flex-direction:column}
+.pub-pane h2{margin:0 0 4px;font-weight:600;font-size:17px;line-height:24px;letter-spacing:-.01em}
+.pub-pane .hint{margin:0 0 20px;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
+.pub-foot{margin-top:auto;padding-top:20px;display:flex;align-items:center;gap:8px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;color:var(--bt-ink-2);margin-bottom:6px;font-weight:500}
+.field .help{font-size:11px;color:var(--bt-ink-3);margin-top:5px}
+.inp{
+  width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--bt-line);
+  background:var(--bt-bg);font-size:13px;outline:none;transition:border-color .12s,box-shadow .12s
+}
+.inp:focus{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+textarea.inp{height:auto;min-height:76px;padding:8px 10px;line-height:20px;resize:vertical;font-family:inherit}
+.count{float:right;font-size:11px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.count.warn{color:var(--bt-star)}
+.seg{display:inline-flex;padding:2px;border-radius:10px;background:var(--bt-hover);gap:2px}
+.seg button{height:30px;padding:0 12px;border-radius:8px;font-size:12px;color:var(--bt-ink-2);transition:all .16s var(--bt-ease)}
+.seg button.on{background:var(--bt-card);color:var(--bt-ink);box-shadow:var(--bt-shadow-1);font-weight:500}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{
+  height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--bt-line);font-size:12px;
+  color:var(--bt-ink-2);display:inline-flex;align-items:center;gap:5px;transition:all .14s
+}
+.chip:hover{border-color:var(--bt-line-2);color:var(--bt-ink)}
+.chip.on{background:var(--bt-accent-soft);border-color:transparent;color:var(--bt-accent);font-weight:500}
+.pick{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.pick button{aspect-ratio:1;border-radius:10px;display:grid;place-items:center;border:1px solid transparent;background:var(--bt-hover);transition:all .16s var(--bt-spring)}
+.pick button svg{width:76%;height:76%}
+.pick button:hover{transform:translateY(-2px)}
+.pick button.on{border-color:var(--bt-accent);background:var(--bt-accent-soft);box-shadow:0 0 0 2px var(--bt-accent-soft)}
+.inks{display:flex;gap:6px;flex-wrap:wrap}
+.inks button{width:22px;height:22px;border-radius:50%;border:2px solid transparent;transition:transform .16s var(--bt-spring)}
+.inks button:hover{transform:scale(1.12)}
+.inks button.on{box-shadow:0 0 0 2px var(--bt-bg),0 0 0 3.5px var(--bt-ink)}
+.scan{display:flex;flex-direction:column;gap:1px;border:1px solid var(--bt-line);border-radius:10px;overflow:hidden}
+.scan-row{display:flex;align-items:center;gap:10px;padding:11px 12px;background:var(--bt-bg);font-size:12px}
+.scan-row .ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none}
+.scan-row .ic.ok{background:rgba(0,201,114,.14);color:#00a05c}
+.scan-row .ic.warn{background:rgba(255,152,0,.16);color:#b26a00}
+body[data-ds-dark-theme] .scan-row .ic.ok{color:var(--bt-green)}
+body[data-ds-dark-theme] .scan-row .ic.warn{color:var(--bt-star)}
+.scan-row .t{flex:1;min-width:0}
+.scan-row .t b{font-weight:500;display:block;font-size:12px;line-height:16px}
+.scan-row .t span{font-size:11px;line-height:15px;color:var(--bt-ink-3);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scan-row .fix{font-size:11px;color:var(--bt-accent)}
+
+/* 预览卡 */
+.preview{position:sticky;top:84px;display:flex;flex-direction:column;gap:10px}
+.preview h4{margin:0;font-weight:500;font-size:11px;line-height:16px;letter-spacing:.06em;text-transform:uppercase;color:var(--bt-ink-3)}
+.preview .card{animation:none;cursor:default}
+
+/* ─────────────  弹层 ───────────── */
+.scrim{
+  position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.32);backdrop-filter:blur(2px);
+  display:grid;place-items:center;padding:24px;animation:fade .16s ease both
+}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal{
+  width:min(560px,100%);max-height:min(760px,calc(100vh - 48px));overflow:auto;
+  background:var(--bt-card);border-radius:16px;box-shadow:var(--bt-shadow-4);
+  animation:rise .26s var(--bt-spring) both;position:relative
+}
+@keyframes rise{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+.modal.wide{width:min(760px,100%)}
+.modal-h{display:flex;align-items:flex-start;gap:12px;padding:20px 20px 0}
+.modal-h .t{flex:1;min-width:0}
+.modal-h h3{margin:0;font-weight:600;font-size:17px;line-height:24px;letter-spacing:-.01em}
+.modal-h p{margin:4px 0 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
+.modal-b{padding:16px 20px 20px;display:flex;flex-direction:column;gap:16px}
+.modal-f{display:flex;align-items:center;gap:8px;padding:14px 20px 20px}
+.modal-f .grow{flex:1}
+.btn-pri{
+  height:36px;padding:0 16px;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);
+  font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:6px;
+  transition:filter .12s,transform .18s var(--bt-spring)
+}
+.btn-pri:hover{filter:brightness(1.06)}
+.btn-pri:active{transform:scale(.97)}
+.btn-ghost{height:36px;padding:0 14px;border-radius:10px;font-size:13px;color:var(--bt-ink-2);transition:background .12s,color .12s}
+.btn-ghost:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.field-label{font-size:12px;color:var(--bt-ink-2);font-weight:500;margin-bottom:8px}
+.opt-list{display:flex;flex-direction:column;gap:8px}
+.opt-list.row{flex-direction:row}
+.opt-list.row .opt{flex:1}
+.field-note{display:flex;gap:7px;margin-top:8px;padding:9px 10px;border-radius:8px;background:var(--bt-sidebar);font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.field-note .i{flex:none;margin-top:1px;color:var(--bt-ink-3)}
+.opt{
+  display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--bt-line);
+  border-radius:10px;cursor:pointer;transition:border-color .14s,background .14s;
+  width:100%;text-align:left
+}
+.opt[disabled]{cursor:not-allowed;opacity:.45}
+.opt[disabled]:hover{border-color:var(--bt-line);background:none}
+.opt .t b{font-weight:500}
+.opt:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.fix.is-back{color:var(--bt-ink-3);border-color:transparent}
+.opt:hover{border-color:var(--bt-line-2);background:var(--bt-hover)}
+.opt.on{border-color:var(--bt-accent);background:var(--bt-accent-soft)}
+.opt .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--bt-line-2);flex:none;display:grid;place-items:center;transition:border-color .14s}
+.opt.on .radio{border-color:var(--bt-accent)}
+.opt.on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--bt-accent)}
+.opt .t{flex:1;min-width:0}
+.opt .t b{display:block;font-weight:500;font-size:13px}
+.opt .t span{font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.opt .tail{font-size:11px;color:var(--bt-ink-3)}
+.code{
+  display:flex;align-items:center;justify-content:center;gap:6px;height:62px;
+  border:1px dashed var(--bt-line-2);border-radius:12px;background:var(--bt-bg);
+  font:600 22px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.22em
+}
+.linkbox{
+  display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;background:var(--bt-bg);
+  border:1px solid var(--bt-line);font:12px/16px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--bt-ink-2)
+}
+.linkbox span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 三路对比 */
+.diffsplit{display:grid;grid-template-columns:1fr 260px;gap:12px}
+.dcol h5{margin:0 0 8px;font-size:11px;letter-spacing:.04em;color:var(--bt-ink-3);font-weight:500}
+.dcol h5 .dim{color:var(--bt-ink-3);font-weight:400;letter-spacing:0}
+.drow{display:flex;gap:9px;align-items:flex-start;padding:9px 10px;border:1px solid var(--bt-line);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background .12s,border-color .12s}
+.drow:hover{background:var(--bt-hover)}
+.drow.on{border-color:var(--bt-accent);background:var(--bt-accent-soft)}
+.drow input{margin:2px 0 0;accent-color:var(--bt-accent);flex:none}
+.drow .t{display:flex;flex-direction:column;gap:3px;min-width:0}
+.drow .t em{font-style:normal;font-size:11px;color:var(--bt-ink-3)}
+.drow code{display:inline-block;padding:1px 4px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;word-break:break-all}
+.drow-static{padding:8px 0;border-top:1px solid var(--bt-line);display:flex;flex-direction:column;gap:3px}
+.drow-static:first-of-type{border-top:0}
+.drow-static b{font-size:12px;font-weight:500;color:var(--bt-ink-2)}
+.drow-static em{font-style:normal;font-size:11px;color:var(--bt-ink-3)}
+.yours .drow-static:first-of-type{padding-top:2px}
+.btn-pri.is-off{background:var(--bt-hover);color:var(--bt-ink-2)}
+.dsplit-note{margin-top:6px;font-size:11px;color:var(--bt-ink-3)}
+.diff3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--bt-line);border-radius:10px;overflow:hidden}
+.diff3 > div{background:var(--bt-card);padding:12px;font-size:12px;line-height:18px}
+.diff3 h5{margin:0 0 8px;font-size:11px;letter-spacing:.04em;color:var(--bt-ink-3);font-weight:500}
+.diff3 .row{padding:6px 0;border-top:1px solid var(--bt-line);color:var(--bt-ink-2)}
+.diff3 .row:first-of-type{border-top:0}
+.add{color:#00a05c;background:rgba(0,201,114,.12)}
+.del{color:var(--bt-danger);background:var(--bt-danger-soft)}
+.mod{background:rgba(255,152,0,.14);color:#a86300}
+body[data-ds-dark-theme] .add{color:var(--bt-green)}
+body[data-ds-dark-theme] .mod{color:var(--bt-star)}
+.diff3 code{padding:1px 3px;border-radius:3px;font-family:ui-monospace,Menlo,monospace;font-size:11px}
+
+/* toast */
+.toasts{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{
+  display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:999px;
+  background:var(--bt-ink);color:var(--bt-bg);font-size:13px;box-shadow:var(--bt-shadow-3);
+  animation:toastIn .22s var(--bt-spring) both
+}
+@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.94)}to{opacity:1;transform:none}}
+.toast.out{animation:toastOut .16s ease forwards}
+@keyframes toastOut{to{opacity:0;transform:translateY(6px) scale(.97)}}
+
+/* 隐藏 */
+[hidden]{display:none !important}
+.fade-swap{animation:pageIn .22s var(--bt-ease) both}
+
+
+/* ─────────────  页脚 + 设计说明 ───────────── */
+.foot{
+  max-width:1240px;margin:0 auto;padding:24px 20px 40px;display:flex;align-items:center;gap:12px;
+  border-top:1px solid var(--bt-line);font-size:12px;color:var(--bt-ink-3)
+}
+.foot .sp{flex:1}
+.foot button{display:inline-flex;align-items:center;gap:5px;color:var(--bt-ink-2);font-size:12px}
+.foot button:hover{color:var(--bt-accent)}
+.notes{max-width:720px;margin:0 auto;padding:8px 0 40px;animation:pageIn .26s var(--bt-ease) both}
+.notes h1{font-weight:600;font-size:22px;line-height:34px;letter-spacing:-.02em;margin:6px 0 6px}
+.notes .lede{font-size:14px;line-height:1.7;color:var(--bt-ink-2);margin:0 0 8px}
+.notes h2{font-weight:600;font-size:15px;line-height:24px;margin:34px 0 10px;letter-spacing:-.01em}
+.notes h2 .num{color:var(--bt-accent);font-variant-numeric:tabular-nums;margin-right:8px}
+.notes p{font-size:13px;line-height:1.72;color:var(--bt-ink-2);margin:0 0 12px}
+.notes ul{margin:0 0 14px;padding-left:0;list-style:none}
+.notes ul li{position:relative;padding-left:16px;font-size:13px;line-height:1.72;color:var(--bt-ink-2);margin-bottom:7px}
+.notes ul li::before{content:"";position:absolute;left:3px;top:9px;width:4px;height:4px;border-radius:50%;background:var(--bt-ink-3)}
+.notes b{color:var(--bt-ink);font-weight:600}
+.notes code{padding:1px 4px;border-radius:4px;background:var(--bt-hover);font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--bt-ink-2)}
+.notes .kv{display:grid;grid-template-columns:112px 1fr;gap:1px;background:var(--bt-line);border-radius:10px;overflow:hidden;margin:0 0 16px}
+.notes .kv > div{background:var(--bt-card);padding:10px 12px;font-size:13px;line-height:1.62;color:var(--bt-ink-2)}
+.notes .kv > div:nth-child(odd){color:var(--bt-ink-3);font-size:12px}
+.notes .callout{
+  border:1px solid var(--bt-line);border-left:2px solid var(--bt-accent);border-radius:0 10px 10px 0;
+  padding:12px 14px;background:var(--bt-hover);font-size:13px;line-height:1.7;color:var(--bt-ink-2);margin:0 0 16px
+}
+.diffsplit{grid-template-columns:1fr}
+@media (max-width:640px){
+  .buy{position:sticky;bottom:68px;z-index:20;box-shadow:var(--bt-shadow-3);background:var(--bt-card)}
+  .buy .dl,.buy .buy-note,.buy .buy-foot{display:none}
+}
+.dsplit .dcol.yours{margin-top:10px}
+.dcol.yours{border-top:1px solid var(--bt-line);padding-top:10px}
+@media (max-width:640px){
+  .notes .kv{grid-template-columns:1fr}
+  .notes .kv > div:nth-child(odd){padding-bottom:0}
+  .scrim{padding:12px}
+  .modal{max-height:calc(100vh - 24px)}
+  .drow code{word-break:break-word}
+}
+/* ─────────────  响应式 ───────────── */
+@media (max-width:1080px){
+  .shell{grid-template-columns:1fr;gap:20px;padding:18px 18px 96px}
+  .rail{display:none}
+  .detail{grid-template-columns:1fr}
+  .buy{position:static}
+  .pub{grid-template-columns:1fr}
+  .preview,.steps{position:static}
+  .steps{flex-direction:row;align-items:center;overflow-x:auto;gap:4px;padding-bottom:4px;scrollbar-width:none}
+  .steps::-webkit-scrollbar{display:none}
+  .step{flex:none;white-space:nowrap;padding:6px 8px;font-size:12px}
+  .step .n{width:18px;height:18px;font-size:10px}
+  .steps .rail-note{display:none}
+  .preview{margin-top:18px}
+}
+@media (max-width:820px){
+  .search{max-width:none}
+  .nav{display:none}
+  .hero{grid-template-columns:1fr}
+  .hero-art{display:none}
+  .grid{grid-template-columns:1fr 1fr}
+  .pub-pane{padding:18px}
+}
+@media (max-width:640px){
+  .appbar{padding:0 14px;gap:10px}
+  .brand i{display:none}
+  .grid{grid-template-columns:1fr}
+  .hero{padding:20px}
+  .hero h1{font-size:17px;line-height:24px}
+  .shell{padding:14px 14px 90px}
+  .d-hero{flex-direction:column;gap:12px}
+  .diff3{grid-template-columns:1fr}
+  .modal{border-radius:14px}
+  .scrim{padding:0;align-items:flex-end}
+  .modal{max-height:92vh;border-radius:16px 16px 0 0;width:100%}
+  .modal-f{padding:10px 16px calc(12px + env(safe-area-inset-bottom,0px))}
+  .modal-h,.modal-b{padding-left:16px;padding-right:16px}
+  .opt .t b{font-size:13px}
+}
+
+/* ─────────────  移动端底部导航 + 分类条 ───────────── */
+.tabbar{display:none}
+.catbar{display:none}
+@media (max-width:820px){
+  .tabbar{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:50;height:60px;
+    padding:0 8px calc(env(safe-area-inset-bottom,0px) + 4px);
+    background:color-mix(in srgb,var(--bt-bg) 90%,transparent);
+    backdrop-filter:saturate(160%) blur(16px);border-top:1px solid var(--bt-line);
+    align-items:center;justify-content:space-around;
+  }
+  .tabbar button{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0 5px;
+    font-size:11px;color:var(--bt-ink-3);border-radius:10px;transition:color .14s,background .14s
+  }
+  .tabbar button.on{color:var(--bt-accent);background:var(--bt-accent-soft)}
+  .tabbar svg{width:20px;height:20px;stroke-width:1.6}
+  .shell{padding-bottom:88px !important}
+  .catbar{
+    display:flex;gap:6px;overflow-x:auto;padding:0 0 2px;margin:-2px 0 12px;
+    scrollbar-width:none;-ms-overflow-style:none
+  }
+  .catbar::-webkit-scrollbar{display:none}
+  .catbar button{
+    flex:none;height:30px;padding:0 12px;border-radius:999px;font-size:12px;color:var(--bt-ink-2);
+    background:var(--bt-hover);border:1px solid transparent;transition:all .14s
+  }
+  .catbar button.on{background:var(--bt-accent);color:var(--bt-accent-ink);border-color:transparent;font-weight:500}
+  .appbar .pill-btn{padding:0 12px}
+  .foot{padding:18px 16px 84px;flex-wrap:wrap}
+}
+@media (max-width:640px){
+  .appbar .pill-btn{display:none}
+  .appbar{gap:8px}
+  .brand b{font-size:14px}
+  .search{height:34px;min-width:0}
+  .search kbd{display:none}
+  .brand .mark,.brand .mark svg{width:26px;height:26px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001s !important;transition-duration:.001s !important}
+}
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  <div class="brand" data-go="market" role="button" tabindex="0">
+    <span class="mark" id="markTop"></span>
+    <b>Bot Market</b><i>DS Bot</i>
+  </div>
+
+  <label class="search">
+    <svg class="i s14" viewBox="0 0 20 20"><circle cx="8.6" cy="8.6" r="5.4"/><path d="M12.6 12.6l3.6 3.6"/></svg>
+    <input id="q" type="search" placeholder="搜索 Bot、能力或作者" autocomplete="off" spellcheck="false">
+    <kbd>⌘K</kbd>
+  </label>
+
+  <div class="nav">
+    <button class="navlink on" data-go="market">市场</button>
+    <button class="navlink" data-go="installs">我的接入<span class="n" id="instCount"></span></button>
+    <button class="navlink" data-go="publish">发布</button>
+  </div>
+  <div class="grow"></div>
+  <button class="icon-btn" id="themeBtn" aria-label="切换深浅色">
+    <svg class="i" viewBox="0 0 20 20"><path d="M16.2 12.4A6.8 6.8 0 0 1 7.6 3.8a6.9 6.9 0 1 0 8.6 8.6z"/></svg>
+  </button>
+  <button class="pill-btn" data-go="publish">
+    <svg class="i s14" viewBox="0 0 20 20"><path d="M10 15.5V4.5"/><path d="M5.5 9L10 4.5 14.5 9"/></svg>
+    <span>上传我的 Bot</span>
+  </button>
+</div>
+
+<main id="view"></main>
+
+<footer class="foot">
+  <span>Bot Market · 界面构想稿</span>
+  <span class="sp"></span>
+  <button data-go="notes">为什么这样设计 →</button>
+</footer>
+
+<nav class="tabbar" aria-label="主导航">
+  <button data-go="market" class="on">
+    <svg class="i" viewBox="0 0 20 20"><rect x="3.2" y="3.2" width="5.6" height="5.6" rx="1.6"/><rect x="11.2" y="3.2" width="5.6" height="5.6" rx="1.6"/><rect x="3.2" y="11.2" width="5.6" height="5.6" rx="1.6"/><rect x="11.2" y="11.2" width="5.6" height="5.6" rx="1.6"/></svg>
+    市场
+  </button>
+  <button data-go="installs">
+    <svg class="i" viewBox="0 0 20 20"><path d="M3.5 6.2A1.7 1.7 0 0 1 5.2 4.5h2.6l1.5 2h5.5a1.7 1.7 0 0 1 1.7 1.7v5.6a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"/></svg>
+    我的接入
+  </button>
+  <button data-go="publish">
+    <svg class="i" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.6"/><path d="M10 7.2v5.6M7.2 10h5.6"/></svg>
+    发布
+  </button>
+</nav>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+const CHARS={"whale":{"label":"Whale","body":"M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z","paints":[["M93.3 55.8l1-.3 .1 1.2-2.4 5.3-3.4 4.8-3.8 3.8-4.8 3.4-5.7 2.8-4.8 1.5-4.8 .4 20.1-17.4 5.2-3.7z","#fff",1]],"shade":"M88.6 29.5l2.4 2.9 1.9 2.8 2.4 6.3 .5 3.3 .1 5.3-1.5 6.6-1.9 4.3-2 3.3-4.8 5.4-5.7 4.3-7.2 3.3-6.2 1.5-6.7 .1-3.3-.2-9.6-1.8-3.3-1.5-2.4-1.9-8.6-8.9-5.3-3.9-3.3-.1-2.9 .2-3.3 .8-5.8 0-4.3-1-2.9-1.9 .6-.6 3.8-1.3 10.5-2.5 4.3 .9 1.4-.1 2.2-1.7 .5-1.4-.3-1.5-1.2-1.4-2.2-1.4-1.2-1.9-.6-12 .4-3.3 .5-.5 2.9 3.8 2.4 4.8 1.9 5.7 .7 5.8 .7 2.8 2.1 2.4 2.7 5.5 3.8 4.3 2.9 2.2 3.3 1 3.4-.4 6.2-3 7.1-4.5 7.3-5.6 6.6-5.9 5.9-6.5 3.7-5.3 1.7-4.2 .1-2.9z","eyes":[[72.5,48.4,9.3,23,-15.8],[85.6,43.4,7,22.9,-21.2]]},"star":{"label":"Star","body":"M40.1 4.4l1.5-.4 1.9 .1 5.2 1.1 1.9 .9 13.2 14.9 17.1-.8 5.2 1.1 1.8 .9 1.7 1.6 .7 2.4-.4 1.9-9.7 23.6 5.6 23.7 .1 1.9-.6 1.4-2.1 1.8-2.3 .5-19.9-1.8-16.6 15.5-1.9 1-1.9 .3-7-1.5-2.6-2.1-.9-2.4-2.8-24.1-16-13.6-1.1-1.5-.5-1.9 .4-1.9 1.2-1.5 18.9-13.6 7.1-24.6 1-1.7z","paints":[],"shade":"M52 7.7l14.3 16.1 1 2.9 .3 3.1 19.4-1.3 2-1.4 .7-2.3-.4-1 .5 .5 .5 1.9-.4 1.9-9.8 23.2 5.5 23.1 .1 3.4-2 2.4-2.8 .8-19.4-2.1-1.9 1.4-14.7 14-2.4 1.4-3.3 .1-4.7-1-2-1 .6-.2 3.3 .8 2.8 .1 5.1-2.1 .7-.9 .4-2.4-2.6-22.7-.3-.3-1.4 .2-1.4 .7-5.7 .7-5.6-1.2-16.7-13.8 1-.1 5.2 1 3.8-1.1 1-.7 1.9-.4 .4-.4 1.5 .3 .4-.4 1 .2 18-12.8 6.7-23.5 0-1.8-.4-.5-.3-1.9 .4-2.4z","eyes":[[53.9,53.4,7.2,18.8,-10],[65.1,49.2,7.2,18.8,-10]]},"moon":{"label":"Moon","body":"M45.8 4.2l4.7-.2 4.2 .4 10.2 2.4 3.7 1.6 3.6 2.1 3.3 2.5 3 3.1 4.6 6.7 3.4 8.3 1.5 8.8 .1 4.6-.8 7.8-2.6 8.8-3.9 7.7-5.1 6.7-6.1 5.3-4.1 2.6-3.6 1.6-27.2 10.2-2.8 .7-2.6 0-5.7-1.3-2-.8-1.9-1.7-1.1-2.6-6.5-37.7-.2-5.2 .8-7.7 1.3-5.2 3.1-7.8 4.2-6.7 3-3.6 3.9-3.6 6.3-4.2 4.1-1.8z","paints":[["M57.6 9.9l.2-.3 .2 .3 2 4.7 1.9 1.9 2.6 .5 1.5-.7 1.1-1.1 .4 .4-.1 1.6-.7 1.5-2.2 2.5-1.6 .7-2 0-1.6-.8-1.3-1.4-.8-2-.4-2.6 .1-3.1z","#1783FF",1]],"shade":"M74.3 13.5l2.1 1.5 .3-.4-.3-.6 2.1 2.1 4.6 6.7 3.1 7.4 1.5 7.6 .1 10.4-.6 4.6-2.5 8.3-4.2 8.2-3.1 4.2-5.7 5.7-6.2 4.2-4.6 2-28 10.3-4.1 0-5.2-1.1-2-.9-.5-.7 .5 .5 1.5 0 3.6 1 2.6-.3 5.7-2.1 2.1-2.1-5.4-31.5-.2-4.1 .4-1.1-.1-2.6 .5-3.6 1.8-7.7 2.8-6.7 1.9-3.1 3.9-5.2 3.2-3.1 2.5-2 5.2-2.9 3.1-1.1 3.1-.8 2.1 0 .5-.4 2.6 .2 1-.3 1.6 .4 1-.5 2.1 .8 1-.8 2.1 1.2z","eyes":[[51.6,48.5,8.4,22.1,-10],[66.8,42.9,8.4,22.1,-10]]},"wave":{"label":"Wave","body":"M46.1 4l6.1 .3 9.6 2.1 4.5 1.8 4.1 2.4 3.5 2.8 4.4 4.8 2.6 4 2.1 4.1 2.2 6 4.8 26 .5 5.3-.3 4.1-1.2 3.8-1.5 2.8-2.4 2.5-2.1 1.4-3.1 1-3 .3-8.1-1.5-3.2 5.3-2.1 2.1-2.5 1.5-2.8 1-3 .4-9.1-1.6-2.7 4.2-3.4 3.1-4 1.7-4.6 .1-7-1.5-3.5-1.9-3.4-3.5-2.1-4-1.5-5.6-3.7-20.7-.6-5.6-.1-5 .5-6.1 2.3-9.6 2.3-5.5 2.7-4.9 2.7-3.7 3.2-3.6 4.2-3.6 4.7-2.9 4.4-2 4-1.2z","paints":[["M61.6 48.5l2.2-.3 2 1.1 1.1 2.2 .3 3-.6 3.1-1.5 3.5-2.5 4.1-2.4 2.8-5-2.2-3-2.2-2.3-3-.7-3.5 .6-2.6 1.8-2.1 1.6-.7 1.5 0 1.5 .6 1.5 1.3 2-3.6z","#fff",0.4]],"shade":"M69.3 13.6l2.6 1.3 .5-.3 .5-1.3 2 1.7 .5 0 2.5 2.7 3.5 5.5 3.6 8.6 1.5 6.6 3.5 19.7 .5 5.5-.4 4.6-2 5-1 1.6-2.6 2.5-3 1.5-2.1 .5-4 0-6.6-1.4-1.4 2.9-1.9 2.5-2.7 2.6-3.1 1.5-2.5 .6-4 .1-7.1-1.5-1.5 2.8-2.6 3-2 1.6-3 1.4-4.5 .6-7.1-1.5-3.6-1.5-3.5-3.1 6.6 1.5 2.8-.5 .5-.5-.3-.5 3.2-2-.4-1 1.4-1.5-.3-1 .7-1.6-.2-2.5-3.4-19.2 .3-.5-.6-5 .5-.5-.1-4.6 .4-.5 .3-4 1-4.1 1.5-4.5 3.8-7.7 5.5-6.9 3.1-2.6 6.5-3.9 7.6-2.2 3.1 0 .5-.4 3 .5 1-.5 2.5 1z","eyes":[[47.5,37.2,8.4,22.1,-10],[61.6,31.9,8.4,22.1,-10]]},"squircle":{"label":"Squircle","body":"M54.5 4.2l3.9-.2 3.7 .3 11.6 2.7 3.1 1.6 2.8 1.9 2.6 2.7 2.2 3.1 2.4 4.8 1.9 5.8 3.7 19.4 .8 11.1-.4 4.7-1 4.7-1.3 3.5-1.8 3.4-4.8 5.8-6.4 4.7-8 4-14.2 5.3-9.5 2.2-7.4 .1-10.5-2.2-5.3-2.5-4.3-3.7-3.3-4.8-2.7-6.3-2.4-9.5-2.8-17.9-.2-7.8 1.3-7.9 2.2-5.3 2.8-4.2 4.1-4.2 4.3-3.1 6.3-3.4 11.6-4.6 7.9-2.7z","paints":[],"shade":"M80.5 11.6l2.1 2.1 2.1 3.2 3.2 7.3 2.1 8.4 2.7 15.8 .5 7.9-.6 7.4-2 6.3-3.8 6.3-4.2 4.3-2.6 2-6.9 3.8-15.2 6.2-9.5 2.7-6.8 .6-6.2-.7-8.5-2-5.8-3.2-3.2-3.3 .5 .4 1.1-.2 5.8 1.4 2.1-.8 1.4-.7-.3-.5 1.4-1.1-.1-1 .8-.5 0-1.1 1.1-1 .1-2.1 .4-.6-.2-3.6-2.4-17.9-.2-9.5 .8-5.3 1.1-3.6 1.2-2.7 2.2-3.5 2.7-2.8 3.1-2.5 5.8-3.2 17.9-6.9 5.3-1.4 8.4-1.4 1.6-1.1 .5 .1 .9-1.5z","eyes":[[52.6,52.4,8.4,22.1,-10],[67.3,46.9,8.4,22.1,-10]]},"zed":{"label":"Bull","body":"M77 4.4l1.1-.4 1.1 .2 1.2 1.3 2 9.8 2.2 5.9 .4 2.8-.3 2.1-.8 1.7-4.7 5.1-1.3 1.9-.4 1.7 .1 1.6 1 1.7 4.4 .2 3.8 1.3 2 1.7 .6 1.6-.3 1.7-.7 1.1-3.5 2.7 1.7 6 .4 5.9-.8 6.6-1.9 6-3.4 5.9-4.4 5.3-5.5 4.4-6 3.1-6.5 2-7.1 .7-6.5-.7-6.5-2.1-6-3.4-4.8-4.4-3.5-4.9-3.1-6.7-3.3 1.1-2.7 .3-2-.6-1.1-1.1-.3-2.2 .9-2.7 2.9-3.8 4.6-3.8 1.8-7.1-6.3-1.8-1.6-1.3-1.3-1.8-.6-2.7 0-6.6-1.4-8.7 .2-1.1 1.5-1.4 1.1-.1 1 .5 5.5 7.9 2.2 2.2 2.7 1.4 4.9 .4 .5-.1 6.5-5.1 6.6-3.2 6-1.6 8.7-.7 3.8-.9 2.7-1.5 3.9-3.2 3-3.8 2.4-4.9 2.1-10z","paints":[["M61 36.5l1.9 .7 1.4 2-.7 5.4 .3 .4 2.8-1.2 1.1 0 1 .9 .5 1.6-.5 .8-1 .5-7.1 2.4-1.1-.5-.9-1.6 1.4-5.4-.5-.6-3.3 1.1-1.1-.1-1.6-1-1-1.6 .5-.9z","#fff",1]],"shade":"M80.2 5.5l.6 1.6 1.3 8.2 2.5 6 .2 3.7-.1 1.1-1.2 2.2-5.2 5.4-1.1 3.3 .9 2.7 3.8 3.9 1.6 .1 4.4-1.4 1.2 1.2 .1 1.1-.2 1.7-.6 1.1-3.6 2.7 .9 2.2 1.1 5.4 .1 6-1.1 6.5-2.3 6-3.8 6-6 6-4.9 3.3-5.9 2.6-7.1 1.7-7.1 .1-6-1.1-5.9-2.3-4.4-2.7-4.4-4.5 3.8 .4 5.5-1.5 7.6-3.9 6.8-4.7 7.9-6.5 7.1-6.9 5.4-6.5 4.4-6.7 1.8-4.4 .4-3.2-.3-1.1-3.3-3.8-.8-2.8 .8-2.7 6.2-7 .8-2.2-.1-2.7-1.7-4.4-.8-8.2zM14.9 29.9l.1-.5 4 6.5 2.3 2.7-1.4 .1-2-.6-3.6-7.1zM24.3 44.6l1-.3 1.1 .2 3.3 2.9 1.7 .5 .3 1.6-.5 2.2-1 1.6-1.6 1.5-1.6 .7-1.7 .1-3.2-2.2-2.2 0-2.7-.6-2.9-1.6 3.9-1.6 2.2-1.7 2.2-2.3zM21 68.6l.5-.5 1.1 .1 1.1 .5 .8 1 .6 2.7-.1 1.1-.7 1.1-.6 .1-2.2-1.2-2.7 1.1-3.8 .6-2.7-1.2 3.4-1.6z","eyes":[[61.8,69,9.5,22.3,-10.5],[78.4,62.7,6.9,22.2,-11.2]]},"hex":{"label":"Blossom","body":"M38.8 4.2l2.6-.1 6 1.3 2 1.3 3 3.3 12-4.5 2-.5 6.5 1.1 2.9 1.6 4.9 6 .8 2 .3 2-.2 2.5-1.9 7-1.3 2.2-1.9 1.8 2.9 1.3 1.8 1.7 10.1 12.5 1.5 3 .1 4-1.8 7-.9 2-2.8 2.7-7.1 2.7-5.2 20-.8 2-1.4 1.9-1.5 1.1-6.5 2.6-3 .2-6.5-1.6-2-1.4-4-4.9-16 5.7-2 .1-4.5-1-3-1.2-5.2-6-1.3-3 0-3.5 2-8.5-10.8-13.4-1.4-3-.3-2 .3-2.5 1.7-6.5 1.8-3 2.2-1.8 5.9-2.2 2.1-.4 2.5 .3 .4-.4-.7-2.5 .1-2.5 4.8-18.5 1-2.5 2.9-2.9z","paints":[],"shade":"M49.7 7.7l.2-.4 .5 .4 2 2.3 0 .7 1.6 1.5 1 2 .1 1.5-.3 .5 .6 1.3 17.5-6.5 2.5-1.3 1-1.5 4.5 6 .6 1.5 .3 3-1.9 8-1 2-3 3-.3 1 .4 .5-1.7 3 .1 .5-.5 .5 0 .7 5.5-2.2 1.5-1.5 2 2 8 10 1 1.5 1 2.5-.1 4-1.9 7-1.1 1.9-2.9 2.5-6.8 2.5-4.7 19-1.5 3.5-2.5 2.5-6.5 2.6-4 0-5.5-1.4-2.2-1.7-3.2-4 4.9 .8 2.5-1.4 1.5-2.6 .7-2.3 1.7-6.5-.4-.3-.6 .8-.7 3.5-1.1 1.5 .3 .5-.3 .5-.7-.5-1.4-5.5-.5 1-.2 2-.9 1-.1 1.5-1.1 2-2.7 2.8-1 .4-1 .1-15.5 5.8-3-.1-4.5-1-2-1-2-2-2.2-3 .2-.2 4 .9 2-1.1 1.7-1.6 1.3-3.2 1.7-6.3 1.1-2.5-.3-.3-.5 .2-6.5-.3-.5-.5-2 0-.5-.5-1.7-.1-10.4-13.4 4.1 .7 3.1-1.7 1.3-2 2.5-8.5 .9-1.5 1.7-1.3 6.5-2.7 2-1.5-.3-.5 .3-.5 1.5-1.2 1.5-3 5.6-20.3 1.9-2 6-2.4 1.1-.6zM73.2 31.2l1.5 0-.8 1-34 12.7-1 .1-1.5-.5-2 .8-1.9-2.6 .4-.9 2 .5 1.5 1 .5-.4 1 .5 1-.3 1 .4 3-1.5 1 .1 3-1.6 1 .1 3-1.6 1 .1 3-1.6 2.5-.5 1.5-1 2.5-.5 1.5-1 2.5-.5 1.5-1 2.5-.5 1.5-1 1 0zM61.3 74.6l.1-.2 .4 .2-.4 1.7z","eyes":[[49.8,55.5,6.7,17.7,-10],[61.6,51.1,6.7,17.7,-10]]},"gumdrop":{"label":"gumdrop","body":"M38.7 4.5l4.4-.5 4.6 .8 4.1 1.9 3.7 3.2 23.2 36.6 2.3 5 1.4 5.1 .7 6.4-.7 6.4-1.8 6.1-3.1 5.7-4.1 5.1-5.2 4.2-5.8 3.1-6 1.8-6.4 .6-6.4-.6-6-1.8-5.9-3.1-5.1-4.2-4.1-5.1-3-5.4-1.9-6.4-.7-6 .5-5.9 9-41.6 2-4.1 2.6-3.2 3.4-2.5z","paints":[],"shade":"M54.9 9.5l1.9 2.3 22.9 36.5 1.8 4.6 .9 3.7 .6 4.1-.1 5.9-1.4 6.4-2.3 5.5-3.7 5.4-4.1 4.2-4.5 3.3-7.3 3.2-6.4 1.2-6.4 0-5.1-.9-5.9-2.1-5.5-3.3-4.6-4.1 .5-.3 4.1 .8 5.5-1 6.4-2.6 7.3-4.5 7.2-5.7 6.5-6.4 5.5-6.9 3.5-5.9-18.1-37 1.1-3.7 .2-2.3z","eyes":[[52.1,40.3,9.7,22.9,-15.2],[64.8,35.6,6.3,23,-27]]},"peanut":{"label":"peanut","body":"M43.5 4l6.6 .7 5.8 2.2 5.4 3.8 4.1 4.7 2 3.8 1.4 4.3 1.3 11.9 1 4.3 1.6 3.8 5.8 10.5 1.4 3.8 .8 4.3 .1 6.2-1 5.7-2.1 5.5-3.2 4.9-4.1 4.3-4.8 3.4-5.6 2.4-5.7 1.3-6.1 .1-5.8-1.1-5.7-2.2-4.7-3.1-4.3-4.1-3.3-4.8-2.5-5.7-1.2-5.7-.1-6.7 1.7-9 .4-4.3-.5-4.7-2.5-9.6-.6-3.8 .2-5.2 1.2-5.2 1.5-3.4 2.2-3.3 2.5-2.9 2.8-2.3 3.4-2.1 3.4-1.4 3.8-.9z","paints":[],"shade":"M62.7 12.6l2.6 2.8 2.8 5.8 1.1 4.2 1 11.9 1 3.4 2.3 4.7 4.2 6.7 1.9 4.7 .9 3.8 .2 2.9-.1 6.2-.5 3.3-1.9 5.3-3.4 5.7-3.4 3.8-4.2 3.3-5.7 2.9-4.8 1.4-5.7 .6-6.2-.6-3.8-1-5.2-2.3-4.8-3.4-2.9-2.8 3.9 .8 5.2-.7 6.2-2.5 5.7-3.3 6.7-5.1 6.2-5.9 5.1-6.2 3.5-5.7-1.1-2.8-2.4-2.4-3.2-1.7-11.5-4.1-2.7-1.8-1.6-2.4-.2-2.4 .8-2.9 7.8-8 4.9-7.7 1.6-5.2z","eyes":[[50.9,31.5,8.7,20.5,-11.9],[64.2,26.5,5.7,20.3,-16.3]]},"saucer":{"label":"saucer","body":"M45 22.7l6.7 .1 6.7 1.9 4.3 2.5 3.5 3.1 2.8 3.5 2.5 4.5 6.8 .9 5.6 1.2 4.5 1.6 3.5 2.1 2.8 2.8 1.3 3.5-.5 3.5-2 3.5-2.6 2.8-3.5 2.8-4.5 2.8-5.1 2.6-12 4.4-13.6 3.1-13.6 1.5-12.6-.3-5.5-.7-5-1.2-4.1-1.6-3.5-2-2.8-3.1-1.1-3 .5-3.5 2-3.6 2.7-3 3.7-2.9 10.3-5.6 .7-5.1 1.5-4.5 2.6-4.5 3.1-3.5 3-2.4 3.5-2 3.5-1.4z","paints":[],"shade":"M66.5 31.3l.3-.2 .6 .7 1.9 2.5 2 4.5 1.6 1.5 .1 1.5-1.7 1.7-3 1.2-3.1 .5-3.1-.3 4-8.1 .7-3.5zM94.9 47.4l1.1 3-.5 3.5-2.1 3.5-4 4.1-5 3.5-6.1 3.1-7 2.9-6.6 2.1-8 2-9.1 1.5-6.5 .6-11.6 0-4.5-.2-8-1.4-4.6-1.5-3.6-2.1 4.1 1.2 5.1 .8 7 .3 6-.2 15.1-1.9 15.6-3.6 14.5-5.1 5.4-2.5 5.3-3.1 4-3 2.3-2.5 1.2-2.1zM7.3 71l.7 .5z","eyes":[[53.6,45,7.8,18.4,-14.5],[66.2,40.3,5,18.3,-25.1]]},"bunny":{"label":"bunny","body":"M49.3 4.4l1.5-.4 2 1.2 1.6 2.7 1.2 3.4 1.6 8.9 .2 6-.2 6.4 .6 3 2.4 2.5 5.4 3 3.4 2.4 5.1 5.5 2.4 3.9 1.7 4 1.1 4.4 .4 4.5-.5 5.9-1.6 5.5-2.8 5.4-3.6 4.5-4.6 3.8-4.9 2.7-5.5 1.7-5.9 .7-6-.5-5.4-1.7-4.9-2.5-4.7-3.7-3.8-4.5-2.7-4.9-1.8-5.5-.7-5.9 .6-6.5 1.9-5.9 3.1-5.4 4.6-5.5-.4-2-3.4-8.4-1.8-6.9-.6-6.9 .3-3 .6-2 1.3-1.4 2-.1 2.5 1.5 2.1 2.5 4 6.9 2.1 5.5 1.7 5.9 1.5 2.1 1.8-1.6 .7-2-.4-12.4 1-8.9 1.6-4.9z","paints":[],"shade":"M52.7 5.4l2.1 3.5 1.9 7.4 .7 7.9-.5 8.4 .8 3.6-4.4-2.5-2.1-2.6 1.4-17.3zM31.2 15.3l.3-.5 2 2.5 2.9 4.9 2.5 6 1.7 6.4 1.4 2.5 0 .5-1.1 .9-4.5 1.9-2.4 .2-1.2-.6zM71.5 46l3.6 4.4 2.9 6 1.5 6.4 .1 5.5-1.1 6.3-2 5-3.4 5.4-3.5 3.6-4 2.9-6.4 3-4 1-6.9 .5-5.9-1-5.5-2-5.4-3.5-3.6-3.4 2.6 .7 2.5 .1 2.9-.5 4-1.3 8.4-4.6 8.7-6.8 7.4-7.9 5.3-7.9 1.3-3 1-3.5 .2-2.9-.2-2z","eyes":[[59.2,69.2,8.2,19.3,-12],[72.9,64,5.6,19.1,-15.4]]},"kitty":{"label":"kitty","body":"M62.4 4.2l1.6-.1 1.5 1.2 7.4 21.3 3.7 6.4 6.2 7.4 3.1 5.9 1.5 4.8 .7 5.3-.2 5.4-1.1 5.3-3 7.4-4.4 6.4-5.3 5.4-6.9 4.6-7.5 3.1-8 1.7-8 .2-7.4-1.4-4.3-1.5-3.7-1.8-3.8-2.5-3.1-2.7-2.7-3-2.5-3.7-1.9-3.7-1.4-4.3-.9-5.3 .1-5.8 1.4-7 1.6-4.2 2-3.8 .8-3.2 .2-20.2 1.1-1.4 1.1-.3 1.1 .3 12.2 9.7 5.9-2.5 8-2.1 3.2-1.8 2.3-2.4 8.3-16z","paints":[],"shade":"M64.9 5.8l.1-.3 .7 .3 6.5 19.7 3.1 5.9 2.5 3.2-1.6-.8-2.6-2.4-5.1-8zM79.4 36.7l2.2 2.1 1.6 2.2 3.3 6.9 1.5 6.9-.1 6.4-1.6 7.5-3.1 6.9-3.8 5.3-5.3 5.4-6.4 4.3-7 3.1-6.3 1.6-4.3 .6-5.3 0-7.5-1.1-5.8-2-5.9-3.3-5.9-5.4 2.7 .7 3.2-.1 3.7-.8 5.2-1.9 10.3-5.5 11-7.8 10.7-9.6 7.8-9.1 3-4.6 1.6-3.4 .7-3.2z","eyes":[[59.6,65.1,9.4,22.6,-11.9],[77.5,58.4,7,22.5,-14]]},"beacon":{"label":"beacon","body":"M40 4.1l2.7 0 2.5 .9 2 1.7 1.1 2.1 .5 2-.2 2.1-2.1 4.1-.4 1.6 1.5 7.7 9-3.1 4.1-.2 18.5 4 3.1 1.6 2.4 2.3 1.3 2.1 .9 2.6 5.8 33.4-.4 3.1-1.3 3.1-2 2.5-2.6 1.9-41.7 15.7-4.1 .7-19.6-4-3.5-1.9-2.5-2.5-1.2-2.1-.8-2.6-5.7-32.9 .4-3.1 1-2.7 1.7-2.5 2.4-1.9 28.4-10.9-1.5-9.3-.7-1-3.5-3.3-.9-1.9-.4-2 .5-2.6 1.1-2.1 1.7-1.5z","paints":[],"shade":"M47.1 7.2l.4 0 .8 1.6 .3 2-.2 2.6-2.5 4.7 1.5 8.2 0 2 .5 .6 .1 1.5 .5 1-1.2 .4-1.3-.4-.3-.5-1.9-10.3-4.1-1.5-3.2-2.6 3.1-.9 3.2-2.2 2.5-2.6zM84.2 30.9l1.2 1.1 1.5 3.6 5.7 32.4 0 2.6-1 3.6-1 1.5-3.1 3.2-4.2 1.9-40.6 15-4.2 0-16.4-3.6-3.6-1.4-2.6-2.2 .5 .4 17.5 3.4 3.8-1.2 5-3.4 1-1.3-5.4-30.3 .2-.6 3.1-3.4 40.2-15.1 2-3.6z","eyes":[[55.5,65.3,8.4,22.1,-10],[74.2,58.3,8.4,22.1,-10]]},"plus":{"label":"plus","body":"M44.6 4.3l3.3-.1 11.9 2.5 2.5 1.3 1.3 1.4 .7 1.6 2.1 11.4 4.1-1.2 2.1 0 12.3 2.6 2.8 1.6 1.2 1.5 .7 1.5 3.8 21.6-.5 3.1-1 1.5-1.3 1.3-17 6.6 3.4 20.4-.4 2.5-1.2 2.1-2.3 1.6-19 6.9-2-.2-11.9-2.5-2.5-1.3-1.3-1.4-.7-1.6-2.1-11.4-4.1 1.2-2.1 0-12.3-2.6-2.8-1.6-1.2-1.5-.7-1.5-3.8-21.6 .5-3.1 1-1.5 1.3-1.3 17-6.6-3.4-20.4 .2-2 1.1-2.2 2.6-2z","paints":[],"shade":"M63.2 9.4l.7 .6 .5 1.5 2.1 13.3 .6 .6 0 2.5 .5 .5 .1 2.6 .5 .5 .1 2.1-.8 3.1 19-7.1 1-1.2 1-2.1 1.1 2.1 .4 2.6 3.2 18 0 3.1-1 2-2.2 2.1-15.9 5.8-.8 .8 3.6 19.5-.1 2.6-1.5 2.6-2.2 1.6-16.4 6.1-2.1 .6-2.5 0-12.4-2.7-2.2-1.5 12.5 2.5 2.4-1 2.7-2-3.9-22.1-3.8 3.5-1 .4-2.6 .5-1.5 1-2.6 .5-1.5 1-2.6 .4-1.5 1-4.6 1.5-2.5 0-11.9-2.6-2.7-1.6 12.4 2.3 2.6-.9 2.4-1.9-3.4-20.5 .3-.5 1.7-1.8 18.6-6.9 .3-.6-.7-1-3.8-22.1 2.1-2.1 16.4-6.1 .6-.5z","eyes":[[54.5,53.1,6.1,15.9,-10],[64.5,49.4,6.1,15.9,-10]]},"magnet":{"label":"magnet","body":"M71.9 4.2l1.2-.2 12.1 2.6 .5 .3 .6 1 6.2 35.6 .6 5.8-.1 5.7-.7 5.8-1.5 5.7-2.2 5.8-4.2 7.3-5.5 6.5-6.5 5-7.1 3.4-6.3 1.3-6.3 0-15.2-3.1-5.2-1.8-5.2-3-4.6-4.1-4-5.2-2.9-5.8-2.4-7.8-6.4-36.2 25-9.5 13.1 2.9 .5 .9 6.3 35.3 1.8-3.9 .5-4.7-6.3-36.1 .4-.6z","paints":[],"shade":"M86.2 9.5l.5 1 5.8 33 .6 4.7 0 5.2-.6 5.8-2.1 8.4-3.1 7.3-3.7 5.8-6.3 6.8-5.7 4.1-5.8 2.7-6.8 1.5-6.3 0-15.2-3.1-5.7-2-5.2-3.2-5.9-5.8 .1-.7 11.5 2.5 .3-3.4-1.9-13.6-5.7-32.4 1-.1 18.3-6.9 .9-.9 .4-1 6.1 35 1.6 2.1 .1 .6 4 4.7 3.2 1.1 3.6-.6 3.2-1.9 2.4-2.8 1.9-4.2 .6-3.7-6.4-36.6 19.3-7.1 .8-.8z","eyes":[[59.6,82.1,6.1,15.9,-10],[72,77.5,6.1,15.9,-10]]},"acorn":{"label":"acorn","body":"M47.6 4l2.1 .6 1.3 1.5 .4 1.5-.4 5.2 .3 .3 8.8-.1 7.7 1 7.3 2.1 5.7 2.9 3.6 2.9 2.6 3 1.8 3.4 .9 3.7 0 4.1-1 3.6-1.7 2.2-3.9 3 2.9 8.3 .9 8.3-.9 8.3-2.7 7.7-4.2 6.8-2.9 3.1-3.2 2.6-6.7 3.8-3.7 1.2-4.1 .8-7.2 0-7.3-1.7-7-3.6-5.9-5.1-4.8-6.3-3.3-7.3-1.8-7.7-.1-8.3-4.5-1.5-2.6-1.7-2.6-4.1-1.1-4.1 0-4.2 1.2-4.1 2.2-4.1 2.8-3.7 5.2-4.6 6.3-3.8 7.2-3.2 8.3-2.3 .9-8.3 1.2-1.4z","paints":[],"shade":"M50.6 6.1l.1-.5 .6 2-.6 5.7 .2 2.1-1.2 .2-1.2-.7 .5-6.8zM85.8 23.7l1.7 2 1.6 3.7 .6 2.6-.1 4.1-.5 2.6-1.1 2.1-2.1 2-2.9 2.1 1.4 3.1 1.6 5.2 .9 8.8-.5 5.7-1.4 5.7-2.2 5.1-2.6 4.2-5.1 5.7-5.2 3.6-4.7 2.2-6.2 1.5-7.7 .1-5.7-1.2-6.8-3-4.6-3.2-4.2-4.2 2.1 1 2.1 .3 3.1-.3 3.1-.9 6.4-3.1 6.5-4.6 6.6-5.8 5.9-6.4 5.6-7.9 4-7.4-2.4 .4-.5 .5-1.1 0-.5 .5-1 0-.5 .5-1.1 0-.5 .5-1 0-.5 .6-1.6-.1-.5 .5-1.6 0-.5 .5-3.6 .5-.5 .5-2.1-.1-.5 .6-2.1-.1-.5 .7-3.1-.2-.5 .5-3.1 0-.5 .7-4.7-.2-.5 .7-15.6-.3 0-.3 8.3-.6 11.4-2.4 11.4-3.8 10.5-4.8 9.2-5.7 6-5.2 2.2-2.6 1.6-2.9 .5-1.7z","eyes":[[63.6,63.3,9.6,22.7,-11.9],[79.5,57.3,6.5,22.5,-15.5]]},"pebbles":{"label":"pebbles","body":"M47.3 4.5l2.7-.4 2.7 .1 13.7 3 4.3 2.1 3.3 3.4 1.3 2.2 1 2.8 2 12-.5 4.3-3.1 7.7 .2 .5 8.4 1.9 2.7 1 3.3 2.1 2.7 2.8 2.4 4.3 1.4 6.5 .1 4.4-.8 3.8-1.3 2.7-2 2.8-2.4 2.2-2.7 1.6-45.5 17-3.3 .6-3.2-.2-19.2-4.2-4.9-2.8-3.4-3.8-1.9-4.4-1.3-7.7 .2-3.2 .8-2.8 1.3-2.7 2-2.7 3.2-2.8 7.9-3.8 2.5-2.2-.4-1.6-5.4-6.1-1.8-3.8-2.3-12.5 .2-3.3 .7-2.7 2.6-4.4 2.2-2 2.2-1.4z","paints":[],"shade":"M73.2 12.2l.4 0 1.5 2.2 1.2 3.3 1.8 11.4-.2 4.4-3.3 7.6 0 1.1 .6 1.1-1.2 1.3-26.8 10.1-3.2 .5-5.8-.4-15.2-3.3-1.4-.5-3.5-3.8 .2-.3 1.6 .2 10.9 2.2 2.8-.5 4.4-2.2 5-3.8 .1-.6-1.5-8.7 4-4.5 24.2-9.2 2.4-3.8zM90.9 48.8l2.8 3.8 1 2.8 1.2 6 0 4.3-1.1 3.9-1.7 3.2-3.8 3.9-2.7 1.7-42.1 15.8-5.5 1.6-3.8 0-18-3.8-4.9-2.1-3.4-2.9 17.6 3.8 2.7-.2 3.3-1.2 4.3-2.6 4.4-3.6-.4-3.8 4.4-4.9 42.5-16 2.1-3.1 1.1-2.8 .5-3.3z","eyes":[[51.2,34.1,6.9,18.1,-10],[66.4,28.4,6.9,18.1,-10]]},"cushion":{"label":"cushion","body":"M64.2 4.4l3.3-.4 2.8 .2 3.9 .8 2.8 1.1 2.7 1.7 2.4 2.1 1.9 2.4 1.5 2.8 1.2 3.9 7.1 40.6-.1 5-1.4 4.5-1.6 2.9-1.9 2.2-2.2 1.9-2.8 1.7-45.6 17.1-3.4 .9-3.4 .2-4.5-.7-3.4-1.2-3.3-2-2.9-2.7-2.3-3.4-1.5-3.9-7.3-41.7 .1-5 1.4-4.5 1.6-2.9 1.9-2.2 2.2-1.9 2.8-1.7z","paints":[],"shade":"M82.1 10l2.9 4 1.6 4.5 7.3 42.2-.5 5.1-1.1 3.3-1.7 2.9-4.6 4.5-3.3 1.7-46.8 17.4-5.6 .2-4-.7-3.3-1.2-3.4-2.2-1.7-1.8 .6 .4 3.3 .2 4.5-1.2 5.1-2.8 5.3-4.4-6.9-39.4 5-5.7 43.9-16.4 2.3-3.6 1.1-2.8 .5-3.6z","eyes":[[51.1,57.2,8.4,22.1,-10],[69.9,50.1,8.4,22.1,-10]]},"ring":{"label":"ring","body":"M48.1 4.3l8-.1 7.8 1.8 7.3 3.5 6.7 5.4 5.2 6.7 4.1 8.3 2.3 8.9 .7 9-1 9.5-2.5 8.9-4.1 8.3-5.3 7.3-6.6 6.1-7.3 4.5-7.8 2.7-8.4 .9-7.2-.8-7.3-2.5-6.7-4.1-5.6-5.3-4.5-6.5-3.5-7.8-2-8.4-.6-8.4 .9-8.9 2.2-8.4 3.5-7.8 4.9-7.2 5.8-6.1 6.3-4.5 7.1-3.3zM50.5 33.8l2.3-.3 1.7 .4 1.6 1.1 2 2.2 1.3 2.8 .8 2.7 .4 3.4-.1 3.3-1.4 6.2-3 5.6-2.2 2.4-2.2 1.6-2.3 1-2.2 .3-1.7-.4-1.6-1.1-2.8-3.7-1.5-5.2-.1-5.5 1.2-5.6 2.4-5 3.6-4z","paints":[],"shade":"M76.2 14.9l1.1-.5 3.4 3.8 2.8 3.9 2.3 4.5 1.6 3.9 1.6 5.6 1.1 8.3-.4 10.1-1.3 6.1-2.6 7.8-4.6 8.3-4.4 5.6-6.2 5.7-6.1 3.8-7.2 2.9-6.2 1.1-7.8-.1-7.2-1.7-3.9-1.6-4-2.2-5.5-4.5-2.8-3.4 1.7-.6 2.4-2.1 2-2.8 1.2-2.8 1.2-5 1.1-13.4 1.4-7.8 2.5-7.8 3.8-7.3 3.3-4.5 3.4-3.4 3.9-3.1 4.4-2.6 3.9-1.5 4.5-1.1 12.3-.9zM50.5 33.8l.6-.3 2.8 0 1.6 .9 2.7 2.8 3 1.4 3.3 .5 6.1 .2 3.9 .9 1.7 1 1.7 1.6 2.1 4.4 .7 4.5-.3 5-1.2 5-1.9 4.5-2.8 4.2-3.3 3.6-3.9 2.8-3.9 1.7-3.4 .6-3.3-.1-3.4-1.1-2.5-1.7-2.5-3-3.6-7-2.9-3.4-2.1-5-.6-5.6 .6-4.4 1-3.4 2.3-4.4 1.4-2.1 2.3-2.2 2.7-1.7z","eyes":[[56.2,84.6,5.3,13.3,-6.8],[71.7,78.8,5.1,13.4,-6.5]]},"gem":{"label":"gem","body":"M57 9.3l2.9-.4 14.9 3.5 19.6 14.1 1 1.4 .6 1.6-.5 2.6-27.1 56.5-1.6 1.8-2.1 .7-15.9-3.4-42.9-30.7-1.3-1.6-.6-1.6 .5-2.6 12-25.2 1.1-1.5 1.5-1z","paints":[],"shade":"M75.7 14.6l.1-.4 .6 .2 16.9 12.3 1.1 .7 .5-.2 .5 .7 .6 2.6-.5 1.6-26.4 55.1-1.2 2.1-1.1 1.1-1.6 .6-2.1 0-14.3-3.3-42.8-30.7 1.5-.2 11.6 2.5 2.2-.7 2.8-2.6 11.9-24.9 .6-.8 38.2-14.2z","eyes":[[51.4,42.9,6.7,17.7,-10],[66.1,37.4,6.7,17.7,-10]]}};
+const INKS={"deepseek":["#4D6BFE","#6A84FF"],"charcoal":["#141416","#F1F2F4"],"graphite":["#2D2D2D","#D6D6DA"],"rose":["#EC2F6B","#FF5A7A"],"sky":["#0AA8D6","#2EE6E0"],"tangerine":["#FF6900","#FF8A2E"],"cobalt":["#082DFF","#5C78FF"],"black":["#000000","#FFFFFF"],"brown":["#9A6B44","#7C5332"],"red":["#FF3E51","#E02135"],"orange":["#FF6B1A","#FF5E00"],"yellow":["#FFB020","#F59E0B"],"green":["#10B981","#059669"],"cyan":["#06B6D4","#0891B2"],"blue":["#2563EB","#3B82F6"],"violet":["#8B5CF6","#7C3AED"],"magenta":["#F43F85","#E11D74"],"gray":["#8A8F98","#6E737B"],"aurora":["#00B8D4","#2EE6E0"]};
+const GRAD={"aurora":[[0,"#A4FFB0"],[0.42,"#00F0E4"],[1,"#2E9EF7"]]};
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   DS Bot Market — 原型脚本
+   形象直接复用 DS Bot 的 characters.js 数据（形状 + 墨色 + 挖空眼睛）
+   ═══════════════════════════════════════════════════════════════ */
+let __sid = 0
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+function charSVG(shape, color, cls = 'char') {
+  const def = CHARS[shape] || CHARS.gumdrop
+  const id = 'm' + (++__sid)
+  const grad = GRAD[color]
+  const paint = grad ? `url(#${id}g)` : `var(--i-${color in INKS ? color : 'gray'})`
+  const paints = (def.paints || []).map(([d, fill, op]) => `<path d="${d}" fill="${fill}" fill-opacity="${op}"/>`).join('')
+  const layers = paints + `<path d="${def.shade}" fill="#000" fill-opacity=".07"/>`
+  const eyes = def.eyes.map(([cx, cy, w, h, t]) =>
+    `<rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}" transform="translate(${cx} ${cy}) rotate(${t})"/>`).join('')
+  const gradDef = grad ? `<linearGradient id="${id}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${grad.map(([o, v]) => `<stop offset="${o}" stop-color="${v}"/>`).join('')}</linearGradient>` : ''
+  return `<svg class="${cls}" viewBox="0 0 100 100" aria-hidden="true"><defs>${gradDef}<mask id="${id}" maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300"><rect x="-100" y="-100" width="300" height="300" fill="#fff"/><g fill="#000">${eyes}</g></mask></defs><g mask="url(#${id})"><g fill-rule="evenodd"><path d="${def.body}" fill="${paint}"/>${layers}</g></g></svg>`
+}
+
+const avatar = (bot, size = 44, cls = '') =>
+  `<span class="av s${size} ${cls}">${bot.image ? `<img src="${bot.image}" alt="" style="width:100%;height:100%;object-fit:cover">` : charSVG(bot.shape, bot.color)}</span>`
+
+const I = {
+  back: '<svg class="i s14" viewBox="0 0 20 20"><path d="M12 15l-5-5 5-5"/></svg>',
+  plus: '<svg class="i s12" viewBox="0 0 20 20"><path d="M10 4.5v11M4.5 10h11"/></svg>',
+  dl: '<svg class="i s12" viewBox="0 0 20 20"><path d="M10 4v8.5M6.5 9.5L10 13l3.5-3.5"/><path d="M4.5 15.5h11"/></svg>',
+  check: '<svg class="i s12" viewBox="0 0 20 20"><path d="M4.5 10.5l3.5 3.5 7.5-7.5"/></svg>',
+  shield: '<svg class="i s14" viewBox="0 0 20 20"><path d="M10 3.2l5.5 2v4.4c0 3.3-2.2 5.9-5.5 7.2-3.3-1.3-5.5-3.9-5.5-7.2V5.2z"/><path d="M7.6 9.9l1.8 1.8 3.2-3.3"/></svg>',
+  arrow: '<svg class="i s12" viewBox="0 0 20 20"><path d="M4.5 10h10M11 6.5l3.5 3.5-3.5 3.5"/></svg>',
+  copy: '<svg class="i s14" viewBox="0 0 20 20"><rect x="7" y="7" width="8.5" height="8.5" rx="2"/><path d="M12.5 7V5.5a1.5 1.5 0 0 0-1.5-1.5H5.9A1.5 1.5 0 0 0 4.4 5.5v5.1A1.5 1.5 0 0 0 5.9 12h1.1"/></svg>',
+  x: '<svg class="i" viewBox="0 0 20 20"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg>',
+  star: '<svg class="i s14" viewBox="0 0 20 20"><path d="M10 3.5l2 4.2 4.6.6-3.4 3.2.9 4.5L10 13.9 5.9 16l.9-4.5L3.4 8.3l4.6-.6z"/></svg>',
+  folder: '<svg class="i s14" viewBox="0 0 20 20"><path d="M3.5 6.2A1.7 1.7 0 0 1 5.2 4.5h2.6l1.5 2h5.5a1.7 1.7 0 0 1 1.7 1.7v5.6a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"/></svg>',
+  eye: '<svg class="i s14" viewBox="0 0 20 20"><path d="M2.6 10S5.4 5.3 10 5.3 17.4 10 17.4 10 14.6 14.7 10 14.7 2.6 10 2.6 10z"/><circle cx="10" cy="10" r="2.1"/></svg>',
+  globe: '<svg class="i s14" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.4"/><path d="M3.7 10h12.6M10 3.6c1.9 2 2.8 4.1 2.8 6.4S11.9 14.4 10 16.4C8.1 14.4 7.2 12.3 7.2 10S8.1 5.6 10 3.6z"/></svg>',
+  link: '<svg class="i s14" viewBox="0 0 20 20"><path d="M8.4 11.6l3.2-3.2"/><path d="M7.6 12.7l-1.2 1.2a2.6 2.6 0 0 1-3.6-3.6l2.4-2.4a2.6 2.6 0 0 1 3.6 0"/><path d="M12.4 7.3l1.2-1.2a2.6 2.6 0 0 1 3.6 3.6l-2.4 2.4a2.6 2.6 0 0 1-3.6 0"/></svg>',
+  lock: '<svg class="i s12" viewBox="0 0 20 20"><rect x="4.8" y="8.8" width="10.4" height="7" rx="2"/><path d="M7.4 8.8V7.2a2.6 2.6 0 0 1 5.2 0v1.6"/></svg>',
+}
+
+/* ─────────── 数据 ─────────── */
+const BOTS = [
+  {
+    id: 'mkt-scout', name: '竞品情报官', role: '竞品与市场变化追踪',
+    tagline: '每天早上巡一遍你盯的 12 个竞品官网、定价页和更新日志，把变了的地方写成一段话发给你。',
+    author: '归藏', handle: '@guizang', installs: 1842, updated: '2 天前', featured: true, verified: true, official: false,
+    cats: ['研究'], tags: ['每日巡检', '网页对比', '飞书推送'],
+    shape: 'saucer', color: 'sky',
+    model: 'DeepSeek-V3.2', effort: '中', memory: '独立',
+    about: '它把「谁又改价了」这件事变成一条不用你操心的日常。第一次接入时你给它一份竞品清单，之后每个工作日上午九点，它自己开浏览器逐页比对，把新增的定价档、改过的措辞、下线的功能点，按影响大小排好发到你的飞书。',
+    features: [
+      ['先给清单，再谈结论', '接入后它会问你要链接和关注点，存进自己的记忆，不会每次重问。'],
+      ['只报变化，不报原文', '每页存一份快照，第二天只对比差异；没变就不发消息。'],
+      ['自带证据', '每条结论都附截图和原文片段，方便你直接转给老板。'],
+    ],
+    example: [
+      ['u', '帮我盯这三家：cursor.com/pricing、windsurf.com/pricing、zed.dev/blog'],
+      ['b', '收到。三条链接已存进我的记忆，默认每天 09:00 巡检，只在有变化时发消息。\n\n第一次先建基线快照，稍后给你一条确认。'],
+      ['u', '有变化发飞书就行'],
+      ['b', '明白，已绑定飞书。'],
+    ],
+    perms: [['browser', '打开官网页面并截图', 'write'], ['files', '在工作文件夹里存快照和日志', 'write'], ['im', '发消息到你的飞书', 'write']],
+    versions: [['v1.4', '价格档位识别更稳；快照体积减半', '2 天前', true], ['v1.3', '支持对比更新日志（changelog）', '3 周前'], ['v1.0', '首个公开版本', '2 个月前']],
+    changes: [['add', '新增', '价格档位按币种归一后再比较', '第 3 段之后'], ['mod', '改了', '快照从整页截图改成只存正文，体积减半', '第 6 段'], ['del', '删掉', '每页都截全屏', '第 7 段']],
+  },
+  {
+    id: 'fin-reader', name: '财报拆解员', role: '读财报，出一页纸',
+    tagline: '丢一份财报 PDF 进来，它按你的模板抽出营收结构、毛利变化和三个值得追问的点。',
+    author: '林一', handle: '@linyi', installs: 967, updated: '5 天前', verified: true, official: false,
+    cats: ['办公'], tags: ['PDF', '财务', '表格'],
+    shape: 'hex', color: 'violet',
+    model: 'DeepSeek-V3.2', effort: '高', memory: '独立',
+    about: '针对 A 股和港股财报做过一轮提示词打磨。接入后先让你选一份自己的模板（或者用它自带的），之后每份财报都按同一个骨架输出，方便横向比较。',
+    features: [
+      ['按模板走', '你给过一次表格结构，之后每份都长一个样。'],
+      ['算得清', '同比、环比、毛利率都由它自己用表格算，不靠文字估计。'],
+      ['标出疑点', '应收增速远超营收这类信号会单独列出来。'],
+    ],
+    example: [
+      ['u', '读一下这份三季报，按我上次的模板'],
+      ['b', '已读取 214 页。营收 128.4 亿（同比 +18.2%），毛利率 41.3%（同比 -1.8pct）。\n\n三个值得追问的点：\n1. 应收账款同比 +47%，快于营收；\n2. 合同负债环比下滑 12%；\n3. 研发费用率逆势提升到 11.4%。'],
+    ],
+    perms: [['files', '读写你的工作文件夹', 'write'], ['office', '生成 Word / Excel', 'write']],
+    versions: [['v2.1', '支持港股年报格式', '5 天前', true], ['v2.0', '重写抽取逻辑，长文档不再截断', '1 个月前']],
+  },
+  {
+    id: 'job-sieve', name: '简历初筛员', role: '招聘初筛与追问清单',
+    tagline: '按你给的岗位画像给简历打分，输出一份带理由的短名单，和每个候选人该问的三个问题。',
+    author: 'DS Bot 团队', handle: '@dsbot', installs: 3204, updated: '1 天前', featured: true, verified: true, official: true, private: true,
+    cats: ['办公'], tags: ['招聘', '评分', '隐私'],
+    shape: 'whale', color: 'deepseek',
+    model: 'DeepSeek-V3.2', effort: '中', memory: '独立',
+    about: '官方维护的招聘场景 Bot。默认是隐私 Bot：不进群聊、不接外部消息，简历只存在它自己的工作文件夹里。',
+    features: [
+      ['画像先行', '第一次接入让你填岗位画像和硬性条件。'],
+      ['给理由，不只给分', '每条打分都指向简历里的具体段落。'],
+      ['面试问题', '按候选人短板生成三个追问，直接可复制。'],
+    ],
+    example: [
+      ['u', '这 40 份简历筛一下，后端岗'],
+      ['b', '读完 40 份，进入短名单 7 人。\n\n最强的是 #12 和 #27：都有高并发场景经验，且主导过迁移。\n#31 的 Kafka 经验写得很实，但两段经历都不到一年，建议面的时候追稳定性。'],
+    ],
+    perms: [['files', '简历只存在工作文件夹', 'write']],
+    versions: [['v3.2', '隐私模式默认开启', '1 天前', true], ['v3.0', '支持批量文件夹', '2 周前']],
+  },
+  {
+    id: 'weekly-scribe', name: '周报书记员', role: '把一周的活写成周报',
+    tagline: '翻你这一周的会话、提交和日历，按「做成了什么 / 卡在哪 / 下周要什么」写成三段。',
+    author: '阿澈', handle: '@ache', installs: 5410, updated: '6 小时前', verified: false, official: false,
+    cats: ['效率'], tags: ['周报', '总结', '日历'],
+    shape: 'cushion', color: 'tangerine',
+    model: 'DeepSeek-V3.2', effort: '低', memory: '共享',
+    about: '周五下午五点提醒你一次，你回一句「写吧」，它就开始翻这一周的记录。它默认只读，不会替你发出去。',
+    features: [['只读', '不给写权限，初稿放在工作文件夹里由你取。'], ['有取舍', '流水账会被压成三件事，剩下的折进附录。'], ['跟着你的语气', '前几次会让你改，改完记住。']],
+    example: [['u', '写周报'], ['b', '这周做成了三件事：把市场页重做上线、把构建时间从 9 分钟压到 3 分半、和两家供应商聊完定价。\n\n卡住的是审批流，等法务回。下周想把灰度扩到 10%。']],
+    perms: [['memory', '读你授权的会话记录', 'read'], ['calendar', '读日历', 'read'], ['files', '写初稿到工作文件夹', 'write']],
+    versions: [['v2.8', '支持按项目拆段', '6 小时前', true], ['v2.6', '语气模仿更稳', '1 个月前']],
+  },
+  {
+    id: 'ticket-triage', name: '工单分流台', role: '客服工单分类与首响',
+    tagline: '读进来的每张工单，判优先级、贴上标签、写一段可以直接发出去的首响。',
+    author: '南风', handle: '@nanfeng', installs: 1276, updated: '1 周前', verified: true, official: false,
+    cats: ['客服'], tags: ['工单', '自动回复', '标签'],
+    shape: 'beacon', color: 'green',
+    model: 'DeepSeek-V3.2', effort: '中', memory: '独立',
+    about: '接的是「判类 + 起草」，不负责真的发出去。默认初稿模式，人点一下才会回复，避免它自作主张。',
+    features: [['优先级有依据', '按影响面、付费等级、历史同类工单判。'], ['首响初稿', '带上下文，不像模板。'], ['升级规则', '碰到退款和账号安全直接 @ 值班人。']],
+    example: [['u', '来了一张：企业版用户，说团队 12 个人都登不上'], ['b', '优先级 P0，标签 登录 / 企业版。\n\n初稿：已经在查了，初步判断是 SSO 配置同步延迟，我们十分钟内给你结论。\n\n已按规则 @ 值班人，因为涉及企业版且影响面超过 10 人。']],
+    perms: [['im', '读工单、发初稿', 'write'], ['memory', '记住历史同类工单', 'write']],
+    versions: [['v1.9', '升级规则可配', '1 周前', true], ['v1.5', '首响初稿更短', '2 个月前']],
+  },
+  {
+    id: 'code-buddy', name: '代码评审搭子', role: '接 Claude Code 做前置评审',
+    tagline: '把 diff 先过一遍，只挑真会出事的说，剩下的不出声。跑在你本机的 Claude Code 上。',
+    author: 'Kelvin', handle: '@kelvin', installs: 2890, updated: '3 天前', featured: true, local: true, verified: true, official: false,
+    cats: ['研发'], tags: ['代码评审', '本地 Agent', 'CLI'],
+    shape: 'gem', color: 'cobalt',
+    model: 'DeepSeek-V3.2', effort: '高', memory: '独立',
+    about: '它自己不写代码，只做读。接入时你指定仓库路径和允许跑的测试命令，它调本地 Claude Code 去看 diff，回来用中文说清楚风险点。',
+    features: [['只说会出事的', '风格问题一律不提，注释缺失不提。'], ['跑测试', '只跑你允许的几条命令，结果原样带回。'], ['有离线模式', '断网也能工作，因为模型和工具都在本机。']],
+    example: [['u', '看下这个 PR'], ['b', '三处要改：\n\n1. `sync.js:88` 这个 await 在循环里，1000 条会打满连接池；\n2. 重试没有退避，下游抖动时会雪崩；\n3. 新增的缓存没有失效路径，改了配置要等一小时。\n\n其余没问题，测试我跑了，是两个既有的失败用例，和这次无关。']],
+    perms: [['files', '读仓库，不写', 'read'], ['shell', '只能跑你批准的命令', 'write'], ['agent', '调用本地 Claude Code', 'write']],
+    versions: [['v1.6', '支持 monorepo 路径映射', '3 天前', true], ['v1.4', '离线模式', '1 个月前']],
+  },
+  {
+    id: 'lesson-craft', name: '备课搭子', role: '中学理科备课',
+    tagline: '给一个知识点，出一节课：引入、三个例子、常见误解、两道随堂题。',
+    author: '周老师', handle: '@zhou', installs: 682, updated: '2 周前', verified: false, official: false,
+    cats: ['教育'], tags: ['备课', '教案', '出题'],
+    shape: 'acorn', color: 'orange',
+    model: 'DeepSeek-V3.2', effort: '中', memory: '独立',
+    about: '按人教版进度写的提示词，默认出一页纸教案，需要的话再展开成 PPT。',
+    features: [['先问学情', '第一次接入会问你带哪个年级、学生底子如何。'], ['误解库', '把这一节最常见的三个误解单独列出来。'], ['出题有梯度', '基础、变式、拔高各一道。']],
+    example: [['u', '浮力，初二，学生基础一般'], ['b', '一节课的骨架：\n\n引入：两个一模一样的球，一个铁一个木，扔水里为什么一个沉一个浮？（先别解释浮力公式）\n\n三个例子：船、潜水艇、热气球。\n\n常见误解：① 越重的物体浮力越大 ② 浮力等于物体重力 ③ 上浮的物体浮力在变大。\n\n随堂题：基础 1 道、变式 1 道、拔高 1 道，已附答案。']],
+    perms: [['files', '写教案到工作文件夹', 'write'], ['office', '导出 PPT', 'write']],
+    versions: [['v1.2', '误解库扩充到 180 条', '2 周前', true], ['v1.0', '首个版本', '3 个月前']],
+  },
+  {
+    id: 'contract-eye', name: '合同对读员', role: '改前改后逐条对读',
+    tagline: '把对方发回的版本和你的原版并排读，只列出被改动的条款和它的实际后果。',
+    author: '宋律', handle: '@song', installs: 413, updated: '4 天前', local: true, private: true, verified: true, official: false,
+    cats: ['办公'], tags: ['合同', '对比', '隐私'],
+    shape: 'ring', color: 'charcoal',
+    model: 'DeepSeek-V3.2', effort: '高', memory: '独立',
+    about: '隐私 Bot，文件不出本机。默认只标注不评判，除非你让它给立场。',
+    features: [['逐条对齐', '先对齐条款编号，再比文字。'], ['说后果', '不说「违约条款被改了」，而说「逾期违约金从万分之三降到万分之一」。'], ['分级', '真金白银的改动排在最前。']],
+    example: [['u', '他们对回来的版本，帮我看看'], ['b', '改了三处，一处要紧：\n\n第 7.2 条逾期违约金从「日万分之三」改成「日万分之一」，按 300 万合同额算，逾期一个月少赔 1.8 万。\n\n另外两处是通知方式和争议管辖，影响不大。']],
+    perms: [['files', '只读，文件不出本机', 'read']],
+    versions: [['v1.1', '支持扫描件 OCR', '4 天前', true], ['v1.0', '首个版本', '1 个月前']],
+  },
+  {
+    id: 'xhs-forge', name: '小红书脚本工坊', role: '选题到成稿',
+    tagline: '给一个产品点，出五个选题、三个开头、一篇成稿，带标签和封面文案。',
+    author: '小满', handle: '@xiaoman', installs: 7115, updated: '12 小时前', featured: true, verified: false, official: false,
+    cats: ['内容'], tags: ['小红书', '文案', '选题'],
+    shape: 'peanut', color: 'magenta',
+    model: 'DeepSeek-V3.2', effort: '中', memory: '共享',
+    about: '写得像人，不像投放。它默认会给你三个方向，让你先挑，再展开成稿。',
+    features: [['先选题再成稿', '不一次性堆十篇。'], ['开头六种写法', '对号入座，不是模板填空。'], ['封面文案', '一版六个字左右的标题。']],
+    example: [['u', '推一款通勤双肩包，卖点是不压肩'], ['b', '五个选题，我推第 2 个和第 4 个：\n\n2. 「背了两年的包，我才知道肩带可以这么宽」\n4. 「地铁挤成罐头，包却没被挤变形」\n\n要哪个？我出三个开头给你挑。']],
+    perms: [['files', '写稿到工作文件夹', 'write']],
+    versions: [['v3.4', '选题库更新到 11 月', '12 小时前', true], ['v3.2', '成稿更短', '3 周前']],
+  },
+  {
+    id: 'dash-keeper', name: '看板管家', role: '把数据变成每天的一句话',
+    tagline: '接你的数据源，每天早上把三件反常的事用一句话说清，附上钻取链接。',
+    author: 'DS Bot 团队', handle: '@dsbot', installs: 1533, updated: '2 天前', featured: true, verified: true, official: true,
+    cats: ['效率'], tags: ['指标', '日报', '异常'],
+    shape: 'plus', color: 'deepseek',
+    model: 'DeepSeek-V3.2', effort: '低', memory: '独立',
+    about: '官方维护。它不画图，只判断「今天哪三个数字不对劲」，然后给你一条能点开的路径。',
+    features: [['先建基线', '头两周只观察，不报警。'], ['三条上限', '再多就不看了。'], ['能追到底', '每个异常附一条钻取链接。']],
+    example: [['u', '今天有什么异常'], ['b', '三件：\n\n1. 注册转化 4.1%，比七天均值低 1.3pct，主要掉在 iOS 端；\n2. 客服工单量翻倍，集中在退款；\n3. 上海地区支付成功率 97.2%，低于 99% 阈值。\n\n第三条最急。']],
+    perms: [['db', '只读查询，不写', 'read'], ['im', '发日报', 'write']],
+    versions: [['v2.2', '阈值可以按业务时段调', '2 天前', true], ['v2.0', '重建基线算法', '1 个月前']],
+  },
+  {
+    id: 'meeting-minute', name: '会议纪要员', role: '开完会就有纪要',
+    tagline: '接进群聊旁听，散会后五分钟给出决议、待办和没结论的那几条。',
+    author: '阿波罗', handle: '@apollo', installs: 4288, updated: '1 周前', featured: true, verified: true, official: false,
+    cats: ['效率'], tags: ['会议', '待办', '群聊'],
+    shape: 'kitty', color: 'rose',
+    model: 'DeepSeek-V3.2', effort: '低', memory: '独立',
+    about: '接进群聊后，它会等一个「/@ 它」的信号再开始记，避免什么都记。',
+    features: [['只记结论', '争论过程折成一句「分歧在 X」。'], ['待办带人', '谁做什么，什么时候。'], ['没结论的单独列', '避免假装开完了。']],
+    example: [['u', '@会议纪要员 开始记'], ['b', '记完了。\n\n决议：灰度先按 5% 走，周五看数据。\n\n待办：\n· 阿澈：周三分流配置上线\n· 林一：周四给对比报告\n\n没结论：预算还没定，等 CFO 回来。']],
+    perms: [['im', '读群消息、发纪要', 'write'], ['files', '存纪要', 'write']],
+    versions: [['v2.3', '待办可以一键进飞书任务', '1 周前', true], ['v2.0', '只记结论', '2 个月前']],
+  },
+  {
+    id: 'shelf-sorter', name: '资料归档员', role: '把散落的文件归位',
+    tagline: '盯着你的下载文件夹，按项目、客户、时间把文件搬进该去的地方，重名的不覆盖。',
+    author: '老陈', handle: '@laochen', installs: 894, updated: '3 周前', verified: false, official: false,
+    cats: ['效率'], tags: ['文件', '整理', '自动化'],
+    shape: 'bunny', color: 'yellow',
+    model: 'DeepSeek-V3.2', effort: '低', memory: '独立',
+    about: '接入时先让它只「提议」，你点头两周，它才拿到真的搬文件权限。',
+    features: [['先提议后动手', '默认只出清单。'], ['不覆盖', '重名自动加后缀。'], ['能回滚', '每次搬运留一份操作日志。']],
+    example: [['u', '今天下载夹怎么样'], ['b', '37 个新文件，我建议这样放：\n\n· 12 个进「客户 / 南山集团 / 11 月」\n· 9 个进「发票 / 2026」\n· 5 个重复，已列出来等你确认\n· 11 个认不出，留在原地\n\n要我搬吗？']],
+    perms: [['files', '移动文件（你确认后才执行）', 'write']],
+    versions: [['v1.7', '操作日志可以回滚', '3 周前', true], ['v1.5', '支持按客户名归档', '2 个月前']],
+  },
+]
+
+const CATS = [
+  ['全部', '全部', null], ['办公', '办公自动化', 2], ['效率', '个人效率', 4],
+  ['研发', '研发', 1], ['研究', '研究调研', 1], ['客服', '客服', 1],
+  ['内容', '内容创作', 1], ['教育', '教育', 1],
+]
+
+const state = {
+  view: 'market', cat: '全部', q: '', bot: null, step: 1, side: null, instFilter: 'all',
+  installs: [
+    { bot: 'weekly-scribe', space: '个人空间', mode: '共享记忆', state: 'up', since: '已接入 · 今天' },
+    { bot: 'code-buddy', space: '工作空间', mode: '本地 Agent', state: 'local', since: '已接入 · 3 天前' },
+    { bot: 'meeting-minute', space: '「产品组」群聊', mode: '群管理员', state: 'ok', since: '已暂停 · 1 周前' },
+  ],
+  mine: [
+    { id: 'm-daily', name: '竞品日报员', role: '每天替你巡一遍竞品', tagline: '把「谁又改价了」变成一条不用操心的日常。' },
+    { id: 'm-contract', name: '合同速读', role: '一页纸说清改了什么', tagline: '把改前改后并排读，只列真金白银的改动。' },
+    { id: 'm-standup', name: '站会记录', role: '每天十分钟的会，两分钟读完', tagline: '把站会里散掉的信息压成三条，@ 到人。' },
+  ],
+  draft: {
+    source: 'existing', pick: 'm-daily', name: '竞品日报员', role: '每天替你巡一遍竞品',
+    tagline: '把「谁又改价了」变成一条不用操心的日常。',
+    shape: 'moon', color: 'deepseek', model: 'DeepSeek-V3.2', effort: '中', perms: ['browser', 'files'], cat: '效率',
+  },
+}
+
+/* ─────────── 视图 ─────────── */
+const app = document.getElementById('view')
+
+function filtered() {
+  return BOTS.filter(b => {
+    if (state.cat !== '全部' && !b.cats.includes(state.cat)) return false
+    if (state.side === 'star' && !b.featured) return false
+    if (state.side === 'official' && !b.official) return false
+    if (state.side === 'private' && !b.local) return false
+    if (!state.q) return true
+    const k = state.q.toLowerCase()
+    return (b.name + b.role + b.tagline + b.tags.join('') + b.author).toLowerCase().includes(k)
+  })
+}
+
+function card(b, i = 0, preview = false) {
+  const installed = state.installs.some(x => x.bot === b.id)
+  const mark = preview ? '' : `data-bot="${b.id}" tabindex="0" role="link" aria-label="${esc(b.name)}，${esc(b.role)}"`
+  return `<article class="card" ${mark} style="animation-delay:${Math.min(i * 26, 220)}ms">
+    <div class="card-top">
+      ${avatar(b, 44)}
+      <div class="card-name">
+        <b>${esc(b.name)}</b>
+        <span>${esc(b.role)}</span>
+      </div>
+      ${b.official ? `<span class="verify official">${I.check}官方</span>` : b.verified ? `<span class="verify verified">${I.check}已认证</span>` : ''}
+    </div>
+    <p class="card-tagline">${esc(b.tagline)}</p>
+    <div class="tags">${b.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+    <div class="card-foot">
+      <span class="who">${I.folder}<b>${esc(b.author)}</b></span>
+      <span class="dl">${I.dl}${b.installs.toLocaleString()}</span>
+      ${preview ? `<button class="add-btn" disabled aria-label="预览用，不可点击">${I.plus}接入</button>`
+        : installed ? `<button class="add-btn is-in" data-add="${b.id}" aria-label="已接入 ${esc(b.name)}，查看">${I.check}已接入</button>`
+        : `<button class="add-btn" data-add="${b.id}" aria-label="一键接入 ${esc(b.name)}">${I.plus}接入</button>`}
+    </div>
+  </article>`
+}
+
+function viewMarket() {
+  const list = filtered()
+  const hot = BOTS.filter(b => ['mkt-scout', 'job-sieve', 'code-buddy', 'xhs-forge', 'dash-keeper', 'meeting-minute'].includes(b.id)).slice(0, 6)
+  const feat = BOTS[0]
+  return `<div class="shell">
+    <aside class="rail">
+      <div>
+        <h4>分类</h4>
+        ${CATS.map(([id, label]) => {
+          const n = id === '全部' ? BOTS.length : BOTS.filter(b => b.cats.includes(id)).length
+          return `<button class="rail-item ${state.cat === id ? 'on' : ''}" data-cat="${id}">${esc(label)}<span class="n">${n}</span></button>`
+        }).join('')}
+      </div>
+      <div>
+        <h4>来源</h4>
+        <button class="rail-item ${state.side === 'star' ? 'on' : ''}" data-side="star">${I.star}本周精选<span class="n">${BOTS.filter(b => b.featured).length}</span></button>
+        <button class="rail-item ${state.side === 'official' ? 'on' : ''}" data-side="official">${I.shield}官方出品<span class="n">${BOTS.filter(b => b.official).length}</span></button>
+        <button class="rail-item ${state.side === 'private' ? 'on' : ''}" data-side="private">${I.lock}只在本机跑<span class="n">${BOTS.filter(b => b.local).length}</span></button>
+      </div>
+      <div class="rail-note">
+        <b>接入不复制文件</b>
+        Bot 接入后活在你自己的空间里，记忆和工作文件夹都是新建的，不会和作者共享。
+      </div>
+    </aside>
+
+    <div class="col">
+      <div class="catbar">${CATS.map(([id, label]) => `<button class="${state.cat === id ? 'on' : ''}" data-cat="${id}">${esc(label)}</button>`).join('')}</div>
+      ${state.q ? '' : `<section class="hero">
+        <div>
+          <div class="hero-eyebrow">${I.star}本周精选</div>
+          <h1>${esc(feat.name)}</h1>
+          <p>${esc(feat.tagline)}</p>
+          <div class="hero-actions">
+            <button class="pill-btn" data-add="${feat.id}">${I.plus}一键接入</button>
+            <button class="ghost-btn" data-bot="${feat.id}">看看它怎么干${I.arrow}</button>
+          </div>
+          <div class="hero-meta">
+            <span>${esc(feat.author)}</span><span>·</span>
+            <span>${feat.installs.toLocaleString()} 人接入</span><span>·</span>
+            <span>${esc(feat.updated)}更新</span>
+          </div>
+        </div>
+        <div class="hero-art"><span class="orb"></span>${charSVG(feat.shape, feat.color)}</div>
+      </section>`}
+
+      ${state.q || state.side ? '' : `<section>
+        <div class="sec-head">
+          <h2>大家都在用</h2>
+          <p>按最近 7 天接入量</p>
+          <button class="more" data-cat="全部">看全部${I.arrow}</button>
+        </div>
+        <div class="grid">${hot.map((b, i) => card(b, i)).join('')}</div>
+      </section>`}
+
+      <section>
+        <div class="sec-head">
+          <h2>${state.q ? '搜索结果' : state.side === 'star' ? '本周精选' : state.side === 'official' ? '官方出品' : state.side === 'private' ? '只在本机跑' : state.cat === '全部' ? '全部 Bot' : CATS.find(c => c[0] === state.cat)[1]}</h2>
+          <p>${list.length} 个${state.q ? ` · 「${esc(state.q)}」` : ''}${state.side ? ` · 点一次取消筛选` : ''}</p>
+        </div>
+        <div class="grid">${list.length ? list.map((b, i) => card(b, i)).join('') :
+          `<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--bt-ink-3);font-size:13px">没有匹配的 Bot。换个词，或者清掉分类筛选。</div>`}</div>
+      </section>
+    </div>
+  </div>`
+}
+
+function viewDetail() {
+  const b = state.bot
+  return `<div class="shell" style="grid-template-columns:minmax(0,1fr)">
+    <div class="detail-wrap">
+      <div class="crumbs">
+        <button data-go="market">${I.back}市场</button>
+        <span>/</span><span>${esc(b.cats[0])}</span><span>/</span><span style="color:var(--bt-ink-2)">${esc(b.name)}</span>
+      </div>
+      <div class="detail">
+        <div>
+          <div class="d-hero">
+            ${avatar(b, 96)}
+            <div class="txt">
+              <h1>${esc(b.name)}</h1>
+              <div class="role">${esc(b.role)}</div>
+              <div class="byrow">
+                <b>${esc(b.author)}</b><span style="color:var(--bt-ink-3)">${esc(b.handle)}</span>
+                <span class="sep"></span>
+                ${b.official ? `<span class="verify official">${I.check}官方</span>` : b.verified ? `<span class="verify verified">${I.check}已验证</span>` : ''}
+                <span class="sep"></span><span>${esc(b.updated)}更新</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-sec">
+            <h3>它是怎么工作的</h3>
+            <p>${esc(b.about)}</p>
+            <ul class="ps">${b.features.map(([t, d]) => `<li>${I.check}<span><b>${esc(t)}</b> —— ${esc(d)}</span></li>`).join('')}</ul>
+          </div>
+
+          <div class="d-sec">
+            <h3>装进你的空间后会做什么<small>示例对话</small></h3>
+            <div class="chat">
+              <div class="chat-label">接入后第一次对话</div>
+              ${b.example.map(([who, text]) => who === 'u'
+                ? `<div class="bub u">${esc(text).replace(/\n/g, '<br>')}</div>`
+                : `<div class="bub b"><div class="mini">${avatar(b, 28)}<span>${esc(b.name)}</span></div>${esc(text).replace(/\n/g, '<br>')}</div>`).join('')}
+            </div>
+          </div>
+
+          <div class="d-sec">
+            <h3>它要的权限</h3>
+            <div>${b.perms.map(([k, d, level]) => `<div class="perm">
+              <span class="ic">${k === 'browser' ? I.globe : k === 'files' ? I.folder : k === 'im' ? I.link : k === 'memory' ? I.eye : I.shield}</span>
+              <span class="t"><b>${esc(d)}</b><span>${k === 'db' ? '只读数据库' : k === 'shell' ? '本地命令' : k === 'agent' ? '本地 Agent' : k === 'im' ? '消息连接器' : k === 'memory' ? '记忆' : k === 'browser' ? '浏览器' : k === 'office' ? 'Office 文件' : '文件'}</span></span>
+              <span class="risk ${level}">${level === 'read' ? '只读' : level === 'write' ? '可写' : '高风险'}</span>
+            </div>`).join('')}</div>
+            <p style="margin-top:10px;font-size:12px;color:var(--bt-ink-3)">接入时你可以逐项收回；收回后它会在需要时停下来问你。</p>
+          </div>
+
+          <div class="d-sec">
+            <h3>版本记录</h3>
+            <div class="log">${b.versions.map(([v, d, t, now]) => `<div class="log-row ${now ? 'now' : ''}">
+              <span class="log-v">${esc(v)}</span><span class="log-t">${esc(d)}</span><span class="log-w">${esc(t)}</span>
+            </div>`).join('')}</div>
+          </div>
+        </div>
+
+        <aside>
+          <div class="buy">
+            <div style="display:flex;align-items:center;gap:10px">
+              ${avatar(b, 36)}
+              <div style="min-width:0">
+                <div style="font-weight:600;font-size:13px">${esc(b.name)}</div>
+                <div style="font-size:11px;color:var(--bt-ink-3)">${esc(b.role)}</div>
+              </div>
+            </div>
+            <button class="pill-btn cta" data-add="${b.id}">${I.plus}一键接入</button>
+            <div class="sub">
+              <button class="ghost-btn" data-toast="已复制市场链接">${I.copy}复制链接</button>
+              <button class="ghost-btn" data-diff="${b.id}">看改动</button>
+            </div>
+            <div class="dl">
+              <div class="dl-row"><span>建议模型</span><b>${esc(b.model)}</b></div>
+              <div class="dl-row"><span>思考强度</span><b>${esc(b.effort)}</b></div>
+              <div class="dl-row"><span>记忆</span><b>${esc(b.memory)}</b></div>
+              <div class="dl-row"><span>版本</span><b>${esc(b.versions[0][0])}</b></div>
+              <div class="dl-row"><span>已接入</span><b>${b.installs.toLocaleString()}</b></div>
+            </div>
+            <div class="buy-note">${I.shield}<span>接入会新建一个独立 Bot：名字、工作文件夹、记忆都归你，互不影响。</span></div>
+            <div class="buy-foot">
+              <button data-toast="已加入待接入">收藏</button>
+              <button data-toast="已举报，24 小时内处理">举报</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>`
+}
+
+function viewInstalls() {
+  return `<div class="shell" style="grid-template-columns:minmax(0,1fr)">
+    <div class="col detail-wrap">
+      <div>
+        <div class="sec-head" style="margin-bottom:6px"><h2>我的接入</h2><p>${state.installs.length} 个 Bot 在你自己的空间里运行</p></div>
+        <p style="margin:0 0 20px;font-size:13px;line-height:22px;color:var(--bt-ink-2);max-width:62ch">
+          市场里点「接入」只是新建一份本地副本。作者更新了，这里会出现「可更新」；你改过的提示词不会被覆盖，只会被标出来。
+        </p>
+        <div class="bar">
+          <div class="seg" data-seg="inst">
+            <button class="${state.instFilter === 'all' ? 'on' : ''}" data-inst-filter="all">全部</button>
+            <button class="${state.instFilter === 'on' ? 'on' : ''}" data-inst-filter="on">运行中</button>
+            <button class="${state.instFilter === 'up' ? 'on' : ''}" data-inst-filter="up">有更新</button>
+          </div>
+          <span class="t">最近检查：2 分钟前</span>
+        </div>
+        <div class="inst">${state.installs.filter(it => state.instFilter === 'all' ? true : state.instFilter === 'up' ? it.state === 'up' : it.state !== 'ok').map(it => {
+          const b = BOTS.find(x => x.id === it.bot)
+          return `<div class="inst-row" data-bot="${b.id}">
+            ${avatar(b, 44)}
+            <div class="t">
+              <b>${esc(b.name)}</b>
+              <span>${esc(it.space)} · ${esc(it.mode)} · ${esc(it.since)}</span>
+              ${it.revoked && it.revoked.length ? `<span class="revoked">${I.lock}已收回 ${it.revoked.length} 项：${esc(it.revoked.join('、'))}</span>` : ''}
+            </div>
+            ${it.state === 'up' ? `<span class="state up">${b.versions[0][0]} 可更新</span>` : ''}
+            ${it.state === 'local' ? `<span class="state local">${I.check}本地 Agent</span>` : ''}
+            ${it.state === 'ok' ? `<span class="state ok">已暂停</span>` : ''}
+            ${it.state === 'on' ? `<span class="state on">${I.check}运行中</span>` : ''}
+            <button class="ghost-btn sm" data-toast="已打开 ${esc(b.name)}">打开</button>
+            ${it.state === 'local' ? '' : `<button class="ghost-btn sm" data-toggle="${it.bot}">${it.state === 'ok' ? '恢复' : '暂停'}</button>`}
+          </div>`
+        }).join('')}</div>
+      </div>
+
+      <div>
+        <div class="sec-head"><h2>最近变动</h2><p>只有跟你有关的事才会出现在这里</p></div>
+        <div class="inst">
+          <div class="inst-row" style="cursor:default">
+            <span class="av s44" style="background:var(--bt-accent-soft);display:grid;place-items:center;color:var(--bt-accent)">${I.dl}</span>
+            <div class="t"><b>周报书记员 v2.8 发布了</b><span>你改过 2 处提示词，不会被覆盖 —— 等你逐条采纳</span></div>
+            <button class="ghost-btn sm" data-diff="weekly-scribe">看差异</button>
+          </div>
+          <div class="inst-row" style="cursor:default">
+            <span class="av s44" style="background:var(--bt-hover);display:grid;place-items:center;color:var(--bt-ink-3)">${I.eye}</span>
+            <div class="t"><b>会议纪要员还停着</b><span>「产品组」群聊里 14 条消息没归档，恢复后会补上</span></div>
+            <button class="ghost-btn sm" data-toggle="meeting-minute">恢复</button>
+          </div>
+          <div class="inst-row" style="cursor:default">
+            <span class="av s44" style="background:var(--bt-hover);display:grid;place-items:center;color:var(--bt-ink-3)">${I.check}</span>
+            <div class="t"><b>代码评审搭子的本地 Agent 升级了</b><span>Claude Code 2.0.31，接口兼容，不用你动</span></div>
+            <span class="state local">${I.check}正常</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sec-head"><h2>接入方式</h2><p>三种，按你要隔离到什么程度选</p></div>
+        <div class="diff3">
+          <div>
+            <h5>独立副本</h5>
+            <div class="row">记忆、工作文件夹都新建</div>
+            <div class="row">可以改提示词，不影响作者</div>
+            <div class="row">群里 @ 它能用</div>
+          </div>
+          <div>
+            <h5>隐私副本</h5>
+            <div class="row">不进群聊、不接外部消息</div>
+            <div class="row">文件不出本机</div>
+            <div class="row">不能设为 主 Bot</div>
+          </div>
+          <div>
+            <h5>本地 Agent</h5>
+            <div class="row">跑在你的 Claude Code / Codex 上</div>
+            <div class="row">断网可用</div>
+            <div class="row">命令要你逐条批准</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`
+}
+
+function viewPublish() {
+  const d = state.draft
+  const steps = ['选底子', '形象与文案', '权限自检', '提交审核']
+  const pane = {
+    1: `<h2>从哪儿开始</h2>
+      <p class="hint">大部分人会从自己已经在用的 Bot 出发：调试好了，再发到市场。</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="opt ${d.source === 'existing' ? 'on' : ''}" data-src="existing"><span class="radio"></span><span class="t"><b>从我的一个 Bot 发布</b><span>提示词、形象、建议模型一起带过来，权限需要重新确认</span></span><span class="tail">推荐</span></div>
+        <div class="opt ${d.source === 'scratch' ? 'on' : ''}" data-src="scratch"><span class="radio"></span><span class="t"><b>从空白新建</b><span>市场里最常见的一类是从零写好提示词再发</span></span></div>
+        <div class="opt ${d.source === 'bundle' ? 'on' : ''}" data-src="bundle"><span class="radio"></span><span class="t"><b>导入一个 .dsbot 包</b><span>别人给你的包，或者从别的机器导出</span></span></div>
+      </div>
+      ${d.source === 'existing' ? `<div class="field" style="margin-top:16px"><label>选择要发布哪个 Bot<span class="count">3 个未发布</span></label>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${state.mine.map(m => `<div class="opt ${d.pick === m.id ? 'on' : ''}" data-pick="${m.id}" style="padding:10px">
+            <span class="av s36" style="width:36px;height:36px">${charSVG(d.pick === m.id ? d.shape : 'gem', d.pick === m.id ? d.color : 'gray')}</span>
+            <span class="t"><b>${esc(m.name)}</b><span>${esc(m.role)} · 仅你可见</span></span>
+            ${d.pick === m.id ? `<span class="tail">已选</span>` : ''}
+          </div>`).join('')}
+        </div>
+        <div class="help">只带提示词和形象，不带你的记忆、文件和历史对话。</div></div>` : ''}`,
+
+    2: `<h2>别人看到的样子</h2>
+      <p class="hint">形象用 DS Bot 自带的形状就能长出来，不用做封面图。</p>
+      <div class="field"><label>名字<span class="count" id="cName">${d.name?.length || 0}/40</span></label>
+        <input class="inp" id="fName" value="${esc(d.name || '')}" placeholder="例如：竞品情报官" maxlength="40"></div>
+      <div class="field"><label>一句话说明<span class="count" id="cRole">${d.role?.length || 0}/24</span></label>
+        <input class="inp" id="fRole" value="${esc(d.role || '')}" placeholder="例如：竞品与市场变化追踪" maxlength="24"></div>
+      <div class="field"><label>卡片上那段话</label>
+        <textarea class="inp" id="fTag" placeholder="说清它替你做什么事，以及什么时候会用上">${esc(d.tagline || '')}</textarea>
+        <div class="help">两行以内。写「它替你做了什么」，不写「基于大模型的能力」。</div></div>
+      <div class="field"><label>形象</label>
+        <div class="pick">${['whale', 'star', 'moon', 'wave', 'squircle', 'gumdrop', 'peanut', 'saucer', 'bunny', 'kitty', 'beacon', 'plus', 'magnet', 'acorn', 'pebbles', 'cushion', 'ring', 'gem', 'hex', 'zed']
+          .map(s => `<button class="${d.shape === s ? 'on' : ''}" data-shape="${s}" aria-label="${s}">${charSVG(s, d.color)}</button>`).join('')}</div></div>
+      <div class="field" style="margin-bottom:0"><label>颜色</label>
+        <div class="inks">${Object.keys(INKS).map(c => `<button class="${d.color === c ? 'on' : ''}" data-color="${c}" style="background:${GRAD[c] ? `linear-gradient(135deg,${GRAD[c].map(([o, v]) => `${v} ${o * 100}%`).join(',')})` : `var(--i-${c})`}" aria-label="${c}"></button>`).join('')}</div></div>`,
+
+    3: `<h2>它能碰你什么</h2>
+      <p class="hint">这一步决定别人接入时会看到什么风险提示。宁少勿多。</p>
+      <div class="field"><label>这个 Bot 需要的权限</label>
+        <div class="chips">
+          ${[['browser', '浏览器'], ['files', '读写文件'], ['shell', '跑命令'], ['im', '收发消息'], ['memory', '记忆'], ['agent', '本地 Agent'], ['db', '数据库'], ['office', 'Office']]
+          .map(([k, n]) => `<button class="chip ${d.perms.includes(k) ? 'on' : ''}" data-perm="${k}">${d.perms.includes(k) ? I.check : ''}${n}</button>`).join('')}
+        </div></div>
+      <div class="field"><label>自动扫描</label>
+        <div class="scan">
+          <div class="scan-row"><span class="ic ok">${I.check}</span><span class="t"><b>提示词里没有硬编码的密钥</b><span>扫过 6 种常见格式</span></span></div>
+          <div class="scan-row"><span class="ic ok">${I.check}</span><span class="t"><b>没有引用你自己的绝对路径</b><span>两个平台的用户目录都已检查</span></span></div>
+          <div class="scan-row"><span class="ic ok">${I.check}</span><span class="t"><b>没有把作者记忆写进提示词</b><span>只留了模板句</span></span></div>
+          <div class="scan-row"><span class="ic warn">!</span><span class="t"><b>1 处需要你确认</b><span>「帮我发到飞书」—— 发布后别人接入时会要求绑定自己的飞书</span></span><button class="fix">处理</button></div>
+        </div></div>
+      <div class="field" style="margin-bottom:0"><label>更新策略</label>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="opt on"><span class="radio"></span><span class="t"><b>只发通知，由使用者决定何时更新</b><span>推荐：已接入的人不会被静默改动</span></span></div>
+          <div class="opt"><span class="radio"></span><span class="t"><b>小版本自动跟随</b><span>提示词大改仍然会先问</span></span></div>
+        </div></div>`,
+
+    4: `<h2>提交审核</h2>
+      <p class="hint">自动检查通常几分钟；带能力的 Bot 要人工看代码，1–2 个工作日。通过后有可以直接分享的链接。</p>
+      <div class="opt on" style="padding:14px">
+        ${avatar({ shape: d.shape, color: d.color }, 64)}
+        <span class="t" style="margin-left:4px">
+          <b>${esc(d.name || '未命名 Bot')}</b>
+          <span style="display:block;margin-top:2px">${esc(d.role || '还没写一句话说明')}</span>
+          <span style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <span class="tag">${esc(d.cat)}</span>
+            ${d.perms.map(p => `<span class="tag">${({ browser: '浏览器', files: '文件', shell: '命令', im: '消息', memory: '记忆', agent: '本地 Agent', db: '数据库', office: 'Office' })[p]}</span>`).join('')}
+          </span>
+        </span>
+      </div>
+      <div style="margin-top:16px" class="dl">
+        <div class="dl-row"><span>提示词</span><b>${d.source === 'existing' ? `从「${esc((state.mine.find(m => m.id === d.pick) || {}).name || '我的 Bot')}」带过来` : d.source === 'bundle' ? '从 .dsbot 包导入' : '新建'}</b></div>
+        <div class="dl-row"><span>建议模型</span><b>${esc(d.model)}</b></div>
+        <div class="dl-row"><span>可见性</span><b>公开 · 审核通过后</b></div>
+        <div class="dl-row"><span>你本地那份</span><b>保持不变</b></div>
+        <div class="dl-row"><span>许可</span><b>可接入，不可再分发</b></div>
+      </div>
+      <div class="buy-note" style="margin-top:16px">${I.copy}<span>发布是把你这份另存成市场版本：你自己那个 Bot 的名字、记忆、文件夹一样不动，之后在本地改提示词也不会同步上去。要更新市场版本得重新发一次。</span></div>
+      <div class="buy-note" style="margin-top:8px">${I.shield}<span>审核看三件事：能不能用、有没有夹带别人的数据、权限写得准不准。只有提示词的 Bot 不排队等人审。</span></div>`,
+  }[state.step]
+
+  return `<div class="shell" style="grid-template-columns:minmax(0,1fr)">
+    <div class="pub">
+      <div class="steps">
+        ${steps.map((s, i) => `<button class="step ${state.step === i + 1 ? 'on' : state.step > i + 1 ? 'done' : ''}" data-step="${i + 1}">
+          <span class="n">${state.step > i + 1 ? '✓' : i + 1}</span>${s}</button>`).join('')}
+        <div class="rail-note" style="margin-top:14px">
+          <b>为什么不用填一堆表</b>
+          Bot 本身就是 name + role + 提示词 + 形象，市场只多要三样：分类、权限、卡片文案。
+        </div>
+      </div>
+
+      <div class="pub-pane">${pane}
+        <div class="pub-foot">
+          ${state.step > 1 ? `<button class="btn-ghost" data-step="${state.step - 1}">上一步</button>` : ''}
+          <span class="grow"></span>
+          ${state.step < 4
+            ? `<button class="btn-pri" data-step="${state.step + 1}">下一步${I.arrow}</button>`
+            : `<button class="btn-ghost" data-toast="已存为初稿">存初稿</button><button class="btn-pri" data-submit="1">${I.plus}提交审核</button>`}
+        </div>
+      </div>
+
+      <div class="preview">
+        <h4>市场里的样子</h4>
+        ${card({ id: 'draft', name: d.name || '未命名 Bot', role: d.role || '一句话说明', tagline: d.tagline || '卡片上那段话会出现在这里，说清它替你做什么。', tags: [d.cat, '新发布'], author: '你', installs: 0, shape: d.shape, color: d.color }, 0, true)}
+        <div class="rail-note" style="margin-top:2px"><b>形象会跟着名字长</b>不选也行，发布时会按 Bot id 派生一个稳定的形状和颜色。</div>
+      </div>
+    </div>
+  </div>`
+}
+
+
+function viewNotes() {
+  return `<div class="shell" style="grid-template-columns:minmax(0,1fr)">
+    <div class="notes">
+      <div class="crumbs"><button data-go="market">${I.back}回到市场</button></div>
+      <h1>为什么是这四个页面</h1>
+      <p class="lede">这份原型不是图，是能点的：市场、详情、我的接入、发布四屏，加上三个弹层。下面写清楚每个决定背后的取舍，以及哪些还没验证。</p>
+
+      <h2><span class="num">01</span>市场页要能「逛」，不要求人先配置</h2>
+      <p>参考的是一个通用形态：左边分类栏、中间卡片流、卡片上直接有一键接入。Grok 的 Bot Marketplace 用的也是这套骨架——但因为网络限制<b>没能抓到实际界面</b>（x.ai 与 grok.com 在本机一律超时），所以这里只借用「卡片浏览 + 一键接入」这个结构，视觉全部按 DS Bot 自己的规范重做，没有抄任何具体布局。</p>
+      <ul>
+        <li><b>卡片只放三件事</b>：它是什么（名字 + 一句话定位）、它替你做什么（两行说明）、别人用得怎么样（作者 + 接入数）。不放长介绍、不放截图——太长就没人往下滚。</li>
+        <li><b>「一键接入」直接在卡片上</b>。这是最关键的取舍：逛的时候不需要先点进详情，觉得有用就接，接错了删掉成本很低。详情页是给犹豫的人看的，不是必经路径。</li>
+        <li><b>精选区只放一个</b>。市场首页如果全是推荐位，会变成广告牌；留一个位置说「本周精选」，其余交给「大家都在用」和使用量排序。</li>
+      </ul>
+
+      <h2><span class="num">02</span>接入 = 新建一份独立副本，不是共享一个 Bot</h2>
+      <p>这是整个设计里最需要先定的问题。DS Bot 的 Bot 数据是 <code>name + role + instructions + 形象 + 建议模型</code>，没有导出/导入格式；而 Bot 一旦跑起来就有<b>长期记忆、独立工作文件夹、权限</b>。所以市场能传的只有「提示词和形象」，不能传「状态」。</p>
+      <div class="callout">
+        接入时默认做三件事：把提示词和形象复制一份、新建一个空记忆、按你选的权限清单重新授权。作者那边永远看不到你的记忆和工作文件夹，你这边也拿不到作者的。
+      </div>
+      <ul>
+        <li><b>装到哪儿</b>：个人空间 / 工作空间 / 某个群聊。这三个选项对应 DS Bot 里 Bot 能活的位置，接入时就要定，因为它决定了谁能用。</li>
+        <li><b>权限逐项收回</b>：作者声明「要浏览器 + 要写文件」，接入页会一条条列出来，每条右边有「收回」。收掉的权限它会在需要时停下来问你——比一次性授权一个笼统的「完全访问」安全得多。</li>
+        <li><b>同步策略单独问</b>：拿这一版就自己走，或者跟随作者更新。默认前者，因为没人希望别人改一次提示词，自己的 Bot 就悄悄变了。</li>
+      </ul>
+
+      <h2><span class="num">03</span>「我的接入」要能看清三件事</h2>
+      <p>这页不是设置页，是维护页。用户真正会问的是：它还在跑吗？作者改了什么？我改过的地方会不会被冲掉？</p>
+      <ul>
+        <li><b>状态</b>：可更新 / 运行中 / 已暂停 / 本地 Agent。本地 Agent 单独一种状态，因为它跑在你自己的 Claude Code 上，出问题不是作者的锅。</li>
+        <li><b>最近变动</b>：只放跟自己有关的。作者发新版、某个 Bot 停了、本地 Agent 升级了——三件事之外不要打扰。</li>
+        <li><b>差异而不是覆盖</b>：作者更新后弹出逐条对比：左边列出他改动的每一段（可勾选），右边写着你自己改过哪两段、不会被覆盖。这是「能改提示词」和「能跟随更新」两个需求唯一的和平解法。</li>
+      </ul>
+
+      <h2><span class="num">04</span>发布只多问三样东西</h2>
+      <p>Bot 本身已经是一个完整的东西了——名字、定位、提示词、形象。发布时不该让作者重写一遍，只补市场需要的元数据。</p>
+      <div class="kv">
+        <div>从哪儿开始</div><div>从我已经有的一个 Bot 发（推荐）、从空白建、导入 .dsbot 包</div>
+        <div>形象与文案</div><div>名字 40 字、一句话 24 字、卡片说明两行；形象从 20 个自带形状里挑 + 19 个墨色，<b>不用做封面图</b></div>
+        <div>权限自检</div><div>勾选它需要什么，同时自动扫描四类问题：硬编码密钥、作者的绝对路径、把作者记忆写进提示词、敏感动作（如「发给我的飞书」）</div>
+        <div>提交审核</div><div>人审看三件事：能不能用、有没有夹带别人的数据、权限写得准不准</div>
+        <div>发布之后</div><div>发布是<b>另存一份</b>：你本地那个 Bot 的名字、记忆、文件夹都不动，之后在本地改提示词也不会同步上去；要更新市场版本得重新发</div>
+      </div>
+      <p>形象这块值得单独说：DS Bot 的 <code>characters.js</code> 已经有 20 个原创形状和一套墨色，而且<b>没选形象时按 Bot id 派生</b>（FNV-1a + mulberry32），跨设备一致。所以发布流程里形象是「可以不选」的，市场卡片上的缩略图直接用这套 SVG 生成，作者一张图都不用传。原型里的所有头像都是这么来的。</p>
+
+      <h2><span class="num">05</span>视觉上刻意跟 DS Bot 对齐</h2>
+      <p>市场如果长得像另一个产品，用户不会信任它。所以颜色、字号、圆角、高度、动效全部取自 DS Bot 的 UI 标准（<code>docs/design/ui-standard.md</code>）：8 个基础色 + 深色变体、字号只用 11/12/13/14/15/17/22 那几档、圆角只用 6/8/10/12/16/999、按钮 36 与胶囊 40、过渡用弹簧曲线而不是 ease。</p>
+      <p>图标全部是 20 单位画布的自绘描边图标，没有用任何图标库。</p>
+
+      <h2><span class="num">06</span>没做和没验证的</h2>
+      <ul>
+        <li><b>没验证</b>：Grok Bot Marketplace 的实际交互。x.ai / grok.com 在本机不可达，只能按「卡片浏览 + 一键接入」的通用形态设想。这部分需要你对照一下真实产品。</li>
+        <li><b>没验证</b>：真实 DS Bot 用户会不会接受「接入 = 独立副本」。如果大家其实想要「大家一起用一个 Bot」，那记忆和权限模型要重做。</li>
+        <li><b>没做</b>：后端与鉴权、真实上传 .dsbot 包的解包校验、举报与下架流程的具体页面、搜索结果排序、收藏夹。</li>
+        <li><b>没做</b>：数据全是虚构的 12 个 Bot，用于演示密度和排序；接入数、作者名都不是真实数据。</li>
+      </ul>
+
+      <div class="callout">
+        下一步建议：先把「市场 + 详情 + 接入弹层」三屏拿给几个真实用 DS Bot 的人点一遍，重点看他们会不会在接入弹层犹豫、以及会不会真的去收回权限。这两点决定了这个市场是「能逛」还是「能用」。
+      </div>
+    </div>
+  </div>`
+}
+
+function render() {
+  if (state.view === 'detail') app.innerHTML = viewDetail()
+  else if (state.view === 'installs') app.innerHTML = viewInstalls()
+  else if (state.view === 'publish') app.innerHTML = viewPublish()
+  else if (state.view === 'notes') app.innerHTML = viewNotes()
+  else app.innerHTML = viewMarket()
+  document.querySelectorAll('.navlink,.tabbar button').forEach(n => n.classList.toggle('on',
+    n.dataset.go === (state.view === 'detail' ? 'market' : state.view)))
+  const ic = document.getElementById('instCount'); if (ic) ic.textContent = state.installs.length
+  document.querySelectorAll('svg:not([aria-label]):not([role="img"])').forEach(s => s.setAttribute('aria-hidden', 'true'))
+}
+
+/* ─────────── 弹层 ─────────── */
+function modal(html, wide = false) {
+  const s = document.createElement('div')
+  s.className = 'scrim'
+  const mid = 'dlg-' + Math.random().toString(36).slice(2, 8)
+  s.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="${mid}" tabindex="-1">${html.replace(/<h3>/, `<h3 id="${mid}">`)}</div>`
+  s.addEventListener('mousedown', e => { if (e.target === s) close(s) })
+  document.body.appendChild(s)
+  trapFocus(s.querySelector('.modal'))
+  return s
+}
+function focusables(root) {
+  return [...root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.disabled && el.offsetParent !== null)
+}
+let lastFocus = null
+function trapFocus(root) {
+  lastFocus = document.activeElement
+  root.focus()
+  root.addEventListener('keydown', e => {
+    if (e.key !== 'Tab') return
+    const f = focusables(root); if (!f.length) return
+    const i = f.indexOf(document.activeElement)
+    if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus() }
+    else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus() }
+  })
+}
+function close(s) {
+  s.style.animation = 'fade .16s ease reverse both'
+  setTimeout(() => { s.remove(); if (lastFocus && document.contains(lastFocus)) lastFocus.focus() }, 140)
+}
+
+function openAdd(id) {
+  const b = BOTS.find(x => x.id === id)
+  const spaces = [
+    [ '个人空间', b.private ? '只有你能用。隐私 Bot 只能待在这里' : '只有你能用，可以随时 @ 它', true ],
+    [ '工作空间 · 产品组', b.private ? '隐私 Bot 不能进工作空间' : '团队里 6 个人都能用同一份记忆', false ],
+    [ '「产品组」群聊', b.private ? '隐私 Bot 不能进群聊' : '进群后需要管理员批准', false ],
+  ]
+  const s = modal(`
+    <div class="modal-h">
+      <span class="av s44" style="width:44px;height:44px">${b.image || charSVG(b.shape, b.color)}</span>
+      <div class="t"><h3>接入 ${esc(b.name)}</h3><p>会在你选的空间里新建一个 Bot，提示词原样带过来。</p></div>
+      <button class="icon-btn" data-close aria-label="关闭">${I.x}</button>
+    </div>
+    <div class="modal-b">
+      <div>
+        <div class="field-label">装到哪儿</div>
+        <div class="opt-list">
+          ${spaces.map(([name, hint, on], i) => `<button class="opt ${on && !b.private ? 'on' : ''} ${on && b.private ? 'on' : ''}" data-opt="space" ${b.private && i > 0 ? 'disabled aria-disabled="true"' : ''} role="radio" aria-checked="${on}">
+            <span class="radio"></span><span class="t"><b>${name}</b><span>${hint}</span></span>${b.private && i > 0 ? '<span class="tail">隐私 Bot 不能进</span>' : i === 1 ? '<span class="tail">共享</span>' : ''}
+          </button>`).join('')}
+        </div>
+        ${b.private ? `<div class="field-note">${I.lock}<span>作者把这个 Bot 标成了隐私 Bot：文件不出本机、不进群聊、不能设为主 Bot。所以只有个人空间可选。</span></div>` : ''}
+      </div>
+      <div>
+        <div class="field-label">它可以碰什么</div>
+        <div class="scan">
+          ${b.perms.map(([k, d, level], i) => `<div class="scan-row" data-perm-row>
+            <span class="ic ${level === 'read' ? 'ok' : 'warn'}">${level === 'read' ? I.check : '!'}</span>
+            <span class="t"><b>${esc(d)}</b><span>${level === 'read' ? '只读，作者也是这么声明的' : '可写，接入后可以随时收回'}</span></span>
+            ${level === 'read' ? '' : `<button class="fix" data-perm-toggle="${i}" aria-pressed="false">收回</button>`}
+          </div>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="field-label">怎么跟作者保持同步</div>
+        <div class="opt-list row">
+          <button class="opt on" data-opt="sync" role="radio" aria-checked="true"><span class="radio"></span><span class="t"><b>拿这一版</b><span>之后作者更新不影响你</span></span></button>
+          <button class="opt" data-opt="sync" role="radio" aria-checked="false"><span class="radio"></span><span class="t"><b>跟随作者更新</b><span>有新版本时给你差异</span></span></button>
+        </div>
+      </div>
+      <div class="buy-note">${I.shield}<span>记忆默认新建一份，从空白开始；作者的记忆、文件、历史对话都不会带过来，你的也不会回传。</span></div>
+    </div>
+    <div class="modal-f">
+      <button class="btn-ghost" data-close>取消</button><span class="grow"></span>
+      <button class="btn-pri" data-confirm="${b.id}">${I.plus}接入</button>
+    </div>`)
+  const chosen = { space: '个人空间', sync: '拿这一版' }
+  const revoked = new Set()
+  s.querySelectorAll('[data-close]').forEach(n => n.addEventListener('click', () => close(s)))
+  s.querySelectorAll('.opt').forEach(o => o.addEventListener('click', () => {
+    if (o.disabled) return
+    o.parentElement.querySelectorAll('.opt').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-checked', 'false') })
+    o.classList.add('on'); o.setAttribute('aria-checked', 'true')
+    const label = o.querySelector('b').textContent.replace(/\s+/g, ' ').trim()
+    if (o.dataset.opt === 'space') chosen.space = label
+    else chosen.sync = label.startsWith('跟随') ? '跟随作者' : '拿这一版'
+  }))
+  s.querySelectorAll('[data-perm-toggle]').forEach(n => n.addEventListener('click', () => {
+    const row = n.closest('[data-perm-row]')
+    const on = n.getAttribute('aria-pressed') !== 'true'
+    n.setAttribute('aria-pressed', String(on))
+    n.textContent = on ? '保留' : '收回'
+    n.classList.toggle('is-back', on)
+    row.querySelector('.ic').className = `ic ${on ? 'ok' : 'warn'}`
+    row.querySelector('.ic').innerHTML = on ? I.check : '!'
+    row.querySelector('.t span').textContent = on ? '已收回，需要时它会停下来问你' : '可写，接入后可以随时收回'
+    if (on) revoked.add(row.querySelector('.t b').textContent)
+    else revoked.delete(row.querySelector('.t b').textContent)
+  }))
+  s.querySelector('[data-confirm]').addEventListener('click', () => {
+    close(s)
+    if (state.installs.some(x => x.bot === id)) { toast(`${b.name} 已经接入过了`); return }
+    state.installs.unshift({
+      bot: id, space: chosen.space, mode: chosen.sync, revoked: [...revoked],
+      state: b.local ? 'local' : 'on', since: '已接入 · 刚刚'
+    })
+    toast(`已接入 ${b.name}，放在${chosen.space}`)
+    render()
+  })
+}
+
+function openSuccess(url) {
+  const s = modal(`
+    <div class="modal-h">
+      <div class="t"><h3>提交成功</h3><p>通常 24 小时内出结果，通过后这个链接就能分享。</p></div>
+      <button class="icon-btn" data-close aria-label="关闭">${I.x}</button>
+    </div>
+    <div class="modal-b">
+      <div class="linkbox"><span>${esc(url)}</span><button class="icon-btn" data-copy aria-label="复制">${I.copy}</button></div>
+      <div class="scan">
+        <div class="scan-row"><span class="ic ok">${I.check}</span><span class="t"><b>自动检查通过</b><span>没有密钥、路径、他人数据</span></span></div>
+        <div class="scan-row"><span class="ic warn">!</span><span class="t"><b>等待人工审核</b><span>预计 6 小时</span></span></div>
+      </div>
+      <div class="buy-note">${I.shield}<span>通过后你会收到一条通知；别人接入时看到的权限清单就是刚才确认的那份。</span></div>
+    </div>
+    <div class="modal-f"><span class="grow"></span><button class="btn-pri" data-close>好</button></div>`)
+  s.querySelector('[data-copy]').addEventListener('click', () => toast('链接已复制'))
+  s.querySelectorAll('[data-close]').forEach(n => n.addEventListener('click', () => close(s)))
+}
+
+function openDiff(id) {
+  const b = BOTS.find(x => x.id === id)
+  const it = state.installs.find(x => x.bot === id)
+  const ver = b.versions[0]
+  // 有手写改动就用手写的，没有就把这版更新说明按分句展开
+  const rows = (b.changes || ver[1].split('；').map((t, i) => ['mod', '改了', t, `第 ${3 + i * 4} 段`])).map(([k, label, text, where]) => [k, label, text, where])
+  const s = modal(`
+    <div class="modal-h">
+      <span class="av s44" style="width:44px;height:44px">${charSVG(b.shape, b.color)}</span>
+      <div class="t"><h3>${it ? '作者改了什么' : '这版改了什么'}</h3><p>${esc(b.name)} · ${esc(ver[0])} · ${esc(ver[2])} · 提示词按段落对比</p></div>
+      <button class="icon-btn" data-close aria-label="关闭">${I.x}</button>
+    </div>
+    <div class="modal-b">
+      <div class="diffsplit">
+        <div class="dcol">
+          <h5>${it ? '作者的改动' : '这版的改动'} <span class="dim">${it ? rows.length + ' 处，勾上才会进你的副本' : rows.length + ' 处'}</span></h5>
+          ${rows.map(([k, label, text, where], i) => it
+            ? `<label class="drow ${i < 2 ? 'on' : ''}">
+                <input type="checkbox" ${i < 2 ? 'checked' : ''} data-adopt>
+                <span class="t"><code class="${k}">${esc(text)}</code><em>${label} · ${esc(where)}</em></span>
+              </label>`
+            : `<div class="drow drow-ro">
+                <span class="t"><code class="${k}">${esc(text)}</code><em>${label} · ${esc(where)}</em></span>
+              </div>`).join('')}
+        </div>
+        <div class="dcol yours">
+          <h5>${it ? '你的副本' : '你还没接入'}</h5>
+          ${it
+            ? `<div class="drow-static"><b>2 处你改过</b><em>第 5 段「不要用表格」、第 9 段「称呼用你们」</em></div>
+               <div class="drow-static"><b>上面这两段不会被覆盖</b><em>勾选的改动会插到别的位置</em></div>
+               <div class="drow-static"><b>权限无变化</b><em>${esc(ver[0])} 没有新增权限</em></div>`
+            : `<div class="drow-static"><b>只读预览</b><em>接入之后，这里才会显示你改过哪几段</em></div>
+               <div class="drow-static"><b>没有可覆盖的东西</b><em>现在看到的改动不会写进任何地方</em></div>
+               <div class="drow-static"><b>作者看不到你</b><em>浏览不会留下任何记录</em></div>`}
+        </div>
+      </div>
+      <div class="buy-note">${I.shield}<span>提示词在 DS Bot 里是一整段文本，所以对比按空行切段：只把改动的那几段单独列出来。同一段双方都改过时不算冲突，会停下来让你选。</span></div>
+    </div>
+    <div class="modal-f"><button class="btn-ghost" data-close>${it ? '先不更新' : '知道了'}</button><span class="grow"></span>
+      ${it ? `<button class="btn-pri" data-adopt-go>采纳勾选的 2 处</button>` : ''}</div>`, true)
+  s.querySelectorAll('[data-close]').forEach(n => n.addEventListener('click', () => close(s)))
+  const go = s.querySelector('[data-adopt-go]')
+  if (!go) return
+  const sync = () => {
+    const n = s.querySelectorAll('.drow input:checked').length
+    go.textContent = n ? `采纳勾选的 ${n} 处` : '不采纳任何改动'
+    go.classList.toggle('is-off', !n)
+  }
+  s.querySelectorAll('.drow').forEach(n => {
+    const box = n.querySelector('input')
+    if (!box) return
+    box.addEventListener('change', () => { n.classList.toggle('on', box.checked); sync() })
+  })
+  sync()
+  go.addEventListener('click', () => {
+    const n = s.querySelectorAll('.drow input:checked').length
+    close(s)
+    if (it) { it.state = 'on'; it.since = '已更新到 ' + ver[0] }
+    toast(n ? `已采纳 ${n} 处，其余等你以后再看` : '这次没采纳任何改动')
+    render()
+  })
+}
+
+/* ─────────── toast ─────────── */
+function toast(msg) {
+  const box = document.getElementById('toasts')
+  const el = document.createElement('div')
+  el.className = 'toast'
+  el.innerHTML = `${I.check}${esc(msg)}`
+  box.appendChild(el)
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200) }, 2000)
+}
+
+/* ─────────── 事件 ─────────── */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-add],[data-bot],[data-go],[data-cat],[data-toast],[data-diff],[data-step],[data-src],[data-side],[data-inst-filter],[data-shape],[data-color],[data-perm],[data-submit],[data-toggle]')
+  if (!t) return
+
+  if (t.dataset.add) { e.stopPropagation(); openAdd(t.dataset.add); return }
+  if (t.dataset.diff) { openDiff(t.dataset.diff); return }
+  if (t.dataset.toast) { toast(t.dataset.toast); return }
+  if (t.dataset.go) {
+    state.view = t.dataset.go
+    if (state.view === 'market') state.bot = null
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return
+  }
+  if (t.dataset.toggle) {
+    const it = state.installs.find(x => x.bot === t.dataset.toggle)
+    it.state = it.state === 'ok' ? 'on' : 'ok'
+    it.since = it.state === 'ok' ? '已暂停 · 刚刚' : '已接入 · 3 天前'
+    render(); return
+  }
+  if (t.dataset.cat) {
+    state.cat = t.dataset.cat; state.view = 'market'; render()
+    document.querySelector('.col')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return
+  }
+  if (t.dataset.bot) {
+    state.bot = BOTS.find(b => b.id === t.dataset.bot)
+    state.view = 'detail'; render(); window.scrollTo({ top: 0 }); return
+  }
+  if (t.dataset.step) {
+    state.step = Math.max(1, Math.min(4, +t.dataset.step))
+    render(); return
+  }
+  if (t.dataset.src) { state.draft.source = t.dataset.src; render(); return }
+  if (t.dataset.instFilter) { state.instFilter = t.dataset.instFilter; render(); return }
+  if (t.dataset.side) {
+    state.side = state.side === t.dataset.side ? null : t.dataset.side
+    state.view = 'market'; render(); return
+  }
+  if (t.dataset.pick) {
+    const m = state.mine.find(x => x.id === t.dataset.pick)
+    Object.assign(state.draft, { pick: m.id, name: m.name, role: m.role, tagline: m.tagline })
+    render(); return
+  }
+  if (t.dataset.shape) { state.draft.shape = t.dataset.shape; render(); return }
+  if (t.dataset.color) { state.draft.color = t.dataset.color; render(); return }
+  if (t.dataset.perm) {
+    const k = t.dataset.perm, i = state.draft.perms.indexOf(k)
+    i < 0 ? state.draft.perms.push(k) : state.draft.perms.splice(i, 1)
+    render(); return
+  }
+  if (t.dataset.submit) { openSuccess('https://market.example.com/b/moon-7f3'); return }
+})
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'q') { state.q = e.target.value; if (state.view !== 'market') state.view = 'market'; render(); const el = document.getElementById('q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); return }
+  if (e.target.id === 'fName') { state.draft.name = e.target.value; syncPreview(); return }
+  if (e.target.id === 'fRole') { state.draft.role = e.target.value; syncPreview(); return }
+  if (e.target.id === 'fTag') { state.draft.tagline = e.target.value; syncPreview(); return }
+})
+
+function syncPreview() {
+  const d = state.draft
+  const c = document.querySelector('.preview .card')
+  if (!c) return
+  c.querySelector('.card-name b').textContent = d.name || '未命名 Bot'
+  c.querySelector('.card-name span').textContent = d.role || '一句话说明'
+  c.querySelector('.card-tagline').textContent = d.tagline || '卡片上那段话会出现在这里，说清它替你做什么。'
+  const av = c.querySelector('.av')
+  av.innerHTML = charSVG(d.shape, d.color)
+  const cn = document.getElementById('cName'), cr = document.getElementById('cRole')
+  if (cn) { cn.textContent = (d.name || '').length + '/40'; cn.classList.toggle('warn', (d.name || '').length > 36) }
+  if (cr) { cr.textContent = (d.role || '').length + '/24'; cr.classList.toggle('warn', (d.role || '').length > 21) }
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && document.activeElement?.classList.contains('card')) {
+    e.preventDefault()
+    const id = document.activeElement.dataset.bot
+    if (id && BOTS.find(b => b.id === id)) { state.bot = BOTS.find(b => b.id === id); state.view = 'detail'; render(); window.scrollTo({ top: 0 }) }
+    return
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.getElementById('q').focus() }
+  if (e.key === 'Escape') { const s = document.querySelector('.scrim'); if (s) close(s) }
+})
+
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const dark = document.body.hasAttribute('data-ds-dark-theme')
+  document.body.toggleAttribute('data-ds-dark-theme', !dark)
+  document.getElementById('themeBtn').innerHTML = dark
+    ? '<svg class="i" viewBox="0 0 20 20"><path d="M16.2 12.4A6.8 6.8 0 0 1 7.6 3.8a6.9 6.9 0 1 0 8.6 8.6z"/></svg>'
+    : '<svg class="i" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.4"/><path d="M10 2.6v1.8M10 15.6v1.8M2.6 10h1.8M15.6 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M15.3 4.7L14 6M6 14l-1.3 1.3"/></svg>'
+})
+
+render()
+document.getElementById('markTop').innerHTML = charSVG('whale', 'deepseek')
+</script>
+</body>
+</html>
