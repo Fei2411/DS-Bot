@@ -248,8 +248,11 @@ export class AcpEngine {
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
         if (id !== undefined) session.toolCalls.set(id, call)
-        if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
-        else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
+        const team = ownToolCall(call)
+        const described = describeCall(call)
+        if (known === undefined) session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
+        else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
+        else if (update.status !== 'completed' && described !== describeCall(known)) session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
         break
       }
       case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break

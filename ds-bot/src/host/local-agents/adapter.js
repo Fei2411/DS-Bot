@@ -211,7 +211,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.push = (event) => {
       this.observe(live, event)
-      if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity')) return
+      if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
       clearTimeout(live.idle)
       live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
       live.idle.unref?.()
@@ -740,10 +740,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     const onAbort = () => abortReject(options.signal?.reason ?? new Error('aborted'))
     if (options.signal?.aborted) onAbort()
     else options.signal?.addEventListener('abort', onAbort)
+    const report = payload => this.deps.rt?.noteLocalAgentEvent?.(live.sessionId, payload)
     try {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
+        report({ type: 'idle' })
         this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
@@ -752,6 +754,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (event.type !== 'permission' && event.type !== 'call' && event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
       switch (event.type) {
         case 'text': {
+          report(event)
           if (textIndex === -1) {
             if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
             yield { type: 'block-start', index: index++, blockType: 'text' }
@@ -763,6 +766,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'thought':
         case 'activity': {
+          report(event)
           // An activity line stands on its own line of the reasoning, which is
           // how the chat tells it from the thought around it.
           const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
@@ -775,8 +779,12 @@ export class LocalAgentAdapter extends LlmAdapter {
           yield { type: 'reasoning-delta', index: thinkIndex, text }
           break
         }
+        case 'status':
+          report(event)
+          break
         case 'usage': yield addUsage(event.usage); break
         case 'call': {
+          report({ type: 'idle' })
           yield* closeBlocks()
           live.state = 'suspended'
           // A team tool the CLI invoked over the loopback MCP server.
@@ -789,6 +797,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // matching mode of its own: full access allows, read-only refuses a change.
           const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
           if (answer !== undefined) { event.reply(answer); break }
+          report({ type: 'idle' })
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
@@ -820,10 +829,12 @@ export class LocalAgentAdapter extends LlmAdapter {
             this.sendInput(live, next, options.signal, options.reasoningEffort)
             break
           }
+          report({ type: 'idle' })
           yield { type: 'finish', reason: { kind: 'stop' } }
           return
         }
         case 'error': {
+          report({ type: 'idle' })
           live.state = 'idle'
           throw toLlmError(event.error, live)
         }
