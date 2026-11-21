@@ -70,7 +70,7 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, tasks: _rawTasks, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, openParts, tasks: _rawTasks, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
       // `openParts` are the parts opened while the Bot was busy: live, with their own
       // earlier parts, and each one's run state read from the live turns.
@@ -201,7 +201,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -298,6 +298,11 @@ export function install(rt) {
         case 'models':
           await rt.catalog({ fresh: true })
           return ok({ modelsKey: modelsKey() })
+        // The Agent presets this profile serves, for the Bot settings picker. A broken
+        // one stays listed with its reason, and so does one whose composition would
+        // replace the Bot's own prompt, so the picker shows it as unusable.
+        case 'presets':
+          return ok({ presets: await rt.agentPresetRows({ fit: true }) })
         case 'efforts':
           return ok(await rt.reasoningOf(String(body.ref ?? '')) ?? { efforts: [] })
         // A Turn's exact thinking time, from the timed stream in its events; `ms`
@@ -404,7 +409,7 @@ export function install(rt) {
           return ok(rt.groupRelayReplies(body.sessionId, body.preview))
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, agentPreset: body.agentPreset, section: body.section, sectionId: body.sectionId })
           return ok(bot)
         }
         case 'update-bot':
@@ -994,7 +999,14 @@ export function install(rt) {
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.shouldMoveForeground?.(bot, sessionId)) {
-        sessionId = await rt.handoffForeground(bot, sessionId)
+        try {
+          sessionId = await rt.handoffForeground(bot, sessionId)
+        } catch (error) {
+          // Before the handoff commits, the incoming message has not been queued
+          // anywhere. Keep it on the usable current chat with its original request id.
+          if (rt.chatOf(ownerBotId) !== sessionId || rt.taskOwners?.has(sessionId)) throw error
+          rt.warn('ds-bot: foreground handoff for %s failed before commit; queueing the user message on the current chat: %s', sessionId, error)
+        }
       }
     }
     await rt.ensureCapabilities(sessionId)

@@ -6,6 +6,8 @@ import { DEFAULT_SHAPES, DEFAULT_COLORS } from './characters.js'
 import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { createPayload, freshBotName, startModel } from './bot-draft.js'
+import { AgentPresetMenu, useAgentPresets } from './agent-preset-menu.js'
+import { presetState } from './agent-preset.js'
 import { ModelMenu, useAgentModels } from './model-menu.js'
 import { CliList, ReadingModels, RunModeSwitch, useLocalAgents } from './agent-cards.js'
 import { agentAvatar, modelsFor, routeOf } from './agent-routes.js'
@@ -31,6 +33,8 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [agentModel, setAgentModel] = useState('')
   const [ownLook, setOwnLook] = useState(false)
   const [effort, setEffort] = useState(undefined)
+  const [agentPreset, setAgentPreset] = useState(null)
+  const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -52,7 +56,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, agentPreset: local ? undefined : agentPreset, ownLook, sectionId: start?.sectionId }))
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -112,6 +116,14 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         : modelsFor(roster.models).length > 0
           ? t('Pick a model here, or the Bot asks for one in its chat.')
           : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))) : null,
+    !local ? h('div', { className: 'bt-field' },
+      h('span', { className: 'bt-field-label' }, t('Agent preset')),
+      h(AgentPresetMenu, { value: agentPreset, presets, error: presetError, onPick: setAgentPreset, onRefresh: refreshPresets, wide: true }),
+      h('span', { className: presetError ? 'bt-note bt-danger' : 'bt-note' }, presetError
+        ? t('The preset list could not be loaded.')
+        : agentPreset
+          ? t('The Bot runs on the {name} agent preset.', { name: presetState(agentPreset, presets).name })
+          : t('The Bot runs on the default agent preset.'))) : null,
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),

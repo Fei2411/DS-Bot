@@ -33,6 +33,7 @@ const react = {
   createElement: (type, p, ...children) => ({ type, props: { ...p, children } }),
   Fragment: 'fragment',
   useCallback: fn => fn,
+  useMemo: make => make(),
   useEffect() {}, useLayoutEffect() {},
   useState: (init) => {
     const i = idx++
@@ -103,10 +104,14 @@ test('a name another Bot has blocks Create on both sides', () => {
 
 test('on Local agent, Create waits for a CLI', () => {
   render({ models: MODELS })
+  const presetPickers = () => collect(n => String(n.props?.className ?? '').includes('bt-preset-trigger'))
+  assert.equal(presetPickers().length, 1)
   button('Local agent').props.onClick()
+  assert.equal(presetPickers().length, 0)
   assert.equal(button('Local agent').props['aria-pressed'], true)
   assert.match(flatten(concrete).join(' '), /Looking for agent CLIs/)
   assert.equal(button('Create').props.disabled, true)
   button('DS Bot model').props.onClick()
+  assert.equal(presetPickers().length, 1)
   assert.equal(button('Create').props.disabled, false)
 })

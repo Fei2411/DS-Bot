@@ -898,7 +898,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, manual, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, manual, engine, preset }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -910,8 +910,9 @@ export function install(rt) {
         : engine !== undefined ? `the user changed what you run on, to ${engine}`
           : cutoff ? 'the previous part kept being cut off at the output limit'
             : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-              : manual ? 'a fresh conversation was started'
-                : 'the previous part grew long'
+              : preset ? 'your agent preset changed'
+                : manual ? 'a fresh conversation was started'
+                  : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -1150,11 +1151,11 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, preset = false, hard = overflow || folder || manual || engine || cutoff || preset } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, preset, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -1326,7 +1327,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && !job.manual && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.preset && !job.engine && !job.overflow && !job.manual && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -1351,14 +1352,15 @@ export function install(rt) {
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.preset ? 'preset' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = taskEntry?.workDir !== undefined
       ? (taskEntry.workDir ?? undefined)
       : rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
+    const presetAtCreation = bot?.agentPreset
+    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir, bot })
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId, room)
@@ -1410,6 +1412,8 @@ export function install(rt) {
         delete state.views[agent.id]
       }
     }
+    // A clear arriving during creation still belongs to the part made with the old pick.
+    finishPresetClear(bot, agent.id, presetAtCreation !== undefined ? freshId : undefined)
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
@@ -1434,7 +1438,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine, preset: job.preset })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1804,7 +1808,9 @@ export function install(rt) {
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
-      void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      void followPreset(agent).then(() => {
+        if (agent.status === 'idle') return checkContext(agent)
+      }).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
     }
   })
 
@@ -2167,6 +2173,83 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
   }
 
+  function finishPresetClear(bot, sessionId, replacement) {
+    if (!bot?.agentPresetDefaultPending?.includes(sessionId)) return false
+    bot.agentPresetDefaultPending.splice(bot.agentPresetDefaultPending.indexOf(sessionId), 1, ...(replacement === undefined ? [] : [replacement]))
+    if (bot.agentPresetDefaultPending.length === 0) delete bot.agentPresetDefaultPending
+    return true
+  }
+
+  // The Sessions a Bot speaks from right now: every live own-chat thread and each group it is in.
+  const presetSessionsOf = bot => [...new Set([...ownChatSessions(bot), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
+
+  // A part keeps the preset it was made with. A part that does not run the Bot's pick
+  // moves on to a fresh part at its next idle moment; its history stays readable and
+  // input that arrives meanwhile moves along.
+  async function applyBotPreset(bot) {
+    let started = false
+    for (const sessionId of presetSessionsOf(bot)) {
+      if (rt.botOf(bot.id) === undefined) break
+      // A part already moving reads the pick when it makes its fresh part.
+      if (switches.has(sessionId)) continue
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      if (agent !== undefined && await followPreset(agent)) started = true
+    }
+    return started
+  }
+
+  // Registering a switch blocks the next step, so wait for the whole turn to finish.
+  // The idle event also retries saved changes after a failed switch or host restart.
+  async function followPreset(agent) {
+    const place = placeOf(agent.id)
+    if (place?.botId === undefined || agent.status !== 'idle' || readOnly() || switches.has(agent.id)) return
+    // Keep the failed turn and its repair controls until the user retries successfully.
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
+    if (!await presetMismatch(agent, place.botId)) return
+    // Resolving the preset can yield to a new turn or a switch of run mode.
+    if (agent.status !== 'idle' || placeOf(agent.id)?.botId !== place.botId
+      || lastTurnEnd(agent)?.data?.reason?.kind === 'error'
+      || rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return
+    startSwitch(agent, { preset: true })
+    return true
+  }
+
+  // Whether the idle part still needs to move to the Bot's saved pick. A Bot with
+  // no pick at all keeps the preset its parts were made with (a team saved before presets
+  // existed); one whose user cleared the pick has stated the default as its intent, so a
+  // switch that failed is tried again here.
+  async function presetMismatch(agent, botId) {
+    const bot = rt.botOf(botId)
+    if (bot === undefined) return undefined
+    const explicit = typeof bot.agentPreset === 'string' && bot.agentPreset !== ''
+    if (!explicit && bot.agentPresetDefault !== true) return undefined
+    const pick = bot.agentPreset
+    const cleared = bot.agentPresetDefault
+    const pending = bot.agentPresetDefaultPending
+    const wanted = await rt.botPresetOf?.(bot)
+    if (rt.botOf(botId) !== bot || bot.agentPreset !== pick || bot.agentPresetDefault !== cleared
+      || bot.agentPresetDefaultPending !== pending) return undefined
+    // A clear still needs a default-composed part when DSH cannot name that default.
+    // Background threads are own chats too, so a live one recorded at the clear qualifies.
+    if (wanted === undefined) {
+      const recorded = bot.agentPresetDefaultPending ?? []
+      if (!recorded.includes(agent.id)) return undefined
+      const live = [...ownChatSessions(bot), ...rt.groupSessionsOf(bot.id)]
+      return live.includes(agent.id) ? botId : undefined
+    }
+    if (!wanted.usable) {
+      rt.presetProblem?.(bot, wanted.id)
+      return undefined
+    }
+    const presets = ctx.get?.('agentPresets')
+    if (typeof presets?.presetForSession !== 'function') return undefined
+    if (presets.presetForSession(agent.session) === wanted.id) {
+      if (finishPresetClear(bot, agent.id)) await rt.save()
+      return undefined
+    }
+    return botId
+  }
+
   // A DSH Agent's newest Session, paged like one part of a Bot's chat.
   async function agentPage(agentId, cursor, steps = false) {
     const agent = rt.agentById(agentId)
@@ -2202,7 +2285,7 @@ export function install(rt) {
   // turn. It keeps its own earlier parts with it (threads.js).
   async function openPartNow(bot, agent) {
     const dir = rt.workDirOf({ botId: bot.id })
-    const freshId = await rt.createSession(bot.name, { dir })
+    const freshId = await rt.createSession(bot.name, { dir, bot })
     const picked = await freshRoute(bot, agent.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
     await rt.applyPermission(bot, freshId, undefined)
@@ -2247,7 +2330,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir })
+      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir, bot })
     }
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
@@ -2299,7 +2382,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(bot.name, { dir })
+      sessionId = await rt.createSession(bot.name, { dir, bot })
     }
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
@@ -2421,5 +2504,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), applyBotPreset, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
