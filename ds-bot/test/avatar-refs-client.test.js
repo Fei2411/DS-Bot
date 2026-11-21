@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { createAvatarResolver } from '../src/client/avatar-refs.js'
+
+const state = refs => ({ revision: 1, bots: Object.entries(refs).map(([id, ref]) => ({ id, name: id, avatar: ref ? { shape: 'circle', imageRef: ref } : { shape: 'circle' } })) })
+
+test('a photo is fetched once per ref and the ref stays out of the roster', async () => {
+  const photos = { a: { ref: 'r1', image: 'data:a1' }, b: { ref: 'r2', image: 'data:b' } }
+  const asked = []
+  const resolve = createAvatarResolver(async (botId) => { asked.push(botId); return { botId, ...photos[botId] } })
+
+  const first = await resolve(state({ a: 'r1', b: 'r2', c: null }))
+  assert.deepEqual(first.bots.map(bot => bot.avatar), [{ shape: 'circle', image: 'data:a1' }, { shape: 'circle', image: 'data:b' }, { shape: 'circle' }])
+  assert.deepEqual(asked, ['a', 'b'])
+
+  await resolve(state({ a: 'r1', b: 'r2', c: null }))
+  assert.deepEqual(asked, ['a', 'b'])
+
+  photos.a = { ref: 'r3', image: 'data:a2' }
+  const changed = await resolve(state({ a: 'r3', b: 'r2', c: null }))
+  assert.equal(changed.bots[0].avatar.image, 'data:a2')
+  assert.deepEqual(asked, ['a', 'b', 'a'])
+})
+
+test('an unchanged answer passes through and a failed fetch leaves the Bot without a photo', async () => {
+  const resolve = createAvatarResolver(async () => { throw new Error('gone') })
+  const unchanged = { revision: 1, unchanged: true }
+  assert.equal(await resolve(unchanged), unchanged)
+  const value = await resolve(state({ a: 'r1' }))
+  assert.deepEqual(value.bots[0].avatar, { shape: 'circle' })
+})
