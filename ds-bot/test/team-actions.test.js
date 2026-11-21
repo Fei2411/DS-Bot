@@ -57,3 +57,32 @@ test('the details status line asks the host for one Bot\'s current part', async 
   // A read: it does not pull the whole team again.
   assert.equal(pulls(), 0)
 })
+
+test('the reference picker opens in its own mode and the pick goes back to the composer', () => {
+  const { actions, ui } = bench()
+  // The shell's own search still opens with the typed character as its query.
+  actions.openPalette('k')
+  assert.equal(ui.getSnapshot().palette.query, 'k')
+  assert.equal(ui.getSnapshot().palette.mode, null)
+  // "+ → Reference a chat" opens the palette in reference mode, owned by the composer.
+  actions.openPalette({ mode: 'reference', owner: 'chief' })
+  const palette = ui.getSnapshot().palette
+  assert.equal(palette.mode, 'reference')
+  assert.equal(palette.owner, 'chief')
+  assert.equal(palette.query, '')
+  // A pick is handed to that Session; the palette keeps its own exit timer.
+  actions.pickChatReference({ owner: 'chief', target: 'king', label: 'Chat with King' })
+  const ref = ui.getSnapshot().chatRef
+  assert.deepEqual([ref.owner, ref.target, ref.label], ['chief', 'king', 'Chat with King'])
+  assert.equal(typeof ref.token, 'number')
+  assert.notEqual(ui.getSnapshot().palette, null)
+  // A malformed pick does nothing.
+  const before = ui.getSnapshot().chatRef
+  actions.pickChatReference({ owner: 'chief' })
+  assert.equal(ui.getSnapshot().chatRef, before)
+  // The composer clears exactly the pick it consumed.
+  actions.clearChatReference(ref.token + 1)
+  assert.equal(ui.getSnapshot().chatRef, before)
+  actions.clearChatReference(ref.token)
+  assert.equal(ui.getSnapshot().chatRef, null)
+})

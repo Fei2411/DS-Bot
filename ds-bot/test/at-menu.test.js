@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { formatSessionReferenceMention, parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
-import { BOTS_SOURCE, CHATS_SOURCE, atSources, chatRows, mentionRows, sessionMention } from '../src/client/at-menu.js'
+import { BOTS_SOURCE, atSources, chatRows, mentionRows, sessionMention } from '../src/client/at-menu.js'
 import { indexRoster } from '../src/client/sources.js'
 
 const roster = indexRoster({
@@ -50,27 +50,19 @@ test('the chats are the other Bots\' current parts, then the latest Sessions out
   assert.deepEqual(chatRows(roster, list, 'new'), [])
 })
 
-test('the chats join every typed "@" menu, and a pick inserts a session reference', async () => {
-  const [bots, chats] = atSources({
+test('the "@" menu holds the Bot group only, never the chats', async () => {
+  const sources = atSources({
     roster: { getSnapshot: () => roster },
-    sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) } },
     iconFor: () => 'session',
   })
-  assert.deepEqual([bots.name, chats.name], [BOTS_SOURCE, CHATS_SOURCE])
-  assert.ok(bots.order < chats.order && chats.order < 0)
-  const session = { sessionId: 'chief-2' }
-  // The chats no longer wait for "+" to open the menu: a typed "@" offers them too,
-  // so a quote stays searchable while typing.
-  const rows = await chats.candidates(session, { query: '' })
-  assert.deepEqual(rows.map(row => row.name), ['King', 'Writer'])
-  const picked = chats.onPick({ candidate: rows[0] })
-  assert.deepEqual(picked.insert, {
-    source: CHATS_SOURCE, ref: sessionMention('king', 'Chat with King'), label: 'Chat with King', appearance: 'session', clipboardText: sessionMention('king', 'Chat with King'),
-  })
-  assert.equal(await chats.codec.serialize(picked.insert.ref), picked.insert.ref)
+  assert.equal(sources.length, 1)
+  assert.deepEqual(sources.map(source => source.name), [BOTS_SOURCE])
+  // Referring to a chat is the reference palette's job, so a typed "@" never lists a
+  // conversation and never offers two rows for the same Bot.
+  assert.equal(sources.some(source => source.name === 'ds-bot-chats'), false)
 
-  const mentions = await bots.candidates({ sessionId: 'room' }, { query: '' })
+  const mentions = await sources[0].candidates({ sessionId: 'room' }, { query: '' })
   assert.deepEqual(mentions.map(row => [row.name, row.description]), [['Chief', 'Lead'], ['King', undefined], ['Everyone', '2 members']])
-  assert.deepEqual(bots.onPick({ candidate: mentions[1] }), { text: '@King ' })
-  assert.deepEqual(await bots.candidates({ sessionId: 'plain' }, { query: '' }), [])
+  assert.deepEqual(sources[0].onPick({ candidate: mentions[1] }), { text: '@King ' })
+  assert.deepEqual(await sources[0].candidates({ sessionId: 'plain' }, { query: '' }), [])
 })

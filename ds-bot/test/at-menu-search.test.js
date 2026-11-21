@@ -50,15 +50,10 @@ test('a query widens the eight-Session cap', () => {
   assert.equal(out.length, 12) // 12 sessions match, more than the 8 the empty query sees
 })
 
-test('the chats source passes the query down and returns an empty list outside the team', async () => {
-  const [, chats] = atSources({
+test('the "@" menu has no chats source, so a typed "@" stays about the team', () => {
+  const sources = atSources({
     roster: { getSnapshot: () => roster },
-    sessions: { list: { getSnapshot: () => list } },
     iconFor: () => 'session',
   })
-  assert.deepEqual(await chats.candidates({ sessionId: 'chief-2' }, { query: 'x' }), [])
-  const found = await chats.candidates({ sessionId: 'chief-2' }, { query: '项目周报' })
-  assert.deepEqual(found.map(r => r.name), ['项目周报机器人', '项目周报 讨论'])
-  assert.deepEqual(await chats.candidates({ sessionId: 'chief-2' }, { query: 'zzz' }), [])
-  assert.deepEqual(await chats.candidates({ sessionId: 'plain' }, { query: '' }), [])
+  assert.deepEqual(sources.map(source => source.name), ['ds-bot'])
 })

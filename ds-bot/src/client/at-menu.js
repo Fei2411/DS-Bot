@@ -1,13 +1,12 @@
 // -------------------------------------------------------------------------
-// The composer's "@" in a Bot's chat or a group chat: a Bot group that inserts
-// "@Name", and the chats that "+ → Reference a chat" opens in the same menu.
-// Both are sources of the shell's trigger menu; the shell's own file and session
-// rows stay beside them, because a source cannot be hidden for one Session.
+// The composer's "@" in a Bot's chat or a group chat: one Bot group that inserts
+// "@Name". Referring to another chat is a separate picker (palette.js, mode
+// 'reference'), so a typed "@" never lists conversations and a conversation never
+// lists Bots: the two never compete for the same menu.
 import { t } from './i18n.js'
-import { currentPart, relativeShort } from './text.js'
+import { currentPart } from './text.js'
 
 export const BOTS_SOURCE = 'ds-bot'
-export const CHATS_SOURCE = 'ds-bot-chats'
 // The words the group host reads as "everyone" (groups.js ROOM_ALL).
 const ROOM_ALL = ['all', 'everyone', '所有人', '全体']
 const OTHER_CHATS_MAX = 8
@@ -40,7 +39,7 @@ export function mentionRows(roster, sessionId, query = '') {
   return rows
 }
 
-// The chats a message here can reference: every other Bot's chat, then the latest
+// The chats the reference picker offers: every other Bot's chat, then the latest
 // conversations outside the team. Group chats stay out: a group's Session holds only
 // the user's messages, so a snapshot of it would miss every Bot's reply.
 export function chatRows(roster, list, sessionId, query = '') {
@@ -76,9 +75,10 @@ export function sessionMention(sessionId, label) {
   return `@[${label.replace(/[\\\]]/g, mark => `\\${mark}`)}](dsh-session:${payload})`
 }
 
-// The chats join every typed "@" beside the Bots group, so quoting stays searchable
-// no matter how the menu opened. `iconFor(row)` is the row's character mark.
-export function atSources({ roster, sessions, iconFor }) {
+// The Bot group of the "@" menu only. `iconFor(row)` is the row's character mark.
+// Chats are not a source here: "+ → Reference a chat" opens DS Bot's own picker,
+// so a typed "@" stays about the team and nothing else.
+export function atSources({ roster, iconFor }) {
   const bots = {
     trigger: '@',
     name: BOTS_SOURCE,
@@ -96,26 +96,5 @@ export function atSources({ roster, sessions, iconFor }) {
     },
     onPick: ({ candidate }) => (candidate.value ? { text: candidate.value } : undefined),
   }
-  const chats = {
-    trigger: '@',
-    name: CHATS_SOURCE,
-    order: -10,
-    showGroupTitle: false,
-    async candidates(session, { query } = {}) {
-      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId, query ?? '').map(row => ({
-        name: row.bot ? row.bot.name : row.label,
-        ...(row.updatedAt ? { description: relativeShort(row.updatedAt) } : {}),
-        icon: row.bot ? iconFor(row) : 'session',
-        section: row.bot ? t('Bots') : t('Conversations'),
-        value: JSON.stringify({ sessionId: row.sessionId, label: row.label }),
-      }))
-    },
-    onPick({ candidate }) {
-      const { sessionId, label } = JSON.parse(candidate.value)
-      const mention = sessionMention(sessionId, label)
-      return { insert: { source: CHATS_SOURCE, ref: mention, label, appearance: 'session', clipboardText: mention } }
-    },
-    codec: { clipboardText: ref => ref, serialize: ref => Promise.resolve(ref) },
-  }
-  return [bots, chats]
+  return [bots]
 }

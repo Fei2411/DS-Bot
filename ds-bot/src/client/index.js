@@ -14,7 +14,7 @@ import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from 
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
-import { CHATS_SOURCE, atSources } from './at-menu.js'
+import { atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
 import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
@@ -91,7 +91,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
+  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, chatRef: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -1110,35 +1110,22 @@ export function apply(ctx) {
   }, component))
   const installHeader = () => ctx.slots.inject('conversation.session.header', () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY))
 
-  // The "@" menu's Bot group and the chats "+" references. The composer's controller
-  // for a Session is the shell's own, so the chats open at its caret.
-  let atMenu = null
+  // The "@" menu's Bot group. Referring to a chat is DS Bot's own picker (the palette
+  // in reference mode), so it never rides on the shell's trigger menu.
   const installAtMenu = () => {
     const fiber = ctx.inject(['inputTriggers'], (scope) => {
       scope.effect(() => {
         const triggers = scope.inputTriggers
-        const controllerOf = (sessionId) => {
-          const binding = ctx.sessions.binding(sessionId)
-          return binding === undefined ? undefined : triggers.sessionOf(binding.ctx)
-        }
         const offs = [
-          ...atSources({ roster, sessions: ctx.sessions, iconFor: menuIcons(roster) }).map(source => triggers.registerSource(source)),
+          ...atSources({ roster, iconFor: menuIcons(roster) }).map(source => triggers.registerSource(source)),
           triggers.registerSource(sideSource({ roster, actions })),
         ]
-        atMenu = { controllerOf }
         return () => {
-          atMenu = null
           for (const off of offs) off()
         }
       }, 'ds-bot: @ menu')
     })
     return () => fiber.dispose()
-  }
-  actions.canReferenceChat = () => atMenu !== null
-  actions.referenceChat = (sessionId, span) => {
-    const controller = atMenu?.controllerOf(sessionId)
-    if (controller === undefined || span === undefined) return
-    controller.toggleSource(CHATS_SOURCE, { trigger: '@', query: '', quoted: false, position: 'inline', span })
   }
 
   // The panel's yield flag and the drawer's flag follow the frame: opening (or

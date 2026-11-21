@@ -1,6 +1,7 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { sessionMention } from './at-menu.js'
 import { canSetGoal } from './goal.js'
 import { BotMark } from './mark.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
@@ -118,12 +119,31 @@ export function menuIcons(roster) {
 // menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
 // for its Bots; "/" still opens that menu. Files go through the shell's own file
 // input beside it.
-export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useUi, actions }) {
   const roster = useRoster(value => value)
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
   const menu = useRef(null)
+  // The caret captured when the chat picker opened, so the mention lands where the
+  // user was typing rather than at the end of the draft.
+  const insertion = useRef(undefined)
+  // A pick in the reference palette comes back here: the composing Session is the one
+  // that holds the draft and the caret, so it does the insert.
+  const chatRef = useUi?.(state => (state.chatRef && state.chatRef.owner === sessionId ? state.chatRef : null))
+  useEffect(() => {
+    if (!chatRef || typeof inputActions?.insertText !== 'function') return
+    actions.clearChatReference(chatRef.token)
+    const text = sessionMention(chatRef.target, chatRef.label)
+    const from = insertion.current
+    insertion.current = undefined
+    if (from !== undefined && inputActions.insertText(text, from)) return
+    // The draft moved while the picker was open (a steer, another insert): take the
+    // caret again instead of dropping the reference.
+    const fresh = inputActions.captureInsertion?.()
+    if (fresh !== undefined && inputActions.insertText(text, fresh)) return
+    actions.reportError(new Error(t('Could not insert a chat reference')), 'composer')
+  }, [chatRef?.token])
   const tick = useViewport()
   // The selector runs on every input change, so inputNow stays live for the key
   // handler while `ready` re-renders only when steerability flips.
@@ -193,21 +213,15 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     setOpen(null)
     actions.openSettings('schedules', target)
   }
-  // Insert a real "@" at the caret and let the shell's own trigger flow open the
-  // menu: a draft holding the trigger keeps the menu alive while the user types, so
-  // the chats filter as they type. The menu referenceChat opens alone is synthetic —
-  // the draft carries no trigger for the shell to match — so it dies on the first
-  // keystroke; that path stays only as a fallback for hosts without insertText.
+  // Open DS Bot's own chat picker at the caret. It is a self-contained searchable
+  // dialog, not the shell's "@" menu: a typed "@" stays about the team, and this path
+  // works after text the trigger would not follow (no whitespace needed before it).
   const reference = () => {
     setOpen(null)
-    const span = inputActions?.captureInsertion?.()
-    if (span !== undefined && typeof inputActions?.insertText === 'function') {
-      inputActions.insertText('@', span)
-      return
-    }
-    actions.referenceChat(sessionId, span)
+    insertion.current = inputActions?.captureInsertion?.()
+    actions.openPalette({ mode: 'reference', owner: sessionId })
   }
-  const canReference = typeof inputActions?.captureInsertion === 'function' && actions.canReferenceChat()
+  const canReference = typeof inputActions?.captureInsertion === 'function' && typeof inputActions?.insertText === 'function'
   const room = roster.roomsById?.[sessionId]
   const goal = () => {
     setOpen(null)

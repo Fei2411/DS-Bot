@@ -1,8 +1,9 @@
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
+import { chatRows } from './at-menu.js'
 import { isMainOf } from './sources.js'
 import { currentPart, stripHeader } from './text.js'
-import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
+import { ChatsIcon, PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { QUICK_EDGES, useFlip, useGlide } from './motion.js'
@@ -11,8 +12,14 @@ import { t } from './i18n.js'
 // Search is a command palette: a 560px dialog, a search header, and 49px
 // rows (24px avatar, title, subtitle). Bots and groups match on name and role; past
 // messages match on their text.
+//
+// `mode: 'reference'` is the same dialog with one job: pick a chat to quote into the
+// composer that opened it (`owner`). It lists the chats `chatRows` offers and nothing
+// else — no Bots to switch to, no messages — and a pick hands the mention back to the
+// composer, which inserts it at the caret it captured before this opened.
 const PALETTE_EXIT_MS = 160
-export function CommandPalette({ start, token, roster, actions, useSessions }) {
+export function CommandPalette({ start, token, mode = 'search', owner, roster, actions, useSessions }) {
+  const reference = mode === 'reference'
   const [query, setQuery] = useState(start ?? '')
   const [cursor, setCursor] = useState(0)
   const [leaving, setLeaving] = useState(false)
@@ -23,9 +30,11 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS)
   }
   useEscape(close)
-  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(item => item.id)]
+  // Referring to a chat never searches message text, so the turn outlines stay unread:
+  // the empty result keeps every keystroke free of a team-wide scan.
   const found = useSessions((list) => {
-    if (wanted.length < 2) return '[]'
+    if (reference || wanted.length < 2) return '[]'
+    const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(item => item.id)]
     const hits = []
     for (const id of ids) {
       const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
@@ -46,44 +55,62 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     }
     return JSON.stringify(hits)
   })
+  // The reference rows come from the same list the composer's picker would show, cut
+  // to the fields a row draws: a serialized copy keeps the store snapshot stable.
+  const chatList = useSessions(list => (reference
+    ? JSON.stringify(chatRows(roster, list, owner, query).map(row => ({
+      id: row.sessionId, label: row.label, name: row.bot?.name, role: row.bot?.role,
+    })))
+    : '[]'))
   const matchesName = (...fields) => wanted === '' || fields.some(field => (field ?? '').toLowerCase().includes(wanted))
   const sections = []
-  const people = [
-    ...roster.bots.filter(bot => matchesName(bot.name, bot.role)).map(bot => ({
-      key: bot.id, avatar: h(BotAvatar, { bot, size: 24, badge: false, live: false }), title: bot.name,
-      subtitle: [bot.role, isMainOf(roster, bot.id) ? t('Main Bot') : ''].filter(Boolean).join(' · '), badge: bot.hidden ? t('Hidden') : undefined,
-      run: async () => { if (bot.hidden) await actions.setFlags(bot.id, { hidden: false }); actions.openSession(bot.id) },
-    })),
-    ...roster.rooms.filter(room => matchesName(room.name)).map(room => ({
-      key: room.id, avatar: h(RoomAvatar, { room, roster, size: 24 }), title: room.name, subtitle: t('{count} members', { count: room.members.length }),
-      badge: room.hidden ? t('Hidden') : undefined,
-      run: async () => { if (room.hidden) await actions.setFlags(room.id, { hidden: false }); actions.openSession(room.id) },
-    })),
-  ]
-  if (people.length) sections.push([t('Bots'), people])
-  const agents = (roster.agents ?? []).filter(() => matchesName('DSH Agent')).map(agent => ({
-    key: agent.id, avatar: h('span', { className: 'bt-palette-agent' }, h(FishLogo, { size: 18 })), title: 'DSH Agent',
-    subtitle: t('Plain dsh session'),
-    run: () => actions.openAgent(agent.id),
-  }))
-  if (agents.length) sections.push(['DSH Agent', agents])
-  const messages = JSON.parse(found).map(([id, turn, snippet]) => {
-    const bot = roster.byId[id]
-    const room = roster.roomsById[id]
-    return {
-      key: `${id}:${turn}`, title: bot?.name ?? room?.name ?? t('Bot'), subtitle: snippet,
-      avatar: bot ? h(BotAvatar, { bot, size: 24, badge: false, live: false }) : h(RoomAvatar, { room, roster, size: 24 }),
-      run: () => actions.openSession(id),
-    }
-  })
-  if (messages.length) sections.push([t('Messages'), messages])
-  const commands = [
-    { key: 'cmd:new', icon: h(PlusIcon), title: t('New chat'), run: () => actions.openNewChat('new') },
-    { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
-    { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
-    { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('general') },
-  ].filter(command => matchesName(command.title))
-  if (commands.length) sections.push([t('Commands'), commands])
+  if (reference) {
+    const chats = JSON.parse(chatList).map(row => ({
+      key: row.id,
+      icon: h(ChatsIcon),
+      title: row.name ?? row.label,
+      subtitle: row.name ? row.role : undefined,
+      run: () => actions.pickChatReference({ owner, target: row.id, label: row.label }),
+    }))
+    if (chats.length) sections.push([t('Conversations'), chats])
+  } else {
+    const people = [
+      ...roster.bots.filter(bot => matchesName(bot.name, bot.role)).map(bot => ({
+        key: bot.id, avatar: h(BotAvatar, { bot, size: 24, badge: false, live: false }), title: bot.name,
+        subtitle: [bot.role, isMainOf(roster, bot.id) ? t('Main Bot') : ''].filter(Boolean).join(' · '), badge: bot.hidden ? t('Hidden') : undefined,
+        run: async () => { if (bot.hidden) await actions.setFlags(bot.id, { hidden: false }); actions.openSession(bot.id) },
+      })),
+      ...roster.rooms.filter(room => matchesName(room.name)).map(room => ({
+        key: room.id, avatar: h(RoomAvatar, { room, roster, size: 24 }), title: room.name, subtitle: t('{count} members', { count: room.members.length }),
+        badge: room.hidden ? t('Hidden') : undefined,
+        run: async () => { if (room.hidden) await actions.setFlags(room.id, { hidden: false }); actions.openSession(room.id) },
+      })),
+    ]
+    if (people.length) sections.push([t('Bots'), people])
+    const agents = (roster.agents ?? []).filter(() => matchesName('DSH Agent')).map(agent => ({
+      key: agent.id, avatar: h('span', { className: 'bt-palette-agent' }, h(FishLogo, { size: 18 })), title: 'DSH Agent',
+      subtitle: t('Plain dsh session'),
+      run: () => actions.openAgent(agent.id),
+    }))
+    if (agents.length) sections.push(['DSH Agent', agents])
+    const messages = JSON.parse(found).map(([id, turn, snippet]) => {
+      const bot = roster.byId[id]
+      const room = roster.roomsById[id]
+      return {
+        key: `${id}:${turn}`, title: bot?.name ?? room?.name ?? t('Bot'), subtitle: snippet,
+        avatar: bot ? h(BotAvatar, { bot, size: 24, badge: false, live: false }) : h(RoomAvatar, { room, roster, size: 24 }),
+        run: () => actions.openSession(id),
+      }
+    })
+    if (messages.length) sections.push([t('Messages'), messages])
+    const commands = [
+      { key: 'cmd:new', icon: h(PlusIcon), title: t('New chat'), run: () => actions.openNewChat('new') },
+      { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
+      { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
+      { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('general') },
+    ].filter(command => matchesName(command.title))
+    if (commands.length) sections.push([t('Commands'), commands])
+  }
   const rows = sections.flatMap(([, items]) => items)
   const active = Math.min(cursor, Math.max(rows.length - 1, 0))
   const shown = rows.map(row => row.key).join('\n')
@@ -101,11 +128,13 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
   let index = -1
   return h('div', { className: 'bt-palette-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-backdrop', onMouseDown: close }),
-    h('div', { className: 'bt-palette', role: 'dialog', 'aria-label': t('Search'), 'aria-modal': true },
+    h('div', { className: 'bt-palette', role: 'dialog', 'aria-label': reference ? t('Reference a chat') : t('Search'), 'aria-modal': true },
       h('div', { className: 'bt-palette-head' },
         h('span', { className: 'bt-palette-glyph', 'aria-hidden': true }, h(SearchIcon)),
         h('input', {
-          autoFocus: true, value: query, placeholder: t('Search Bots, chats and messages'), 'aria-label': t('Search'),
+          autoFocus: true, value: query,
+          placeholder: reference ? t('Search chats') : t('Search Bots, chats and messages'),
+          'aria-label': reference ? t('Search chats') : t('Search'),
           role: 'combobox', 'aria-expanded': true, 'aria-controls': 'bt-palette-list',
           onChange: (event) => { setQuery(event.target.value); setCursor(0) },
           onKeyDown: (event) => {
@@ -122,7 +151,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
           ? h('div', { className: 'bt-palette-empty' },
               h('span', { className: 'bt-palette-empty-icon', 'aria-hidden': true }, h(SearchIcon)),
               h('span', { className: 'bt-palette-empty-label' }, t('No results')),
-              h('span', { className: 'bt-palette-empty-hint' }, t('Try a Bot name or words from a message')))
+              h('span', { className: 'bt-palette-empty-hint' }, reference ? t('Try a chat title') : t('Try a Bot name or words from a message')))
           : sections.map(([title, items]) => h(Fragment, { key: title },
               h('div', { className: 'bt-palette-section', role: 'presentation', 'data-flip': `section:${title}` }, title),
               items.map((row) => {
