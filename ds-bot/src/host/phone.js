@@ -18,6 +18,9 @@ export { BROWSER_ALLOWED }
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
   if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
+  // A Session's whole log, any Session's (session-follow.js), is read by the window on the
+  // computer; a phone reads the team's chats.
+  if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
