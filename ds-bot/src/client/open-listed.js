@@ -3,7 +3,15 @@
 // before the first list arrives, waits for the list; a newer navigation — through here or
 // elsewhere — drops the wait. `begin`/`done` report that wait, so the caller can show the
 // Session it asked for instead of leaving the previous one on screen.
-export function listedOpener({ list, open, refresh, current, begin, done }) {
+// A Session that never arrives ends the wait as a failure instead of covering the
+// conversation forever: the roster already knows its Bot lost it, or the wait runs past
+// `waitMs`. `fail` gets the target, so the caller can offer a way out of it.
+
+// Long enough for a Session the Host just made to reach the shell's list (a refresh or
+// two), short enough that a Session gone from the library does not read as still opening.
+export const OPENING_FAIL_MS = 10_000
+
+export function listedOpener({ list, open, refresh, current, begin, done, fail, gone, waitMs = OPENING_FAIL_MS, schedule = setTimeout, clear = clearTimeout }) {
   let drop = () => {}
   return (target) => {
     drop()
@@ -13,21 +21,37 @@ export function listedOpener({ list, open, refresh, current, begin, done }) {
     const from = current?.()
     begin?.(target)
     let waiting = true
-    // The wait ends either way: it opened, or a newer navigation took it over.
-    const settle = () => {
-      if (!waiting) return
-      waiting = false
-      drop = () => {}
-      done?.(target)
-    }
-    const off = list.subscribe(() => {
-      if (current?.() !== from) { off(); settle(); return }
-      if (!listed()) return
+    let failed = false
+    let timer
+    let off = () => {}
+    const stop = () => {
       off()
-      settle()
+      if (timer !== undefined) { clear(timer); timer = undefined }
+    }
+    // Every wait ends once: opened, failed, or taken over by a newer navigation. A
+    // failed wait leaves the caller's card up until the next navigation lifts it.
+    const end = (asFailure) => {
+      if (!waiting) return false
+      waiting = false
+      stop()
+      if (asFailure) { failed = true; fail?.(target) } else done?.(target)
+      return true
+    }
+    drop = () => {
+      if (waiting) end(false)
+      else if (failed) { failed = false; done?.(target) }
+    }
+    off = list.subscribe(() => {
+      if (current?.() !== from) { end(false); return }
+      if (!listed()) return
+      end(false)
       open(target)
     })
-    drop = () => { off(); settle() }
+    if (gone?.(target) === true) { end(true); return }
+    timer = schedule(() => {
+      if (!waiting || listed()) return
+      end(true)
+    }, waitMs)
     refresh?.()
   }
 }

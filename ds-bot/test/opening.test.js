@@ -156,3 +156,49 @@ test('the cover names the Bot, says it is opening, and leaves the sidebar uncove
 test('no model draws nothing at all', () => {
   assert.equal(module.exports.OpeningCover({ model: null, column: 0 }), null)
 })
+
+// 公开#1929: a Session gone from the library must not leave the cover up forever.
+test('a wait that cannot succeed keeps the cover as a failure with a way out', () => {
+  const { ui, wait, queued } = waitRig()
+  wait.begin({ target: 'bot-2', id: 'bot-2', name: 'Newcomer' })
+  assert.ok(queued() !== null)
+  wait.fail('bot-2')
+  assert.equal(queued(), null)
+  assert.equal(ui.value.pendingOpen.failed, true)
+  const model = openingModel({ pending: ui.value.pendingOpen, current: 'bot-1', roster })
+  assert.equal(model.failed, true)
+  assert.equal(model.slow, false)
+  const recovered = []
+  const tree = module.exports.OpeningCover({ model, column: 260, actions: { recoverOpening: id => recovered.push(id) } })
+  const nodes = flat(tree)
+  const text = nodes.filter(node => typeof node === 'string')
+  assert.ok(text.includes('Newcomer'))
+  assert.ok(text.includes('This session is no longer available.'))
+  assert.ok(text.includes('New session'))
+  const button = nodes.find(node => typeof node === 'object' && node?.props?.className === 'bt-soft bt-soft-sm bt-opening-new')
+  assert.ok(button, 'the failure offers a new session')
+  button.props.onClick()
+  assert.deepEqual(recovered, ['bot-2'])
+})
+
+test('a failure for another wait changes nothing, and ending the wait still lifts it', () => {
+  const { ui, wait } = waitRig()
+  wait.begin({ target: 'bot-2', id: 'bot-2', name: 'Newcomer' })
+  wait.fail('room-1')
+  assert.equal(ui.value.pendingOpen.failed, undefined)
+  wait.fail('bot-2')
+  assert.equal(ui.value.pendingOpen.failed, true)
+  wait.end()
+  assert.equal(ui.value.pendingOpen, null)
+})
+
+test('a group chat whose Session is gone says so without a Bot action', () => {
+  const model = openingModel({ pending: { target: 'room-1', id: 'room-1', name: 'Ops', failed: true }, current: 'bot-1', roster })
+  assert.equal(model.group, true)
+  assert.equal(model.failed, true)
+  assert.equal(model.bot, undefined)
+  const tree = module.exports.OpeningCover({ model, column: 260, actions: { recoverOpening: () => { throw new Error('a group has no new Bot session to offer') } } })
+  const text = flat(tree).filter(node => typeof node === 'string')
+  assert.ok(text.includes('This session is no longer available.'))
+  assert.equal(text.includes('New session'), false)
+})

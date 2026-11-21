@@ -9,7 +9,8 @@ import { t } from './i18n.js'
 // there reads as "the Bot I just opened is showing someone else's conversation", so the
 // conversation area shows this quiet state for the Bot that was asked for instead.
 // The cover stays until that Session is the one on screen, or the user opens something
-// else. A long wait only changes the note; it never uncovers the chat that was there.
+// else. A long wait changes the note; a wait that cannot succeed says so and offers a
+// way out (a new Session) instead of covering the conversation forever (#1929).
 
 // How long "Opening…" stays before the note says the Session is still on its way.
 // This timer does not take the cover down.
@@ -52,6 +53,17 @@ export function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTi
       stop()
       ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
     },
+    // The wait ended without the Session and cannot succeed: keep the cover, mark it
+    // failed, so the card says what happened and offers a way out. A newer navigation
+    // lifts it the same way `end` does.
+    fail(target) {
+      stop()
+      ui.set(state => {
+        const pending = state.pendingOpen
+        if (!pending || pending.target !== target || pending.failed === true) return state
+        return { ...state, pendingOpen: { ...pending, failed: true } }
+      })
+    },
   }
 }
 
@@ -68,18 +80,28 @@ export function openingModel({ pending, current, roster }) {
     bot,
     group: room !== undefined,
     slow: pending.slow === true,
+    failed: pending.failed === true,
   }
 }
 
-export function OpeningCover({ model, column }) {
+// A failed wait keeps the cover for the same Bot, says its Session is gone, and lets the
+// user start a new one; a group chat's lost Session has no such move here.
+export function OpeningCover({ model, column, actions }) {
   if (model === null) return null
+  const recovery = model.failed && model.bot !== undefined
+    ? h('button', {
+      type: 'button', className: 'bt-soft bt-soft-sm bt-opening-new',
+      onClick: () => actions?.recoverOpening?.(model.bot.id),
+    }, t('New session'))
+    : null
   return h('div', {
     className: 'bt-opening', style: { left: `${column}px` }, role: 'status', 'aria-live': 'polite',
   },
   h('div', { className: 'bt-opening-card' },
     h('span', { className: 'bt-opening-mark' }, model.bot ? h(BotMark, { bot: model.bot, size: 44 }) : h(PeopleIcon)),
     model.name ? h('span', { className: 'bt-opening-name' }, model.name) : null,
-    h('span', { className: 'bt-opening-note' }, t(model.slow ? 'Still opening…' : 'Opening…'))))
+    h('span', { className: 'bt-opening-note' }, t(model.failed ? 'This session is no longer available.' : model.slow ? 'Still opening…' : 'Opening…')),
+    recovery))
 }
 
 export const OPENING_CSS = `
@@ -88,5 +110,6 @@ export const OPENING_CSS = `
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-opening-note{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-opening-new{margin-top:2px}
 @keyframes bt-opening-in{from{opacity:0}to{opacity:1}}
 `

@@ -4,7 +4,7 @@
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
 import { serviceOf } from './services.js'
-import { ownChatSessions } from './threads.js'
+import { ownChatSessions, sessionGone } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
@@ -487,7 +487,26 @@ export function install(rt) {
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change.
-    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route, { force })
+    if (ownChanged) for (const sessionId of ownChatSessions(bot)) {
+      // A Session the library no longer holds cannot take a model, and retrying it
+      // would repeat the same not-found on every sync. The Bot keeps the marker so the
+      // client can offer a new Session, and a fresh part that replaces the lost one
+      // takes the model as usual.
+      if (bot.sessionMissing === sessionId || goneParts.has(sessionId)) continue
+      try {
+        await selectSessionModel(sessionId, route, { force })
+      } catch (error) {
+        if (!sessionGone(error)) throw error
+        if (sessionId === rt.chatOf(bot.id)) {
+          bot.sessionMissing = sessionId
+          rt.warn('ds-bot: the Session of %s is gone; a new session can replace it: %s', bot.name, sessionId)
+          await rt.save().catch(() => {})
+        } else {
+          goneParts.add(sessionId)
+          rt.warn('ds-bot: a background part of %s is gone; its model cannot be applied: %s', bot.name, sessionId)
+        }
+      }
+    }
     for (const sessionId of rt.groupSessionsOf(bot.id)) {
       const applied = sessionSelections.get(sessionId)
       if (!force && applied !== undefined && sameSelection(applied, route)) continue
@@ -532,6 +551,9 @@ export function install(rt) {
   // The Sessions whose selection failed. The models may not change again, so the next
   // sync tries them once more instead of waiting for a change that never comes.
   const roomRetry = new Set()
+  // Own-chat parts (not the current one) whose Session is gone: their model cannot be
+  // applied again this run, and by name they are not the Bot's marker either.
+  const goneParts = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
     try {
       const ref = await roomModel(sessionId, room)
@@ -583,7 +605,24 @@ export function install(rt) {
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
   // here, such as a catalog that cannot be read, is logged; the retry record stays.
   const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
+  // A marker is stale once the Session is back in the library (a restored archive) or
+  // the Bot keeps that part nowhere: a later sync may apply a model to it again. A
+  // Session that is still gone keeps its marker, so it is not tried on every sync.
+  async function healMissingSessions() {
+    const lost = Object.values(state.bots ?? {}).filter(bot => bot.sessionMissing !== undefined)
+    if (lost.length === 0) return
+    const records = await listedSessions().catch(() => undefined)
+    let changed = false
+    for (const bot of lost) {
+      const owned = ownChatSessions(bot).includes(bot.sessionMissing)
+      if (owned && !(records?.has(bot.sessionMissing) ?? false)) continue
+      delete bot.sessionMissing
+      changed = true
+    }
+    if (changed) await rt.save().catch(() => {})
+  }
   async function syncAll() {
+    await healMissingSessions().catch(() => {})
     for (const bot of Object.values(state.bots)) {
       await applyModel(bot, { syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }

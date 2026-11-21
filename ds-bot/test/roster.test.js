@@ -29,7 +29,7 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set() } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   // A lock another dsh holds, written before this host loads the team.
@@ -45,6 +45,8 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   const workspaces = new Map()
   const sent = []
   const selected = []
+  // Every selection asked for, including the ones a lost Session refused.
+  const attempts = []
   const archived = []
   const warnings = []
   let sessions = 0
@@ -71,8 +73,16 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     },
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
-      selectModel: async (request) => { selected.push(request) },
+      // A Session the `lost` set names is gone from the library: resolving its agent and
+      // selecting its model answer the same `session/not-found` the real controller does.
+      resolveAgent: async sessionId => (lost.has(sessionId)
+        ? { error: { code: 'session/not-found', message: `session "${sessionId}" not found` } }
+        : { agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
+      selectModel: async (request) => {
+        attempts.push(request)
+        if (lost.has(request.sessionId)) throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+        selected.push(request)
+      },
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
@@ -92,7 +102,7 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, ctx, archived, warnings, records }
+  return { call, stop, home, sent, selected, attempts, ctx, archived, warnings, records }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1442,4 +1452,54 @@ test('a window learns that the other dsh closed and takes the team over without 
   assert.equal(live.readOnly, null)
   assert.notEqual(live.liveKey, first.liveKey, 'a changed read-only notice moves the live key')
   assert.equal((await call('create-bot', { name: 'Took over' })).ok, true)
+})
+
+// 公开#1929: a Bot's own Session can vanish from the Session library while its id stays
+// pinned in the team state. Model syncing must not ask that id again on every sync, and
+// "new session" must work when there is no agent to move on from.
+test('a Session gone from the library is marked once, and a new session can replace it', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 0,
+  }
+  const { call, stop, selected, attempts } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+
+  // A model change is the sync that meets the lost Session first.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.deepEqual(attempts.filter(entry => entry.sessionId === 'gone-session').map(entry => entry.model), ['deepseek-v4-pro'])
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+
+  // The next sync skips the marked id instead of asking again.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+
+  // "New session" has no agent to switch from here; a fresh part takes the Bot's place.
+  assert.equal((await call('bot-new-part', { botId: 'chief' })).ok, true)
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.notEqual(chief.sessionId, 'gone-session')
+  const fresh = selected.filter(entry => entry.sessionId === chief.sessionId)
+  assert.equal(fresh.length, 1)
+  assert.equal(fresh[0].model, 'deepseek-v4-flash')
+
+  // The replaced part is still known to be gone, so later syncs do not ask it either.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
 })

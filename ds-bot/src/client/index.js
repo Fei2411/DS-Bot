@@ -560,7 +560,16 @@ export function apply(ctx) {
     openingWait.begin({ target, id: owner?.id ?? target, name: owner?.name ?? '' })
   }
   const endOpening = () => { openingWait.end() }
-  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening })
+  // A wait that cannot succeed. The roster already knows a Bot lost this Session (the
+  // Host marks it when a model selection comes back not-found): keep the cover as a
+  // failure card with a way out. Any other target keeps the plain wait.
+  const failOpening = (target) => {
+    if (ownerOfSession(target) === undefined) { endOpening(); return }
+    openingWait.fail(target)
+  }
+  const lostSession = (target) => (roster.getSnapshot().bots ?? []).some(bot => bot.sessionMissing === target)
+  const recovering = new Set()
+  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession })
   // Whether the open Bot panel is folded away for lack of room: its opener then
   // means "show it" (the column yields), not "close it". A panel shown because
   // the column already yielded is not folded, so its opener closes it.
@@ -620,6 +629,23 @@ export function apply(ctx) {
       setPlain(false)
       const target = partFor(id)
       show(target)
+    },
+    // The Bot's current Session is gone from the library: a fresh part takes its place
+    // (the Host makes it without the lost part), then that part is opened. The failure
+    // card stays meanwhile, so a failed try leaves the way out on screen.
+    recoverOpening: async (botId) => {
+      if (recovering.has(botId)) return
+      recovering.add(botId)
+      try {
+        await after(call('bot-new-part', { botId }))
+        const bot = roster.getSnapshot().byId[botId]
+        if (bot === undefined) endOpening()
+        else show(currentPart(bot))
+      } catch (error) {
+        actions.reportError(error, 'reopen-session')
+      } finally {
+        recovering.delete(botId)
+      }
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
