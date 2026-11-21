@@ -183,17 +183,40 @@ export function chunkMarkdown(markdown, limit) {
   if (rest.trim() === '') return chunks
   while (rest !== '') {
     if (points(rest) <= limit) { chunks.push(rest); break }
-    let at = limit
+    // `limit` counts code points but `slice` and `lastIndexOf` count UTF-16 units, so
+    // an index taken straight from the limit lands one unit early for every astral
+    // character before it -- mid-pair on an emoji. Both indices are converted, and the
+    // cut is pulled back off a split pair.
+    let at = codeUnitIndex(rest, limit)
     const newline = rest.lastIndexOf('\n', at)
-    if (newline > limit / 2) at = newline
+    if (newline > at / 2) at = newline
     else {
       const space = rest.lastIndexOf(' ', at)
-      if (space > limit / 2) at = space
+      if (space > at / 2) at = space
     }
+    at = pairSafeIndex(rest, at)
     chunks.push(rest.slice(0, at))
     rest = rest.slice(at).replace(/^\s+/, '')
   }
   return chunks
+}
+
+// The UTF-16 index of the `count`th code point of `text` (its length when it holds fewer).
+function codeUnitIndex(text, count) {
+  let at = 0
+  for (let seen = 0; seen < count && at < text.length; seen += 1) {
+    at += text.codePointAt(at) > 0xffff ? 2 : 1
+  }
+  return at
+}
+
+// A cut between the halves of a surrogate pair leaves a chunk with a lone surrogate,
+// which no platform can render.
+function pairSafeIndex(text, at) {
+  if (at <= 0 || at >= text.length) return at
+  const before = text.charCodeAt(at - 1)
+  const after = text.charCodeAt(at)
+  return before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff ? at - 1 : at
 }
 
 export function chunkTelegram(markdown, limit = 4096) {
