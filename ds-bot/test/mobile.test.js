@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
+import { STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES } from '../src/host/constants.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
@@ -148,6 +149,9 @@ test('hello names the API version both sides speak, the capabilities and the not
   assert.equal(hello.seq, 0)
   assert.equal(hello.readOnly, null)
   assert.equal(hello.feed, 'api/bot/feed')
+  // A client checks file size against this before base64-encoding an RPC, since the
+  // encrypted link drops whole messages larger than ~3 MiB of raw payload.
+  assert.equal(hello.fileMaxBytes, STAGED_FILE_MAX_BYTES)
   // A client that speaks only a later version learns the range and that nothing matches.
   const later = (await call('hello', { api: [7] })).value
   assert.equal(later.api, null)
@@ -390,7 +394,7 @@ test('a phone stages a file, then send puts it in one message with the text', as
   assert.deepEqual(await call('stage-file', { name: 'x'.repeat(256), data }), { ok: false, error: { code: 'bot/invalid', message: 'No file name', details: {} } })
   assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: '' }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a file DS Bot can send', details: {} } })
   assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: 'not base64!!' }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a file DS Bot can send', details: {} } })
-  assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64') }), { ok: false, error: { code: 'bot/invalid', message: 'This file is too big', details: {} } })
+  assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: Buffer.alloc(STAGED_FILE_MAX_BYTES + 1).toString('base64') }), { ok: false, error: { code: 'bot/invalid', message: 'This file is too big', details: {} } })
   const first = (await call('stage-file', { name: 'plan.txt', data })).value.id
   const second = (await call('stage-file', { name: 'notes.md', data })).value.id
   const before = sent.length
@@ -407,6 +411,50 @@ test('a phone stages a file, then send puts it in one message with the text', as
   assert.equal((await call('send', { sessionId: chief, text: '', files: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'file', receiptId: 'receipt-plan.txt' }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-files'), true)
+  await stop()
+})
+
+test('a file upload and its prompt share the handoff session, so the receipt is not dropped', async () => {
+  const { call, rt, sent, services, stop } = start()
+  const uploaded = []
+  services.fileUploads = {
+    uploadStream: async ({ sessionId, name }) => {
+      uploaded.push(sessionId)
+      return { receiptId: `receipt-${name}` }
+    },
+  }
+  const { chief } = await team(call)
+  const oldSid = rt.chatOf(chief)
+  const newSid = 'handoff-session'
+  rt.chatOwners.set(oldSid, chief)
+  // The Bot is busy in an older part, so a fresh message forks a new foreground part.
+  rt.shouldMoveForeground = () => true
+  rt.handoffForeground = async () => newSid
+  const id = (await call('stage-file', { name: 'plan.pdf', data: Buffer.from('pdf').toString('base64') })).value.id
+  const before = sent.length
+  assert.equal((await call('send', { sessionId: chief, text: 'see attached', files: [id] })).value, true)
+  // Both the upload and the prompt must name the SAME (new) session; resolving the
+  // destination twice used to bind the receipt to the old session and drop the file.
+  assert.deepEqual(uploaded, [newSid])
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined)
+  assert.equal(prompt.sessionId, newSid)
+  await stop()
+})
+
+test('staging files is bounded so a paired phone cannot exhaust host memory', async () => {
+  const { call, stop } = start()
+  await team(call)
+  const data = Buffer.alloc(STAGED_FILE_MAX_BYTES).toString('base64')
+  let accepted = 0
+  let refused
+  for (let i = 0; i < 20; i += 1) {
+    const result = await call('stage-file', { name: `f${i}.bin`, data })
+    if (result.ok) accepted += 1
+    else { refused = result.error; break }
+  }
+  assert.equal(accepted, Math.floor(STAGED_FILES_MAX_BYTES / STAGED_FILE_MAX_BYTES))
+  assert.equal(refused.code, 'bot/invalid')
+  assert.equal(refused.message, 'Too many files waiting to send')
   await stop()
 })
 

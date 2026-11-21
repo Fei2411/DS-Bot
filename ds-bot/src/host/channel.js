@@ -7,7 +7,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
-import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE, STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -755,9 +755,14 @@ export function install(rt) {
           } catch {
             return fail('This is not a file DS Bot can send', 'bot/invalid')
           }
-          if (bytes.length === 0 || bytes.length > 10 * 1024 * 1024) return fail('This file is too big', 'bot/invalid')
+          if (bytes.length === 0 || bytes.length > STAGED_FILE_MAX_BYTES) return fail('This file is too big', 'bot/invalid')
           const now = Date.now()
           for (const [id, entry] of stagedFiles) if (entry.at < now - STAGED_MS) stagedFiles.delete(id)
+          // Refuse a new stage if the accumulated buffers would exceed the cap; the
+          // caller can send or retry after older staged files expire.
+          let pending = 0
+          for (const entry of stagedFiles.values()) pending += entry.buffer.byteLength
+          if (pending + bytes.length > STAGED_FILES_MAX_BYTES) return fail('Too many files waiting to send', 'bot/invalid')
           const id = randomUUID()
           stagedFiles.set(id, { name, buffer: bytes, at: now })
           return ok({ id })
@@ -779,7 +784,9 @@ export function install(rt) {
             if (typeof uploads?.uploadStream !== 'function') return fail('Files cannot be sent on this computer', 'bot/refused')
           }
           await rt.load()
-          const sessionId = files.length > 0 ? sendSessionId(body.sessionId) : body.sessionId
+          // Resolve the destination ONCE (including a foreground handoff). The upload
+          // receipt and the prompt must name the same Session, or DSH drops the file.
+          const sessionId = files.length > 0 ? await resolveSendSession(body.sessionId) : body.sessionId
           const content = [
             ...(text === '' ? [] : [{ type: 'text', text }]),
             ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
@@ -789,7 +796,7 @@ export function install(rt) {
             const value = await uploads.uploadStream({ sessionId, data, name: file.name })
             content.push({ type: 'file', receiptId: value.receiptId })
           }
-          await rt.sendUser({ sessionId: body.sessionId, content })
+          await rt.sendUser({ sessionId: body.sessionId, content, resolvedSessionId: sessionId })
           for (const id of imageIds) staged.delete(id)
           for (const id of fileIds) stagedFiles.delete(id)
           return ok(true)
@@ -1020,18 +1027,13 @@ export function install(rt) {
     }
     return undefined
   }
-  // The Session a message goes to, as `sendUser` resolves it: a Bot's own chat, a group's
-  // current part, or the part that raised the thread. `send` resolves the same way before
-  // handing the receipt to an upload service, so a file lands on the Session that reads it.
-  function sendSessionId(ref) {
-    const past = rt.pastOwners.get(ref)
-    const room = rt.roomOf(ref)
-    return ownThreadTarget(ref, past)
-      ?? (room !== undefined ? rt.sessionOfRoom(room)
-        : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
-  }
-
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  // Resolve the Session a message actually lands on: a Bot's own chat, a group's
+  // current part, or the part that raised the thread — including a foreground
+  // handoff when a Bot is busy in an older part. Both `sendUser` and the file
+  // upload path need this ONCE so a receipt is bound to the very Session that
+  // receives the prompt. Resolving twice (as an earlier version did) bound the
+  // upload to the pre-handoff Session and silently dropped the file.
+  async function resolveSendSession(ref) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
     let sessionId = ownThreadTarget(ref, past)
@@ -1044,6 +1046,14 @@ export function install(rt) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
+    return sessionId
+  }
+
+  // `resolvedSessionId` lets the file-send path reuse the Session it uploaded
+  // against, so the prompt is submitted to the same Session and no second
+  // handoff happens. Ordinary callers pass only a ref and keep the old behavior.
+  async function sendUser({ sessionId: ref, content, requestId = randomUUID(), resolvedSessionId }) {
+    const sessionId = resolvedSessionId ?? await resolveSendSession(ref)
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,
