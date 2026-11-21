@@ -240,6 +240,42 @@ test('an active message toolbar stacks above the next message', () => {
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })
 
+// #1571: on macOS the side panel and the body-level browser layer are body children that
+// DSH marks no-drag. The browser layer must stay neutral (and 0x0 in bot-browsers.js) so
+// it never punches a full-window no-drag hole over the title bar; inside the panel, the
+// top drag strip (.bt-ptabs or, without a strip, .bt-drawer-top / .bt-subhead) drags the
+// window while interactive controls inside it stay clickable (no-drag).
+test('a macOS side panel neutralizes .bt-browser-layer and keeps a top drag row with clickable controls', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /html\[data-platform=darwin\] \.bt-browser-layer\{-webkit-app-region:initial\}/)
+  const dragRule = /(html\[data-platform=darwin\] \.bt-panel>\[data-window-drag\],html\[data-platform=darwin\] \.bt-panel>\.bt-panel-view>\[data-window-drag\])\{([^}]*)\}/.exec(css)
+  assert.ok(dragRule, 'the macOS panel drag-row rule exists')
+  assert.match(dragRule[2], /-webkit-app-region:drag/)
+  const noDragRule = /(html\[data-platform=darwin\] \.bt-panel \[data-window-drag\] :is\([^)]+\))\{([^}]*)\}/.exec(css)
+  assert.ok(noDragRule, 'controls inside the drag row stay no-drag')
+  assert.match(noDragRule[2], /-webkit-app-region:no-drag/)
+
+  const { window } = new JSDOM('<!doctype html><html data-platform="darwin"><body><div class="bt-browser-layer"></div><aside class="bt-panel"><div class="bt-ptabs" data-window-drag="true"><div class="bt-ptabs-in"><button class="bt-ptab" role="tab">Tab</button></div></div><div class="bt-panel-view"><div class="bt-drawer-top" data-window-drag="true"><button class="bt-round">Settings</button></div><div class="bt-subhead" data-window-drag="true"><button class="bt-icon-btn">Back</button></div></div></aside></body></html>')
+  const { document } = window
+  assert.equal(document.querySelector('.bt-ptabs').matches(dragRule[1]), true)
+  assert.equal(document.querySelector('.bt-drawer-top').matches(dragRule[1]), true)
+  assert.equal(document.querySelector('.bt-subhead').matches(dragRule[1]), true)
+  assert.equal(document.querySelector('.bt-panel').matches(dragRule[1]), false)
+  assert.equal(document.querySelector('.bt-ptab').matches(noDragRule[1]), true)
+  assert.equal(document.querySelector('.bt-round').matches(noDragRule[1]), true)
+  assert.equal(document.querySelector('.bt-icon-btn').matches(noDragRule[1]), true)
+  assert.doesNotMatch(css, /html\[data-platform=darwin\] \.bt-panel\{[^}]*-webkit-app-region:drag/)
+})
+
+// #1571: both the tab strip and the strip-less drawer top rows carry the shell's drag mark.
+test('the panel strip and strip-less drawer top rows carry the shell window drag mark', () => {
+  const pane = readFileSync(new URL('../src/client/browser-pane.js', import.meta.url), 'utf8')
+  const drawer = readFileSync(new URL('../src/client/details-drawer.js', import.meta.url), 'utf8')
+  assert.match(pane, /className: 'bt-ptabs'[^}]*'data-window-drag': true/)
+  assert.match(drawer, /className: 'bt-drawer-top'[^}]*'data-window-drag': !hasStrip \|\| undefined/)
+  assert.match(drawer, /className: 'bt-subhead'[^}]*'data-window-drag': !hasStrip \|\| undefined/)
+})
+
 test('dsh-mobile conversation header is opaque and catches hits without altering desktop', () => {
   const { window, module } = bench([])
   const { CONVERSATION_CSS, botOwnCss, installCompiledStyles } = module.exports

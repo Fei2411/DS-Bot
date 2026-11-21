@@ -17784,6 +17784,14 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* On macOS a side panel reaches the window's top edge, where the window drag strip is.
+   Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
+   that strip: it drags where no chip or button covers it, and controls stay no-drag. The
+   body-level .bt-browser-layer container must stay neutral so DSH's body > :not(#root)
+   no-drag rule never punches a hole through the window's drag geometry. */
+html[data-platform=darwin] .bt-browser-layer{-webkit-app-region:initial}
+html[data-platform=darwin] .bt-panel>[data-window-drag],html[data-platform=darwin] .bt-panel>.bt-panel-view>[data-window-drag]{-webkit-app-region:drag}
+html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,textarea,select,[role=button],[role=tab],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
 .bt-pane{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;z-index:45;pointer-events:auto;background:var(--bt-main);color:var(--bt-ink);display:flex;font-family:var(--bt-font)}
 .bt-dialog{flex:1;display:flex;flex-direction:column;min-width:0}
 .bt-dialog .bt-head{height:62px}
@@ -46283,7 +46291,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     return [
       (0, import_react72.createElement)(
         "div",
-        { key: "head", className: "bt-subhead", "data-move": move },
+        { key: "head", className: "bt-subhead", "data-move": move, "data-window-drag": !hasStrip || void 0 },
         (0, import_react72.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to details"), onClick: () => setView("overview") }, (0, import_react72.createElement)(ChevronLeftIcon)),
         (0, import_react72.createElement)("span", { className: "bt-subhead-title" }, bot ? t("Settings") : t("Group settings")),
         hasStrip ? null : (0, import_react72.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close details"), onClick: close }, (0, import_react72.createElement)(CloseIcon))
@@ -46305,7 +46313,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   }).map((key) => menuItemFor(key, actions, sessionId));
   const top = (0, import_react72.createElement)(
     "div",
-    { className: "bt-drawer-top", "data-move": side },
+    { className: "bt-drawer-top", "data-move": side, "data-window-drag": !hasStrip || void 0 },
     bot || room2 ? (0, import_react72.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react72.createElement)(GearIcon)) : null,
     more.length > 0 ? (0, import_react72.createElement)("span", { "data-info-row": "more" }, (0, import_react72.createElement)(PanelMenu, { items: more, className: "bt-round", "aria-label": t("More") })) : null,
     bot || room2 ? (0, import_react72.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react72.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react72.createElement)(ShareIcon)) : null,
@@ -46671,7 +46679,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
   }).map((key) => menuItemFor(key, actions, subject));
   return (0, import_react73.createElement)(
     "div",
-    { className: "bt-ptabs", role: "tablist", "aria-label": t("Panel tabs") },
+    { className: "bt-ptabs", role: "tablist", "data-window-drag": true, "aria-label": t("Panel tabs") },
     (0, import_react73.createElement)(
       "div",
       { className: "bt-ptabs-in", ref: wrap },
@@ -48722,14 +48730,24 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     if (layer?.isConnected) return layer;
     layer = doc.createElement("div");
     layer.className = "bt-browser-layer";
-    Object.assign(layer.style, { position: "fixed", inset: "0", zIndex: "41", pointerEvents: "none" });
+    Object.assign(layer.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      width: "0",
+      height: "0",
+      zIndex: "41",
+      pointerEvents: "none",
+      webkitAppRegion: "initial"
+    });
     doc.body.append(layer);
     return layer;
   };
   const place = (entry) => {
     const box = rect ?? { left: 0, top: 0, width: 800, height: 600 };
+    const onScreen = shown === entry.tabId && visible && Boolean(rect);
     if (entry.appView) {
-      void bridge2.views.place(entry.tabId, box, shown === entry.tabId && visible && Boolean(rect));
+      void bridge2.views.place(entry.tabId, box, onScreen);
       return;
     }
     Object.assign(entry.element.style, {
@@ -48737,7 +48755,8 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       top: `${box.top}px`,
       width: `${box.width}px`,
       height: `${box.height}px`,
-      visibility: shown === entry.tabId && visible && rect ? "visible" : "hidden"
+      visibility: onScreen ? "visible" : "hidden",
+      pointerEvents: onScreen ? "auto" : "none"
     });
   };
   async function preview(tabId) {
