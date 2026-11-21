@@ -3,11 +3,9 @@ window.__ModuleLoader__.load({
   id: 'ds-bot',
   factory: (require) => {
 const module = { exports: {} }
-var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -21,14 +19,6 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/client/index.js
@@ -15570,47 +15560,47 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   let pastes = 0;
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
-    ui2.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
+    ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
   };
   const openSettings = (page = "general", id = null) => {
-    ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+    ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
     openPalette: (query = "") => {
-      ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
-      ui2.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
+      ui.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
     },
     // Searching one group's own history, from its header.
     openGroupSearch: (roomId) => {
-      if (roomId) ui2.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
+      if (roomId) ui.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
     },
     closeGroupSearch: (token) => {
-      ui2.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
+      ui.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
     },
     openExchange: (a, b) => {
-      if (a && b) ui2.set((state) => ({ ...state, exchange: [a, b] }));
+      if (a && b) ui.set((state) => ({ ...state, exchange: [a, b] }));
     },
     openVoice: (id) => {
-      if (id) ui2.set((state) => ({ ...state, voice: id, menu: null }));
+      if (id) ui.set((state) => ({ ...state, voice: id, menu: null }));
     },
     closeVoice: () => {
-      ui2.set((state) => state.voice ? { ...state, voice: null } : state);
+      ui.set((state) => state.voice ? { ...state, voice: null } : state);
     },
     toggleDetails: (id, force) => {
-      ui2.set((state) => {
+      ui.set((state) => {
         const details = force || state.details !== id || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
@@ -15620,7 +15610,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // chat, an outside Session) settles on the details view. So does one that
     // does not own the open side chat.
     followPanel: (id) => {
-      ui2.set((state) => {
+      ui.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view;
@@ -15628,30 +15618,30 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       });
     },
     showDetails: (id, tab = null) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
     },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
     },
     openSettings,
     // DS Bot's own Models page: the providers DSH serves, their keys and models.
     openModels: () => openSettings("models"),
     closeSettings: () => {
-      ui2.set((state) => state.settings ? { ...state, settings: null } : state);
+      ui.set((state) => state.settings ? { ...state, settings: null } : state);
     },
     openMemory: (id) => {
-      ui2.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
+      ui.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
     },
     closeMemory: () => {
-      ui2.set((state) => state.memory ? { ...state, memory: null } : state);
+      ui.set((state) => state.memory ? { ...state, memory: null } : state);
     },
     openConnectors: () => {
-      ui2.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+      ui.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
     },
     setPanelView: (view) => {
       if (view !== "details" && view !== "browser" && view !== "side") return;
-      ui2.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
+      ui.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
     },
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
@@ -15667,22 +15657,22 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     askSide: (sessionId, chatId, text) => after(call2("side-ask", { sessionId, chatId, text })),
     cancelSide: (chatId, entryId) => after(call2("side-cancel", { chatId, entryId })),
     closeSideChat: (chatId) => {
-      ui2.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
+      ui.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
       return after(call2("side-close", { chatId }));
     },
     closePanel: () => {
-      ui2.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
+      ui.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
     },
-    quote: (sessionId, text) => ui2.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    quote: (sessionId, text) => ui.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
       pastes += 1;
       const block = { id: `paste-${pastes}`, text, name, attachmentId: null };
-      ui2.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
+      ui.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
       return block.id;
     },
     // The shell attachment whose label is that waiting card's own file name.
-    linkPastes: (sessionId, links) => ui2.set((state) => {
+    linkPastes: (sessionId, links) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const byBlock = /* @__PURE__ */ new Map();
       for (const link of links) byBlock.set(link.blockId, link.attachmentId);
@@ -15693,27 +15683,27 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       });
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
     }),
-    removePaste: (sessionId, blockIds) => ui2.set((state) => {
+    removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const kept = blocks.filter((block) => !blockIds.includes(block.id));
       return kept.length === blocks.length ? state : pasteState(state, sessionId, kept);
     }),
-    clearQuote: (token) => ui2.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
+    clearQuote: (token) => ui.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
     saveSection: (payload) => after(call2("section-save", payload)),
     reorderSections: (ids) => after(call2("section-order", { ids })),
     deleteSection: (id) => after(call2("section-delete", { id })),
-    beginSectionRename: (id) => ui2.set((state) => ({ ...state, renameSection: id })),
-    endSectionRename: () => ui2.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
+    beginSectionRename: (id) => ui.set((state) => ({ ...state, renameSection: id })),
+    endSectionRename: () => ui.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
     deleteRoom: (id) => after(call2("delete-room", { id })),
     openMenu: (menu) => {
-      ui2.set((state) => ({ ...state, menu, palette: null }));
+      ui.set((state) => ({ ...state, menu, palette: null }));
     },
     closeMenu: () => {
-      ui2.set((state) => state.menu ? { ...state, menu: null } : state);
+      ui.set((state) => state.menu ? { ...state, menu: null } : state);
     },
     closeOverlay: () => {
-      ui2.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
+      ui.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
     },
     createBot: (payload) => after(call2("create-bot", payload)),
     // The avatar library: photos the user imported once, kept by the host.
@@ -15777,15 +15767,15 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // A running part opened from the session list takes no input until it ends.
     newPart: (botId, roomId) => after(call2("bot-new-part", roomId === void 0 ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
-      ui2.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
+      ui.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
       return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
-        ui2.set((state) => state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state);
+        ui.set((state) => state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state);
         throw error;
       });
     },
-    clearReadOnlyPart: () => ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }),
+    clearReadOnlyPart: () => ui.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }),
     stopChat: (botId) => {
-      ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null });
+      ui.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null });
       return after(call2("stop-chat", { botId }));
     },
     stopRoomWork: (roomId) => after(call2("stop-room-work", { roomId })),
@@ -15798,18 +15788,18 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // The goal / approval island: `goalCompose` holds the room whose draft form is
     // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
     // whose approval panel is open. Goal and approval panels stay mutually exclusive.
-    composeGoal: (roomId) => ui2.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
-    closeGoalCompose: () => ui2.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
-    toggleGoal: (roomId) => ui2.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
-    closeGoal: () => ui2.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
-    toggleApproval: (roomId) => ui2.set((state) => ({
+    composeGoal: (roomId) => ui.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null })),
+    closeGoalCompose: () => ui.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
+    toggleGoal: (roomId) => ui.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId, approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null })),
+    closeGoal: () => ui.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
+    toggleApproval: (roomId) => ui.set((state) => ({
       ...state,
       approvalOpen: state.approvalOpen === roomId ? null : roomId,
       goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
       goalCompose: state.approvalOpen === roomId ? state.goalCompose : null
     })),
-    openApproval: (roomId) => ui2.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
-    closeApproval: () => ui2.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
+    openApproval: (roomId) => ui.set((state) => ({ ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null })),
+    closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
     // Values go out in these requests and never come back in a response.
     secretSet: (payload) => after(call2("secret-set", payload)),
     secretAllow: (requestId) => after(call2("secret-allow", { requestId })),
@@ -15891,12 +15881,12 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = "action") => {
       noteClientError(where, error);
-      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
+      ui.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
     // A message with no failure behind it (a review that expired, a window without the
     // column): a toast, but not in the client-error log.
-    notice: (text) => ui2.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
-    dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    notice: (text) => ui.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
+    dismissToast: (token) => ui.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
@@ -19089,6 +19079,10 @@ var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h
 var HideIcon = lineIcon(["M3 3l14 14", "M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4", "M8.5 8.5a2 2 0 0 0 3 3"]);
 var TrashIcon = lineIcon(["M3.5 5.5h13", "M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10", "M8.5 9v4.5M11.5 9v4.5"]);
 var DuplicateIcon = lineIcon(["M7 7h8.5v9.5H7z", "M4.5 13V3.5H13", "M11.25 9.5v4.5M9 11.75h4.5"]);
+var PersonIcon = lineIcon(["M10 3.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6z", "M4 16.5c.7-3 3.1-4.8 6-4.8s5.3 1.8 6 4.8"]);
+var ArchiveIcon = lineIcon(["M3.5 4.5h13v3h-13z", "M4.5 7.5v8h11v-8", "M8.5 10.5h3"]);
+var StackIcon = lineIcon(["M10 3.5l6.5 3.25L10 10 3.5 6.75z", "M3.5 10L10 13.25 16.5 10", "M3.5 13.25L10 16.5l6.5-3.25"]);
+var SpinnerIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1-6.5 6.5"]);
 var SlidersIcon = lineIcon(["M4 6.5h5M12.5 6.5H16M4 13.5h4M11.5 13.5H16", "M10.5 4.5v4M9.5 11.5v4"]);
 var MemoryIcon = lineIcon(["M5.5 3.5h8A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-8z", "M5.5 3.5v13", "M8.5 7.5h3.5M8.5 10.5h2.5", "M12 3.5v4l1-.8 1 .8"]);
 var TerminalIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-9A1.5 1.5 0 0 1 4.5 4z", "M6.5 8l2.5 2.5L6.5 13", "M11 13h3.5"]);
@@ -22188,9 +22182,9 @@ var TableIcon = () => (0, import_react14.createElement)(
   (0, import_react14.createElement)("path", { d: "M3 8.5h14M8 8.5V16" })
 );
 function ChartTable({ data }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const { categories, series, unit } = data;
-  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui2.t("Value") : `${ui2.t("Series")} ${index + 1}`));
+  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui.t("Value") : `${ui.t("Series")} ${index + 1}`));
   return (0, import_react14.createElement)(
     "div",
     { className: "dv-widget-table" },
@@ -22208,7 +22202,7 @@ function ChartTable({ data }) {
   );
 }
 function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const data = chartData(node, lookup);
   const { kind, categories, series, unit } = data;
   const box = (0, import_react14.useRef)(null);
@@ -22227,7 +22221,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     if (hidden.includes(index)) setHidden(hidden.filter((item) => item !== index));
     else if (shown.filter(Boolean).length > 1) setHidden([...hidden, index]);
   };
-  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui2.t("Chart");
+  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui.t("Chart");
   const isDonut = kind === "donut";
   const legendBeside = isDonut && width >= 360;
   const drawn = isDonut ? donut(data, legendBeside ? width - 200 : width, active, setActive) : kind === "hbar" ? rows(data, width, active, shown) : columns(data, width, active, shown);
@@ -22246,7 +22240,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
   const share = (at) => unit === "%" ? withUnit(drawn.values[at], unit) : `${withUnit(drawn.values[at], unit)} · ${drawn.total > 0 ? Math.round(drawn.values[at] / drawn.total * 100) : 0}%`;
   const tipRows = active === null || isDonut ? [] : series.filter((_, index) => shown[index]).map((item) => ({ color: item.color, name: item.name, value: withUnit(item.values[active], unit) }));
   const copy2 = () => {
-    void navigator.clipboard?.writeText(chartCsv(data, ui2.t)).then(() => {
+    void navigator.clipboard?.writeText(chartCsv(data, ui.t)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
@@ -22290,7 +22284,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     className: "dv-chart-key",
     "aria-pressed": shown[index],
     onClick: () => toggle(index)
-  }, (0, import_react14.createElement)("i", { style: { background: item.color } }), item.name || `${ui2.t("Series")} ${index + 1}`))) : null;
+  }, (0, import_react14.createElement)("i", { style: { background: item.color } }), item.name || `${ui.t("Series")} ${index + 1}`))) : null;
   const plot = (0, import_react14.createElement)(
     "div",
     { className: "dv-chart-plot", style: isDonut ? { width: svgWidth } : void 0 },
@@ -22332,7 +22326,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     body,
     // The SVG stays mounted under the table, so the image can still be saved from it.
     asTable ? (0, import_react14.createElement)("div", { hidden: true }, plot) : null,
-    copied ? (0, import_react14.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui2.t("Copied")) : null,
+    copied ? (0, import_react14.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui.t("Copied")) : null,
     typeof node.caption === "string" && node.caption !== "" ? (0, import_react14.createElement)("figcaption", { className: "dv-view-caption" }, node.caption) : null
   );
 }
@@ -22418,7 +22412,7 @@ function frameDocument(html, vars = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_POLICY}"><style>:root{${root}}html,body{margin:0;padding:0;background:transparent;color:var(--view-ink,var(--bt-ink));font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}*{box-sizing:border-box}</style><script>${report}<\/script></head><body>${html}</body></html>`;
 }
 function HtmlFrame({ node }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const frame2 = (0, import_react15.useRef)(null);
   const loads = (0, import_react15.useRef)(0);
   const [height, setHeight] = (0, import_react15.useState)(Number.isFinite(node.height) ? node.height : 120);
@@ -22439,7 +22433,7 @@ function HtmlFrame({ node }) {
       observer?.disconnect();
     };
   }, []);
-  if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui2.t("This view tried to open a page and was stopped."));
+  if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui.t("This view tried to open a page and was stopped."));
   return (0, import_react15.createElement)("iframe", {
     ref: frame2,
     className: "dv-view-frame",
@@ -22461,7 +22455,7 @@ var HTML_CSS = `
 
 // node_modules/deep-view/src/react/card.js
 var import_react16 = require("react");
-var mdLabels2 = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
+var mdLabels2 = (ui) => ({ code: { copyLabel: ui.t("Copy"), copiedLabel: ui.t("Copied") }, footnotes: ui.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
 var CALLOUT_TONES2 = ["info", "good", "warn", "bad"];
 var optionsOf2 = (node) => (Array.isArray(node?.options) ? node.options : []).map((option) => typeof option === "string" ? { label: option } : option).filter((option) => option !== null && typeof option === "object" && option.label !== void 0);
@@ -22481,7 +22475,7 @@ var hasControls = (node) => {
 };
 var answerValues = (answer, node) => answer?.action === node.id ? answer.values : void 0;
 function OptionsInput({ node, onSubmit, keys, busy = false }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const [picked, setPicked] = (0, import_react16.useState)([]);
   const options = optionsOf2(node);
   const multi = node.multi === true;
@@ -22521,23 +22515,23 @@ function OptionsInput({ node, onSubmit, keys, busy = false }) {
           (0, import_react16.createElement)("span", { className: "dv-q-label" }, option.label),
           option.description ? (0, import_react16.createElement)("span", { className: "dv-q-desc" }, option.description) : null
         ),
-        selected ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
+        selected ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
       );
     })),
     multi ? (0, import_react16.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui2.t("Submit"))
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui.t("Submit"))
     ) : null
   );
 }
 function SettledOptions({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const selected = answerValues(answer, node)?.selected;
   const chosen = Array.isArray(selected) ? selected : [];
   return (0, import_react16.createElement)(
     "div",
-    { className: "dv-q-list", role: "group", "aria-label": ui2.t("Your answer") },
+    { className: "dv-q-list", role: "group", "aria-label": ui.t("Your answer") },
     optionsOf2(node).map((option) => (0, import_react16.createElement)(
       "div",
       { key: option.label, className: "dv-q-opt" },
@@ -22547,36 +22541,36 @@ function SettledOptions({ node, answer }) {
         (0, import_react16.createElement)("span", { className: "dv-q-label" }, option.label),
         option.description ? (0, import_react16.createElement)("span", { className: "dv-q-desc" }, option.description) : null
       ),
-      chosen.includes(option.label) ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
+      chosen.includes(option.label) ? (0, import_react16.createElement)("span", { className: "dv-q-check", title: ui.t("Selected") }, (0, import_react16.createElement)(CheckIcon2)) : null
     ))
   );
 }
 function ConfirmInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-q-foot" },
     footStart ? (0, import_react16.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui2.t("Cancel")),
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui2.t("Confirm"))
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui.t("Cancel")),
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui.t("Confirm"))
   );
 }
 function SettledConfirm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const confirmed = answerValues(answer, node)?.confirmed;
   if (confirmed !== true && confirmed !== false) {
     return (0, import_react16.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui2.t("Cancel")),
-      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui2.t("Confirm"))
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui.t("Cancel")),
+      (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui.t("Confirm"))
     );
   }
-  const label = confirmed ? node.confirmLabel ?? ui2.t("Confirm") : node.cancelLabel ?? ui2.t("Cancel");
+  const label = confirmed ? node.confirmLabel ?? ui.t("Confirm") : node.cancelLabel ?? ui.t("Cancel");
   return (0, import_react16.createElement)("span", { className: "dv-q-badge" }, label);
 }
 function FormInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const fields = fieldsOf(node);
   const [draft, setDraft] = (0, import_react16.useState)(() => Object.fromEntries(fields.map((field) => [field.id, field.value ?? ""])));
   const submit = () => {
@@ -22658,17 +22652,17 @@ function FormInput({ node, onSubmit, busy = false, footStart = null }) {
       { className: "dv-q-foot" },
       footStart ? (0, import_react16.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
       node.cancelLabel ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: cancel }, node.cancelLabel) : null,
-      (0, import_react16.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit"))
+      (0, import_react16.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui.t("Submit"))
     )
   );
 }
 function SettledForm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const ans = answerValues(answer, node);
   const fields = ans?.fields;
   const values = fields !== null && typeof fields === "object" ? fields : {};
   const canceled = ans?.canceled === true;
-  const badge = canceled ? node.cancelLabel ?? ui2.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui2.t("Submit") : null;
+  const badge = canceled ? node.cancelLabel ?? ui.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui.t("Submit") : null;
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-widget-form" },
@@ -22700,12 +22694,12 @@ function SettledForm({ node, answer }) {
   );
 }
 function SubmitInput({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   if (ctx.settled) return null;
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-q-foot" },
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui2.t("Send"))
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui.t("Send"))
   );
 }
 function WidgetTable({ node, lookup }) {
@@ -22731,7 +22725,7 @@ function WidgetTable({ node, lookup }) {
   );
 }
 function WidgetProgress({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   let percent3;
   if (node.percent !== void 0) percent3 = Number(resolve(node.percent, lookup, 0));
   else {
@@ -22751,7 +22745,7 @@ function WidgetProgress({ node, lookup }) {
       "aria-valuenow": Math.round(percent3),
       "aria-valuemin": 0,
       "aria-valuemax": 100,
-      "aria-label": node.label ?? ui2.t("Progress"),
+      "aria-label": node.label ?? ui.t("Progress"),
       "aria-valuetext": right
     }, (0, import_react16.createElement)("div", { className: "dv-widget-progress-fill", style: { width: `${percent3}%` } }))
   );
@@ -22768,13 +22762,13 @@ function WidgetMetric({ node, lookup }) {
   );
 }
 function WidgetCallout({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const tone = resolve(node.tone, lookup);
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-view-callout", "data-tone": CALLOUT_TONES2.includes(tone) ? tone : "info" },
     (0, import_react16.createElement)("span", { className: "dv-view-callout-icon", "aria-hidden": true }, (0, import_react16.createElement)(InfoIcon2)),
-    (0, import_react16.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react16.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui2), variant: "compact" }))
+    (0, import_react16.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react16.createElement)(ui.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui), variant: "compact" }))
   );
 }
 var LinkIcon = () => (0, import_react16.createElement)(
@@ -22785,11 +22779,11 @@ var LinkIcon = () => (0, import_react16.createElement)(
   (0, import_react16.createElement)("path", { d: "M13 10.5l1.5-1.5A2.5 2.5 0 0 0 11 5.5L9.5 7" })
 );
 function WidgetSources({ node }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const items = (Array.isArray(node.items) ? node.items : []).filter((item) => typeof item?.url === "string" && /^https?:\/\//i.test(item.url));
   return (0, import_react16.createElement)(
     "div",
-    { className: "dv-view-sources", role: "list", "aria-label": ui2.t("Sources") },
+    { className: "dv-view-sources", role: "list", "aria-label": ui.t("Sources") },
     items.map((item, index) => (0, import_react16.createElement)("a", { key: index, role: "listitem", className: "dv-view-source", href: item.url, target: "_blank", rel: "noopener noreferrer", title: item.url }, (0, import_react16.createElement)(LinkIcon), item.label))
   );
 }
@@ -22905,7 +22899,7 @@ function ToggleInput({ node, ctx }) {
   );
 }
 function WidgetNode({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   if (node === null || typeof node !== "object") return null;
   const { lookup } = ctx;
   switch (node.type) {
@@ -22919,7 +22913,7 @@ function WidgetNode({ node, ctx }) {
       );
     }
     case "text": {
-      const text = (0, import_react16.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui2), variant: "compact" });
+      const text = (0, import_react16.createElement)(ui.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels2(ui), variant: "compact" });
       return node.tone === "muted" ? (0, import_react16.createElement)("div", { className: "dv-view-muted" }, text) : text;
     }
     case "metric":
@@ -22999,7 +22993,7 @@ function useChartHandles() {
   return { charts: [...charts.current.values()], ...fns.current };
 }
 function ViewMenuList({ charts, pick: pick2 }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   return (0, import_react16.createElement)(
     "div",
     { className: "dv-menu dv-view-menu", role: "menu" },
@@ -23010,16 +23004,16 @@ function ViewMenuList({ charts, pick: pick2 }) {
         import_react16.Fragment,
         null,
         index > 0 ? (0, import_react16.createElement)("div", { className: "dv-menu-sep", role: "separator" }) : null,
-        (0, import_react16.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui2.t("Chart {n}", { n: index + 1 }))
+        (0, import_react16.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui.t("Chart {n}", { n: index + 1 }))
       ) : null,
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react16.createElement)(TableIcon), chart.asTable ? ui2.t("View as chart") : ui2.t("View as table")),
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react16.createElement)(CopyIcon2), ui2.t("Copy data")),
-      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react16.createElement)(DownloadIcon2), ui2.t("Download image"))
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react16.createElement)(TableIcon), chart.asTable ? ui.t("View as chart") : ui.t("View as table")),
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react16.createElement)(CopyIcon2), ui.t("Copy data")),
+      (0, import_react16.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react16.createElement)(DownloadIcon2), ui.t("Download image"))
     ))
   );
 }
 function ViewMenu({ charts }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const [open, setOpen] = (0, import_react16.useState)(false);
   const root = (0, import_react16.useRef)(null);
   (0, import_react16.useEffect)(() => {
@@ -23044,12 +23038,12 @@ function ViewMenu({ charts }) {
   return (0, import_react16.createElement)(
     "div",
     { ref: root, className: "dv-view-tools", "data-open": open ? "" : void 0 },
-    (0, import_react16.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui2.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react16.createElement)(DotsIcon2)),
+    (0, import_react16.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react16.createElement)(DotsIcon2)),
     open ? (0, import_react16.createElement)(ViewMenuList, { charts, pick: pick2 }) : null
   );
 }
 function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
-  const ui2 = useViewUi();
+  const ui = useViewUi();
   const titleId = (0, import_react16.useId)();
   const { charts, registerChart, refreshCharts } = useChartHandles();
   const framed = raised || hasControls(view);
@@ -23060,7 +23054,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
     icon2 ? (0, import_react16.createElement)("span", { className: "dv-view-icon", "aria-hidden": true }, icon2) : null,
     title ? (0, import_react16.createElement)("p", { className: "dv-view-title", id: titleId }, title) : (0, import_react16.createElement)("span", { className: "dv-view-title" }),
     countType(view, "chart") > 0 ? (0, import_react16.createElement)(ViewMenu, { charts }) : null,
-    onDismiss ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui2.t("Dismiss view"), title: ui2.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react16.createElement)(CloseIcon2)) : null
+    onDismiss ? (0, import_react16.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui.t("Dismiss view"), title: ui.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react16.createElement)(CloseIcon2)) : null
   ) : null;
   return (0, import_react16.createElement)(
     "div",
@@ -23068,7 +23062,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
       className,
       role: "group",
       "aria-labelledby": title ? titleId : void 0,
-      "aria-label": title ? void 0 : ui2.t("View"),
+      "aria-label": title ? void 0 : ui.t("View"),
       "aria-busy": busy || void 0
     },
     head,
@@ -29226,8 +29220,7 @@ var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.starts
 
 // src/client/user-message.js
 var import_react33 = require("react");
-var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
-var projects = typeof ui.projectUserText === "function";
+var projects = typeof import_dsh_client_ui_primitives.projectUserText === "function";
 var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
 var USER_SOURCE_SLOT = "conversation.chat.user.before";
 function installUserBubble(slots, drawRows) {
@@ -29304,7 +29297,7 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
     (0, import_react33.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react33.createElement)(import_react33.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react33.createElement)(import_react33.Fragment, { key: index }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
@@ -29320,11 +29313,11 @@ function Attachments({ attachments, renderMessageImages }) {
       return renderMessageImages ? (0, import_react33.createElement)(import_react33.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
-    const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
+    const meta = [import_dsh_client_ui_primitives.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), import_dsh_client_ui_primitives.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react33.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui.FileTypeIcon ? (0, import_react33.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      import_dsh_client_ui_primitives.FileTypeIcon ? (0, import_react33.createElement)(import_dsh_client_ui_primitives.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
       (0, import_react33.createElement)("span", { className: "bt-ufile-text" }, (0, import_react33.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react33.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
@@ -29356,7 +29349,7 @@ function ProjectedContent({ data, text, shown, folded, control, roster, sessionI
       { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
       control ? (0, import_react33.createElement)("div", { className: "bt-fold-body" }, body) : body,
       control,
-      rest.map((block, index) => ui.JsonBlock ? (0, import_react33.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+      rest.map((block, index) => import_dsh_client_ui_primitives.JsonBlock ? (0, import_react33.createElement)(import_dsh_client_ui_primitives.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
     ) : null,
     referenceLabels.length > 0 ? (0, import_react33.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
   );
@@ -38536,7 +38529,6 @@ var BOT_MODELS_CSS = `
 // src/client/settings-preferences.js
 var import_react52 = require("react");
 var import_react_dom8 = require("react-dom");
-var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 var PREFERENCE_ITEMS = /* @__PURE__ */ new Set(["language", "transcript-view", "link-opening", "composer-enter", "performance-usage", "permission"]);
 var CHAT_CHOICES = {
   transcriptView: ["compact", "standard", "detailed", "verbose"],
@@ -38765,7 +38757,7 @@ function PermissionPreference({ preferences }) {
       " ",
       (0, import_react52.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
     ) : null,
-    (0, import_react52.createElement)(import_dsh_client_ui_primitives2.RiskConfirmation, {
+    (0, import_react52.createElement)(import_dsh_client_ui_primitives.RiskConfirmation, {
       open: confirmation !== null,
       title: tr("confirm.title"),
       description: tr("confirm.description"),
@@ -38824,13 +38816,12 @@ function settingsPreferences(ctx) {
 
 // src/client/settings.js
 var import_react53 = require("react");
-var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
 var SETTINGS_PAGES = [["general", "General"], ["models", "Models"], ["local-agents", "Local agents"], ["bots", "Bots"], ["bot-models", "Bot models"], ["groups", "Group chats"], ["connectors", "Connectors"], ["im", "IM"], ["phone", "Phone"], ["capabilities", "Capabilities"], ["deepseek-services", "DeepSeek services"], ["browser", "Browser"], ["computer", "Computer use"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["about", "About DS Bot"]];
 var LAST_PAGES = /* @__PURE__ */ new Set(["feedback", "about"]);
 var MERGED_SECTIONS = /* @__PURE__ */ new Set(["general", "models"]);
 var LOOK_ITEMS = ["appearance", "font-size"];
-var DSH_ICONS = { account: import_dsh_client_ui_primitives3.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives3.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives3.IconArchiveOutlineMedium };
+var DSH_ICONS = { account: import_dsh_client_ui_primitives.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives.IconArchiveOutlineMedium };
 var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !MERGED_SECTIONS.has(row.id));
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
 var dshItem = (dsh, id) => (0, import_react53.createElement)(
@@ -38838,7 +38829,7 @@ var dshItem = (dsh, id) => (0, import_react53.createElement)(
   { key: id, className: "bt-dsh-item", "data-item": id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react53.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
 );
-var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var MEMORY_SIZES = [
   { scope: "group", label: "Group memory size", size: 12e3 },
   { scope: "bot", label: "Bot memory size", size: 8e3 },
@@ -39308,7 +39299,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           onClick: () => actions.openSettings("dsh", row.id)
         }, (0, import_react53.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section?.id === row.id }, {
           only: row.id,
-          fallback: (0, import_react53.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives3.IconSettingsOutlineMedium, { size: 16 })
+          fallback: (0, import_react53.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives.IconSettingsOutlineMedium, { size: 16 })
         })), row.label)),
         (0, import_react53.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }),
         pages.filter(([key]) => LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text))
@@ -39661,7 +39652,6 @@ function createConnectionFeedback(onChange, {
 // src/client/settings-shell.js
 var import_react55 = require("react");
 var import_react_dom9 = require("react-dom");
-var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
 var SETTINGS_CHILDREN = {
   "settings.launcher": { kind: "single", scope: "root" },
   "settings.trigger": { kind: "single", scope: "root" },
@@ -39811,7 +39801,7 @@ function DesktopUpdatePill({ view, hidden, onOpen }) {
   const error = view.failed || view.presentation?.phase === "error";
   const busy = view.opening || BUSY_PHASES.has(view.presentation?.phase);
   return (0, import_react55.createElement)(
-    import_dsh_client_ui_primitives4.Tooltip,
+    import_dsh_client_ui_primitives.Tooltip,
     { label: copy2.detail, side: "top" },
     (0, import_react55.createElement)(
       "button",
@@ -39821,7 +39811,7 @@ function DesktopUpdatePill({ view, hidden, onOpen }) {
       (0, import_react55.createElement)(
         "span",
         { className: "bt-dsh-update-icon", "aria-hidden": true },
-        error ? (0, import_react55.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react55.createElement)(import_dsh_client_ui_primitives4.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react55.createElement)(import_dsh_client_ui_primitives4.IconDownloadOutlineRegular, { size: 14 })
+        error ? (0, import_react55.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react55.createElement)(import_dsh_client_ui_primitives.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react55.createElement)(import_dsh_client_ui_primitives.IconDownloadOutlineRegular, { size: 14 })
       ),
       (0, import_react55.createElement)("span", null, copy2.label)
     )
@@ -39832,7 +39822,7 @@ function DesktopUpdateBadge({ useDesktopUpdate, useConnectionState }) {
   const connection = useConnectionState((value) => value);
   if ((connection === "disconnected" || connection === "connecting") && view.presentation?.phase !== "installing" || !updateShown(view)) return null;
   const copy2 = updateCopy(view);
-  return (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react55.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
+  return (0, import_react55.createElement)(import_dsh_client_ui_primitives.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react55.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
 }
 function TriggerContent({ wide }) {
   return (0, import_react55.createElement)(import_react55.Fragment, null, (0, import_react55.createElement)(GearIcon), wide ? (0, import_react55.createElement)("span", { className: "bt-settings-trigger-label" }, t("Settings")) : null);
@@ -39907,7 +39897,7 @@ function SettingsShell(props) {
         ...shortcut?.keys?.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}
       }, {
         fallback: (0, import_react55.createElement)(
-          import_dsh_client_ui_primitives4.Tooltip,
+          import_dsh_client_ui_primitives.Tooltip,
           { disabled: open, label: t("Settings"), shortcutKeys: shortcut?.keys },
           (0, import_react55.createElement)("button", {
             type: "button",
@@ -39920,7 +39910,7 @@ function SettingsShell(props) {
           }, renderSlot("settings.trigger", { wide }))
         )
       }),
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.ConnectionIndicator, {
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.ConnectionIndicator, {
         state: wide && !installing ? indicator : void 0,
         disconnectedLabel: t("Connection lost. Refresh to retry"),
         connectingLabel: t("Reconnecting"),
@@ -39976,7 +39966,7 @@ function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
   const unknown = t("Unknown");
   const [serviceFrom, serviceTo] = transitionText(change.previous, change.host, unknown);
   const [pageFrom, pageTo] = transitionText(change.page, change.host, unknown);
-  return (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Modal, {
+  return (0, import_react55.createElement)(import_dsh_client_ui_primitives.Modal, {
     open: true,
     title: t("The service version changed"),
     description: t("This page paused live updates. Reload to load the new version."),
@@ -39986,8 +39976,8 @@ function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
     footer: (0, import_react55.createElement)(
       import_react55.Fragment,
       null,
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
-      (0, import_react55.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
+      (0, import_react55.createElement)(import_dsh_client_ui_primitives.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
     )
   }, (0, import_react55.createElement)(
     "div",
@@ -40088,7 +40078,7 @@ function seatHold(held) {
     }
   };
 }
-function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
+function installSettingsShell(ctx, { face, actions, ui, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
   const request = snapshotStore(void 0);
@@ -40178,7 +40168,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
         regions: ["page", "editable", "terminal"],
         modals: ["settings"],
         resolve: ({ modal }) => {
-          if (ui2.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
+          if (ui.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
           if (modal !== null && modal !== "settings") return { status: "blocked", reason: "modal" };
           return { status: "handled", run: () => actions.openSettings("general") };
         }
@@ -46468,7 +46458,7 @@ function openingPastWait(pending, target) {
   if (!pending || pending.target !== target || pending.slow === true) return pending ?? null;
   return { ...pending, slow: true };
 }
-function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
+function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
   let timer = null;
   const stop = () => {
     if (timer === null) return;
@@ -46477,13 +46467,13 @@ function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout,
   };
   return {
     begin(pending) {
-      ui2.set((state) => ({ ...state, pendingOpen: pending }));
+      ui.set((state) => ({ ...state, pendingOpen: pending }));
       stop();
       const target = pending?.target;
       timer = schedule(() => {
         timer = null;
         let held = false;
-        ui2.set((state) => {
+        ui.set((state) => {
           const pendingOpen = openingPastWait(state.pendingOpen, target);
           held = pendingOpen !== state.pendingOpen;
           return held ? { ...state, pendingOpen } : state;
@@ -46493,7 +46483,7 @@ function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout,
     },
     end() {
       stop();
-      ui2.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+      ui.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
     }
   };
 }
@@ -46545,7 +46535,7 @@ var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
   const roster = useRoster((value) => value);
-  const ui2 = useUi((value) => value);
+  const ui = useUi((value) => value);
   useRegistry((value) => value);
   const frameSnap = useFrame ? useFrame((value) => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = useSidebarPref ? useSidebarPref((value) => value) : "open";
@@ -46556,13 +46546,13 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     previous.current = current2;
     if (current2) actions.followPanel?.(current2);
   }, [current2]);
-  const open = ui2.details ? { id: ui2.details, view: ui2.view ?? "details", renaming: ui2.renaming, tab: ui2.tab, side: ui2.side } : null;
+  const open = ui.details ? { id: ui.details, view: ui.view ?? "details", renaming: ui.renaming, tab: ui.tab, side: ui.side } : null;
   const layout = frameLayout({
     viewport: frameSnap.viewport,
     sidebarWidth: frameSnap.sidebarWidth,
     pref,
-    drawer: ui2.leftDrawer === true,
-    panel: open ? { view: open.view, yielded: ui2.panelYield === true } : null
+    drawer: ui.leftDrawer === true,
+    panel: open ? { view: open.view, yielded: ui.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
   const [kept, setKept] = (0, import_react73.useState)(shown);
@@ -46573,31 +46563,31 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     }
     const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS);
     return () => clearTimeout(timer);
-  }, [ui2.details, ui2.view, ui2.renaming, ui2.tab, shown === null]);
+  }, [ui.details, ui.view, ui.renaming, ui.tab, shown === null]);
   const pane = shown ?? kept;
   const shellHeld = useSettingsShellHeld ? useSettingsShellHeld((value) => value) : false;
-  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui2.settings, DIALOG_EXIT_MS2);
+  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui.settings, DIALOG_EXIT_MS2);
   const memoryOwner = (id) => {
     const bot = roster.byId[id];
     if (bot) return { id: bot.id, name: bot.name };
     const room2 = roster.roomsById[id];
     return room2 ? { id: room2.id, name: room2.name, group: true } : null;
   };
-  const [memory, memoryLeaving] = useLinger(ui2.memory && memoryOwner(ui2.memory) ? ui2.memory : null, DIALOG_EXIT_MS2);
+  const [memory, memoryLeaving] = useLinger(ui.memory && memoryOwner(ui.memory) ? ui.memory : null, DIALOG_EXIT_MS2);
   const owner = memory ? memoryOwner(memory) : null;
-  const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
-  const opening = openingModel({ pending: ui2.pendingOpen ?? null, current: current2, roster });
+  const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS3);
+  const opening = openingModel({ pending: ui.pendingOpen ?? null, current: current2, roster });
   return (0, import_react73.createElement)(
     import_react73.Fragment,
     null,
     (0, import_react73.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
     opening ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
     pane ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.groupSearch && roster.roomsById[ui2.groupSearch.roomId] ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(GroupSearch, { key: ui2.groupSearch.token, room: roster.roomsById[ui2.groupSearch.roomId], roster, token: ui2.groupSearch.token, actions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui.newChat ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui.palette ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body) : null,
+    ui.exchange ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui.voice ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom13.createPortal)((0, import_react73.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
@@ -48977,7 +48967,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
+  const ui = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -49002,21 +48992,21 @@ function apply(ctx) {
   };
   let expected2 = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
-  const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
+  const dropPanels = () => ui.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
   const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
   ctx.effect(() => {
-    const onPageHide = () => leaveVisits(Object.keys(ui2.getSnapshot().visits ?? {}));
+    const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}));
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
   }, "ds-bot: remember visits on page hide");
   ctx.effect(() => {
     const onStorage = (event) => {
       if (event.storageArea !== localStorage) return;
-      if (event.key === null || event.key === unreadStore.key) ui2.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
-      if (event.key === null || event.key === reactionStore.key) ui2.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
+      if (event.key === null || event.key === unreadStore.key) ui.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
+      if (event.key === null || event.key === reactionStore.key) ui.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
     };
     window.addEventListener("storage", onStorage);
@@ -49046,8 +49036,8 @@ function apply(ctx) {
     ])));
   };
   const writeUnread = (id, value) => {
-    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
-    ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
+    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui.getSnapshot().unread);
+    ui.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
@@ -49136,13 +49126,13 @@ function apply(ctx) {
       try {
         unchanged = await pull() ? 0 : unchanged + 1;
         misses = 0;
-        ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
+        ui.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
         if (!stopped) {
           console.warn("[ds-bot] state", error);
           if (error?.code === "HTTP_404") {
             misses += 1;
-            if (misses >= 10 && !roster.getSnapshot().ready) ui2.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
+            if (misses >= 10 && !roster.getSnapshot().ready) ui.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
           }
         }
       } finally {
@@ -49234,7 +49224,7 @@ function apply(ctx) {
           stopReads = null;
         }
         void browsers.retain(snapshot.bots.map((bot) => bot.id));
-        ui2.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
+        ui.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
       };
       sync();
       const offRoster = roster.subscribe(sync);
@@ -49410,7 +49400,7 @@ function apply(ctx) {
     if (snapshot.roomsById[sessionId] !== void 0) return snapshot.roomsById[sessionId];
     return Object.values(snapshot.byId).find((bot) => currentPart(bot) === sessionId) ?? Object.values(snapshot.roomsById).find((room2) => (room2.sessionId ?? room2.id) === sessionId);
   };
-  const openingWait = bindOpeningWait(ui2, {
+  const openingWait = bindOpeningWait(ui, {
     onSlow: () => {
       void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
     }
@@ -49427,7 +49417,7 @@ function apply(ctx) {
     ctx.uiWorkspace.openSession(target);
   }, current: mainView, begin: beginOpening, done: endOpening });
   const panelFolded = (view) => {
-    const state = ui2.getSnapshot();
+    const state = ui.getSnapshot();
     if (state.details === null) return false;
     const f = frame2.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
@@ -49452,7 +49442,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -49483,7 +49473,7 @@ function apply(ctx) {
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
+      ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
       setPlain(false);
       const target = partFor(id);
       show2(target);
@@ -49491,7 +49481,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui2.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null }));
+      ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null }));
       setPlain(true);
       show2(sessionId);
     },
@@ -49537,8 +49527,8 @@ function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
     },
     renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    beginAgentRename: (sessionId) => ui2.set((state) => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui2.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
+    beginAgentRename: (sessionId) => ui.set((state) => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -49574,7 +49564,7 @@ function apply(ctx) {
       sidebarPref.set(next);
     },
     toggleLeftHidden: () => {
-      ui2.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
+      ui.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
       actions.setSidebarPref(toggledPref(sidebarPref.getSnapshot(), sidebarSaved.shown));
     },
     setSidebarWidth: (width) => {
@@ -49582,8 +49572,8 @@ function apply(ctx) {
       writeSidebar(sidebarSaved);
       frame2.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
-    setLeftDrawer: (on) => ui2.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
-    setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
+    setLeftDrawer: (on) => ui.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
+    setPanelYield: (on) => ui.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
     surfaceMode: () => surface.getSnapshot().mode,
@@ -49594,7 +49584,7 @@ function apply(ctx) {
         return;
       }
       if (mode === "agent") {
-        ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
+        ui.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
@@ -49606,11 +49596,11 @@ function apply(ctx) {
     beginVisit: (id) => {
       const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id];
       const seen = seenAt[seenKey(id)] ?? (made?.createdBy && Number.isFinite(made.createdAt) ? made.createdAt : null);
-      ui2.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
+      ui.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
     },
     endVisit: (id) => {
       leaveVisits([id]);
-      ui2.set((state) => {
+      ui.set((state) => {
         if (!(id in (state.visits ?? {}))) return state;
         const visits = { ...state.visits };
         delete visits[id];
@@ -49618,8 +49608,8 @@ function apply(ctx) {
       });
     },
     toggleReaction: (key, index, emoji) => {
-      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui2.getSnapshot().reactions);
-      ui2.set((state) => ({ ...state, reactions }));
+      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui.getSnapshot().reactions);
+      ui.set((state) => ({ ...state, reactions }));
     },
     clearUnread: (id) => writeUnread(id, false)
   };
@@ -49631,7 +49621,7 @@ function apply(ctx) {
         if (!bot) return;
         browsers.ensureTabs(bot.id);
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
@@ -49639,7 +49629,7 @@ function apply(ctx) {
         if (!bot) return null;
         browsers.ensureTabs(bot.id);
         const tabId = browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
         return tabId;
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -49647,7 +49637,7 @@ function apply(ctx) {
         const bot = roster.getSnapshot().byId[id];
         if (!bot) return;
         browsers.activate(bot.id, tabId);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
+        ui.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
       },
       browserEnsure: (botId) => browsers.ensureTabs(botId),
       browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
@@ -49689,8 +49679,8 @@ function apply(ctx) {
   }
   actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
   actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
-  actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
+  actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
+  actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
   actions.hasPlugins = () => ctx.get("pluginNavigation") !== void 0;
   actions.openPlugins = () => ctx.get("pluginNavigation")?.openList();
@@ -49711,7 +49701,7 @@ function apply(ctx) {
       return null;
     }
   };
-  actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
+  actions.seatAccount = (on) => ui.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {
     const value = await call("update-install");
     update.set((previous) => ({ ...previous, ...value }));
@@ -49826,12 +49816,12 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
-    settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });
+    settingsShell = installSettingsShell(ctx, { face, actions, ui, held: settingsShellHeld });
     return () => {
       settingsShell?.dispose();
       settingsShell = null;
@@ -49936,7 +49926,7 @@ function apply(ctx) {
       const next = rightColumnOpen(document);
       const opening = next && !open;
       open = next;
-      const verdict = opening ? columnOpened(ui2.getSnapshot().details !== null, switchWindow.pending) : null;
+      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
       if (verdict === "close-drawer") actions.closePanel();
       else if (verdict === "collapse-column") collapseColumn();
     });
@@ -49946,9 +49936,9 @@ function apply(ctx) {
       attributeFilter: RIGHTBAR_ATTRIBUTES
     });
     const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui2.getSnapshot().details !== null;
-    const offUi = ui2.subscribe(() => {
-      const next = ui2.getSnapshot().details !== null;
+    let drawer = ui.getSnapshot().details !== null;
+    const offUi = ui.subscribe(() => {
+      const next = ui.getSnapshot().details !== null;
       if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
       drawer = next;
     });
@@ -49995,9 +49985,9 @@ function apply(ctx) {
     controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
   };
   const installFrameSync = () => {
-    let lastDetails = ui2.getSnapshot().details;
+    let lastDetails = ui.getSnapshot().details;
     const sync = () => {
-      const s = ui2.getSnapshot();
+      const s = ui.getSnapshot();
       const f = frame2.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
@@ -50008,7 +49998,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui2.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };

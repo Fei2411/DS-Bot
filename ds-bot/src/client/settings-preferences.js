@@ -1,7 +1,7 @@
 // #1815: replace DSH's misplaced Firefox Menu until its positioning is fixed.
 import { createElement as h, Fragment, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
+import { RiskConfirmation } from './dsh-primitives.js'
 import { CheckIcon } from './icons.js'
 import { useAnchoredMenu } from './model-menu.js'
 import { t } from './i18n.js'
