@@ -3,7 +3,7 @@ import { BotAvatar, BotMark, colorOf } from './mark.js'
 import { inkText } from './inks.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
-import { SPRING_SHAPE, spring, useMorph } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, spring, useMorph } from './motion.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -258,8 +258,8 @@ function GoalCompose({ room, roster, actions }) {
         box.style.height = `${box.scrollHeight}px`
       },
       onKeyDown: (event) => {
-        if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() }
-        if (event.key === 'Escape') { event.stopPropagation(); close() }
+        if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit() }
+        if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.stopPropagation(); close() }
       },
       // eslint-disable-next-line jsx-a11y/no-autofocus
       autoFocus: true,
@@ -270,37 +270,94 @@ function GoalCompose({ room, roster, actions }) {
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: text.trim() === '' || sending, onClick: submit }, t('Start'))))
 }
 
-// The surface that wraps the pill: pod with the bar (or the draft form) while
-// closed, the panel while open. The pod hangs off the header over the transcript.
-export function GoalIsland({ room, goal, view, open, composing, roomWork, roster, actions, pill }) {
+// The surface that wraps the pill: pod with pending group approvals and/or the
+// goal bar (or draft form) while closed, the active panel while open. For chats
+// with background tasks only (`taskHoverReveal`), the island stays a compact
+// single-row pill with an inline count chip until hovered or clicked open.
+export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, roomWork, roster, actions, pill }) {
   const island = useRef(null)
-  useMorph(island, open)
+  const leaveTimer = useRef(null)
+  const [hovered, setHovered] = useState(false)
+  const hasApprovals = approvalPod !== null
+  const hasTasks = taskPod !== null
+  const apvExpanded = approvalOpen && hasApprovals
+  const taskExpanded = taskOpen && hasTasks && !apvExpanded
+  const goalExpanded = open && !apvExpanded && !taskExpanded
+  const expanded = goalExpanded || apvExpanded || taskExpanded
+  const hasGoalRow = composing || view !== null
+  const compactTasks = taskHoverReveal && hasTasks && !hasGoalRow && !hasApprovals && !expanded && !hovered
+  const morphKey = apvExpanded ? `apv:${approvalsCount}` : taskExpanded ? `task:${taskCount}` : goalExpanded ? 'goal' : composing ? 'compose' : compactTasks ? 'compact' : 'closed'
+  useMorph(island, morphKey, { width: true })
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current) }, [])
+  useEffect(() => {
+    if (!taskHoverReveal || !hasTasks) setHovered(false)
+  }, [taskHoverReveal, hasTasks])
+  const onEnter = taskHoverReveal ? () => {
+    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null }
+    setHovered(true)
+  } : undefined
+  const onLeave = taskHoverReveal ? () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    leaveTimer.current = setTimeout(() => { leaveTimer.current = null; setHovered(false) }, 180)
+  } : undefined
   const working = new Set((roomWork ?? []).map(entry => entry.botId))
-  // While the draft form is up, Escape and outside clicks cancel it like Cancel.
-  const close = composing ? () => { actions.closeGoalCompose(); actions.closeGoal() } : () => actions.closeGoal()
+  // While any pod panel or the draft form is up, Escape and outside clicks close it.
+  const close = () => {
+    if (composing) actions.closeGoalCompose?.()
+    if (open) actions.closeGoal?.()
+    if (approvalOpen) actions.closeApproval?.()
+    if (taskOpen) actions.closeTaskDeck?.()
+  }
   return h('div', {
     ref: island, className: 'bt-island',
     'data-goal': view?.status ?? (composing ? 'compose' : undefined),
-    'data-idle': view?.idle || undefined, 'data-open': open || undefined,
+    'data-idle': view?.idle || undefined,
+    'data-approval': hasApprovals || undefined,
+    'data-open': expanded || undefined,
+    'data-tasks-open': taskExpanded || undefined,
+    'data-compact': compactTasks || undefined,
+    onMouseEnter: onEnter,
+    onMouseLeave: onLeave,
   },
-  open || composing ? h(GoalOutside, { island, close }) : null,
-  pill,
-  h('div', { className: 'bt-goal-pod' },
+  expanded || composing ? h(GoalOutside, { island, close }) : null,
+  h('div', { className: 'bt-island-top' }, pill, compactTasks ? taskBadge : null),
+  compactTasks ? null : h('div', { className: 'bt-goal-pod' },
+    approvalPod,
+    hasApprovals && hasTasks ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
+    taskPod,
+    (hasApprovals || hasTasks) && hasGoalRow ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
     composing ? h(GoalCompose, { room, roster, actions })
       : view === null ? null
         : h(Fragment, null,
-          h(GoalBar, { view, open, room, actions }),
-          open ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
+          h(GoalBar, { view, open: goalExpanded, room, actions }),
+          goalExpanded ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
 }
 
 export const GOAL_CSS = `
-/* One surface: the pill's own background, border and shadow. The pill row is
-   40px, the pod bar 30px; the surface reshapes on SPRING_SHAPE. */
-.bt-island{position:relative;z-index:6;align-self:flex-start;display:flex;flex-direction:column;pointer-events:auto;width:min(380px,calc(100% - 120px));background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:20px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'width', 'border-radius')}}
-.bt-island[data-open]{width:min(560px,calc(100% - 48px));border-radius:18px}
+/* One Liquid Glass surface: luminous frosted crystal glass with high text
+   legibility over scrolling chat content, crisp specular top bevel, and soft
+   atmospheric depth. Reshapes smoothly on SPRING_SHAPE. */
+.bt-island{position:relative;z-index:6;align-self:flex-start;display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;width:min(380px,calc(100% - 120px));background:linear-gradient(168deg,color-mix(in srgb,var(--bt-card) 93%,transparent) 0%,color-mix(in srgb,var(--bt-main) 86%,transparent) 54%,color-mix(in srgb,var(--bt-card) 90%,transparent) 100%);-webkit-backdrop-filter:blur(40px) saturate(185%) brightness(1.02);backdrop-filter:blur(40px) saturate(185%) brightness(1.02);border:1px solid var(--bt-island-rim);border-radius:20px;box-shadow:var(--bt-island-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'border-radius')}}
+.bt-island::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:var(--bt-island-sheen);z-index:0}
+.bt-island>*{position:relative;z-index:1}
+body[data-ds-dark-theme] .bt-island{background:linear-gradient(168deg,color-mix(in srgb,var(--bt-card) 86%,transparent) 0%,color-mix(in srgb,var(--bt-main) 80%,transparent) 54%,color-mix(in srgb,var(--bt-card) 84%,transparent) 100%);-webkit-backdrop-filter:blur(40px) saturate(185%) brightness(1.05);backdrop-filter:blur(40px) saturate(185%) brightness(1.05)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none;border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island::before{display:none}
+.bt-island[data-open]{width:min(560px,calc(100% - 48px));border-radius:22px}
+.bt-island[data-open][data-tasks-open]{width:min(450px,calc(100% - 48px))}
+.bt-island[data-compact]{width:auto;max-width:min(380px,calc(100% - 120px));border-radius:20px}
+.bt-island-top{flex:none;display:flex;align-items:center;min-width:0;height:40px;white-space:nowrap}
 .bt-island[data-morph]{overflow:hidden}
 .bt-island .bt-pill{width:100%;max-width:none;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;border:0;box-shadow:none;border-radius:20px 20px 0 0}
-.bt-island[data-open] .bt-pill{border-radius:18px 18px 0 0}
+.bt-island[data-compact] .bt-pill{width:auto;border-radius:20px;padding-right:10px}
+.bt-island[data-compact] .bt-pill-go{display:none}
+.bt-island-chip{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;margin-right:8px;padding:0 9px;border:0;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 13%,transparent);color:var(--bt-accent);font:inherit;font-size:12px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer;transition:background-color .14s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-island-chip:hover{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-island-chip:active{scale:.94}
+.bt-island-chip[data-approval]{background:color-mix(in srgb,var(--bt-star) 16%,transparent);color:var(--bt-warn)}
+.bt-island-chip[data-approval]:hover{background:color-mix(in srgb,var(--bt-star) 25%,transparent)}
+.bt-island-chip-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.bt-island[data-open] .bt-pill{border-radius:22px 22px 0 0}
 .bt-island .bt-pill:hover{background:var(--bt-hover)}
 .bt-island .bt-pill:active{transform:none}
 /* The swap area holds the goal title and the group name in one cell, so hover
@@ -319,7 +376,17 @@ export const GOAL_CSS = `
 .bt-goal-pod::before{content:"";flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
 .bt-goal-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;text-align:left;transition:background-color .12s ease}
 .bt-goal-bar:hover{background:var(--bt-hover)}
-.bt-island:not([data-open]) .bt-goal-bar{border-radius:0 0 20px 20px}
+.bt-goal-bar:focus-visible,.bt-apv-bar:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-apv-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:color-mix(in srgb,var(--bt-star) 7%,transparent);color:var(--bt-warn);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;text-align:left;transition:background-color .12s ease}
+.bt-apv-bar:hover{background:color-mix(in srgb,var(--bt-star) 13%,transparent)}
+.bt-apv-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--bt-star)}
+.bt-apv-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-apv-count{flex:none;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:color-mix(in srgb,var(--bt-star) 18%,transparent);font-size:11px;line-height:16px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.bt-apv-bar[aria-expanded=true] .bt-goal-chev svg{transform:rotate(180deg)}
+.bt-apv-panel{display:flex;flex-direction:column;gap:8px;padding:8px 10px 10px;max-height:min(62vh,520px);overflow-y:auto;overflow-x:hidden;border-radius:0 0 18px 18px;animation:bt-veil-in .22s ease-out backwards}
+.bt-island-sep{flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
+.bt-island:not([data-open]) .bt-goal-pod>*:last-child{border-radius:0 0 20px 20px}
+.bt-island[data-open] .bt-goal-pod>*:last-child{border-radius:0 0 18px 18px}
 .bt-goal-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--bt-green)}
 .bt-island[data-goal=drafting] .bt-goal-dot{background:var(--bt-accent)}
 .bt-island[data-goal=paused] .bt-goal-dot,.bt-island[data-idle] .bt-goal-dot{background:var(--bt-star)}
@@ -343,8 +410,8 @@ export const GOAL_CSS = `
 .bt-goal-chev svg{width:14px;height:14px;transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-goal-bar[aria-expanded=true] .bt-goal-chev svg{transform:rotate(180deg)}
 /* The bar's extras hand off to the open panel and give their room to the label. */
-.bt-island[data-open] .bt-goal-segs,.bt-island[data-open] .bt-goal-faces{display:none}
-.bt-island[data-open] .bt-goal-chev{margin-left:auto}
+.bt-goal-bar[aria-expanded=true] .bt-goal-segs,.bt-goal-bar[aria-expanded=true] .bt-goal-faces,.bt-apv-bar[aria-expanded=true] .bt-goal-faces{display:none}
+.bt-goal-bar[aria-expanded=true] .bt-goal-chev,.bt-apv-bar[aria-expanded=true] .bt-goal-chev{margin-left:auto}
 .bt-goal-panel{display:flex;flex-direction:column;max-height:min(62vh,520px);overflow:hidden;border-radius:0 0 18px 18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
 /* The stepper: one shrinking node per stage on a hairline. */
@@ -353,7 +420,7 @@ export const GOAL_CSS = `
 .bt-goal-step::before{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:1px;background:var(--bt-line-2)}
 .bt-goal-step:first-child::before{left:50%}
 .bt-goal-step:last-child::before{right:50%}
-.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
+.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
 .bt-goal-node>svg{flex:none;width:min(12px,70%);height:auto}
 .bt-goal-step[data-step=passed]>.bt-goal-node{background:var(--bt-green);border-color:var(--bt-green);color:var(--bt-main)}
 .bt-goal-step[data-step=current]>.bt-goal-node{border-color:var(--bt-accent);color:var(--bt-accent);font-weight:600}
@@ -378,19 +445,19 @@ export const GOAL_CSS = `
 .bt-goal-task{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .bt-goal-task[data-task=pending]{opacity:.55}
 .bt-goal-tav{position:relative;flex:none;display:inline-flex;margin-top:1px}
-.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:var(--bt-green);color:var(--bt-main);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;corner-shape:round;background:var(--bt-green);color:var(--bt-main);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-goal-tdone svg{width:9px;height:9px}
 .bt-goal-ttext{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
 .bt-goal-tname{font-weight:500}
 .bt-goal-ckbody{display:flex;flex-direction:column;gap:10px;padding:0 14px 10px;font-size:13px;line-height:18px;text-align:left}
 /* The bottom row: disclosure on the left, controls on the right. */
-.bt-goal-foot{display:flex;align-items:center;gap:8px;height:40px;flex:none;padding:0 8px 0 14px;border-top:.5px solid var(--bt-line)}
+.bt-goal-foot{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-height:40px;flex:none;padding:6px 8px 6px 14px;box-sizing:border-box;border-top:.5px solid var(--bt-line)}
 .bt-goal-checks{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:4px 6px;margin-left:-6px;border-radius:6px;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer}
 .bt-goal-checks:hover{background:var(--bt-hover)}
 .bt-goal-mchev{display:inline-flex;width:14px;height:14px;color:var(--bt-ink-3)}
 .bt-goal-mchev svg{width:14px;height:14px;transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-goal-checks[aria-expanded=true] .bt-goal-mchev svg{transform:rotate(180deg)}
-.bt-goal-facts{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.bt-goal-facts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;flex:0 1 auto;margin-left:auto}
 .bt-goal-danger{color:var(--bt-danger)}
 .bt-goal-danger[data-armed]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
 .bt-goal-compose{display:flex;flex-direction:column;gap:8px;padding:12px 14px}
@@ -399,5 +466,5 @@ export const GOAL_CSS = `
 .bt-goal-chint{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-goal-cbtns{display:flex;justify-content:flex-end;gap:6px}
 .bt-event .bt-event-ico{display:inline-flex;width:14px;height:14px;color:var(--bt-accent)}
-@media (prefers-reduced-motion:reduce){.bt-island,.bt-pill-swap>*,.bt-goal-segs i,.bt-goal-chev svg{transition:none!important}.bt-goal-panel{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-island,.bt-pill-swap>*,.bt-goal-segs i,.bt-goal-chev svg{transition:none!important}.bt-goal-panel,.bt-apv-panel{animation:none}}
 `

@@ -56,8 +56,14 @@ export function InlineText({ label, value, placeholder, required = false, maxLen
     onChange: event => setDraft(event.target.value),
     onBlur: commit,
     onKeyDown: (event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); reverting.current = true; event.currentTarget.blur() }
-      if (event.key === 'Enter' && !multiline && !event.nativeEvent.isComposing) event.currentTarget.blur()
+      if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+        event.preventDefault?.()
+        event.stopPropagation?.()
+        event.nativeEvent?.stopPropagation?.()
+        reverting.current = true
+        event.currentTarget.blur()
+      }
+      if (event.key === 'Enter' && !multiline && !event.nativeEvent?.isComposing && event.keyCode !== 229) event.currentTarget.blur()
     },
   })
 }
@@ -312,7 +318,7 @@ label.bt-bs-row{cursor:text}
 .bt-switch[aria-checked=true]{background:var(--bt-accent)}
 .bt-switch:disabled{opacity:.45;cursor:default}
 .bt-switch:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, 'transform')},${spring(SPRING_TAP, 'width')}}
+.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--bt-knob);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, 'transform')},${spring(SPRING_TAP, 'width')}}
 .bt-switch[aria-checked=true] .bt-switch-knob{transform:translateX(16px)}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}

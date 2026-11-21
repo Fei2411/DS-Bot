@@ -26,14 +26,18 @@ export function install(rt) {
   ctx.on('approval/request', (request, next) => {
     const sessionId = request.agent?.session?.id ?? request.agent?.id
     const owner = sessionId === undefined ? undefined : rt.groupOwners.get(sessionId)
-    const botId = owner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
+    const taskOwner = sessionId === undefined ? undefined : rt.taskOwners?.get(sessionId)
+    const botId = owner?.botId ?? taskOwner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
     if (botId === undefined) return next()
+    const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.title
     const id = randomUUID()
+    const roomId = owner?.roomId ?? taskOwner?.roomId
     const entry = {
       id,
       sessionId,
       botId,
-      ...(owner ? { roomId: owner.roomId } : {}),
+      ...(roomId ? { roomId } : {}),
+      ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''),
       reason: String(request.reason ?? '').slice(0, 500),
       detail: rt.callDetail?.(sessionId, request.callId) ?? {},
@@ -47,10 +51,11 @@ export function install(rt) {
       if (!pending.has(id)) return false
       pending.delete(id)
       rt.noteApproval?.(sessionId, undefined)
-      emit('settled', { id, outcome })
+      const settledTaskId = entry.taskId ?? rt.taskOwners?.get(sessionId)?.taskId
+      emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
       return true
     }
-    if (owner === undefined) {
+    if (owner === undefined && taskOwner === undefined) {
       // An own-chat approval races DSH's card. The card sees `linked`, our own
       // AbortSignal: answering here resolves the request, then withdraws the card;
       // an answer there settles `next()` first and is adopted. An abort of the
@@ -84,7 +89,11 @@ export function install(rt) {
         )
       })
     }
-    rt.yieldRoomTurn?.(sessionId)
+    if (owner !== undefined) rt.yieldRoomTurn?.(sessionId)
+    else if (taskOwner?.roomId !== undefined) {
+      const groupSid = rt.roomOf(taskOwner.roomId)?.sessions?.[botId]
+      if (groupSid !== undefined) rt.yieldRoomTurn?.(groupSid)
+    }
     return new Promise((resolve) => {
       entry.answer = (outcome) => {
         if (!settle(outcome)) return
@@ -95,7 +104,15 @@ export function install(rt) {
     })
   }, { prepend: true })
 
-  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => ({ ...entry, answerable: answer !== undefined }))
+  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => {
+    const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(entry.sessionId) : undefined
+    const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(entry.sessionId)?.task?.title)
+    return {
+      ...entry,
+      ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
+      answerable: answer !== undefined,
+    }
+  })
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
 
   function answerApproval(id, choice) {
