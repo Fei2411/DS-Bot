@@ -117,6 +117,20 @@ test('dropping a book removes its file after the writes before it', async (t) =>
   assert.deepEqual(rt.ledger.records('group-r1'), [])
 })
 
+test('a record that fails to write leaves an earlier one with the same seq in range', async (t) => {
+  const { rt, file } = host(t)
+  mkdirSync(join(file('group-r1'), '..'), { recursive: true })
+  writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'kept' })}
+`)
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
+  // A folder where the file was makes the next append fail on every platform.
+  rmSync(file('group-r1'))
+  mkdirSync(file('group-r1'))
+  rt.ledger.append('group-r1', { seq: 1, text: 'lost' })
+  await rt.ledger.flush('group-r1')
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
+})
+
 test('a book with an id that is not a plain name gets a file name of its own', () => {
   assert.equal(bookFile('group-r1'), 'group-r1.jsonl')
   assert.match(bookFile('group-../x'), /^[0-9a-f]{32}\.jsonl$/)

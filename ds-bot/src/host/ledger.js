@@ -141,7 +141,8 @@ export function install(rt) {
       const at = entry.records.indexOf(record)
       if (at !== -1) entry.records.splice(at, 1)
       entry.view = undefined
-      if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
+      // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
+      if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
       entry.torn = true
     }))
     return record

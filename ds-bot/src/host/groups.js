@@ -623,8 +623,11 @@ export function install(rt) {
     if (room !== undefined) ensureRoomLog(room)
     let end = to
     if (end === undefined) {
-      const at = anchor === undefined ? -1 : rt.ledger.anchorAt(bookOf(roomId), anchor)
       const records = rt.ledger.records(bookOf(roomId))
+      let at = anchor === undefined ? -1 : rt.ledger.anchorAt(bookOf(roomId), anchor)
+      // A window that only reads opens the book again on each call: a rewrite by the writing
+      // host in between moves the anchor, so the index must point at it in these records.
+      if (at !== -1 && (records[at]?.event !== 'anchor' || records[at].id !== anchor)) at = records.findIndex(record => record.event === 'anchor' && record.id === anchor)
       let next = []
       if (at === -1) next = records.filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
       else {
