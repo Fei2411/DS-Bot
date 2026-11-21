@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -8,7 +9,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
-import { MCP_TOOLS, clientTools } from '../src/host/mcp-server.js'
+import { MCP_TOOLS, clientTools, closeServer, mcpHttpServer } from '../src/host/mcp-server.js'
 import { remoteAccessError } from '../src/host/phone.js'
 
 const TEAM = {
@@ -141,12 +142,19 @@ function fakeRuntime() {
   }
   const sent = []
   const chats = { m1: [] }
+  const roomChats = { r1: [] }
   const busy = new Set()
+  const waiting = {}
+  const reads = { count: 0 }
   const rt = {
     state,
     sent,
     chats,
+    roomChats,
     busy,
+    waiting,
+    reads,
+    waitingView: () => waiting,
     load: async () => {},
     botOf: id => state.bots[id],
     roomOf: id => state.rooms[id],
@@ -157,16 +165,18 @@ function fakeRuntime() {
     sendUser: async (message) => { sent.push(message) },
     // Two items a page, newest first, like a long chat over several pages.
     chatPage: async (botId, cursor) => {
+      reads.count += 1
       const all = chats[botId] ?? []
       const end = cursor?.end ?? all.length
       const start = Math.max(0, end - 2)
       return { sessionId: botId, items: all.slice(start, end), cursor: start > 0 ? { end: start } : null }
     },
-    mobileEndpoint: async (endpoint, body) => ({ roomId: body.roomId, items: [], cursor: null, running: false }),
+    mobileEndpoint: async (endpoint, body) => ({ roomId: body.roomId, items: roomChats[body.roomId] ?? [], cursor: null, running: false }),
     approvalsView: () => [
       { id: 'a1', botId: 'm1', tool: 'bash', reason: 'Run the tests' },
       { id: 'a2', botId: 'p3', tool: 'bash', reason: 'private' },
       { id: 'a3', botId: 'b2', roomId: 'r1', tool: 'write', reason: 'Edit the plan' },
+      { id: 'a4', botId: 'p3', roomId: 'r1', tool: 'write', reason: 'private in a group' },
     ],
   }
   return rt
@@ -233,4 +243,86 @@ test('wait_for_reply reads back over older pages and stops when the client loses
   const narrowed = call('wait_for_reply', { bot: 'm1', after: 400, timeoutSeconds: 5 })
   setTimeout(() => { client = { ...client, bots: [] } }, 30)
   await assert.rejects(narrowed, /No Bot "m1"/)
+})
+
+test('a group in scope never shows what its private members said', async () => {
+  const rt = fakeRuntime()
+  const call = clientTools(rt, { id: 'c1', name: 'Cursor', bots: [], rooms: ['r1'] }, { pollMs: 10 })
+  rt.roomChats.r1.push(
+    { kind: 'user', text: 'plan?', time: 100 },
+    { kind: 'bot', botId: 'b2', name: 'Scout', text: 'Here is the plan', time: 200 },
+    { kind: 'bot', botId: 'p3', name: 'Diary', text: 'my secret', time: 300 },
+  )
+  assert.deepEqual((await call('read_chat', { group: 'Launch' })).messages.map(item => item.text), ['plan?', 'Here is the plan'])
+  assert.deepEqual((await call('wait_for_reply', { group: 'r1', after: 150, timeoutSeconds: 2 })).messages.map(item => item.from), ['Scout'])
+})
+
+test('a name finds the Bot in scope even when another Bot has the same name', async () => {
+  const rt = fakeRuntime()
+  rt.state.bots.x4 = { id: 'x4', sessionId: 'x4', name: 'Scout', createdAt: 0 }
+  rt.state.bots.n5 = { id: 'n5', sessionId: 'n5', createdAt: 0 }
+  const bots = rt.state.bots
+  rt.state.bots = { n5: bots.n5, x4: bots.x4, ...bots }
+  const call = clientTools(rt, { id: 'c1', name: 'Cursor', bots: ['b2'], rooms: [] })
+  await call('send_to_bot', { bot: 'scout', text: 'hi' })
+  assert.equal(rt.sent[0].sessionId, 'b2')
+  await assert.rejects(call('send_to_bot', { bot: 'nobody', text: 'hi' }), /No Bot "nobody"/)
+})
+
+test('wait_for_reply keeps waiting while the Bot waits for work it handed on, and reads old pages only at the ends', async () => {
+  const rt = fakeRuntime()
+  const call = clientTools(rt, { id: 'c1', name: 'Cursor', bots: ['m1'], rooms: [] }, { pollMs: 20 })
+  for (let index = 0; index < 10; index += 1) rt.chats.m1.push({ kind: 'bot', text: `old ${index}`, time: 10 + index })
+  rt.chats.m1.push({ kind: 'bot', text: 'On it, asking Scout', time: 200 })
+  rt.waiting.m1 = { bots: ['b2'], rooms: [], for: [], waits: [] }
+  const before = rt.reads.count
+  const pending = await call('wait_for_reply', { bot: 'm1', after: 0, timeoutSeconds: 1 })
+  assert.equal(pending.done, false, 'handed-on work still counts as working')
+  assert.equal(pending.messages.length, 11)
+  assert.ok(rt.reads.count - before < 100, `read ${rt.reads.count - before} pages`)
+
+  setTimeout(() => {
+    delete rt.waiting.m1
+    rt.chats.m1.push({ kind: 'bot', text: 'Scout says yes', time: 300 })
+  }, 50)
+  const reply = await call('wait_for_reply', { bot: 'm1', after: 200, timeoutSeconds: 5 })
+  assert.deepEqual([reply.done, reply.messages.map(item => item.text)], [true, ['Scout says yes']])
+})
+
+test('turning MCP access off does not wait for an open wait_for_reply', async () => {
+  let release
+  const server = mcpHttpServer({
+    authorize: token => (token === 'ok' ? { id: 'c1' } : undefined),
+    callFor: () => () => new Promise((resolve) => { release = resolve }),
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${server.address().port}/mcp`
+  const open = rpc(url, 'ok', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'wait_for_reply', arguments: {} } })
+  await until(async () => release, Boolean)
+  const started = Date.now()
+  await closeServer(server)
+  assert.ok(Date.now() - started < 1000, 'closed at once')
+  await assert.rejects(open)
+  release({})
+})
+
+test('a bad entry in mcp.json does not lock out the other clients, and last use is saved', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-mcp-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const port = await freePort()
+  const token = 'dsb_test'
+  const hash = createHash('sha256').update(token).digest('hex')
+  writeFileSync(join(home, 'mcp.json'), JSON.stringify({
+    on: true,
+    port,
+    clients: [{ id: 'bad', name: 'Bad', hash: 'abc', bots: [], rooms: [] }, { id: 'ok', name: 'Script', hash, bots: ['m1'], rooms: [] }],
+  }))
+  const desk = open(home)
+  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await until(async () => (await desk.call('state', {})).value.mcp, mcp => mcp.status === 'on')
+  const url = `http://127.0.0.1:${port}/mcp`
+  assert.equal((await rpc(url, token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200)
+  assert.equal((await rpc(url, 'dsb_other', { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401)
+  const saved = JSON.parse(readFileSync(join(home, 'mcp.json'), 'utf8'))
+  assert.ok(Number.isFinite(saved.clients.find(client => client.id === 'ok').lastUsedAt))
 })

@@ -22,6 +22,7 @@ const WAIT_DEFAULT_S = 25
 const WAIT_MAX_S = 50
 const MAX_PAGES = 20
 const POLL_MS = 1_000
+const LAST_USED_SAVE_MS = 60_000
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
@@ -110,25 +111,33 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
   }
   const allowedBot = bot => bot !== undefined && bot.private !== true && scope().bots.includes(bot.id)
   const allowedRoom = room => room !== undefined && scope().rooms.includes(room.id)
+  const named = (entry, key) => String(entry.name ?? '').toLowerCase() === key.toLowerCase()
+  // Scope first, so a Bot or group out of scope never hides one in scope with the same name.
   const findBot = (ref) => {
     const key = String(ref ?? '').trim()
-    const bot = rt.botOf(key) ?? Object.values(state.bots).find(entry => entry.name.toLowerCase() === key.toLowerCase())
-    if (!allowedBot(bot)) throw refused(`No Bot "${key}" for this client. Call list_bots.`)
+    const byId = rt.botOf(key)
+    const bot = allowedBot(byId) ? byId : Object.values(state.bots).filter(allowedBot).find(entry => named(entry, key))
+    if (bot === undefined) throw refused(`No Bot "${key}" for this client. Call list_bots.`)
     return bot
   }
   const findRoom = (ref) => {
     const key = String(ref ?? '').trim()
-    const room = rt.roomOf(key) ?? Object.values(state.rooms ?? {}).find(entry => String(entry.name ?? '').toLowerCase() === key.toLowerCase())
-    if (!allowedRoom(room)) throw refused(`No group "${key}" for this client. Call list_groups.`)
+    const byId = rt.roomOf(key)
+    const room = allowedRoom(byId) ? byId : Object.values(state.rooms ?? {}).filter(allowedRoom).find(entry => named(entry, key))
+    if (room === undefined) throw refused(`No group "${key}" for this client. Call list_groups.`)
     return room
   }
+  const isPrivate = id => id !== undefined && id !== null && (rt.botOf(id) ?? rt.botOf(rt.selfOf?.(id)))?.private === true
+  // A group can have a private Bot as a member: its posts are left out.
+  const visible = items => chatItems((items ?? []).filter(item => !isPrivate(item?.botId)))
   const target = (args) => {
     if (args.bot !== undefined && args.group !== undefined) throw invalid('Pass bot or group, not both')
     if (args.group !== undefined) return { room: findRoom(args.group) }
     if (args.bot !== undefined) return { bot: findBot(args.bot) }
     throw invalid('Pass bot or group')
   }
-  const botBusy = bot => rt.live.get(rt.chatOf(bot.id))?.turn !== undefined
+  // A Bot that handed work on and ended its turn is still busy until the results are in.
+  const botBusy = bot => rt.live.get(rt.chatOf(bot.id))?.turn !== undefined || rt.waitingView?.()[bot.id] !== undefined
   const read = async ({ bot, room }, cursor) => {
     if (bot !== undefined) {
       const page = await rt.chatPage(bot.id, cursor)
@@ -185,21 +194,24 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
     send_to_group: args => send(findRoom(args.group).id, args.text),
     read_chat: async (args) => {
       const page = await read(target(args), args.cursor)
-      return { messages: chatItems(page.items), cursor: page.cursor, working: page.working }
+      return { messages: visible(page.items), cursor: page.cursor, working: page.working }
     },
     wait_for_reply: async (args) => {
       target(args)
       const after = Number.isFinite(args.after) ? args.after : Date.now()
       const seconds = Math.min(Math.max(Number(args.timeoutSeconds) || WAIT_DEFAULT_S, 1), WAIT_MAX_S)
       const until = Date.now() + seconds * 1000
+      const replies = page => visible(page.items).filter(item => item.kind !== 'user' && (item.time ?? 0) > after)
       // A turn can take a moment to start after send: one poll before trusting "idle".
+      // Only the first and the last poll read back over older pages; the ones between
+      // need only the newest page to see whether the Bot is still working.
       let polls = 0
       for (;;) {
         // Checked on every poll: the client can be removed or its scope narrowed mid-wait.
-        const page = await readSince(target(args), after)
-        const fresh = chatItems(page.items).filter(item => item.kind !== 'user' && (item.time ?? 0) > after)
-        const done = !page.working && (fresh.length > 0 || polls > 0)
+        const page = polls === 0 ? await readSince(target(args), after) : await read(target(args))
+        const done = !page.working && (replies(page).length > 0 || polls > 0)
         if (done || Date.now() >= until) {
+          const fresh = polls === 0 ? replies(page) : replies(await readSince(target(args), after))
           const last = fresh.at(-1)?.time ?? after
           return { done, working: page.working, messages: fresh, after: last }
         }
@@ -208,7 +220,7 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
       }
     },
     list_waiting: () => {
-      const owned = ({ botId, roomId }) => (roomId !== undefined ? allowedRoom(rt.roomOf(roomId)) : allowedBot(rt.botOf(botId)))
+      const owned = ({ botId, roomId }) => !isPrivate(botId) && (roomId !== undefined ? allowedRoom(rt.roomOf(roomId)) : allowedBot(rt.botOf(botId)))
       const approvals = (rt.approvalsView?.() ?? []).filter(owned).map(entry => ({
         kind: 'approval',
         bot: rt.botOf(entry.botId)?.name,
@@ -313,6 +325,14 @@ export function mcpHttpServer({ authorize, callFor, version = '0' }) {
   }))
 }
 
+// close() waits for open responses, and a wait_for_reply can be open for 50 s: drop
+// the connections first so turning access off or moving the port does not hang.
+export function closeServer(server) {
+  const closed = new Promise(resolve => server.close(() => resolve()))
+  server.closeAllConnections?.()
+  return closed
+}
+
 export function install(rt) {
   const path = join(rt.home, FILE)
   let data
@@ -338,10 +358,17 @@ export function install(rt) {
   const authorize = (token) => {
     if (token === '') return undefined
     const hash = hashOf(token)
-    const client = read().clients.find(entry => typeof entry.hash === 'string'
+    // A hand-edited entry with a bad hash must not break every other client.
+    const client = read().clients.find(entry => typeof entry.hash === 'string' && /^[0-9a-f]{64}$/.test(entry.hash)
       && timingSafeEqual(Buffer.from(entry.hash, 'hex'), hash))
     if (client === undefined) return undefined
-    client.lastUsedAt = Date.now()
+    const now = Date.now()
+    // Saved at most once a minute, so a polling client does not rewrite the file every second.
+    const stale = now - (client.lastUsedAt ?? 0) >= LAST_USED_SAVE_MS
+    client.lastUsedAt = now
+    if (stale) {
+      try { write() } catch {}
+    }
     return client
   }
   const tools = new Map()
@@ -359,8 +386,7 @@ export function install(rt) {
     const closing = server
     server = null
     listening = undefined
-    if (closing) await new Promise(resolve => closing.close(() => resolve()))
-    closing?.closeAllConnections?.()
+    if (closing !== null) await closeServer(closing)
   }
   // Only the dsh that owns the team serves it, like the phone link. One pass at a
   // time: the view asks again on every read, so a lock that moved is noticed.
