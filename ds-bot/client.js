@@ -1560,6 +1560,9 @@ var JA = {
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
+  "The files attached to this draft could not be put back.": "この下書きに添付したファイルを戻せませんでした。",
+  "Pause task": "タスクを一時停止",
+  "Resume task": "タスクを再開",
   "Once": "1 回のみ",
   "Every week": "毎週",
   "Repeat": "繰り返し",
@@ -4186,6 +4189,9 @@ var KO = {
   "in {name}": "{name}에서",
   "Click again to delete": "삭제하려면 한 번 더 클릭하세요",
   "Delete task": "작업 삭제",
+  "The files attached to this draft could not be put back.": "이 초안에 첨부된 파일을 되돌리지 못했습니다.",
+  "Pause task": "작업 일시 중지",
+  "Resume task": "작업 재개",
   Once: "한 번",
   "Every week": "매주",
   Repeat: "반복",
@@ -6815,6 +6821,9 @@ var ES = {
   "in {name}": "en {name}",
   "Click again to delete": "Haz clic de nuevo para eliminar",
   "Delete task": "Eliminar tarea",
+  "The files attached to this draft could not be put back.": "No se pudieron recuperar los archivos adjuntos de este borrador.",
+  "Pause task": "Pausar tarea",
+  "Resume task": "Reanudar tarea",
   Once: "Una vez",
   "Every week": "Cada semana",
   Repeat: "Repetir",
@@ -9402,6 +9411,9 @@ var FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "The files attached to this draft could not be put back.": "Les fichiers joints à ce brouillon n’ont pas pu être restaurés.",
+  "Pause task": "Mettre la tâche en pause",
+  "Resume task": "Reprendre la tâche",
   "Once": "Une fois",
   "Every week": "Toutes les semaines",
   "Repeat": "Répéter",
@@ -12028,6 +12040,9 @@ var DE = {
   "in {name}": "in {name}",
   "Click again to delete": "Zum Löschen erneut klicken",
   "Delete task": "Aufgabe löschen",
+  "The files attached to this draft could not be put back.": "Die an diesen Entwurf angehängten Dateien konnten nicht wiederhergestellt werden.",
+  "Pause task": "Aufgabe pausieren",
+  "Resume task": "Aufgabe fortsetzen",
   Once: "Einmalig",
   "Every week": "Jede Woche",
   Repeat: "Wiederholen",
@@ -14677,6 +14692,9 @@ var ZH = {
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
+  "The files attached to this draft could not be put back.": "没发出去的消息里附带的文件没能放回来。",
+  "Pause task": "暂停任务",
+  "Resume task": "恢复任务",
   Once: "一次",
   "Every week": "每周",
   Repeat: "重复",
@@ -15250,31 +15268,43 @@ function installLocale(locale) {
   for (const [langId, dict] of Object.entries(DICTIONARY)) {
     pushOff(locale.register(NAMESPACE, langId, dict));
   }
+  const supplements = /* @__PURE__ */ new Map();
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`;
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key);
+    if (!entry) return;
+    supplements.delete(key);
+    entry.off();
+  };
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId);
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return;
+    try {
+      const off = locale.register(ns, langId, make());
+      if (typeof off === "function") supplements.set(key, { ns, source, off });
+    } catch {
+    }
+  };
   let syncing = false;
   let disposed = false;
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return;
     syncing = true;
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns);
+        if (![...map?.values() ?? []].includes(entry.source)) dropSupplement(key);
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns);
-          if (!map || map.has(langId.toLowerCase())) continue;
-          try {
-            pushOff(locale.register(ns, langId, dict));
-          } catch {
-          }
+          const source = map?.get("en") ?? map?.get("zh");
+          if (source) supplement(ns, langId, source, () => dict);
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has("zh-tw")) continue;
         const zhDict = map.get("zh");
-        if (zhDict) {
-          try {
-            pushOff(locale.register(ns, "zh-TW", convertDict(zhDict)));
-          } catch {
-          }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, "zh-TW", zhDict, () => convertDict(zhDict));
       }
     } finally {
       syncing = false;
@@ -15284,6 +15314,9 @@ function installLocale(locale) {
   if (typeof locale.subscribe === "function") {
     pushOff(locale.subscribe(syncDshNamespaces));
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key);
+  });
   const origResolveText = typeof locale.resolveText === "function" ? locale.resolveText.bind(locale) : null;
   if (origResolveText) {
     locale.resolveText = (text) => {
@@ -15773,6 +15806,21 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       });
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
     }),
+    // Files put back into a draft get new attachment ids: the cards of `from` wait for
+    // their files again in `to`, and bind by name as on a paste.
+    reopenPastes: (from, to) => ui.set((state) => {
+      const blocks = state.paste?.[from] ?? [];
+      if (blocks.length === 0) return state;
+      const waiting = blocks.map((block) => ({ ...block, attachmentId: null }));
+      if (from === to) return pasteState(state, to, waiting);
+      const { [from]: _left, ...rest } = state.paste;
+      return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
+    }),
+    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? [];
+      const waiting = blocks.map((block) => blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block);
+      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting);
+    }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
       const kept = blocks.filter((block) => !blockIds.includes(block.id));
@@ -15948,6 +15996,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     schedules: () => call2("schedules"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
@@ -17009,7 +17058,8 @@ var STORAGE = {
   browserWidth: "ds-bot:browser-width",
   browserImportSource: "ds-bot:browser-import-source",
   sidebar: "ds-bot:sidebar",
-  browsers: "ds-bot.browser.v2"
+  browsers: "ds-bot.browser.v2",
+  drafts: "ds-bot:drafts"
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
@@ -19178,6 +19228,8 @@ var AlertIcon = lineIcon(["M10 3.4 2.8 16.3h14.4z", "M10 8.3v3.4", "M10 14.2h.01
 var StarLineIcon = lineIcon(["M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z"]);
 var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z", "M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13"]);
 var HideIcon = lineIcon(["M3 3l14 14", "M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4", "M8.5 8.5a2 2 0 0 0 3 3"]);
+var PauseIcon = lineIcon(["M7.5 5v10", "M12.5 5v10"]);
+var ResumeIcon = lineIcon(["M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z"]);
 var TrashIcon = lineIcon(["M3.5 5.5h13", "M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10", "M8.5 9v4.5M11.5 9v4.5"]);
 var DuplicateIcon = lineIcon(["M7 7h8.5v9.5H7z", "M4.5 13V3.5H13", "M11.25 9.5v4.5M9 11.75h4.5"]);
 var PersonIcon = lineIcon(["M10 3.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6z", "M4 16.5c.7-3 3.1-4.8 6-4.8s5.3 1.8 6 4.8"]);
@@ -25710,7 +25762,8 @@ var nextText = (task) => {
   if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
-function TaskRow2({ task, actions, onView, showBot, roster }) {
+var canResume = (task) => task.status === "paused" && !((task.kind === "at" || task.kind === "after") && Date.parse(task.scheduledAt) <= Date.now());
+function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
   const [expanded, setExpanded] = (0, import_react23.useState)(false);
   const [busy, setBusy] = (0, import_react23.useState)(false);
@@ -25727,6 +25780,19 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
     setBusy(true);
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false));
   };
+  const [failed, setFailed] = (0, import_react23.useState)("");
+  const toggle = () => {
+    setBusy(true);
+    setFailed("");
+    void actions.schedulePause(task.sessionId, task.id, task.status !== "active").then((next) => {
+      setBusy(false);
+      onView(next);
+    }, (failure) => {
+      setBusy(false);
+      setFailed(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  const pausable = canPause && (task.status === "active" || canResume(task));
   const room2 = task.roomId ? roster.roomsById[task.roomId] : void 0;
   return (0, import_react23.createElement)(
     "div",
@@ -25737,9 +25803,18 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
+      failed ? (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, failed) : null
     ),
     (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    pausable ? (0, import_react23.createElement)("button", {
+      type: "button",
+      className: "bt-mini bt-task-remove bt-task-pause",
+      disabled: busy,
+      "aria-label": task.status === "active" ? t("Pause task") : t("Resume task"),
+      title: task.status === "active" ? t("Pause task") : t("Resume task"),
+      onClick: toggle
+    }, task.status === "active" ? (0, import_react23.createElement)(PauseIcon) : (0, import_react23.createElement)(ResumeIcon)) : null,
     (0, import_react23.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -25913,7 +25988,7 @@ function SchedulesPage({ roster, actions, start }) {
       "section",
       { key: id, className: "bt-set-section" },
       index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name),
-      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })))
+      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })))
     ))
   ];
 }
@@ -25934,7 +26009,7 @@ function BotSchedules({ bot, roster, actions }) {
         (0, import_react23.createElement)("span", { className: "bt-set-copy" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
         (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
       ) : [
-        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })),
+        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react23.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react23.createElement)(PlusIcon), t("New task"))
       ]
     )
@@ -41190,6 +41265,68 @@ var steerQueued = async (session) => {
   }
 };
 
+// src/client/draft-keep.js
+var NO_FILES = [];
+var keptFiles = /* @__PURE__ */ new Map();
+var readTexts = (storage) => {
+  try {
+    const value = JSON.parse(storage?.getItem(STORAGE.drafts) ?? "{}");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+var writeTexts = (storage, value) => {
+  try {
+    storage?.setItem(STORAGE.drafts, JSON.stringify(value));
+  } catch {
+  }
+};
+var textEntry = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string";
+function chatOfSession(roster, sessionId) {
+  if (typeof sessionId !== "string" || sessionId === "") return void 0;
+  const bots = Object.values(roster?.byId ?? {});
+  const rooms = Object.values(roster?.roomsById ?? {});
+  const bot = roster?.byId?.[sessionId] ?? bots.find((item) => currentPart(item) === sessionId || item.parts?.includes(sessionId));
+  if (bot !== void 0) return { id: bot.id, part: currentPart(bot) };
+  const room2 = roster?.roomsById?.[sessionId] ?? rooms.find((item) => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId));
+  if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
+  return void 0;
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+  if (files.length === 0) keptFiles.delete(chatId);
+  else keptFiles.set(chatId, { part, files: [...files] });
+  const texts2 = readTexts(storage);
+  const before = texts2[chatId];
+  if (text === "") {
+    if (before === void 0) return;
+    delete texts2[chatId];
+  } else {
+    if (before?.part === part && before?.text === text) return;
+    texts2[chatId] = { part, text };
+  }
+  writeTexts(storage, texts2);
+}
+function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
+  const kept = keptFiles.get(chatId);
+  const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
+  const entry = readTexts(storage)[chatId];
+  const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
+  return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
+}
+function pruneDrafts(gone, storage = globalThis.localStorage) {
+  if (gone.length === 0) return;
+  for (const chatId of gone) keptFiles.delete(chatId);
+  const texts2 = readTexts(storage);
+  const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
+  if (listed.length === 0) return;
+  for (const chatId of listed) delete texts2[chatId];
+  writeTexts(storage, texts2);
+}
+function forgetKeptFiles() {
+  keptFiles.clear();
+}
+
 // src/client/composer.js
 var import_react59 = require("react");
 var import_react_dom11 = require("react-dom");
@@ -41438,6 +41575,65 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       (0, import_react59.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react59.createElement)(ClockIcon), (0, import_react59.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
     ), document.body) : null
   );
+}
+var NO_IDS = [];
+var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
+function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+  const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
+  const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
+  const draft = useInput?.((state) => state.draft) ?? "";
+  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
+  const phase = useInput?.((state) => state.phase) ?? "plain";
+  const frozen = FROZEN_PHASES.has(phase);
+  const restored = (0, import_react59.useRef)("");
+  const pending = (0, import_react59.useRef)({ text: false, files: false });
+  (0, import_react59.useEffect)(() => {
+    if (!current2 || frozen || inputActions === void 0) return;
+    const key = `${chatId}:${sessionId}`;
+    if (restored.current === key) return;
+    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    let added = [];
+    let attached = false;
+    let restoredText = false;
+    let restoredFiles = false;
+    let ok = true;
+    try {
+      if (back.text !== "") {
+        inputActions.setDraft(back.text);
+        restoredText = true;
+      }
+      if (back.files.length > 0) {
+        added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
+        if (added.length > 0 && inputActions.addAttachments(added) !== false) {
+          attached = true;
+          restoredFiles = true;
+          actions.reopenPastes(back.from, sessionId);
+        } else {
+          if (added.length > 0) actions.releaseDraftFiles?.(added);
+          ok = false;
+        }
+      }
+    } catch (error) {
+      if (added.length > 0 && !attached) actions.releaseDraftFiles?.(added);
+      ok = false;
+      console.warn("[ds-bot] could not put the draft back", error);
+    }
+    pending.current = { text: restoredText, files: restoredFiles };
+    restored.current = key;
+    if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
+  }, [current2, frozen, chatId, sessionId, inputActions]);
+  (0, import_react59.useEffect)(() => {
+    if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (frozen) {
+      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      return;
+    }
+    if (pending.current.text && draft === "") return;
+    if (pending.current.files && ids.length === 0) return;
+    pending.current = { text: false, files: false };
+    keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
+  }, [current2, frozen, chatId, sessionId, draft, ids]);
+  return null;
 }
 
 // src/client/at-menu.js
@@ -42870,7 +43066,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
 var import_react65 = require("react");
 var PASTE_LIMIT = 1500;
 var NO_BLOCKS = [];
-var NO_IDS = [];
+var NO_IDS2 = [];
 var ORPHAN_MS = 3e3;
 var foldPastedText = (text) => typeof text === "string" && text.length > PASTE_LIMIT ? text : null;
 var pastedName = (text) => `Pasted text (${text.length} characters).txt`;
@@ -42963,7 +43159,7 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
 function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = (0, import_react65.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
+  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS2;
   const draft = useInput?.((state) => state.draft) ?? "";
   const latest = (0, import_react65.useRef)({ blocks, ids, draft });
   latest.current = { blocks, ids, draft };
@@ -42982,8 +43178,14 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [ids, blocks]);
+  const shown = (0, import_react65.useRef)(/* @__PURE__ */ new Set());
   (0, import_react65.useEffect)(() => {
-    const gone = latest.current.blocks.filter((block) => !blockLives(block, ids));
+    const stale = latest.current.blocks.filter((block) => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId));
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map((block) => block.id));
+  }, [sessionId]);
+  (0, import_react65.useEffect)(() => {
+    const gone = latest.current.blocks.filter((block) => !blockLives(block, ids) && shown.current.has(block.attachmentId));
+    for (const id of ids) shown.current.add(id);
     if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
   }, [ids]);
   (0, import_react65.useEffect)(() => {
@@ -50037,6 +50239,16 @@ function apply(ctx) {
     updateQueue: async (itemId, action) => await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment)
   });
+  ctx.effect(() => {
+    let chats = null;
+    return roster.subscribe(() => {
+      const snapshot = roster.getSnapshot();
+      if (!snapshot.ready) return;
+      const now = /* @__PURE__ */ new Set([...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)]);
+      if (chats !== null) pruneDrafts([...chats].filter((id) => !now.has(id)));
+      chats = now;
+    });
+  }, "ds-bot: drafts of removed chats");
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -50094,6 +50306,21 @@ function apply(ctx) {
     if (await steerQueued(session) === "failed") {
       actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
     }
+  };
+  actions.draftFiles = (ids) => {
+    const conversation = ctx.get("conversation");
+    if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== "function") return [];
+    return conversation.resolveDraftAttachments(ids).map((item) => ({ kind: item.kind, file: item.file }));
+  };
+  actions.restoreDraftFiles = (sessionId, files) => {
+    const conversation = ctx.get("conversation");
+    if (typeof conversation?.createDrafts !== "function") return [];
+    return conversation.createDrafts(sessionId, files, true).map((item) => item.id);
+  };
+  actions.releaseDraftFiles = (ids) => {
+    const conversation = ctx.get("conversation");
+    if (typeof conversation?.releaseDraftAttachment !== "function") return;
+    for (const id of ids) conversation.releaseDraftAttachment(id);
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
   actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));
@@ -50330,6 +50557,7 @@ function apply(ctx) {
     () => shadow("conversation.composer.dock", { id: "activity", order: 0, priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.composer.dock", { id: "usage", order: 1, priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.composer.dock", { id: "btw", order: 2, priority: BOT_PRIORITY, inject: face }, BtwDock),
+    () => shadow("conversation.input.left", { id: "bot-draft", order: -120, inject: face }, DraftKeeper),
     () => shadow("conversation.input.left", { id: "bot-paste", order: -110, inject: face }, PasteGuard),
     () => shadow("conversation.input.left", { id: "bot-plus", order: -100, inject: face }, ComposerPlus),
     () => shadow("conversation.input.right", { id: "bot-voice", order: 100, inject: face }, ComposerVoice),

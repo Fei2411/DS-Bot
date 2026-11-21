@@ -108,6 +108,21 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       })
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked)
     }),
+    // Files put back into a draft get new attachment ids: the cards of `from` wait for
+    // their files again in `to`, and bind by name as on a paste.
+    reopenPastes: (from, to) => ui.set((state) => {
+      const blocks = state.paste?.[from] ?? []
+      if (blocks.length === 0) return state
+      const waiting = blocks.map(block => ({ ...block, attachmentId: null }))
+      if (from === to) return pasteState(state, to, waiting)
+      const { [from]: _left, ...rest } = state.paste
+      return { ...state, paste: { ...rest, [to]: [...(rest[to] ?? []), ...waiting] } }
+    }),
+    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const waiting = blocks.map(block => (blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block))
+      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting)
+    }),
     removePaste: (sessionId, blockIds) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? []
       const kept = blocks.filter(block => !blockIds.includes(block.id))
@@ -275,6 +290,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call('schedule-pause', { sessionId, id, active }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
