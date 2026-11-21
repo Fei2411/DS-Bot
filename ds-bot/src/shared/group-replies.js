@@ -21,8 +21,25 @@ const RELAY_LIST = /"replies"\s*:\s*\[/
 // "[... tool result middle pruned ...]". Its "]" looks like the end of the
 // replies array to a naive scan, so the text is split on the marker first.
 const PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/
+const SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/
+export const compressedRelayPreview = text => {
+  const notice = SAVE_TOKEN_NOTICE.exec(text)
+  return notice === null ? undefined : text.slice(0, notice.index)
+}
+export const REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /
+
 export function parseReplies(text) {
-  try { return { replies: JSON.parse(text).replies ?? [], broken: false } } catch { /* fall through */ }
+  const preview = compressedRelayPreview(text)
+  if (preview !== undefined) {
+    // The elision can splice two different Bots' text into a single valid JSON string.
+    const replies = parseReplies(preview).replies.filter(reply => reply && typeof reply === 'object'
+      && !reply.__omitted__ && (typeof reply.text !== 'string' || !REPLY_ELISION.test(reply.text)))
+    return { replies, broken: true }
+  }
+  try {
+    const replies = JSON.parse(text)?.replies
+    return { replies: Array.isArray(replies) ? replies : [], broken: false }
+  } catch { /* fall through */ }
   const replies = []
   const head = RELAY_LIST.exec(text)
   if (head) {

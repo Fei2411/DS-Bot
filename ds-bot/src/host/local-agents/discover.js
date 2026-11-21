@@ -21,7 +21,9 @@ function isFile(path) {
 export function cleanEnv(extra = {}) {
   const env = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (DROP_EXACT.has(key) || DROP_PREFIX.some(prefix => key.startsWith(prefix))) continue
+    const upper = key.toUpperCase()
+    // Git's injected config is one group; dropping only KEY leaves COUNT/VALUE malformed.
+    if (/^GIT_CONFIG_(?:COUNT|PARAMETERS|(?:KEY|VALUE)_\d+)$/.test(upper) || DROP_EXACT.has(upper) || DROP_PREFIX.some(prefix => upper.startsWith(prefix))) continue
     env[key] = value
   }
   // A CLI found outside our sparse PATH (a script with `#!/usr/bin/env node`)
@@ -216,22 +218,60 @@ function classifySignIn(error, stdout, stderr, check) {
   return null
 }
 
-// Whether a CLI is signed in: true, false, or null when it cannot tell. A missing
-// credential file proves nothing (macOS keeps some in the Keychain), so only a
-// command can say false. The output and the file stay here; only the answer leaves.
-export function probeSignIn(executable, check, { home = homedir() } = {}) {
+const SIGN_IN_TIMEOUT_MS = 3_000
+
+function probeMacKeychain({ service, account }, spawnKeychain) {
+  return new Promise((resolve) => {
+    try {
+      // Without -g or -w this looks up metadata only. A miss proves nothing:
+      // the CLI may be using a fallback credential store.
+      const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
+        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(SIGN_IN_TIMEOUT_MS), killSignal: 'SIGKILL',
+      })
+      child.once('error', () => resolve(null))
+      child.once('close', (code) => resolve(code === 0 ? true : null))
+    } catch { resolve(null) }
+  })
+}
+
+// The per-user data folder as CodeBuddy resolves it from the home directory
+// (it ignores XDG_DATA_HOME and LOCALAPPDATA).
+const APP_DATA = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'] }
+
+function hasJsonPaths(file, paths) {
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8'))
+    return paths.every((path) => Boolean(path.reduce((value, key) => value?.[key], data)))
+  } catch {
+    return false
+  }
+}
+
+function probeAppDataFile({ path, loggedOut, has = [] }, home, platform) {
+  const file = join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...path)
+  if (!isFile(file) || (loggedOut !== undefined && isFile(`${file}${loggedOut}`))) return null
+  return has.length === 0 || hasJsonPaths(file, has) ? true : null
+}
+
+// true, false, or null when the check cannot tell. Only a CLI's status command
+// can say false; a missing credential in one store proves nothing.
+export function probeSignIn(executable, check, { home = homedir(), platform = process.platform, spawnKeychain = spawn } = {}) {
   if (check === undefined) return Promise.resolve(null)
+  if (check.macKeychain !== undefined) {
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain) : Promise.resolve(null)
+  }
   if (check.file !== undefined) return Promise.resolve(isFile(join(home, ...check.file)) ? true : null)
+  if (check.appDataFile !== undefined) return Promise.resolve(probeAppDataFile(check.appDataFile, home, platform))
   return new Promise((resolve) => {
     try {
       const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 3_000, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: SIGN_IN_TIMEOUT_MS, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
         const result = classifySignIn(error, stdout, stderr, check)
         if (result !== null || check.fallback === undefined) {
           resolve(result)
           return
         }
-        void probeSignIn(executable, check.fallback, { home }).then(resolve, () => resolve(null))
+        void probeSignIn(executable, check.fallback, { home, platform, spawnKeychain }).then(resolve, () => resolve(null))
       })
     } catch { resolve(null) }
   })

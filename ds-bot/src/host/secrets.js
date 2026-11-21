@@ -679,6 +679,7 @@ export function install(rt) {
       if (!SECRET_NAME.test(name)) return 'Name the key with capitals, digits, and underscores, starting with a letter (for example GITHUB_TOKEN).'
       const secret = secrets.get(name)
       if (canUse(secret, bot.id)) return `${name} is already saved and you may use it: ${usage(name)}. You cannot see the value; never print it.`
+      if (rt.taskOwners?.has(id)) return `Background tasks cannot show secret cards directly. End or report back to your own chat naming ${name} and why you need it, so your own chat can request it from the user.`
       if (rt.groupOwners.has(id)) return 'Secret cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_secret there.'
       if (!rt.chatOwners.has(id)) return 'Secret cards only work in your current own chat.'
       const readOnly = rt.readOnly()

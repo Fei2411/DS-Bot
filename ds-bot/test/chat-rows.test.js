@@ -28,11 +28,32 @@ runInNewContext(bundle.outputFiles[0].text, {
   },
   queueMicrotask,
 })
-const { ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
+const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
 const shape = rows => [...rows].map(row => (row.props.className === 'bt-time-sep' ? 'clock' : row.type.name === 'Bubbles' ? `bot:${row.props.texts.join('+')}` : row.type.name))
+
+test('stored duplicate bubbles stay visible, with reactions on indexes 1 and 3', () => {
+  const tree = Bubbles({
+    texts: ['...', '...', 'other', '...', '...'], roster, selfId: 'b', actions: {}, msgKey: 'room:1',
+    useUi: select => select({ reactions: { 'room:1': { 1: ['👍'], 3: ['😂'] } } }),
+    streaming: true, lead: 'avatar',
+  })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => [bubble.props.text, bubble.props.index, bubble.props.picked[0] ?? null]), [
+    ['...', 0, null], ['...', 1, '👍'], ['other', 2, null], ['...', 3, '😂'], ['...', 4, null],
+  ])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.live), [false, false, false, false, true])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.lead), [null, null, null, null, 'avatar'])
+})
+
+test('whitespace variants stay separate bubbles', () => {
+  const tree = Bubbles({ texts: ['...', '... ', '...\n'], roster, selfId: 'b', actions: {} })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => bubble.props.text), ['...', '... ', '...\n'])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.index), [0, 1, 2])
+})
 
 test('a Bot\'s messages in a row are one block', () => {
   const items = [

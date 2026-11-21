@@ -134,12 +134,13 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   const own = useRef(null)
   if (own.current === null) {
     own.current = {
-      key: undefined, node: null, observer: null,
+      key: undefined, axis, node: null, observer: null,
       springs: liveSprings(({ start, end }) => {
         const knob = thumb.current
         if (!knob) return
-        knob.style.transform = axis === 'x' ? `translateX(${start}px)` : `translateY(${start}px)`
-        knob.style[axis === 'x' ? 'width' : 'height'] = `${Math.max(0, end - start)}px`
+        const currentAxis = own.current.axis
+        knob.style.transform = currentAxis === 'x' ? `translateX(${start}px)` : `translateY(${start}px)`
+        knob.style[currentAxis === 'x' ? 'width' : 'height'] = `${Math.max(0, end - start)}px`
       }),
     }
   }
@@ -149,10 +150,11 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     const container = box.current
     const knob = thumb.current
     if (!container || !knob) return
+    const currentAxis = own.current.axis
     const chosen = container.querySelector(selector)
     if (!chosen) { knob.dataset.hidden = ''; return }
-    const start = axis === 'x' ? chosen.offsetLeft : chosen.offsetTop
-    const end = start + (axis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
+    const start = currentAxis === 'x' ? chosen.offsetLeft : chosen.offsetTop
+    const end = start + (currentAxis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
     const { springs } = own.current
     const before = springs.target()
     const hidden = knob.dataset.hidden !== undefined
@@ -165,10 +167,18 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   useLayoutEffect(() => {
     const state = own.current
     const node = box.current
-    if (node === state.node && key === state.key) return
-    const fresh = node !== state.node
+    const axisChanged = axis !== state.axis
+    if (node === state.node && key === state.key && !axisChanged) return
+    const fresh = node !== state.node || axisChanged
     state.key = key
-    if (fresh) {
+    if (axisChanged) {
+      state.axis = axis
+      if (thumb.current) {
+        thumb.current.style.width = ''
+        thumb.current.style.height = ''
+      }
+    }
+    if (node !== state.node) {
       state.observer?.disconnect()
       state.node = node
       state.observer = node && typeof ResizeObserver === 'function' ? new ResizeObserver(() => place(true)) : null
@@ -220,30 +230,48 @@ export function useFlip(list, key, selector, id = node => node.dataset.flip) {
 // mid-morph starts from the height on screen. The box clips its content meanwhile.
 // The resting height comes from a ResizeObserver: reading it on every render would lay
 // out the page once per render, the panel's whole first frame when it opens.
-export function useMorph(box, key) {
-  const last = useRef({ key, height: null, node: null, observer: null })
+export function useMorph(box, key, { width: morphWidth = false, curve = SPRING_SHAPE } = {}) {
+  const last = useRef({ key, height: null, width: null, node: null, observer: null })
   useLayoutEffect(() => {
     const node = box.current
     const state = last.current
     if (node !== state.node) {
       state.observer?.disconnect()
-      Object.assign(state, { key, height: null, node, observer: null })
+      Object.assign(state, {
+        key,
+        height: node ? node.offsetHeight : null,
+        width: node ? node.offsetWidth : null,
+        node,
+        observer: null,
+      })
       if (!node || typeof ResizeObserver !== 'function') return
       state.observer = new ResizeObserver(([entry]) => {
-        if (node.dataset.morph === undefined) state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight
+        if (node.dataset.morph === undefined) {
+          state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight
+          state.width = entry.borderBoxSize?.[0]?.inlineSize ?? node.offsetWidth
+        }
       })
       state.observer.observe(node)
       return
     }
     if (!node || key === state.key) return
     const running = node.getAnimations().filter(animation => animation.id === 'bt-morph')
-    const from = running.length ? node.offsetHeight : state.height
+    const fromH = running.length ? node.offsetHeight : state.height
+    const fromW = running.length ? node.offsetWidth : state.width
     for (const animation of running) animation.cancel()
-    const to = node.offsetHeight
-    Object.assign(state, { key, height: to })
-    if (from === null || Math.abs(from - to) < 1 || reducedEffects()) return
+    delete node.dataset.morph
+    const toH = node.offsetHeight
+    const toW = node.offsetWidth
+    Object.assign(state, { key, height: toH, width: toW })
+    const dh = fromH !== null && Math.abs(fromH - toH) >= 1
+    const dw = morphWidth && fromW !== null && Math.abs(fromW - toW) >= 1
+    if ((!dh && !dw) || reducedEffects()) return
+    const start = {}
+    const end = {}
+    if (dh) { start.height = `${fromH}px`; end.height = `${toH}px` }
+    if (dw) { start.width = `${fromW}px`; end.width = `${toW}px` }
     node.dataset.morph = ''
-    const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: 'bt-morph' })
+    const animation = node.animate([start, end], { duration: curve.duration, easing: curve.easing, id: 'bt-morph' })
     animation.onfinish = () => { delete node.dataset.morph }
     animation.oncancel = () => { if (!node.getAnimations().some(other => other.id === 'bt-morph' && other !== animation)) delete node.dataset.morph }
   })
