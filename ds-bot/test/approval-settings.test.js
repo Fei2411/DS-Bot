@@ -315,7 +315,7 @@ test('a superseded room request cannot hide the CLI mode that still needs revoca
   room.permission = 'danger-full-access'
   bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
   rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
-  await rt.applyPermission(bot, 'task-session', room)
+  rt.localAgentLaunchPreset = () => 'danger-full-access'
   const resolve = rt.resolveAgent
   let release
   let held = false
@@ -348,7 +348,7 @@ test('an unchanged effective group mode does not interrupt a running task', asyn
   bot.permission = 'workspace-write'
   bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
   rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
-  await rt.applyPermission(bot, 'task-session', room)
+  rt.localAgentLaunchPreset = () => 'workspace-write'
   await rt.setRoomPermission(room, 'workspace-write')
   assert.deepEqual(closed, ['g'], 'the member chat reapplies its mode but the unchanged task keeps running')
   assert.equal(modes.get('task-session'), 'workspace-write')
@@ -356,6 +356,19 @@ test('an unchanged effective group mode does not interrupt a running task', asyn
   await rt.setRoomPermission(room, 'read-only')
   assert.deepEqual(closed, ['g', 'task-session'], 'a genuinely different mode still restarts the task')
   assert.equal(modes.get('task-session'), 'read-only')
+})
+
+test('enabling the shared profile default leaves a default-mode task running', async () => {
+  const { rt, bot, room, closed, modes } = setup()
+  room.members = ['b']
+  room.sessions = {}
+  delete bot.permission
+  bot.tasks = [{ id: 'task', sessionId: 'task-session', roomId: 'r', status: 'running' }]
+  rt.taskOwners = new Map([['task-session', { botId: 'b', roomId: 'r', taskId: 'task' }]])
+  rt.localAgentLaunchPreset = () => 'workspace-write'
+  await rt.setRoomPermission(room, 'workspace-write')
+  assert.deepEqual(closed, [])
+  assert.equal(modes.get('task-session'), 'workspace-write')
 })
 
 test('applying an explicit mode clears legacy saved policy on that Session', async () => {
