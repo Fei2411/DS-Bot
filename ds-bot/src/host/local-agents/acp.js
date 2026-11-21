@@ -63,54 +63,11 @@ export class AcpEngine {
     // worker AcpEngine per resolved workspace folder.
     this.workers = new Map()
     this.sessionWorkers = new Map()
-    this.pendingOpens = new Map()
-    this.probeWorkers = new Set()
-    // Lifecycle state for a child worker owned by a `cwdPerProcess` coordinator:
-    // a worker stays alive iff !retired && (inFlight > 0 || committed.size > 0 || keepWarm).
-    this.committed = new Map()
-    this.inFlight = 0
-    this.keepWarm = false
-    this.retired = false
+    this.ephemeral = false
   }
 
   activeWorker() {
-    let fallback
-    for (const worker of this.workers.values()) {
-      if (worker.retired || worker.peer === undefined) continue
-      if (worker.keepWarm) return worker
-      fallback ??= worker
-    }
-    return fallback
-  }
-
-  hasPersistentSession(worker) {
-    for (const entry of worker.committed.values()) if (!entry.ephemeral) return true
-    return false
-  }
-
-  detachWorker(worker) {
-    if (worker.retired) return false
-    worker.retired = true
-    for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
-    return true
-  }
-
-  maybeRetireWorker(worker) {
-    if (worker.retired || worker.inFlight > 0 || worker.committed.size > 0 || worker.keepWarm) return false
-    return this.detachWorker(worker)
-  }
-
-  uncommitSession(worker, dshSessionId, { forget = false, expectedSession } = {}) {
-    const entry = worker.committed.get(dshSessionId)
-    if (entry !== undefined && (expectedSession === undefined || entry.session === expectedSession)) {
-      worker.committed.delete(dshSessionId)
-      if (this.sessionWorkers.get(dshSessionId) === worker) this.sessionWorkers.delete(dshSessionId)
-      if (forget && !entry.ephemeral && !this.hasPersistentSession(worker)) worker.keepWarm = false
-    }
-    if (expectedSession === undefined || worker.sessions.get(dshSessionId) === expectedSession) {
-      worker.forget(dshSessionId)
-    }
-    return this.maybeRetireWorker(worker) ? worker : undefined
+    return [...this.workers.values()].find(worker => worker.peer !== undefined)
   }
 
   spawnWorker(cwd) {
@@ -205,17 +162,13 @@ export class AcpEngine {
     }
   }
 
-  createSession(dshSessionId) {
-    const queue = new EventQueue()
-    return { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
-  }
-
   sessionFor(dshSessionId) {
     let session = this.sessions.get(dshSessionId)
     // A session whose process exited keeps its queue and, with it, the pump
     // still waiting there: a reopened session needs a fresh one.
     if (session === undefined || session.dead) {
-      session = this.createSession(dshSessionId)
+      const queue = new EventQueue()
+      session = { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
       this.sessions.set(dshSessionId, session)
     }
     return session
@@ -248,6 +201,7 @@ export class AcpEngine {
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
         if (id !== undefined) session.toolCalls.set(id, call)
+        if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
         else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
         break
@@ -286,16 +240,22 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
           if (optionId === null) resolve({ outcome: { outcome: 'cancelled' } })
-          else resolve({ outcome: { outcome: 'selected', optionId } })
+          else {
+            if (options.some(option => option.optionId === optionId && option.kind?.startsWith('allow'))
+              && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
+            resolve({ outcome: { outcome: 'selected', optionId } })
+          }
         }
         session.push({
-          type: 'permission', id, reply,
+          type: 'permission', id, reply, cwd: session.cwd,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })
@@ -305,48 +265,28 @@ export class AcpEngine {
   }
 
   async openInWorker(dshSessionId, openArgs) {
-    const ephemeral = openArgs.ephemeral === true
-    const existing = ephemeral ? this.activeWorker() : undefined
+    const existing = openArgs.ephemeral === true ? this.activeWorker() : undefined
     const key = openArgs.cwd ? resolve(openArgs.cwd) : ''
+    const reused = existing !== undefined
     let worker = existing ?? this.workers.get(key)
-    if (worker === undefined) {
+    const created = worker === undefined
+    if (created) {
       worker = this.spawnWorker(key)
+      if (openArgs.ephemeral === true) worker.ephemeral = true
       this.workers.set(key, worker)
     }
-    const openToken = { forgotten: false }
-    let pending = this.pendingOpens.get(dshSessionId)
-    if (pending === undefined) {
-      pending = new Set()
-      this.pendingOpens.set(dshSessionId, pending)
-    }
-    pending.add(openToken)
-    worker.inFlight += 1
     try {
       const session = await worker.open(dshSessionId, openArgs)
-      if (openToken.forgotten || worker.retired) {
-        if (worker.sessions.get(dshSessionId) === session) worker.forget(dshSessionId)
-        // Skip session/close if this worker will shut down right after in finally.
-        if (openToken.forgotten && !worker.retired && (worker.committed.size > 0 || worker.inFlight > 1 || worker.keepWarm)) {
-          await worker.closeSession(session).catch(() => {})
-        }
-        throw Object.assign(new Error(`${this.engine.name} session closed while opening`), { code: 'LOCAL_AGENT_EXIT' })
-      }
-      const prevWorker = this.sessionWorkers.get(dshSessionId)
-      const retiredPrev = prevWorker !== undefined && prevWorker !== worker
-        ? this.uncommitSession(prevWorker, dshSessionId, { forget: true })
-        : undefined
-      worker.committed.set(dshSessionId, { session, ephemeral })
-      if (!ephemeral) worker.keepWarm = true
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
-      if (retiredPrev !== undefined) void retiredPrev.close().catch(() => {})
       return session
-    } finally {
-      pending.delete(openToken)
-      if (pending.size === 0) this.pendingOpens.delete(dshSessionId)
-      worker.inFlight -= 1
-      if (this.maybeRetireWorker(worker)) await worker.close().catch(() => {})
+    } catch (error) {
+      if (created && !reused && ![...this.sessionWorkers.values()].includes(worker)) {
+        this.workers.delete(key)
+        await worker.close().catch(() => {})
+      }
+      throw error
     }
   }
 
@@ -544,8 +484,12 @@ export class AcpEngine {
       const worker = this.workerOf(session)
       if (worker === undefined) return
       await worker.closeSession(session)
-      const retired = this.uncommitSession(worker, session.dshSessionId, { expectedSession: session })
-      if (retired !== undefined) await retired.close().catch(() => {})
+      worker.forget(session.dshSessionId)
+      this.sessionWorkers.delete(session.dshSessionId)
+      if (worker.ephemeral && worker.sessions.size === 0) {
+        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
+        await worker.close()
+      }
       return
     }
     if (session?.acpSessionId === undefined) return
@@ -564,33 +508,23 @@ export class AcpEngine {
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
     if (this.engine.cwdPerProcess) {
-      const pending = this.pendingOpens.get(dshSessionId)
-      if (pending !== undefined) {
-        for (const token of pending) token.forgotten = true
-      }
       const worker = this.sessionWorkers.get(dshSessionId)
       if (worker === undefined) return
-      const retired = this.uncommitSession(worker, dshSessionId, { forget: true })
-      if (retired !== undefined) void retired.close().catch(() => {})
+      this.sessionWorkers.delete(dshSessionId)
+      worker.forget(dshSessionId)
+      if (worker.sessions.size === 0) {
+        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
+        void worker.close().catch(() => {})
+      }
       return
     }
     this.sessions.delete(dshSessionId)
   }
 
   async close() {
-    for (const pending of this.pendingOpens.values()) {
-      for (const token of pending) token.forgotten = true
-    }
-    this.pendingOpens.clear()
-    const toClose = new Set(this.probeWorkers)
-    this.probeWorkers.clear()
-    for (const worker of [...this.workers.values()]) {
-      this.detachWorker(worker)
-      toClose.add(worker)
-    }
+    for (const worker of this.workers.values()) await worker.close()
     this.workers.clear()
     this.sessionWorkers.clear()
-    await Promise.all([...toClose].map(worker => worker.close().catch(() => {})))
     const child = this.child
     this.child = undefined
     this.peer = undefined
@@ -616,26 +550,18 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) {
       const live = this.activeWorker()
       if (live !== undefined) {
-        live.inFlight += 1
-        try {
-          const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
-          const models = await live.listModels({ cwd: target, mcp })
-          this.caps.image = live.caps.image
-          return models
-        } finally {
-          live.inFlight -= 1
-          if (this.maybeRetireWorker(live)) await live.close().catch(() => {})
-        }
+        const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
+        const models = await live.listModels({ cwd: target, mcp })
+        this.caps.image = live.caps.image
+        return models
       }
       const temp = this.spawnWorker(cwd)
-      this.probeWorkers.add(temp)
       try {
         const models = await temp.listModels({ cwd, mcp })
         this.caps.image = temp.caps.image
         return models
       } finally {
-        this.probeWorkers.delete(temp)
-        await temp.close().catch(() => {})
+        await temp.close()
       }
     }
     const peer = await this.ensure()
