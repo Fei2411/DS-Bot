@@ -730,14 +730,15 @@ export function install(rt) {
         if (joining.length > 0 && kept.length > 0) {
           const names = joining.map(bot => bot.name)
           await rt.approveExtraDirs(exec, { paths: kept, room, botIds: joining.map(bot => bot.id), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
-        } else if (targetDir === undefined && room.permission !== undefined) {
+        }
+        if (targetDir === undefined && room.permission !== undefined) {
           const exposed = moving && room.workDir !== undefined
             ? [...new Set([...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)])].map(id => rt.botOf(id)).filter(Boolean)
             : joining
           for (const bot of exposed) {
-            if (!bot.workDir || (!(moving && room.workDir !== undefined) && Object.hasOwn(room.memberDirs ?? {}, bot.id))) continue
+            if (!(moving && room.workDir !== undefined) && Object.hasOwn(room.memberDirs ?? {}, bot.id)) continue
             const who = { en: bot.name, zh: ` ${bot.name} ` }
-            await rt.approveFolder(exec, { path: bot.workDir, room, botIds: [bot.id], who })
+            if (bot.workDir) await rt.approveFolder(exec, { path: bot.workDir, room, botIds: [bot.id], who })
             // The group's preset reaches the member's extra folders too; a Bot on a
             // local agent keeps its own file permissions instead.
             if (!rt.onLocalAgent(bot)) {

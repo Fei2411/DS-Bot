@@ -2033,7 +2033,7 @@ test('group folder grants follow the group preset before the member preset', asy
 })
 
 test('an unavailable preset service still asks before a group folder grant', async (t) => {
-  const { requests, services } = approvalServices('allowed-once', { mode: 'danger-full-access' })
+  const { requests, services } = approvalServices('allowed-once')
   const saved = structuredClone(TEAM)
   saved.rooms.r1.sessions = {}
   saved.rooms.r1.permission = 'bounded'
