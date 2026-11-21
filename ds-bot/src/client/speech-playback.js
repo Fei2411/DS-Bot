@@ -1,8 +1,8 @@
 // Cloud text-to-speech playback for the voice pane. The Bot's reply is spoken
 // in chunks: every chunk stays far under the TTS request limit (10,000 billed
 // characters — a Chinese character bills as 2 — and 64 KiB of body), and the
-// next chunk is requested only when the previous clip ended, so stopping never
-// pays for audio the user did not hear.
+// next chunk is requested while the previous clip plays, so a chunk's request
+// latency comes out of that clip instead of the silence after it.
 // Han script, supplementary planes included — the same rule the host bills by.
 const CJK = /\p{Script=Han}/u
 const EDGE = /^\s+|\s+$/g
@@ -79,6 +79,8 @@ const billedSlice = (text, limit) => {
 
 // Paragraphs first (blank lines), then sentence ends; a run over the limit is
 // cut at it. Whitespace between chunks is dropped — silence needs no audio.
+// `limit` is the caller's budget: the cloud endpoint bills wide chunks, a local
+// engine pays a model pass per request and wants narrow ones.
 export const splitSpeech = (text, limit = 800) => {
   const chunks = []
   const push = (piece) => {
@@ -157,21 +159,31 @@ export const settleSpeech = async (said, current, { failed, done } = {}) => {
 }
 
 // Serial speaker. say() replaces the current speech (each reply is spoken
-// once). At most one synthesize request is in flight: the next chunk goes out
-// only after the current clip ends. stop() aborts that request — a late answer
-// is dropped — silences the current clip and revokes its URL.
-export const createSpeechPlayer = (synthesize) => {
+// once). One synthesize request is in flight per run: the next chunk is asked
+// for while the current clip plays, and only ever one ahead of it. stop()
+// aborts the run's request — a late answer is dropped — silences the current
+// clip and revokes its URL.
+export const createSpeechPlayer = (synthesize, limit) => {
   let generation = 0
   let active = null
   let playing = Promise.resolve('done')
   const run = async (text, voice, own) => {
-    for (const chunk of splitSpeech(text)) {
-      if (own !== generation) return 'aborted'
-      const abort = new AbortController()
-      active = abort
+    const chunks = splitSpeech(text, limit)
+    const abort = new AbortController()
+    active = abort
+    const request = (chunk) => {
+      const asked = synthesize(chunk, voice, abort.signal)
+      // A prefetched request the run drops is never awaited again; its
+      // rejection must not surface as unhandled — the awaiting branch reads it.
+      asked.catch(() => {})
+      return asked
+    }
+    let pending = chunks.length > 0 ? request(chunks[0]) : null
+    for (let index = 0; index < chunks.length; index += 1) {
+      if (own !== generation) { if (active === abort) active = null; return 'aborted' }
       let clip
       try {
-        clip = await synthesize(chunk, voice, abort.signal)
+        clip = await pending
       } catch {
         if (active === abort) active = null
         return own === generation ? 'failed' : 'aborted'
@@ -179,15 +191,13 @@ export const createSpeechPlayer = (synthesize) => {
       // A stop that raced the answer still discards it: nothing plays and no
       // URL is made. active is cleared only while it still names this run's
       // controller — a late answer may land after a newer say installed its own.
-      if (own !== generation) {
-        if (active === abort) active = null
-        return 'aborted'
-      }
+      if (own !== generation) { if (active === abort) active = null; return 'aborted' }
+      pending = index + 1 < chunks.length ? request(chunks[index + 1]) : null
       const outcome = await playClip(clip, abort.signal)
-      if (active === abort) active = null
-      if (own !== generation || outcome === 'aborted') return 'aborted'
-      if (outcome === 'failed') return 'failed'
+      if (own !== generation || outcome === 'aborted') { if (active === abort) active = null; return 'aborted' }
+      if (outcome === 'failed') { if (active === abort) active = null; return 'failed' }
     }
+    if (active === abort) active = null
     return 'done'
   }
   return {

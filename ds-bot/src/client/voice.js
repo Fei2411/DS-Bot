@@ -8,12 +8,15 @@ import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 import { openCapture, preparationStep, speechCatalog, transcribeWave, turnDetector } from './speech.js'
 import { createSpeechPlayer, replyVoice, settleSpeech } from './speech-playback.js'
+import { LOCAL_TTS_CHUNK, LOCAL_TTS_VOICE, probeLocalTts, synthesizeLocal } from './local-tts.js'
+import { useVoiceBarge } from './voice-barge.js'
 
 // Voice chat: listen, send what the user said, read the Bot's answer aloud, listen
 // again. With DSH's Voice Input plugin on, its recognizer hears the user: one
 // recording ends after a pause and is transcribed whole. Otherwise the browser's
-// own speech recognition does. The team picks who reads the answer: the
-// browser's speech synthesis, or DeepSeek's TTS endpoint in chunks.
+// own speech recognition does. The team picks who reads the answer: a local TTS
+// service on loopback when one answers, otherwise the browser's speech
+// synthesis or DeepSeek's TTS endpoint in chunks.
 const plainSpeech = text => stripHeader(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>|~-]+/g, ' ').replace(/\s+/g, ' ').trim()
 const VOICE_LABELS = {
   listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', paused: 'Paused',
@@ -134,6 +137,13 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   // The cloud speaker's player: one per pane, lazily made on the first reply
   // spoken through the TTS endpoint.
   const player = useRef(null)
+  // The local service's player, made on the first reply read with that voice.
+  // It chunks far narrower than the cloud one — a local engine runs a model per
+  // request, so a wide chunk would mean a long silence before the first word.
+  const localPlayer = useRef(null)
+  // Whether loopback TTS answered the probe: one promise per pane, so the probe
+  // is paid once and a missing service is not asked again for every reply.
+  const localTts = useRef(null)
   // The in-flight transcription's controller: pause, close and unmount abort it
   // so a late transcript neither submits to a Session the pane left nor keeps a
   // paid request running. A normal listen→transcribe cycle clears it itself;
@@ -142,10 +152,15 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   // Which cloud speech owns 'speaking': a say replaced or stopped resolves late
   // and must not touch the phase or write a note under a newer speech.
   const speechSeq = useRef(0)
+  // The barge-in listener's shared state: whether it may still run this pane,
+  // how many transcripts it has dropped as the Bot's own voice, and where the
+  // reading had got to when it was interrupted.
+  const barge = useRef({ armed: true, fails: 0, hit: false, pos: 0, base: 0, start: 0, boundary: false })
   const stopSpeech = () => {
     speechSeq.current += 1
     window.speechSynthesis?.cancel()
     player.current?.stop()
+    localPlayer.current?.stop()
   }
   const close = () => { turn.current += 1; transcribeCtl.current?.abort(); stopSpeech(); actions.closeVoice() }
   useEscape(close)
@@ -206,7 +221,9 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     let frame = 0
     let stopped = false
     let smooth = 0
-    const detect = turnDetector()
+    // A turn ends at 0.7 s of quiet: the recognizer needs the whole utterance, so
+    // every extra tenth here is a tenth the user waits before anything happens.
+    const detect = turnDetector({ quietMs: 700 })
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1000
     const writeLevel = (value) => { orbRef.current?.style.setProperty('--bt-level', String(value)) }
     const finish = (current) => {
@@ -262,12 +279,30 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     const count = lastReply.slice(0, lastReply.indexOf('|'))
     const turn = Number(lastReply.slice(lastReply.indexOf('|') + 1))
     if (count === waiting.current) return undefined
-    const speak = (text) => {
-      waiting.current = null
-      const spoken = plainSpeech(text)
-      setSaid(spoken)
-      setHeard('')
-      if (!spoken) { setPhase('listening'); return }
+    // A local service answering the probe owns the voice; the pref decides only
+    // when there is none, so a machine without one keeps its configured engine.
+    const beginSpeech = async (spoken) => {
+      // A pause or close during the probe still wins: both bump speechSeq, and a
+      // reply they cancelled must not start reading afterwards.
+      const seq = speechSeq.current
+      const local = await (localTts.current ??= probeLocalTts())
+      if (speechSeq.current !== seq) return
+      if (local) {
+        window.speechSynthesis?.cancel()
+        localPlayer.current ??= createSpeechPlayer((chunk, voice, signal) => synthesizeLocal(chunk, signal), LOCAL_TTS_CHUNK)
+        const own = ++speechSeq.current
+        barge.current.hit = false
+        barge.current.boundary = false
+        barge.current.pos = 0
+        barge.current.base = 0
+        barge.current.start = performance.now()
+        setPhase('speaking')
+        void settleSpeech(localPlayer.current.say(spoken, LOCAL_TTS_VOICE), () => speechSeq.current === own, {
+          failed: () => setNote(t("Couldn't read the reply")),
+          done: () => setPhase(current => (current === 'speaking' ? 'listening' : current)),
+        })
+        return
+      }
       // The cloud voice does not need speechSynthesis, and a failure comes back
       // as a note — the reply text is never read as an error and nothing plays.
       const cloud = typeof actions.synthesizeSpeech === 'function' ? replyVoice(prefs.current) : null
@@ -278,6 +313,11 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         // The channel takes the whole request body; the player calls per chunk.
         player.current ??= createSpeechPlayer((text, voice, signal) => actions.synthesizeSpeech({ text, voice }, signal))
         const own = ++speechSeq.current
+        barge.current.hit = false
+        barge.current.boundary = false
+        barge.current.pos = 0
+        barge.current.base = 0
+        barge.current.start = performance.now()
         setPhase('speaking')
         void settleSpeech(player.current.say(spoken, cloud), () => speechSeq.current === own, {
           failed: () => setNote(t("Couldn't read the reply")),
@@ -286,16 +326,41 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         return
       }
       if (!window.speechSynthesis) { setPhase('listening'); return }
-      // Switching to the system engine makes any cloud say still out stale.
+      // Switching to the system engine makes any cloud or local say still out stale.
       speechSeq.current += 1
       player.current?.stop()
+      localPlayer.current?.stop()
       const utterance = new SpeechSynthesisUtterance(spoken)
       utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
-      utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
+      // Where the reading got to, character by character: the barge-in guard
+      // matches a transcript against that stretch of the reply.
+      utterance.onboundary = (event) => {
+        barge.current.boundary = true
+        barge.current.pos = event.charIndex || 0
+      }
+      // A reading that was stopped fires `end` as well; without this the phase
+      // would fall to listening and tear down the interruption's recording.
+      utterance.onend = () => {
+        if (barge.current.hit) return
+        setPhase(current => (current === 'speaking' ? 'listening' : current))
+      }
       utterance.onerror = utterance.onend
+      barge.current.hit = false
+      barge.current.boundary = false
+      barge.current.pos = 0
+      barge.current.base = 0
+      barge.current.start = performance.now()
       setPhase('speaking')
       window.speechSynthesis.cancel()
       window.speechSynthesis.speak(utterance)
+    }
+    const speak = (text) => {
+      waiting.current = null
+      const spoken = plainSpeech(text)
+      setSaid(spoken)
+      setHeard('')
+      if (!spoken) { setPhase('listening'); return }
+      void beginSpeech(spoken)
     }
     // The outline commits at turn/end but only holds a bounded preview; the
     // closing Assistant text can trail it, so the answer is read through the
@@ -308,6 +373,8 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         speak(text)
       })
   }, [phase, running, lastReply])
+  // Talking over the reading stops it and submits what was said instead.
+  useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn })
   // Unmount (close, or the pane's key moving to another Session) invalidates
   // every pending completion before it settles: the late transcript drops and
   // the say's then is stale before its state writes would land.
