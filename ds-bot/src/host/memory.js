@@ -944,7 +944,8 @@ export function install(rt) {
       rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
-    const open = topicEntries.filter(entry => !isExpired(entry, today()) && !shown.has(entryId(entry)))
+    const day = today()
+    const open = topicEntries.filter(entry => !isExpired(entry, day) && !shown.has(entryId(entry)))
     const picked = []
     let used = 0
     for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
