@@ -662,3 +662,158 @@ test('Antigravity 1.5.9, as recorded: models with per-model thinking levels, con
     cacheReadTokens: 8112,
   })
 })
+
+function makeScriptAdapter(script, { records = {}, engines = [] } = {}) {
+  const usage = []
+  return new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
+    findExecutable: path => path,
+    spawnEngine: (kind, route, spec) => {
+      const engine = new AcpEngine(route, { ...spec, command: process.execPath, args: ['-e', script] }, { findExecutable: path => path })
+      engines.push(engine)
+      return engine
+    },
+    record: sessionId => records[sessionId],
+    saveRecord: (sessionId, record) => { records[sessionId] = record },
+    patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
+    recordUsage: entry => usage.push(entry),
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => tmpdir(),
+    probeCwd: () => tmpdir(),
+    toolsFor: () => [],
+  })
+}
+
+test('dispose() unblocks when a non-isolated ACP ask() is stuck waiting in engine.open()', async (t) => {
+  const hangOpenScript = `
+    let buf = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        if (msg.method === 'initialize') {
+          process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } }) + '\\n')
+        }
+      }
+    })
+  `
+  const engines = []
+  const adapter = makeScriptAdapter(hangOpenScript, {
+    records: { s1: { route: 'local-acp-fake', model: 'default' } },
+    engines,
+  })
+  t.after(async () => { for (const engine of engines) await engine.close().catch(() => {}) })
+
+  const asked = adapter.ask('s1', { system: 'sys', prompt: 'hello' })
+  asked.catch(() => {})
+  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  const outcome = await Promise.race([
+    adapter.dispose().then(() => 'disposed'),
+    new Promise(resolve => setTimeout(() => resolve('timed-out'), 2_000)),
+  ])
+  assert.equal(outcome, 'disposed')
+  await assert.rejects(asked)
+})
+
+test('ask() finishing on a shared ACP engine does not close it underneath an in-flight probeModels()', async (t) => {
+  const concurrentProbeScript = `
+    let buf = '', next = 0, heldProbe = null
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          if (heldProbe === null) { heldProbe = id; continue }
+          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+        } else if (method === 'session/prompt') {
+          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (params.sessionId === 'acp-1' && heldProbe !== null) {
+            const probeId = heldProbe; heldProbe = null
+            setTimeout(() => {
+              send({ jsonrpc: '2.0', id: probeId, result: { sessionId: 'acp-probe', configOptions: [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'm-fast', name: 'Fast' }] }] } })
+            }, 30)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engines = []
+  const adapter = makeScriptAdapter(concurrentProbeScript, {
+    records: { s1: { route: 'local-acp-fake', model: 'default' } },
+    engines,
+  })
+  t.after(() => adapter.dispose())
+
+  const probing = adapter.probeModels('local-acp-fake')
+  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  const text = await adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  assert.equal(text, 'ok')
+  const models = await probing
+  assert.deepEqual(models.map(model => model.id), ['default', 'm-fast'])
+  assert.equal(engines[0].child, undefined)
+})
+
+// The model card's share is what the Session used over the window resolveModel reports:
+// the loop stamps that figure into request/context and the contextPressure view hands it
+// to `text.js`'s runStatsOf. Every local route answered DEFAULT_CONTEXT_WINDOW there, so a
+// CLI that reports 1M -- antigravity-acp-1.5.9.json has 1048576 in every usage_update --
+// read "Context 100%" from 200K up, with 200.0K on hover (#1823).
+test('the window a CLI reports is the one its model card shows', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  // Before the CLI says anything, the fallback stands.
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'default')).context.contextWindow, 200_000)
+  await turn(adapter, 's1', [user('m1', 'hello grow:100000')])
+  assert.equal(adapter.contextOf('s1').size, 262_000)
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'default')).context.contextWindow, 262_000)
+  // A route serves more than one model and the window is the model's: one the CLI has
+  // not reported for keeps the fallback instead of inheriting its neighbour's size.
+  adapter.live.get('s1').model = 'another-model'
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 200_000)
+})
+
+// A Session that was reopened on another model still carries the size it saved (the
+// Session's own figure, which the parts module reads), but that figure must not become
+// the new model's window. Usage-only reports are real -- claude.js sends the size
+// optionally, and a turn that only spends tokens reports `used` alone -- so the old
+// size used to be published under the new model's key: 262,000 for a model whose
+// ceiling nobody had reported.
+test('a usage-only report does not hand the previous model\'s window to the new one', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await turn(adapter, 's1', [user('m1', 'hello grow:100000')])
+  assert.equal(adapter.contextOf('s1').size, 262_000)
+  const live = adapter.live.get('s1')
+  live.model = 'another-model'
+  adapter.observe(live, { type: 'context', used: 5_000 })
+  // The Session keeps the size it saved, so its own percentage still reads it.
+  assert.deepEqual(adapter.contextOf('s1'), { used: 5_000, size: 262_000, compactions: 0 })
+  // The model card still shows the fallback: nothing reported a window for it.
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 200_000)
+  // A report that does carry a size is still the model's window.
+  adapter.observe(live, { type: 'context', used: 5_100, size: 475_000 })
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 475_000)
+})

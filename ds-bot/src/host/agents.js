@@ -18,6 +18,8 @@ export function install(rt) {
   }
   // The DSH Agent a Session belongs to; Bot and group Sessions get undefined.
   const agentOf = sessionId => state.agents[sessionIndex.get(sessionId)]
+  // A DSH Agent by id, for the windows that page its Sessions.
+  const agentById = agentId => rt.own(state.agents, agentId)
 
   const writeCheck = () => {
     const readOnly = rt.readOnly()
@@ -125,5 +127,5 @@ export function install(rt) {
     await rt.save()
   }
 
-  Object.assign(rt, { agentOf, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
+  Object.assign(rt, { agentOf, agentById, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
 }

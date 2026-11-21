@@ -63,11 +63,54 @@ export class AcpEngine {
     // worker AcpEngine per resolved workspace folder.
     this.workers = new Map()
     this.sessionWorkers = new Map()
-    this.ephemeral = false
+    this.pendingOpens = new Map()
+    this.probeWorkers = new Set()
+    // Lifecycle state for a child worker owned by a `cwdPerProcess` coordinator:
+    // a worker stays alive iff !retired && (inFlight > 0 || committed.size > 0 || keepWarm).
+    this.committed = new Map()
+    this.inFlight = 0
+    this.keepWarm = false
+    this.retired = false
   }
 
   activeWorker() {
-    return [...this.workers.values()].find(worker => worker.peer !== undefined)
+    let fallback
+    for (const worker of this.workers.values()) {
+      if (worker.retired || worker.peer === undefined) continue
+      if (worker.keepWarm) return worker
+      fallback ??= worker
+    }
+    return fallback
+  }
+
+  hasPersistentSession(worker) {
+    for (const entry of worker.committed.values()) if (!entry.ephemeral) return true
+    return false
+  }
+
+  detachWorker(worker) {
+    if (worker.retired) return false
+    worker.retired = true
+    for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
+    return true
+  }
+
+  maybeRetireWorker(worker) {
+    if (worker.retired || worker.inFlight > 0 || worker.committed.size > 0 || worker.keepWarm) return false
+    return this.detachWorker(worker)
+  }
+
+  uncommitSession(worker, dshSessionId, { forget = false, expectedSession } = {}) {
+    const entry = worker.committed.get(dshSessionId)
+    if (entry !== undefined && (expectedSession === undefined || entry.session === expectedSession)) {
+      worker.committed.delete(dshSessionId)
+      if (this.sessionWorkers.get(dshSessionId) === worker) this.sessionWorkers.delete(dshSessionId)
+      if (forget && !entry.ephemeral && !this.hasPersistentSession(worker)) worker.keepWarm = false
+    }
+    if (expectedSession === undefined || worker.sessions.get(dshSessionId) === expectedSession) {
+      worker.forget(dshSessionId)
+    }
+    return this.maybeRetireWorker(worker) ? worker : undefined
   }
 
   spawnWorker(cwd) {
@@ -98,6 +141,7 @@ export class AcpEngine {
   async startPeer() {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
+    this.bin = bin
     const spawnCwd = this.engine.spawnCwd && existsSync(this.engine.spawnCwd) ? this.engine.spawnCwd : undefined
     const child = spawnAgent(bin, this.engine.args ?? [], {
       ...(spawnCwd !== undefined ? { cwd: spawnCwd } : {}),
@@ -161,13 +205,17 @@ export class AcpEngine {
     }
   }
 
+  createSession(dshSessionId) {
+    const queue = new EventQueue()
+    return { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
+  }
+
   sessionFor(dshSessionId) {
     let session = this.sessions.get(dshSessionId)
     // A session whose process exited keeps its queue and, with it, the pump
     // still waiting there: a reopened session needs a fresh one.
     if (session === undefined || session.dead) {
-      const queue = new EventQueue()
-      session = { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
+      session = this.createSession(dshSessionId)
       this.sessions.set(dshSessionId, session)
     }
     return session
@@ -257,28 +305,48 @@ export class AcpEngine {
   }
 
   async openInWorker(dshSessionId, openArgs) {
-    const existing = openArgs.ephemeral === true ? this.activeWorker() : undefined
+    const ephemeral = openArgs.ephemeral === true
+    const existing = ephemeral ? this.activeWorker() : undefined
     const key = openArgs.cwd ? resolve(openArgs.cwd) : ''
-    const reused = existing !== undefined
     let worker = existing ?? this.workers.get(key)
-    const created = worker === undefined
-    if (created) {
+    if (worker === undefined) {
       worker = this.spawnWorker(key)
-      if (openArgs.ephemeral === true) worker.ephemeral = true
       this.workers.set(key, worker)
     }
+    const openToken = { forgotten: false }
+    let pending = this.pendingOpens.get(dshSessionId)
+    if (pending === undefined) {
+      pending = new Set()
+      this.pendingOpens.set(dshSessionId, pending)
+    }
+    pending.add(openToken)
+    worker.inFlight += 1
     try {
       const session = await worker.open(dshSessionId, openArgs)
+      if (openToken.forgotten || worker.retired) {
+        if (worker.sessions.get(dshSessionId) === session) worker.forget(dshSessionId)
+        // Skip session/close if this worker will shut down right after in finally.
+        if (openToken.forgotten && !worker.retired && (worker.committed.size > 0 || worker.inFlight > 1 || worker.keepWarm)) {
+          await worker.closeSession(session).catch(() => {})
+        }
+        throw Object.assign(new Error(`${this.engine.name} session closed while opening`), { code: 'LOCAL_AGENT_EXIT' })
+      }
+      const prevWorker = this.sessionWorkers.get(dshSessionId)
+      const retiredPrev = prevWorker !== undefined && prevWorker !== worker
+        ? this.uncommitSession(prevWorker, dshSessionId, { forget: true })
+        : undefined
+      worker.committed.set(dshSessionId, { session, ephemeral })
+      if (!ephemeral) worker.keepWarm = true
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
+      if (retiredPrev !== undefined) void retiredPrev.close().catch(() => {})
       return session
-    } catch (error) {
-      if (created && !reused && ![...this.sessionWorkers.values()].includes(worker)) {
-        this.workers.delete(key)
-        await worker.close().catch(() => {})
-      }
-      throw error
+    } finally {
+      pending.delete(openToken)
+      if (pending.size === 0) this.pendingOpens.delete(dshSessionId)
+      worker.inFlight -= 1
+      if (this.maybeRetireWorker(worker)) await worker.close().catch(() => {})
     }
   }
 
@@ -342,47 +410,54 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
     const { cwd, mcp, resumeId, preset, model } = openArgs
     const peer = await this.ensure()
+    const prior = this.sessions.get(dshSessionId)
+    const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
-    const { reply, loaded } = resumeId !== undefined
-      ? await this.loadSession(peer, { cwd, mcp, resumeId })
-      : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
-    session.acpSessionId = reply?.sessionId ?? resumeId
-    const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
-    // Some agents list nothing on session/load: the session reads what this CLI
-    // listed before rather than guessing a mode or model list.
-    const listed = this.remember(reply)
-    session.configOptions = listed.configOptions
-    session.modes = listed.modes
-    session.models = listed.models
-    // The preset maps to a mode only once the agent has listed its own.
-    const mode = acpMode(preset, session.modes, this.engine.modes)
-    if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
-    // A model the agent does not take fails the turn: going on would answer with a
-    // model the user did not pick.
-    const modelKey = model !== undefined && model !== 'default' ? model : ''
-    let modelReply
-    if (modelKey !== '') {
-      modelReply = await this.setOption(session, 'model', modelKey).catch((error) => {
-        throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${modelKey}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
-      })
+    try {
+      const { reply, loaded } = resumeId !== undefined
+        ? await this.loadSession(peer, { cwd, mcp, resumeId })
+        : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+      session.acpSessionId = reply?.sessionId ?? resumeId
+      const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
+      // Some agents list nothing on session/load: the session reads what this CLI
+      // listed before rather than guessing a mode or model list.
+      const listed = this.remember(reply)
+      session.configOptions = listed.configOptions
+      session.modes = listed.modes
+      session.models = listed.models
+      // The preset maps to a mode only once the agent has listed its own.
+      const mode = acpMode(preset, session.modes, this.engine.modes)
+      if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
+      // A model the agent does not take fails the turn: going on would answer with a
+      // model the user did not pick.
+      const modelKey = model !== undefined && model !== 'default' ? model : ''
+      let modelReply
+      if (modelKey !== '') {
+        modelReply = await this.setOption(session, 'model', modelKey).catch((error) => {
+          throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${modelKey}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
+        })
+      }
+      const switchedEffort = configOptionsOf(modelReply?.configOptions ?? [], 'thought_level')?.currentValue
+      if (!loaded) {
+        const freshDefault = switchedEffort ?? configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
+        if (freshDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, freshDefault)
+        session.defaultEffort = freshDefault ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('')
+        session.effort = undefined
+        this.setSessionEffort(session.acpSessionId, undefined)
+      } else {
+        const priorEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
+        const resetDefault = switchedEffort !== undefined && (priorEffort === undefined || switchedEffort !== priorEffort) ? switchedEffort : undefined
+        if (resetDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, resetDefault)
+        session.defaultEffort = resetDefault ?? openArgs.defaultEffort ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('') ?? loadedEffort
+        const currentEffort = switchedEffort ?? priorEffort
+        session.effort = currentEffort !== undefined && currentEffort !== session.defaultEffort ? currentEffort : undefined
+        this.setSessionEffort(session.acpSessionId, session.effort)
+      }
+      return session
+    } catch (error) {
+      if (created && this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
+      throw error
     }
-    const switchedEffort = configOptionsOf(modelReply?.configOptions ?? [], 'thought_level')?.currentValue
-    if (!loaded) {
-      const freshDefault = switchedEffort ?? configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
-      if (freshDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, freshDefault)
-      session.defaultEffort = freshDefault ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('')
-      session.effort = undefined
-      this.setSessionEffort(session.acpSessionId, undefined)
-    } else {
-      const priorEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
-      const resetDefault = switchedEffort !== undefined && (priorEffort === undefined || switchedEffort !== priorEffort) ? switchedEffort : undefined
-      if (resetDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, resetDefault)
-      session.defaultEffort = resetDefault ?? openArgs.defaultEffort ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('') ?? loadedEffort
-      const currentEffort = switchedEffort ?? priorEffort
-      session.effort = currentEffort !== undefined && currentEffort !== session.defaultEffort ? currentEffort : undefined
-      this.setSessionEffort(session.acpSessionId, session.effort)
-    }
-    return session
   }
 
   async setOption(session, category, value) {
@@ -468,12 +543,8 @@ export class AcpEngine {
       const worker = this.workerOf(session)
       if (worker === undefined) return
       await worker.closeSession(session)
-      worker.forget(session.dshSessionId)
-      this.sessionWorkers.delete(session.dshSessionId)
-      if (worker.ephemeral && worker.sessions.size === 0) {
-        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
-        await worker.close()
-      }
+      const retired = this.uncommitSession(worker, session.dshSessionId, { expectedSession: session })
+      if (retired !== undefined) await retired.close().catch(() => {})
       return
     }
     if (session?.acpSessionId === undefined) return
@@ -492,23 +563,33 @@ export class AcpEngine {
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
     if (this.engine.cwdPerProcess) {
+      const pending = this.pendingOpens.get(dshSessionId)
+      if (pending !== undefined) {
+        for (const token of pending) token.forgotten = true
+      }
       const worker = this.sessionWorkers.get(dshSessionId)
       if (worker === undefined) return
-      this.sessionWorkers.delete(dshSessionId)
-      worker.forget(dshSessionId)
-      if (worker.sessions.size === 0) {
-        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
-        void worker.close().catch(() => {})
-      }
+      const retired = this.uncommitSession(worker, dshSessionId, { forget: true })
+      if (retired !== undefined) void retired.close().catch(() => {})
       return
     }
     this.sessions.delete(dshSessionId)
   }
 
   async close() {
-    for (const worker of this.workers.values()) await worker.close()
+    for (const pending of this.pendingOpens.values()) {
+      for (const token of pending) token.forgotten = true
+    }
+    this.pendingOpens.clear()
+    const toClose = new Set(this.probeWorkers)
+    this.probeWorkers.clear()
+    for (const worker of [...this.workers.values()]) {
+      this.detachWorker(worker)
+      toClose.add(worker)
+    }
     this.workers.clear()
     this.sessionWorkers.clear()
+    await Promise.all([...toClose].map(worker => worker.close().catch(() => {})))
     const child = this.child
     this.child = undefined
     this.peer = undefined
@@ -534,18 +615,26 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) {
       const live = this.activeWorker()
       if (live !== undefined) {
-        const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
-        const models = await live.listModels({ cwd: target, mcp })
-        this.caps.image = live.caps.image
-        return models
+        live.inFlight += 1
+        try {
+          const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
+          const models = await live.listModels({ cwd: target, mcp })
+          this.caps.image = live.caps.image
+          return models
+        } finally {
+          live.inFlight -= 1
+          if (this.maybeRetireWorker(live)) await live.close().catch(() => {})
+        }
       }
       const temp = this.spawnWorker(cwd)
+      this.probeWorkers.add(temp)
       try {
         const models = await temp.listModels({ cwd, mcp })
         this.caps.image = temp.caps.image
         return models
       } finally {
-        await temp.close()
+        this.probeWorkers.delete(temp)
+        await temp.close().catch(() => {})
       }
     }
     const peer = await this.ensure()

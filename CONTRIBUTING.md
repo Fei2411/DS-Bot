@@ -51,6 +51,8 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | Priority | `P0` crash, data loss or cannot use · `P1` hurts daily use · `P2` ordinary bug or feature · `P3` suggestion or narrow case |
 | Area | `area/host` server side (`index.js`, `src/host/`) · `area/client` interface (`src/client/`) · `area/group` group chats, mentions, Bot-to-Bot messages · `area/memory` memory, conversation parts, context · `area/browser` Bot browser, page reading, web search · `area/build` CI, release, scripts, test bench · `area/docs` |
 | Flow | `maintainer` waits for the maintainer · `needs-info` waits for the reporter · `upstream` the cause is in DSH or another plugin · `duplicate` · `auto-found` found by automated testing |
+| PR Agent | `agent/antigravity` · `agent/claude-code` · `agent/codex` · `agent/devin` · `agent/dsbot` · `agent/other` (which AI agent opened the PR) |
+| PR Review | `review/approved` · `review/changes-requested` · `review/needs-decision` · `review/re-review` (mutually exclusive) · `reviewed-by/<agent>` (which AI agent reviewed the PR) |
 
 An issue that spans several areas, or none, gets no area label.
 
@@ -133,7 +135,7 @@ node scripts/build-client.mjs --check  # client.js matches src/client
 npm run lint                           # oxlint
 ```
 
-CI runs the same three checks on every pull request, on Linux and Windows. It also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
+CI runs `npm test` (including the generated-bundle checks) on Linux and Windows, and `npm run lint` on Linux, for pull requests that touch `ds-bot/`, `link/`, or `start.ps1` (and always on `dev`/`main`). It also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree

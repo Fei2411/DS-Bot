@@ -3,7 +3,7 @@
 // `mentions`. Buttons are components; interactions come back as
 // INTERACTION_CREATE and are answered with a deferred update (type 6).
 // Wire details ported from dsh-im (MIT, see NOTICE).
-import { chunkMarkdown, toPlain } from '../format.js'
+import { chunkMarkdown } from '../format.js'
 
 const API = 'https://discord.com/api/v10'
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json'
@@ -45,6 +45,28 @@ export default {
     let generation = 0
     let reconnectTimer
     const self = { id: undefined, name: '' }
+    // MESSAGE_CREATE carries a `channel_id`, not a channel object, so a guild
+    // message has no name in the payload. Read it once per channel through REST
+    // and keep it for the life of the connection. The cache holds the pending
+    // read too, so two messages of the same channel arriving back to back share
+    // one lookup; a read that yields no name is forgotten so the next message
+    // tries again.
+    const channelTitles = new Map()
+    const channelTitle = async (id) => {
+      if (!id) return ''
+      const known = channelTitles.get(id)
+      if (known) return known
+      const pending = rest(`/channels/${id}`, { method: 'GET' }).then((channel) => {
+        const name = typeof channel?.name === 'string' ? channel.name : ''
+        if (!name) channelTitles.delete(id)
+        return name
+      }, () => {
+        channelTitles.delete(id)
+        return ''
+      })
+      channelTitles.set(id, pending)
+      return pending
+    }
 
     const rest = async (path, options = {}) => {
       const response = await env.fetch(`${apiBase(env)}${path}`, {
@@ -81,7 +103,12 @@ export default {
       const chat = {
         key: String(data.channel_id),
         kind: direct ? 'direct' : 'group',
-        title: data.channel?.name ?? direct ? String(data.author?.username ?? '') : '',
+        // A group is named after its channel, a DM after the person. The
+        // message payload has no channel object, so the name is looked up by
+        // `channel_id`; a DM has no channel name to look up.
+        title: direct
+          ? String(data.author?.username ?? '')
+          : String(data.channel?.name ?? '') || await channelTitle(String(data.channel_id ?? '')),
       }
       const images = []
       const files = []
@@ -208,11 +235,39 @@ export default {
         }
         return { messageId }
       },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('payload_json', JSON.stringify({ content: '' }))
+        form.append('files[0]', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        let response
+        try {
+          response = await env.fetch(`${apiBase(env)}/channels/${chat.key}/messages`, {
+            method: 'POST',
+            headers: { authorization: `Bot ${token}` },
+            body: form,
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (error) {
+          if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            throw Object.assign(new Error('Discord did not answer the image send in time'), { unknown: true })
+          }
+          throw error
+        }
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw errorOf(body, response.status)
+        return { messageId: String(body?.id ?? '') }
+      },
       edit: async (chat, messageId, { text, buttons }) => {
         const components = buttons?.length > 0
           ? [{ type: 1, components: buttons.slice(0, 5).map(button => ({ type: 2, style: 1, label: button.label.slice(0, 80), custom_id: button.data })) }]
           : []
-        await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: toPlain(text).slice(0, TEXT_LIMIT), components } })
+        // Discord renders Markdown in `content`, so an edit that goes through `toPlain`
+        // silently drops every emphasis, code fence and link the message had: a streamed
+        // reply looked formatted while it was being sent and plain once it was edited.
+        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)[0] ?? ''
+        await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: body, components } })
       },
       typing: async (chat) => rest(`/channels/${chat.key}/typing`).then(() => {}, () => {}),
       stop: () => {

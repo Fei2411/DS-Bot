@@ -34,6 +34,7 @@ Trust boundaries:
 - Content the Bot reads: web pages (Bot browser, `read_browser`, web search), files in the work folder, connector/MCP tool results, messages from other Bots and group chats, scheduled-task prompts. **Attacker-controlled.**
 - `/api/bot` HTTP endpoints and DSH Web UI: the local user; in Docker, anyone who can reach port 13080 (DSH trusted-host list + launch token).
 - Electron IPC from the app window.
+- MCP access (`ds-bot/src/host/mcp-server.js`), off by default: local programs holding a per-client token, on 127.0.0.1 only; requests with an `Origin` header or a non-local `Host` are refused. A client sends messages as a marked user channel to the Bots and groups in its scope (never private Bots) and cannot answer approvals or questions, or reach settings, secrets or tools itself. Each message still runs a normal turn of the target Bot under that Bot's permission preset, so a token can direct its Bots to do anything they may do without an approval; with the default scope that is the Main Bots, which have the most rights. The source marker is information only. Its messages are untrusted input like any channel message.
 
 ## Assets (maintainer-ranked)
 

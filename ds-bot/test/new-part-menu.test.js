@@ -66,24 +66,24 @@ function render({ busy = false, actions, run } = {}) {
 test('a new session offers a blank part and a handoff, and each asks the host once', () => {
   const asked = []
   const ran = []
-  const actions = { newPart: (botId, mode) => { asked.push([botId, mode]); return Promise.resolve() } }
+  const actions = { newPart: (botId, options) => { asked.push([botId, options.blank === true]); return Promise.resolve() } }
   const tree = render({ actions, run: (promise) => { ran.push(promise); return promise } })
   const items = find(tree, node => node.props?.role === 'menuitem')
   assert.deepEqual(items.map(textOf), ['Blank session', 'Continue with handoff'])
   for (const item of items) item.props.onClick()
-  assert.deepEqual(asked, [['a', 'blank'], ['a', 'handoff']])
+  assert.deepEqual(asked, [['a', true], ['a', false]])
   // Every pick goes through the drawer's `run`, which refreshes the roster afterwards.
   assert.equal(ran.length, 2)
 })
 
 test('a working part offers only the blank part; the handoff waits for its turn', () => {
   const asked = []
-  const actions = { newPart: (botId, mode) => { asked.push([botId, mode]); return Promise.resolve() } }
+  const actions = { newPart: (botId, options) => { asked.push([botId, options.blank === true]); return Promise.resolve() } }
   const tree = render({ busy: true, actions })
   const items = find(tree, node => node.props?.role === 'menuitem')
   assert.deepEqual(items.map(textOf), ['Blank session'])
   items[0].props.onClick()
-  assert.deepEqual(asked, [['a', 'blank']])
+  assert.deepEqual(asked, [['a', true]])
 })
 
 test('the trigger is the drawer\'s New session button and opens a menu', () => {
@@ -96,8 +96,8 @@ test('the trigger is the drawer\'s New session button and opens a menu', () => {
 
 test('the two ways are named the same for a caller that only has the choices', () => {
   const asked = []
-  const choices = newPartChoices({ botId: 'a', actions: { newPart: (botId, mode) => { asked.push([botId, mode]) } } })
+  const choices = newPartChoices({ botId: 'a', actions: { newPart: (botId, options) => { asked.push([botId, options.blank === true]) } } })
   assert.deepEqual([...choices].map(choice => choice.label), ['Blank session', 'Continue with handoff'])
   for (const choice of choices) choice.start()
-  assert.deepEqual(asked, [['a', 'blank'], ['a', 'handoff']])
+  assert.deepEqual(asked, [['a', true], ['a', false]])
 })

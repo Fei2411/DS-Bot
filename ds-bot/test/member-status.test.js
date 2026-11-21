@@ -11,7 +11,7 @@ const bundle = await build({
 })
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
-  module, exports: module.exports,
+  module, exports: module.exports, setTimeout, clearTimeout,
   require: (name) => {
     const platform = {
       react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useMemo: make => make(), useCallback: fn => fn, useId: () => 'dv-id', useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }), useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, Fragment: 'fragment' },
@@ -22,7 +22,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork } = module.exports
+const { busyMembers, summaryText, FreshMemberPart, MEMBER_CSS, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork, roomApprovals } = module.exports
 // Values from the bundle's realm compare by content only.
 const plain = value => JSON.parse(JSON.stringify(value))
 // The dock's capsule in an element tree.
@@ -169,4 +169,149 @@ test('a member\'s line runs a clock from its turn\'s start or its approval\'s', 
   assert.equal(stateText({ state: 'work', doing: { roomId: 'r1', tool: 'pwsh', since: 1_000 } }), 'Running shell commands…{1000}')
   assert.equal(stateText({ state: 'ask', approvals: [{ at: 2_000 }] }), 'Waiting for your approval{2000}')
   assert.equal(flat(MemberState({ entry: { state: 'idle' }, bot: { id: 'a', name: 'Anvil', role: 'Writer' }, room: { id: 'r1' }, roster: team })), 'Writer')
+})
+
+// #1716: a member stuck in a group gets a fresh part of that group conversation from
+// the group's details; a member without a group Session yet or at work is hidden.
+test('an idle member with a group Session offers a new session; one without a Session or busy does not', async () => {
+  const room = { ...team.roomsById.r1, sessionMembers: ['a'] }
+  const started = []
+  const actions = { newPart: (...args) => { started.push(args) } }
+  const idleA = memberWork(room, { rooms: {}, approvals: [] }).find(entry => entry.id === 'a')
+  const idleB = memberWork(room, { rooms: {}, approvals: [] }).find(entry => entry.id === 'b')
+  assert.equal(FreshMemberPart({ entry: idleB, bot: team.byId.b, room, actions }), null, 'member with no group Session yet must not render New session')
+  assert.equal(FreshMemberPart({ entry: idleA, bot: team.byId.a, room: team.roomsById.r1, actions }), null, 'missing sessionMembers hides New session')
+  const node = FreshMemberPart({ entry: idleA, bot: team.byId.a, room, actions })
+  assert.ok(node)
+  assert.equal(node.props['aria-label'], `New session · ${team.byId.a.name}`)
+  node.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(plain(started), [['a', { roomId: 'r1' }]])
+  const working = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [] }, team)[0]
+  assert.equal(FreshMemberPart({ entry: working, bot: team.byId.a, room, actions }), null)
+  const asking = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [{ botId: 'a', roomId: 'r1', at: 1 }] }, team)[0]
+  assert.equal(FreshMemberPart({ entry: asking, bot: team.byId.a, room, actions }), null)
+  // Layout contract: hidden New session overlay must neither take flex width nor accept blind clicks.
+  assert.match(MEMBER_CSS, /\.bt-member-fresh\{[^}]*position:absolute[^}]*opacity:0;pointer-events:none/)
+  assert.match(MEMBER_CSS, /\.bt-member-row:hover>\.bt-member-fresh,\.bt-member-fresh:focus-visible,\.bt-member-fresh\[data-state\]\{opacity:1;pointer-events:auto\}/)
+})
+
+test('FreshMemberPart shows Started feedback, prevents double-starts, and resets on error', async () => {
+  let slots = []
+  let cursor = 0
+  let activeProps = null
+  let tree = null
+  let render = () => {}
+  const react = {
+    createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+    useContext: ctx => ctx.value,
+    useMemo: make => make(),
+    useCallback: fn => fn,
+    useId: () => 'dv-id',
+    useSyncExternalStore: (_sub, get) => get(),
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    Fragment: 'fragment',
+    useState(initial) {
+      const idx = cursor++
+      if (!(idx in slots)) slots[idx] = typeof initial === 'function' ? initial() : initial
+      const set = (next) => {
+        const value = typeof next === 'function' ? next(slots[idx]) : next
+        if (!Object.is(slots[idx], value)) {
+          slots[idx] = value
+          render(activeProps)
+        }
+      }
+      return [slots[idx], set]
+    },
+    useRef(initial) {
+      const idx = cursor++
+      if (!(idx in slots)) slots[idx] = { current: initial }
+      return slots[idx]
+    },
+    useEffect() {},
+    useLayoutEffect() {},
+  }
+  const mod = { exports: {} }
+  const timers = []
+  runInNewContext(bundle.outputFiles[0].text, {
+    module: mod, exports: mod.exports,
+    setTimeout: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(id); return id },
+    clearTimeout,
+    require: (name) => (name === 'react' ? react : {}),
+  })
+  try {
+    render = (props) => { activeProps = props; cursor = 0; tree = mod.exports.FreshMemberPart(props); return tree }
+    const room = { ...team.roomsById.r1, sessionMembers: ['a'] }
+    let resolveCall
+    const calls = []
+    const props = {
+      entry: undefined, bot: team.byId.a, room,
+      actions: { newPart: (...args) => { calls.push(args); return new Promise(resolve => { resolveCall = resolve }) } },
+    }
+    render(props)
+    assert.equal(tree.props.disabled, false)
+    assert.equal(tree.props['data-state'], undefined)
+    tree.props.onClick()
+    assert.equal(tree.props.disabled, true)
+    assert.equal(tree.props['data-state'], 'starting')
+    tree.props.onClick()
+    assert.equal(calls.length, 1, 'second click while starting is ignored')
+    resolveCall(true)
+    await new Promise(done => setTimeout(done, 0))
+    assert.equal(tree.props['data-state'], 'done')
+    assert.equal(tree.props['aria-label'], `Started · ${team.byId.a.name}`)
+
+    // Error path reports and returns button to idle.
+    slots = []
+    const reported = []
+    render({
+      entry: undefined, bot: team.byId.a, room,
+      actions: {
+        newPart: () => Promise.reject(new Error('The Bot is working')),
+        reportError: (error, action) => reported.push([error.message, action]),
+      },
+    })
+    tree.props.onClick()
+    await new Promise(done => setTimeout(done, 0))
+    assert.deepEqual(reported, [['The Bot is working', 'new-part']])
+    assert.equal(tree.props.disabled, false)
+    assert.equal(tree.props['data-state'], undefined)
+  } finally {
+    for (const id of timers) clearTimeout(id)
+  }
+})
+
+test('roomApprovals combines this group\'s tool approvals and computer app asks in order without cross-room leakage (#1623)', () => {
+  const room = team.roomsById.r1
+  const work = {
+    approvals: [
+      { id: 't1', botId: 'a', roomId: 'r1', answerable: true, at: 200, tool: 'bash' },
+      { id: 't2', botId: 'a', roomId: 'r2', answerable: true, at: 50, tool: 'bash' },
+      { id: 't3', botId: 'b', answerable: true, at: 100, tool: 'bash' },
+    ],
+  }
+  const computer = {
+    asks: {
+      c1: { id: 'c1', botId: 'b', roomId: 'r1', appName: 'Notes', at: 150 },
+      c2: { id: 'c2', botId: 'a', roomId: 'r2', appName: 'Safari', at: 80 },
+      c3: { id: 'c3', botId: 'a', appName: 'Terminal', at: 90 },
+    },
+  }
+  const items = roomApprovals(room, work, computer, team)
+  assert.deepEqual(plain(items.map(item => [item.kind, item.id, item.bot.name])), [
+    ['computer-app', 'c1', 'Flint'],
+    ['tool', 't1', 'Anvil'],
+  ])
+  // Clicking the dock capsule when an approval waits opens the header approval island directly.
+  const calls = []
+  const capsule = capsuleOf(MemberDock({
+    sessionId: 'r1',
+    useRoster: pick => pick(team),
+    useWork: pick => pick({ bots: {}, rooms: {}, ...work }),
+    useComputer: pick => pick(computer),
+    actions: { openApproval: id => calls.push(['approval', id]), showDetails: id => calls.push(['details', id]) },
+  }))
+  assert.ok(capsule)
+  capsule.props.onClick()
+  assert.deepEqual(calls, [['approval', 'r1']])
 })

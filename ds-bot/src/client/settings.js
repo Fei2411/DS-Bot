@@ -2,8 +2,8 @@ import { Component, createElement as h, useCallback, useEffect, useRef, useState
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
-import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
@@ -15,8 +15,10 @@ import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
 import { ConnectorsPage } from './connectors-page.js'
 import { PhonePage } from './phone-page.js'
+import { McpPage } from './mcp-page.js'
 import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
+import { DeepSeekServicesPage } from './services-settings.js'
 import { BrowserPage } from './browser-settings.js'
 import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
@@ -29,6 +31,7 @@ import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
+import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -37,7 +40,7 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // DS Bot's pages come first; below a rule, the pages DSH and other plugins register
 // (`settings.section`), then Feedback and About. DSH's General rows join General, and
 // its Models page opens from DS Bot's Models page as the advanced settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['mcp', 'MCP access'], ['capabilities', 'Capabilities'], ['deepseek-services', 'DeepSeek services'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
 const LAST_PAGES = new Set(['feedback', 'about'])
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models'])
@@ -46,8 +49,9 @@ const LOOK_ITEMS = ['appearance', 'font-size']
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
-const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
+  dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: PlugIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -64,6 +68,20 @@ function MemorySize({ label, value, save }) {
     else setText(String(value))
   }
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+}
+
+// Seconds a Bot's own chat waits for a command before it goes on in the background
+// (host default 5; the host checks the range again).
+const BACKGROUND_AFTER_SEC = 5
+function SecondsField({ label, value, save }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  const commit = () => {
+    const number = Number(text)
+    if (text.trim() !== '' && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number)
+    else setText(String(value))
+  }
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
 function SetSection({ title, action = null, className = '', children }) {
@@ -123,11 +141,27 @@ function GeneralPage({ roster, actions, run, dsh }) {
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const [custom, setCustom] = useState(prefs.accent ?? '#4d6bfe')
   const timer = useRef(0)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const pendingAccent = useRef(null)
+  const saveAccent = useRef((value) => run(actions.setPrefs({ accent: value })))
+  saveAccent.current = (value) => run(actions.setPrefs({ accent: value }))
+  const flushAccent = () => {
+    clearTimeout(timer.current)
+    const value = pendingAccent.current
+    if (value === null) return
+    pendingAccent.current = null
+    void saveAccent.current(value)
+  }
+  useEffect(() => flushAccent, [])
   const pickCustom = (value) => {
     setCustom(value)
+    pendingAccent.current = value
     clearTimeout(timer.current)
-    timer.current = setTimeout(() => run(actions.setPrefs({ accent: value })), 350)
+    timer.current = setTimeout(flushAccent, 350)
+  }
+  const pickPreset = (value) => {
+    clearTimeout(timer.current)
+    pendingAccent.current = null
+    return run(actions.setPrefs({ accent: value }))
   }
   return [
     h(SetSection, { key: 'look', title: t('Appearance') },
@@ -136,10 +170,10 @@ function GeneralPage({ roster, actions, run, dsh }) {
           Object.entries(themes).map(([id, theme]) => h('option', { key: id, value: id }, t(theme.label))))),
       h(SetRow, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.') },
         h('div', { className: 'bt-swatches' },
-          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => run(actions.setPrefs({ accent: null })) }),
+          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => pickPreset(null) }),
           ACCENT_INKS.map(ink => h('button', {
             key: ink, type: 'button', className: 'bt-swatch', title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
-            style: { background: INKS[ink][0] }, onClick: () => run(actions.setPrefs({ accent: INKS[ink][0] })),
+            style: { background: `var(--bt-ink-${ink})` }, onClick: () => pickPreset(INKS[ink][0]),
           })),
           h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent) },
             h('input', { type: 'color', value: custom, 'aria-label': t('Custom accent'), onChange: event => pickCustom(event.target.value) })))),
@@ -161,6 +195,9 @@ function GeneralPage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    h(SetSection, { key: 'background', title: t('Background work') },
+      h(SetRow, { label: t('Background commands after (seconds)') },
+        h(SecondsField, { label: t('Background commands after (seconds)'), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: backgroundAfterSec => run(actions.setPrefs({ backgroundAfterSec })) }))),
     h(SetSection, { key: 'memory', title: t('Memory') },
       h(SetRow, { label: t('Bring up related memory') },
         h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
@@ -303,14 +340,23 @@ class PageBoundary extends Component {
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const close = useCallback(() => actions.closeSettings(), [])
-  useEscape(close)
+  useEscape(close, !leaving)
+  const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+    const query = window.matchMedia('(max-width: 640px)')
+    const sync = () => setNarrowNav(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
   // A Bot or group deleted while its form is open leaves its page on the list.
   const bot = page === 'bots' && id ? roster.byId[id] : undefined
   const room = page === 'groups' && id ? roster.roomsById[id] : undefined
-  const pages = SETTINGS_PAGES.filter(([key]) => key !== 'models' || actions.providers !== undefined)
+  const pages = SETTINGS_PAGES.filter(([key]) => (key !== 'models' || actions.providers !== undefined) && (key !== 'deepseek-services' || actions.deepseekServices !== undefined))
   const extra = dshPages(dsh)
   // A DSH page is `dsh` with its section id; one no longer registered falls back to General.
   const section = page === 'dsh' ? extra.find(row => row.id === id) : undefined
@@ -320,11 +366,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const usageFocus = shown === 'usage' && id ? id : null
   const label = section ? section.label : advanced ? t('Advanced settings') : t(pages.find(([key]) => key === shown)[1])
   const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : null
-  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: 'y' })
+  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: narrowNav ? 'x' : 'y' })
   // A page enters from the right when it is one level in, from the left when it comes
   // back out, and from below beside it. Usage keeps its own entrance and its data
   // across its own levels, so they share one page.
-  const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : '')}`
+  const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
+  useEffect(() => { setError('') }, [pageKey])
   const depth = bot || room || advanced ? 1 : 0
   const last = useRef({ key: pageKey, depth, move: 'up' })
   if (last.current.key !== pageKey) {
@@ -376,7 +423,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
           shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
+          shown === 'deepseek-services' ? h(DeepSeekServicesPage, { actions, run, Section: SetSection, Row: SetRow, Switch, Segmented }) : null,
           shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
+          shown === 'mcp' ? h(McpPage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,
