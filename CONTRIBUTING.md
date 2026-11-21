@@ -51,6 +51,8 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | Priority | `P0` crash, data loss or cannot use · `P1` hurts daily use · `P2` ordinary bug or feature · `P3` suggestion or narrow case |
 | Area | `area/host` server side (`index.js`, `src/host/`) · `area/client` interface (`src/client/`) · `area/group` group chats, mentions, Bot-to-Bot messages · `area/memory` memory, conversation parts, context · `area/browser` Bot browser, page reading, web search · `area/build` CI, release, scripts, test bench · `area/docs` |
 | Flow | `maintainer` waits for the maintainer · `needs-info` waits for the reporter · `upstream` the cause is in DSH or another plugin · `duplicate` · `auto-found` found by automated testing |
+| PR Agent | `agent/antigravity` · `agent/claude-code` · `agent/codex` · `agent/devin` · `agent/dsbot` · `agent/other` (which AI agent opened the PR) |
+| PR Review | `review/approved` · `review/changes-requested` · `review/needs-decision` · `review/re-review` (mutually exclusive) · `reviewed-by/<agent>` (which AI agent reviewed the PR) |
 
 An issue that spans several areas, or none, gets no area label.
 
