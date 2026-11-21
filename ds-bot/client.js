@@ -32256,10 +32256,12 @@ var chatRoom = {
     return room.selector ? [...document.querySelectorAll(room.selector)] : [];
   }
 };
+var COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]';
 function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
-  const watched = /* @__PURE__ */ new WeakSet();
+  const watched = /* @__PURE__ */ new Set();
+  let added = false;
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
   const read = () => {
     const column = document.querySelector('[class*="_sidebarCol"]');
@@ -32273,8 +32275,17 @@ function installFrameWatch(frame2) {
     });
   };
   const measure = () => {
-    for (const selector of ['[class*="_sidebarCol"]', '[class*="_centerCol"]']) {
-      for (const column of document.querySelectorAll(selector)) {
+    let scan = added || watched.size < 2;
+    added = false;
+    for (const column of watched) {
+      if (!column.isConnected) {
+        watched.delete(column);
+        observer?.unobserve(column);
+        scan = true;
+      }
+    }
+    if (scan) {
+      for (const column of document.querySelectorAll(COLUMNS)) {
         if (!watched.has(column)) {
           watched.add(column);
           observer?.observe(column);
@@ -32289,12 +32300,21 @@ function installFrameWatch(frame2) {
       measure();
     });
   };
-  const relevant = (records) => records.some((record) => {
-    if (record.type === "attributes") return true;
-    const target = record.target;
-    if (target instanceof Element && target.closest("[data-chat-flow],[data-composer-card]")) return false;
-    return true;
-  });
+  const addsColumn = (record) => [...record.addedNodes].some((node) => node instanceof Element && (node.matches(COLUMNS) || node.querySelector(COLUMNS) !== null));
+  const relevant = (records) => {
+    let hit = false;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        hit = true;
+        continue;
+      }
+      const target = record.target;
+      if (target instanceof Element && target.closest("[data-chat-flow],[data-composer-card]")) continue;
+      hit = true;
+      if (!added && addsColumn(record)) added = true;
+    }
+    return hit;
+  };
   measure();
   const mutations = new MutationObserver((records) => {
     if (relevant(records)) schedule();
