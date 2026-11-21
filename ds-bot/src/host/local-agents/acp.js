@@ -230,6 +230,7 @@ export class AcpEngine {
     }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
+    if (session.promptTurn?.cancelled) return
     // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
     if (method === '_cognition.ai/compaction') {
       session.push({ type: 'compaction', status: compactionStatus(params?.status) })
@@ -495,6 +496,10 @@ export class AcpEngine {
   async prompt(session, blocks, { signal, effort } = {}) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
+    // ACP notices have no turn id. Wait for the cancelled prompt's wire reply
+    // before accepting notices for another prompt on the same session.
+    await session.pendingPrompt?.catch(() => {})
+    signal?.throwIfAborted()
     const peer = await this.ensure()
     if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined || session.defaultEffort !== undefined || session.effort !== undefined) {
       const current = session.effort ?? session.defaultEffort
@@ -512,13 +517,20 @@ export class AcpEngine {
         session.push({ type: 'effort', defaultEffort: session.defaultEffort, effort: undefined })
       }
     }
+    signal?.throwIfAborted()
+    const turn = session.promptTurn = { cancelled: false }
+    const onAbort = () => { turn.cancelled = true }
+    signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
-    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal, timeout: 0 })
+    const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { timeout: 0 })
     reply.then(
-      result => { session.running = false; session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
-      error => { session.running = false; session.push({ type: 'error', error }) },
-    )
-    return reply
+      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
+    ).finally(() => {
+      session.running = false
+      signal?.removeEventListener('abort', onAbort)
+    })
+    return reply.catch((error) => { if (!turn.cancelled) throw error })
   }
 
   canSteer(session) {
@@ -556,6 +568,7 @@ export class AcpEngine {
   cancel(session) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) { worker.cancel(session); return }
+    if (session.promptTurn !== undefined) session.promptTurn.cancelled = true
     this.peer?.notify('session/cancel', { sessionId: session.acpSessionId })
   }
 

@@ -190,6 +190,100 @@ test('abort cancels the turn and the pending calls', async (t) => {
   assert.equal(out.finish.kind, 'aborted')
 })
 
+test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const engine = adapter.engine('local-acp-fake')
+  const prompt = engine.prompt.bind(engine)
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  engine.prompt = async (...args) => {
+    const result = prompt(...args)
+    // ensure() and the write happen before the test stops this turn.
+    await new Promise(resolve => setImmediate(resolve))
+    started()
+    return result
+  }
+  const stopped = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  await ready
+  control.abort()
+  assert.equal((await stopped).finish.kind, 'aborted')
+  const messages = [user('m1', 'hang')]
+  for (const text of ['second', 'third']) {
+    messages.push(user(text, text))
+    const out = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(out.text, `ok: ${text}`)
+    assert.equal(out.finish.kind, 'stop')
+  }
+})
+
+test('after Stop the next turn receives its first text or permission event', async (t) => {
+  for (const type of ['text', 'permission']) await t.test(type, async (t) => {
+    const adapter = makeAdapter()
+    t.after(() => adapter.dispose())
+    const live = await adapter.liveFor(options('s1', []), 'workspace-write')
+    live.engineSession = {}
+    live.engine.prompt = async () => {}
+    live.engine.cancel = () => {}
+    const control = new AbortController()
+    await adapter.startTurn(live, 'first', control.signal)
+    const first = collect(adapter.drain(live, { signal: control.signal }))
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    assert.equal((await first).finish.kind, 'aborted')
+    await adapter.startTurn(live, 'second')
+    live.push(type === 'text' ? { type, text: 'first reply' } : {
+      type, id: 'first-permission', action: 'Run a command', changes: false,
+      options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }], reply: () => {},
+    })
+    live.push({ type: 'done', reason: 'end_turn' })
+    const second = await collect(adapter.drain(live, {}))
+    if (type === 'text') assert.equal(second.text, 'first reply')
+    else {
+      assert.equal(second.finish.kind, 'tool-calls')
+      assert.equal(second.calls[0]?.id, 'first-permission')
+    }
+    assert.equal(live.waiters.length, 0)
+  })
+})
+
+test('acp: cancelled wire replies and notices are isolated until the next prompt', async (t) => {
+  for (const fails of [false, true]) await t.test(fails ? 'late error' : 'late success', async () => {
+    const engine = new AcpEngine('local-acp-fake', {}, {})
+    const sent = []
+    const peer = new JsonRpcPeer(message => sent.push(message))
+    engine.ensure = async () => peer
+    engine.peer = peer
+    const session = engine.sessionFor('s1')
+    session.acpSessionId = 'acp-1'
+    const events = []
+    session.push = event => events.push(event)
+    const notice = text => engine.onNotice('session/update', { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+    const control = new AbortController()
+    const first = engine.prompt(session, [{ type: 'text', text: 'first' }], { signal: control.signal }).catch(error => error)
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    engine.cancel(session)
+    const second = engine.prompt(session, [{ type: 'text', text: 'second' }])
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(sent.filter(message => message.method === 'session/prompt').length, 1)
+    notice('late output')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: sent[0].id, ...(fails ? { error: { code: -32603, message: 'cancelled' } } : { result: { stopReason: 'cancelled' } }) }))
+    await first
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(events, [])
+    const request = sent.filter(message => message.method === 'session/prompt').at(-1)
+    notice('second answer')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }))
+    await second
+    assert.deepEqual(events, [{ type: 'text', text: 'second answer' }, { type: 'done', reason: 'end_turn' }])
+    const count = sent.length
+    await assert.rejects(engine.prompt(session, [], { signal: control.signal }), { name: 'AbortError' })
+    assert.equal(sent.length, count)
+  })
+})
+
 test('env sanitization drops agent and key variables', () => {
   process.env.ACP_BACKEND = 'windsurf'
   process.env.OPENAI_API_KEY = 'sk-test'
