@@ -16,16 +16,16 @@ import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
 import { output } from '../tools.js'
 
-export const GITHUB = 'github'
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const CHECK_TIMEOUT_MS = 15_000
 const SIGN_IN_TIMEOUT_MS = 10 * 60_000
 const SECRET_REF = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const MAX_REQUESTS = 20
+const GITHUB_API = 'https://api.github.com'
 
 // Asks GitHub who the token belongs to. Any token GitHub accepts passes.
-export async function signIn(token, { api = 'https://api.github.com', fetch: request = fetch } = {}) {
+export async function signIn(token, { api = GITHUB_API, fetch: request = fetch } = {}) {
   let response
   try {
     response = await request(`${api.replace(/\/$/, '')}/user`, {
@@ -45,7 +45,7 @@ export async function signIn(token, { api = 'https://api.github.com', fetch: req
 export function install(rt) {
   const { ctx, state } = rt
   for (const entry of CATALOG) CONNECTOR_IDS.add(entry.id)
-  const options = rt.config.github === false ? null : { api: 'https://api.github.com', ...rt.config.github }
+  const options = rt.config.github === false ? null : { api: GITHUB_API, ...rt.config.github }
   const insecure = (url) => !/^https:\/\//i.test(String(url))
   let stopped = false
   let queue = Promise.resolve()
@@ -56,10 +56,18 @@ export function install(rt) {
   const gateways = { gw: null }
   const pluginP = { p: null }
 
+  // An added remote server that signs in with OAuth takes the same shape as a
+  // catalog OAuth entry, so credentials, mounts, refresh, and rows need no
+  // separate path. Rows added before this have no `oauth` flag and stay as they were.
+  const customEntry = (id, custom) => {
+    const added = { id, name: custom.name, category: 'custom', about: custom.url ?? custom.command ?? '', auth: { kind: 'custom' }, custom }
+    if (custom.oauth !== true || custom.url === undefined) return added
+    return { ...added, auth: { kind: 'oauth' }, remote: { url: custom.url } }
+  }
   const entries = () => {
     const list = [...CATALOG.filter(entry => entry.id !== 'github' || options !== null)]
     for (const [id, saved] of Object.entries(state.connectors ?? {})) {
-      if (saved?.custom) list.push({ id, name: saved.custom.name, category: 'custom', about: saved.custom.url ?? saved.custom.command ?? '', auth: { kind: 'custom' }, custom: saved.custom })
+      if (saved?.custom) list.push(customEntry(id, saved.custom))
     }
     return list
   }
@@ -71,7 +79,7 @@ export function install(rt) {
     }
     if (catalog !== undefined) return catalog
     const custom = state.connectors?.[id]?.custom
-    if (custom !== undefined) return { id, name: custom.name, category: 'custom', about: custom.url ?? custom.command ?? '', auth: { kind: 'custom' }, custom }
+    if (custom !== undefined) return customEntry(id, custom)
     return undefined
   }
   const known = (id) => {
@@ -86,7 +94,7 @@ export function install(rt) {
   const credentialOf = (id) => {
     const entry = entryFor(id)
     if (entry === undefined) return undefined
-    if (entry.auth.kind === 'none' || entry.auth.kind === 'custom') return {}
+    if (entry.auth.kind === 'none') return {}
     if (entry.auth.kind === 'oauth') {
       const token = rt.secretValue(tokenSecretOf(id))
       return token === undefined ? undefined : { Authorization: `Bearer ${token}` }
@@ -100,9 +108,19 @@ export function install(rt) {
   const hasCredential = (id) => {
     const entry = entryFor(id)
     if (entry === undefined) return false
-    if (entry.custom !== undefined) return true
     if (entry.auth.kind === 'none') return state.connectors?.[id] !== undefined
     return credentialOf(id) !== undefined
+  }
+
+  // Header names are case-insensitive (RFC 9110 §5.1), but object keys are not:
+  // a typed `authorization` must be replaced by the sign-in token, not kept next
+  // to it. Replace by name ignoring case so exactly one auth header goes out.
+  const setHeader = (headers, name, value) => {
+    const lower = name.toLowerCase()
+    for (const existing of Object.keys(headers)) {
+      if (existing.toLowerCase() === lower) delete headers[existing]
+    }
+    headers[name] = value
   }
 
   // What the gateway sends upstream for a connector.
@@ -112,19 +130,20 @@ export function install(rt) {
     let url = entry.custom?.url ?? entry.remote?.url
     if (url === undefined) return undefined
     const headers = { ...(entry.headers ?? {}) }
+    // An added server keeps the headers the user typed; its sign-in token goes on top.
+    for (const [name, raw] of Object.entries(entry.custom?.headers ?? {})) {
+      headers[name] = String(raw).replace(SECRET_REF, (_m, n) => rt.secretValue(n) ?? '')
+    }
     const cred = credentialOf(id)
-    if (entry.auth.kind === 'oauth' && cred !== undefined) Object.assign(headers, cred)
+    if (entry.auth.kind === 'oauth' && cred !== undefined) {
+      for (const [name, value] of Object.entries(cred)) setHeader(headers, name, value)
+    }
     if (entry.auth.kind === 'key' && cred !== undefined) {
-      if (entry.auth.header) headers[entry.auth.header] = `${entry.auth.prefix ?? ''}${cred.key}`
+      if (entry.auth.header) setHeader(headers, entry.auth.header, `${entry.auth.prefix ?? ''}${cred.key}`)
       else if (entry.auth.query) {
         const parsed = new URL(url)
         parsed.searchParams.set(entry.auth.query, cred.key)
         url = String(parsed)
-      }
-    }
-    if (entry.custom !== undefined) {
-      for (const [name, raw] of Object.entries(entry.custom.headers ?? {})) {
-        headers[name] = String(raw).replace(SECRET_REF, (_m, n) => rt.secretValue(n) ?? '')
       }
     }
     return { url, headers }
@@ -258,11 +277,20 @@ export function install(rt) {
     return typeof body?.[entry.whoami.field] === 'string' ? body[entry.whoami.field] : undefined
   }
 
+  // close() waits for the connections still open on the listener, and a browser
+  // keeps one alive: the callback port would stay bound after the attempt ends.
+  const closeListener = (listener) => new Promise(resolve => {
+    if (listener?.listening !== true) { resolve(); return }
+    for (const socket of listener.loopbackSockets ?? []) socket.destroy()
+    listener.loopbackSockets?.clear()
+    try { listener.close(() => resolve()) } catch { resolve() }
+  })
+
   async function endPending(id, status) {
     const pending = pendings.get(id)
     pendings.delete(id)
     if (pending?.timer !== undefined) clearTimeout(pending.timer)
-    if (pending?.listener !== undefined) await new Promise(resolve => pending.listener.close(resolve)).catch(() => {})
+    await closeListener(pending?.listener)
     if (status !== undefined) statuses.set(id, status)
     else statuses.delete(id)
   }
@@ -278,6 +306,12 @@ export function install(rt) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to DS Bot.</p>')
       void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') }).catch(error => rt.warn('ds-bot: connector sign-in callback failed: %s', reason(error)))
+    })
+    const sockets = new Set()
+    listener.loopbackSockets = sockets
+    listener.on('connection', socket => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
     })
     listener.on('error', error => {
       if (listener.listening) rt.warn('ds-bot: connector sign-in listener failed: %s', error?.code ?? 'error')
@@ -304,7 +338,11 @@ export function install(rt) {
       ? await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
       : pending
     const { listener, fixed, redirectUri } = bound
-    pendings.set(id, { ...pending, listener, fixed, redirectUri })
+    // A reused listener arrives with the replaced attempt's timeout, which would
+    // otherwise end this one when it fires.
+    const { timer: previousTimer, ...rest } = pending
+    if (previousTimer !== undefined) clearTimeout(previousTimer)
+    pendings.set(id, { ...rest, listener, fixed, redirectUri })
     try {
       const saved = state.connectors?.[id]
       const persist = async (client) => {
@@ -540,6 +578,7 @@ export function install(rt) {
       const signIn = statuses.get(id)?.state === 'needs-sign-in'
       if (connected && !signIn && !offFor(id).includes(bot.id)) return `${entry.name} is already connected; use its tools (mcp__${id}__*).`
       if (offFor(id).includes(bot.id)) return `${entry.name} is turned off for you. The user can turn it on in your details.`
+      if (rt.taskOwners?.has(agentId)) return 'Background tasks cannot show connector cards. Finish or report back to your own chat so it can ask the user.'
       if (rt.groupOwners.has(agentId)) return 'Connector cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_connector there.'
       if (!rt.chatOwners.has(agentId)) return 'Connector cards only work in your current own chat.'
       const readOnly = rt.readOnly()
@@ -565,6 +604,29 @@ export function install(rt) {
   }))
 
   const offFor = id => state.connectors?.[id]?.offFor ?? []
+
+  async function publishDsBotIssue(botId, { title, body }) {
+    const id = 'github'
+    if (options?.api !== GITHUB_API || options.endpoints !== undefined || options.url !== undefined) return undefined
+    await rt.loadSecrets()
+    if (rt.botOf(botId) === undefined || rt.readOnly() !== undefined
+      || offFor(id).includes(botId) || state.connectors?.[id]?.readOnly === true
+      || statuses.get(id)?.state === 'needs-sign-in') return undefined
+    const headers = credentialOf(id)
+    if (headers === undefined) return undefined
+    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
+      body: JSON.stringify({ title, body, labels: ['bug'] }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    })
+    if (response.status >= 500) throw new Error('Could not confirm whether GitHub accepted the issue')
+    if (!response.ok) return undefined
+    const { number } = await response.json()
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
+    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+  }
 
   // --- import -------------------------------------------------------------
 
@@ -634,12 +696,16 @@ export function install(rt) {
       state: state_,
       ...(status?.error !== undefined ? { error: status.error } : {}),
       account: saved?.account ?? (id => id === 'github' ? saved?.login : undefined)(entry.id) ?? null,
-      ...(remote && connected && entry.auth.kind !== 'none' ? { readOnly: saved?.readOnly === true } : {}),
-      ...(remote && connected && (entry.auth.kind === 'oauth' || entry.auth.kind === 'key') ? { readOnly: saved?.readOnly === true } : {}),
+      // Signing in rewrites a row's auth to OAuth, so an added remote server asks about
+      // read-only by what it has (an address) rather than by how it signs in; a catalog
+      // entry with no sign-in keeps the switch off.
+      ...(remote && connected && (entry.auth.kind === 'oauth' || entry.auth.kind === 'key' || (entry.custom !== undefined && entry.auth.kind === 'custom')) ? { readOnly: saved?.readOnly === true } : {}),
       offFor: saved?.offFor ?? [],
       tools: gateways.gw?.toolCount?.(entry.id) ?? 0,
       ...(entry.custom !== undefined ? { custom: true } : {}),
       ...(pendings.has(entry.id) ? { pending: pendings.get(entry.id).row } : {}),
+      // The client form shows this address: the service's app must answer on it.
+      ...(pendings.get(entry.id)?.redirectUri !== undefined ? { redirectUri: pendings.get(entry.id).redirectUri } : {}),
     }
   }
 
@@ -756,11 +822,14 @@ export function install(rt) {
       const command = typeof body.command === 'string' ? body.command.trim() : undefined
       if (url !== undefined && insecure(url) && !/^http:\/\/(localhost|127\.)/i.test(url)) throw new Error('Connector addresses must start with https://')
       if (url === undefined && command === undefined) throw new Error('Enter an address or a command')
+      // An address can sign in with OAuth instead of a fixed header; commands cannot.
+      const oauth = body.oauth === true && url !== undefined
+      if (body.oauth === true && url === undefined) throw new Error('OAuth sign-in needs an address')
       const taken = new Set(Object.keys(state.connectors ?? {}))
       const id = customId(name, taken)
       CONNECTOR_IDS.add(id)
       const custom = url !== undefined
-        ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {} }
+        ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {}, ...(oauth ? { oauth: true } : {}) }
         : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: body.env && typeof body.env === 'object' ? body.env : {} }
       await saveState(id, { custom, connectedAt: Date.now() })
       await sync(true)
@@ -839,20 +908,23 @@ export function install(rt) {
     void rt.load().then(() => rt.loadSecrets()).then(() => sync())
     return () => {
       stopped = true
-      for (const pending of pendings.values()) if (pending.timer !== undefined) clearTimeout(pending.timer)
-      for (const pending of pendings.values()) pending.listener?.close()
+      const released = [...pendings.values()].map(pending => {
+        if (pending.timer !== undefined) clearTimeout(pending.timer)
+        return closeListener(pending.listener)
+      })
       pendings.clear()
       const closing = [...mounts.values()].map(mount => Promise.resolve().then(() => mount.fiber?.dispose()).catch(() => {}))
       mounts.clear()
       const gw = gateways.gw
       gateways.gw = null
-      return Promise.all([...closing, gw?.close(), mailApi.dispose()])
+      return Promise.all([...released, ...closing, gw?.close(), mailApi.dispose()])
     }
   }, 'ds-bot: connectors')
 
   Object.assign(rt, {
     connectorsView,
     connectorEndpoint,
+    publishDsBotIssue,
     connectorOffFor: (botId) => {
       const prefixes = []
       for (const entry of entries()) {

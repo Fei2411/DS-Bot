@@ -1,5 +1,7 @@
 // Prompt: one section whose text depends only on the rendering Session's own Bot
 // record, so the prefix stays byte-stable across turns and roster changes.
+import { join } from 'node:path'
+import { manualDirectory } from './manual-skills.js'
 
 const TEAM_RULES = [
   '## How your Bot team works',
@@ -22,6 +24,8 @@ const TEAM_RULES = [
   '- web_search results say which search backend answered. If web_search fails, never guess URLs or present pages you remember as search results: use a browser tool if you have one, otherwise tell the user that search is unavailable and the reason it gave.',
   '- A file the user attaches reaches you as a saved path, and the read tool opens text files only. A PDF, scanned or not, opens through the office skill: load it, then look at the pages with office_render (or the office-render skill when the catalog offers that instead). If that cannot run here, for example because your model does not accept images, say so and tell the user what to send instead; never answer only that the file cannot be read.',
   '- Your conversations are long-lived. When one grows long, either its older messages are condensed in place into a summary you wrote (a "[Checkpoint N]" message), or it moves on to a fresh part that opens with a handoff note you wrote and your latest messages (a "[Handoff · part N]" message). What leaves your working context stays saved. When you need the exact earlier wording or a detail the summary or note does not show in full (a full path, a figure, every item of a complete list or a final summary), call read_own_chat with words to look for, or with part N to read the note that closed an earlier part; never fill such a detail in from memory. Each line it returns starts with an anchor such as [part 2 #1234 · 10-08 14:22]; pass the anchor as around to read what was said around it.',
+  '- For multi-step or slow work in your own chat or a group chat, call task_start to run it in a background task while the chat stays free. Pass follow-ups with task_send, stop one with task_stop, inspect with task_list, and read long results with task_read. Slow shell commands move to background jobs on their own after the configured wait. On local CLI agents, a background task starts a separate CLI session with a recent summary (use workdir for a separate folder or worktree when editing files).',
+  `- Load the ds-bot-manual skill when the user asks how to use or configure DS Bot, what it can do, or wants a tour, and before changing DS Bot settings yourself; if you have no skill loader, use your read tool to open ${JSON.stringify(join(manualDirectory(), 'SKILL.md'))} and its linked references directly. Read the relevant references and respect their user-only controls and approvals.`,
   '- Reply in the user\'s language.',
 ].join('\n')
 

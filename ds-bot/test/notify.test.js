@@ -76,3 +76,71 @@ test('questions and group approvals use stable conversation ids after part switc
   assert.equal(notifyKind({ ...base, before: {}, after: rows[1].status, group: true }), 'question')
   assert.equal(badgeOf(rows), 2)
 })
+
+function referenceRows({ statuses, roster, approvals = [] }) {
+  const rows = []
+  for (const [group, entries] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
+    for (const entry of entries) {
+      const sessionId = entry.sessionId ?? entry.id
+      const status = statuses?.get(sessionId)
+      const question = roster.questions?.[sessionId]
+      const waiting = approvals.filter(approval => group ? approval.roomId === entry.id : approval.roomId === undefined && approval.botId === entry.id)
+      const interaction = status?.pendingInteraction
+      const keys = [
+        ...(question ? [`question:${question.id}`] : []),
+        ...waiting.map(approval => `approval:${approval.id}`),
+        ...(interaction !== undefined ? [`interaction:${interaction?.id ?? interaction?.kind ?? 'pending'}`] : []),
+      ].sort()
+      if (status === undefined && keys.length === 0) continue
+      rows.push({
+        id: entry.id, sessionId, name: entry.name, group,
+        unread: status?.completionUnread === true, pending: keys.length > 0,
+        status: { ...status, pendingInteraction: keys.length > 0 ? keys.join('|') : undefined },
+      })
+    }
+  }
+  return rows
+}
+
+test('indexed approvals match the reference rows, including empty and overlapping conversations', () => {
+  const roster = { bots: [{ id: 'same' }, { id: 'other', sessionId: 'part-2' }], rooms: [{ id: 'same' }, { id: '__proto__' }],
+    questions: { 'part-2': { id: 'q' } } }
+  const approvals = [
+    { id: 'z', botId: 'same' }, { id: 'a', botId: 'same' }, { id: 'a', botId: 'same' },
+    { id: 'room', botId: 'other', roomId: 'same' }, { id: 'unknown', botId: 'missing' },
+    { id: 'unknown-room', botId: 'same', roomId: 'missing' }, { id: 'null-room', botId: 'same', roomId: null },
+    { id: 'special', roomId: '__proto__' },
+  ]
+  for (const input of [
+    { roster: {} }, { roster: {}, approvals }, { roster, approvals: [] }, { roster, approvals },
+    { roster, approvals: [...approvals].reverse(), statuses: new Map([['same', { completionUnread: true, pendingInteraction: null }]]) },
+  ]) {
+    assert.deepEqual(notificationRows(input), referenceRows(input))
+    assert.equal(JSON.stringify(notificationRows(input)), JSON.stringify(referenceRows(input)))
+  }
+  assert.equal(notificationRows({ roster, approvals })[0].status.pendingInteraction, 'approval:a|approval:a|approval:z')
+})
+
+test('indexed approvals match the reference on seeded randomized snapshots', () => {
+  let seed = 1738
+  const random = max => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed % max
+  }
+  for (let trial = 0; trial < 200; trial += 1) {
+    const entries = () => Array.from({ length: random(20) }, (_, i) => ({ id: `id-${i}`, name: `Name ${i}`, ...(random(2) ? { sessionId: `part-${i}` } : {}) }))
+    const roster = { bots: entries(), rooms: entries(), questions: {} }
+    const statuses = new Map()
+    for (const entry of [...roster.bots, ...roster.rooms]) {
+      const sessionId = entry.sessionId ?? entry.id
+      if (random(3)) statuses.set(sessionId, { completionUnread: random(2) === 1,
+        pendingInteraction: [undefined, null, { id: 'i' }, { kind: 'ask' }, {}][random(5)] })
+      if (random(3) === 0) roster.questions[sessionId] = { id: `q-${random(10)}` }
+    }
+    const approvals = Array.from({ length: random(80) }, () => ({ id: `a-${random(20)}`, botId: `id-${random(25)}`,
+      ...(random(2) ? { roomId: `id-${random(25)}` } : {}) }))
+    const input = { roster, statuses: random(5) ? statuses : undefined, approvals }
+    assert.deepEqual(notificationRows(input), referenceRows(input), `trial ${trial}`)
+    assert.equal(JSON.stringify(notificationRows(input)), JSON.stringify(referenceRows(input)), `trial ${trial}`)
+  }
+})

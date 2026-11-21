@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { format } from 'node:util'
 import { install as partsInstall } from '../src/host/parts.js'
+import { install as chatInstall } from '../src/host/chat-index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // #1105: a handoff note written by a reasoning model on a long context keeps getting
@@ -27,7 +28,7 @@ function* chunksOf(reply) {
 
 // A Bot's own chat part with the note writer around it. `replies` are answered in
 // order by the model stream; `info` holds resolveModelInfo per route.
-async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy }) {
+async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, manual = false, history, folder = false }) {
   const requests = []
   const warnings = []
   const infos = []
@@ -37,7 +38,9 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   let defaultCalls = 0
   const queue = [...replies]
   const abort = new AbortController()
-  const ctx = fakeContext()
+  // Past its hard line a part moves on at the end of its turn, with a note if one
+  // can be written.
+  const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000_000 }) } } })
   ctx.logger = {
     warn: (template, ...args) => warnings.push(say(template, ...args)),
     info: (template, ...args) => infos.push(say(template, ...args)),
@@ -85,6 +88,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   }
   const rt = {
     ctx,
+    home: '/unused',
     config: {},
     state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
     warn: (template, ...args) => warnings.push(say(template, ...args)),
@@ -139,20 +143,45 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
     sessionTitle: { rename: async () => {} },
     deliver: async () => {},
     teamFolder: () => '/tmp/team',
-    workDirOf: () => '/tmp/team',
+    workDirOf: () => folder ? '/tmp/new-team' : '/tmp/team',
     isFolder: async () => true,
     uiLanguage: () => 'en',
     roomProgress: new Map(),
     defaultModel: async () => { defaultCalls += 1; return fallback },
   }
+  if (history !== undefined) {
+    session.seq = history.length
+    ctx.sessionController = {
+      page: async ({ beforeSeq, maxMessages }) => {
+        const end = beforeSeq ?? history.length
+        const start = Math.max(0, end - maxMessages)
+        return { records: history.slice(start, end).map(event => ({ event })), hasMore: start > 0 }
+      },
+    }
+    chatInstall(rt)
+  }
   partsInstall(rt)
-  await rt.newPart('s1')
+  if (folder) await rt.followFolder({ botId: 'b1' })
+  else if (manual) await rt.newPart('s1')
+  else ctx.emit('agent/status', { agent, status: 'idle' })
   for (let at = 0; at < 100 && bot.sessionId !== 's2' && !warnings.some(line => /did not move on/.test(line)); at += 1) {
     await new Promise(done => setTimeout(done, 10))
   }
   const packageText = followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
   return { bot, requests, warnings, infos, packageText, selected, defaultCalls: () => defaultCalls }
 }
+
+test('a folder handoff capped before the Session start writes a note instead of claiming whole history', async () => {
+  const history = Array.from({ length: 2001 }, (_, seq) => ({
+    seq, time: 1, type: 'user/message',
+    data: { content: [{ type: 'text', text: seq === 2000 ? 'Latest request' : 'setup' }], source: { kind: seq === 2000 ? 'user' : 'plugin' } },
+  }))
+  const run = await switchPart({ history, folder: true, replies: [{ text: note('bounded handoff') }] })
+  assert.equal(run.bot.sessionId, 's2')
+  assert.equal(run.requests.length, 1)
+  assert.match(run.packageText, /Older messages were not carried/)
+  assert.doesNotMatch(run.packageText, /every message of the part was carried/)
+})
 
 test('the note asks for the lowest reasoning the model offers', async () => {
   const off = await switchPart({ replies: [{ text: note('off-run') }], info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } } } })
@@ -268,3 +297,13 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
   assert.equal(capped.requests.length, 2)
 })
 
+// #1716: "New session" moves on with the deterministic package and never asks the
+// model, so a part whose route keeps failing still gets a fresh one at once.
+test('a manual new part asks the model for nothing', async () => {
+  const run = await switchPart({ replies: [new Error('the route is down')], manual: true, oldNote: 'OLD NOTE FROM PART 1' })
+  assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
+  assert.equal(run.requests.length, 0)
+  assert.equal(run.warnings.filter(line => /handoff note/.test(line)).length, 0, run.warnings.join(' | '))
+  assert.match(run.packageText, /because a fresh conversation was started/)
+  assert.match(run.packageText, /without the model, because a fresh conversation was started[^]*OLD NOTE FROM PART 1/)
+})

@@ -150,7 +150,6 @@ const ZH = {
   Enable: '启用',
   Disable: '停用',
   'Remove?': '确认移除？',
-  'Not connected': '未连接',
   Disabled: '已停用',
   Capabilities: '能力',
   'Shared capabilities': '共享能力',
@@ -186,6 +185,7 @@ const ZH = {
   Edit: '编辑',
   'Click again to delete.': '再点一次删除。',
   Ready: '就绪',
+  'Not ready': '未就绪',
   'Needs approval': '需要批准',
   'No items': '没有项目',
   'Save an MCP server or skill first.': '请先保存 MCP 服务或技能。',
@@ -280,7 +280,6 @@ const ZH = {
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',
   'No agent CLIs found': '没有找到 Agent CLI',
-  'Scan again for agent CLIs.': '重新扫描 Agent CLI。',
   'Custom agents': '自定义 Agent',
   'ACP-compatible agents, added by command.': '按命令添加的 ACP 兼容 Agent。',
   'Add agent': '添加 Agent',
@@ -289,7 +288,6 @@ const ZH = {
   'Sign-in command copied. Run it in a terminal: {command}': '登录命令已复制。请在终端运行：{command}',
   'Could not copy the sign-in command. Run this in a terminal: {command}': '没能复制登录命令。请在终端手动运行：{command}',
   Found: '已找到',
-  'Not found': '未找到',
   Arguments: '参数',
   Agent: 'Agent',
   Sessions: '会话',
@@ -474,7 +472,6 @@ const ZH = {
   'Name after members': '按成员命名',
   'Rename {name}': '重命名 {name}',
   Rename: '重命名',
-  'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': '还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。',
   'The browser is in DSH Desktop and the DS Bot app.': '浏览器在 DSH 桌面版和 DS Bot 应用里。',
   'New tab': '新标签页',
   'Close tab': '关闭标签页',
@@ -490,7 +487,6 @@ const ZH = {
   'Copy of its cookies': '复制它的 cookie',
   'No browsers found': '没有找到浏览器',
   'The Bot controls this browser': 'Bot 正在控制此浏览器',
-  'The Bot is waiting for you': 'Bot 正在等待你',
   'waits for the computer': '等你停手',
   'You control this browser': '你正在控制此浏览器',
   'The Bot handed this browser to you: {reason}': 'Bot 已将此浏览器交给你：{reason}',
@@ -522,6 +518,37 @@ const ZH = {
   'That file is too large to be a cookie export.': '这个文件太大了，不像是 cookie 导出文件。',
   'That file could not be read.': '这个文件读不了。',
   'This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.': '这个浏览器把 cookie 加密了，只有它自己能读。先把 cookie 导出成文件，再导入那个文件。',
+  'Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.': '钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。',
+  'Remote debugging permission was declined in the browser. Try again and click Allow.': '浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。',
+  'Timed out waiting for you to click Allow in the browser.': '等待你在浏览器里点「允许」超时了。',
+  'Another browser profile is active. Switch to the chosen profile window in your browser, then try again.': '当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。',
+  'Import from browser': '从浏览器导入',
+  'Last used': '上次使用',
+  'Browser profile': '浏览器配置',
+  'Paste cookies or cURL…': '粘贴 cookie 或 cURL…',
+  'JSON, cURL, header': 'JSON、cURL、请求头',
+  'Connect to {name}': '连接到 {name}',
+  '{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.': '{name} 在 Windows 上对 cookie 做了保护。打开它自带的远程调试开关一次即可，无需安装扩展。',
+  '1. Open this address in {name}:': '1. 在 {name} 中打开这个地址：',
+  '2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.': '2. 打开「Allow remote debugging for this browser instance」开关，{name} 弹窗时点「允许」。',
+  'Remote debugging detected — ready to import.': '已检测到远程调试，可以导入了。',
+  'Open {name}': '打开 {name}',
+  'Connect and import': '连接并导入',
+  'Paste cookies or cURL': '粘贴 cookie 或 cURL',
+  'Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…': '粘贴 Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL 或 Cookie 请求头…',
+  'Site URL (only needed for plain Cookie headers)': '网站地址（仅粘贴纯 Cookie 请求头时需要）',
+  'Reading…': '读取中…',
+  '{count} storage entries': '{count} 条本地存储',
+  'All sites ({count})': '全部网站 ({count})',
+  'This site ({host})': '当前网站 ({host})',
+  'Filter sites…': '筛选网站…',
+  storage: '含存储',
+  'Keep session logins after app restart': '重启应用后保持会话登录',
+  'Reading {name}…': '正在读取 {name}…',
+  'If {name} or your system asks for permission, click Allow.': '如果 {name} 或系统弹出权限提示，请点「允许」。',
+  'Imported storage for {count} sites': '已导入 {count} 个网站的本地存储',
+  '{count} sites storage': '{count} 个网站本地存储',
+  'page reloaded': '页面已刷新',
   '{count}': '{count} 个',
 
   // Bot settings
@@ -623,6 +650,9 @@ const ZH = {
   'Model for {name}': '{name} 的模型',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness 里还没有设置模型。',
   'Models and providers…': '模型和服务商…',
+  'Search models': '搜索模型',
+  'Search models…': '搜索模型…',
+  'No matching models.': '没有匹配的模型。',
   Models: '模型',
   'Harness default': 'Harness 默认',
   Saving: '保存中',
@@ -661,6 +691,8 @@ const ZH = {
   'Text width': '正文宽度',
   'Show thinking': '显示思考过程',
   'Enter sends message': '回车发送消息',
+  'Background work': '后台工作',
+  'Background commands after (seconds)': '命令转后台（秒）',
   'Bring up related memory': '自动带上相关记忆',
   'Group memory size': '群记忆容量',
   'Bot memory size': 'Bot 记忆容量',
@@ -720,21 +752,58 @@ const ZH = {
   'Back to Bots': '返回 Bot 列表',
   'Close settings': '关闭设置',
 
+  // DeepSeek services
+  'DeepSeek services': 'DeepSeek 服务',
+  'DeepSeek API': 'DeepSeek API',
+  'DeepSeek Web Search API': 'DeepSeek 联网搜索 API',
+  'Find it in Plugins → Web search.': '在 插件 → 网页搜索 里设置。',
+  'Image and document reading': '图片与文档识别',
+  'Use DeepSeek to read images and documents': '用 DeepSeek 识别图片和文档',
+  'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': 'Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。',
+  'Text to speech': '文字转语音',
+  'Read replies aloud': '朗读回复',
+  System: '系统',
+  Voice: '声音',
+  'Speech recognition': '语音识别',
+  'Dictation provider': '听写提供方',
+  'Use DeepSeek for dictation': '用 DeepSeek 听写',
+  'In use': '使用中',
+
   // Phone
   Phone: '手机',
   'Off. Phones cannot reach this computer.': '已关闭。手机连不上这台电脑。',
   'On. Paired phones can use DS Bot here.': '已开启。配对过的手机可以用这台电脑上的 DS Bot。',
   'Cannot reach the Server. Trying again…': '连不上服务器，正在重试…',
   'Phone access': '手机访问',
+  'MCP access': 'MCP 访问',
+  'Off. Other agents cannot reach DS Bot.': '已关闭。其他智能体无法访问 DS Bot。',
+  'On. Agents with a token can reach DS Bot at {url}': '已开启。有令牌的智能体可通过 {url} 访问 DS Bot',
+  'Port': '端口',
+  'Only programs on this computer can connect.': '只有本机上的程序可以连接。',
+  'Add a client': '添加客户端',
+  'Each agent gets its own token. It can read chats, send messages and wait for replies; approvals, questions, settings and secrets stay here.': '每个智能体有自己的令牌，可以读对话、发消息、等回复；审批、提问、设置和密钥都留在这里处理。',
+  'Create token': '生成令牌',
+  'Copy the token for {name} now. It is shown once.': '现在复制 {name} 的令牌，它只显示这一次。',
+  'Clients that start a command use: {command}': '需要启动命令的客户端使用：{command}',
+  'Clients': '客户端',
+  'No clients yet': '还没有客户端',
+  'Last used {date}': '上次使用：{date}',
+  'Can reach: {names}': '可访问：{names}',
+  'nothing yet': '暂无',
   'Beta': '测试版',
   'Phone app': '手机 App',
   'Android beta': 'Android 测试版',
   Server: '服务器',
-  'The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.': '在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。',
+  'The Server forwards encrypted messages. Browser access also trusts the page it serves.': '服务器转发加密消息。浏览器访问还需要信任服务器提供的网页。',
+  'The browser runs the page the Server sends. Only use a Server you trust.': '浏览器运行服务器发来的网页。请只使用你信任的服务器。',
   'Pair a phone': '配对手机',
   'Scan this code with the DS Bot app on your phone.': '用手机上的 DS Bot App 扫这个码。',
   'The code works once. It stops working in {count} min.': '这个码只能用一次，{count} 分钟后失效。',
   'Show a QR code': '显示二维码',
+  'Open in a browser': '在浏览器中打开',
+  'Web browser': '网页浏览器',
+  'Copy browser link': '复制浏览器链接',
+  'Clipboard is not available': '剪贴板不可用',
   'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',
   'Turn on phone access first': '请先打开手机访问',
   Phones: '手机',
@@ -766,6 +835,9 @@ const ZH = {
   'Add DSH Agent': '添加 DSH Agent',
   'Remove DSH Agent': '移除 DSH Agent',
   'New session': '新会话',
+  'Start a new session for {name} in this group': '为 {name} 在本群开始新会话',
+  Started: '已开始',
+  'Started a new session for {name} in this group': '已为 {name} 在本群开始新会话',
   Archive: '归档',
   'Session actions': '会话操作',
   Plugins: '插件',
@@ -817,7 +889,6 @@ const ZH = {
   'Around this message': '这条消息的前后',
   '1 match': '1 条结果',
   '{count} matches': '{count} 条结果',
-  'Showing the {count} newest': '只显示最新 {count} 条',
 
   // Bot exchange
   'Bot exchange': 'Bot 间对话',
@@ -855,7 +926,6 @@ const ZH = {
   'Add an annotation…': '写下批注…',
   'Add quote and annotation to the composer · Enter': '将引用和批注添加到输入框 · Enter',
   'Send quote and annotation · Ctrl+Enter': '发送引用和批注 · Ctrl+Enter',
-  'Quote text': '引用文本',
   Footnotes: '脚注',
   'Remove reaction {emoji}': '移除表情 {emoji}',
   'Add reaction': '添加表情',
@@ -1153,8 +1223,6 @@ const ZH = {
   '{count} files changed': '{count} 个文件改动',
   '{count} file changed': '{count} 个文件改动',
   'File': '文件',
-  'Binary file': '二进制文件',
-  'This file is too large to preview': '文件过大，无法预览',
   'Review these changes': '打开这次改动审查',
   'These changes are no longer available': '这些改动已经不可用：会话已归档或改动已被重置',
   'This window cannot open the change review': '当前窗口无法打开改动审查',
@@ -1175,12 +1243,9 @@ const ZH = {
   "Memory updated. Open {name}'s memory": '记忆已更新，打开 {name} 的记忆',
 
   // Browser
-  'Close browser': '关闭浏览器',
   'Open browser': '打开浏览器',
   "{name}'s browser": '{name} 的浏览器',
   'Resize panel': '调整面板宽度',
-  '{name} read this page': '{name} 读了这个页面',
-  "{name}'s browser. {name} can read the page shown here.": '{name} 的浏览器。{name} 能读取这里显示的页面。',
   Back: '后退',
   Forward: '前进',
   Stop: '停止',
@@ -1222,6 +1287,8 @@ const ZH = {
   'Downloading the speech model… {pct}%': '正在下载语音模型… {pct}%',
   "Couldn't prepare voice input": '语音输入准备失败',
   'That was too long to recognize': '这段太长了，识别不了',
+  "Couldn't read the reply": '回复朗读失败',
+  "Couldn't reach the speech service": '语音识别服务不可用',
 
   // Usage page
   '24 hours': '24 小时',
@@ -1256,6 +1323,9 @@ const ZH = {
   'In progress': '进行中',
   'Awaiting review': '待审',
   Blocked: '阻塞',
+  'Stopped by the user': '用户停止',
+  'Not updated after a restart': '重启后未更新',
+  'Its model call failed ({code})': '模型调用失败（{code}）',
   'Add a note': '补一句',
   'Cancel task': '取消任务',
   'Click again to cancel': '再点一次取消',
@@ -1438,6 +1508,9 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'The files attached to this draft could not be put back.': '没发出去的消息里附带的文件没能放回来。',
+  'Pause task': '暂停任务',
+  'Resume task': '恢复任务',
   Once: '一次',
   'Every week': '每周',
   Repeat: '重复',
@@ -1472,6 +1545,9 @@ const ZH = {
   'Repeat every 1 minute to 7 days': '重复间隔要在 1 分钟到 7 天之间',
   'Pick when it runs': '选择什么时候运行',
   'No such task': '没有这个任务',
+  'This task is due now and can’t be paused.': '这个任务已经到点，不能暂停。',
+  'The task just changed. Try again.': '任务刚被改过，再试一次。',
+  'This task’s chat has ended. Delete the task and make it again.': '这个任务所在的对话已结束。删掉它再建一个。',
   'Working folder': '工作文件夹',
   'Working folder: {folder}': '工作文件夹：{folder}',
   Folder: '文件夹',
@@ -1505,22 +1581,45 @@ const ZH = {
   'Some folders are not shown.': '还有一些文件夹没有显示。',
   'Waiting for sign-in…': '等待登录…',
   'This service needs an app client ID': '该服务需要应用 Client ID',
-  'Open the sign-in page': '打开登录页',
   'Paste the address you land on': '粘贴跳转后的地址',
-  'Or paste the address you land on': '或粘贴跳转后的地址',
   'Finish sign-in': '完成登录',
   'Open {host}': '打开 {host}',
   'Client ID': 'Client ID',
   'Client secret (optional)': 'Client secret(可选)',
+  'In OAuth & Permissions at {app}, add this redirect URL:': '在 {app} 的 OAuth & Permissions 里添加这个重定向地址：',
+  'In the app settings, add this redirect URL:': '在应用设置里添加这个重定向地址：',
+  'Turn on the MCP features and scopes the app needs.': '打开应用需要的 MCP 功能和权限范围。',
+  'Copy the Client ID and Client Secret here.': '再把 Client ID 和 Client Secret 填到这里。',
+  'Open app settings': '打开应用设置',
   'Continue': '继续',
   '{name} key': '{name} 密钥',
   '{name} token': '{name} 令牌',
   'Get a key': '获取密钥',
   'Read-only': '只读',
+  'Waiting for teammate': '等待同伴',
+  'Interrupted': '已中断',
+  'Moved from chat': '来自主对话',
+  'Teammate request': '同伴请求',
+  '{count} background tasks · {waiting} needs approval': '{count} 个后台任务 · {waiting} 项待批准',
+  '{count} background tasks running': '{count} 个后台任务运行中',
+  'Sent to background task': '已发给后台任务',
+  'Background tasks': '后台任务',
+  'Active': '进行中',
+  'Completed': '已完成',
+  'Previous item': '上一项',
+  'Next item': '下一项',
+  'Open read-only transcript': '查看只读记录',
+  'Inspect progress without switching the current chat': '查看进度，不切换当前对话',
+  'View details': '查看详情',
+  'Sending to {title}': '发送给「{title}」',
+  'Send follow-up or guidance…': '补充说明或继续指导…',
+  'Hide steps': '隐藏步骤',
+  'Show steps': '显示步骤',
+  'Current chat': '当前对话',
+  'Earlier & parallel sessions': '更早与并行段',
   '{count} tools': '{count} 个工具',
   'Mailbox': '邮箱',
   'Email address': '邮箱地址',
-  'App password / authorization code': '应用密码 / 授权码',
   'Catalog': '目录',
   'App password': '应用专用密码',
   'Authorization code': '授权码',
@@ -1599,13 +1698,7 @@ const ZH = {
   'IMAP host': 'IMAP 服务器',
   'SMTP host': 'SMTP 服务器',
   'Sign in with Google': '使用 Google 登录',
-  'Add account': '添加账户',
-  'Add an account': '添加账户',
-  'No mail accounts yet': '还没有邮箱账户',
   'Verifying…': '正在验证…',
-  'Open the Google sign-in page': '打开 Google 登录页',
-  'Add an address': '添加地址',
-  'Add a command': '添加命令',
   'Import from other apps': '从其他应用导入',
   'Server address': '服务器地址',
   'Command, e.g. npx -y some-mcp': '命令,例如 npx -y some-mcp',
@@ -1621,7 +1714,6 @@ const ZH = {
   'Commerce': '商务',
   'No connectors connected': '未连接任何连接器',
   '{bot} needs {name}': '{bot} 需要 {name}',
-  '{bot} wants to send an email': '{bot} 想发送一封邮件',
   'Mail': '邮件',
   'Subject': '主题',
   'Write a message…': '写邮件正文…',
@@ -1715,6 +1807,12 @@ const HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/, '$1 在隐私 Bot「$2」的文件夹内或外层，$3 不能在这里工作'],
   [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, '$1 在隐私 Bot「$2」的文件夹内或外层，群聊不能在这里工作'],
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, '$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区'],
+  // DeepSeek services: host status reasons, shown where the capability is not ready.
+  [/^The DeepSeek API key \((.+)\) is not set$/, 'DeepSeek API key（$1）还没设置'],
+  [/^This DSH has no speech-to-text service \(voice input is not mounted\)$/, '这个 DSH 没有语音识别服务（语音输入插件未挂载）'],
+  [/^The speech provider is registering$/, '语音识别提供方正在注册'],
+  [/^This DSH has no credential store\.$/, '这个 DSH 没有凭据存储'],
+  [/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/, 'DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。'],
   // Memory changes the memory panel asked for; the whole message is matched.
   [/^This looks like a key, token, or password[\s\S]*$/, '看起来像密钥、令牌或密码，记忆不会保存这类内容'],
   [/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/, '一条记忆最多 $1 个字符，这条有 $2 个'],
@@ -1725,10 +1823,22 @@ const HOST_ERRORS = [
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, '找不到「$1」这条记忆'],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, '「$1」对应了 $2 条记忆，请说得更具体'],
   [/^Memory cannot change now: [\s\S]*$/, '现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队'],
+  [/^Keep a to-do under (\d+) characters\.$/, '待办事项不能超过 $1 个字符。'],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, '共享待办列表已满（$1 条），请先移除一项或清理已完成项。'],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, '「$1」的目标当前处于 $2 状态；$3 需要先处于 $4 状态。'],
+  [/^WeChat answered (.+)$/, '微信返回了错误（$1）'],
+  [/^WeChat refused the reply \((.+)\)$/, '微信拒绝了这条回复（$1）'],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, '$1 无法建立连接：$2'],
+  [/^WeCom socket failed: (.+)$/, '企业微信连接失败：$1'],
+  [/^The password for (.+) is not saved$/, '还没有保存 $1 的密码'],
+  [/^No capability named (.+)\.$/, '没有叫 $1 的能力。'],
+  [/^(.+) changed since this was proposed$/, '$1 在提出建议后已经改过了'],
+  [/^A skill named (.+) exists now$/, '已经有叫 $1 的技能了'],
+  [/^(.+) is required$/, '请填写 $1'],
+  [/^(.+) must be text$/, '$1 必须是文本'],
 ]
 const HOST_ZH = {
   'The Server address must start with ws:// or wss://': '服务器地址必须以 ws:// 或 wss:// 开头',
-  'Enter the Server address first': '请先填服务器地址',
   'Turn on phone access first': '请先打开手机访问',
   'This phone is not paired': '这台手机没有配对',
   'Another dsh has this Bot team open, so phones connect to that one': '另一个 dsh 打开了这个 Bot 团队，手机会连到那一个',
@@ -1736,7 +1846,6 @@ const HOST_ZH = {
   'Phones are paired and removed on the computer': '配对和删除手机只能在电脑上做',
   'Request failed': '请求失败',
   'Permissions are not available in this DeepSeek Harness': '这个 DeepSeek Harness 不支持权限设置',
-  'Avatar images must be PNG, JPEG, WebP, or GIF': '头像图片必须是 PNG、JPEG、WebP 或 GIF',
   'Avatar image is too large': '头像图片太大了',
   'A Bot needs a name': 'Bot 需要一个名字',
   'A Bot name cannot contain @, ` or a line break': 'Bot 名字里不能有 @、` 或换行',
@@ -1745,6 +1854,10 @@ const HOST_ZH = {
   'A group chat needs at least two Bots': '群聊至少要两个 Bot',
   'The admin must be a member of the group': '管理员必须是群成员',
   'Unknown group chat': '找不到这个群聊',
+  'Not a member of that group': '这个 Bot 不在这个群聊里',
+  'This Bot has no session in this group yet': '这个 Bot 在本群还没有会话',
+  'The Bot is working; wait for it to finish or stop it first': '这个 Bot 正在工作中，请等它完成或先停止它',
+  'The new session did not start; the Bot stays in its current one': '新会话没有开始，这个 Bot 还在当前会话里',
   'No Bot is left in this group chat': '这个群聊里已经没有 Bot 了',
   'That group chat has been deleted': '这个群聊已经删除了',
   'Hand the admin role to another member instead of leaving the group without one': '请把管理员交给其他成员，不要让群聊没有管理员',
@@ -1783,6 +1896,96 @@ const HOST_ZH = {
   'Nothing to cancel': '没有要取消的内容',
   'Nothing to close': '没有要关闭的内容',
   'DS Bot is still loading this chat.': 'DS Bot 还在加载这个对话。',
+  'This message is no longer kept': '这条消息已经不再保留',
+  'No file named': '没有指定文件',
+  'This file cannot be read here': '这个文件在这里读不了',
+  'That wait is no longer open': '这个等待已经结束了',
+  'Nothing to send': '没有要发送的内容',
+  'This view is no longer open': '这个视图已经关闭了',
+  'This is not a photo DS Bot can send': '这不是 DS Bot 能发送的照片',
+  'A photo did not arrive. Send it again.': '有张照片没传到，请重新发送。',
+  'Nothing to delete': '没有要删除的内容',
+  'Bot browsers are off on this host': '这台主机关闭了 Bot 浏览器',
+  'This Bot has no open browser': '这个 Bot 没有打开的浏览器',
+  'A browser poll needs a clientId': '浏览器轮询缺少 clientId',
+  'This browser is not held': '这个浏览器当前没有在交接中',
+  'This handoff is no longer open': '这次浏览器交接已经结束了',
+  'Avatar images must be PNG, JPEG, WebP, GIF, or SVG': '头像图片必须是 PNG、JPEG、WebP、GIF 或 SVG',
+  'Pick a model before choosing a thinking level': '请先选择模型，再选择思考强度',
+  'Unknown section': '找不到这个分组',
+  'Unknown section color': '未知分组颜色',
+  'Write the to-do first.': '请先写下待办内容。',
+  'That to-do is no longer on the list.': '这条待办已经不在列表里了。',
+  'Write what this group should achieve, in at most 2000 characters.': '请写下这个群要达成的目标，最多 2000 个字符。',
+  'This group has no admin. Set one in the group settings first.': '这个群没有管理员，请先在群设置里指定一位管理员。',
+  'This group already has a goal. Stop it first.': '这个群已经有一个目标了，请先停止它。',
+  'The goal has changed. Look again.': '目标已经变化，请刷新后再试。',
+  'Nothing to do': '没有要做的操作',
+  'Write a note first.': '请先写下备注。',
+  'That task is already finished.': '这个任务已经结束了。',
+  'No such group.': '找不到这个群聊。',
+  'No such task.': '找不到这个任务。',
+  'No open task to cancel.': '没有可取消的进行中任务。',
+  'Sign-in timed out': '登录超时',
+  'The sign-in answer did not match this attempt (state mismatch). Try again.': '登录回调与本次请求不匹配（状态不一致），请重试。',
+  'This connector does not sign in': '这个连接器不需要登录',
+  'This connector has no server address': '这个连接器没有服务器地址',
+  'Connector addresses must start with https://': '连接器地址必须以 https:// 开头',
+  'This service does not publish OAuth sign-in metadata': '这个服务没有公开 OAuth 登录元数据',
+  'Paste a key first': '请先粘贴密钥',
+  'No sign-in is waiting': '当前没有等待中的登录',
+  'Paste the address or the code': '请粘贴回调地址或授权码',
+  'This address is not from this sign-in attempt (state mismatch). Copy the whole address again.': '这个地址不是本次登录返回的（状态不一致），请重新复制完整地址。',
+  'The address has no code': '这个地址里没有授权码',
+  'Enter the client ID': '请输入客户端 ID',
+  'Name the connector': '请填写连接器名称',
+  'Enter an address or a command': '请输入地址或命令',
+  'Only added connectors can be removed': '只能移除自己添加的连接器',
+  'The mail connection closed during verification': '验证期间邮件连接已断开',
+  'Google sign-in is not available in this build': '当前版本不支持 Google 登录',
+  'Enter an email address': '请输入邮箱地址',
+  'Enter the IMAP and SMTP hosts': '请输入 IMAP 和 SMTP 服务器',
+  'No such account': '找不到这个账户',
+  'This card was already answered': '这张卡片已经处理过了',
+  'No Google sign-in is waiting': '当前没有等待中的 Google 登录',
+  'The sign-in answer is not for this attempt': '登录回调不是针对本次请求的',
+  'Google did not say which account this is': 'Google 没有返回这是哪个账户',
+  'This platform is not available yet': '这个平台暂不可用',
+  'Choose a Bot first': '请先选择一个 Bot',
+  'This platform signs in by scanning a code; not available yet': '这个平台需要扫码登录，暂不可用',
+  'No such IM bot': '找不到这个 IM 机器人',
+  'No such platform': '找不到这个平台',
+  'No such chat': '找不到这个聊天',
+  'Choose a Bot or a group': '请选择一个 Bot 或群聊',
+  'This platform has no QR login': '这个平台不支持扫码登录',
+  'Paste the bot token first': '请先粘贴机器人令牌',
+  'Telegram did not say who this token belongs to': 'Telegram 没有返回这个令牌属于哪个机器人',
+  'A webhook or another program uses this bot': '已有 Webhook 或其他程序在使用这个机器人',
+  'This token does not belong to a Discord bot': '这个令牌不属于 Discord 机器人',
+  'Discord gave no usable gateway URL': 'Discord 没有返回可用的网关地址',
+  'These credentials do not belong to a Slack bot': '这些凭据不属于 Slack 机器人',
+  'WeChat answered an unreadable response': '微信返回了无法解析的响应',
+  'WeChat rate limited the request': '微信限制了请求频率',
+  'WeChat refused the token': '微信拒绝了这个令牌',
+  'Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.': '能力名称只能用小写字母、数字和单个连字符，不能使用连接器保留名称。',
+  'Arguments must be a list of text values.': '参数必须是文本列表。',
+  'Choose an MCP server, skill, or pack.': '请选择 MCP 服务、技能或套件。',
+  'A capability cannot change its kind. Delete it and save a new one.': '能力不能更改类型，请删除后新建。',
+  'Enter a command for the MCP server.': '请输入 MCP 服务的命令。',
+  'Enter a valid HTTP or HTTPS URL.': '请输入有效的 HTTP 或 HTTPS 地址。',
+  'Only Bots on the team can change capabilities.': '只有团队里的 Bot 可以修改能力。',
+  'Only a Main Bot can change another Bot’s capabilities.': '只有主 Bot 可以修改其他 Bot 的能力。',
+  'This DSH cannot load MCP servers.': '这个 DSH 不能加载 MCP 服务。',
+  'Unknown capability operation.': '未知的能力操作。',
+  'The secrets file is not encrypted.': '密钥文件还没有加密。',
+  'Secrets are already encrypted.': '密钥已经加密了。',
+  'Secrets are not encrypted.': '密钥还没有加密。',
+  'Learning is turned off on this host': '这台主机关闭了学习功能',
+  'AGENTS.md changed since this was proposed': '提出建议后 AGENTS.md 已经改动过了',
+  'The Bot that learned this skill is gone': '学到这个技能的 Bot 已经不在了',
+  'System permissions are not available here': '当前环境不支持系统权限设置',
+  'This host keeps no Bot data folder, so it has no avatar library.': '这台主机没有保存 Bot 数据文件夹，因此没有头像库。',
+  'DS Bot is shutting down': 'DS Bot 正在关闭',
   // Computer use
   'Computer use': '电脑操控',
   'Computer': '电脑',
@@ -1827,7 +2030,6 @@ const HOST_ZH = {
   'Needs your confirmation': '需要你确认',
   'Help needed on the computer': '需要你在电脑上帮忙',
   'You control the computer': '你在操控电脑',
-  'Stop {name}': '停止 {name}',
   '{name} · foreground': '{name} · 前台',
   '{name} waits for the computer': '{name} 等你停手',
 }
@@ -1920,35 +2122,60 @@ export function installLocale(locale) {
     pushOff(locale.register(NAMESPACE, langId, dict))
   }
 
-  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  // DS Bot fills locales that other plugins' namespaces lack. Each supplement is tied to
+  // the owner dictionary it was made from, so it leaves when that owner unloads or
+  // re-registers. DSH has no lower-priority registration, so an owner's own locale
+  // registered while the supplement stands still collides with it.
+  const supplements = new Map()
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key)
+    if (!entry) return
+    supplements.delete(key)
+    entry.off()
+  }
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId)
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return
+    try {
+      const off = locale.register(ns, langId, make())
+      if (typeof off === 'function') supplements.set(key, { ns, source, off })
+    } catch { /* already registered */ }
+  }
+
   let syncing = false
   let disposed = false
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return
     syncing = true
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns)
+        if (![...(map?.values() ?? [])].includes(entry.source)) dropSupplement(key)
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns)
-          if (!map || map.has(langId.toLowerCase())) continue
-          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+          const source = map?.get('en') ?? map?.get('zh')
+          if (source) supplement(ns, langId, source, () => dict)
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has('zh-tw')) continue
         const zhDict = map.get('zh')
-        if (zhDict) {
-          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, 'zh-TW', zhDict, () => convertDict(zhDict))
       }
     } finally {
       syncing = false
     }
   }
+
   syncDshNamespaces()
   if (typeof locale.subscribe === 'function') {
     pushOff(locale.subscribe(syncDshNamespaces))
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key)
+  })
 
   const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
   if (origResolveText) {

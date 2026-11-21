@@ -183,12 +183,79 @@ const hasShowView = (host, id) => host.scoped.some(entry => entry.sessionId === 
 const denied = (host, id) => host.restricted.some(entry => entry.sessionId === id && entry.deny.includes('ask_user_question'))
 const scopedNames = (host, id) => host.scoped.filter(entry => entry.sessionId === id).map(entry => entry.name)
 
+test('a Bot assembly can omit sections and tools', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const agent = host.agentOf('a')
+  let filter
+  agent.ctx.on = (name, listener) => { if (name === 'system-prompt/assemble' && String(listener).includes('HIDDEN_SECTIONS')) filter = listener; return () => {} }
+  await host.agentCreated('a')
+  assert.deepEqual(await filter({}, {}, async () => ({})), {})
+  const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'list_bots' }] }))
+  assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'list_bots' }] })
+})
+
+test('team tools retry without a step, without registering successful tools twice', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const agent = host.agentOf('a')
+  const register = agent.ctx.tools.register
+  agent.ctx.tools.register = undefined
+  await host.agentCreated('a')
+  let refused = false
+  agent.ctx.tools.register = tool => {
+    if (tool.name === 'list_bots' && !refused) { refused = true; throw new Error('not ready') }
+    return register(tool)
+  }
+  await until(() => scopedNames(host, 'a').includes('list_bots'), 5000)
+  for (const name of TEAM_TOOLS.filter(name => name !== 'read_browser' && name !== 'read_document')) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
+})
+
+test('team tool retries stop at a bound and are cleaned up with their scope', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const agent = host.agentOf('a')
+  let attempts = 0
+  agent.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  const agentDisposers = []
+  agent.ctx.effect = execute => { agentDisposers.push(execute()) }
+  await host.agentCreated('a')
+  const initial = attempts
+  for (let i = 0; i < 10; i++) t.mock.timers.tick(1000)
+  assert.ok(attempts > initial)
+  const exhausted = attempts
+  assert.equal(exhausted, initial * 6)
+  t.mock.timers.tick(60_000)
+  assert.equal(attempts, exhausted)
+  for (const dispose of agentDisposers) dispose?.()
+  const other = host.agentOf('b')
+  const otherDisposers = []
+  other.ctx.effect = execute => { otherDisposers.push(execute()) }
+  other.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  await host.agentCreated('b')
+  for (const dispose of otherDisposers) dispose?.()
+  const disposed = attempts
+  t.mock.timers.tick(1000)
+  assert.equal(attempts, disposed)
+  const room = host.agentOf('r1')
+  room.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  await host.agentCreated('r1')
+  await host.unload()
+  const unloaded = attempts
+  t.mock.timers.tick(60_000)
+  assert.equal(attempts, unloaded)
+})
+
 test('a Bot Session gets every team tool in its own scope', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('a')
-  assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
+  assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort())
 })
 
 test('a Bot with no connector off never reads the served schemas for the mask', async (t) => {
@@ -271,15 +338,15 @@ test("a group's own Session is scoped to group_relay alone", async (t) => {
   assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
 })
 
-test("another plugin's global recall cannot stop ds-bot or shadow its own", async (t) => {
+test("a Bot Session receives bot_recall alongside another plugin's global recall", async (t) => {
   // #703: a same-named global tool from another plugin must not fail apply(),
-  // and inside a Bot Session ds-bot's recall still wins.
+  // and inside a Bot Session ds-bot's bot_recall is served separately.
   const host = start(TEAM, {}, [{ name: 'recall', description: 'foreign recall', execute: async () => 'foreign' }])
   t.after(host.stop)
   assert.equal(host.ctx.registeredTools.get('recall').description, 'foreign recall')
   await host.call('state', {})
   await host.agentCreated('a')
-  const recall = host.scoped.find(entry => entry.sessionId === 'a' && entry.name === 'recall')
+  const recall = host.scoped.find(entry => entry.sessionId === 'a' && entry.name === 'bot_recall')
   assert.match(String(recall?.tool?.description), /^Search your memory/)
 })
 
@@ -474,7 +541,7 @@ test("a Bot's own Session the creation path missed gets the whole scope at the a
   await host.call('state', {})
   const agent = host.agentOf('a')
   const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
-  const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort()
+  const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort()
   assert.deepEqual(scopedNames(host, 'a').sort(), expected)
   assert.deepEqual(assembled.tools.map(tool => tool.name).sort(), ['read', ...expected].sort())
   // The hidden DSH tools are masked and filtered as on the creation path: none
@@ -545,6 +612,44 @@ test('the assemble adds the recovered names once, not on every step', async (t) 
   assert.deepEqual(first.tools.map(tool => tool.name), ['read', 'group_relay'])
   const second = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, agent, second), second)
+})
+
+test('enabling OCR after a Bot is scoped, then disabling it, removes the scoped schema', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+  const on = await host.call('deepseek-services-config', { ocr: true })
+  assert.equal(on.ok, true)
+  assert.equal(on.value.ocr.enabled, true)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), true)
+  const off = await host.call('deepseek-services-config', { ocr: false })
+  assert.equal(off.ok, true)
+  assert.equal(off.value.ocr.enabled, false)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+})
+
+test('removeTeamTool still unloads other live Bots when one disposer throws', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+  const agentA = host.agentOf('a')
+  const origRegister = agentA.ctx.tools.register
+  agentA.ctx.tools.register = (tool) => {
+    const dispose = origRegister(tool)
+    if (tool.name !== 'read_document') return dispose
+    return () => { dispose(); throw new Error('already disposed') }
+  }
+  await host.call('deepseek-services-config', { ocr: true })
+  assert.equal(scopedNames(host, 'a').includes('read_document'), true)
+  assert.equal(scopedNames(host, 'b').includes('read_document'), true)
+  const off = await host.call('deepseek-services-config', { ocr: false })
+  assert.equal(off.ok, true)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+  assert.equal(scopedNames(host, 'b').includes('read_document'), false)
 })
 
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {

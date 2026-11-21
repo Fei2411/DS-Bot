@@ -55,13 +55,25 @@ DS Bot selects its `auto` search provider for the whole profile. If you disable 
 
 ## Features
 
+### Browser remote (preview)
+
+Use the phone app's interface in a browser without installing it. On the computer, open **Settings → Phone**, enable phone access, show a pairing code, then choose **Open in a browser** or **Copy browser link**. You can also paste the pairing link into the web app. The browser pairs as another device over the existing end-to-end encrypted link; remove it from the computer's paired-device list to revoke access.
+
+The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
+
+### MCP access (preview)
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, your own scripts) can talk to your Bots through MCP. Open **Settings → MCP access**, turn it on, and create a token for each client; the token is shown once. A client reaches only the Bots and groups you tick for it (the Main Bot by default, never a private Bot). It can list Bots and groups, send messages, wait for replies, read chats and see what waits for you; approvals, questions, settings and secrets stay on the computer.
+
+Point an HTTP MCP client at `http://127.0.0.1:8797/mcp` with the header `Authorization: Bearer <token>`. For clients that only start a command, use `DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp`. See the [design](docs/plans/2026-11-20-mcp-access.md).
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model and thinking level you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
 
 Bots also have memory. A bot remembers what you like and uses it in later work. You can manage its memory on the bot's details page, or just tell the bot.
 
-Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. While a bot is working, you can send a message to steer it right away, or type `/side` to ask a side question without interrupting its task; it can also draw charts, tables and forms in its replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can start background tasks on its own or move an in-flight turn to the background when you send a new message; you can inspect progress, answer approvals, send follow-ups, or stop tasks from the header island, read task transcripts and stop tasks in the Tasks tab, or track active tasks, answer approvals, and stop them on mobile, or type `/side` to ask a side question. Bots can also draw charts, tables and forms in their replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 
@@ -111,9 +123,17 @@ Messages only flow while your computer is awake and DS Bot is running. WeChat on
 
 ### Connectors and capabilities
 
-In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default.
+In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default. Your own MCP server can be added too: give its address and turn on **Sign in** for a browser sign-in, or keep a fixed header or key when the server publishes no OAuth metadata.
 
 In Settings → Capabilities, you can manage shared MCP servers, skills and packs for the team and enable them per bot; local commands added by a bot need your approval before they run.
+
+### Web search
+
+The `auto` web search keeps the asking conversation's own route and key (never borrowing another route's key) with a keyless fallback, and now also tries DeepSeek's official Search API on that route's own origin. To use the official Search and Fetch APIs for every model, open the Plugins page and go to **Web search**, then turn on **Use the new Web Search API**; that switch selects both. A DeepSeek account sign-in is only verified for Search and Fetch. These calls are billed to your own API key by usage.
+
+### DeepSeek services
+
+A DeepSeek API key can add independent image and document reading, DeepSeek text-to-speech (with a choice of voice) and DeepSeek dictation to any model, in **Settings → DeepSeek services**. Each capability is off until you turn it on; setting the key never uploads files or switches speech by itself. The key is set in **Settings → Models**, and the page shows whether each service is ready and why not. Dictation uses the existing Voice Input provider picker; when that plugin is off, your current dictation keeps working. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
 
 ### Office files
 

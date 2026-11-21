@@ -1,7 +1,6 @@
 // Newline-delimited JSON-RPC over a child process's stdio: requests we send,
 // answers and server-initiated requests we receive. Shared by the ACP and the
 // Codex app-server engines.
-import { randomUUID } from 'node:crypto'
 
 // One wire message is one JSON value on one line.
 export class JsonRpcPeer {
@@ -93,8 +92,6 @@ export function wireProcess(child, peer) {
   return rest
 }
 
-export const newCallId = () => randomUUID()
-
 // A waitable event stream attached to one CLI session/thread: the engine pushes
 // normalized events, the adapter drains them per stream() call.
 export class EventQueue {
@@ -121,6 +118,7 @@ function errorMessage(error) {
   if (error == null || typeof error !== 'object') return 'request failed'
   const message = error.message
   if (typeof message === 'string' && message !== '' && message !== '[object Object]') return message
+  if (typeof message === 'number' || typeof message === 'boolean') return String(message)
   if (message !== null && typeof message === 'object') {
     if (typeof message.text === 'string' && message.text !== '') return message.text
     try {

@@ -7,7 +7,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND } from '../constants.js'
@@ -631,6 +631,32 @@ export function install(rt) {
     if (props === null || typeof props !== 'object' || !('session' in props)) return
     exec.arguments = { ...(exec.arguments ?? {}), session: driverSessionOf(botId) }
   }
+  // Driver sessions end after five idle minutes and ordinary calls never revive
+  // them (#1821): a Bot back after a pause starts the session its call will use,
+  // its own label or the shared implicit one, again first.
+  const DRIVER_SESSION_FRESH_MS = 4 * 60_000
+  const driverSessionSeen = new Map()
+  const driverSessionKey = (exec) => typeof exec.arguments?.session === 'string' ? exec.arguments.session : ''
+  const startDriverSession = async (exec, key) => {
+    driverSessionSeen.set(key, Date.now())
+    if (key !== '') driverCursorOff.delete(key)
+    try {
+      await ctx.tools?.get?.('cua_driver_native__start_session', exec.agent)?.execute(key === '' ? {} : { session: key }, exec)
+    } catch {}
+  }
+  const ensureDriverSession = async (exec, call) => {
+    if (call.method === 'start_session' || call.method === 'end_session') return
+    const key = driverSessionKey(exec)
+    const seen = driverSessionSeen.get(key)
+    if (seen !== undefined && Date.now() - seen < DRIVER_SESSION_FRESH_MS) {
+      driverSessionSeen.set(key, Date.now())
+      return
+    }
+    await startDriverSession(exec, key)
+  }
+  const SESSION_RESTARTED = 'The computer-use session had ended. DS Bot started it again; call the tool again.'
+  const isSessionEnded = (result) => result?.isError === true &&
+    /session has ended/i.test(String(result.error?.message ?? result.content?.map?.(part => part?.text).join(' ') ?? ''))
   const driverCursorOff = new Set()
   const ensureDriverCursorOff = async (exec, botId) => {
     const session = driverSessionOf(botId)
@@ -682,16 +708,23 @@ export function install(rt) {
     bot.computer.apps[app.key] = { name: app.name, ...(app.id !== undefined ? { id: app.id } : {}), grantedAt: Date.now() }
     await rt.save()
   }
-  // The card in the Bot's own chat. Resolves 'always' | 'once' | 'deny'.
+  // App-access prompt card. Group-session asks carry `roomId` so the group header
+  // island and details panel can answer them in place instead of sending the user to
+  // the Bot's own chat (#1623). Resolves 'always' | 'once' | 'deny'.
   const askAppAccess = ({ botId, sessionId, callId, app, signal }) => new Promise((resolve) => {
+    if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
+    const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
     const entry = {
-      id, botId, sessionId, appName: app.name, ...(app.icon !== undefined ? { icon: app.icon } : {}),
+      id, botId, sessionId, appName: app.name, at: Date.now(),
+      ...(roomId !== undefined ? { roomId } : {}),
+      ...(app.icon !== undefined ? { icon: app.icon } : {}),
       ...(callId !== undefined ? { callId } : {}),
       resolve: (answer) => {
-        pendingAsks.delete(id)
+        if (!pendingAsks.delete(id)) return
         const ctl = controlOf(botId)
-        if (ctl.waitingFor === 'app-access') ctl.waitingFor = undefined
+        const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
+        if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
         settleControl(botId)
         resolve(answer)
       },
@@ -702,7 +735,8 @@ export function install(rt) {
       ctl.state = 'waiting'
       ctl.waitingFor = 'app-access'
     }
-    signal?.addEventListener?.('abort', () => { if (pendingAsks.has(id)) entry.resolve('deny') }, { once: true })
+    if (roomId !== undefined) rt.yieldRoomTurn?.(sessionId)
+    signal?.addEventListener?.('abort', () => { entry.resolve('deny') }, { once: true })
   })
   const answerAppAccess = (id, answer) => {
     const entry = pendingAsks.get(String(id ?? ''))
@@ -814,18 +848,24 @@ export function install(rt) {
       if (DRIVER_REFUSED.has(call.method)) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
-      injectDriverSession(exec, call, bot.id)
-      await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
+        if (call.method === 'get_desktop_state') {
+          return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
+        }
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
+      } else if (app.unknown === true && DRIVER_LISTINGS.has(call.method)) {
+        // A listing filtered by a pid not seen yet is window metadata; its result records the app.
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
         const verdict = await driverConsent(exec, bot, sessionId, app)
         if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
+      injectDriverSession(exec, call, bot.id)
+      await ensureDriverSession(exec, call)
+      await ensureDriverCursorOff(exec, bot.id)
     }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)
@@ -879,6 +919,12 @@ export function install(rt) {
     const started = Date.now()
     try {
       const result = await next()
+      // DSH hands a failed tool body back as an error envelope, not an exception.
+      if (call.provider === 'cua-driver' && isSessionEnded(result)) {
+        await startDriverSession(exec, driverSessionKey(exec))
+        noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: SESSION_RESTARTED })
+        return { ...result, content: [{ type: 'text', text: `Error: ${SESSION_RESTARTED}` }], error: { message: SESSION_RESTARTED } }
+      }
       // Tool results arrive as an envelope { isError, content, value } — the
       // recorded app identity and screenshot attachment live in `value`.
       const payload = result !== null && typeof result === 'object' && result.isError !== true
@@ -1006,6 +1052,7 @@ export function install(rt) {
       const bot = rt.botOf(rt.selfOf(sessionId))
       if (bot === undefined || !rt.isBotSession(sessionId)) return 'Only Bots on the team can hand the computer to the user.'
       if (!enabled() || levelOf(bot) === 'off') return 'Computer use is off for you.'
+      if (rt.taskOwners?.has(sessionId)) return 'Background tasks cannot hand the computer to the user. Report back to your own chat so it can ask the user to take over.'
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
@@ -1291,21 +1338,27 @@ export function install(rt) {
     cursors: [...cursors.values()],
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,
-      botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName,
+      botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName, at: ask.at,
+      ...(ask.roomId !== undefined ? { roomId: ask.roomId } : {}),
       ...(ask.icon !== undefined ? { icon: ask.icon } : {}),
       ...(ask.callId !== undefined ? { callId: ask.callId } : {}),
     }])),
     holds: Object.fromEntries(holds),
   })
   rt.computerEndpoint = computerEndpoint
-  rt.computerLevelOf = levelOf
-  rt.computerEnabled = enabled
-  rt.isProtectedApp = isProtectedApp
   // A member whose turn waits on the app-access card shows 'waiting for approval'
-  // in its group, the same as a DSH approval does.
+  // in its group, the same as a DSH approval does; cancelling that Session denies
+  // its pending asks so removed members or retired group Sessions never leave stale cards.
   const baseWaits = rt.waitsForApproval
   rt.waitsForApproval = (sessionId) => baseWaits?.(sessionId) === true
     || [...pendingAsks.values()].some(ask => ask.sessionId === sessionId)
+  const baseCancel = rt.cancelApprovals
+  rt.cancelApprovals = (sessionId) => {
+    baseCancel?.(sessionId)
+    for (const ask of [...pendingAsks.values()]) {
+      if (ask.sessionId === sessionId) ask.resolve('deny')
+    }
+  }
 
   ctx.effect(() => () => {
     stopped = true

@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 import { listComputers } from '../store.ts'
-import * as SecureStore from 'expo-secure-store'
+import * as SecureStore from '../storage'
 import type { TeamState } from '../connection.ts'
 import { offline, useTeamLink } from './link.ts'
-import { demoLink } from './demo.ts'
+import { DEMO_HELLO, demoLink } from './demo.ts'
 
 export const DEMO = process.env.EXPO_PUBLIC_DSB_DEMO === '1'
 
@@ -33,7 +33,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const link = demoLink()
   const computer = useMemo<SavedComputer>(() => ({ server: 'demo', hostDeviceId: 'demo', hostKey: 'demo', name: 'Demo team' }), [])
   useEffect(() => { void seedDemoComputers() }, [])
-  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: true, error: null, call: link.call, computer }), [link.team, link.call, computer])
+  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: true, error: null, call: link.call, computer, hello: DEMO_HELLO }), [link.team, link.call, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

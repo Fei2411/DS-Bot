@@ -3,15 +3,16 @@ import { useNavigation, type NavigationProp, type ParamListBase } from '@react-n
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import * as SecureStore from 'expo-secure-store'
+import * as SecureStore from '../storage'
 import { onPrefsChange, readPrefs } from '../store.ts'
+import { canBackOpenDrawer } from './drawer-back.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
-import { GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
+import { FishLogo, GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
 import { ChatView, prefetchChat } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
@@ -20,7 +21,7 @@ import { BotDetails, BotEdit, NewBot, NewGroup, GroupDetails, GroupSettings, Mem
 import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
 import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
-import type { Bot, Room } from '../connection.ts'
+import type { Agent, Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 import { activeChatTarget, openChat } from './open-chat.ts'
 import { Sheet, SheetHeader } from './sheet.tsx'
@@ -32,7 +33,7 @@ const LAST_KEY = 'dsbot.lastChat'
 // anything is pending, the team list, and a footer with the You mark + gear.
 function DrawerContent() {
   const { p } = useTheme()
-  const { team } = useTeam()
+  const { team, call, refresh, hello } = useTeam()
   const insets = useSafeAreaInsets()
   const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const drawer = useDrawer()
@@ -42,6 +43,25 @@ function DrawerContent() {
   const [query, setQuery] = useState('')
   const [newOpen, setNewOpen] = useState(false)
   const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.close(); navigation.navigate(screen) }
+  // A team holds at most one DSH Agent; the entry exists only while there is none.
+  const canAddAgent = hello?.capabilities?.includes('agents') === true && (team?.agents ?? []).length === 0
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const addAgent = async () => {
+    setAdding(true)
+    setAddError(null)
+    try {
+      const agent = await call('add-agent') as Agent
+      setNewOpen(false)
+      drawer.close()
+      refresh?.()
+      openChat(navigation, { kind: 'agent', id: agent.id })
+    } catch (failure) {
+      setAddError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setAdding(false)
+    }
+  }
   // The chat on screen is marked in the list, as the desktop marks its open chat. The
   // drawer sits outside the navigator, so it follows the container's own state.
   const [current, setCurrent] = useState<string | undefined>(undefined)
@@ -87,8 +107,8 @@ function DrawerContent() {
       <View style={{ flex: 1 }}>
         <TeamList onOpen={open} query={searching ? query : ''} current={current} />
       </View>
-      <Modal visible={newOpen} transparent animationType="fade" onRequestClose={() => setNewOpen(false)}>
-        <Pressable style={styles.sheetScrim} onPress={() => setNewOpen(false)} accessibilityLabel={t('Close')}>
+      <Modal visible={newOpen} transparent animationType="fade" onRequestClose={() => { setNewOpen(false); setAddError(null) }}>
+        <Pressable style={styles.sheetScrim} onPress={() => { setNewOpen(false); setAddError(null) }} accessibilityLabel={t('Close')}>
           <View style={[styles.newSheet, { backgroundColor: p.card, borderColor: p.line, marginBottom: insets.bottom + 12 }, shadow(3)]}>
             <Pressable accessibilityRole="button" onPress={() => create('NewBot')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
               <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PlusIcon size={18} color={p.ink} /></View>
@@ -99,6 +119,15 @@ function DrawerContent() {
               <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PeopleIcon size={18} color={p.ink} /></View>
               <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create group chat')}</Text>
             </Pressable>
+            {canAddAgent ? <>
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: p.line, marginLeft: 64 }} />
+              <Pressable accessibilityRole="button" accessibilityState={{ busy: adding }} disabled={adding} onPress={() => void addAgent()} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
+                <View style={[styles.newIcon, { backgroundColor: p.hover }]}><FishLogo size={20} /></View>
+                <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Add DSH Agent')}</Text>
+                {adding ? <ActivityIndicator size="small" color={p.ink3} /> : null}
+              </Pressable>
+            </> : null}
+            {addError !== null ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 16, paddingBottom: 12 }]} accessibilityRole="alert">{addError}</Text> : null}
           </View>
         </Pressable>
       </Modal>
@@ -111,17 +140,17 @@ function DrawerContent() {
   )
 }
 
-function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots: Bot[] }) {
+function Pill({ title, bot, room, agent, bots }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; agent?: Agent; bots: Bot[] }) {
   const { p, dark } = useTheme()
   return (
     <View style={[styles.pill, { backgroundColor: p.card, borderColor: p.line2 }]}>
-      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : null}
-      <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot || room ? 8 : 0, flexShrink: 1 }} numberOfLines={1}>{title}</Text>
+      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : agent ? <FishLogo size={22} /> : null}
+      <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot || room || agent ? 8 : 0, flexShrink: 1 }} numberOfLines={1}>{title}</Text>
     </View>
   )
 }
 
-function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void; onPill?: () => void; onSide?: () => void }) {
+function Header({ title, bot, room, agent, bots = [], onMenu, onPill, onSide }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; agent?: Agent; bots?: Bot[]; onMenu: () => void; onPill?: () => void; onSide?: () => void }) {
   const { p } = useTheme()
   const { team, online } = useTeam()
   const pending = pendingCountOf(team) > 0
@@ -138,8 +167,8 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
       {/* A long group name ends in an ellipsis inside the pill instead of pushing past the side buttons. */}
       <View style={{ flex: 1, alignItems: 'center', minWidth: 0 }}>
         {title === '' ? null
-          : bot === undefined && room === undefined ? <Text style={[typeScale.headerTitle, { color: p.ink }]} numberOfLines={1}>{title}</Text>
-            : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill} style={{ maxWidth: '100%' }}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
+          : bot === undefined && room === undefined && agent === undefined ? <Text style={[typeScale.headerTitle, { color: p.ink }]} numberOfLines={1}>{title}</Text>
+            : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill} style={{ maxWidth: '100%' }}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} agent={agent} bots={bots} />}
       </View>
       {onSide !== undefined ? (
         <Pressable accessibilityRole="button" accessibilityLabel={t('Side chat')} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
@@ -170,6 +199,9 @@ function ChatScreenB({ route, navigation }: any) {
   const id = params?.id ?? fallback?.id ?? ''
   const bot = kind === 'bot' ? team?.bots?.find(b => b.id === id) : undefined
   const room = kind === 'room' ? team?.rooms?.find(r => r.id === id) : undefined
+  // A DSH Agent just added may not be in the team state yet; its chat read says
+  // whether it exists.
+  const agent: Agent | undefined = kind === 'agent' ? team?.agents?.find(a => a.id === id) ?? { id, name: 'DSH Agent', sessions: [] } : undefined
   // A saved chat that the team no longer has is dropped and falls back to the
   // first Main Bot instead of opening an empty screen.
   const missing = team !== null && params !== undefined && ((kind === 'bot' && bot === undefined) || (kind === 'room' && room === undefined))
@@ -178,7 +210,7 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
+  const header = <Header title={bot?.name ?? room?.name ?? agent?.name ?? ''} bot={bot} room={room} agent={agent} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={agent !== undefined ? undefined : () => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
   if (team === null) return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       {header}
@@ -192,7 +224,7 @@ function ChatScreenB({ route, navigation }: any) {
     </View>
   )
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id }) }
-  return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} header={header} onMissing={onMissing} />
+  return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} agent={agent} header={header} onMissing={onMissing} />
 }
 
 function NeedsSheet({ navigation }: any) {
@@ -344,7 +376,7 @@ export default function ShellB() {
   }, [navigation])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
-    <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
+    <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'} backOpens={() => canBackOpenDrawer(navigation.getState())}>
       <ErrorBoundary>
         <Inner initial={saved} />
       </ErrorBoundary>

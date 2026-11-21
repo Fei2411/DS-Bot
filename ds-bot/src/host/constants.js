@@ -70,18 +70,24 @@ export const AGENT_NAME = 'DSH Agent'
 export const AGENT_SESSION_TITLE_MAX = 80
 // Every tool this plugin defines for Bot Sessions; tools.js registers them in
 // each Bot session's own scope. `read_browser` only exists in the Desktop
-// profile, so the list served to one session can be shorter.
+// profile, and `read_document` only while DeepSeek OCR is on, so the list
+// served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
-  'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view',
+  'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view', 'prepare_ds_bot_issue',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
-  'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
+  'read_group_chat', 'bot_remember', 'bot_forget', 'bot_recall', 'read_browser', 'read_document',
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
+  'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
 ]
 // Consecutive automatic admin wakes with no goal progress before the goal waits
 // for the user instead of waking the admin again.
 export const GOAL_IDLE_NUDGES = 2
+// How long a Bot's own chat waits for a shell call before it goes on as a background
+// job and the step moves on (settings can change it; 0 hands every call over).
+export const BACKGROUND_WAIT_MS = 5_000
+export const BACKGROUND_AFTER_MAX_SEC = 600
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000
@@ -99,6 +105,11 @@ export const OWN_CHAT_SEARCH = 20
 export const HISTORY_PAGE = 200
 export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
+// How far back a read of the history goes when nothing else stops it, in pages of
+// HISTORY_PAGE. Skipped messages cost no token budget, so a long Session that is mostly
+// Bot messages reads to the start; a full read decompresses tens of megabytes of log,
+// and a few Bots reading at once exhaust the host's heap.
+export const HISTORY_SCAN_PAGES = 10
 // Shown when an aside stops at the route's own output limit. The partial answer stays.
 export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
 

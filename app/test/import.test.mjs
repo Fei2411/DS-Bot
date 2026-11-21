@@ -8,7 +8,8 @@ import { after, before, describe, test } from 'node:test'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
-import { copySessions, findTeam, importTeam, newerSessions, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { disk } from '../src/copy-tree.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -51,6 +52,148 @@ const TEAM = {
   agents: { x: { id: 'x' } },
 }
 const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--team--', 'session-r1'], ['--site--', 'session-b']]
+
+// Frozen serial size calculation from e9a907e8, before the parallel walk.
+async function serialTeamSizes(from, team, { budget = 2000, now = Date.now } = {}) {
+  const { lstat, readdir } = disk.promises
+  const regenerable = new Set(['node_modules', '.venv', '__pycache__', '.pnpm-store', '.next'])
+  const leftBehind = new Set(['state.lock', 'inflight.json', 'workspace'])
+  const over = Symbol('over budget')
+  const clock = { until: now() + budget, now }
+  const measure = async (path, tally, regen = false) => {
+    if (clock.now() > clock.until) throw over
+    const entry = await lstat(path).catch(() => undefined)
+    if (entry === undefined) return
+    if (!entry.isDirectory()) {
+      tally.bytes += entry.size
+      if (regen) tally.regen += entry.size
+      return
+    }
+    for (const name of await readdir(path).catch(() => [])) await measure(join(path, name), tally, regen || regenerable.has(name))
+  }
+  const sessions = join(from, 'sessions')
+  const groups = existsSync(sessions) ? readdirSync(sessions, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const found = sessionIdsOf(team).flatMap(id => {
+    const group = groups.find(name => existsSync(join(sessions, name, id)))
+    return group === undefined ? [] : [{ id, group }]
+  })
+  if (clock.now() > clock.until) return { sessions: found.length }
+  const chats = { bytes: 0, regen: 0 }
+  const work = { bytes: 0, regen: 0 }
+  const bot = join(from, 'bot')
+  try {
+    for (const name of await readdir(bot).catch(() => [])) {
+      if (!leftBehind.has(name)) await measure(join(bot, name), chats)
+    }
+    for (const { id, group } of found) await measure(join(sessions, group, id), chats)
+    await measure(join(from, 'attachments'), chats)
+    await measure(join(bot, 'workspace'), work)
+  } catch (error) {
+    if (error === over) return { sessions: found.length }
+    throw error
+  }
+  return { sessions: found.length, chats: chats.bytes, work: work.bytes, regen: work.regen }
+}
+
+describe('teamSizes', () => {
+  let root
+  before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-app-sizes-')) })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('counts discovery against the budget and omits sizes when it expires', async () => {
+    let time = 0
+    const team = { bots: { bot: { id: 'bot', get segments() { time += 2; return [] } } } }
+    mkdirSync(join(root, 'sessions', 'group', 'bot'), { recursive: true })
+    assert.deepEqual(await teamSizes(root, team, { budget: 1, now: () => time }), { sessions: 1 })
+  })
+
+  test('measures a discovered Session within the budget', async () => {
+    write(join(root, 'sessions', 'group', 'sized', 'chat.txt'), 'chat')
+    assert.deepEqual(await teamSizes(root, { bots: { sized: { id: 'sized' } } }, { now: () => 0 }), {
+      sessions: 1, chats: 4, work: 0, regen: 0,
+    })
+  })
+
+  test('measures an empty team', async () => {
+    assert.deepEqual(await teamSizes(root, {}, { now: () => 0 }), { sessions: 0, chats: 0, work: 0, regen: 0 })
+  })
+
+  test('matches the serial walk for nested files, links, unreadable entries and absent roots', async (t) => {
+    const from = join(root, 'equivalent')
+    oldHome(from)
+    const home = join(from, 'dsh')
+    const workspace = join(home, 'bot', 'workspace')
+    write(join(workspace, 'node_modules', 'pkg', 'lib', 'index.js'), 'regenerable')
+    write(join(workspace, 'src', 'nested', 'index.js'), 'source')
+    const denied = join(workspace, 'unreadable')
+    write(denied, 'not counted')
+    const deniedDir = join(workspace, 'unreadable-dir')
+    write(join(deniedDir, 'hidden'), 'not counted either')
+    mkdirSync(join(workspace, 'empty'))
+    symlinkSync(join(workspace, 'missing'), join(workspace, 'broken'), 'file')
+    symlinkSync(workspace, join(workspace, 'self'), process.platform === 'win32' ? 'junction' : 'dir')
+    const original = disk.promises.lstat
+    t.mock.method(disk.promises, 'lstat', async path => {
+      if (path === denied) throw Object.assign(new Error('unreadable'), { code: 'EACCES' })
+      return original(path)
+    })
+    const originalReaddir = disk.promises.readdir
+    t.mock.method(disk.promises, 'readdir', async (...args) => {
+      if (args[0] === deniedDir) throw Object.assign(new Error('unreadable'), { code: 'EACCES' })
+      return originalReaddir(...args)
+    })
+    const { teamSizes: sizes } = await import('../src/import.mjs?size-equivalence')
+    for (const [at, team] of [[home, TEAM], [join(workspace, 'empty'), {}], [join(root, 'missing'), {}]]) {
+      assert.deepEqual(await sizes(at, team, { now: () => 0 }), await serialTeamSizes(at, team, { now: () => 0 }))
+    }
+    assert.deepEqual(await Promise.all([sizes(home, TEAM, { now: () => 0 }), sizes(home, TEAM, { now: () => 0 })]),
+      [await serialTeamSizes(home, TEAM, { now: () => 0 }), await serialTeamSizes(home, TEAM, { now: () => 0 })])
+  })
+
+  test('drains in-flight stats on budget expiry without starting more operations', async (t) => {
+    const from = join(root, 'drain')
+    const workspace = join(from, 'bot', 'workspace')
+    for (let i = 0; i < 40; i++) write(join(workspace, `file-${i}`), 'x')
+    const original = disk.promises.lstat
+    let time = 0
+    let started = 0
+    let settled = 0
+    const releases = []
+    let ready
+    const inFlight = new Promise(resolve => { ready = resolve })
+    t.mock.method(disk.promises, 'lstat', async path => {
+      if (dirname(path) !== workspace) return original(path)
+      started++
+      if (started === 2) time = 2
+      return new Promise((resolve, reject) => {
+        releases.push(() => {
+          settled++
+          if (settled === 2) reject(new Error('unreadable'))
+          else resolve({ isDirectory: () => false, size: 1 })
+        })
+        if (started === 2) ready()
+      })
+    })
+    const { teamSizes: sizes } = await import('../src/import.mjs?size-drain')
+    let resolved = false
+    const result = sizes(from, {}, { budget: 1, now: () => time }).then(value => { resolved = true; return value })
+    await inFlight
+    try {
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(resolved, false, 'must wait for in-flight stats after another task expires')
+      assert.equal(started, 2)
+      releases[0]()
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(resolved, false, 'must drain every sibling, not just the first')
+    } finally {
+      for (const release of releases.slice(settled)) release()
+      await result
+    }
+    assert.equal(settled, 2)
+    assert.equal(started, 2)
+    assert.deepEqual(await result, { sessions: 0 })
+  })
+})
 
 function oldHome(root) {
   const from = join(root, 'dsh')
@@ -399,13 +542,6 @@ describe('finding the team', () => {
     const home = join(root, 'check-stopped')
     await assert.rejects(copySessions(from, TEAM, home, AbortSignal.abort()), { name: 'AbortError' })
     assert.equal(existsSync(join(home, 'sessions')), false)
-  })
-
-  test('finds Sessions written in a newer format than the pinned DSH reads', () => {
-    assert.deepEqual(newerSessions(from, TEAM), [])
-    write(join(from, 'sessions', '--site--', 'session-b', 'session.v99.jsonl.zstd'), 'newer')
-    write(join(from, 'sessions', '--team--', 'session-g0', 'session.v99.jsonl.zstd'), 'newer')
-    assert.deepEqual(newerSessions(from, TEAM), ['session-b', 'session-g0'])
   })
 
   test('takes the team for in use while a live process on this machine or a fresh lock elsewhere holds it', () => {

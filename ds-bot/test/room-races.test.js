@@ -160,6 +160,38 @@ test('a change that finishes its folder check while deleteBot still releases the
   assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
 })
 
+test('a Bot waiting for side-chat cleanup cannot be added to a group', async (t) => {
+  const { rt, folder, folderHeld, saved, stop } = await start()
+  let releaseAgent
+  let agentRequested
+  const requested = new Promise(resolve => { agentRequested = resolve })
+  const gate = new Promise(resolve => { releaseAgent = resolve })
+  const resolveAgent = rt.resolveAgent
+  rt.resolveAgent = async (id) => {
+    if (id === 'c') {
+      agentRequested()
+      await gate
+    }
+    return resolveAgent(id)
+  }
+  const asking = assert.rejects(rt.sideAsk({ sessionId: 'c', text: 'Explain this' }))
+  await requested
+  const releaseFolder = folderHeld()
+  const moving = rt.updateRoom('r1', { add: ['c'], workDir: folder })
+  const deleting = rt.deleteBot('c')
+  t.after(async () => { releaseAgent(); await asking; await deleting; await stop() })
+  releaseFolder()
+  const moved = await moving
+  assert.deepEqual(moved.changes, [`every member now works in ${folder} here`])
+  assert.deepEqual(rt.state.rooms.r1.members, ['a', 'b'])
+  await assert.rejects(rt.deleteBot('c'), /Unknown Bot/)
+  releaseAgent()
+  await asking
+  await deleting
+  assert.equal('c' in rt.state.bots, false)
+  assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
+})
+
 test('a group deleted while a change waits for its folder stays deleted', async (t) => {
   const { rt, folder, saved, stop } = await start()
   t.after(stop)
@@ -167,6 +199,28 @@ test('a group deleted while a change waits for its folder stays deleted', async 
   await rt.deleteRoom('r1')
   await refused
   assert.deepEqual(saved().rooms, {})
+})
+
+test('failed Bot cleanup clears the deletion marker and allows a retry', async (t) => {
+  const { rt, stop } = await start()
+  t.after(stop)
+  let fail = true
+  const cleaned = []
+  rt.onBotDelete(id => {
+    cleaned.push(id)
+    if (fail) throw new Error('cleanup failed')
+  })
+  await assert.rejects(rt.deleteBot('a'), /A Main Bot cannot be deleted/)
+  await assert.rejects(rt.deleteBot('gone'), /Unknown Bot/)
+  assert.deepEqual(cleaned, [])
+  await assert.rejects(rt.deleteBot('c'), /cleanup failed/)
+  assert.ok(rt.state.bots.c)
+  assert.deepEqual((await rt.updateRoom('r1', { add: ['c'] })).changes, ['added Coder'])
+  fail = false
+  await rt.deleteBot('c')
+  assert.deepEqual(cleaned, ['c', 'c'])
+  assert.equal('c' in rt.state.bots, false)
+  assert.deepEqual(rt.state.rooms.r1.members, ['a', 'b'])
 })
 
 test('a group left with one Bot can still change its settings, but not lose another member', async (t) => {

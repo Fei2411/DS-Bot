@@ -7,6 +7,8 @@ import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
+import { ApprovalIslandPod, roomApprovals } from './member-status.js'
+import { TaskIslandPod, isActiveTask, tasksForChat } from './bot-tasks.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -45,7 +47,7 @@ function MemoryNotice({ shown }) {
     h('span', { className: 'bt-pill-mem-in', ref: inner }, h('span', { className: 'bt-pill-mem-ico' }, h(MemoryIcon)), label))
 }
 
-export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useStore, useConversationViews, selectView, actions }) {
+export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
   const roster = useRoster(value => value)
   const selectedView = useStore?.(state => state.view)
   const away = useConversationViews?.(views => views.some(view => view.id === selectedView && view.id !== 'chat')) === true
@@ -79,10 +81,27 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   // folder changes, so the two differ for every group whose folder was changed.
   const goalCompose = useUi(state => room !== undefined && state.goalCompose === room.id)
   const goalOpen = useUi(state => room !== undefined && state.goalOpen === room.id)
-  // The island's live faces: who is at work in this group right now. Non-group
-  // chats subscribe to a constant so their header does not redraw on work.
-  const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[sessionId] ?? []) : '')) ?? '[]'
+  const approvalTargetId = room?.id ?? bot?.id
+  const approvalOpen = useUi(state => approvalTargetId !== undefined && state.approvalOpen === approvalTargetId)
+  const taskDeckState = useUi(state => (approvalTargetId !== undefined && state.taskDeck?.targetId === approvalTargetId ? state.taskDeck : null))
+  const taskDeckOpen = taskDeckState !== null
+  const chatTasks = !away ? tasksForChat({ bot, room, roster }) : []
+  const activeTasks = chatTasks.filter(isActiveTask)
+  // The island's live faces and pending approvals: non-group chats subscribe only
+  // to their own Bot's background-task approvals so unrelated group work does not redraw them.
+  const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[room.id] ?? []) : '')) ?? '[]'
   const roomWork = room ? JSON.parse(roomWorkKey || '[]') : []
+  const workApprovalsKey = useWork?.(work => (room
+    ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
+    : bot
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+      : '')) ?? '[]'
+  const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
+  const approvals = room
+    ? roomApprovals(room, { approvals: JSON.parse(workApprovalsKey || '[]') }, { asks: JSON.parse(computerAsksKey || '[]') }, roster)
+    : bot
+      ? JSON.parse(workApprovalsKey || '[]').map(entry => ({ kind: 'tool', id: entry.id, bot, approval: entry, at: entry.at ?? 0 }))
+      : []
   const view = goal ? goalView(goal, { roster, roomWork }) : null
   const goalShown = room !== undefined && !away && goal !== undefined
   const detailsOpen = useUi(state => state.details === sessionId)
@@ -104,6 +123,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     actions.beginVisit(sessionId)
     return () => actions.endVisit(sessionId)
   }, [sessionId])
+  // Stands in for DSH's header: a terminal this Session's Agent starts gets its tab.
+  useEffect(() => actions.watchAgentTerminals?.(sessionId), [sessionId])
   // Group chats have no voice mode, so the composer CSS needs to know the Session kind.
   useEffect(() => {
     if (room) document.body.dataset.btRoom = ''
@@ -112,12 +133,27 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   }, [Boolean(room)])
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false
   const showGoal = room !== undefined && !away && (goal !== undefined || goalCompose)
-  // The goal island pads the transcript so its pod does not cover the first message.
+  const showTasks = approvalTargetId !== undefined && !away && activeTasks.length > 0
+  // When active background tasks are shown, TaskIslandPod + TaskFocusOverlay already
+  // surface every pending approval for this chat in one unified deck (no double bars).
+  const showApprovals = approvalTargetId !== undefined && !away && approvals.length > 0 && !showTasks
+  const showIsland = showGoal || showApprovals || showTasks
+  // Once the last approval is answered, reset approvalOpen so future approvals
+  // appear as a compact bar rather than popping straight into a 560px panel.
   useEffect(() => {
-    if (showGoal) document.body.dataset.btGoal = ''
+    if (approvalOpen && !showApprovals) actions.closeApproval?.()
+  }, [approvalOpen, showApprovals])
+  useEffect(() => {
+    if (taskDeckOpen && !showTasks) actions.closeTaskDeck?.()
+  }, [taskDeckOpen, showTasks])
+  const taskHoverReveal = showTasks && !showGoal && !showApprovals
+  const podRows = (showGoal ? 1 : 0) + (showApprovals ? 1 : 0) + (showTasks && !taskHoverReveal ? 1 : 0)
+  // The island pads the transcript so its pod does not cover the first message.
+  useEffect(() => {
+    if (podRows > 0) document.body.dataset.btGoal = podRows > 1 ? '2' : ''
     else delete document.body.dataset.btGoal
     return () => { delete document.body.dataset.btGoal }
-  }, [showGoal])
+  }, [podRows])
   const pill = h('button', {
     type: 'button', className: 'bt-pill', 'aria-expanded': away ? undefined : detailsOpen, 'data-memory': memoryNotice ? 'updated' : undefined,
     'aria-label': away ? t('Back to chat') : memoryNotice ? t('Memory updated. Open {name}\'s memory', { name: roster.byId[changed]?.name ?? name }) : t('View conversation details'),
@@ -134,8 +170,25 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
+  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
+  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, approvals.length)
+  const taskBadge = taskHoverReveal
+    ? h('button', {
+        type: 'button',
+        className: 'bt-island-chip',
+        'data-approval': taskWaiting > 0 || undefined,
+        'aria-label': taskWaiting > 0
+          ? t('{count} background tasks · {waiting} needs approval', { count: activeTasks.length, waiting: taskWaiting })
+          : t('{count} background tasks running', { count: activeTasks.length }),
+        onClick: () => (actions.toggleTaskDeck ? actions.toggleTaskDeck(approvalTargetId) : actions.openTaskDeck?.(approvalTargetId)),
+      },
+      h('span', { className: 'bt-island-chip-dot', 'aria-hidden': true }),
+      h('span', null, activeTasks.length))
+    : null
   return h('div', { className: 'bt-head' },
-    showGoal ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, roomWork, roster, actions, pill }) : pill,
+    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
+    !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     room !== undefined && !away
       ? h('button', {
