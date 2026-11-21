@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm/assistant-stream'
-import { addPage, applyFrame, emptyLog, pageBefore, surfaceOf, writingBlocks } from '../src/client/session-log.js'
+import { compactCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
+import { addPage, applyFrame, emptyLog, pageBefore, transcriptOf, writingBlocks } from '../src/client/session-log.js'
 
 // What DSH 0.2.2-rc.1 streamed through api/bot/session (dev/record-follow.mjs).
 const RECORDED = JSON.parse(readFileSync(new URL('./fixtures/recorded/dsh-follow-0.2.2-rc.1.json', import.meta.url), 'utf8'))
@@ -27,11 +28,8 @@ test('the recorded follow builds the whole log, in order, with nothing to reopen
   assert.equal(log.cursor, seqs(log).at(-1))
   assert.ok(consecutive(seqs(log)))
   assert.equal(log.writing, null)
-  const { events: shown, uncertain } = surfaceOf(log)
-  assert.equal(uncertain, false)
-  const surface = shown.map(event => event.type)
-  assert.ok(surface.includes('user/message') && surface.includes('assistant/message') && surface.includes('tool/result'))
-  assert.ok(!surface.includes('turn/start') && !surface.includes('request/header'))
+  // The transcript keeps the log's order and every event (nothing in this recording replaces another).
+  assert.deepEqual(transcriptOf(log).map(event => event.seq), seqs(log))
 })
 
 test('the reply being written reads as DSH assembles it: thinking, text, then a tool call', () => {
@@ -143,18 +141,35 @@ test('an opening in the middle of a reply carries on from DSH\'s compact stream'
   assert.deepEqual(writingBlocks(log).map(block => block.type), ['reasoning', 'text'])
 })
 
-// The surface operations as DSH writes them (SessionWireSurfaceOp): a trimmed tool result
-// and a summary replace a range of earlier surface events, found by their positions.
-const surface = list => ({ ...emptyLog(), header: { id: 's' }, events: list.map(([seq, op]) => ({ seq, type: 'x', surfaceOp: op ?? 'append' })) })
-const order = log => surfaceOf(log).events.map(event => event.seq)
+// Events as DSH writes them when it trims a tool result and when it compacts: a
+// replacement user message (the checkpoint, its source from dsh-compaction) and the
+// log-only compaction/summary with the same id.
+const appended = seq => ({ seq, time: seq, type: seq % 2 ? 'user/message' : 'assistant/message', surfaceOp: 'append', data: {} })
+const replaced = (seq, startSeq, endSeq, data = {}) => ({ seq, time: seq, type: 'user/message', surfaceOp: { op: 'replace', startSeq, endSeq }, data })
+const held = events => ({ ...emptyLog(), header: { id: 's' }, cursor: events.at(-1).seq, events })
 
-test('a replacement stands where the first event it replaces stood, and removes up to the last', () => {
-  const appended = [1, 2, 3, 4, 5, 6, 7, 8].map(seq => [seq])
-  // A tool result trimmed (5 by 30), then a summary of 2 to that trimmed result.
-  assert.deepEqual(order(surface([...appended, [30, { op: 'replace', startSeq: 5, endSeq: 5 }], [40, { op: 'replace', startSeq: 2, endSeq: 30 }]])), [1, 40, 6, 7, 8])
-  // Two summaries: the second starts at the first one.
-  assert.deepEqual(order(surface([...appended, [10, { op: 'replace', startSeq: 2, endSeq: 4 }], [20, { op: 'replace', startSeq: 10, endSeq: 7 }]])), [1, 20, 8])
-  // A replacement that names an event before the window: not known until the page before.
-  const cut = surface([[6], [7], [8], [20, { op: 'replace', startSeq: 2, endSeq: 7 }]])
-  assert.deepEqual(surfaceOf(cut), { events: [], uncertain: true })
+test('the transcript keeps what the user saw: a trimmed result stays, a summary shows as a marker where it was made', () => {
+  const events = [1, 2, 3, 4, 5, 6, 7, 8].map(appended)
+  const trimmed = { ...replaced(30, 5, 5), type: 'tool/result' }
+  const summary = { seq: 39, time: 39, type: 'compaction/summary', data: { compactionId: 'c1', summary: [{ type: 'text', text: 'What happened so far.' }], shadowedSeqs: [2, 3, 4, 30], shadowedTokenCount: 1200 } }
+  const checkpoint = replaced(40, 2, 30, { source: compactCheckpointSource('c1'), content: [{ type: 'text', text: 'What happened so far.' }] })
+  const shown = transcriptOf(held([...events, trimmed, summary, checkpoint]))
+  assert.deepEqual(shown.map(item => item.seq), [1, 2, 3, 4, 5, 6, 7, 8, 40])
+  assert.deepEqual(shown.at(-1), { kind: 'compaction', seq: 40, time: 40, compactionId: 'c1', summary: 'What happened so far.', shadowedItemCount: 4, shadowedTokenCount: 1200 })
+  // A window that holds only the newest part of a long Session still shows all it holds;
+  // a checkpoint whose summary is not in the window yet is a marker without one.
+  const late = transcriptOf(held([...[50, 51, 52].map(appended), replaced(53, 12, 12), replaced(54, 20, 52, { source: compactCheckpointSource('c2') }), appended(55)]))
+  assert.deepEqual(late.map(item => item.seq), [50, 51, 52, 54, 55])
+  assert.equal(late[3].summary, null)
+})
+
+test('a reply frame counted from 1 again (the Agent started again on this Session) asks to open again', () => {
+  const { log } = run(LIVE)
+  const start = LIVE.find(frame => frame.type === 'assistant-stream' && frame.frame.type === 'start')
+  const again = { ...start, frame: { ...start.frame, attemptId: 'session-main:1', revision: 1 } }
+  assert.equal(applyFrame(log, again).reopen, true)
+  // A frame of an attempt the window does not hold is left out, not a reason to open again.
+  const stray = LIVE.find(frame => frame.type === 'assistant-stream' && frame.frame.type === 'chunk')
+  const next = { ...stray, frame: { ...stray.frame, attemptId: 'elsewhere', revision: log.streamRevision + 1 } }
+  assert.equal(applyFrame(log, next).reopen, false)
 })

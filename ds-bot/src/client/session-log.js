@@ -68,14 +68,17 @@ export function applyFrame(log, frame) {
   }
   if (frame?.type === 'assistant-stream') {
     const part = frame.frame
-    // Reply frames are numbered on their own; one already seen is dropped, one skipped is missed.
+    // Reply frames are numbered on their own, by the Agent's life: each is the one before plus
+    // one. Any other number (a frame missed, or an Agent started again on this Session and
+    // counting from 1) means the window opens again for a new baseline, as DSH's client does.
     if (log.header === null) return { log, reopen: true }
-    if (log.streamRevision !== null && part.revision <= log.streamRevision) return { log, ...same }
     if (log.streamRevision !== null && part.revision !== log.streamRevision + 1) return { log, reopen: true }
     const counted = { streamRevision: part.revision }
     if (part.type === 'start') return { log: changed(log, { ...counted, writing: newWriting(part, 0) }), reopen: false }
     const writing = log.writing
-    if (writing === null || writing.attemptId !== part.attemptId) return { log: changed(log, counted), reopen: part.type === 'chunk' }
+    // A frame of an attempt the window does not hold (it began before the opening's cut) is
+    // left out, as DSH's client leaves it.
+    if (writing === null || writing.attemptId !== part.attemptId) return { log: changed(log, counted), reopen: false }
     if (part.type === 'chunk') {
       if (part.index !== writing.next) return { log, reopen: true }
       const tail = { chunk: part.chunk, before: writing.tail }
@@ -137,36 +140,45 @@ export function writingBlocks(log) {
   return assembler.blocks()
 }
 
+// A summary that stands for earlier messages: its checkpoint (a replacement user message
+// whose source is `compact-checkpoint`) and the `compaction/summary` with the same id.
+const checkpointOf = event => (event.type === 'user/message' && event.surfaceOp !== undefined && event.surfaceOp !== 'append' && event.data?.source?.kind === 'compact-checkpoint' ? event.data.source.compactionId : undefined)
+const textOf = blocks => (Array.isArray(blocks) ? blocks.map(block => (block?.type === 'text' ? block.text : '')).join('') : '')
+
 /**
- * The conversation's surface, as DSH keeps it: each event that carries it (`surfaceOp`) has
- * a position, its own `seq` when appended; one that replaces earlier ones (a summary, a
- * trimmed tool result) takes the position of the first it replaces, and removes everything
- * between that and the last, both found by their positions. When a replacement names an
- * event older than the window holds, the order is not known yet: `uncertain`, and the window
- * reads the page before first.
+ * The conversation as a person reads it, as DSH's own chat builds it: the events in log
+ * order, each conversation event as it was first written (`surfaceOp: 'append'`). What
+ * stands in for earlier events in the model's history (a trimmed tool result, a summary)
+ * does not take their place here, so nothing the user already saw goes; a summary shows
+ * as a marker where it was made. Events outside the conversation (turns, steps, tool
+ * calls) come along in their order for the views that place things by them.
  * @param {SessionLog} log
- * @returns {{ events: object[], uncertain: boolean }}
+ * @returns {object[]} events, and `{ kind: 'compaction', seq, time, compactionId, summary, shadowedItemCount, shadowedTokenCount }` markers
  */
-export function surfaceOf(log) {
-  const firstSeq = log.events.length > 0 ? seqOf(log.events[0]) : 0
-  let nodes = []
-  let replacements = new Map()
+export function transcriptOf(log) {
+  const summaries = new Map()
   for (const event of log.events) {
-    const op = event.surfaceOp
-    if (op === undefined) continue
-    let position = seqOf(event)
-    if (op !== 'append') {
-      const unknown = seq => seq < firstSeq && !replacements.has(seq)
-      if (unknown(op.startSeq) || unknown(op.endSeq)) return { events: [], uncertain: true }
-      position = replacements.get(op.startSeq) ?? op.startSeq
-      const end = replacements.get(op.endSeq) ?? op.endSeq
-      nodes = nodes.filter(node => node.position < position || node.position > end)
-      replacements = new Map([...replacements].filter(([, value]) => value < position || value > end))
-      replacements.set(seqOf(event), position)
-    }
-    nodes.push({ position, event })
+    if (event.type === 'compaction/summary' && typeof event.data?.compactionId === 'string') summaries.set(event.data.compactionId, event.data)
   }
-  return { events: nodes.sort((a, b) => a.position - b.position).map(node => node.event), uncertain: false }
+  const out = []
+  for (const event of log.events) {
+    const compactionId = checkpointOf(event)
+    if (compactionId !== undefined) {
+      const data = summaries.get(compactionId)
+      const counted = Array.isArray(data?.shadowedSeqs) ? data.shadowedSeqs.length : null
+      out.push({
+        kind: 'compaction', seq: event.seq, time: event.time, compactionId,
+        summary: data === undefined ? null : (textOf(data.summary).trim() || null),
+        shadowedItemCount: counted,
+        shadowedTokenCount: Number.isSafeInteger(data?.shadowedTokenCount) ? data.shadowedTokenCount : null,
+      })
+      continue
+    }
+    if (event.type === 'compaction/summary') continue
+    if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') continue
+    out.push(event)
+  }
+  return out
 }
 
 /**
