@@ -173,11 +173,23 @@ export function sqliteLedger(DatabaseSync, path) {
               WHERE session = old.session AND provider = old.provider AND model = old.model AND kind = old.kind AND slot = old.time / ${SLOT_MS};
             DELETE FROM call_slots WHERE session = old.session AND provider = old.provider AND model = old.model AND kind = old.kind AND slot = old.time / ${SLOT_MS} AND calls = 0;`
           db.exec(`
+            DROP TRIGGER IF EXISTS calls_insert;
+            DROP TRIGGER IF EXISTS calls_delete;
+            DROP TRIGGER IF EXISTS calls_update;
+            DROP TRIGGER IF EXISTS calls_replace;
+            DROP TABLE IF EXISTS call_slots;
             CREATE TABLE call_slots (session TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, slot INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (session, provider, model, kind, slot)) WITHOUT ROWID;
             INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), COUNT(*) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
             CREATE TRIGGER calls_insert AFTER INSERT ON calls BEGIN ${add} END;
             CREATE TRIGGER calls_delete AFTER DELETE ON calls BEGIN ${remove} END;
-            CREATE TRIGGER calls_update AFTER UPDATE ON calls BEGIN ${remove} ${add} END;
+            CREATE TRIGGER calls_replace BEFORE INSERT ON calls WHEN EXISTS (SELECT 1 FROM calls WHERE key = new.key) BEGIN
+              UPDATE call_slots SET input = input - (SELECT input FROM calls WHERE key = new.key),
+                cache_read = cache_read - (SELECT cache_read FROM calls WHERE key = new.key),
+                cache_write = cache_write - (SELECT cache_write FROM calls WHERE key = new.key),
+                output = output - (SELECT output FROM calls WHERE key = new.key), calls = calls - 1
+                WHERE (session, provider, model, kind, slot) = (SELECT session, provider, model, kind, time / ${SLOT_MS} FROM calls WHERE key = new.key);
+              DELETE FROM call_slots WHERE calls = 0 AND (session, provider, model, kind, slot) = (SELECT session, provider, model, kind, time / ${SLOT_MS} FROM calls WHERE key = new.key);
+            END;
             PRAGMA user_version = ${LEDGER_VERSION};`)
         }
         db.exec('COMMIT')
@@ -186,8 +198,7 @@ export function sqliteLedger(DatabaseSync, path) {
         throw error
       }
     }
-    const put = db.prepare(`INSERT INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET session = excluded.session, time = excluded.time, provider = excluded.provider, model = excluded.model, kind = excluded.kind, live = excluded.live, input = excluded.input, cache_read = excluded.cache_read, cache_write = excluded.cache_write, output = excluded.output`)
+    const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const dropLogged = db.prepare('DELETE FROM calls WHERE session = ? AND live = 0')
     const getMark = db.prepare('SELECT through, fold, sealed, listed FROM marks WHERE session = ?')
     const setMark = db.prepare('INSERT OR REPLACE INTO marks (session, through, fold, sealed, listed) VALUES (?, ?, ?, ?, ?)')

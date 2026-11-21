@@ -77,6 +77,32 @@ test('SQLite slots track live calls and replacements across slots and models', a
   checkSlots(ledger, db)
 })
 
+test('SQLite slots track plain inserts and v3 replacements from another connection', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.add(callRow('one'))
+  db.prepare("INSERT INTO calls VALUES ('two', 's', 0, 'p', 'm', 'turn', 1, 20, 3, 4, 5)").run()
+  checkSlots(ledger, db)
+  const replace = db.prepare("INSERT OR REPLACE INTO calls VALUES ('one', 'other', ?, 'q', 'n', 'compaction', 1, 50, 6, 7, 8)")
+  replace.run(HOUR)
+  checkSlots(ledger, db)
+  replace.run(2 * HOUR)
+  checkSlots(ledger, db)
+})
+
+test('SQLite rebuilds stale slots left when v3 recreates the ledger', async (t) => {
+  const { ledger, db, path, DatabaseSync } = await openBook(t)
+  ledger.add(callRow('stale'))
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type IN ('table', 'index') AND tbl_name IN ('calls', 'marks', 'owners', 'kinds') AND sql IS NOT NULL ORDER BY type DESC").all()
+  db.exec('DROP TABLE calls; DROP TABLE marks; DROP TABLE owners; DROP TABLE kinds')
+  for (const { sql } of schema) db.exec(sql)
+  db.exec("INSERT INTO calls VALUES ('fresh', 's', 3600000, 'p', 'm', 'turn', 1, 20, 3, 4, 5); PRAGMA user_version = 3")
+  const migrated = sqliteLedger(DatabaseSync, path)
+  try {
+    checkSlots(migrated, db)
+    assert.equal(migrated.groups()[0].input, 20)
+  } finally { migrated.close() }
+})
+
 test('SQLite slots track committed rows, resets and failed transactions', async (t) => {
   const { ledger, db } = await openBook(t)
   ledger.add(callRow('live'))
@@ -97,7 +123,7 @@ for (const version of [2, 3]) test(`SQLite v${version} backfills slots without l
   const { ledger, db, path, DatabaseSync } = await openBook(t)
   ledger.add(callRow('live'))
   ledger.commit('s', { rows: [callRow('logged', { time: HOUR })], mark: callMark })
-  db.exec(`DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_update; DROP TABLE call_slots; PRAGMA user_version = ${version}`)
+  db.exec(`DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; PRAGMA user_version = ${version}`)
   if (version === 2) db.exec('ALTER TABLE marks DROP COLUMN listed')
   const migrated = sqliteLedger(DatabaseSync, path)
   try {
@@ -392,7 +418,7 @@ test('a ledger from the previous version keeps its metered calls and gains the s
   await first.ctx.dispose()
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(join(home, 'usage.sqlite'))
-  db.exec('DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_update; DROP TABLE call_slots; ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
+  db.exec('DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
   db.close()
 
   const second = start(home)
