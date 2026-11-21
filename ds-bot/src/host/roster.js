@@ -953,7 +953,8 @@ export function install(rt) {
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
       // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
-      const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot)])
+      // A part the user deleted earlier (`retiredSessions`) keeps its archived transcript too.
+      const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId), ...(bot.retiredSessions ?? []), ...openSessions(bot)])
       // `archiving` stands until the archive's path is known: the memory may already be
       // there, and no region of its own closes it yet.
       const closedArchive = bot.private === true ? {

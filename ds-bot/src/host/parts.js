@@ -2365,13 +2365,18 @@ export function install(rt) {
       return true
     }
     const segments = bot.segments ?? []
-    const at = segments.findIndex(segment => segment.sessionId === partId)
-    if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
+    if (!segments.some(segment => segment.sessionId === partId)) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
     const live = rt.live.get(current)
     if (live?.turn !== undefined) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
     // DSH turns away every step of an archived Session and every task aimed at it, so
     // the part leaves the archive before it becomes current.
     await ctx.workspaceRegistry.unarchiveSession(partId)
+    // Unarchiving awaits, and a delete or another switch can move this history in the
+    // meantime: find the part again by id instead of splicing at a stale index, which
+    // would drop an unrelated part and save the opened one twice (#1939).
+    if (bot.sessionId !== current) throw Object.assign(new Error('Another conversation was opened meanwhile; try again'), { code: 'bot/busy' })
+    const at = segments.findIndex(segment => segment.sessionId === partId)
+    if (at === -1) throw Object.assign(new Error('This conversation was deleted meanwhile'), { code: 'bot/not-found' })
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
@@ -2440,6 +2445,9 @@ export function install(rt) {
     for (const id of doomed.filter(Boolean)) {
       rt.chatOwners.delete(id)
       rt.pastOwners.delete(id)
+      // Privacy: the archived transcript is still a private Bot's, so the id stays on the
+      // Bot even after it leaves the chat list (#1939).
+      if (!(bot.retiredSessions ?? []).includes(id)) (bot.retiredSessions ??= []).push(id)
       if (state.questions?.[id] !== undefined) {
         rt.closeCard(id, state.questions[id], 'dismissed')
         delete state.questions[id]
@@ -2449,6 +2457,10 @@ export function install(rt) {
         delete state.views[id]
       }
     }
+    // A browser handoff raised from a deleted part must not come back into the chat the
+    // user is reading: drop the hold with the part (#1939).
+    const hold = rt.browserChannel?.holdOf?.(botId)
+    if (hold?.sessionId !== undefined && doomed.includes(hold.sessionId)) rt.browserChannel.setHold(botId, null)
     await rt.save()
     for (const id of doomed.filter(Boolean)) {
       await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })

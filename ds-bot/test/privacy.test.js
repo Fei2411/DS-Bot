@@ -255,6 +255,20 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
+// #1939: deleting a conversation from a private Bot's chat list archives its Session but
+// keeps the transcript, so the id stays on the Bot and other Bots still cannot read it.
+test('a part deleted from a private Bot\'s chat stays closed to other Bots', async (t) => {
+  const { rt, run, stop } = await start({ openPart: true })
+  t.after(stop)
+  await rt.deletePart(P, 'p-bg')
+  assert.equal(rt.botOf(P).openParts, undefined)
+  const denied = await run('session_trace', { session_id: 'p-bg' }, 'b')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
+  // Its own Bot still reads the part it deleted.
+  assert.deepEqual(await run('session_trace', { session_id: 'p-bg' }, P), { ran: true })
+})
+
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
   const { run, root, dsh, home, diary, team, project, stop } = await start()
   t.after(stop)
