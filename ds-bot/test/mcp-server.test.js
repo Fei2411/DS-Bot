@@ -323,6 +323,16 @@ test('a bad entry in mcp.json does not lock out the other clients, and last use 
   const url = `http://127.0.0.1:${port}/mcp`
   assert.equal((await rpc(url, token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200)
   assert.equal((await rpc(url, 'dsb_other', { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401)
-  const saved = JSON.parse(readFileSync(join(home, 'mcp.json'), 'utf8'))
-  assert.ok(Number.isFinite(saved.clients.find(client => client.id === 'ok').lastUsedAt))
+  const lastUsed = () => JSON.parse(readFileSync(join(home, 'mcp.json'), 'utf8')).clients.find(client => client.id === 'ok').lastUsedAt
+  assert.ok(Number.isFinite(lastUsed()))
+  // Requests 30 s apart: the one 70 s after the first save is saved again.
+  const realNow = Date.now
+  let offset = 0
+  t.mock.method(Date, 'now', () => realNow() + offset)
+  offset = 30_000
+  await rpc(url, token, { jsonrpc: '2.0', id: 2, method: 'ping' })
+  offset = 70_000
+  const before = realNow() + offset
+  await rpc(url, token, { jsonrpc: '2.0', id: 3, method: 'ping' })
+  assert.ok(lastUsed() >= before)
 })

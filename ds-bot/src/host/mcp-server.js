@@ -355,6 +355,7 @@ export function install(rt) {
     writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
     renameSync(temp, path)
   }
+  const usedSavedAt = new Map()
   const authorize = (token) => {
     if (token === '') return undefined
     const hash = hashOf(token)
@@ -363,10 +364,10 @@ export function install(rt) {
       && timingSafeEqual(Buffer.from(entry.hash, 'hex'), hash))
     if (client === undefined) return undefined
     const now = Date.now()
-    // Saved at most once a minute, so a polling client does not rewrite the file every second.
-    const stale = now - (client.lastUsedAt ?? 0) >= LAST_USED_SAVE_MS
     client.lastUsedAt = now
-    if (stale) {
+    // Saved at most once a minute, so a polling client does not rewrite the file every second.
+    if (now - (usedSavedAt.get(client.id) ?? 0) >= LAST_USED_SAVE_MS) {
+      usedSavedAt.set(client.id, now)
       try { write() } catch {}
     }
     return client
