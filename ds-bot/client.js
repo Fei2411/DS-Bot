@@ -30667,8 +30667,25 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
     return (0, import_react34.createElement)("div", { className: "bt-event" }, contentText(data.content).slice(0, 80) || t("Update"));
   }
 }
+var newDividers = /* @__PURE__ */ new Set();
+function newDividerIn(scroller) {
+  let first = null;
+  for (const node of newDividers) {
+    if (!scroller.contains(node)) continue;
+    if (first === null || first.compareDocumentPosition(node) & first.DOCUMENT_POSITION_PRECEDING) first = node;
+  }
+  return first;
+}
 function NewDivider() {
-  return (0, import_react34.createElement)("div", { className: "bt-new-sep", role: "separator", "aria-label": t("New messages") }, (0, import_react34.createElement)("span", null, t("New")));
+  const ref = (0, import_react34.useRef)(null);
+  (0, import_react34.useLayoutEffect)(() => {
+    const node = ref.current;
+    newDividers.add(node);
+    return () => {
+      newDividers.delete(node);
+    };
+  }, []);
+  return (0, import_react34.createElement)("div", { ref, className: "bt-new-sep", role: "separator", "aria-label": t("New messages") }, (0, import_react34.createElement)("span", null, t("New")));
 }
 function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi, useTurnClock, actions }) {
   const open = turnProcess === void 0 || !turnProcess.foldable || turnProcess.open;
@@ -42208,11 +42225,24 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react59.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
   );
 }
+function pinWatch() {
+  let slot = null;
+  let tail = null;
+  return (scroller) => {
+    if (slot?.isConnected && scroller.contains(slot)) return [...slot.children].some((child) => child.tagName === "BUTTON");
+    if (tail?.isConnected && scroller.contains(tail) && tail.hasAttribute("data-chat-following-tail")) return false;
+    tail = scroller.querySelector("[data-chat-following-tail]");
+    if (tail) return false;
+    slot = scroller.querySelector('[class*="_toBottomSlot"]');
+    return slot?.querySelector(":scope>button") != null;
+  };
+}
 function useTranscriptView() {
   const [view, setView] = (0, import_react59.useState)(null);
   (0, import_react59.useEffect)(() => {
     let frame2 = 0;
     let watched = null;
+    const unpinned = pinWatch();
     const observer = new MutationObserver(() => schedule());
     const measure = () => {
       frame2 = 0;
@@ -42228,7 +42258,7 @@ function useTranscriptView() {
       }
       const box = scroller.getBoundingClientRect();
       const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50;
-      const sep = scroller.querySelector(".bt-new-sep");
+      const sep = newDividerIn(scroller);
       let divider = null;
       if (sep) {
         const at = sep.getBoundingClientRect();
@@ -42236,7 +42266,7 @@ function useTranscriptView() {
       }
       const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height")) || 152;
       const next = {
-        unpinned: scroller.querySelector('[class*="_toBottomSlot"]>button') !== null,
+        unpinned: unpinned(scroller),
         divider,
         center: Math.round(box.left + box.width / 2),
         top: Math.round(headerBottom + 8),
@@ -42323,7 +42353,10 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     if (back) back.click();
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   };
-  const toDivider = () => document.querySelector("[data-conversation-scroll] .bt-new-sep")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  const toDivider = () => {
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
   return (0, import_react_dom10.createPortal)(
     (0, import_react59.createElement)(
       import_react59.Fragment,
