@@ -1754,6 +1754,32 @@ test('in a group, members add the group\'s extra folders to their own, unless th
   assert.deepEqual((await call('update-room', { id: 'r1', extraDirs: [] })).value.changes, ['removed the extra folders'])
 })
 
+test('group background tasks keep the group extra-folder scope', async (t) => {
+  const { services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  const { call, root, project } = env
+  const shared = join(root, 'shared')
+  const away = join(root, 'away')
+  mkdirSync(shared)
+  mkdirSync(away)
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  await call('update-room', { id: 'r1', extraDirs: [shared] })
+
+  const sessionId = 'group-task-b'
+  const ownTask = () => {
+    rt.chatOwners.set(sessionId, 'b')
+    rt.taskOwners.set(sessionId, { botId: 'b', taskId: 'task-1', roomId: 'r1' })
+  }
+  ownTask()
+  assert.deepEqual(rt.extraDirsOfSession(sessionId), [project, shared])
+
+  await call('update-room', { id: 'r1', workDir: away })
+  ownTask()
+  assert.deepEqual(rt.extraDirsOfSession(sessionId), [shared])
+  assert.equal(await writeCall(env, sessionId, { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+})
+
 test('a Bot sets its extra folders with the user\'s approval, and its prompt lists them', async (t) => {
   const { requests, services } = approvalServices('allowed-once')
   const { tool, state, ctx, project, root, stop } = await start({ services })

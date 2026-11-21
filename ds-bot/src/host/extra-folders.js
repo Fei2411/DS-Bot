@@ -50,7 +50,7 @@ export function install(rt) {
   const extraDirsOfSession = (sessionId) => {
     const botId = sessionId === undefined ? undefined : rt.selfOf(sessionId)
     if (botId === undefined || onLocalAgent(rt.botOf(botId))) return []
-    return extraDirsOf({ botId, roomId: rt.groupOwners.get(sessionId)?.roomId })
+    return extraDirsOf({ botId, roomId: rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId })
   }
 
   // Saved as real paths, in the order given, without repeats. The team workspace may be one.
