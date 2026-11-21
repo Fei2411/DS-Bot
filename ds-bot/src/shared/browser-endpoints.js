@@ -20,7 +20,7 @@ export const BROWSER_ALLOWED = new Set([
   'create-room', 'update-room', 'delete-room',
   // Folders, workspace, schedules, and memory
   'folders', 'folder-list', 'team-workspace',
-  'schedules', 'schedule-create', 'schedule-delete',
+  'schedules', 'schedule-create', 'schedule-delete', 'schedule-pause',
   'memory-view', 'memory-ask', 'memory-add', 'memory-edit', 'memory-forget',
   // Bot browser handoff controls
   'browser-frame', 'browser-takeover', 'browser-give-back', 'browser-stop',

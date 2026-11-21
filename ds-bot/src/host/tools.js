@@ -994,7 +994,10 @@ export function install(rt) {
   rt.teamTools.push(defineTool({
     name: 'show_view',
     description: showViewDescription({ where: 'your own chat' }),
-    parameters: showViewParameters,
+    parameters: {
+      ...showViewParameters,
+      report_issue: { type: 'string', description: 'Only for DS Bot issue approval: use the exact arguments from prepare_ds_bot_issue' },
+    },
     output,
     async execute(args, exec) {
       await rt.load()
@@ -1008,6 +1011,8 @@ export function install(rt) {
       const view = checked.view
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
+      const issueDraft = args.report_issue === undefined ? undefined : rt.claimIssueDraft?.(id, args.report_issue, checked)
+      if (args.report_issue !== undefined && issueDraft === undefined) return 'This draft changed or expired. Call prepare_ds_bot_issue again and use its exact arguments.'
       const awaitReply = args.await_reply ?? checked.interactive
       if (!awaitReply) return 'The view is on screen.'
       state.views[id] = {
@@ -1015,6 +1020,7 @@ export function install(rt) {
         ...(exec.callId ? { callId: exec.callId } : {}),
         title,
         view,
+        ...(issueDraft === undefined ? {} : { issueDraft }),
         askedAt: Date.now(),
       }
       await rt.save()

@@ -3,7 +3,7 @@ import { BotAvatar, BotMark, colorOf } from './mark.js'
 import { inkText } from './inks.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
-import { SPRING_SHAPE, spring, useMorph } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, spring, useMorph } from './motion.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -271,36 +271,61 @@ function GoalCompose({ room, roster, actions }) {
 }
 
 // The surface that wraps the pill: pod with pending group approvals and/or the
-// goal bar (or draft form) while closed, the active panel while open. The pod
-// hangs off the header over the transcript.
-export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, roomWork, roster, actions, pill }) {
+// goal bar (or draft form) while closed, the active panel while open. For chats
+// with background tasks only (`taskHoverReveal`), the island stays a compact
+// single-row pill with an inline count chip until hovered or clicked open.
+export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, roomWork, roster, actions, pill }) {
   const island = useRef(null)
+  const leaveTimer = useRef(null)
+  const [hovered, setHovered] = useState(false)
   const hasApprovals = approvalPod !== null
+  const hasTasks = taskPod !== null
   const apvExpanded = approvalOpen && hasApprovals
-  const goalExpanded = open && !apvExpanded
-  const expanded = goalExpanded || apvExpanded
-  const morphKey = apvExpanded ? `apv:${approvalsCount}` : goalExpanded ? 'goal' : composing ? 'compose' : 'closed'
-  useMorph(island, morphKey)
+  const taskExpanded = taskOpen && hasTasks && !apvExpanded
+  const goalExpanded = open && !apvExpanded && !taskExpanded
+  const expanded = goalExpanded || apvExpanded || taskExpanded
+  const hasGoalRow = composing || view !== null
+  const compactTasks = taskHoverReveal && hasTasks && !hasGoalRow && !hasApprovals && !expanded && !hovered
+  const morphKey = apvExpanded ? `apv:${approvalsCount}` : taskExpanded ? `task:${taskCount}` : goalExpanded ? 'goal' : composing ? 'compose' : compactTasks ? 'compact' : 'closed'
+  useMorph(island, morphKey, { width: true })
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current) }, [])
+  useEffect(() => {
+    if (!taskHoverReveal || !hasTasks) setHovered(false)
+  }, [taskHoverReveal, hasTasks])
+  const onEnter = taskHoverReveal ? () => {
+    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null }
+    setHovered(true)
+  } : undefined
+  const onLeave = taskHoverReveal ? () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    leaveTimer.current = setTimeout(() => { leaveTimer.current = null; setHovered(false) }, 180)
+  } : undefined
   const working = new Set((roomWork ?? []).map(entry => entry.botId))
   // While any pod panel or the draft form is up, Escape and outside clicks close it.
   const close = () => {
     if (composing) actions.closeGoalCompose?.()
     if (open) actions.closeGoal?.()
     if (approvalOpen) actions.closeApproval?.()
+    if (taskOpen) actions.closeTaskDeck?.()
   }
-  const hasGoalRow = composing || view !== null
   return h('div', {
     ref: island, className: 'bt-island',
     'data-goal': view?.status ?? (composing ? 'compose' : undefined),
     'data-idle': view?.idle || undefined,
     'data-approval': hasApprovals || undefined,
     'data-open': expanded || undefined,
+    'data-tasks-open': taskExpanded || undefined,
+    'data-compact': compactTasks || undefined,
+    onMouseEnter: onEnter,
+    onMouseLeave: onLeave,
   },
   expanded || composing ? h(GoalOutside, { island, close }) : null,
-  pill,
-  h('div', { className: 'bt-goal-pod' },
+  h('div', { className: 'bt-island-top' }, pill, compactTasks ? taskBadge : null),
+  compactTasks ? null : h('div', { className: 'bt-goal-pod' },
     approvalPod,
-    hasApprovals && hasGoalRow ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
+    hasApprovals && hasTasks ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
+    taskPod,
+    (hasApprovals || hasTasks) && hasGoalRow ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
     composing ? h(GoalCompose, { room, roster, actions })
       : view === null ? null
         : h(Fragment, null,
@@ -309,13 +334,30 @@ export function GoalIsland({ room, goal, view, open, composing, approvalPod = nu
 }
 
 export const GOAL_CSS = `
-/* One surface: the pill's own background, border and shadow. The pill row is
-   40px, the pod bar 30px; the surface reshapes on SPRING_SHAPE. */
-.bt-island{position:relative;z-index:6;align-self:flex-start;display:flex;flex-direction:column;pointer-events:auto;width:min(380px,calc(100% - 120px));background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:20px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'width', 'border-radius')}}
-.bt-island[data-open]{width:min(560px,calc(100% - 48px));border-radius:18px}
+/* One Liquid Glass surface: luminous frosted crystal glass with high text
+   legibility over scrolling chat content, crisp specular top bevel, and soft
+   atmospheric depth. Reshapes smoothly on SPRING_SHAPE. */
+.bt-island{position:relative;z-index:6;align-self:flex-start;display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;width:min(380px,calc(100% - 120px));background:linear-gradient(168deg,color-mix(in srgb,var(--bt-card) 93%,transparent) 0%,color-mix(in srgb,var(--bt-main) 86%,transparent) 54%,color-mix(in srgb,var(--bt-card) 90%,transparent) 100%);-webkit-backdrop-filter:blur(40px) saturate(185%) brightness(1.02);backdrop-filter:blur(40px) saturate(185%) brightness(1.02);border:1px solid var(--bt-island-rim);border-radius:20px;box-shadow:var(--bt-island-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'border-radius')}}
+.bt-island::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:var(--bt-island-sheen);z-index:0}
+.bt-island>*{position:relative;z-index:1}
+body[data-ds-dark-theme] .bt-island{background:linear-gradient(168deg,color-mix(in srgb,var(--bt-card) 86%,transparent) 0%,color-mix(in srgb,var(--bt-main) 80%,transparent) 54%,color-mix(in srgb,var(--bt-card) 84%,transparent) 100%);-webkit-backdrop-filter:blur(40px) saturate(185%) brightness(1.05);backdrop-filter:blur(40px) saturate(185%) brightness(1.05)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none;border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island::before{display:none}
+.bt-island[data-open]{width:min(560px,calc(100% - 48px));border-radius:22px}
+.bt-island[data-open][data-tasks-open]{width:min(450px,calc(100% - 48px))}
+.bt-island[data-compact]{width:auto;max-width:min(380px,calc(100% - 120px));border-radius:20px}
+.bt-island-top{flex:none;display:flex;align-items:center;min-width:0;height:40px;white-space:nowrap}
 .bt-island[data-morph]{overflow:hidden}
 .bt-island .bt-pill{width:100%;max-width:none;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;border:0;box-shadow:none;border-radius:20px 20px 0 0}
-.bt-island[data-open] .bt-pill{border-radius:18px 18px 0 0}
+.bt-island[data-compact] .bt-pill{width:auto;border-radius:20px;padding-right:10px}
+.bt-island[data-compact] .bt-pill-go{display:none}
+.bt-island-chip{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;margin-right:8px;padding:0 9px;border:0;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 13%,transparent);color:var(--bt-accent);font:inherit;font-size:12px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer;transition:background-color .14s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-island-chip:hover{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-island-chip:active{scale:.94}
+.bt-island-chip[data-approval]{background:color-mix(in srgb,var(--bt-star) 16%,transparent);color:var(--bt-warn)}
+.bt-island-chip[data-approval]:hover{background:color-mix(in srgb,var(--bt-star) 25%,transparent)}
+.bt-island-chip-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.bt-island[data-open] .bt-pill{border-radius:22px 22px 0 0}
 .bt-island .bt-pill:hover{background:var(--bt-hover)}
 .bt-island .bt-pill:active{transform:none}
 /* The swap area holds the goal title and the group name in one cell, so hover

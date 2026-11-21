@@ -728,7 +728,8 @@ export function install(rt) {
     return usable === undefined ? undefined : Math.floor(usable * WINDOW_SHARE)
   }
   function shownEntries(file, topics, budget) {
-    const entries = file.entries.filter(entry => !isExpired(entry, today()))
+    const day = today()
+    const entries = file.entries.filter(entry => !isExpired(entry, day))
     const omitted = count => `(${count} more entries are saved here; bot_recall finds them.)`
     let { shown, left } = fitWindow(entries, budget, estimateTokens)
     if (left > 0) ({ shown, left } = fitWindow(entries, budget - estimateTokens(omitted(entries.length)), estimateTokens))
@@ -944,7 +945,8 @@ export function install(rt) {
       rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
-    const open = topicEntries.filter(entry => !isExpired(entry, today()) && !shown.has(entryId(entry)))
+    const day = today()
+    const open = topicEntries.filter(entry => !isExpired(entry, day) && !shown.has(entryId(entry)))
     const picked = []
     let used = 0
     for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
