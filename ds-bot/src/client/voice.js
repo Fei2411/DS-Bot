@@ -8,13 +8,15 @@ import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 import { openCapture, preparationStep, speechCatalog, transcribeWave, turnDetector } from './speech.js'
 import { createSpeechPlayer, replyVoice, settleSpeech } from './speech-playback.js'
+import { LOCAL_TTS_CHUNK, LOCAL_TTS_VOICE, probeLocalTts, synthesizeLocal } from './local-tts.js'
 import { useVoiceBarge } from './voice-barge.js'
 
 // Voice chat: listen, send what the user said, read the Bot's answer aloud, listen
 // again. With DSH's Voice Input plugin on, its recognizer hears the user: one
 // recording ends after a pause and is transcribed whole. Otherwise the browser's
-// own speech recognition does. The team picks who reads the answer: the
-// browser's speech synthesis, or DeepSeek's TTS endpoint in chunks.
+// own speech recognition does. The team picks who reads the answer: a local TTS
+// service on loopback when one answers, otherwise the browser's speech
+// synthesis or DeepSeek's TTS endpoint in chunks.
 const plainSpeech = text => stripHeader(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>|~-]+/g, ' ').replace(/\s+/g, ' ').trim()
 const VOICE_LABELS = {
   listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', paused: 'Paused',
@@ -135,6 +137,13 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   // The cloud speaker's player: one per pane, lazily made on the first reply
   // spoken through the TTS endpoint.
   const player = useRef(null)
+  // The local service's player, made on the first reply read with that voice.
+  // It chunks far narrower than the cloud one — a local engine runs a model per
+  // request, so a wide chunk would mean a long silence before the first word.
+  const localPlayer = useRef(null)
+  // Whether loopback TTS answered the probe: one promise per pane, so the probe
+  // is paid once and a missing service is not asked again for every reply.
+  const localTts = useRef(null)
   // The in-flight transcription's controller: pause, close and unmount abort it
   // so a late transcript neither submits to a Session the pane left nor keeps a
   // paid request running. A normal listen→transcribe cycle clears it itself;
@@ -151,6 +160,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     speechSeq.current += 1
     window.speechSynthesis?.cancel()
     player.current?.stop()
+    localPlayer.current?.stop()
   }
   const close = () => { turn.current += 1; transcribeCtl.current?.abort(); stopSpeech(); actions.closeVoice() }
   useEscape(close)
@@ -211,7 +221,9 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     let frame = 0
     let stopped = false
     let smooth = 0
-    const detect = turnDetector()
+    // A turn ends at 0.7 s of quiet: the recognizer needs the whole utterance, so
+    // every extra tenth here is a tenth the user waits before anything happens.
+    const detect = turnDetector({ quietMs: 700 })
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1000
     const writeLevel = (value) => { orbRef.current?.style.setProperty('--bt-level', String(value)) }
     const finish = (current) => {
@@ -267,12 +279,28 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     const count = lastReply.slice(0, lastReply.indexOf('|'))
     const turn = Number(lastReply.slice(lastReply.indexOf('|') + 1))
     if (count === waiting.current) return undefined
-    const speak = (text) => {
-      waiting.current = null
-      const spoken = plainSpeech(text)
-      setSaid(spoken)
-      setHeard('')
-      if (!spoken) { setPhase('listening'); return }
+    // A local service answering the probe owns the voice; the pref decides only
+    // when there is none, so a machine without one keeps its configured engine.
+    const beginSpeech = async (spoken) => {
+      const at = turn
+      const local = await (localTts.current ??= probeLocalTts())
+      if (turn !== at) return
+      if (local) {
+        window.speechSynthesis?.cancel()
+        localPlayer.current ??= createSpeechPlayer((chunk, voice, signal) => synthesizeLocal(chunk, signal), LOCAL_TTS_CHUNK)
+        const own = ++speechSeq.current
+        barge.current.hit = false
+        barge.current.boundary = false
+        barge.current.pos = 0
+        barge.current.base = 0
+        barge.current.start = performance.now()
+        setPhase('speaking')
+        void settleSpeech(localPlayer.current.say(spoken, LOCAL_TTS_VOICE), () => speechSeq.current === own, {
+          failed: () => setNote(t("Couldn't read the reply")),
+          done: () => setPhase(current => (current === 'speaking' ? 'listening' : current)),
+        })
+        return
+      }
       // The cloud voice does not need speechSynthesis, and a failure comes back
       // as a note — the reply text is never read as an error and nothing plays.
       const cloud = typeof actions.synthesizeSpeech === 'function' ? replyVoice(prefs.current) : null
@@ -296,9 +324,10 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         return
       }
       if (!window.speechSynthesis) { setPhase('listening'); return }
-      // Switching to the system engine makes any cloud say still out stale.
+      // Switching to the system engine makes any cloud or local say still out stale.
       speechSeq.current += 1
       player.current?.stop()
+      localPlayer.current?.stop()
       const utterance = new SpeechSynthesisUtterance(spoken)
       utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
       // Where the reading got to, character by character: the barge-in guard
@@ -322,6 +351,14 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
       setPhase('speaking')
       window.speechSynthesis.cancel()
       window.speechSynthesis.speak(utterance)
+    }
+    const speak = (text) => {
+      waiting.current = null
+      const spoken = plainSpeech(text)
+      setSaid(spoken)
+      setHeard('')
+      if (!spoken) { setPhase('listening'); return }
+      void beginSpeech(spoken)
     }
     // The outline commits at turn/end but only holds a bounded preview; the
     // closing Assistant text can trail it, so the answer is read through the
