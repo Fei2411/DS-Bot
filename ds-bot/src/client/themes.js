@@ -56,7 +56,13 @@ export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' },
 // the theme gave them one (Moonlight's blue).
 const channels = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16))
 const toHex = rgb => `#${rgb.map(value => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, '0')).join('')}`
-const near = (a, b) => channels(a).every((value, index) => Math.abs(value - channels(b)[index]) <= 24)
+const distance = (a, b) => Math.max(...channels(a).map((value, index) => Math.abs(value - channels(b)[index])))
+// Which basic color a bubble color sat on, if any: the nearer one within 24 a channel.
+const anchorOf = (color, mode) => {
+  const [toText, toBg] = [distance(color, mode.text), distance(color, mode.bg)]
+  if (Math.min(toText, toBg) > 24) return undefined
+  return toText <= toBg ? 'text' : 'bg'
+}
 // A channel where background and text are this close says nothing about a surface's place.
 const SPAN = 16
 /**
@@ -75,11 +81,26 @@ export function followBasics(mode, change) {
     const mean = known.reduce((sum, value) => sum + value, 0) / known.length
     next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])))
   }
-  for (const key of ['user', 'userText']) {
-    if (near(mode[key], mode.text)) next[key] = next.text
-    else if (near(mode[key], mode.bg)) next[key] = next.bg
+  // Your bubble and its text never land on the same color: when both sat on one basic color,
+  // both keep their own.
+  const [user, userText] = [anchorOf(mode.user, mode), anchorOf(mode.userText, mode)]
+  if (user !== userText || user === undefined) {
+    if (user !== undefined) next.user = next[user]
+    if (userText !== undefined) next.userText = next[userText]
   }
   return next
+}
+// What a new background or text color moves; the accent stays.
+const FOLLOW_KEYS = ['bg', 'text', 'sidebar', 'bubble', 'card', 'user', 'userText']
+/**
+ * The colors with a new background or text color, the other surfaces placed as they sat in
+ * `from` (the colors before the first of a run of such changes), so a background that
+ * passes close to the text on its way loses nothing.
+ * @param {object} from @param {object} colors @param {{ bg?: string, text?: string }} change
+ */
+export function moveBasics(from, colors, change) {
+  const moved = followBasics(from, { bg: colors.bg, text: colors.text, ...change })
+  return { ...colors, ...Object.fromEntries(FOLLOW_KEYS.map(key => [key, moved[key]])) }
 }
 export function themeVars(mode, dark, accent = mode.accent) {
   return {

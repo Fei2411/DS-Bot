@@ -131,6 +131,21 @@ test('the appearance and the themes of your own are saved with the team', async 
   assert.equal(after.theme, undefined)
 })
 
+test('a change refused after a wait leaves a save that landed during the wait', async (t) => {
+  const { rt, call } = team(t)
+  let refuse
+  rt.resolveModel = () => new Promise((resolve, reject) => { refuse = reject })
+  const slow = call('set-prefs', { defaultBotModel: 'gone/model', accent: '#112233' })
+  while (refuse === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal((await call('set-prefs', { theme: 'mono' })).ok, true)
+  refuse(Object.assign(new Error('Unknown model'), { code: 'bot/invalid' }))
+  assert.equal((await slow).ok, false)
+  const { prefs } = (await call('state', {})).value
+  assert.equal(prefs.theme, 'mono')
+  assert.equal(prefs.accent, undefined)
+  assert.equal(prefs.defaultBotModel, undefined)
+})
+
 test('a background picture is checked, kept once and read back by its id', async (t) => {
   const { home, call } = team(t)
   const first = (await call('background-add', { image: PNG })).value
@@ -310,6 +325,25 @@ test('a new background or text color moves the other surfaces with it, keeping t
   // The accent shown is the team's when one is picked, in its dark form in dark mode.
   assert.equal(accentIn(themes.deepseek, 'light', null), themes.deepseek.light.accent)
   assert.equal(accentIn(themes.deepseek, 'dark', '#123456'), '#123456')
+})
+
+test('a background and a text color set one after the other end as if set together', async () => {
+  const { followBasics, moveBasics, themesOf } = await import('../src/client/themes.js')
+  const { contrast } = await import('../src/shared/appearance.js')
+  const light = themesOf({}).deepseek.light
+  // The background is set first and passes close to the text; then the text is set.
+  const first = moveBasics(light, light, { bg: '#202020' })
+  const second = moveBasics(light, first, { text: '#eeeeee' })
+  const together = followBasics(light, { bg: '#202020', text: '#eeeeee' })
+  for (const key of ['bg', 'text', 'sidebar', 'bubble', 'card', 'user', 'userText']) assert.equal(second[key], together[key], key)
+  assert.ok(contrast(second.user, second.userText) >= 4.5)
+  // The accent is not moved.
+  assert.equal(moveBasics(light, { ...light, accent: '#123456' }, { bg: '#202020' }).accent, '#123456')
+  // Started from colors where the background already sits on the text, your bubble and its
+  // text keep their own colors instead of both landing on one.
+  const close = { ...light, bg: '#202020', text: '#1a1c1f', user: '#1a1c1f', userText: '#202020' }
+  const moved = followBasics(close, { text: '#eeeeee' })
+  assert.notEqual(moved.user, moved.userText)
 })
 
 test('the Appearance page words are its own, not a word from another page that reads differently', async () => {

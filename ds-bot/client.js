@@ -16590,7 +16590,12 @@ var veilColors = (alpha) => ({ light: rgba("#ffffff", alpha), dark: rgba("#00000
 var BACKGROUND_STARTS = { color: { light: "#dfe6f5", dark: "#1d2433" }, from: "#9ab6ff", to: "#f7c6d9" };
 var channels = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
 var toHex = (rgb) => `#${rgb.map((value) => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, "0")).join("")}`;
-var near = (a, b) => channels(a).every((value, index) => Math.abs(value - channels(b)[index]) <= 24);
+var distance = (a, b) => Math.max(...channels(a).map((value, index) => Math.abs(value - channels(b)[index])));
+var anchorOf = (color, mode) => {
+  const [toText, toBg] = [distance(color, mode.text), distance(color, mode.bg)];
+  if (Math.min(toText, toBg) > 24) return void 0;
+  return toText <= toBg ? "text" : "bg";
+};
 var SPAN = 16;
 function followBasics(mode, change) {
   const next = { ...mode, ...change };
@@ -16603,11 +16608,17 @@ function followBasics(mode, change) {
     const mean = known.reduce((sum, value) => sum + value, 0) / known.length;
     next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])));
   }
-  for (const key of ["user", "userText"]) {
-    if (near(mode[key], mode.text)) next[key] = next.text;
-    else if (near(mode[key], mode.bg)) next[key] = next.bg;
+  const [user, userText] = [anchorOf(mode.user, mode), anchorOf(mode.userText, mode)];
+  if (user !== userText || user === void 0) {
+    if (user !== void 0) next.user = next[user];
+    if (userText !== void 0) next.userText = next[userText];
   }
   return next;
+}
+var FOLLOW_KEYS = ["bg", "text", "sidebar", "bubble", "card", "user", "userText"];
+function moveBasics(from, colors, change) {
+  const moved = followBasics(from, { bg: colors.bg, text: colors.text, ...change });
+  return { ...colors, ...Object.fromEntries(FOLLOW_KEYS.map((key) => [key, moved[key]])) };
 }
 function themeVars(mode, dark, accent = mode.accent) {
   return {
@@ -27786,25 +27797,28 @@ var FITS2 = [["cover", "Fill"], ["contain", "Fit"], ["tile", "Tile"]];
 var isDark = () => typeof document?.body?.hasAttribute === "function" && document.body.hasAttribute("data-ds-dark-theme");
 var dshRowId = (row) => row?.props?.["data-item"];
 var newThemeId = () => `my-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-function useResting(value, save, delay = 350) {
+function useResting(value, save, delay = 350, scope = void 0) {
   const [shown, setShown] = (0, import_react27.useState)(value);
   const pending = (0, import_react27.useRef)(void 0);
   const timer = (0, import_react27.useRef)(0);
-  const saveRef = (0, import_react27.useRef)(save);
-  saveRef.current = save;
-  (0, import_react27.useEffect)(() => {
-    if (pending.current === void 0) setShown(value);
-  }, [value]);
   const flush = () => {
     clearTimeout(timer.current);
     const next = pending.current;
     pending.current = void 0;
-    if (next !== void 0) saveRef.current(next);
+    if (next !== void 0) next.save(next.value);
   };
+  const scoped2 = (0, import_react27.useRef)(scope);
+  (0, import_react27.useEffect)(() => {
+    if (scoped2.current !== scope) {
+      scoped2.current = scope;
+      flush();
+    }
+    if (pending.current === void 0) setShown(value);
+  }, [value, scope]);
   (0, import_react27.useEffect)(() => flush, []);
   const pick2 = (next) => {
     setShown(next);
-    pending.current = next;
+    pending.current = { value: next, save };
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, delay);
   };
@@ -27834,8 +27848,8 @@ function ColorField({ label, value, save, hint }) {
   );
 }
 var HEX3 = /^#?([0-9a-f]{6})$/i;
-function ColorInput({ label, value, save, hint }) {
-  const [shown, pick2] = useResting(value, save);
+function ColorInput({ label, value, save, hint, scope }) {
+  const [shown, pick2] = useResting(value, save, 350, scope);
   const [text, setText] = (0, import_react27.useState)(value.toUpperCase());
   (0, import_react27.useEffect)(() => setText(shown.toUpperCase()), [shown]);
   const commit = () => {
@@ -28023,26 +28037,39 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
   const [mode, setMode] = (0, import_react27.useState)(isDark() ? "dark" : "light");
   const [more, setMore] = (0, import_react27.useState)(false);
   const target = (0, import_react27.useRef)(null);
+  const live = (0, import_react27.useRef)(current2);
+  live.current = current2;
   (0, import_react27.useEffect)(() => {
-    target.current = null;
+    if (target.current?.id !== current2) target.current = null;
   }, [current2]);
   const draft = (0, import_react27.useRef)(null);
+  const basis = (0, import_react27.useRef)(null);
   const save = (change, extra = {}) => {
-    const id = theme.own ? current2 : target.current ??= newThemeId();
+    if (!theme.own && target.current?.from !== current2) target.current = { from: current2, id: newThemeId() };
+    const id = theme.own ? current2 : target.current.id;
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme;
     const next = { label: theme.own ? base.label : t("{name} (mine)", { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } };
-    next[mode] = change(next[mode]);
+    next[mode] = change(next[mode], `${id}/${mode}`);
     draft.current = { id, theme: next };
     const settle = () => {
       if (draft.current?.theme === next) draft.current = null;
     };
-    return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...theme.own ? {} : { theme: id }, ...extra }))).finally(settle);
+    const use = !theme.own && (live.current === current2 || live.current === id) ? { theme: id } : {};
+    return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...use, ...extra }))).finally(settle);
+  };
+  const basic = (key) => (colors2, color, where) => {
+    if (basis.current?.where !== where) basis.current = { where, colors: colors2 };
+    return moveBasics(basis.current.colors, colors2, { [key]: color });
+  };
+  const own = (key) => (colors2, color) => {
+    basis.current = null;
+    return { ...colors2, [key]: color };
   };
   const colors = theme[mode];
   const field = (key, label, value, change, extra) => {
     const ratio = READ_ON[key] === void 0 ? void 0 : contrast(colors[key], colors[READ_ON[key]]);
     const hint = ratio !== void 0 && ratio < READABLE ? t("Hard to read · {ratio}:1", { ratio: ratio.toFixed(1) }) : void 0;
-    return (0, import_react27.createElement)(Row4, { key: `${mode}-${key}`, label: t(label) }, (0, import_react27.createElement)(ColorInput, { label: t(label), value, save: (color) => save((colors2) => change(colors2, color), extra), hint }));
+    return (0, import_react27.createElement)(Row4, { key: `${mode}-${key}`, label: t(label) }, (0, import_react27.createElement)(ColorInput, { label: t(label), value, scope: target.current?.id === current2 ? target.current.from : current2, save: (color) => save((colors2, where) => change(colors2, color, where), extra), hint }));
   };
   return (0, import_react27.createElement)(
     Section2,
@@ -28050,9 +28077,9 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
     theme.own ? null : (0, import_react27.createElement)("div", { className: "bt-look-note" }, t("Changing a color saves a theme of your own; {name} stays as it is.", { name: t(theme.label) })),
     // The accent here is the theme's; the team's accent above gives way to it.
     field("accent", BASIC_LABELS.accent, accentIn(theme, mode, prefs.accent), (colors2, accent) => ({ ...colors2, accent }), { accent: null }),
-    field("bg", BASIC_LABELS.bg, colors.bg, (colors2, bg) => followBasics(colors2, { bg })),
-    field("text", BASIC_LABELS.text, colors.text, (colors2, text) => followBasics(colors2, { text })),
-    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], (colors2, color) => ({ ...colors2, [key]: color }))) : null,
+    field("bg", BASIC_LABELS.bg, colors.bg, basic("bg")),
+    field("text", BASIC_LABELS.text, colors.text, basic("text")),
+    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], own(key))) : null,
     (0, import_react27.createElement)("button", { type: "button", className: "bt-look-more", "aria-expanded": more, onClick: () => setMore((open) => !open) }, more ? t("Fewer colors") : t("More colors"))
   );
 }
@@ -30217,7 +30244,7 @@ function seqNum(value) {
 function turnClosed(turn) {
   return seqNum(turn?.end) !== void 0;
 }
-function anchorOf(card) {
+function anchorOf2(card) {
   if (card == null || card.anchorSeq == null) return void 0;
   return seqNum(card.anchorSeq);
 }
@@ -30255,7 +30282,7 @@ function turnStartedBy(seq, turns) {
 }
 function owningTurn(card, turns) {
   if (!turns || typeof turns.values !== "function") return void 0;
-  const anchor = anchorOf(card);
+  const anchor = anchorOf2(card);
   if (anchor !== void 0) return turnContaining(anchor, turns);
   const at = seqNum(card?.atSeq);
   if (at === void 0) return void 0;
@@ -30359,7 +30386,7 @@ function segmentByTurn(turn, content) {
 function ownerSegment(card, content) {
   const turn = cardTurn(card);
   if (turn !== void 0) return segmentByTurn(turn, content);
-  const anchor = anchorOf(card);
+  const anchor = anchorOf2(card);
   if (anchor !== void 0) return segmentAt(anchor, content);
   const at = seqNum(card?.atSeq);
   if (at === void 0) return void 0;
@@ -34961,7 +34988,7 @@ function Profile({ face, share, range }) {
 }
 var monthOf = (ms) => Date.UTC(yearOf(ms), new Date(ms).getUTCMonth(), 1);
 var addMonths = (ms, count) => Date.UTC(yearOf(ms), new Date(ms).getUTCMonth() + count, 1);
-function SpanPicker({ span, today, oldest, active, near: near2, onPick, onClose }) {
+function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
   const box = (0, import_react42.useRef)(null);
   const todayMs = hourMs(today);
   const thisMonth = monthOf(todayMs);
@@ -34970,7 +34997,7 @@ function SpanPicker({ span, today, oldest, active, near: near2, onPick, onClose 
   const [hover, setHover] = (0, import_react42.useState)(null);
   (0, import_react42.useEffect)(() => {
     const onDown = (event) => {
-      if (![box, near2].some((ref) => ref.current?.contains(event.target))) onClose();
+      if (![box, near].some((ref) => ref.current?.contains(event.target))) onClose();
     };
     const onKey = (event) => {
       if (event.key === "Escape") {

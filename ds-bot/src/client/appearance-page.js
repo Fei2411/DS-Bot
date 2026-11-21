@@ -4,7 +4,7 @@
 // background editor. The settings page hands in its own rows and controls.
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
-import { accentIn, BACKGROUND_STARTS, followBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
+import { accentIn, BACKGROUND_STARTS, moveBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
 import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafeAppearance, pictureUrl, safeAppearance } from './appearance.js'
 import { call } from './api.js'
 import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, RADIUS, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
@@ -30,24 +30,33 @@ const dshRowId = row => row?.props?.['data-item']
 const newThemeId = () => `my-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
 // A value that saves once the control rests, like the accent and width sliders do; a
-// change still waiting when the page closes is saved, not dropped.
-function useResting(value, save, delay = 350) {
+// change still waiting when the page closes is saved, not dropped. A change saves where it
+// was made: the save of the moment of the pick, not one a later render brings (another
+// theme picked meanwhile).
+// A control that stays while what it edits changes (`scope`, another theme) saves its waiting
+// change at once and shows the new value.
+function useResting(value, save, delay = 350, scope = undefined) {
   const [shown, setShown] = useState(value)
   const pending = useRef(undefined)
   const timer = useRef(0)
-  const saveRef = useRef(save)
-  saveRef.current = save
-  useEffect(() => { if (pending.current === undefined) setShown(value) }, [value])
   const flush = () => {
     clearTimeout(timer.current)
     const next = pending.current
     pending.current = undefined
-    if (next !== undefined) saveRef.current(next)
+    if (next !== undefined) next.save(next.value)
   }
+  const scoped = useRef(scope)
+  useEffect(() => {
+    if (scoped.current !== scope) {
+      scoped.current = scope
+      flush()
+    }
+    if (pending.current === undefined) setShown(value)
+  }, [value, scope])
   useEffect(() => flush, [])
   const pick = (next) => {
     setShown(next)
-    pending.current = next
+    pending.current = { value: next, save }
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, delay)
   }
@@ -76,8 +85,8 @@ function ColorField({ label, value, save, hint }) {
 
 // A color as a row's control: the swatch and its #rrggbb code, either one to change it.
 const HEX = /^#?([0-9a-f]{6})$/i
-function ColorInput({ label, value, save, hint }) {
-  const [shown, pick] = useResting(value, save)
+function ColorInput({ label, value, save, hint, scope }) {
+  const [shown, pick] = useResting(value, save, 350, scope)
   const [text, setText] = useState(value.toUpperCase())
   useEffect(() => setText(shown.toUpperCase()), [shown])
   const commit = () => {
@@ -197,7 +206,7 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
 }
 
 // The colors of the theme in use, for one mode: accent, background and text first, the
-// other surfaces following them (themes.js followBasics); "More colors" sets each one. A
+// other surfaces following them (themes.js moveBasics); "More colors" sets each one. A
 // built-in theme is copied into a theme of your own on the first change, so the built-in
 // one stays as it is.
 function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
@@ -206,19 +215,37 @@ function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
   const theme = themes[current]
   const [mode, setMode] = useState(isDark() ? 'dark' : 'light')
   const [more, setMore] = useState(false)
+  // The copy a built-in theme's first change saves into, while that theme stays in use.
   const target = useRef(null)
-  useEffect(() => { target.current = null }, [current])
+  const live = useRef(current)
+  live.current = current
+  useEffect(() => { if (target.current?.id !== current) target.current = null }, [current])
   // Edits sent but not yet back from the host: the next edit starts from them, so two quick
   // edits of different colors both land.
   const draft = useRef(null)
+  // The colors the basic ones move the others from, kept while only the basic colors
+  // change: a background set before the text can pass close to it, and nothing is lost then.
+  const basis = useRef(null)
+  // A save is bound to the theme and mode of the render the change was made in.
   const save = (change, extra = {}) => {
-    const id = theme.own ? current : (target.current ??= newThemeId())
+    if (!theme.own && target.current?.from !== current) target.current = { from: current, id: newThemeId() }
+    const id = theme.own ? current : target.current.id
     const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme
     const next = { label: theme.own ? base.label : t('{name} (mine)', { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } }
-    next[mode] = change(next[mode])
+    next[mode] = change(next[mode], `${id}/${mode}`)
     draft.current = { id, theme: next }
     const settle = () => { if (draft.current?.theme === next) draft.current = null }
-    return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...(theme.own ? {} : { theme: id }), ...extra }))).finally(settle)
+    // The copy is put in use only while its theme still is; another theme picked meanwhile stays.
+    const use = !theme.own && (live.current === current || live.current === id) ? { theme: id } : {}
+    return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...use, ...extra }))).finally(settle)
+  }
+  const basic = key => (colors, color, where) => {
+    if (basis.current?.where !== where) basis.current = { where, colors }
+    return moveBasics(basis.current.colors, colors, { [key]: color })
+  }
+  const own = key => (colors, color) => {
+    basis.current = null
+    return { ...colors, [key]: color }
   }
   const colors = theme[mode]
   const field = (key, label, value, change, extra) => {
@@ -226,15 +253,15 @@ function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
     const hint = ratio !== undefined && ratio < READABLE ? t('Hard to read · {ratio}:1', { ratio: ratio.toFixed(1) }) : undefined
     // Keyed by the color alone: the first change copies a built-in theme into your own, and
     // the fields must stay as they are then, or a color being typed in another one is lost.
-    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, save: color => save(colors => change(colors, color), extra), hint }))
+    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, scope: target.current?.id === current ? target.current.from : current, save: color => save((colors, where) => change(colors, color, where), extra), hint }))
   }
   return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light mode'], ['dark', 'Dark mode']], pick: setMode }) },
     theme.own ? null : h('div', { className: 'bt-look-note' }, t('Changing a color saves a theme of your own; {name} stays as it is.', { name: t(theme.label) })),
     // The accent here is the theme's; the team's accent above gives way to it.
     field('accent', BASIC_LABELS.accent, accentIn(theme, mode, prefs.accent), (colors, accent) => ({ ...colors, accent }), { accent: null }),
-    field('bg', BASIC_LABELS.bg, colors.bg, (colors, bg) => followBasics(colors, { bg })),
-    field('text', BASIC_LABELS.text, colors.text, (colors, text) => followBasics(colors, { text })),
-    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], (colors, color) => ({ ...colors, [key]: color }))) : null,
+    field('bg', BASIC_LABELS.bg, colors.bg, basic('bg')),
+    field('text', BASIC_LABELS.text, colors.text, basic('text')),
+    more ? Object.entries(MORE_LABELS).map(([key, label]) => field(key, label, colors[key], own(key))) : null,
     h('button', { type: 'button', className: 'bt-look-more', 'aria-expanded': more, onClick: () => setMore(open => !open) }, more ? t('Fewer colors') : t('More colors')))
 }
 
