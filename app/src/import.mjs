@@ -191,8 +191,9 @@ async function measure(path, clock, tally, regen = false) {
  * @returns {Promise<{ sessions: number, chats?: number, work?: number, regen?: number }>}
  */
 export async function teamSizes(from, team, { budget = 2000, now = Date.now } = {}) {
-  const { found } = sessionDirs(from, sessionIdsOf(team))
   const clock = { until: now() + budget, now }
+  const { found } = sessionDirs(from, sessionIdsOf(team))
+  if (clock.now() > clock.until) return { sessions: found.length }
   const chats = { bytes: 0, regen: 0 }
   const work = { bytes: 0, regen: 0 }
   try {
