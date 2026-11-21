@@ -1129,9 +1129,8 @@ export function apply(ctx) {
           const binding = ctx.sessions.binding(sessionId)
           return binding === undefined ? undefined : triggers.sessionOf(binding.ctx)
         }
-        const launched = sessionId => controllerOf(sessionId)?.launcher.getSnapshot() === CHATS_SOURCE
         const offs = [
-          ...atSources({ roster, sessions: ctx.sessions, launched, iconFor: menuIcons(roster) }).map(source => triggers.registerSource(source)),
+          ...atSources({ roster, sessions: ctx.sessions, iconFor: menuIcons(roster) }).map(source => triggers.registerSource(source)),
           triggers.registerSource(sideSource({ roster, actions })),
         ]
         atMenu = { controllerOf }
