@@ -28,6 +28,13 @@ export function editLines(text) {
   return typeof text === 'string' ? text.split(/\r?\n/) : []
 }
 
+export function agentEditRows(edit) {
+  return [
+    ...(edit.op === 'add' ? [] : editLines(edit.old)).map(line => ({ kind: 'removed', line })),
+    ...(edit.op === 'remove' ? [] : editLines(edit.text)).map(line => ({ kind: 'added', line })),
+  ]
+}
+
 const DIFF_CELLS = 250_000
 
 export function lineDiff(before, after) {

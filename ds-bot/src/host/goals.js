@@ -624,13 +624,11 @@ export function install(rt) {
     await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
   }
 
-  // Member work can outlive the round it grew out of; the round-end check then
-  // skips the room, and nothing else would wake the admin when the last of it
-  // settles. Settle — no round running, nobody working, no call batch, an
-  // empty inbox — runs the same check once: the fake round's one worked slot
-  // only says progress happened (the work that just ended), so the check gets
-  // a fresh budget.
-  const SETTLE_ROUND = Object.freeze({ stoppedOnly: false, slots: Object.freeze([{ id: '', worked: true }]) })
+  // Work can outlive its round, so settlement checks an otherwise quiet room.
+  // A settlement event is not evidence of progress: turn/end and subagent/end
+  // also fire after an admin [PASS] or a failed turn. Keep the slot non-empty
+  // to allow the check, but do not reset the idle check budget.
+  const SETTLE_ROUND = Object.freeze({ stoppedOnly: false, slots: Object.freeze([{ id: '', worked: false }]) })
 
   async function goalSettled(room) {
     if (room === undefined) return
@@ -717,7 +715,7 @@ export function install(rt) {
       const member = rt.botOf(self)
       if (member === undefined) return 'Only Bots on the team can use group_goal.'
       const action = String(args.action ?? '')
-      let room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      let room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId ?? rt.taskOwners?.get(exec.agent?.id)?.roomId)
       if (room === undefined) {
         if (String(args.group ?? '').trim() === '') return required('group', action)
         const picked = rt.pickRoom(args.group, self)

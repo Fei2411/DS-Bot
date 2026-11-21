@@ -39,7 +39,7 @@ const phone = (() => {
 test('the phone breakpoint gives the chat flow the width of the screen', () => {
   assert.match(phone, /\.bt-msg,\.bt-astack\[data-lead\]>\.bt-msg\{max-width:100%\}/)
   assert.match(phone, /\.bt-bubble,\[data-chat-flow\] \[class\*="_bubble"\]\{max-width:100%;overflow-wrap:anywhere;word-break:break-word\}/)
-  assert.match(phone, /\[data-chat-flow\] :is\(pre,table\)\{max-width:100%;overflow-x:auto\}/)
+  assert.match(CONVERSATION_CSS, /\[data-chat-flow\] :is\(pre,table\)\{max-width:100%;overflow-x:auto\}/)
 })
 
 test('the phone breakpoint makes a card full width and its options tappable', () => {

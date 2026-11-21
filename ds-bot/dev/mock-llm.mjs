@@ -205,6 +205,12 @@ function decide(body) {
       if (done < steps) return [text(filler(size * 1000, `步骤${done + 1}`)), tool('list_bots', {})]
       return [text(`长任务做完了，一共 ${done} 步。`)]
     }
+    // "慢活 N": runs list_bots first (marking toolCount >= 1) then waits N seconds before finishing.
+    const slowAsked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
+    const slowJob = /^慢活\s+(\d+)/.exec(slowAsked)
+    if (slowJob && used?.name === 'list_bots') {
+      return Object.assign([text(`慢活已完成，耗时 ${slowJob[1]} 秒。`)], { delay: Number(slowJob[1]) * 1000 })
+    }
     // "看网页结构 [N]": answer with the first N lines (default 40) of what read_browser
     // returned, fenced so the chat shows the Markdown as text.
     const asked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
@@ -269,10 +275,10 @@ function decide(body) {
         const content = resultText.replace(/<[^>]+>/g, '').replace(/^\s*\d+[\t→|:]/gm, '').trim()
         return [text(result.is_error ? `附件没读成：${resultText.slice(0, 200)}` : `读了附件（${content.length} 字），结尾是「${content.slice(-24)}」。`)]
       }
-      case 'remember':
-      case 'forget':
-        return [text(/^(Saved to|Updated in|Removed from) /.test(resultText) ? (used.name === 'remember' ? '记下了。' : '已经忘掉了。') : `没记成：${resultText}`)]
-      case 'recall': return [text(`记忆里有：\n${resultText}`)]
+      case 'bot_remember':
+      case 'bot_forget':
+        return [text(/^(Saved to|Updated in|Removed from) /.test(resultText) ? (used.name === 'bot_remember' ? '记下了。' : '已经忘掉了。') : `没记成：${resultText}`)]
+      case 'bot_recall': return [text(`记忆里有：\n${resultText}`)]
       case 'web_search': return [text(result.is_error ? `搜索失败：${resultText}` : `搜到了：\n${resultText}`)]
       case 'working_directory': return [text(result.is_error ? `没进去：${resultText}` : `现在在 ${resultText}`)]
       case 'read_browser': {
@@ -367,12 +373,12 @@ function decide(body) {
       return [text(earlier.includes(ask[1]) ? `上下文里有「${ask[1]}」。` : `上下文里没有「${ask[1]}」。`)]
     }
     // Group memory: the admin saves, so a round of members does not save it twice.
-    if ((ask = /^User: (团队|自己)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userLine)) && tools.has('remember')) {
+    if ((ask = /^User: (团队|自己)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userLine)) && tools.has('bot_remember')) {
       if (!leads) return [text('[PASS]')]
-      return [tool('remember', { text: ask[3].trim(), ...(ask[2] ? { topic: ask[2] } : {}), ...(ask[1] ? { scope: ask[1] === '团队' ? 'team' : 'own' } : {}) })]
+      return [tool('bot_remember', { text: ask[3].trim(), ...(ask[2] ? { topic: ask[2] } : {}), ...(ask[1] ? { scope: ask[1] === '团队' ? 'team' : 'own' } : {}) })]
     }
-    if ((ask = /^User: 忘掉\s*[:：]?\s*(.+)$/.exec(userLine)) && tools.has('forget')) return leads ? [tool('forget', { entry: ask[1].trim() })] : [text('[PASS]')]
-    if ((ask = /^User: 回忆(?:\s+(.+))?$/.exec(userLine)) && tools.has('recall')) return [tool('recall', ask[1] ? { query: ask[1].trim() } : {})]
+    if ((ask = /^User: 忘掉\s*[:：]?\s*(.+)$/.exec(userLine)) && tools.has('bot_forget')) return leads ? [tool('bot_forget', { entry: ask[1].trim() })] : [text('[PASS]')]
+    if ((ask = /^User: 回忆(?:\s+(.+))?$/.exec(userLine)) && tools.has('bot_recall')) return [tool('bot_recall', ask[1] ? { query: ask[1].trim() } : {})]
     // Group Sessions: the frozen brief is in the Session's first message, the lookup a tool.
     if ((ask = /查能力\s*(\S*)/.exec(userLine))) return [text(capabilityReport(me, tools, messages, ask[1]))]
     if ((ask = /查私聊\s*(\S*)/.exec(userLine))) return [tool('read_own_chat', ask[1] ? { query: ask[1] } : {})]
@@ -413,6 +419,8 @@ function decide(body) {
   }
   // Secret cards: ask for a key, and use it once the card says it is saved or allowed.
   if (userText.startsWith('[Secret card]')) return secretNote(userText, tools)
+  if (userText.startsWith('[Background task ·')) return [text(`后台任务已完成，共继承 ${messages.length} 条消息。`)]
+  if (userText.startsWith('[Background task report ·')) return [text(`已收到后台任务汇报：${userText.split('\n').slice(1).join(' ').slice(0, 120)}`)]
   // Multiline: a runtime-context or policy notice can share the user's message.
   const secretAsk = /^要密钥(?:[ \t]+([A-Za-z][\w]*))?/m.exec(userText)
   if (secretAsk && tools.has('request_secret')) {
@@ -444,17 +452,18 @@ function decide(body) {
   }
   if ((order = /^看群\s*(.+)$/.exec(userText))) return [tool('read_group_chat', { group: order[1].trim() })]
   // Memory: 记住[@话题] 事实 · 团队记住 事实 · 忘掉 事实 · 回忆 [词]
-  if ((order = /^(团队)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('remember')) {
-    return [tool('remember', { text: order[3].trim(), ...(order[2] ? { topic: order[2] } : {}), ...(order[1] ? { scope: 'team' } : {}) })]
+  if ((order = /^(团队)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('bot_remember')) {
+    return [tool('bot_remember', { text: order[3].trim(), ...(order[2] ? { topic: order[2] } : {}), ...(order[1] ? { scope: 'team' } : {}) })]
   }
-  if ((order = /^忘掉\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('forget')) return [tool('forget', { entry: order[1].trim() })]
-  if ((order = /^回忆(?:\s+(.+))?$/.exec(userText)) && tools.has('recall')) return [tool('recall', order[1] ? { query: order[1].trim() } : {})]
+  if ((order = /^忘掉\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('bot_forget')) return [tool('bot_forget', { entry: order[1].trim() })]
+  if ((order = /^回忆(?:\s+(.+))?$/.exec(userText)) && tools.has('bot_recall')) return [tool('bot_recall', order[1] ? { query: order[1].trim() } : {})]
   if ((order = /^搜索\s*[:：]\s*([^\n]+)/.exec(userText)) && tools.has('web_search')) return [tool('web_search', { queries: order[1].trim().split(/\s*[|｜]\s*/) })]
   if ((order = /^进目录\s+(.+)$/.exec(userText)) && tools.has('working_directory')) return [tool('working_directory', { cd: order[1].trim() })]
   if (/^看(?:网页|页面)/.test(userText) && tools.has('read_browser')) return [tool('read_browser', {})]
   if (userText.startsWith('写成文字')) return [text(WRITTEN_CALL)]
   // Context-line tests: grow the context, run a long multi-step turn, search history.
   if ((order = /^(?:长文|long)\s*(\d+)/.exec(userText))) return [text(filler(Number(order[1]) * 1000, '长文'))]
+  if ((order = /^慢活\s+(\d+)/.exec(userText)) && tools.has('list_bots')) return Object.assign([tool('list_bots', {})], { delay: 100 })
   if ((order = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(userText))) return [text(filler(Number(order[2] ?? 4) * 1000, '步骤0')), tool('list_bots', {})]
   if ((order = /^查记录\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { query: order[1].trim() })]
   if ((order = /^查锚点\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { around: order[1].trim() })]

@@ -3,8 +3,8 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { downloadFile } from '../team/file-download.ts'
-import * as Sharing from 'expo-sharing'
+import { downloadFile } from '../team/file-download'
+import { shareFile } from '../team/share-file'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
@@ -17,6 +17,7 @@ import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
+import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
@@ -275,8 +276,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     void (async () => {
       try {
         const saved = await downloadFile(call, payload)
-        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
-        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
+        await shareFile(saved)
       } catch (failure) {
         const msg = (failure as { message?: string })?.message
         setFileError(msg ?? t('Could not save this file'))
@@ -321,7 +321,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     if (online && !wasOnline.current) { void refresh(generation.current); refreshTeam?.() }
     wasOnline.current = online
   }, [online, refresh, refreshTeam])
-  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined
+  const learning = learningForChat(team?.learning, bot?.id, bot?.sessionId ?? bot?.id, sessionId)
+  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined || learning.length > 0
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
@@ -496,7 +497,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />

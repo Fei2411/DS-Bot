@@ -99,6 +99,31 @@ test('a DM is direct, a guild message is a mention when the bot is in mentions',
   assert.equal(messages[2].mentioned, false)
 })
 
+test('a conversation is titled by its channel, a DM by the person', async (t) => {
+  const fake = await fakeDiscord()
+  fake.replies['/api/v10/channels/g1'] = { result: { id: 'g1', name: 'general', type: 0 } }
+  fake.replies['/api/v10/channels/g2'] = { error: 403, description: 'Missing Access' }
+  const messages = []
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: async (msg) => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 2, d: { id: '20', channel_id: 'dm1', content: 'hi', author: { id: 'u1', username: 'Fei' } } })
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 3, d: { id: '21', channel_id: 'g1', guild_id: 'w1', content: 'x', author: { id: 'u2', username: 'Yan' }, mentions: [] } })
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 4, d: { id: '22', channel_id: 'g2', guild_id: 'w1', content: 'y', author: { id: 'u2', username: 'Yan' }, mentions: [] } })
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 5, d: { id: '23', channel_id: 'g1', guild_id: 'w1', content: 'z', author: { id: 'u2', username: 'Yan' }, mentions: [] } })
+  await until(() => messages.length === 4)
+  const byId = id => messages.find(msg => msg.messageId === id)
+  assert.equal(byId('20').chat.title, 'Fei', 'a DM is titled by the person')
+  assert.equal(byId('21').chat.title, 'general', 'a named channel is titled by the name behind its channel_id')
+  assert.equal(byId('22').chat.title, '', 'a channel the bot cannot read keeps no title')
+  assert.equal(byId('23').chat.title, 'general', 'a channel read once keeps its name')
+  assert.equal(byId('21').chat.kind, 'group')
+  assert.equal(byId('20').chat.kind, 'direct')
+  const lookups = fake.calls.filter(call => call.method === 'GET' && /channels\/g1$/.test(call.path))
+  assert.equal(lookups.length, 1, 'the channel name is read once per connection')
+})
+
 test('a component press is deferred and reports the action', async (t) => {
   const fake = await fakeDiscord()
   const actions = []

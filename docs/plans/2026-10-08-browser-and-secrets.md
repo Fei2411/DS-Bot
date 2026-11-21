@@ -66,7 +66,7 @@ Bot 要替用户在网上做事，就会碰到两类东西：网页，以及登�
 - Bot 浏览器只在 DSH Desktop 和桌面应用里有，DSH Web 没有。
 - 历史消息里的链接还不能直接在 Bot 浏览器里打开（#114）。
 - 关掉 `auto` 搜索以后，`web_search` 可能报错，恢复方法见 #128。
-- 导入 cookie 只在桌面应用里有（写进 Bot 自己的存储分区）：cookie 文件（Cookie-Editor JSON、cookies.txt、Playwright storageState）和本机 Chrome/Edge/Firefox 的 profile。Chromium 系是先克隆 profile、再让原浏览器自己解密，不是直接读文件。Windows 上 Chrome/Edge 的新 cookie 用 app-bound 加密（v20），只在原 user-data 目录里能解：克隆目录解不开，这些条目会标成跳过；如果整库都是 v20 会直接提示走文件导入。localStorage 等其他登录状态不导。
+- 导入 cookie 只在桌面应用里有（写进 Bot 自己的存储分区）：支持直接选本机浏览器 profile（Chrome/Beta/Canary/Dev、Edge/Beta、Brave、Arc、Vivaldi、Opera/GX、Chromium、Firefox、Zen，记住上次使用的 profile），也支持导入文件或直接粘贴（Cookie-Editor JSON、cookies.txt、Playwright storageState、DevTools Copy as cURL、带网站地址的 Cookie 请求头）。读取策略按平台分流：有活跃 `DevToolsActivePort` 时优先直连官方 WebSocket CDP（无需关浏览器、支持读取 Windows v20 cookie 及打开标签页的 `localStorage`）；macOS 上直接用钥匙串密钥本地解密 SQLite（无需启停浏览器）；其他场景克隆 profile 并带上 `--profile-directory` 让原浏览器自解密。Windows 上 Chrome/Edge 144+ 的 v20 app-bound cookie 不做越权绕过，而是引导用户开启一次官方 `chrome://inspect/#remote-debugging` / `edge://inspect/#remote-debugging` 开关后直接连接。导入前可按站点勾选或一键只导当前网站、默认保持会话登录（重启应用不掉登录），写入后自动刷新当前页；cookie 与 storage 值全程不离开主进程。
 - 密钥只防泄露到模型、记录和其他 Bot 的 shell。有权限的 Bot 在自己的 shell 里能用到值，所以给哪些 Bot 开放，要由用户判断。
 
 ## 变更
@@ -79,3 +79,4 @@ Bot 要替用户在网上做事，就会碰到两类东西：网页，以及登�
 - 2026-10-23：桌面应用的 Bot 浏览器能导入 cookie（文件和本机浏览器），#458。
 - 2026-10-21：操作浏览器改由可选插件来做，见 [浏览器插件](2026-10-21-browser-plugins.md)。不配插件时，这一篇的只读行为不变。
 - 2026-10-24：桌面应用中 Bot 操作浏览器面板的页面；用户接管、停止和交还控制权。用户接管只能由用户结束。
+- 2026-11-19：升级桌面应用浏览器 profile 导入体验：支持多浏览器与多 profile 正确隔离、macOS 钥匙串本地直解、Windows Chrome/Edge 144+ 官方 `DevToolsActivePort` 直连导入（无需插件、可解 v20 且不关浏览器）、`localStorage` 写入、按站点筛选、会话登录持久化、导入后自动刷新，以及粘贴 Cookie / Copy as cURL。

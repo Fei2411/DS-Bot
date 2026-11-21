@@ -4,8 +4,18 @@ const fill = (text, params) => (params
   ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
   : text)
 
+const SUPPORTED = new Set(['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de'])
+
+function resolveLocale(tag) {
+  const lower = String(tag ?? '').toLowerCase()
+  if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo' || lower.startsWith('zh-hant')) return 'zh-TW'
+  if (lower.startsWith('zh')) return 'zh'
+  const primary = lower.split('-')[0]
+  return SUPPORTED.has(primary) ? primary : 'en'
+}
+
 export function createLocale(tag) {
-  const active = /^zh\b/i.test(tag) ? 'zh' : 'en'
+  const active = resolveLocale(tag)
   const dictionaries = new Map()
   return {
     getLocale: () => ({ active }),

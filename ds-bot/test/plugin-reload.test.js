@@ -244,7 +244,7 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
     },
     on: () => () => {},
   }
-  const served = ['read', 'subagent', 'workflow', 'message_bot', 'remember', 'recall', 'request_secret']
+  const served = ['read', 'subagent', 'workflow', 'message_bot', 'bot_remember', 'bot_recall', 'request_secret']
   const first = await loadPlugin(dsh, home, { served })
   await settle(() => registered.includes('message_bot'))
   await first.ctx.dispose()
@@ -255,10 +255,42 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
   const second = await loadPlugin(dsh, home, { served })
   cleanup(t, home, second.ctx)
   await settle(() => registered.includes('message_bot'))
-  for (const name of ['remember', 'recall', 'request_secret']) assert.equal(registered.includes(name), true, name)
+  for (const name of ['bot_remember', 'bot_recall', 'request_secret']) assert.equal(registered.includes(name), true, name)
   // The delegation tools a Bot Session must not use stay masked.
   assert.equal(denied.includes('subagent'), true)
   assert.equal(denied.includes('workflow'), true)
+})
+
+test('Bot memory tools coexist with another plugin memory tools in a Bot Session', async (t) => {
+  const home = freshHome()
+  const dsh = dshSide()
+  const foreign = new Map(['remember', 'forget', 'recall'].map(name => [name, { name }]))
+  const registered = new Map(foreign)
+  const collisions = []
+  dsh.agentOf('gb', { status: 'idle' }).ctx = {
+    tools: {
+      register: def => {
+        if (registered.has(def.name)) {
+          collisions.push(def.name)
+          throw new Error(`Tool ${def.name} is already registered`)
+        }
+        registered.set(def.name, def)
+        return () => registered.delete(def.name)
+      },
+      restrict: () => () => {},
+    },
+    on: () => () => {},
+  }
+  const { ctx, rt } = await loadPlugin(dsh, home)
+  cleanup(t, home, ctx)
+  await settle(() => registered.has('message_bot'))
+  rt.syncScopedTools()
+  for (const name of ['bot_remember', 'bot_forget', 'bot_recall']) {
+    assert.equal(typeof registered.get(name)?.execute, 'function', name)
+  }
+  // No Bot memory tool may collide with the foreign registrations.
+  assert.deepEqual(collisions, [])
+  for (const [name, def] of foreign) assert.equal(registered.get(name), def)
 })
 
 test('a tool whose registration failed is tried again, and another Agent is not disturbed', async (t) => {
@@ -275,7 +307,7 @@ test('a tool whose registration failed is tried again, and another Agent is not 
         register: (def) => {
           attempts[id].push(def.name)
           // The first attempt happens while the Agent cannot take it yet.
-          if (id === 'gb' && def.name === 'remember' && rememberFailures < 1) {
+          if (id === 'gb' && def.name === 'bot_remember' && rememberFailures < 1) {
             rememberFailures += 1
             throw new Error('the Agent is not ready for scoped tools yet')
           }
@@ -289,19 +321,19 @@ test('a tool whose registration failed is tried again, and another Agent is not 
   }
   const { ctx, rt } = await loadPlugin(dsh, home)
   cleanup(t, home, ctx)
-  // The scope was built once and 'remember' was refused; it must not count as added.
-  await settle(() => attempts.gb.includes('remember'))
-  assert.equal(registered.gb.includes('remember'), false)
+  // The scope was built once and 'bot_remember' was refused; it must not count as added.
+  await settle(() => attempts.gb.includes('bot_remember'))
+  assert.equal(registered.gb.includes('bot_remember'), false)
   // The next sync tries it again, and this time it lands.
   rt.syncScopedTools()
-  assert.equal(registered.gb.includes('remember'), true)
-  const settled = attempts.gb.filter(name => name === 'remember').length
+  assert.equal(registered.gb.includes('bot_remember'), true)
+  const settled = attempts.gb.filter(name => name === 'bot_remember').length
   assert.equal(settled, 2)
   rt.syncScopedTools()
-  assert.equal(attempts.gb.filter(name => name === 'remember').length, settled)
+  assert.equal(attempts.gb.filter(name => name === 'bot_remember').length, settled)
   // The other Agent got the tool once, and was not touched by the retry.
-  assert.equal(registered.b.includes('remember'), true)
-  assert.equal(attempts.b.filter(name => name === 'remember').length, 1)
+  assert.equal(registered.b.includes('bot_remember'), true)
+  assert.equal(attempts.b.filter(name => name === 'bot_remember').length, 1)
 })
 
 test('a running group turn that ends after the reload still posts its reply to the group', async (t) => {

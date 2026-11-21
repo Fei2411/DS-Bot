@@ -26,6 +26,7 @@ Settings, all optional:
 |---|---|---|
 | `HOST`, `PORT` | `0.0.0.0`, `8787` | Where the Server listens |
 | `DSBOT_LINK_DATA` | none (memory only) | File for the known devices |
+| `DSBOT_LINK_WEB_DIR` | none (web serving disabled) | Built web app directory to serve at `/web/`, with an `index.html` fallback for extensionless routes |
 | `DSBOT_LINK_TRUST_PROXY` | off | `1`: take the client address from the last `X-Forwarded-For` entry. Set it only behind a proxy that writes this header |
 | `DSBOT_LINK_MAX_SOCKETS` | `1024` | Open sockets in total |
 | `DSBOT_LINK_MAX_LINKS` | `1024` | Phone-to-computer links in total |
