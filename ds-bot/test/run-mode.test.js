@@ -245,6 +245,25 @@ test('a Bot without a model of its own still moves to a CLI only by the user, co
   assert.equal(env.state().bots.d.model, 'ds/pro')
 })
 
+test('moving to a local agent clears extra folders and excludes group grants', async (t) => {
+  const env = await start(t)
+  const extra = join(env.root, 'extra')
+  mkdirSync(extra)
+  assert.equal((await env.call('update-bot', { id: 'b', extraDirs: [extra] })).ok, true)
+  assert.equal((await env.call('update-room', { id: 'r1', extraDirs: [extra] })).ok, true)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [extra])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [extra])
+  assert.equal((await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })).ok, true)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [])
+  assert.equal(env.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'gb' } }), '')
+  const refused = await env.call('update-bot', { id: 'b', extraDirs: [extra] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /runs on a local agent/)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+})
+
 test('a Bot on a CLI keeps a model of it', async (t) => {
   const env = await start(t, { saved: team({ c: { id: 'c', name: 'Local', role: '', sessionId: 'c', createdAt: 3, model: CLI, appliedModel: CLI } }) })
   const cleared = await env.call('update-bot', { id: 'c', model: null })
