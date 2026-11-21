@@ -99,11 +99,6 @@ export function install(rt) {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
-    reviewFor: sessionId => {
-      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      const bot = rt.botOf(rt.selfOf(sessionId))
-      return (room?.permission ?? bot?.permission) === 'review'
-    },
     recordUsage: entry => rt.recordUsage?.(entry),
     // A change that rides along with the next save: the CLI reports its context on
     // every model call.
@@ -201,7 +196,6 @@ export function install(rt) {
     parameters: {
       action: { type: 'string', required: true, description: 'What the action does, in one line' },
       detail: { type: 'string', description: 'The exact command, paths, or arguments, when it helps the decision' },
-      evidence: { type: 'string', description: 'Complete permission request supplied by the external runtime' },
     },
     output,
     localAgentOnly: true,
@@ -209,14 +203,14 @@ export function install(rt) {
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
+      const outcome = await approval.request({
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      }, adapter.approvalEvidence(exec.agent.session.id, exec.callId) ?? { kind: 'external-agent', action: args })
+      })
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
@@ -290,6 +284,7 @@ export function install(rt) {
     isLocalAgentAvailable: route => registeredRoutes.has(route),
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,
     // The parts module's view of a CLI session's context, and the requests it makes of
     // the CLI when the conversation grows long: condense, write the handoff note, and
     // answer the context steward when the team has no model of its own.

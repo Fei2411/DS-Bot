@@ -26,7 +26,6 @@ export function install(rt) {
   }
 
   const roomOfSession = sessionId => rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
-  const appliedPresets = new Map()
 
   // `name` may be a function: it is read once the agent resolves, so a change asked
   // for while the resolve ran wins over the one still being applied.
@@ -40,7 +39,6 @@ export function install(rt) {
         setSandboxMode(agent.session, 'workspace-write')
         ctx.get('approval').setPolicy(agent, 'ask')
       } else presets().set(agent.session, wanted)
-      appliedPresets.set(sessionId, wanted)
       if (rt.state?.approvalPolicies) delete rt.state.approvalPolicies[sessionId]
     }
     return wanted
@@ -182,11 +180,12 @@ export function install(rt) {
       for (const task of activeTasksOf(bot)) {
         if (roomRequests.get(room) !== request) break
         if (task.roomId !== room.id) continue
-        const requestedPreset = wanted ?? bot.permission ?? service.catalog().defaultPreset
-        const appliedPreset = appliedPresets.get(task.sessionId)
-        // Unknown history is restarted conservatively. A superseded request leaves
-        // this marker at the mode the CLI actually kept, not the mode it asked for.
-        const restart = appliedPreset === undefined || appliedPreset !== requestedPreset
+        const requested = wanted ?? bot.permission ?? service.catalog().defaultPreset
+        const requestedPreset = requested === 'review' ? 'workspace-write' : requested
+        const launchPreset = rt.localAgentLaunchPreset?.(task.sessionId)
+        // The adapter records the mode the live CLI actually opened with, including
+        // the profile default and opens that raced with an earlier settings request.
+        const restart = launchPreset === undefined || launchPreset !== requestedPreset
         await setPreset(task.sessionId, () => roomRequests.get(room) === request
           && (room.permission !== undefined || requests.get(botId)?.seq === seq)
           ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, restart)
