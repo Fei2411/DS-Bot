@@ -67,12 +67,6 @@ const ATTACHED_CONTEXT_KINDS = new Set([
   'compact-checkpoint',
 ])
 
-// What a turn's own work reports back: a background job it ran, a subagent it
-// started. DSH injects these into a busy owner's next step, and steer.js does the
-// same for a call a steer detached. Inside a turn that has already opened they are
-// not a new asker; as a turn's first message (an idle owner woken) they are.
-const OWN_WORK_KINDS = new Set(['tool-jobs', 'subagent-settled'])
-
 function isAttachedContextSource(source) {
   if (source === null || typeof source !== 'object') return false
   if (typeof source.imOrigin === 'string' || typeof source.rpcId === 'string') return false
@@ -1716,8 +1710,6 @@ export function install(rt) {
   // can tag a message with the platform it came from. A Session's entries go
   // when it stops being the chat's current part.
   const imVia = new Map()
-  // Sessions whose current turn has had its first message classified.
-  const opened = new Set()
   const imViaView = () => {
     for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
     return Object.fromEntries([...imVia.entries()].map(([sessionId, seqs]) => [sessionId, { ...seqs }]))
@@ -1726,7 +1718,6 @@ export function install(rt) {
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
-      opened.delete(session.id)
       const room = rt.roomOf(session.id)
       if (room === undefined) {
         resetOrigin(session.id)
@@ -1744,9 +1735,6 @@ export function install(rt) {
       // in-turn notices) joins a turn without naming who asked: it neither claims nor
       // withdraws the IM origin, and does not consume a group's pending reset.
       if (isAttachedContextSource(source)) return
-      const midTurn = opened.has(session.id)
-      opened.add(session.id)
-      if (midTurn && OWN_WORK_KINDS.has(source?.kind)) return
       // Pure context notice injected before the user's message on a newly forked foreground;
       // never touch pendingReset or drop/mix the IM origin for this turn.
       if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
@@ -1819,7 +1807,6 @@ export function install(rt) {
       }
     }
     if (event.type === 'turn/end') {
-      opened.delete(session.id)
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
