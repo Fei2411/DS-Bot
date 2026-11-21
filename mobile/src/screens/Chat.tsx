@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics'
 import { downloadFile } from '../team/file-download'
 import { shareFile } from '../team/share-file'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
-import { createChatCache } from '../team/chat-cache.ts'
+import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
@@ -116,7 +116,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   }))
   const page = pageState.key === chatKey ? pageState.page : (cached?.page ?? null)
   const older = pageState.key === chatKey ? pageState.older : (cached?.older ?? [])
-  const cursor = useRef<unknown>(cached?.cursor)
+  const history = useRef(createChatHistory(cached?.cursor, room === undefined ? undefined : roomHeadPart(cached?.page.cursor)))
   const [gone, setGone] = useState(false)
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
   // A failed load clears itself on the next good one.
@@ -128,7 +128,6 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // loops and in-flight refreshes stop writing instead of fighting the new chat.
   const generation = useRef(0)
   const list = useRef<FlatList<Row>>(null)
-  const loading = useRef(false)
   const offsetRef = useRef(scrollOffsets.get(chatKey) ?? 0)
   const restoredForRef = useRef<string | null>(null)
   const prevPageItemsLenRef = useRef(0)
@@ -163,14 +162,17 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
         const sig = `${next.sessionId ?? ''}:${botCount}:${lastBot?.id ?? lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
         if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
         prevSigRef.current = sig
+        const refreshed = refreshChatHistory(history.current, next.cursor, room === undefined ? undefined : roomHeadPart(next.cursor))
+        const rolledOver = refreshed !== history.current
+        history.current = refreshed
+        if (rolledOver) setLoadingOlder(false)
         setPageState(prev => ({
           key: chatKey,
-          older: prev.key === chatKey ? prev.older : [],
+          older: prev.key === chatKey && !rolledOver ? prev.older : [],
           page: prev.key === chatKey && prev.page !== null && prev.page.sessionId === next.sessionId
             ? { ...next, items: keepSame(prev.page.items, next.items) }
             : next,
         }))
-        if (cursor.current === undefined) cursor.current = next.cursor
         setLoadError(null)
       }
     } catch (failure) {
@@ -192,7 +194,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     const gen = ++generation.current
     const kept = pages.get(chatKey)
     setPageState({ key: chatKey, page: kept?.page ?? null, older: kept?.older ?? [] })
-    cursor.current = kept?.cursor
+    history.current = createChatHistory(kept?.cursor, room === undefined ? undefined : roomHeadPart(kept?.page.cursor))
+    setLoadingOlder(false)
     setGone(false)
     const saved = scrollOffsets.get(chatKey) ?? 0
     offsetRef.current = saved
@@ -221,25 +224,28 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
 
   // What this chat shows is kept for the next visit.
   useEffect(() => {
-    if (pageState.page !== null) pages.keep(chatKey, pageState.key, { page: pageState.page, older: pageState.older, cursor: cursor.current })
+    if (pageState.page !== null) pages.keep(chatKey, pageState.key, { page: pageState.page, older: pageState.older, cursor: history.current.cursor })
   }, [pageState, chatKey])
 
-  // The page before the oldest one shown. cursor lives in a ref: the list can ask
-  // again before the state from the previous load commits.
+  // A rollover replaces the history ref so an in-flight page cannot overwrite its cursor.
   const loadMore = useCallback(async () => {
-    if (cursor.current == null || id === '' || loading.current) return
+    const active = history.current
+    if (active.cursor == null || id === '' || active.loading) return
     const gen = generation.current
-    loading.current = true
+    active.loading = true
     setLoadingOlder(true)
     try {
       const next = (room !== undefined
-        ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
-        : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
-      if (generation.current !== gen) return
-      cursor.current = next.cursor
+        ? await call('room-chat', { roomId: room.id, cursor: active.cursor, steps: true })
+        : await call('chat', { botId: id, cursor: active.cursor, steps: true })) as ChatPage
+      if (generation.current !== gen || history.current !== active) return
+      active.cursor = next.cursor
       setPageState(prev => (prev.key !== chatKey ? prev : { ...prev, older: [...next.items, ...prev.older] }))
     } catch { /* keep the page we have */ }
-    finally { loading.current = false; setLoadingOlder(false) }
+    finally {
+      active.loading = false
+      if (generation.current === gen && history.current === active) setLoadingOlder(false)
+    }
   }, [call, id, room?.id, chatKey])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
@@ -475,6 +481,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
           : page === null || chatWidth <= 0
             ? <ActivityIndicator style={styles.loading} color={p.accent} />
             : <FlatList
+                key={room === undefined ? undefined : roomHeadPart(page.cursor)}
                 ref={list}
                 inverted
                 data={rows}
