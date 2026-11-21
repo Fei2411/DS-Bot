@@ -26,6 +26,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
+const noCancelAck = process.argv.includes('--no-cancel-ack')
+const lateCancelReply = process.argv.includes('--late-cancel-reply')
 const cursorModes = process.argv.includes('--cursor-modes')
 const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
@@ -417,6 +419,13 @@ process.stdin.on('data', (chunk) => {
         else { sessions.get(params.sessionId).model = params.modelId; saveSaved(); reply(id, {}) }
         break
       case 'session/prompt':
+        if (lateCancelReply) {
+          const session = sessions.get(params.sessionId)
+          if (session?.pendingPrompt !== undefined) {
+            reply(session.pendingPrompt, { stopReason: 'cancelled' })
+            delete session.pendingPrompt
+          }
+        }
         void runPrompt(sessions.get(params.sessionId) ?? { id: params.sessionId }, params.prompt, id)
           .then(() => { if (exitAfterTurn) setTimeout(() => process.exit(0), 50) })
         break
@@ -425,6 +434,7 @@ process.stdin.on('data', (chunk) => {
         reply(id, {})
         break
       case 'session/cancel':
+        if (noCancelAck) break
         setTimeout(() => {
           update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })
           const session = sessions.get(params.sessionId)
