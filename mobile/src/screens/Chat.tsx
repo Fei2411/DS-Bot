@@ -277,7 +277,8 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const browserHold = handoff !== undefined && handoff.callId !== undefined ? { callId: handoff.callId, reason: handoff.reason, note: handoff.note } : undefined
   const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
   const roomWork = room !== undefined ? (team?.work?.rooms?.[room.id] ?? []) : []
-  const running = doing !== undefined || roomWork.length > 0
+  const agentWork = agent !== undefined ? team?.work?.agents?.[agent.id] : undefined
+  const running = doing !== undefined || roomWork.length > 0 || agentWork !== undefined
   const doingBot = bot ?? (roomWork[0] !== undefined ? team?.bots?.find(b => b.id === roomWork[0].botId) : undefined)
   const doingText = doing !== undefined ? workPhrase(doing) : roomWork[0] !== undefined ? `${doingBot?.name ?? ''} · ${workPhrase(roomWork[0])}` : ''
   const flat = team?.prefs?.layout === 'flat'
@@ -422,6 +423,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const stop = () => {
     if (room !== undefined) void call('stop-room-work', { roomId: room.id }).catch(() => {})
     else if (bot !== undefined) void call('stop-chat', { botId: bot.id }).catch(() => {})
+    else if (agent !== undefined) void call('stop-agent', { agentId: agent.id }).catch(() => {})
   }
 
   // Chronological rows (oldest first) with stable keys and the desktop's time stamps.

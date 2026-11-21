@@ -9,7 +9,7 @@ import type { ChatItem } from '../screens/chat/items.tsx'
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
 // with exactly the shapes the real host returns (channel.js `state` view + live(),
 // parts.js `chat` pages). Only compiled in when the env var is set at bundle time.
-export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'stop-agent', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
 
 export function demoLink() {
   const data = useMemo(demoData, [])
@@ -102,8 +102,18 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         if (pages === undefined || pages.length === 0) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
         const item: ChatItem = { kind: 'user', text: String(body.text ?? ''), time: Date.now(), seq: (pages[0].items.at(-1)?.seq ?? 0) + 1 }
         pages[0] = { ...pages[0], items: [...pages[0].items, item] }
+        // A DSH Agent works on it until stopped, so the demo shows the Stop button.
+        const agent = state.agents?.find(entry => entry.sessions.includes(id))
+        if (agent !== undefined) state.work = { ...state.work, agents: { ...state.work?.agents, [agent.id]: { tool: 'working' } } }
         touch()
         return true
+      }
+      case 'stop-agent': {
+        const agentId = String(body.agentId ?? '')
+        const running = state.work?.agents?.[agentId] !== undefined
+        if (running) delete state.work!.agents![agentId]
+        touch()
+        return running
       }
       case 'answer-question': {
         const sid = sessionOf(String(body.sessionId ?? ''))
