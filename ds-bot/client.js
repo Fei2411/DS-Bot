@@ -49283,6 +49283,7 @@ function apply(ctx) {
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current2.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current2.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current2.phone ?? null)) live2.phone = value.phone;
+    if (value.mcp !== void 0 && JSON.stringify(value.mcp) !== JSON.stringify(current2.mcp ?? null)) live2.mcp = value.mcp;
     if (value.learning !== void 0 && JSON.stringify(value.learning) !== JSON.stringify(current2.learning ?? {})) live2.learning = value.learning;
     if (value.learningSettled !== void 0 && JSON.stringify(value.learningSettled) !== JSON.stringify(current2.learningSettled ?? {})) live2.learningSettled = value.learningSettled;
     if (value.btwCards !== void 0 && JSON.stringify(value.btwCards) !== JSON.stringify(current2.btwCards ?? {})) live2.btwCards = value.btwCards;
