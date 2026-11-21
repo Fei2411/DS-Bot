@@ -730,6 +730,12 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-error{padding:0 4px}
 .bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
 .bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
+.bt-mcp{display:flex;flex-direction:column;gap:22px}
+.bt-mcp .bt-input{flex:1;min-width:0}
+.bt-mcp-token{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px}
+.bt-mcp-token code{word-break:break-all;user-select:all}
+.bt-mcp-scopes{display:flex;flex-wrap:wrap;gap:6px 14px;padding:0 16px 12px}
+.bt-mcp-scope{display:flex;align-items:center;gap:6px}
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}

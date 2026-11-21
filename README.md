@@ -61,6 +61,12 @@ Use the phone app's interface in a browser without installing it. On the compute
 
 The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
 
+### MCP access (preview)
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, your own scripts) can talk to your Bots through MCP. Open **Settings → MCP access**, turn it on, and create a token for each client; the token is shown once. A client reaches only the Bots and groups you tick for it (the Main Bot by default, never a private Bot). It can list Bots and groups, send messages, wait for replies, read chats and see what waits for you; approvals, questions, settings and secrets stay on the computer.
+
+Point an HTTP MCP client at `http://127.0.0.1:8797/mcp` with the header `Authorization: Bearer <token>`. For clients that only start a command, use `DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp`. See the [design](docs/plans/2026-11-20-mcp-access.md).
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model and thinking level you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.

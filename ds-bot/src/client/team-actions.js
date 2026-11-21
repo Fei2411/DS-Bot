@@ -309,6 +309,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
+    // The answer to mcp-client-add carries the new token once; nothing else does.
+    mcpSet: settings => after(call('mcp-set', settings)),
+    mcpClientAdd: client => after(call('mcp-client-add', client)),
+    mcpClientUpdate: (id, patch) => after(call('mcp-client-update', { id, ...patch })),
+    mcpClientRemove: id => after(call('mcp-client-remove', { id })),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),

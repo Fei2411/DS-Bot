@@ -61,6 +61,12 @@ DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `we
 
 中转服务器需要部署网页构建：在 `mobile/` 运行 `npm ci && npm run export:web`，启动[中转服务器](link/README.md)时把 `DSBOT_LINK_WEB_DIR` 设为 `mobile/dist` 的绝对路径。localhost 以外使用 HTTPS/WSS。`relay.dsbot.app` 完成这项部署后，默认服务器的浏览器链接才能使用。浏览器存储由 IndexedDB 中不可导出的密钥进行 AES-GCM 加密，但浏览器仍运行服务器提供的网页，请只使用可信的服务器。敏感操作需要改用手机 App 或电脑；网页没有后台通知。详见[设计与安全限制](docs/plans/2026-11-17-web-remote.md)。
 
+### MCP 访问（预览）
+
+本机的其他智能体（Claude Desktop、Cursor、Codex 或你自己的脚本）可以通过 MCP 和你的 Bot 对话。打开 **设置 → MCP 访问**，开启后为每个客户端生成一个令牌；令牌只显示一次。客户端只能找你为它勾选的 Bot 和群（默认是 Main Bot，隐私 Bot 永远不在内）。它可以列出 Bot 和群、发消息、等回复、读对话、查看等你处理的事项；审批、提问、设置和密钥都留在电脑上。
+
+HTTP MCP 客户端连 `http://127.0.0.1:8797/mcp`，带请求头 `Authorization: Bearer <令牌>`。只会启动命令的客户端用 `DSBOT_MCP_TOKEN=<令牌> npx -p ds-bot ds-bot-mcp`。详见[设计](docs/plans/2026-11-20-mcp-access.md)。
+
 ### Bot
 
 你可以在一个窗口中和一个 bot 完成所有对话和工作，你无需担心背后的上下文问题。你可以在 bot 详情页查看 bot 信息，也可以为 bot 选择你想使用的模型和思考强度。你可以随时切换模型，但我仍然建议你为一个 bot 长期保持一个模型，仅在真正必要的时刻切换。
