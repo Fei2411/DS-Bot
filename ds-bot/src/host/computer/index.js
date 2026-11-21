@@ -654,7 +654,9 @@ export function install(rt) {
     }
     await startDriverSession(exec, key)
   }
-  const isSessionEnded = (error) => /session has ended/i.test(String(error?.message ?? error))
+  const SESSION_RESTARTED = 'The computer-use session had ended. DS Bot started it again; call the tool again.'
+  const isSessionEnded = (result) => result?.isError === true &&
+    /session has ended/i.test(String(result.error?.message ?? result.content?.map?.(part => part?.text).join(' ') ?? ''))
   const driverCursorOff = new Set()
   const ensureDriverCursorOff = async (exec, botId) => {
     const session = driverSessionOf(botId)
@@ -917,6 +919,12 @@ export function install(rt) {
     const started = Date.now()
     try {
       const result = await next()
+      // DSH hands a failed tool body back as an error envelope, not an exception.
+      if (call.provider === 'cua-driver' && isSessionEnded(result)) {
+        await startDriverSession(exec, driverSessionKey(exec))
+        noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: SESSION_RESTARTED })
+        return { ...result, content: [{ type: 'text', text: `Error: ${SESSION_RESTARTED}` }], error: { message: SESSION_RESTARTED } }
+      }
       // Tool results arrive as an envelope { isError, content, value } — the
       // recorded app identity and screenshot attachment live in `value`.
       const payload = result !== null && typeof result === 'object' && result.isError !== true
@@ -952,10 +960,6 @@ export function install(rt) {
       return result
     } catch (error) {
       noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: String(error?.message ?? error).slice(0, 200) })
-      if (call.provider === 'cua-driver' && isSessionEnded(error)) {
-        await startDriverSession(exec, driverSessionKey(exec))
-        throw new Error('The computer-use session had ended. DS Bot started it again; call the tool again.', { cause: error })
-      }
       throw error
     } finally {
       if (typeof exec.callId === 'string') inFlight.delete(exec.callId)

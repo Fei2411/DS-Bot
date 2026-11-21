@@ -916,10 +916,10 @@ test('cua-driver sessions that ended while idle are started again before the nex
   assert.deepEqual(started.at(-1), { session: label })
   // a call refused as ended starts its session again and says to call again
   started.length = 0
-  await assert.rejects(
-    track({ name: 'cua_driver_native__list_apps', arguments: {}, agent: { id: 'w1' }, callId: 'c-ended' },
-      async () => { throw new Error('this session has ended; call start_session explicitly to reuse its label') }),
-    /started it again; call the tool again/)
+  const ended = await track({ name: 'cua_driver_native__list_apps', arguments: {}, agent: { id: 'w1' }, callId: 'c-ended' },
+    async () => ({ isError: true, content: [{ type: 'text', text: 'Error: this session has ended; call start_session explicitly to reuse its label' }], error: { message: 'this session has ended; call start_session explicitly to reuse its label' } }))
+  assert.equal(ended.isError, true)
+  assert.match(ended.content[0].text, /started it again; call the tool again/)
   assert.deepEqual(started, [{}])
   // discovery reads need no named window; the whole-desktop capture stays refused
   assert.equal(await call('cua_driver_native__list_windows', { pid: 99 }), 'allowed')
