@@ -108,6 +108,24 @@ test('add-agent creates one record with a first Session in the DS Bot workspace'
   assert.equal(created.at(-1).workspaceId, workspaceId)
 })
 
+test('agent-chat pages the newest Session of the DSH Agent and refuses an unknown one', async (t) => {
+  const { call, stop, ctx } = start(TEAM)
+  t.after(stop)
+  const pages = []
+  ctx.sessionController.page = async (query) => { pages.push(query); return { records: [], hasMore: false } }
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  const page = (await call('agent-chat', { agentId: agent.id })).value
+  assert.equal(page.sessionId, second.sessionId)
+  assert.deepEqual(page.items, [])
+  assert.equal(page.cursor, null)
+  assert.equal(pages.at(-1).address.sessionId, second.sessionId)
+  const missing = await call('agent-chat', { agentId: 'nope' })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.error.code, 'bot/not-found')
+})
+
 test('a team holds at most one DSH Agent', async (t) => {
   const { call, stop } = start(TEAM)
   t.after(stop)

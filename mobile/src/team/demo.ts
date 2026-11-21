@@ -35,9 +35,24 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { applied: body.approve === true }
       }
       case 'hello':
-        return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+        return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
       case 'notices':
         return { boot: 'demo', seq: 0, notices: [], reset: false }
+      case 'add-agent': {
+        if ((state.agents ?? []).length > 0) throw Object.assign(new Error('The team already has a DSH Agent'), { code: 'bot/invalid' })
+        const sessionId = `s-agent-${Math.random().toString(36).slice(2, 8)}`
+        const agent = { id: `a-${Math.random().toString(36).slice(2, 8)}`, name: 'DSH Agent', sessions: [sessionId], createdAt: Date.now() }
+        state.agents = [agent]
+        chatsRef.current[sessionId] = [{ sessionId, items: [], cursor: null }]
+        touch()
+        return agent
+      }
+      case 'agent-chat': {
+        const sessionId = state.agents?.find(agent => agent.id === String(body.agentId ?? ''))?.sessions.at(-1)
+        if (sessionId === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+        const page = chatsRef.current[sessionId]?.[0] ?? { items: [], cursor: null }
+        return { sessionId, items: page.items, cursor: page.cursor }
+      }
       case 'room-chat': {
         const pages = chatsRef.current[String(body.roomId ?? '')] ?? []
         const page = pages[0] ?? { items: [], cursor: null }

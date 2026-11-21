@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import { downloadFile } from '../team/file-download'
 import { shareFile } from '../team/share-file'
-import type { Approval, Bot, Question, Room } from '../connection.ts'
+import type { Agent, Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
 import { useTeam } from '../team/context.tsx'
@@ -14,7 +14,7 @@ import { messageClock, t } from '../ui/i18n.ts'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
-import { ArrowDownIcon } from '../ui/icons.tsx'
+import { ArrowDownIcon, FishLogo } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { learningForChat } from './chat/learning.ts'
@@ -69,12 +69,16 @@ function keepScrollOffset(key: string, offset: number): void {
 // A chat read started before the chat is on screen: on launch the last chat is asked
 // for while the team state is still on its way, and the chat takes that answer.
 const reads = new Map<string, Promise<ChatPage>>()
-const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown>, room: boolean, id: string) =>
-  (room ? call('room-chat', { roomId: id, steps: true }) : call('chat', { botId: id, steps: true })) as Promise<ChatPage>
-export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: 'bot' | 'room'; id: string }) {
+type ChatKind = 'bot' | 'room' | 'agent'
+const CHAT_READS = { bot: ['chat', 'botId'], room: ['room-chat', 'roomId'], agent: ['agent-chat', 'agentId'] } as const
+const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown>, kind: ChatKind, id: string, cursor?: unknown) => {
+  const [endpoint, field] = CHAT_READS[kind]
+  return call(endpoint, { [field]: id, ...(cursor === undefined ? {} : { cursor }), steps: true }) as Promise<ChatPage>
+}
+export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: ChatKind; id: string }) {
   const key = `${computerId}:${target.kind}:${target.id}`
   if (pages.has(key) || reads.has(key)) return
-  const read = readChat(call, target.kind === 'room', target.id)
+  const read = readChat(call, target.kind, target.id)
   reads.set(key, read)
   read.catch(() => {}).finally(() => { if (reads.get(key) === read) setTimeout(() => reads.delete(key), 5000) })
 }
@@ -101,13 +105,14 @@ const sameMessage = (item: ChatItem, sent: ChatItem) =>
 // The shared chat body for both shells: an inverted list (newest at the bottom, older
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
 // shell's own (back row or pill).
-export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
+export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; room?: Room; agent?: Agent; header: React.ReactNode; onMissing?: () => void }) {
   const navigation = useNavigation<any>()
   const { team, call, refresh: refreshTeam, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
-  const id = bot?.id ?? room?.id ?? ''
-  const chatKey = `${computer?.hostDeviceId ?? ''}:${room !== undefined ? 'room' : 'bot'}:${id}`
+  const kind: ChatKind = room !== undefined ? 'room' : agent !== undefined ? 'agent' : 'bot'
+  const id = bot?.id ?? room?.id ?? agent?.id ?? ''
+  const chatKey = `${computer?.hostDeviceId ?? ''}:${kind}:${id}`
   const cached = pages.get(chatKey)
   const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({
     key: chatKey,
@@ -149,7 +154,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     try {
       const early = reads.get(chatKey)
       reads.delete(chatKey)
-      const next = await (early ?? readChat(call, room !== undefined, id))
+      const next = await (early ?? readChat(call, kind, id))
       if (generation.current === gen) {
         let lastBot: ChatItem | undefined
         let botCount = 0
@@ -232,17 +237,15 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     loading.current = true
     setLoadingOlder(true)
     try {
-      const next = (room !== undefined
-        ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
-        : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
+      const next = await readChat(call, kind, id, cursor.current)
       if (generation.current !== gen) return
       cursor.current = next.cursor
       setPageState(prev => (prev.key !== chatKey ? prev : { ...prev, older: [...next.items, ...prev.older] }))
     } catch { /* keep the page we have */ }
     finally { loading.current = false; setLoadingOlder(false) }
-  }, [call, id, room?.id, chatKey])
+  }, [call, id, kind, chatKey])
 
-  const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
+  const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? agent?.sessions.at(-1) ?? id
   const question: Question | undefined = team?.questions?.[sessionId]
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
@@ -484,7 +487,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 ListHeaderComponent={<Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={inRoom} />}
                 ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ marginVertical: 12 }} color={p.ink3} /> : undefined}
               />}
-        {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
+        {empty && !gone ? <EmptyChat bot={bot} room={room} agent={agent} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
         {awayFromLatest || unreadBelow > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')}
             onPress={() => { setUnreadBelow(0); keepScrollOffset(chatKey, 0); list.current?.scrollToOffset({ offset: 0, animated: true }) }}
@@ -500,7 +503,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer name={bot?.name ?? room?.name ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
@@ -522,11 +525,11 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
 }
 
 // A chat with nothing in it yet: who it is with, large, where the messages will be.
-function EmptyChat({ bot, room, bots, p, dark }: { bot?: Bot; room?: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean }) {
+function EmptyChat({ bot, room, agent, bots, p, dark }: { bot?: Bot; room?: Room; agent?: Agent; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean }) {
   return (
     <View pointerEvents="none" style={styles.empty}>
-      {bot !== undefined ? <Avatar bot={bot} dark={dark} size={64} ring={p.main} /> : room !== undefined ? <RoomAvatar room={room} bots={bots} dark={dark} size={64} ring={p.main} /> : null}
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 12 }]} numberOfLines={1}>{bot?.name ?? room?.name ?? ''}</Text>
+      {bot !== undefined ? <Avatar bot={bot} dark={dark} size={64} ring={p.main} /> : room !== undefined ? <RoomAvatar room={room} bots={bots} dark={dark} size={64} ring={p.main} /> : agent !== undefined ? <FishLogo size={56} /> : null}
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 12 }]} numberOfLines={1}>{bot?.name ?? room?.name ?? agent?.name ?? ''}</Text>
       {bot?.role ? <Text style={[type.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={1}>{bot.role}</Text> : null}
       <Text style={[type.caption, { color: p.ink3, marginTop: 10 }]}>{t('No messages yet')}</Text>
     </View>

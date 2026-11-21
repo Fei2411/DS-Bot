@@ -99,12 +99,16 @@ export interface CapabilityItem {
   content?: string; items?: string[]; status?: string; approved?: boolean
 }
 
+// The team's DSH Agent (agents.js): plain DSH Sessions, newest last, not a Bot.
+export interface Agent { id: string; name?: string; sessions: string[]; createdAt?: number }
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
   liveKey?: string
   bots: Bot[]
   rooms?: Room[]
+  agents?: Agent[]
   mainBotId?: string | null
   mainBotIds?: string[]
   models?: { ref: string; name: string; provider?: string; providerName?: string }[]

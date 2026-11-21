@@ -28,6 +28,7 @@ export const CAPABILITIES = [
   'avatar',
   'chat',
   'room-chat',
+  'agents',
   'send',
   'send-images',
   'feed',

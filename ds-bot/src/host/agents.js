@@ -18,6 +18,8 @@ export function install(rt) {
   }
   // The DSH Agent a Session belongs to; Bot and group Sessions get undefined.
   const agentOf = sessionId => state.agents[sessionIndex.get(sessionId)]
+  // The Session a window that draws the conversation itself opens: the newest one.
+  const agentSessionOf = agentId => rt.own(state.agents, agentId)?.sessions?.at(-1)
 
   const writeCheck = () => {
     const readOnly = rt.readOnly()
@@ -125,5 +127,5 @@ export function install(rt) {
     await rt.save()
   }
 
-  Object.assign(rt, { agentOf, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
+  Object.assign(rt, { agentOf, agentSessionOf, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
 }

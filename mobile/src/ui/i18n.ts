@@ -92,6 +92,7 @@ const MOBILE_ZH: Record<string, string> = {
   'New Bot': '新 Bot',
   'Create new Bot': '创建新 Bot',
   'Create group chat': '创建群聊',
+  'Add DSH Agent': '添加 DSH Agent',
   'Create': '创建',
   'New group': '新群聊',
   'New': '新建',
