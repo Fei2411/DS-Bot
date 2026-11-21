@@ -241,6 +241,25 @@ test('Mobile/IM sendUser triggers foreground handoff after wait threshold and re
   assert.equal(env.prompts[1].sessionId, 'fork-1')
 })
 
+test('IM sendUser keeps the message on the current chat when a fresh preset session fails before commit', async (t) => {
+  const env = await startEnv({ forkImpl: async () => { throw new Error('no completed turn to fork') } })
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  env.rt.botOf('a').agentPreset = 'removed-from-profile'
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'IM follow-up' }], requestId: 'req-im-fallback' })
+  assert.equal(env.rt.botOf('a').sessionId, 'dm-a')
+  assert.deepEqual(env.rt.botOf('a').tasks ?? [], [])
+  assert.equal(env.createdSessions.length, 0, 'the unavailable preset still refuses a fresh Session')
+  assert.equal(env.prompts.length, 1, 'the incoming IM is queued exactly once')
+  assert.deepEqual(env.prompts[0], {
+    requestId: 'req-im-fallback', sessionId: 'dm-a', mode: 'queue', content: [{ type: 'text', text: 'IM follow-up' }],
+  })
+})
+
 test('quick model-only turn under wait threshold and local CLI agents do NOT auto-move foreground', async (t) => {
   const env = await startEnv()
   t.after(env.stop)

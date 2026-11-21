@@ -999,7 +999,14 @@ export function install(rt) {
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.shouldMoveForeground?.(bot, sessionId)) {
-        sessionId = await rt.handoffForeground(bot, sessionId)
+        try {
+          sessionId = await rt.handoffForeground(bot, sessionId)
+        } catch (error) {
+          // Before the handoff commits, the incoming message has not been queued
+          // anywhere. Keep it on the usable current chat with its original request id.
+          if (rt.chatOf(ownerBotId) !== sessionId || rt.taskOwners?.has(sessionId)) throw error
+          rt.warn('ds-bot: foreground handoff for %s failed before commit; queueing the user message on the current chat: %s', sessionId, error)
+        }
       }
     }
     await rt.ensureCapabilities(sessionId)
