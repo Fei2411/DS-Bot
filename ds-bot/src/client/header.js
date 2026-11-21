@@ -94,7 +94,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const workApprovalsKey = useWork?.(work => (room
     ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
     : bot
-      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.answerable === true))
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.roomId === undefined && entry.answerable === true))
       : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
   const approvals = room

@@ -154,6 +154,7 @@ export function install(rt) {
   async function setRoomPermission(room, name) {
     const wanted = cleanRoomPermission(name) ?? undefined
     if (wanted === room.permission) return false
+    const previous = room.permission
     const request = {}
     roomRequests.set(room, request)
     rt.cancelApprovalReviews?.({ roomId: room.id })
@@ -180,9 +181,11 @@ export function install(rt) {
       for (const task of activeTasksOf(bot)) {
         if (roomRequests.get(room) !== request) break
         if (task.roomId !== room.id) continue
+        const previousPreset = previous ?? bot.permission ?? service.catalog().defaultPreset
+        const requestedPreset = wanted ?? bot.permission ?? service.catalog().defaultPreset
         await setPreset(task.sessionId, () => roomRequests.get(room) === request
           && (room.permission !== undefined || requests.get(botId)?.seq === seq)
-          ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, true)
+          ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, previousPreset !== requestedPreset)
           .catch(error => rt.warn('ds-bot: permission for task %s of %s in %s not applied: %s', task.id, bot.name, room.name, error))
       }
     }
