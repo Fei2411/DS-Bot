@@ -19,7 +19,7 @@ export function activeChatTarget(state: StateLike, fallbackBotId?: string): Chat
   const top = state?.routes?.[index]
   if (top?.name !== 'Chat') return undefined
   const params = top.params as Partial<ChatTarget> | undefined
-  if ((params?.kind === 'bot' || params?.kind === 'room') && typeof params.id === 'string' && params.id !== '') {
+  if ((params?.kind === 'bot' || params?.kind === 'room' || params?.kind === 'agent') && typeof params.id === 'string' && params.id !== '') {
     return { kind: params.kind, id: params.id }
   }
   return fallbackBotId ? { kind: 'bot', id: fallbackBotId } : undefined

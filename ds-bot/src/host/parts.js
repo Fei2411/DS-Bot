@@ -2167,6 +2167,16 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
   }
 
+  // A DSH Agent's newest Session, paged like one part of a Bot's chat.
+  async function agentPage(agentId, cursor, steps = false) {
+    const agent = rt.agentById(agentId)
+    if (agent === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+    // Every Session archived: the Agent is still there, with an empty chat.
+    const sessionId = agent.sessions.at(-1)
+    if (sessionId === undefined) return { items: [], cursor: null }
+    return { sessionId, ...(await partPage([{ sessionId }], 0, cursor, steps)) }
+  }
+
   // "New session" in a Bot's chat: a manual move to a fresh part with the
   // deterministic handoff package, no model call. While the Bot is working the fresh
   // part starts at once and the part it replaces keeps running in the background.
@@ -2411,5 +2421,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

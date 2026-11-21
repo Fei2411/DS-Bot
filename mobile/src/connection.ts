@@ -117,12 +117,16 @@ export interface CapabilityItem {
   content?: string; items?: string[]; status?: string; approved?: boolean
 }
 
+// The team's DSH Agent (agents.js): plain DSH Sessions, newest last, not a Bot.
+export interface Agent { id: string; name?: string; sessions: string[]; createdAt?: number }
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
   liveKey?: string
   bots: Bot[]
   rooms?: Room[]
+  agents?: Agent[]
   mainBotId?: string | null
   mainBotIds?: string[]
   models?: { ref: string; name: string; provider?: string; providerName?: string }[]
@@ -144,6 +148,7 @@ export interface TeamState {
   version?: string
   work?: {
     bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
     waiting?: Record<string, { bots?: string[]; rooms?: string[] }>

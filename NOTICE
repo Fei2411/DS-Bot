@@ -10,6 +10,9 @@ Third-party code in this repository
 DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness)
 MIT License, Copyright (c) 2026 DeepSeek
 
+  - mobile/src/ui/icons.tsx FishLogo draws DSH's official mark, the path of
+    FishLogo in @deepseek-ai/dsh-client-ui-primitives (owner: DeepSeek), to
+    name the DSH Agent in the phone app as the desktop sidebar does.
   - ds-bot/dev/desktop-linux/launch.mts follows the steps of
     apps/desktop/scripts/dev.ts in DeepSeek Harness and reuses a few of its
     lines (the release record and the Electron launch arguments). It is a
