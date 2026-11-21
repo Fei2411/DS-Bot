@@ -1750,7 +1750,7 @@ export function install(rt) {
                 // A different IM chat currently owns the room; mix so neither chat sees the other's report.
                 dropOrigin(roomSid)
               }
-            } else if (roomSid !== undefined) {
+            } else if (roomSid !== undefined && (saved !== undefined || origins.has(roomSid))) {
               dropOrigin(roomSid)
             }
           } else if (originFromSaved(saved) === undefined) {
