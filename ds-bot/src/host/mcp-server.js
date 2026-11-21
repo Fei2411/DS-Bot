@@ -20,6 +20,7 @@ const MAX_TEXT = 20_000
 const WAIT_DEFAULT_S = 25
 // Most MCP clients give up on a tool call after about 60 seconds.
 const WAIT_MAX_S = 50
+const MAX_PAGES = 20
 const POLL_MS = 1_000
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
@@ -98,10 +99,17 @@ function chatItems(items) {
 }
 
 // The tools one client may use, scoped to its Bots and groups. `rt` is the runtime.
-export function clientTools(rt, client, { pollMs = POLL_MS } = {}) {
+// `current()` returns the client as it is saved now, or undefined once removed, so
+// a long wait_for_reply notices a revoked client or a narrowed scope.
+export function clientTools(rt, client, { pollMs = POLL_MS, current = () => client } = {}) {
   const { state } = rt
-  const allowedBot = bot => bot !== undefined && bot.private !== true && client.bots.includes(bot.id)
-  const allowedRoom = room => room !== undefined && client.rooms.includes(room.id)
+  const scope = () => {
+    const now = current()
+    if (now === undefined) throw refused('This client was removed')
+    return now
+  }
+  const allowedBot = bot => bot !== undefined && bot.private !== true && scope().bots.includes(bot.id)
+  const allowedRoom = room => room !== undefined && scope().rooms.includes(room.id)
   const findBot = (ref) => {
     const key = String(ref ?? '').trim()
     const bot = rt.botOf(key) ?? Object.values(state.bots).find(entry => entry.name.toLowerCase() === key.toLowerCase())
@@ -128,6 +136,18 @@ export function clientTools(rt, client, { pollMs = POLL_MS } = {}) {
     }
     const page = await rt.mobileEndpoint('room-chat', { roomId: room.id, ...(cursor ? { cursor } : {}) })
     return { items: page.items, cursor: page.cursor ?? null, working: page.running === true }
+  }
+  // The newest page, plus older ones until one starts at or before `after`, so
+  // replies that span pages or conversation parts are not skipped.
+  const readSince = async (place, after) => {
+    const page = await read(place)
+    let { cursor } = page
+    for (let pages = 1; cursor && pages < MAX_PAGES && (page.items[0]?.time ?? 0) > after; pages += 1) {
+      const older = await read(place, cursor)
+      page.items = [...older.items, ...page.items]
+      cursor = older.cursor
+    }
+    return page
   }
   // The client's name goes with every message, so a Bot knows it is not the user typing.
   const send = async (sessionId, text) => {
@@ -168,14 +188,15 @@ export function clientTools(rt, client, { pollMs = POLL_MS } = {}) {
       return { messages: chatItems(page.items), cursor: page.cursor, working: page.working }
     },
     wait_for_reply: async (args) => {
-      const place = target(args)
+      target(args)
       const after = Number.isFinite(args.after) ? args.after : Date.now()
       const seconds = Math.min(Math.max(Number(args.timeoutSeconds) || WAIT_DEFAULT_S, 1), WAIT_MAX_S)
       const until = Date.now() + seconds * 1000
       // A turn can take a moment to start after send: one poll before trusting "idle".
       let polls = 0
       for (;;) {
-        const page = await read(place)
+        // Checked on every poll: the client can be removed or its scope narrowed mid-wait.
+        const page = await readSince(target(args), after)
         const fresh = chatItems(page.items).filter(item => item.kind !== 'user' && (item.time ?? 0) > after)
         const done = !page.working && (fresh.length > 0 || polls > 0)
         if (done || Date.now() >= until) {
@@ -327,7 +348,7 @@ export function install(rt) {
   const callFor = (client) => {
     const cached = tools.get(client.id)
     if (cached?.client === client) return cached.call
-    const call = clientTools(rt, client)
+    const call = clientTools(rt, client, { current: () => read().clients.find(entry => entry.id === client.id) })
     tools.set(client.id, { client, call })
     return call
   }

@@ -151,7 +151,13 @@ function fakeRuntime() {
     chatOf: id => `chat-${id}`,
     live: { get: sessionId => (busy.has(sessionId.replace('chat-', '')) ? { turn: 1 } : undefined) },
     sendUser: async (message) => { sent.push(message) },
-    chatPage: async botId => ({ sessionId: botId, items: chats[botId] ?? [], cursor: null }),
+    // Two items a page, newest first, like a long chat over several pages.
+    chatPage: async (botId, cursor) => {
+      const all = chats[botId] ?? []
+      const end = cursor?.end ?? all.length
+      const start = Math.max(0, end - 2)
+      return { sessionId: botId, items: all.slice(start, end), cursor: start > 0 ? { end: start } : null }
+    },
     mobileEndpoint: async (endpoint, body) => ({ roomId: body.roomId, items: [], cursor: null, running: false }),
     approvalsView: () => [
       { id: 'a1', botId: 'm1', tool: 'bash', reason: 'Run the tests' },
@@ -205,4 +211,22 @@ test('wait_for_reply returns the replies after the send once the Bot is idle', a
   const timedOut = await call('wait_for_reply', { bot: 'm1', after: 300, timeoutSeconds: 1 })
   assert.deepEqual([timedOut.done, timedOut.working, timedOut.messages, timedOut.after], [false, true, [], 300])
   await assert.rejects(call('wait_for_reply', { bot: 'm1', group: 'r1' }), /not both/)
+})
+
+test('wait_for_reply reads back over older pages and stops when the client loses access', async () => {
+  const rt = fakeRuntime()
+  let client = { id: 'c1', name: 'Cursor', bots: ['m1'], rooms: [] }
+  const call = clientTools(rt, client, { pollMs: 10, current: () => client })
+  rt.chats.m1.push({ kind: 'user', text: 'question', time: 100 }, { kind: 'bot', text: 'one', time: 200 }, { kind: 'bot', text: 'two', time: 300 }, { kind: 'bot', text: 'three', time: 400 })
+  const reply = await call('wait_for_reply', { bot: 'm1', after: 150, timeoutSeconds: 5 })
+  assert.deepEqual(reply.messages.map(item => item.text), ['one', 'two', 'three'], 'replies on an older page are not skipped')
+
+  rt.busy.add('m1')
+  const waiting = call('wait_for_reply', { bot: 'm1', after: 400, timeoutSeconds: 5 })
+  setTimeout(() => { client = undefined }, 30)
+  await assert.rejects(waiting, /removed/)
+  client = { id: 'c1', name: 'Cursor', bots: ['m1'], rooms: [] }
+  const narrowed = call('wait_for_reply', { bot: 'm1', after: 400, timeoutSeconds: 5 })
+  setTimeout(() => { client = { ...client, bots: [] } }, 30)
+  await assert.rejects(narrowed, /No Bot "m1"/)
 })
