@@ -11,6 +11,7 @@ import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { boundedFetch } from './platforms/media.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -454,7 +455,7 @@ export function install(rt) {
   }
 
   const envFor = async (conn, runtime) => ({
-    fetch: globalThis.fetch,
+    fetch: boundedFetch(),
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
