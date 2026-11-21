@@ -260,6 +260,9 @@ export function install(rt) {
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
         .then(() => sendKickoff(bot, greeting))
+        // Reading the model catalog can throw; nothing awaits this chain, so an
+        // uncaught rejection here would end the host.
+        .catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', cleanName, error))
       return bot
     } catch (error) {
       // The Bot's Session was already made: archive it instead of leaving an orphan.
