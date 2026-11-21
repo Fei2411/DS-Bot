@@ -104,6 +104,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on session/event',
     'on llm/stream',
     'on agent/status',
+    'effect ds-bot: unused background pictures',
     'on tools/execute',
     'on llm/stream',
     'effect ds-bot: load secrets',

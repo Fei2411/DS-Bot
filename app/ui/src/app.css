@@ -37,7 +37,7 @@ html[data-mac] .dsb-frame .dsb-side{padding-top:var(--dsb-band)}
 .dsb-settings:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 
 /* Conversation: a floating header pill over the transcript, and the composer below. */
-.dsb-main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bt-main);--dsh-chat-content-width:min(960px,100%)}
+.dsb-main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bt-pane,var(--bt-main));--dsh-chat-content-width:min(960px,100%)}
 .dsb-head{position:absolute;top:0;left:0;right:0;z-index:8;display:flex;justify-content:center;padding:4px 0 0;pointer-events:none}
 .dsb-head::before{content:"";position:absolute;inset:0 0 auto;height:60px;background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 .dsb-head .bt-head{flex:1 1 auto;width:100%}
@@ -82,7 +82,7 @@ body[data-bt-room] [data-composer-card]:has(.dsb-send:disabled) .bt-mic:not([ari
 .md_markdown blockquote{margin:0;padding-left:10px;border-left:2px solid var(--bt-line-2);color:var(--bt-ink-2)}
 .md_markdown hr{border:0;border-top:1px solid var(--bt-line-2)}
 .md_markdown img{max-width:100%}
-.md_markdown code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em}
+.md_markdown code{font-family:var(--bt-mono);font-size:.9em}
 .md_markdown :not(pre)>code{padding:1px 5px;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 6%,transparent)}
 .md_markdown table{border-collapse:collapse;display:block;max-width:100%;overflow-x:auto}
 .md_markdown th,.md_markdown td{padding:4px 8px;border:1px solid var(--bt-line-2);text-align:left}

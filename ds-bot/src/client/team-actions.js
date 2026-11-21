@@ -191,6 +191,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
+    // Background pictures and a chat's own background (docs/plans/2026-11-21-appearance.md).
+    addBackground: image => call('background-add', { image }),
+    setChatBackground: body => after(call('set-chat-background', body)),
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
     updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
     roomTodoCheck: (roomId, id, done) => after(call('room-todo', { roomId, id, done })),

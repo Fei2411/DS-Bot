@@ -199,9 +199,38 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'session-page'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture', 'session-page'])
 
+  // A change is all or nothing: one field the host refuses leaves every other field of it
+  // unsaved too, so a refused change never shows up later with the next save.
+  // The one check that waits (the model catalog) runs before anything changes; the rest
+  // applies in one step, so a refused change cannot roll back another request's save.
   async function setPrefs(body) {
+    const model = await defaultModelOf(body)
+    const before = structuredClone(state.prefs)
+    try {
+      applyPrefs(body, model)
+    } catch (error) {
+      for (const key of Object.keys(state.prefs)) delete state.prefs[key]
+      Object.assign(state.prefs, before)
+      throw error
+    }
+    // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
+    await rt.save()
+    if (body.appearance !== undefined || body.themes !== undefined) void rt.backgroundSweep()
+    if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
+  }
+
+  // The model new Bots start on when a create names none. It resolves now, so the
+  // saved ref is one the catalog served at save time; a create still re-checks it.
+  async function defaultModelOf(body) {
+    const ref = body.defaultBotModel
+    if (ref === undefined || ref === null || ref === '') return ref
+    if (rt.isLocalAgentRef?.(ref) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
+    return rt.resolveModel(ref)
+  }
+
+  function applyPrefs(body, model) {
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -237,11 +266,8 @@ export function install(rt) {
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
     }
     if (body.defaultBotModel !== undefined) {
-      // The model new Bots start on when a create names none. It resolves now, so the
-      // saved ref is one the catalog served at save time; a create still re-checks it.
-      if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
-      else if (rt.isLocalAgentRef?.(body.defaultBotModel) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
-      else state.prefs.defaultBotModel = await rt.resolveModel(body.defaultBotModel)
+      if (model === null || model === '') delete state.prefs.defaultBotModel
+      else state.prefs.defaultBotModel = model
     }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
@@ -268,8 +294,7 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
-    await rt.save()
-    if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
+    rt.appearancePrefs(body)
   }
 
   const handle = async (endpoint, payload, signal) => {
@@ -422,6 +447,15 @@ export function install(rt) {
           await rt.resumeBot(bot)
           return ok(true)
         }
+        // Background pictures and a chat's own background (appearance.js).
+        case 'background-add':
+          await rt.load()
+          return ok(await rt.backgroundAdd(body.image))
+        case 'background-picture':
+          return ok(await rt.backgroundPicture(body.id))
+        case 'set-chat-background':
+          await rt.load()
+          return ok(await rt.setChatBackground(body))
         // The avatar library: photos the user imported once, kept beside the team.
         case 'avatar-library':
           await rt.load()

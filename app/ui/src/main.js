@@ -27,6 +27,7 @@ import { PROVIDERS_CSS } from '../../../ds-bot/src/client/providers-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { READ_ONLY_CSS } from '../../../ds-bot/src/client/read-only-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
+import { APPEARANCE_PAGE_CSS } from '../../../ds-bot/src/client/appearance-page.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
 import { SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
@@ -39,6 +40,7 @@ import { USER_MESSAGE_CSS } from '../../../ds-bot/src/client/user-message.js'
 import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
 import { createLocale } from './locale.js'
 import { App } from './app.js'
+import { paintMode } from './mode.js'
 import './app.css'
 
 installLocale(createLocale(navigator.language))
@@ -54,15 +56,11 @@ for (const [tag, text] of [
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + LEARNING_CSS],
-  ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS],
+  ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS], ['appearance', APPEARANCE_PAGE_CSS],
   ['feedback', FEEDBACK_CSS], ['about', ABOUT_CSS], ['members', MEMBER_CSS],
 ]) installStyles(text, tag)
 
-// The plugin's colors switch on body[data-ds-dark-theme], which DSH sets; here the system's
-// light or dark mode sets it.
-const dark = matchMedia('(prefers-color-scheme: dark)')
-const paint = () => { document.body.toggleAttribute('data-ds-dark-theme', dark.matches) }
-paint()
-dark.addEventListener('change', paint)
+// Light or dark before the team arrives; then the team's choice (mode.js).
+paintMode(undefined)
 
 createRoot(document.getElementById('root')).render(h(App))

@@ -1,8 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
-import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
-import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { PaletteIcon, CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -31,26 +29,27 @@ import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
+import { AppearancePage } from './appearance-page.js'
 
-const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
 // DS Bot's pages come first; below a rule, the pages DSH and other plugins register
 // (`settings.section`), then Feedback and About. DSH's General rows join General, and
 // its Models page opens from DS Bot's Models page as the advanced settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['deepseek-services', 'DeepSeek services'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const SETTINGS_PAGES = [['general', 'General'], ['appearance', 'Appearance'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['deepseek-services', 'DeepSeek services'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
 const LAST_PAGES = new Set(['feedback', 'about'])
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models'])
-// DSH General rows that sit under Appearance; the rest go under More.
+// DSH General rows that sit on the Appearance page; the rest go under More.
 const LOOK_ITEMS = ['appearance', 'font-size']
+const lookRows = dsh => LOOK_ITEMS.filter(id => (dsh?.items ?? []).some(row => row.id === id)).map(id => dshItem(dsh, id))
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -94,9 +93,6 @@ function SetRow({ label, hint, children, className = '' }) {
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
 
-const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
-const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
-
 function Choice({ label, value, options, pick }) {
   return h(Segmented, { label, value, className: 'bt-look-seg' }, options.map(([id, text]) => h('button', {
     key: id, type: 'button', 'aria-pressed': value === id,
@@ -104,85 +100,11 @@ function Choice({ label, value, options, pick }) {
   }, t(text))))
 }
 
-// A width in percent of the column. A drag saves once it rests, as the custom accent
-// does; a change still waiting when the dialog closes is saved, not dropped.
-function WidthSlider({ label, value, save }) {
-  const [width, setWidth] = useState(value)
-  const pending = useRef(null)
-  const timer = useRef(0)
-  const saveRef = useRef(save)
-  saveRef.current = save
-  useEffect(() => { if (pending.current === null) setWidth(value) }, [value])
-  const flush = () => {
-    const next = pending.current
-    pending.current = null
-    if (next !== null) saveRef.current(next)
-  }
-  useEffect(() => () => { clearTimeout(timer.current); flush() }, [])
-  const pick = (next) => {
-    setWidth(next)
-    pending.current = next
-    clearTimeout(timer.current)
-    timer.current = setTimeout(flush, 350)
-  }
-  const { min, max, step } = MESSAGE_WIDTH
-  return h('div', { className: 'bt-range', style: { '--bt-fill': `${((width - min) / (max - min)) * 100}%` } },
-    h('input', { type: 'range', min, max, step, value: width, 'aria-label': label, 'aria-valuetext': `${width}%`, onChange: event => pick(Number(event.target.value)) }),
-    h('output', null, `${width}%`))
-}
-
 function GeneralPage({ roster, actions, run, dsh }) {
   const items = (dsh?.items ?? []).map(row => row.id).filter(id => id !== '')
-  const look = LOOK_ITEMS.filter(id => items.includes(id))
   const more = items.filter(id => !LOOK_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
-  const themes = allThemes()
-  const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
-  const [custom, setCustom] = useState(prefs.accent ?? '#4d6bfe')
-  const timer = useRef(0)
-  const pendingAccent = useRef(null)
-  const saveAccent = useRef((value) => run(actions.setPrefs({ accent: value })))
-  saveAccent.current = (value) => run(actions.setPrefs({ accent: value }))
-  const flushAccent = () => {
-    clearTimeout(timer.current)
-    const value = pendingAccent.current
-    if (value === null) return
-    pendingAccent.current = null
-    void saveAccent.current(value)
-  }
-  useEffect(() => flushAccent, [])
-  const pickCustom = (value) => {
-    setCustom(value)
-    pendingAccent.current = value
-    clearTimeout(timer.current)
-    timer.current = setTimeout(flushAccent, 350)
-  }
-  const pickPreset = (value) => {
-    clearTimeout(timer.current)
-    pendingAccent.current = null
-    return run(actions.setPrefs({ accent: value }))
-  }
   return [
-    h(SetSection, { key: 'look', title: t('Appearance') },
-      h(SetRow, { label: t('Theme'), hint: t('Colors for the whole team, on every device.') },
-        h('select', { className: 'bt-select', 'aria-label': t('Theme'), value: current, onChange: event => run(actions.setPrefs({ theme: event.target.value })) },
-          Object.entries(themes).map(([id, theme]) => h('option', { key: id, value: id }, t(theme.label))))),
-      h(SetRow, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.') },
-        h('div', { className: 'bt-swatches' },
-          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => pickPreset(null) }),
-          ACCENT_INKS.map(ink => h('button', {
-            key: ink, type: 'button', className: 'bt-swatch', title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
-            style: { background: `var(--bt-ink-${ink})` }, onClick: () => pickPreset(INKS[ink][0]),
-          })),
-          h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent) },
-            h('input', { type: 'color', value: custom, 'aria-label': t('Custom accent'), onChange: event => pickCustom(event.target.value) })))),
-      h(SetRow, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
-      // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
-      layoutOf(prefs) === 'flat' ? h(SetRow, { label: t('Text width') }, h(WidthSlider, { label: t('Text width'), value: flatWidthOf(prefs), save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
-      h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
-      h(SetRow, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
-      h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) })),
-      look.map(id => dshItem(dsh, id))),
     h(SetSection, { key: 'new', title: t('New Bots') },
       h(SetRow, { label: t('Default model'), className: 'bt-set-model' },
         h(ModelMenu, {
@@ -410,6 +332,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           h(PageBoundary, null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
+          shown === 'appearance' ? h(AppearancePage, { roster, actions, run, Section: SetSection, Row: SetRow, Choice, Switch, ownWindow: dsh === undefined, dshRows: lookRows(dsh) }) : null,
           shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
           advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
           section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,

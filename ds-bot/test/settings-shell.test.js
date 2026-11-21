@@ -296,13 +296,17 @@ test('DSH\'s Models page is Models → Advanced settings, with a way back', () =
   assert.equal(providersOf(dialog({ page: 'models', sections: [] }).tree).props.advanced, null)
 })
 
-test('DSH\'s General rows join General: the look under Appearance, the rest under More', () => {
+test('DSH\'s General rows: the look on the Appearance page, the rest under More in General', () => {
   const items = [{ id: 'permission', order: -20 }, { id: 'language', order: 0 }, { id: 'appearance', order: 10 }, { id: 'font-size', order: 11 }, { id: 'developer-tools', order: 15 }]
   const [general] = walk(dialog({ items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
   const sections = general.type(general.props).filter(Boolean)
   const only = node => walk(node, item => item.type === 'slot').map(item => item.props.only)
-  assert.deepEqual(only(sections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
+  assert.equal(sections.find(node => node.props.key === 'look'), undefined)
   assert.deepEqual(only(sections.find(node => node.props.key === 'more')), ['permission', 'language', 'developer-tools'])
+  // In DSH, light or dark and the font size stay DSH's own rows, now on the Appearance page.
+  const [appearance] = walk(dialog({ items, page: 'appearance' }).tree, node => typeof node.type === 'function' && node.type.name === 'AppearancePage')
+  assert.equal(appearance.props.ownWindow, false)
+  assert.equal(appearance.props.dshRows.map(row => row.props['data-item']).join(), 'appearance,font-size')
 })
 
 test('DS Bot draws known General selectors, while unrelated DSH rows keep their public slots', () => {

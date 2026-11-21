@@ -1,3 +1,4 @@
+import { scaleCss } from './css-scale.js'
 import { INKS } from './inks.js'
 import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
@@ -1612,12 +1613,27 @@ export function botOwnCss(css) {
   return out
 }
 
+// Corners and text sizes follow the appearance (css-scale.js); the theme and the
+// appearance sheets hold no such sizes, and the user's own stylesheet is kept as written.
 export function installStyles(text, tag) {
   const style = document.createElement('style')
   style.dataset.dshBot = tag
   style.dataset.plugin = PLUGIN_ID
-  style.textContent = text
+  style.textContent = scaleCss(text)
   document.head.appendChild(style)
+  if (lastSheet?.isConnected) document.head.appendChild(lastSheet)
+  return style
+}
+
+// The user's own stylesheet (appearance.js) stays after every DS Bot sheet, so a rule of
+// theirs wins over one of ours with the same specificity, as "loaded last" promises.
+let lastSheet = null
+export function installLastStyles(tag) {
+  const style = document.createElement('style')
+  style.dataset.dshBot = tag
+  style.dataset.plugin = PLUGIN_ID
+  document.head.appendChild(style)
+  lastSheet = style
   return style
 }
 
@@ -1733,7 +1749,8 @@ function syncHeadWatchers() {
   }
 }
 
-export function installCompiledStyles(text, tag) {
+export function installCompiledStyles(source, tag) {
+  const text = scaleCss(source)
   const needsCompile = /\[class\*="_[\w-]+"\]/.test(text)
   const style = installStyles(needsCompile ? '' : text, tag)
   const entry = { style, text, needsCompile, disposed: false }

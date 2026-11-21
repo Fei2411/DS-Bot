@@ -98,6 +98,8 @@ export const PauseIcon = lineIcon(['M7.5 5v10', 'M12.5 5v10'])
 export const ResumeIcon = lineIcon(['M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z'])
 export const TrashIcon = lineIcon(['M3.5 5.5h13', 'M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5', 'M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10', 'M8.5 9v4.5M11.5 9v4.5'])
 export const DuplicateIcon = lineIcon(['M7 7h8.5v9.5H7z', 'M4.5 13V3.5H13', 'M11.25 9.5v4.5M9 11.75h4.5'])
+// A painter's palette with three wells: Settings → Appearance.
+export const PaletteIcon = lineIcon(['M10 3.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.6 1.5-1.4 0-1.2-1-1.6-1-2.6 0-.9.7-1.5 1.6-1.5h1.7a2.7 2.7 0 0 0 2.7-2.7C16.5 5.7 13.6 3.5 10 3.5z', 'M6.8 9.2h.01M8.8 6.5h.01M12 6.3h.01'])
 // For the desktop window, in place of DSH's settings icons (app/ui/src/primitives.js):
 // a head and shoulders; a box with its lid; a stack of three cards; a ring with a gap.
 export const PersonIcon = lineIcon(['M10 3.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6z', 'M4 16.5c.7-3 3.1-4.8 6-4.8s5.3 1.8 6 4.8'])
