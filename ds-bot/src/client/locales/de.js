@@ -812,6 +812,8 @@ export const DE = {
   'Add DSH Agent': 'DSH Agent hinzufügen',
   'Remove DSH Agent': 'DSH Agent entfernen',
   'New session': 'Neue Sitzung',
+  'Blank session': 'Leere Sitzung',
+  'Continue with handoff': 'Mit Übergabe fortsetzen',
   'Start a new session for {name} in this group': 'Eine neue Sitzung für {name} in dieser Gruppe starten',
   Started: 'Gestartet',
   'Started a new session for {name} in this group': 'Neue Sitzung für {name} in dieser Gruppe gestartet',

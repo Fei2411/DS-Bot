@@ -209,7 +209,16 @@ export class AcpEngine {
 
   createSession(dshSessionId) {
     const queue = new EventQueue()
-    return { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
+    return {
+      dshSessionId,
+      acpSessionId: undefined,
+      dead: false,
+      modes: [],
+      toolCalls: new Map(),
+      reportedToolCalls: new Set(),
+      push: event => queue.push(event),
+      next: () => queue.next(),
+    }
   }
 
   sessionFor(dshSessionId) {
@@ -251,8 +260,22 @@ export class AcpEngine {
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
         if (id !== undefined) session.toolCalls.set(id, call)
-        if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
-        else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
+        const team = ownToolCall(call)
+        const described = describeCall(call)
+        const reported = id !== undefined && session.reportedToolCalls.has(id)
+        if (!reported) {
+          if (update.status === 'failed' && known?.status !== 'failed') {
+            if (id !== undefined) session.reportedToolCalls.add(id)
+            session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
+          } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
+            if (id !== undefined) session.reportedToolCalls.add(id)
+            session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
+          }
+        } else if (update.status === 'failed' && known?.status !== 'failed') {
+          session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
+        } else if (update.status !== 'completed' && described !== describeCall(known)) {
+          session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
+        }
         break
       }
       case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
@@ -758,6 +781,7 @@ const ownToolCall = (call) => {
     || input.mcpServer === MCP_SERVER
     || call?._meta?.mcpServer === MCP_SERVER
     || call?._meta?.serverName === MCP_SERVER
+    || String(call?._meta?.['cognition.ai/toolName'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
     || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
     || name.startsWith(`mcp__${MCP_SERVER}__`)
     || name.startsWith(`mcp_${MCP_SERVER}_`)
@@ -766,12 +790,34 @@ const ownToolCall = (call) => {
     || name.startsWith(`${MCP_SERVER}/`)
     || (name === 'call_mcp_tool' && (input.ServerName === MCP_SERVER || args.ServerName === MCP_SERVER))
 }
+const ANONYMOUS_MCP_TITLE = /^mcp(?:\s*:\s*tool)?$/i
+// Cursor opens an MCP call as an empty placeholder (`MCP: tool`) and names the
+// provider only in a follow-up tool_call_update; defer activity until identity arrives.
+const isAnonymousMcpPlaceholder = (call) => {
+  if (ownToolCall(call)) return false
+  const title = typeof call?.title === 'string' ? call.title.trim() : ''
+  if (!ANONYMOUS_MCP_TITLE.test(title)) return false
+  if (call?.name !== undefined || call?.toolName !== undefined) return false
+  if (Object.keys(inputOf(call)).length > 0) return false
+  if ((call?.locations?.length ?? 0) > 0) return false
+  const meta = call?._meta
+  if (meta !== null && typeof meta === 'object' && (
+    meta.mcpServer !== undefined
+    || meta.serverName !== undefined
+    || meta['cognition.ai/toolName'] !== undefined
+    || meta['cognition.ai/permissionRule'] !== undefined
+  )) return false
+  return true
+}
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
 const mergeCall = (known, update) => ({
   ...known,
   ...Object.fromEntries(Object.entries(update).filter(([key, value]) => key !== 'sessionUpdate' && value !== undefined && value !== null)),
+  ...(known?._meta !== null && typeof known?._meta === 'object' && update?._meta !== null && typeof update?._meta === 'object'
+    ? { _meta: { ...known._meta, ...update._meta } }
+    : {}),
 })
 const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefined ? undefined : session.toolCalls.get(toolCall.toolCallId), toolCall ?? {})
 // ACP tool kinds that change files or run something.
