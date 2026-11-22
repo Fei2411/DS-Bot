@@ -3,7 +3,10 @@
 export const ES = {
   'Always on': 'Siempre activo',
   'In catalog': 'En el catálogo',
-  'Items in catalog load only when the Bot calls use_pack.': 'Los elementos del catálogo solo se cargan cuando el Bot llama a use_pack.',
+  'In catalog: the Bot loads this only when it needs it.': 'En el catálogo: el Bot solo lo carga cuando lo necesita.',
+  'Always on via {name}': 'Siempre activo mediante {name}',
+  'In catalog via {name}': 'En el catálogo mediante {name}',
+  'Allow it in Shared capabilities.': 'Permítelo en Capacidades compartidas.',
   'Background work': 'Trabajo en segundo plano',
   'Background commands after (seconds)': 'Pasar comandos a segundo plano tras (segundos)',
   'A new reply is waiting': "Tienes una nueva respuesta",

@@ -3,7 +3,10 @@
 export const KO = {
   'Always on': '항상 켜짐',
   'In catalog': '카탈로그에 포함',
-  'Items in catalog load only when the Bot calls use_pack.': '카탈로그의 항목은 Bot이 use_pack을 호출할 때만 로드됩니다.',
+  'In catalog: the Bot loads this only when it needs it.': '카탈로그에 포함: Bot이 필요할 때만 로드합니다.',
+  'Always on via {name}': '{name}을(를) 통해 항상 켜짐',
+  'In catalog via {name}': '{name}을(를) 통해 카탈로그에 포함',
+  'Allow it in Shared capabilities.': '공유 기능에서 허용하세요.',
   'Background work': '백그라운드 작업',
   'Background commands after (seconds)': '명령 백그라운드 전환(초)',
   'A new reply is waiting': "새 답변이 도착했습니다",

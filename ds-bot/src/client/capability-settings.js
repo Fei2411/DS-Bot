@@ -187,17 +187,24 @@ export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
   const items = [...(roster.capabilities ?? [])].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
   const attached = new Set(bot.capabilities ?? [])
   const catalog = new Set(bot.packs ?? [])
+  const savedMode = name => attached.has(name) ? 'always' : catalog.has(name) ? 'catalog' : 'off'
+  const modeOf = name => pending.current.get(name)?.desired ?? savedMode(name)
   const statuses = roster.capabilityStatuses?.[bot.id] ?? {}
   if (items.length === 0) return null
   return h(Card, { title: t('Capabilities') },
-    h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Items in catalog load only when the Bot calls use_pack.'))),
+    h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint bt-capability-hint' }, t('In catalog: the Bot loads this only when it needs it.'))),
     items.map(item => {
-      const saved = attached.has(item.name) ? 'always' : catalog.has(item.name) ? 'catalog' : 'off'
-      const mode = pending.current.get(item.name)?.desired ?? saved
-      const hint = mode === 'always' ? statusText(statuses[item.name]) : undefined
+      const saved = savedMode(item.name)
+      const mode = modeOf(item.name)
+      const sources = mode === 'off' ? items.filter(pack => pack.kind === 'pack' && pack.items?.includes(item.name) && modeOf(pack.name) !== 'off') : []
+      const needsApproval = (mode !== 'off' || sources.length > 0) && item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
+      const hint = mode === 'always' && !needsApproval ? statusText(statuses[item.name]) : undefined
       return h('div', { key: item.name, className: 'bt-set-row bt-bs-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, item.name),
+          sources.map(pack => h('span', { key: pack.name, className: 'bt-set-hint bt-capability-hint' }, t('Off'), ' · ',
+            modeOf(pack.name) === 'always' ? t('Always on via {name}', { name: pack.name }) : t('In catalog via {name}', { name: pack.name }))),
+          needsApproval ? h('span', { className: 'bt-set-hint bt-capability-hint' }, t('Needs approval'), ' · ', t('Allow it in Shared capabilities.')) : null,
           hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
         h(Segmented, { label: item.name, value: mode }, [['always', 'Always on'], ['catalog', 'In catalog'], ['off', 'Off']].map(([value, label]) => h('button', {
           key: value, type: 'button', 'aria-pressed': mode === value,
