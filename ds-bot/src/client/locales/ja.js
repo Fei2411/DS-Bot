@@ -1551,7 +1551,6 @@ export const JA = {
   "Hide steps": "ステップを隠す",
   "Show steps": "ステップを表示",
   "Current chat": "現在の会話",
-  "Earlier & parallel sessions": "過去・並行セッション",
   "{count} tools": "{count} 個のツール",
   "Mailbox": "メールボックス",
   "Email address": "メールアドレス",

@@ -1583,7 +1583,6 @@ export const ES = {
   'Hide steps': 'Ocultar pasos',
   'Show steps': 'Mostrar pasos',
   'Current chat': 'Chat actual',
-  'Earlier & parallel sessions': 'Sesiones anteriores y paralelas',
   '{count} tools': '{count} herramientas',
   'Mailbox': 'Buzón de correo',
   'Email address': 'Dirección de correo',
