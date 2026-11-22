@@ -185,7 +185,7 @@ export default {
           }
         }
         await handlers.onMessage({
-          chat: { key, kind: direct ? 'direct' : 'group', title: '' },
+          chat: { key, kind: direct ? 'direct' : 'group', title: direct ? '' : String(data.conversationTitle ?? '').trim() },
           sender: { id: sender, name: String(data.senderNick ?? sender) },
           text: texts.join('\n').trim(), images, files,
           mentioned, messageId: String(data.msgId ?? ''),
