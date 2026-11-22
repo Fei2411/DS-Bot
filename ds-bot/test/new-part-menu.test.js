@@ -76,14 +76,14 @@ test('a new session offers a blank part and a handoff, and each asks the host on
   assert.equal(ran.length, 2)
 })
 
-test('a working part offers only the blank part; the handoff waits for its turn', () => {
+test('a working Bot offers no new session: it has one conversation at a time', () => {
   const asked = []
   const actions = { newPart: (botId, options) => { asked.push([botId, options.blank === true]); return Promise.resolve() } }
   const tree = render({ busy: true, actions })
-  const items = find(tree, node => node.props?.role === 'menuitem')
-  assert.deepEqual(items.map(textOf), ['Blank session'])
-  items[0].props.onClick()
-  assert.deepEqual(asked, [['a', true]])
+  assert.deepEqual(find(tree, node => node.props?.role === 'menuitem'), [])
+  const [trigger] = find(tree, node => node.props?.className === 'bt-agent-sessions-new')
+  assert.equal(trigger.props.disabled, true)
+  assert.deepEqual(asked, [])
 })
 
 test('the trigger is the drawer\'s New session button and opens a menu', () => {

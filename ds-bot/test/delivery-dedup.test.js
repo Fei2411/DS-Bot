@@ -241,31 +241,6 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   assert.equal(newReplies.length, 1)
 })
 
-test('a failed turn with steered requests from two openParts notifies each conversation once per request_id', async (t) => {
-  const seed = baseSeed()
-  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
-  const { rt, agents, tool, stepGate, modes, deliveries } = await createLoopRig(t, seed)
-
-  await tool('message_bot', { to: 'Writer', message: 'From fg 1' }, 'a')
-  await settle(() => modes.callCount >= 1 && rt.live.get('b')?.tool === 'wait_step')
-
-  // Same fg thread steers another request, and a separate bg openPart thread also steers one.
-  await tool('message_bot', { to: 'Writer', message: 'From fg 2' }, 'a')
-  await tool('message_bot', { to: 'Writer', message: 'From bg 1' }, 'a-bg')
-  await settle(() => agents.get('b').inbox.nextStep.length === 2)
-
-  stepGate.resolve()
-  await agents.get('b').whenIdle()
-  await settle(() => deliveries.some(entry => entry.sessionId === 'a' && entry.source.role === 'reply') && deliveries.some(entry => entry.sessionId === 'a-bg' && entry.source.role === 'reply'))
-  await Promise.all([agents.get('a').whenIdle(), agents.get('a-bg').whenIdle()])
-  await realDelay(30)
-
-  const fgFailures = deliveries.filter(entry => entry.sessionId === 'a' && entry.source.role === 'reply' && entry.text.includes('req-dup-1319'))
-  const bgFailures = deliveries.filter(entry => entry.sessionId === 'a-bg' && entry.source.role === 'reply' && entry.text.includes('req-dup-1319'))
-  assert.equal(fgFailures.length, 1, 'foreground conversation receives one notice')
-  assert.equal(bgFailures.length, 1, 'independent background openPart receives one notice')
-})
-
 test('answerSender is idempotent per exchangeId and per failure requestId while preserving late replies after abandonWork', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-answer-'))
   const seed = baseSeed()

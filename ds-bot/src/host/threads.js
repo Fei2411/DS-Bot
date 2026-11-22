@@ -1,6 +1,7 @@
 // A Bot's own chat is one or more threads:
 //  - the current thread is `bot.sessionId` with its earlier parts in `bot.segments`;
-//  - user-opened parallel threads while busy live in `bot.openParts` (#1548);
+//  - `bot.openParts` held user-opened parallel threads (#1548, withdrawn): a team saved
+//    with them folds them into the current thread's earlier parts on load (store.js);
 //  - Bot-owned background tasks live separately in `bot.tasks`, each with a stable
 //    taskId across part switches and never swapped into `bot.sessionId` (#783).
 // Parts never share a chain: a handoff reads only the thread it belongs to, so
@@ -88,28 +89,6 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
     task.sessionId = freshId
     task.updatedAt = Date.now()
   }
-  return true
-}
-
-// A fresh part starts in the foreground while the part it replaces stays live in the
-// background with its own chain, so its running turn is not interrupted. It starts with
-// no earlier parts and no handoff note: the user asked for a new conversation.
-export function startOpenPart(bot, freshId, startedAt = Date.now()) {
-  bot.openParts ??= []
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [], startedAt })
-  bot.sessionId = freshId
-  bot.segments = []
-}
-
-// Makes a live user-opened background part current. Tasks in `bot.tasks` are never
-// swapped into `bot.sessionId`; the user reads them in read-only views.
-export function focusOpenPart(bot, sessionId) {
-  const at = (bot.openParts ?? []).findIndex(part => part?.sessionId === sessionId)
-  if (at === -1) return false
-  const [target] = bot.openParts.splice(at, 1)
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [] })
-  bot.sessionId = target.sessionId
-  bot.segments = target.segments ?? []
   return true
 }
 
