@@ -1961,6 +1961,72 @@ test('numbered group answers keep the mention gate and resume the asking member'
   assert.equal(s.rt.roomHasImOrigin('r1'), true)
 })
 
+for (const result of ['calculated total: 431', '', undefined]) {
+  test(`reply origin: #2033 a real background job settled within its IM turn keeps the reply (${result === undefined ? 'failed' : result === '' ? 'empty' : 'output'})`, async (t) => {
+    const jobsCtx = new Context()
+    const agents = new Map()
+    jobsCtx.provide('agents', agents)
+    t.after(() => jobsCtx.fiber.dispose())
+    await jobsCtx.plugin(SystemPrompt)
+    await jobsCtx.plugin(ToolRuntime)
+    await jobsCtx.plugin(LocalJobRegistry)
+    await jobsCtx.plugin(toolJobs)
+    const s = await start({ services: { agents, jobs: jobsCtx.jobs } })
+    t.after(s.stop)
+    await pairedConn(s)
+    const agent = s.agentOf('a')
+    agents.set('a', agent)
+    const scope = createScope(jobsCtx, agent)
+    t.after(() => scope.dispose())
+    agent.ctx = scope.ctx
+    agent.session.append = (type, data) => s.emitEvent('a', type, data)
+    agent.inject = message => agent.inbox.nextStep.push(message)
+    await dm(s, 'u1', 'Run a background calculation')
+    s.imTurn('a')
+    agent.status = 'running'
+    const done = Promise.withResolvers()
+    const jobId = jobsCtx.jobs.start({
+      kind: 'bash', label: 'Calculate', owner: 'a',
+      run: () => ({ done: done.promise, cancel: () => done.resolve({ status: 'killed' }) }),
+    })
+    assert.deepEqual(s.rt.runningJobs('a').map(job => job.id), [jobId])
+    if (result === undefined) done.reject(new Error('calculation failed'))
+    else done.resolve({ status: 'completed', result })
+    await s.flush()
+    const notice = agent.inbox.nextStep.shift()
+    assert.equal(notice.source.kind, 'tool-jobs')
+    s.emitEvent('a', 'user/message', notice)
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Calculation finished' }] } })
+    s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'Calculation finished']])
+  })
+}
+
+for (const [label, launch, source, text, delivered] of [
+  ['job progress', ['job/registered', { jobId: 'bash-1', owner: 'a' }], { kind: 'tool-jobs' }, 'background job bash-1 (bash: sleep) is still running.', true],
+  ['unknown job', ['job/registered', { jobId: 'bash-1', owner: 'a' }], { kind: 'tool-jobs' }, 'background job bash-2 finished', false],
+  ['missing job id', ['job/registered', { jobId: 'bash-1', owner: 'a' }], { kind: 'tool-jobs' }, 'background job ended; use job_list for id.', false],
+  ['wrong job owner', ['job/registered', { jobId: 'bash-1', owner: 'b' }], { kind: 'tool-jobs' }, 'background job bash-1 finished', false],
+  ['missing job owner', ['job/registered', { jobId: 'bash-1' }], { kind: 'tool-jobs' }, 'background job bash-1 finished', false],
+  ['new child', ['subagent/catalog', { version: 0, childId: 'sub-1', mode: 'continuable', childCreatedAt: 1, label: 'Review' }], { kind: 'subagent-settled', senderSessionId: 'sub-1' }, 'Review finished', true],
+  ['unknown child', ['subagent/catalog', { version: 0, childId: 'sub-1', mode: 'continuable', childCreatedAt: 1, label: 'Review' }], { kind: 'subagent-settled', senderSessionId: 'sub-2' }, 'Review finished', false],
+  ['legacy child metadata', ['subagent/catalog', { childId: 'sub-1', mode: 'continuable' }], { kind: 'subagent-settled', senderSessionId: 'sub-1' }, 'Review finished', false],
+]) {
+  test(`reply origin: current-turn launch ownership (${label})`, async t => {
+    const s = await start()
+    t.after(s.stop)
+    await pairedConn(s)
+    await dm(s, 'u1', 'Work in this turn')
+    s.imTurn('a')
+    s.emitEvent('a', ...launch)
+    s.emitEvent('a', 'user/message', { source: { ...source, form: 'notice' }, content: [{ type: 'text', text }] })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Finished' }] } })
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), delivered ? [['dm-u1', 'Finished']] : [])
+  })
+}
+
 test('reply origin: a background job from one IM turn must not be reported to the next chat', async (t) => {
   const jobsCtx = new Context()
   const agents = new Map()

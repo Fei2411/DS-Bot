@@ -1944,6 +1944,25 @@ export function install(rt) {
   // can tag a message with the platform it came from. A Session's entries go
   // when it stops being the chat's current part.
   const imVia = new Map()
+  // Live-only launch facts: replayed/persisted work must not inherit a new turn's chat.
+  const turnWork = new Map()
+  const sameClaim = (a, b) => a !== undefined && b !== undefined
+    && a.connId === b.connId && a.chatKey === b.chatKey
+    && a.senderId === b.senderId && a.binding === b.binding
+  const ownsNotice = (sessionId, message) => {
+    if (rt.groupOwners.has(sessionId)) return false
+    const work = turnWork.get(sessionId)
+    const source = message?.source
+    let launch
+    if (source?.kind === 'tool-jobs') {
+      const text = message.content?.[0]?.text
+      const jobId = typeof text === 'string' ? /^background job (\S+)(?=\s|$)/.exec(text)?.[1] : undefined
+      launch = work?.jobs.get(jobId)
+    } else if (source?.kind === 'subagent-settled') {
+      launch = work?.children.get(source.senderSessionId)
+    }
+    return sameClaim(launch, origins.get(sessionId)) && originOf(sessionId) !== undefined
+  }
   const imViaView = () => {
     for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
     return Object.fromEntries([...imVia.entries()].map(([sessionId, seqs]) => [sessionId, { ...seqs }]))
@@ -1952,6 +1971,7 @@ export function install(rt) {
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
+      turnWork.set(session.id, { jobs: new Map(), children: new Map() })
       const room = rt.roomOf(session.id)
       if (room === undefined) {
         resetOrigin(session.id)
@@ -1964,6 +1984,16 @@ export function install(rt) {
         // turn's first message says whether it continues the work the chat asked for.
         if (!working) pendingReset.add(session.id)
       }
+    }
+    if (event.type === 'job/registered' && event.data?.owner === session.id && typeof event.data.jobId === 'string') {
+      const origin = captureImOrigin(session.id)
+      if (origin !== undefined) turnWork.get(session.id)?.jobs.set(event.data.jobId, origin)
+    }
+    // Catalog entries are emitted on child creation, not when an existing child resumes.
+    if (event.type === 'subagent/catalog' && event.data?.version === 0
+      && ['one-shot', 'continuable'].includes(event.data.mode) && typeof event.data.childId === 'string') {
+      const origin = captureImOrigin(session.id)
+      if (origin !== undefined) turnWork.get(session.id)?.children.set(event.data.childId, origin)
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
@@ -1985,14 +2015,15 @@ export function install(rt) {
           resetOrigin(session.id)
         }
         if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
-          // A job notice has no launch ID; a child ID can be reused by another subagent run.
-          dropOrigin(session.id)
-          const member = rt.groupOwners.get(session.id)
-          if (member !== undefined) {
-            const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
-            if (roomSid !== undefined) {
-              pendingReset.delete(roomSid)
-              dropOrigin(roomSid)
+          if (!ownsNotice(session.id, event.data)) {
+            dropOrigin(session.id)
+            const member = rt.groupOwners.get(session.id)
+            if (member !== undefined) {
+              const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
+              if (roomSid !== undefined) {
+                pendingReset.delete(roomSid)
+                dropOrigin(roomSid)
+              }
             }
           }
         } else if (typeof imOrigin === 'string') {
@@ -2052,6 +2083,7 @@ export function install(rt) {
       }
     }
     if (event.type === 'turn/end') {
+      turnWork.delete(session.id)
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
