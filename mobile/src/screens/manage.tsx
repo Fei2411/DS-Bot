@@ -619,15 +619,17 @@ export function GroupDetails({ route, navigation }: any) {
 
 export function GroupSettings({ route, navigation }: any) {
   const { p, dark } = useTheme()
-  const { team } = useTeam()
+  const { team, hello } = useTeam()
   const { run, error } = useWrite(navigation)
   const [photoError, setPhotoError] = useState('')
   const room = roomOf(team, route.params?.roomId ?? '')
   if (room === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const bots = team?.bots ?? []
+  const canSetAvatar = hello?.capabilities?.includes('room-avatars') === true
   const members = new Set(room.members ?? [])
   const update = (patch: Record<string, unknown>) => void run('update-room', { id: room.id, ...patch })
   const upload = async () => {
+    if (!canSetAvatar) return
     setPhotoError('')
     try {
       const image = await pickPhoto(true)
@@ -643,14 +645,14 @@ export function GroupSettings({ route, navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Edit group avatar')} onPress={() => { void upload() }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Edit group avatar')} disabled={!canSetAvatar} accessibilityState={{ disabled: !canSetAvatar }} onPress={() => { void upload() }}>
             <RoomAvatar room={room} bots={bots} dark={dark} size={72} ring={p.main} />
           </Pressable>
         </View>
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={room.named === true ? room.name : ''} placeholder={t('Name after members')} onSave={name => update({ name })} />
-          <Row label={t('Upload photo')} onPress={() => { void upload() }} />
-          {room.avatar?.image || room.avatar?.imageRef ? <Row label={t('Remove photo')} onPress={() => update({ avatar: null })} /> : null}
+          {canSetAvatar ? <Row label={t('Upload photo')} onPress={() => { void upload() }} /> : null}
+          {canSetAvatar && (room.avatar?.image || room.avatar?.imageRef) ? <Row label={t('Remove photo')} onPress={() => update({ avatar: null })} /> : null}
           <Field label={t('Notice')} value={room.notice} multiline placeholder={t('Shared instructions every member reads before speaking…')} onSave={notice => update({ notice })} />
         </Section>
         <Section label={t('Who answers')}>
