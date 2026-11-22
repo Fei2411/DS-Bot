@@ -18,12 +18,24 @@ const MAX_TABLE_COLS = 64
  */
 export function parseDelimitedTable(text, delimiter = ',', maxRows = MAX_TABLE_ROWS) {
   const src = typeof text === 'string' ? text.replace(/^\uFEFF/, '') : ''
-  if (src.trim() === '') return { headers: [], rows: [], truncatedRows: false }
+  if (src === '') return { headers: [], rows: [], truncatedRows: false }
   const parsed = []
   let row = []
   let field = ''
   let inQuotes = false
+  let hasRecordContent = false
   let truncatedRows = false
+  const pushRow = () => {
+    if (parsed.length > maxRows) {
+      truncatedRows = true
+      return false
+    }
+    parsed.push(row)
+    row = []
+    field = ''
+    hasRecordContent = false
+    return true
+  }
   for (let i = 0; i < src.length; i += 1) {
     const ch = src[i]
     if (inQuotes) {
@@ -41,32 +53,29 @@ export function parseDelimitedTable(text, delimiter = ',', maxRows = MAX_TABLE_R
     }
     if (ch === '"' && field === '') {
       inQuotes = true
+      hasRecordContent = true
       continue
     }
     if (ch === delimiter) {
+      hasRecordContent = true
       if (row.length < MAX_TABLE_COLS) row.push(field)
       field = ''
       continue
     }
     if (ch === '\r' || ch === '\n') {
       if (ch === '\r' && src[i + 1] === '\n') i += 1
-      if (row.length < MAX_TABLE_COLS) row.push(field)
-      field = ''
-      if (row.some(cell => cell !== '')) {
-        parsed.push(row)
-        if (parsed.length > maxRows) {
-          truncatedRows = true
-          break
-        }
+      if (hasRecordContent || row.length > 0 || field !== '') {
+        if (row.length < MAX_TABLE_COLS) row.push(field)
+        if (!pushRow()) break
       }
-      row = []
       continue
     }
+    hasRecordContent = true
     field += ch
   }
-  if (!truncatedRows && (field !== '' || row.length > 0)) {
+  if (!truncatedRows && (hasRecordContent || row.length > 0 || field !== '')) {
     if (row.length < MAX_TABLE_COLS) row.push(field)
-    if (row.some(cell => cell !== '')) parsed.push(row)
+    pushRow()
   }
   if (parsed.length === 0) return { headers: [], rows: [], truncatedRows: false }
   const headers = parsed[0]
@@ -227,7 +236,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
           : file.kind === 'html'
             ? (mode === 'source'
                 ? h(CodeLines, { text: file.text })
-                : h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', srcDoc: file.text, title: file.name }))
+                : h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: file.text, title: file.name }))
             : file.kind === 'svg'
               ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
               : file.kind === 'image'

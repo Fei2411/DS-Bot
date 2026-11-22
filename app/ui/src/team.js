@@ -279,8 +279,8 @@ export function createTeam() {
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
     openFiles: () => openRightPanel(prev => ({ ...prev, tab: 'files' })),
     openFile: (path) => {
-      const target = typeof path === 'string' ? path.trim() : (typeof path?.path === 'string' ? path.path.trim() : '')
-      if (!target) return
+      const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
+      if (target === '') return
       openRightPanel(prev => ({ ...prev, tab: 'preview', file: target }))
     },
     openChanges: async (changes) => {

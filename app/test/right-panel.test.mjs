@@ -140,6 +140,7 @@ const {
   FilePreview,
   parseAnsiSpans,
   WorkspaceTerminal,
+  ChangesReview,
   RightPanel,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
@@ -217,12 +218,24 @@ const textOf = (node) => {
 const plain = v => JSON.parse(JSON.stringify(v))
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-test('parseDelimitedTable handles quoted commas, escaped quotes, CRLF, TSV, and row caps', () => {
+test('parseDelimitedTable handles quoted commas, escaped quotes, empty records, CRLF, TSV, and exact row caps', () => {
   const csv = '\uFEFF"Name","Note"\r\n"Alice, Jr.","Says ""hi"""\r\nBob,Plain\r\n'
   const res = parseDelimitedTable(csv, ',')
   assert.deepEqual(plain(res.headers), ['Name', 'Note'])
   assert.deepEqual(plain(res.rows), [['Alice, Jr.', 'Says "hi"'], ['Bob', 'Plain']])
   assert.equal(res.truncatedRows, false)
+
+  // Empty header and empty data record must not be silently dropped.
+  const emptyHeader = ',\r\nAlice,95\r\n,\r\n'
+  const preserved = parseDelimitedTable(emptyHeader, ',')
+  assert.deepEqual(plain(preserved.headers), ['', ''])
+  assert.deepEqual(plain(preserved.rows), [['Alice', '95'], ['', '']])
+
+  // Exactly `maxRows` data rows must NOT flag `truncatedRows`.
+  const exact = 'k\tv\n1\tone\n2\ttwo\n'
+  const notCapped = parseDelimitedTable(exact, '\t', 2)
+  assert.equal(notCapped.rows.length, 2)
+  assert.equal(notCapped.truncatedRows, false)
 
   const tsv = 'k\tv\n1\tone\n2\ttwo\n3\tthree\n'
   const capped = parseDelimitedTable(tsv, '\t', 2)
@@ -230,12 +243,16 @@ test('parseDelimitedTable handles quoted commas, escaped quotes, CRLF, TSV, and 
   assert.equal(capped.truncatedRows, true)
 })
 
-test('parseAnsiSpans converts ANSI SGR colors, applies carriage-return overwrites, and strips OSC sequences cleanly', () => {
-  const raw = '\u001b]0;title\u0007\u001b[1;32mPASS\u001b[0m plain \u001b[31mFAIL\u001b[39m\r\n%\r50%\r100%'
+test('parseAnsiSpans converts ANSI SGR colors, skips 256/RGB params, applies carriage-return overwrites, and strips OSC sequences cleanly', () => {
+  const raw = '\u001b]0;title\u0007\u001b[1;32mPASS\u001b[0m \u001b[38;5;31mplain\u001b[0m \u001b[38;2;1;2;31mrgb\u001b[0m \u001b[31mFAIL\u001b[39m\r\n%\r50%\r100%'
   const spans = plain(parseAnsiSpans(raw))
   assert.deepEqual(spans, [
     { text: 'PASS', fg: 'green', bold: true },
-    { text: ' plain ' },
+    { text: ' ' },
+    { text: 'plain' },
+    { text: ' ' },
+    { text: 'rgb' },
+    { text: ' ' },
     { text: 'FAIL', fg: 'red' },
     { text: '\n100%' },
   ])
@@ -380,8 +397,74 @@ test('RightPanel renders FileTree, opens preview, isolates crashing sidebar.righ
     tree = termInst.render()
     all(tree, n => n.type === 'form')[0].props.onSubmit({ preventDefault() {} })
     await tick()
-    assert.equal(calls.some(([ep, b]) => ep === 'terminal-input' && b.id === 'term-1' && b.data === 'pwd\n'), true)
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-input' && b.id === 'term-1' && b.data === 'pwd\r'), true)
   } finally {
     termInst.unmount()
+  }
+})
+
+test('ChangesReview renders summary errors before loading state and guards cyclic FileTree, early terminal SSE, and DM workspace/changes rows', async () => {
+  // 1. ChangesReview must render errors instead of getting stuck on "Loading…".
+  sandbox.__testCall = async () => { throw new Error('These changes are no longer available') }
+  const chg = mount(ChangesReview, { changes: { sessionId: 'b1', seq: 99, turn: 1 } })
+  try {
+    chg.render()
+    await tick()
+    const tree = chg.render()
+    assert.match(textOf(tree), /These changes are no longer available/)
+  } finally {
+    chg.unmount()
+  }
+
+  // 2. WorkspaceTerminal preserves new terminal when terminal-list resolves late and replays early SSE output.
+  let resolveList
+  let resolveOpen
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return new Promise(resolve => { resolveList = resolve })
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolveOpen = resolve })
+    return Promise.resolve({})
+  }
+  const team = createTeam()
+  // Whitespace in file paths must be preserved verbatim by openFile.
+  team.actions.openFile('spaced.txt ')
+  const fileProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  assert.equal(fileProbe.render().props.file, 'spaced.txt ')
+  fileProbe.unmount()
+
+  const term = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, autoOpenNonce: 1 })
+  try {
+    term.render()
+    // Emit SSE output BEFORE terminal-open resolves!
+    team.chat.emit('terminal', { id: 'term-early', chunk: 'early-prompt$ ' })
+    resolveOpen({ id: 'term-early', cwd: '/repo', title: 'repo', cols: 96, rows: 28, pty: true })
+    await tick()
+    // Now resolve terminal-list LATE with empty list — must NOT wipe `term-early`!
+    resolveList([])
+    await tick()
+    const tree = term.render()
+    assert.match(textOf(tree), /early-prompt\$/)
+  } finally {
+    term.unmount()
+  }
+
+  // 3. FileTree must not stack-overflow on a cyclic directory entry (`path: ''`).
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'workspace-list') {
+      return { root: '/repo', rootName: 'repo', path: '', truncated: false, entries: [{ name: 'loop', path: '', kind: 'dir', size: 0, ext: '' }] }
+    }
+    return {}
+  }
+  const cyclicPanel = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+  try {
+    cyclicPanel.render()
+    await tick()
+    let tree = cyclicPanel.render()
+    const loopBtn = all(tree, n => n.type === 'button' && /loop/.test(textOf(n)))[0]
+    loopBtn.props.onClick()
+    await tick()
+    tree = cyclicPanel.render()
+    assert.match(textOf(tree), /loop/)
+  } finally {
+    cyclicPanel.unmount()
   }
 })

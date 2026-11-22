@@ -1,5 +1,5 @@
 // Turn workspace change review tab for the right panel.
-// Loads summaries and line-by-line hunks via `changes-detail` (ctx.workspaceChanges).
+// Loads summaries and line-by-line hunks via `workspace-changes` (ctx.workspaceChanges).
 import { createElement as h, useEffect, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
@@ -44,18 +44,23 @@ export function ChangesReview({ changes, onOpenFile }) {
 
   const sessionId = changes?.sessionId
   const seq = changes?.seq
+  const validTarget = typeof sessionId === 'string' && sessionId !== '' && Number.isInteger(seq)
 
   useEffect(() => {
-    if (!sessionId || !Number.isInteger(seq)) {
+    if (!validTarget) {
       setSummary(null)
       setDiff(null)
+      setLoadingSummary(false)
+      setLoadingDiff(false)
       setError('')
       return undefined
     }
     let alive = true
+    setSummary(null)
+    setDiff(null)
+    setLoadingDiff(false)
     setLoadingSummary(true)
     setError('')
-    setDiff(null)
     setSelectedIndex(0)
     void call('workspace-changes', { sessionId, seq })
       .then((res) => {
@@ -70,15 +75,20 @@ export function ChangesReview({ changes, onOpenFile }) {
         setLoadingSummary(false)
       })
     return () => { alive = false }
-  }, [sessionId, seq])
+  }, [validTarget, sessionId, seq])
 
   useEffect(() => {
-    if (!summary?.files?.length) {
+    if (!validTarget || !summary || summary.sessionId !== sessionId || summary.seq !== seq || !summary.files?.length) {
       setDiff(null)
+      setLoadingDiff(false)
       return undefined
     }
     const target = summary.files[selectedIndex]
-    if (!target) return undefined
+    if (!target) {
+      setDiff(null)
+      setLoadingDiff(false)
+      return undefined
+    }
     let alive = true
     setLoadingDiff(true)
     void call('workspace-changes', { sessionId, seq, index: target.index })
@@ -93,11 +103,11 @@ export function ChangesReview({ changes, onOpenFile }) {
         setLoadingDiff(false)
       })
     return () => { alive = false }
-  }, [summary, selectedIndex, sessionId, seq])
+  }, [validTarget, summary, selectedIndex, sessionId, seq])
 
-  if (!changes) return h('div', { className: 'dsb-rp-empty' }, t('No changes selected'))
-  if (loadingSummary || !summary) return h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
+  if (!changes || !validTarget) return h('div', { className: 'dsb-rp-empty' }, t('No changes selected'))
   if (error) return h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error))
+  if (loadingSummary || !summary) return h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
 
   const files = summary.files ?? []
   const total = summary.total ?? files.length

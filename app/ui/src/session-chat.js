@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
 import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
+import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
 import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
@@ -556,6 +557,36 @@ function turnFactsSignature(facts) {
   return parts.join('|')
 }
 
+function SessionChangesRow({ row, sessionId, actions }) {
+  const [changes, setChanges] = useState(null)
+  useEffect(() => {
+    if (!sessionId || !Number.isInteger(row.seq)) return undefined
+    let alive = true
+    void call('workspace-changes', { sessionId, seq: row.seq })
+      .then((res) => {
+        if (!alive || !Array.isArray(res?.files) || res.files.length === 0) return
+        setChanges({
+          sessionId,
+          seq: row.seq,
+          turn: res.turn,
+          total: res.total,
+          added: res.added,
+          deleted: res.deleted,
+          files: res.files.map(file => ({
+            path: file.display ?? file.path,
+            added: file.added,
+            deleted: file.deleted,
+            ...(file.binary === true ? { binary: true } : {}),
+            ...(file.oversized === true ? { oversized: true } : {}),
+          })),
+        })
+      })
+      .catch(() => { /* stale or disposed session summary stays hidden */ })
+    return () => { alive = false }
+  }, [sessionId, row.seq])
+  return changes ? h(ChangesCard, { changes, actions }) : null
+}
+
 function TurnTailRow({ row, sessionId, useRoster, actions }) {
   if (typeof actions?.turnFacts !== 'function' || typeof actions?.watchTurns !== 'function') return null
   return h(Fragment, null,
@@ -696,6 +727,7 @@ export function SessionTranscript({
         case 'compaction': return h(CompactionRow, { row })
         case 'event': return h(SessionEventRow, { row, selfId, roster, actions })
         case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: actions?.openFile })
+        case 'changes': return h(SessionChangesRow, { row, sessionId, actions })
         case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions })
         case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions })
         default: return null

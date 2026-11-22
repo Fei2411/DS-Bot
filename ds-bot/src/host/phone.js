@@ -136,7 +136,10 @@ export function install(rt) {
       onReadyCount: count => {
         if (count > 0 && feedUntap === null) {
           const running = link
-          feedUntap = rt.feedTap((event, data) => running.emit(event, event === 'live' ? remoteState(data) : data))
+          feedUntap = rt.feedTap((event, data) => {
+            if (event === 'terminal' || event === 'terminal-exit') return
+            running.emit(event, event === 'live' ? remoteState(data) : data)
+          })
         } else if (count === 0 && feedUntap !== null) {
           feedUntap()
           feedUntap = null

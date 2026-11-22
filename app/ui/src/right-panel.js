@@ -20,6 +20,10 @@ const WIDTH_STORAGE_KEY = 'dsb:right-panel-w'
 const DEFAULT_WIDTH = 440
 const MIN_WIDTH = 340
 const MAX_WIDTH = 760
+const MIN_CHAT_WIDTH = 420
+const SIDEBAR_WIDE_WIDTH = 280
+const SIDEBAR_RAIL_WIDTH = 56
+const MAX_TREE_DEPTH = 32
 
 function loadSavedWidth() {
   try {
@@ -35,18 +39,42 @@ function saveWidth(width) {
   } catch { /* storage unavailable */ }
 }
 
-function TreeBranch({ entries, depth, expanded, childrenByPath, loadingDirs, selectedPath, filter, onToggleDir, onSelectFile }) {
+function viewportWidth() {
+  return typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1440
+}
+
+function measureMainLeft(vpWidth, wide) {
+  if (typeof document !== 'undefined') {
+    const main = document.querySelector?.('.dsb-main')
+    const left = main?.getBoundingClientRect?.().left
+    if (Number.isFinite(left) && left >= 0) return Math.round(left)
+  }
+  return vpWidth <= 768 ? 0 : (wide ? SIDEBAR_WIDE_WIDTH : SIDEBAR_RAIL_WIDTH)
+}
+
+function maxDockedWidth(vpWidth, leftOffset) {
+  return Math.min(MAX_WIDTH, Math.round(vpWidth * 0.55), Math.max(0, vpWidth - leftOffset - MIN_CHAT_WIDTH))
+}
+
+function TreeBranch({ entries, depth, ancestors, expanded, childrenByPath, loadingDirs, selectedPath, filter, onToggleDir, onSelectFile }) {
+  if (depth >= MAX_TREE_DEPTH) return []
   const needle = filter.trim().toLowerCase()
   const rows = []
   for (const entry of entries) {
     if (entry.kind === 'dir') {
-      const isOpen = expanded.has(entry.path)
-      const subEntries = childrenByPath[entry.path]
+      const path = entry.path
+      const isCyclic = ancestors.has(path)
+      const isOpen = !isCyclic && expanded.has(path)
+      const subEntries = childrenByPath[path]
       const matchesSelf = needle === '' || entry.name.toLowerCase().includes(needle)
-      const childRows = isOpen && Array.isArray(subEntries)
-        ? TreeBranch({
+      let childRows = []
+      if (isOpen && Array.isArray(subEntries)) {
+        const nextAncestors = new Set(ancestors)
+        nextAncestors.add(path)
+        childRows = TreeBranch({
           entries: subEntries,
           depth: depth + 1,
+          ancestors: nextAncestors,
           expanded,
           childrenByPath,
           loadingDirs,
@@ -55,26 +83,28 @@ function TreeBranch({ entries, depth, expanded, childrenByPath, loadingDirs, sel
           onToggleDir,
           onSelectFile,
         })
-        : []
+      }
       if (!matchesSelf && childRows.length === 0) continue
       rows.push(h('button', {
-        key: `dir:${entry.path}`,
+        key: `dir:${depth}:${path}:${entry.name}`,
         type: 'button',
+        role: 'treeitem',
         className: 'dsb-ft-row is-dir',
         style: { paddingLeft: `${10 + depth * 14}px` },
         'aria-expanded': isOpen,
-        onClick: () => onToggleDir(entry.path),
+        onClick: () => { if (!isCyclic) onToggleDir(path) },
       },
       h('span', { className: 'dsb-ft-chev', 'data-open': isOpen || undefined, 'aria-hidden': true }, h(ChevronRightIcon)),
       h('span', { className: 'dsb-ft-ico', 'aria-hidden': true }, h(FolderIcon)),
-      h('span', { className: 'dsb-ft-name', title: entry.path }, entry.name),
-      loadingDirs.has(entry.path) ? h('span', { className: 'dsb-ft-meta' }, '…') : null))
+      h('span', { className: 'dsb-ft-name', title: path }, entry.name),
+      loadingDirs.has(path) ? h('span', { className: 'dsb-ft-meta' }, '…') : null))
       if (isOpen && childRows.length > 0) rows.push(...childRows)
     } else {
       if (needle !== '' && !entry.name.toLowerCase().includes(needle) && !entry.path.toLowerCase().includes(needle)) continue
       rows.push(h('button', {
-        key: `file:${entry.path}`,
+        key: `file:${depth}:${entry.path}:${entry.name}`,
         type: 'button',
+        role: 'treeitem',
         className: 'dsb-ft-row is-file',
         style: { paddingLeft: `${26 + depth * 14}px` },
         'aria-current': selectedPath === entry.path ? 'true' : undefined,
@@ -132,6 +162,7 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
     const gen = ++genRef.current
     setChildrenByPath({})
     setExpanded(new Set())
+    setLoadingDirs(new Set())
     setError('')
     void loadDir('', gen)
   }, [sessionId, includeHidden, refreshTick, loadDir])
@@ -153,6 +184,7 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
   const rows = TreeBranch({
     entries: rootEntries,
     depth: 0,
+    ancestors: new Set(['']),
     expanded,
     childrenByPath,
     loadingDirs,
@@ -202,10 +234,14 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
  * Resizable workspace right panel hosting Files, Preview, Changes, Terminal, and
  * `sidebar.right.pane.tab` slot contributions.
  */
-export function RightPanel({ sessionId, panel, team, registry = defaultSlots, readOnly = false }) {
+export function RightPanel({ sessionId, panel, team, registry = defaultSlots, readOnly = false, wide = true }) {
   const { actions, chat: feed } = team
-  const [width, setWidth] = useState(loadSavedWidth)
-  const [narrow, setNarrow] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 960 : false))
+  const [savedWidth, setSavedWidth] = useState(loadSavedWidth)
+  const [metrics, setMetrics] = useState(() => {
+    const vp = viewportWidth()
+    return { vp, left: measureMainLeft(vp, wide) }
+  })
+  const [resizing, setResizing] = useState(false)
   const [fileState, setFileState] = useState({ path: null, data: null, loading: false, error: '' })
   const [reloadNonce, setReloadNonce] = useState(0)
   const [terminalMounted, setTerminalMounted] = useState(false)
@@ -219,20 +255,42 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
   const changes = panel?.changes ?? null
   const terminalNonce = panel?.terminalNonce ?? 0
 
+  const maxDock = maxDockedWidth(metrics.vp, metrics.left)
+  const overlay = metrics.vp <= 960 || maxDock < MIN_WIDTH
+  const renderedWidth = overlay
+    ? Math.min(savedWidth, Math.round(metrics.vp * 0.92))
+    : Math.max(MIN_WIDTH, Math.min(savedWidth, maxDock))
+
   useEffect(() => {
     if (open && activeTab === 'terminal') setTerminalMounted(true)
   }, [open, activeTab])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
-    const onResize = () => setNarrow(window.innerWidth <= 960)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+    const sync = () => {
+      const vp = viewportWidth()
+      const left = measureMainLeft(vp, wide)
+      setMetrics(prev => (prev.vp === vp && prev.left === left ? prev : { vp, left }))
+    }
+    sync()
+    window.addEventListener('resize', sync)
+    let ro = null
+    if (typeof ResizeObserver === 'function') {
+      const main = document.querySelector?.('.dsb-main')
+      if (main) {
+        ro = new ResizeObserver(sync)
+        ro.observe(main)
+      }
+    }
+    return () => {
+      window.removeEventListener('resize', sync)
+      ro?.disconnect()
+    }
+  }, [wide, open])
   useEffect(() => () => { dragCleanupRef.current?.() }, [])
 
-  // Only intercept Escape when the right panel slides over the conversation on narrow screens.
-  useEscape(() => actions.closeRightPanel?.(), open && narrow)
+  // Intercept Escape whenever the right panel floats over the conversation as an overlay.
+  useEscape(() => actions.closeRightPanel?.(), open && overlay)
 
   // Load workspace file contents whenever `panel.file` or `reloadNonce` updates.
   useEffect(() => {
@@ -253,7 +311,9 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
         if (fileReqRef.current !== reqId) return
         setFileState({ path: filePath, data: null, loading: false, error: hostText(failure?.message ?? String(failure)) })
       })
-    return undefined
+    return () => {
+      if (fileReqRef.current === reqId) fileReqRef.current += 1
+    }
   }, [open, sessionId, filePath, reloadNonce])
 
   const pluginTabs = useMemo(() => pluginEntries
@@ -267,25 +327,37 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
     })), [pluginEntries])
 
   const onDragStart = (event) => {
+    if (overlay) return
     event.preventDefault()
     dragCleanupRef.current?.()
+    const handleEl = event.currentTarget
+    const pointerId = event.pointerId
+    try { handleEl?.setPointerCapture?.(pointerId) } catch { /* pointer capture optional */ }
     const startX = event.clientX
-    const startW = width
+    const startW = renderedWidth
     let latest = startW
+    setResizing(true)
     const onMove = (moveEvent) => {
-      const maxW = typeof window !== 'undefined' ? Math.min(MAX_WIDTH, Math.round(window.innerWidth * 0.55)) : MAX_WIDTH
-      latest = Math.max(MIN_WIDTH, Math.min(maxW, startW + (startX - moveEvent.clientX)))
-      setWidth(latest)
+      const vp = viewportWidth()
+      const cap = Math.max(MIN_WIDTH, maxDockedWidth(vp, measureMainLeft(vp, wide)))
+      latest = Math.max(MIN_WIDTH, Math.min(cap, startW + (startX - moveEvent.clientX)))
+      setSavedWidth(latest)
     }
     const stop = () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      window.removeEventListener('blur', stop)
+      try { handleEl?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
       dragCleanupRef.current = null
+      setResizing(false)
       saveWidth(latest)
     }
     dragCleanupRef.current = stop
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    window.addEventListener('blur', stop)
   }
 
   if (!open) return null
@@ -299,16 +371,17 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
   ]
 
   const activePlugin = pluginTabs.find(tab => tab.id === activeTab)
-
   const showFiles = activeTab === 'files' || (!activePlugin && activeTab !== 'preview' && activeTab !== 'changes' && activeTab !== 'terminal')
 
   return h('aside', {
     className: 'dsb-rightbar',
     'data-rightbar-col': '',
-    style: { '--dsb-right-w': `${width}px` },
+    'data-overlay': overlay ? '' : undefined,
+    'data-resizing': resizing ? '' : undefined,
+    style: { '--dsb-right-w': `${renderedWidth}px` },
     'aria-label': t('Workspace'),
   },
-  h('div', {
+  overlay ? null : h('div', {
     className: 'dsb-rightbar-resize',
     role: 'separator',
     'aria-orientation': 'vertical',

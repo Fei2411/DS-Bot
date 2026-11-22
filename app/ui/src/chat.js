@@ -123,6 +123,7 @@ export function adaptRoomItem(item) {
       text: item.text,
       time: item.time,
       ...(Number.isFinite(item.duration) ? { duration: item.duration } : {}),
+      ...(item.changes ? { changes: item.changes } : {}),
       ...(item.whole?.file ? { file: item.whole.file, length: item.whole.length } : {}),
     }
   }

@@ -1,11 +1,12 @@
 // Interactive workspace terminal tab for the desktop right panel.
-// Talks to ds-bot host `terminal-*` endpoints and receives live chunks via `api/bot/feed`.
+// Talks to ds-bot host `terminal-*` endpoints and receives live chunks via local `api/bot/feed`.
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 
 const MAX_CLIENT_BUFFER = 64 * 1024
+const MAX_PENDING_EVENT_IDS = 16
 const ESC = String.fromCharCode(0x1b)
 const BEL = String.fromCharCode(0x07)
 const ANSI_TOKEN_RE = new RegExp(`${ESC}\\[([0-9;?]*)([@-~])|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`, 'g')
@@ -39,7 +40,8 @@ function shortCwd(cwd, fallback) {
 
 /**
  * Parses ANSI escape sequences into lightweight styled text spans for terminal output.
- * Applies carriage-return line overwrites and strips OSC / non-SGR CSI sequences safely.
+ * Applies carriage-return line overwrites, skips 256-color/RGB SGR parameter tuples,
+ * and strips OSC / non-SGR CSI control sequences safely.
  * @param {string} raw
  * @returns {Array<{ text: string, fg?: string, bold?: boolean, dim?: boolean }>}
  */
@@ -60,11 +62,17 @@ export function parseAnsiSpans(raw) {
     const finalByte = match[2]
     if (finalByte !== 'm') continue
     const codes = (params === '' ? '0' : params).split(';').map(n => Number.parseInt(n, 10))
-    for (const code of codes) {
+    for (let i = 0; i < codes.length; i += 1) {
+      const code = codes[i]
       if (Number.isNaN(code) || code === 0) {
         fg = undefined
         bold = false
         dim = false
+      } else if (code === 38 || code === 48) {
+        // Consume 256-color (38;5;n) or truecolor (38;2;r;g;b) parameter tuples cleanly.
+        const mode = codes[i + 1]
+        if (mode === 5) i += 2
+        else if (mode === 2) i += 4
       } else if (code === 1) {
         bold = true
       } else if (code === 2) {
@@ -104,6 +112,12 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   const lastAutoNonceRef = useRef(0)
   const openedOnceRef = useRef(false)
   const openNewRef = useRef(null)
+  const autoOpenNonceRef = useRef(autoOpenNonce)
+  autoOpenNonceRef.current = autoOpenNonce
+  // Buffers early SSE chunks/exits that arrive before `terminal-open` resolves.
+  const pendingEventsRef = useRef(new Map())
+  const knownIdsRef = useRef(new Set())
+  knownIdsRef.current = new Set(terms.map(item => item.id))
 
   useEffect(() => {
     mountedRef.current = true
@@ -118,9 +132,16 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     try {
       const created = await call('terminal-open', { sessionId, cols: 96, rows: 28 })
       if (!mountedRef.current) return
-      setTerms(current => {
+      const pending = pendingEventsRef.current.get(created.id)
+      pendingEventsRef.current.delete(created.id)
+      setTerms((current) => {
         if (current.some(item => item.id === created.id)) return current
-        return [...current, { ...created, exited: false, exitCode: null, buffer: '' }]
+        return [...current, {
+          ...created,
+          exited: pending?.exited === true,
+          exitCode: pending?.exitCode ?? null,
+          buffer: trimTail(pending?.buffer ?? ''),
+        }]
       })
       setActiveId(created.id)
       setTimeout(() => inputRef.current?.focus?.(), 0)
@@ -132,7 +153,8 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [sessionId, readOnly])
   openNewRef.current = openNew
 
-  // Load existing live terminals once on mount; open a first shell automatically when none exist.
+  // Load existing live terminals once on mount, merging by id so a concurrent `terminal-open`
+  // is never overwritten; auto-open a first shell when none exist and `autoOpenNonce` did not.
   useEffect(() => {
     if (readOnly) return undefined
     let alive = true
@@ -148,11 +170,16 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
           exitCode: item.exitCode ?? null,
           buffer: String(item.snapshot ?? ''),
         }))
-        setTerms(mapped)
+        setTerms((current) => {
+          if (current.length === 0) return mapped
+          const existing = new Set(current.map(item => item.id))
+          const missing = mapped.filter(item => !existing.has(item.id))
+          return missing.length === 0 ? current : [...missing, ...current]
+        })
         if (mapped.length > 0) {
           openedOnceRef.current = true
           setActiveId(current => current ?? mapped[0].id)
-        } else if (!openedOnceRef.current) {
+        } else if (!openedOnceRef.current && !autoOpenNonceRef.current) {
           void openNewRef.current?.()
         }
       })
@@ -164,18 +191,40 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   useEffect(() => {
     if (!autoOpenNonce || autoOpenNonce === lastAutoNonceRef.current || readOnly) return
     lastAutoNonceRef.current = autoOpenNonce
+    openedOnceRef.current = true
     void openNew()
   }, [autoOpenNonce, readOnly, openNew])
 
-  // Subscribe to live terminal output and exit events on the shared SSE feed.
+  // Subscribe to live terminal output and exit events on the shared local SSE feed.
   useEffect(() => {
     if (!feed) return undefined
+    const stash = (id, patch) => {
+      const map = pendingEventsRef.current
+      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
+        const oldest = map.keys().next().value
+        if (oldest !== undefined) map.delete(oldest)
+      }
+      const prev = map.get(id) ?? { buffer: '', exited: false, exitCode: null }
+      map.set(id, {
+        buffer: patch.chunk ? trimTail(prev.buffer + patch.chunk) : prev.buffer,
+        exited: patch.exited ?? prev.exited,
+        exitCode: patch.exitCode !== undefined ? patch.exitCode : prev.exitCode,
+      })
+    }
     return feed.on((event, data) => {
       if (event === 'terminal' && data?.id && typeof data.chunk === 'string') {
+        if (!knownIdsRef.current.has(data.id)) {
+          stash(data.id, { chunk: data.chunk })
+          return
+        }
         setTerms(current => current.map(item => (item.id === data.id
           ? { ...item, buffer: trimTail(item.buffer + data.chunk) }
           : item)))
       } else if (event === 'terminal-exit' && data?.id) {
+        if (!knownIdsRef.current.has(data.id)) {
+          stash(data.id, { exited: true, exitCode: data.code ?? null })
+          return
+        }
         setTerms(current => current.map(item => (item.id === data.id
           ? { ...item, exited: true, exitCode: data.code ?? null }
           : item)))
@@ -214,15 +263,16 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
         ? { ...item, buffer: trimTail(`${item.buffer}$ ${line}\n`) }
         : item)))
     }
-    await sendInput(`${line}\n`)
+    // PTYs expect CR (`\r`) for Enter (required on Windows ConPTY and standard on POSIX);
+    // pipe-backed fallback shells expect LF (`\n`).
+    await sendInput(active.pty ? `${line}\r` : `${line}\n`)
   }
 
   const closeTerm = async (id) => {
-    setTerms((current) => {
-      const next = current.filter(item => item.id !== id)
-      if (active?.id === id) setActiveId(next[0]?.id ?? null)
-      return next
-    })
+    const remaining = terms.filter(item => item.id !== id)
+    pendingEventsRef.current.delete(id)
+    setTerms(remaining)
+    if (active?.id === id) setActiveId(remaining[0]?.id ?? null)
     try {
       await call('terminal-close', { id })
     } catch { /* already closed */ }
@@ -345,11 +395,12 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
                 }
               },
             }),
-            !active.exited ? h('button', {
+            h('button', {
               type: 'button',
               className: 'bt-soft bt-soft-sm',
+              disabled: active.exited || readOnly,
               title: 'Ctrl+C',
               onClick: () => { void sendInput('\x03') },
-            }, 'Ctrl+C') : null),
+            }, 'Ctrl+C')),
           ])
 }

@@ -164,7 +164,7 @@ export function App() {
       h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
       h(Chat, { key: chatKey, sessionId: shown, team })) : null),
   h(Contain, { onError: closeOverlays },
-    h(RightPanel, { sessionId: shown, panel: rightPanel, team, readOnly })),
+    h(RightPanel, { sessionId: shown, panel: rightPanel, team, readOnly, wide })),
   h(Contain, { onError: closeOverlays },
     h(Overlays, views),
     h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts })),

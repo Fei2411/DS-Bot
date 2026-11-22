@@ -1193,8 +1193,8 @@ export function install(rt) {
       clearInterval(timer)
       staged.clear()
       stagedFiles.clear()
-      void rt.terminalDispose?.()
       stopRoute?.()
+      return rt.terminalDispose?.()
     }
   }, 'ds-bot: api route')
 

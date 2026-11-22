@@ -280,9 +280,13 @@ test('the link strips pairing offers from feed events without changing the deskt
     assert.ok(data.phone.pairing.uri)
     assert.ok(data.phone.pairing.browserUri)
     for (const uri of [pairing.uri, pairing.browserUri]) assert.equal(JSON.stringify(event).includes(parsePairingUri(uri).code), false)
+    // Terminal output and exit events are computer-local only and must never cross the link.
+    tap('terminal', { id: 't1', chunk: 'secret-shell-output\n' })
+    tap('terminal-exit', { id: 't1', code: 0 })
     tap('message', application)
     const message = await until(async () => events[1], Boolean)
     assert.deepEqual(message, { event: 'message', data: application })
+    assert.equal(events.some(e => e.event === 'terminal' || e.event === 'terminal-exit'), false)
     off()
     assert.deepEqual(await link.client.rpc('bot', { endpoint: 'chat' }), { ok: true, value: application })
     await link.client.close()

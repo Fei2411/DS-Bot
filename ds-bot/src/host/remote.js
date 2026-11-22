@@ -168,7 +168,10 @@ export function createRemoteService(rt) {
     }
 
     feed(signal) {
-      return feedEvents(rt.subscribeFeed, signal, this[STOP])
+      return feedEvents((listener) => rt.subscribeFeed((event, data) => {
+        if (event === 'terminal' || event === 'terminal-exit') return
+        listener(event, data)
+      }), signal, this[STOP])
     }
   }
   const initializers = [
