@@ -15,7 +15,7 @@ import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openSessions } from './threads.js'
 
-const LEDGER_VERSION = 3
+const LEDGER_VERSION = 4
 const PAGE_MESSAGES = 400
 const PAGE_TIMEOUT_MS = 20_000
 const SCAN_TIMEOUT_MS = 180_000
@@ -137,7 +137,7 @@ function memoryLedger() {
   }
 }
 
-function sqliteLedger(DatabaseSync, path) {
+export function sqliteLedger(DatabaseSync, path) {
   const db = new DatabaseSync(path)
   try {
     // Desktop and Web may share one DSH home; the other writer holds the lock
@@ -145,13 +145,45 @@ function sqliteLedger(DatabaseSync, path) {
     db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA journal_mode = WAL')
     const version = db.prepare('PRAGMA user_version').get().user_version
-    // Version 2 lacks only the seal's watermark, so its rows are kept and gain the column.
-    // Desktop and Web may open it at once: the version is read again under the write lock.
-    if (version === 2) {
+    if (version !== LEDGER_VERSION) {
       db.exec('BEGIN IMMEDIATE')
       try {
-        if (db.prepare('PRAGMA user_version').get().user_version === 2) {
-          db.exec(`ALTER TABLE marks ADD COLUMN listed INTEGER;
+        const version = db.prepare('PRAGMA user_version').get().user_version
+        if (version !== LEDGER_VERSION) {
+          if (version === 2) db.exec('ALTER TABLE marks ADD COLUMN listed INTEGER')
+          else if (version !== 3) db.exec(`
+            DROP TABLE IF EXISTS calls;
+            DROP TABLE IF EXISTS call_slots;
+            DROP TABLE IF EXISTS marks;
+            DROP TABLE IF EXISTS owners;
+            DROP TABLE IF EXISTS kinds;
+            CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
+            CREATE INDEX calls_session ON calls (session);
+            CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
+            CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
+            CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);`)
+          const add = `
+            INSERT INTO call_slots VALUES (new.session, new.provider, new.model, new.kind, new.time / ${SLOT_MS}, new.input, new.cache_read, new.cache_write, new.output, 1)
+            ON CONFLICT (session, provider, model, kind, slot) DO UPDATE SET
+              input = input + excluded.input, cache_read = cache_read + excluded.cache_read,
+              cache_write = cache_write + excluded.cache_write, output = output + excluded.output, calls = calls + 1;`
+          const remove = (row, from = '') => `
+            UPDATE call_slots SET input = call_slots.input - ${row}.input, cache_read = call_slots.cache_read - ${row}.cache_read,
+              cache_write = call_slots.cache_write - ${row}.cache_write, output = call_slots.output - ${row}.output, calls = calls - 1
+              ${from} WHERE call_slots.session = ${row}.session AND call_slots.provider = ${row}.provider AND call_slots.model = ${row}.model AND call_slots.kind = ${row}.kind AND slot = ${row}.time / ${SLOT_MS};
+            DELETE FROM call_slots WHERE (session, provider, model, kind, slot) = (SELECT ${row}.session, ${row}.provider, ${row}.model, ${row}.kind, ${row}.time / ${SLOT_MS} ${from}) AND calls = 0;`
+          db.exec(`
+            DROP TRIGGER IF EXISTS calls_insert;
+            DROP TRIGGER IF EXISTS calls_delete;
+            DROP TRIGGER IF EXISTS calls_replace;
+            DROP TABLE IF EXISTS call_slots;
+            CREATE TABLE call_slots (session TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, slot INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (session, provider, model, kind, slot)) WITHOUT ROWID;
+            INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), COUNT(*) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
+            CREATE TRIGGER calls_insert AFTER INSERT ON calls BEGIN ${add} END;
+            CREATE TRIGGER calls_delete AFTER DELETE ON calls BEGIN ${remove('old')} END;
+            CREATE TRIGGER calls_replace BEFORE INSERT ON calls WHEN EXISTS (SELECT 1 FROM calls WHERE key = new.key) BEGIN
+              ${remove('prev', 'FROM (SELECT * FROM calls WHERE key = new.key) AS prev')}
+            END;
             PRAGMA user_version = ${LEDGER_VERSION};`)
         }
         db.exec('COMMIT')
@@ -159,18 +191,6 @@ function sqliteLedger(DatabaseSync, path) {
         db.exec('ROLLBACK')
         throw error
       }
-    } else if (version !== LEDGER_VERSION) {
-      db.exec(`
-        DROP TABLE IF EXISTS calls;
-        DROP TABLE IF EXISTS marks;
-        DROP TABLE IF EXISTS owners;
-        DROP TABLE IF EXISTS kinds;
-        CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
-        CREATE INDEX calls_session ON calls (session);
-        CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
-        CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
-        CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);
-        PRAGMA user_version = ${LEDGER_VERSION};`)
     }
     const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const dropLogged = db.prepare('DELETE FROM calls WHERE session = ? AND live = 0')
@@ -180,7 +200,7 @@ function sqliteLedger(DatabaseSync, path) {
     const putOwner = db.prepare('INSERT OR REPLACE INTO owners (session, owner, name) VALUES (?, ?, ?)')
     const allKinds = db.prepare('SELECT session, kind FROM kinds')
     const putKind = db.prepare('INSERT OR REPLACE INTO kinds (session, kind) VALUES (?, ?)')
-    const grouped = db.prepare(`SELECT session, provider, model, kind, time / ${SLOT_MS} AS slot, SUM(input) AS input, SUM(cache_read) AS cacheRead, SUM(cache_write) AS cacheWrite, SUM(output) AS output, COUNT(*) AS calls FROM calls GROUP BY session, provider, model, kind, slot`)
+    const grouped = db.prepare('SELECT session, provider, model, kind, slot, input, cache_read AS cacheRead, cache_write AS cacheWrite, output, calls FROM call_slots ORDER BY session, provider, model, kind, slot')
     const insert = (row, live) => put.run(row.key, row.session, row.time, row.provider, row.model, row.kind, live ? 1 : 0, row.input, row.cacheRead, row.cacheWrite, row.output)
     return {
       mark(session) {

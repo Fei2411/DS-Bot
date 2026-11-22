@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -37,7 +37,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path, cancelAckTimeoutMs })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
@@ -190,6 +190,157 @@ test('abort cancels the turn and the pending calls', async (t) => {
   assert.equal(out.finish.kind, 'aborted')
 })
 
+test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const engine = adapter.engine('local-acp-fake')
+  const prompt = engine.prompt.bind(engine)
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  engine.prompt = async (...args) => {
+    const result = prompt(...args)
+    // ensure() and the write happen before the test stops this turn.
+    await new Promise(resolve => setImmediate(resolve))
+    started()
+    return result
+  }
+  const stopped = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  await ready
+  control.abort()
+  assert.equal((await stopped).finish.kind, 'aborted')
+  const messages = [user('m1', 'hang')]
+  for (const text of ['second', 'third']) {
+    messages.push(user(text, text))
+    const out = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(out.text, `ok: ${text}`)
+    assert.equal(out.finish.kind, 'stop')
+  }
+})
+
+test('acp: a missing cancel acknowledgement cannot freeze subsequent turns', async (t) => {
+  for (const late of [false, true]) await t.test(late ? 'late reply is ignored' : 'no reply', async (t) => {
+    const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack', ...(late ? ['--late-cancel-reply'] : [])], cancelAckTimeoutMs: 20 })
+    t.after(() => adapter.dispose())
+    await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+    const engine = adapter.engine('local-acp-fake')
+    const peer = engine.peer
+    const control = new AbortController()
+    const stopped = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')], { signal: control.signal })))
+    // The fake CLI has received the hung prompt before Stop is pressed.
+    const request = peer.request.bind(peer)
+    let sent
+    const ready = new Promise(resolve => { sent = resolve })
+    peer.request = (...args) => {
+      const result = request(...args)
+      if (args[0] === 'session/prompt') sent()
+      return result
+    }
+    await ready
+    const oldId = peer.nextId
+    control.abort()
+    assert.equal((await stopped).finish.kind, 'aborted')
+    const messages = [user('m0', 'hello'), user('m1', 'hang'), user('m2', 'second')]
+    const next = await collect(adapter.stream(options('s1', messages, { signal: AbortSignal.timeout(1000) })))
+    assert.equal(next.finish.kind, 'stop')
+    assert.equal(next.text, 'ok: second')
+    assert.equal(peer.pending.has(oldId), false)
+    messages.push(user('m3', 'third'))
+    const third = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(third.text, 'ok: third')
+    assert.equal(third.finish.kind, 'stop')
+  })
+})
+
+test('acp: Stop interrupts a new prompt waiting for a missing cancel acknowledgement', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'], cancelAckTimeoutMs: 10_000 })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const session = adapter.live.get('s1').engineSession
+  const control = new AbortController()
+  const first = engine.prompt(session, [{ type: 'text', text: 'hang' }], { signal: control.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  const oldId = engine.peer.nextId
+  control.abort()
+  engine.cancel(session)
+  const nextControl = new AbortController()
+  const second = engine.prompt(session, [{ type: 'text', text: 'must not send' }], { signal: nextControl.signal })
+  const rejected = assert.rejects(second, { name: 'AbortError' })
+  await new Promise(resolve => setImmediate(resolve))
+  nextControl.abort()
+  await Promise.race([rejected, new Promise((_, reject) => setTimeout(() => reject(new Error('Stop did not release the waiting prompt')), 200))])
+  assert.equal(engine.peer.nextId, oldId)
+  await adapter.dispose()
+  await first
+})
+
+test('after Stop the next turn receives its first text or permission event', async (t) => {
+  for (const type of ['text', 'permission']) await t.test(type, async (t) => {
+    const adapter = makeAdapter()
+    t.after(() => adapter.dispose())
+    const live = await adapter.liveFor(options('s1', []), 'workspace-write')
+    live.engineSession = {}
+    live.engine.prompt = async () => {}
+    live.engine.cancel = () => {}
+    const control = new AbortController()
+    await adapter.startTurn(live, 'first', control.signal)
+    const first = collect(adapter.drain(live, { signal: control.signal }))
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    assert.equal((await first).finish.kind, 'aborted')
+    await adapter.startTurn(live, 'second')
+    live.push(type === 'text' ? { type, text: 'first reply' } : {
+      type, id: 'first-permission', action: 'Run a command', changes: false,
+      options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }], reply: () => {},
+    })
+    live.push({ type: 'done', reason: 'end_turn' })
+    const second = await collect(adapter.drain(live, {}))
+    if (type === 'text') assert.equal(second.text, 'first reply')
+    else {
+      assert.equal(second.finish.kind, 'tool-calls')
+      assert.equal(second.calls[0]?.id, 'first-permission')
+    }
+    assert.equal(live.waiters.length, 0)
+  })
+})
+
+test('acp: cancelled wire replies and notices are isolated until the next prompt', async (t) => {
+  for (const fails of [false, true]) await t.test(fails ? 'late error' : 'late success', async () => {
+    const engine = new AcpEngine('local-acp-fake', {}, {})
+    const sent = []
+    const peer = new JsonRpcPeer(message => sent.push(message))
+    engine.ensure = async () => peer
+    engine.peer = peer
+    const session = engine.sessionFor('s1')
+    session.acpSessionId = 'acp-1'
+    const events = []
+    session.push = event => events.push(event)
+    const notice = text => engine.onNotice('session/update', { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+    const control = new AbortController()
+    const first = engine.prompt(session, [{ type: 'text', text: 'first' }], { signal: control.signal }).catch(error => error)
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    engine.cancel(session)
+    const second = engine.prompt(session, [{ type: 'text', text: 'second' }])
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(sent.filter(message => message.method === 'session/prompt').length, 1)
+    notice('late output')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: sent[0].id, ...(fails ? { error: { code: -32603, message: 'cancelled' } } : { result: { stopReason: 'cancelled' } }) }))
+    await first
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(events, [])
+    const request = sent.filter(message => message.method === 'session/prompt').at(-1)
+    notice('second answer')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }))
+    await second
+    assert.deepEqual(events, [{ type: 'text', text: 'second answer' }, { type: 'done', reason: 'end_turn' }])
+    const count = sent.length
+    await assert.rejects(engine.prompt(session, [], { signal: control.signal }), { name: 'AbortError' })
+    assert.equal(sent.length, count)
+  })
+})
+
 test('env sanitization drops agent and key variables', () => {
   process.env.ACP_BACKEND = 'windsurf'
   process.env.OPENAI_API_KEY = 'sk-test'
@@ -199,7 +350,27 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.ok(env.PATH.startsWith(process.env.PATH))
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH')
+  assert.ok(pathKey)
+  assert.ok(env[pathKey].startsWith(process.env[pathKey]))
+})
+
+test('env sanitization matches the explicit denylist and host prefixes case-insensitively', () => {
+  const keys = ['openai_api_key', 'anthropic_auth_token', 'acp_backend', 'ds_bot_fixture_variable', 'dsh_fixture_variable', 'antigravity_fixture_variable', 'agy_fixture_variable', 'deepseek_fixture_variable']
+  const before = keys.map(key => [key, process.env[key]])
+  try {
+    for (const key of keys) process.env[key] = 'fake-env-value'
+    const env = cleanEnv({ OPENAI_API_KEY: 'fake-explicit-value', DSH_FIXTURE_VARIABLE: 'fake-explicit-host-value' })
+    for (const key of keys) assert.equal(Object.hasOwn(env, key), false, key)
+    // An engine's explicit environment is passed in, not inherited, so it stays.
+    assert.equal(env.OPENAI_API_KEY, 'fake-explicit-value')
+    assert.equal(env.DSH_FIXTURE_VARIABLE, 'fake-explicit-host-value')
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
 
 // A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
@@ -923,6 +1094,22 @@ test('an open-ended request outlives the default deadline', async () => {
   assert.equal(await settled, 'timeout', 'a positive timeout still fires')
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
+})
+
+test('an aborted JSON-RPC request is removed and its late reply is ignored', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const control = new AbortController()
+  const first = peer.request('session/prompt', {}, { signal: control.signal, timeout: 0 })
+  control.abort()
+  await assert.rejects(first, { name: 'AbortError' })
+  assert.equal(peer.pending.size, 0)
+  const second = peer.request('session/prompt', {}, { timeout: 0 })
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'cancelled' } }))
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'late failure' } }))
+  assert.equal(peer.pending.size, 1)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { stopReason: 'end_turn' } }))
+  assert.deepEqual(await second, { stopReason: 'end_turn' })
+  assert.equal(peer.pending.size, 0)
 })
 
 // #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
@@ -1738,6 +1925,340 @@ test('replay drops images outside the replay window without reading their attach
   const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
+})
+
+test('AcpEngine cwdPerProcess does not close a worker while another open is in-flight or a non-ephemeral session shared it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-worker-'))
+  const dirA = join(dir, 'ws-a')
+  const dirHold = join(dir, 'ws-hold')
+  const dirRace = join(dir, 'ws-race')
+  const dirFailOne = join(dir, 'ws-fail-one')
+  const dirFailBoth = join(dir, 'ws-fail-both')
+  for (const d of [dirA, dirHold, dirRace, dirFailOne, dirFailBoth]) mkdirSync(d, { recursive: true })
+
+  const script = `
+    let buf = '', next = 0
+    const held = [], race = [], failBoth = []
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          const cwd = String(params.cwd || '')
+          if (cwd.endsWith('ws-hold')) { held.push(id); continue }
+          if (cwd.endsWith('ws-fail-one')) {
+            send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'not signed in' } })
+            continue
+          }
+          if (cwd.endsWith('ws-fail-both')) {
+            failBoth.push(id)
+            if (failBoth.length === 2) {
+              for (const reqId of failBoth.splice(0)) {
+                send({ jsonrpc: '2.0', id: reqId, error: { code: -32000, message: 'both failed' } })
+              }
+            }
+            continue
+          }
+          if (cwd.endsWith('ws-race')) {
+            race.push(id)
+            if (race.length === 2) {
+              const [firstId, secondId] = race
+              send({ jsonrpc: '2.0', id: firstId, error: { code: -32000, message: 'first failed' } })
+              setTimeout(() => send({ jsonrpc: '2.0', id: secondId, result: { sessionId: 'acp-race-2', configOptions: [] } }), 30)
+            }
+            continue
+          }
+          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (held.length > 0) {
+            const heldId = held.shift()
+            setTimeout(() => send({ jsonrpc: '2.0', id: heldId, result: { sessionId: 'acp-' + (++next), configOptions: [] } }), 250)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
+
+  // Case 1: first ephemeral session closes while a second ephemeral open on the same worker is still pending.
+  const s1 = await engine.open('side-1', { cwd: dirA, ephemeral: true })
+  const worker = engine.workerOf(s1)
+  const p2 = engine.open('side-2', { cwd: dirHold, ephemeral: true })
+  while ((worker.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(s1)
+  const s2 = await p2
+  assert.ok(s2.acpSessionId)
+  await engine.closeSession(s2)
+  assert.equal(engine.workers.size, 0)
+
+  // Case 2: a non-ephemeral session shares an existing ephemeral worker and keeps it reusable after closing.
+  const s3 = await engine.open('side-3', { cwd: dirA, ephemeral: true })
+  const sharedWorker = engine.workerOf(s3)
+  const p4 = engine.open('main-4', { cwd: dirA, ephemeral: false })
+  await engine.closeSession(s3)
+  const s4 = await p4
+  assert.equal(engine.workerOf(s4), sharedWorker)
+  await engine.closeSession(s4)
+  assert.equal(engine.workers.size, 1)
+
+  // Case 3: concurrent opens on a fresh cwd worker where the first fails must not kill the second in-flight open.
+  const pFail = engine.open('race-1', { cwd: dirRace })
+  const pOk = engine.open('race-2', { cwd: dirRace })
+  await assert.rejects(pFail, /first failed/)
+  const sOk = await pOk
+  assert.equal(sOk.acpSessionId, 'acp-race-2')
+
+  // Case 4: a single failed session/new cleans up the placeholder, removes the worker, and terminates its child.
+  const beforeFailOne = new Set(children)
+  await assert.rejects(engine.open('fail-1', { cwd: dirFailOne }), /not signed in/)
+  assert.equal(engine.workers.has(dirFailOne), false)
+  engine.forget('fail-1')
+  const failOneChildren = [...children].filter(child => !beforeFailOne.has(child))
+  assert.equal(failOneChildren.length, 1)
+  await waitExited(failOneChildren[0])
+
+  // Case 5: concurrent opens on a fresh worker that all fail clean up the worker and terminate its child.
+  const beforeFailBoth = new Set(children)
+  const [rA, rB] = await Promise.allSettled([
+    engine.open('fail-both-1', { cwd: dirFailBoth }),
+    engine.open('fail-both-2', { cwd: dirFailBoth }),
+  ])
+  assert.equal(rA.status, 'rejected')
+  assert.equal(rB.status, 'rejected')
+  assert.equal(engine.workers.has(dirFailBoth), false)
+  const failBothChildren = [...children].filter(child => !beforeFailBoth.has(child))
+  assert.equal(failBothChildren.length, 1)
+  await waitExited(failBothChildren[0])
+})
+
+test('AcpEngine cwdPerProcess retires workers when concurrent opens fail after forget or ephemeral close', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-retire-'))
+  const dirForget = join(dir, 'ws-forget')
+  const dirEph = join(dir, 'ws-eph')
+  const dirInFlightForget = join(dir, 'ws-inflight-forget')
+  for (const d of [dirForget, dirEph, dirInFlightForget]) mkdirSync(d, { recursive: true })
+
+  // Deterministic fake ACP worker controlled via session/new order per workspace:
+  // - ws-forget: 1st session/new succeeds; 2nd session/new delays 80ms then fails.
+  // - ws-eph: 1st session/new succeeds; 2nd session/new holds until session/close completes, then fails.
+  // - ws-inflight-forget: 1st session/new delays 80ms then succeeds (caller forgets while in flight).
+  const script = `
+    let buf = '', next = 0
+    const counts = Object.create(null)
+    let heldEphFail
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          const cwd = String(params.cwd || '')
+          counts[cwd] = (counts[cwd] || 0) + 1
+          const n = counts[cwd]
+          if (cwd.endsWith('ws-forget')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-f-' + (++next), configOptions: [] } })
+            else setTimeout(() => send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'second open failed' } }), 80)
+          } else if (cwd.endsWith('ws-eph')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-e-' + (++next), configOptions: [] } })
+            else heldEphFail = id
+          } else if (cwd.endsWith('ws-inflight-forget')) {
+            setTimeout(() => send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-i-' + (++next), configOptions: [] } }), 80)
+          } else {
+            send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          }
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (heldEphFail !== undefined) {
+            const failId = heldEphFail
+            heldEphFail = undefined
+            setTimeout(() => send({ jsonrpc: '2.0', id: failId, error: { code: -32000, message: 'promoted open failed' } }), 30)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
+
+  // Case A: persistent s1 is forgotten while s2's newSession is in-flight; when s2 then fails,
+  // the now-empty worker must retire and exit rather than leaking forever.
+  const s1 = await engine.open('persist-1', { cwd: dirForget, ephemeral: false })
+  const workerA = engine.workerOf(s1)
+  const childA = workerA.child
+  const p2 = engine.open('persist-2', { cwd: dirForget, ephemeral: false })
+  while ((workerA.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('persist-1')
+  assert.equal(engine.workers.has(dirForget), true, 'worker stays alive while s2 is still opening')
+  await assert.rejects(p2, /second open failed/)
+  assert.equal(engine.workers.has(dirForget), false, 'worker is removed once the last in-flight open fails')
+  await waitExited(childA)
+
+  // Case B: ephemeral s1 creates a worker, non-ephemeral s2 shares it and starts opening,
+  // s1 closes before s2 settles, and s2 then fails; keepWarm must not have been set prematurely.
+  const e1 = await engine.open('eph-1', { cwd: dirEph, ephemeral: true })
+  const workerB = engine.workerOf(e1)
+  const childB = workerB.child
+  const pPromoted = engine.open('main-promote', { cwd: dirEph, ephemeral: false })
+  while ((workerB.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(e1)
+  await assert.rejects(pPromoted, /promoted open failed/)
+  assert.equal(engine.workers.has(dirEph), false, 'ephemeral worker is removed when the non-ephemeral open fails')
+  await waitExited(childB)
+
+  // Case C: forgetting a session while its only open is still in-flight rejects that open
+  // and retires the worker without leaking the process.
+  const beforeC = new Set(children)
+  const pForgotten = engine.open('inflight-1', { cwd: dirInFlightForget, ephemeral: false })
+  while (engine.workers.get(dirInFlightForget)?.peer?.pending?.size !== 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('inflight-1')
+  await assert.rejects(pForgotten, /session closed while opening/)
+  assert.equal(engine.workers.has(dirInFlightForget), false)
+  const childC = [...children].find(child => !beforeC.has(child))
+  assert.ok(childC)
+  await waitExited(childC)
+})
+
+test('ACP upstream error data preserves code, detail and status (#1806)', async (t) => {
+  const detail = "This request was blocked by Factory's usage policy check."
+  const cases = [
+    { data: { status: 403, code: 'content_policy_rejected', detail }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { status: 403, error: { code: 'content_policy_rejected', message: detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { error: { status: 403, code: 'content_policy_rejected', message: 'Request rejected', detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { message: 'Login required', code: 'auth_failed', status: 401 }, code: 'LOCAL_AGENT_SIGNIN', text: 'Login required', status: 401 },
+    { data: { detail: 'Rate limit reached', code: 'rate_limit_exceeded', status: 429 }, code: 'LOCAL_AGENT_QUOTA', text: 'Rate limit reached', status: 429 },
+    ...['This request exceeded the allowed usage policy limits.', 'This request contains too many tokens prohibited by policy.', 'Unauthorized content was rejected.'].flatMap(text => ['detail', 'message'].map(field => ({
+      data: { status: 403, code: 'content_policy_rejected', [field]: text }, code: 'content_policy_rejected', text, status: 403,
+    }))),
+    { data: { code: 'context_length_exceeded', detail: 'Request rejected' }, code: 'CONTEXT_WINDOW_EXCEEDED', text: 'Request rejected' },
+    { outerCode: 'auth_failed', code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error' },
+    { outerCode: 'rate_limit_exceeded', code: 'LOCAL_AGENT_QUOTA', text: 'Internal error' },
+    { outerCode: 'NO_ADAPTER', code: 'LOCAL_AGENT_MISSING', text: 'Internal error' },
+    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { message: 'Unauthorized content was rejected.', data: { status: 403, code: 'content_policy_rejected' }, code: 'content_policy_rejected', text: 'Unauthorized content was rejected.', status: 403 },
+    { data: { status: 504, code: 'deadline_exceeded', detail: 'The upstream service timed out.' }, code: 'deadline_exceeded', text: 'The upstream service timed out.', status: 504 },
+    { outerCode: 'deadline_exceeded', code: 'deadline_exceeded', text: 'Internal error' },
+    ...['auth_failed', 'unauthorized', 'unauthenticated', 'authentication_failed', 'not_logged_in'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error',
+    })),
+    ...['rate_limit_exceeded', 'quota_exceeded', 'insufficient_quota', 'usage_limit_exceeded'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
+    })),
+    ...[
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+    ].flatMap(([text, code]) => [
+      { data: { detail: text }, code, text },
+      { data: { error: { message: text } }, code, text },
+    ]),
+    ...[
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+    ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
+    { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: '  ', detail, status: 999 }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: null, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+    { data: {}, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+  ]
+  for (const [index, entry] of cases.entries()) {
+    await t.test(`upstream data case ${index + 1}`, async (t) => {
+      const adapter = makeAdapter()
+      t.after(() => adapter.dispose())
+      const peer = new JsonRpcPeer(request => peer.handleLine(JSON.stringify({
+        jsonrpc: '2.0', id: request.id,
+        error: { code: entry.outerCode ?? -32603, message: entry.message ?? 'Internal error', data: entry.data },
+      })))
+      adapter.engine('local-acp-fake').prompt = () => peer.request('session/prompt', {})
+      await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')]))), err => {
+        assert.equal(err.code, entry.code)
+        assert.ok(err.message.includes(entry.text), err.message)
+        assert.equal(err.failure.status, entry.status)
+        return true
+      })
+    })
+  }
 })
 
 test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {

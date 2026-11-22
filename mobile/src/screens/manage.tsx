@@ -1,7 +1,7 @@
 // Bot and group management screens, mirroring the desktop details drawer and
 // settings forms: Bot details, Edit Bot, Create Bot, group settings, and the
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
-import { Children, Fragment, useCallback, useContext, useEffect, useState } from 'react'
+import { Children, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -162,9 +162,14 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
 
 type Model = NonNullable<TeamState['models']>[number]
 
+// The last segment of a host path, Windows or POSIX; a root keeps its own spelling.
+const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+
 function useWrite(navigation: any) {
   const { call } = useTeam()
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const inflight = useRef(false)
   const run = async (name: string, body: Record<string, unknown>, done?: (value: unknown) => void) => {
     try { const value = await call(name, body); setError(null); done?.(value) }
     catch (failure) {
@@ -173,7 +178,15 @@ function useWrite(navigation: any) {
       setError((failure as Error)?.message ?? String(failure))
     }
   }
-  return { run, error }
+  // For a write that leaves the screen when it lands: a second tap while the first is
+  // in flight would write twice and go back twice. A failure frees it to be tried again.
+  const once: typeof run = async (...args) => {
+    if (inflight.current) return
+    inflight.current = true
+    setBusy(true)
+    try { await run(...args) } finally { inflight.current = false; setBusy(false) }
+  }
+  return { run, once, error, busy }
 }
 
 // Like the desktop, a Bot or group the user just made (or duplicated) opens
@@ -233,7 +246,7 @@ export function BotDetails({ route, navigation }: any) {
         <DetailTitle text={t('Working folder')} />
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })}
           style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{bot.workDir ? bot.workDir.split(/[\\/]/).filter(Boolean).pop() : t('Team workspace')}</Text>
+          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{bot.workDir ? folderName(bot.workDir) : t('Team workspace')}</Text>
           <Text style={{ color: p.ink3, fontSize: 12 }}>⌄</Text>
         </Pressable>
         {bot.instructions
@@ -617,6 +630,10 @@ export function GroupSettings({ route, navigation }: any) {
               options={ROOM_MODES.map(([id, label]) => ({ id, label: t(label) }))} />
           </View>
         </Section>
+        <Section label={t('Working folder')}>
+          <Row label={t('Folder')} value={room.workDir ? folderName(room.workDir) : t("Each Bot's own folder")}
+            onPress={() => navigation.navigate('Folder', { current: room.workDir, onPick: 'room', roomId: room.id })} />
+        </Section>
         {/* Tick to add or remove a member; among members, the admin is marked and
             another member can take the role. */}
         <Section label={t('Members · {count}', { count: members.size })}>
@@ -844,7 +861,15 @@ export function Schedules({ route, navigation }: any) {
   const [count, setCount] = useState('1')
   const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
-  const load = () => void call('schedules').then(v => setTasks(((v as { tasks?: typeof tasks })?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
+  const [canPause, setCanPause] = useState(false)
+  const load = () => void call('schedules').then((v) => {
+    const view = v as { tasks?: typeof tasks, canPause?: boolean }
+    setCanPause(view?.canPause === true)
+    setTasks((view?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))
+  }).catch(() => {})
+  // As on the desktop: a one-time task whose time has passed is neither paused nor resumed.
+  const pausable = (task: typeof tasks[number]) => canPause && (task.status === 'active' || task.status === 'paused')
+    && !((task.kind === 'at' || task.kind === 'after') && Date.parse(String(task.scheduledAt)) <= Date.now())
   useEffect(() => { load() }, [botId])
   const when = () => {
     if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
@@ -867,8 +892,13 @@ export function Schedules({ route, navigation }: any) {
             <View key={task.id} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{task.title}</Text>
-                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{whenText(task)}</Text>
+                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{task.status === 'paused' ? `${whenText(task)} · ${t('Paused')}` : whenText(task)}</Text>
               </View>
+              {pausable(task) ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'active' ? t('Pause task') : t('Resume task')} onPress={() => void run('schedule-pause', { sessionId: task.sessionId ?? sessionId, id: task.id, active: task.status !== 'active' }).then(load)} hitSlop={8} style={{ marginRight: 14 }}>
+                  <Text style={{ color: p.ink3, fontSize: 15 }}>{task.status === 'active' ? '‖' : '▶\uFE0E'}</Text>
+                </Pressable>
+              ) : null}
               <Pressable accessibilityRole="button" accessibilityLabel={t('Delete task')} onPress={() => void run('schedule-delete', { sessionId: task.sessionId ?? sessionId, id: task.id }, load)} hitSlop={8}>
                 <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
               </Pressable>
@@ -929,38 +959,84 @@ export function Schedules({ route, navigation }: any) {
 export function Folder({ route, navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const { run } = useWrite(navigation)
+  const { once, error, busy } = useWrite(navigation)
   const [path, setPath] = useState(String(route.params?.current ?? ''))
-  const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
+  const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
-  const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
+  // Whether the computer lists folders; unknown until `folders` answers. A computer whose
+  // folders are chosen in its own window (or that has no chooser) lists nothing, so there
+  // a path is typed or taken from the folders already known.
+  const [browsable, setBrowsable] = useState<boolean | null>(null)
+  const request = useRef(0)
+  const [listingError, setListingError] = useState<string | null>(null)
+  const load = (next: string) => {
+    const id = ++request.current
+    setPath(next)
+    setListing(null)
+    setListingError(null)
+    void call('folder-list', { path: next }).then(v => {
+      if (id !== request.current) return
+      const nextListing = v as NonNullable<typeof listing>
+      setListing(nextListing)
+      setPath(nextListing.path)
+    }).catch(failure => {
+      if (id === request.current) setListingError((failure as Error)?.message ?? String(failure))
+    })
+  }
   useEffect(() => {
-    void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {})
-    load(path)
+    void call('folders').then(v => {
+      const info = v as { picker?: string | null; folders?: { path: string; title: string }[] } | null
+      setRecent(info?.folders ?? [])
+      // A host that does not say is asked to list, as before.
+      const browse = info?.picker === undefined || info?.picker === 'browse'
+      setBrowsable(browse)
+      if (browse) load(path)
+    }).catch(() => { setBrowsable(true); load(path) })
   }, [])
   const choose = (picked: string) => {
     const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }]
       : route.params?.onPick === 'team' ? ['team-workspace', { path: picked }]
       : ['update-bot', { id: route.params?.botId, workDir: picked }]
-    void run(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
+    void once(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
   }
+  const parent = listing?.crumbs && listing.crumbs.length > 1 ? listing.crumbs.at(-2) : undefined
+  const typed = path.trim()
   return (
     <Screen title="">
       <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {recent.length > 0 ? (
-          <Section label={t('Folders')}>
-            {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => load(folder.path)} />)}
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {listingError ? <View style={{ marginHorizontal: 18, marginTop: 10 }}>
+          <Text style={[typeScale.small, { color: p.danger }]}>{listingError}</Text>
+          {recent.length > 0 ? <Text style={[typeScale.small, { color: p.ink }]}>{t('Pick a folder from Folders.')}</Text> : null}
+        </View> : null}
+        {route.params?.onPick === 'room' ? (
+          <Section label={t('Folder')}>
+            <Row label={t("Each Bot's own folder")} disabled={busy} onPress={() => choose('')} />
           </Section>
         ) : null}
-        <Section label={path || '/'}>
-          {listing?.parent ? <Row label={t('Up one level')} onPress={() => load(listing.parent ?? '')} /> : null}
-          {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
-          {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
-          {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
-        </Section>
+        {recent.length > 0 ? (
+          <Section label={t('Folders')}>
+            {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => browsable === false ? setPath(folder.path) : load(folder.path)} />)}
+          </Section>
+        ) : null}
+        {browsable === false ? (
+          <Section label={t('Folder path')}>
+            <View style={styles.row}>
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={path} onChangeText={setPath}
+                placeholder={t('Full path of a folder')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+            </View>
+          </Section>
+        ) : (
+          <Section label={path || '/'}>
+            {parent ? <Row label={t('Up one level')} onPress={() => load(parent.path)} /> : null}
+            {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
+            {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
+            {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
+          </Section>
+        )}
         <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
-          <Pressable accessibilityRole="button" onPress={() => choose(path)} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable accessibilityRole="button" disabled={typed === '' || busy} onPress={() => { if (typed !== '') choose(typed) }} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: typed === '' || busy ? 0.5 : pressed ? 0.85 : 1 }]}>
             <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Use this folder')}</Text>
           </Pressable>
         </View>

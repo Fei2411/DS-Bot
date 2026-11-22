@@ -22,8 +22,10 @@ const toMrkdwn = (markdown) => String(markdown ?? '')
   .split(/(```[\s\S]*?```)/g)
   .map((part, index) => index % 2 === 1 ? part : part
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
-    .replace(/\*\*([^*]+)\*\*/g, '*$1*')
-    .replace(/(^|\s)\*([^*\n]+)\*/g, '$1_$2_'))
+    // Italic first: Slack spells bold *text* and italic _text_, so converting bold
+    // first would hand the italic rule a "*bold*" that it then rewrites to _bold_.
+    .replace(/(^|\s)\*([^*\n]+)\*/g, '$1_$2_')
+    .replace(/\*\*([^*]+)\*\*/g, '*$1*'))
   .join('')
 
 export default {
@@ -174,6 +176,74 @@ export default {
           messageId = String(result?.ts ?? messageId ?? '')
         }
         return { messageId }
+      },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const name = image.name || 'image.png'
+        const metaResp = await env.fetch(`${apiBase(env)}files.getUploadURLExternal`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${botToken}`,
+            'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
+          },
+          body: new URLSearchParams({ filename: name, length: String(bytes.byteLength) }),
+          signal: AbortSignal.timeout(30_000),
+        })
+        const meta = await metaResp.json().catch(() => ({}))
+        if (metaResp.status === 429) throw Object.assign(new Error('Slack rate limited the send'), { retryAfter: Number(metaResp.headers.get('retry-after')) })
+        let uploadUrl
+        try { uploadUrl = meta?.upload_url ? new URL(String(meta.upload_url)) : undefined } catch { uploadUrl = undefined }
+        const customApiHost = (() => { try { return env.config?.api ? new URL(String(env.config.api)).host : '' } catch { return '' } })()
+        const trustedSlackHost = uploadUrl !== undefined && uploadUrl.username === '' && uploadUrl.password === ''
+          && ((customApiHost !== '' && uploadUrl.host === customApiHost && (uploadUrl.protocol === 'http:' || uploadUrl.protocol === 'https:'))
+            || (uploadUrl.protocol === 'https:' && (uploadUrl.port === '' || uploadUrl.port === '443')
+              && /(^|\.)(slack\.com|slack-edge\.com|slack-files\.com)$/i.test(uploadUrl.hostname)))
+        if (!meta?.ok || !meta.file_id || !trustedSlackHost) {
+          const error = fail(meta?.error ?? (!trustedSlackHost && meta?.ok ? 'untrusted_upload_url' : `HTTP ${metaResp.status}`))
+          error.status = metaResp.status
+          if (meta?.error === undefined && !(!trustedSlackHost && meta?.ok)) {
+            error.permanent = metaResp.status >= 400 && metaResp.status < 500 && metaResp.status !== 429
+          }
+          throw error
+        }
+        const upResp = await env.fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'content-type': image.mediaType || 'application/octet-stream' },
+          body: bytes,
+          redirect: 'error',
+          signal: AbortSignal.timeout(30_000),
+        })
+        if (!upResp.ok) {
+          const error = new Error(`Slack image upload answered ${upResp.status}`)
+          error.status = upResp.status
+          if (upResp.status === 429) error.retryAfter = Number(upResp.headers.get('retry-after'))
+          error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
+          throw error
+        }
+        let doneResp
+        try {
+          doneResp = await env.fetch(`${apiBase(env)}files.completeUploadExternal`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${botToken}`, 'content-type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ files: [{ id: meta.file_id, title: image.alt || name }], channel_id: chat.key }),
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (error) {
+          if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            throw Object.assign(new Error('Slack did not answer the image send in time'), { unknown: true })
+          }
+          throw error
+        }
+        const done = await doneResp.json().catch(() => ({}))
+        if (doneResp.status === 429) throw Object.assign(new Error('Slack rate limited the send'), { retryAfter: Number(doneResp.headers.get('retry-after')) })
+        if (!doneResp.ok || !done?.ok) {
+          const error = fail(done?.error ?? `HTTP ${doneResp.status}`)
+          error.status = doneResp.status
+          if (done?.error === undefined) error.permanent = doneResp.status >= 400 && doneResp.status < 500 && doneResp.status !== 429
+          throw error
+        }
+        return { messageId: String(meta.file_id) }
       },
       edit: async (chat, messageId, { text, buttons }) => {
         await api('chat.update', { channel: chat.key, ts: messageId, text: toMrkdwn(text).slice(0, TEXT_LIMIT), blocks: blocksFor(toMrkdwn(text).slice(0, TEXT_LIMIT), buttons) })

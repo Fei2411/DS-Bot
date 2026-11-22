@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
+import { installAgentForks } from '../src/client/agent-fork.js'
 
 const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve() }
 
@@ -107,6 +108,46 @@ test('add-agent creates one record with a first Session in the DS Bot workspace'
   assert.equal(created.at(-1).workspaceId, workspaceId)
 })
 
+test('agent-chat pages the newest Session of the DSH Agent and refuses an unknown one', async (t) => {
+  const { call, stop, ctx } = start(TEAM)
+  t.after(stop)
+  const pages = []
+  ctx.sessionController.page = async (query) => { pages.push(query); return { records: [], hasMore: false } }
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  const second = (await call('agent-session', { agentId: agent.id })).value
+  const page = (await call('agent-chat', { agentId: agent.id })).value
+  assert.equal(page.sessionId, second.sessionId)
+  assert.deepEqual(page.items, [])
+  assert.equal(page.cursor, null)
+  assert.equal(pages.at(-1).address.sessionId, second.sessionId)
+  await call('agent-archive', { agentId: agent.id, sessionId: agent.sessions[0] })
+  await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })
+  const empty = (await call('agent-chat', { agentId: agent.id })).value
+  assert.equal(empty.sessionId, undefined)
+  assert.deepEqual(empty.items, [])
+  const missing = await call('agent-chat', { agentId: 'nope' })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.error.code, 'bot/not-found')
+})
+
+test('a running DSH Agent shows in the work view, and stop-agent cancels its turn', async (t) => {
+  const { call, stop, ctx } = start(TEAM)
+  t.after(stop)
+  await call('state', {})
+  const agent = (await call('add-agent')).value
+  assert.equal((await call('stop-agent', { agentId: agent.id })).value, false)
+  const cancels = []
+  rt.resolveAgent = async sessionId => ({ cancel: reason => cancels.push([sessionId, reason.kind]) })
+  const emit = async event => { for (const listener of ctx.listeners.get('session/event') ?? []) await listener({ id: agent.sessions[0] }, event) }
+  await emit({ type: 'turn/start', time: 5, data: { turn: 1 } })
+  assert.equal((await call('state', {})).value.work.agents[agent.id].since, 5)
+  assert.equal((await call('stop-agent', { agentId: agent.id })).value, true)
+  assert.deepEqual(cancels, [[agent.sessions[0], 'user']])
+  await emit({ type: 'turn/end', data: { turn: 1 } })
+  assert.deepEqual(rt.agentWorkView(), {})
+})
+
 test('a team holds at most one DSH Agent', async (t) => {
   const { call, stop } = start(TEAM)
   t.after(stop)
@@ -199,6 +240,41 @@ test('agents survive a state reload', async (t) => {
   assert.deepEqual(view.agents.map(entry => entry.id), [agent.id])
 })
 
+test('a fork without a parent is adopted through the Bot API and survives a restart', async (t) => {
+  const env = start(TEAM)
+  let fix
+  let again
+  t.after(async () => { await fix?.dispose(); await again?.stop() })
+  await env.call('state', {})
+  const agent = (await env.call('add-agent')).value
+  let view = (await env.call('state', {})).value
+  const sessions = {
+    list: { getSnapshot: () => ({ byId: { fork: { id: 'fork', blank: false } } }) },
+    fork: async (options) => { options.onCreated?.('fork'); return 'fork' },
+  }
+  fix = installAgentForks({
+    sessions, pending: new Map(),
+    ownerOf: id => view.agents.find(entry => entry.sessions.includes(id))?.id,
+    hasAgent: id => view.agents.some(entry => entry.id === id),
+    ready: async () => {},
+    adopt: async (agentId, sessionId) => {
+      const response = await env.call('agent-adopt', { agentId, sessionId })
+      assert.equal(response.ok, true)
+    },
+    refresh: async () => { view = (await env.call('state', {})).value },
+    report: error => { throw error },
+  })
+  assert.equal(await sessions.fork({ sessionId: agent.sessions[0] }), 'fork')
+  assert.ok(view.agents[0].sessions.includes('fork'))
+  const saved = JSON.parse(readFileSync(join(env.home, 'state.json'), 'utf8'))
+  assert.ok(saved.agents[agent.id].sessions.includes('fork'))
+  await fix.dispose()
+  await env.stop()
+  again = start(saved)
+  const restarted = (await again.call('state', {})).value
+  assert.ok(restarted.agents[0].sessions.includes('fork'))
+})
+
 test('a corrupt agents field resets instead of crashing the view', async (t) => {
   const { call, stop } = start({ ...TEAM, agents: 'junk' })
   t.after(stop)
@@ -210,7 +286,7 @@ test('TEAM_TOOLS names exactly the tools ds-bot defines for Bot sessions', async
   // read_browser exists only in the Desktop profile; the flag stands in for it.
   const { stop } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual(rt.teamTools.map(d => d.name).sort(), [...TEAM_TOOLS].sort())
+  assert.deepEqual(rt.teamTools.map(d => d.name).sort(), [...TEAM_TOOLS].filter(name => name !== 'read_document').sort())
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {
@@ -264,7 +340,7 @@ test('a Bot Session gets the team tools in its own scope; a DSH Agent Session ge
   })
   await flush()
   assert.deepEqual(scoped.filter(entry => entry.sessionId === 'm1').map(entry => entry.name).sort(),
-    [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
+    [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort())
   assert.equal(restricted.length, 0)
   // An Agent Session is a plain dsh conversation: nothing is scoped onto it and
   // nothing is masked, because the team tools never reach the global layer.
