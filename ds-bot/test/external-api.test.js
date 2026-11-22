@@ -416,7 +416,7 @@ test('full REST + SSE + Idempotency + Upload + Memory + Events + MCP + OpenAI co
   const oaiOff = await fetch(`${view.baseUrl}/compat/openai/v1/models`, { headers: authHeader })
   assert.equal(oaiOff.status, 404)
 
-  // 9. Forbidden zone: DELETE /v1/bots/:id is 405, creating private Bot is 403
+  // 9. Forbidden zone: DELETE /v1/bots/:id is 405, creating private Bot is 400
   const delBot = await fetch(`${view.baseUrl}/v1/bots/b2`, { method: 'DELETE', headers: authHeader })
   assert.equal(delBot.status, 405)
   const privCreate = await fetch(`${view.baseUrl}/v1/bots`, {
@@ -424,7 +424,7 @@ test('full REST + SSE + Idempotency + Upload + Memory + Events + MCP + OpenAI co
     headers: { ...authHeader, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'SecretBot', private: true }),
   })
-  assert.equal(privCreate.status, 403)
+  assert.equal(privCreate.status, 400)
 })
 
 test('waiting_human loop: approval scope enforcement, question response, and secret refusal', async (t) => {

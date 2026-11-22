@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openTasksOf } from '../tasks.js'
+import { API_ACTOR } from '../roster.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'))
 
@@ -12,6 +13,16 @@ export const UPLOAD_BODY_LIMIT = 32 * 1024 * 1024 // 32 MiB
 const UPLOAD_TTL_MS = 30 * 60_000
 const GLOBAL_STREAM_BUFFER = 500
 const SSE_KEEPALIVE_MS = 20_000
+const BOT_FIELDS = new Set(['name', 'role', 'instructions', 'color', 'avatar', 'model', 'effort'])
+const GROUP_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove'])
+
+function safeFields(body, allowed) {
+  for (const field of Object.keys(body)) {
+    if (!allowed.has(field)) throw httpError(400, 'api/invalid-field', `Field "${field}" cannot be changed through the API`)
+  }
+  return { ...body }
+}
+
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
 const monthKey = (ms = Date.now()) => {
@@ -162,6 +173,15 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       offFeed()
       offFeed = null
     }
+  }
+
+  async function checkModelEngine(patch, currentEngine) {
+    if (patch.model === undefined) return
+    const model = patch.model === null || patch.model === '' ? null : await rt.resolveModel(patch.model)
+    if ((model === null ? 'model' : rt.engineOf(model)) !== currentEngine) {
+      throw httpError(400, 'api/invalid-field', 'Field "model" cannot change the Bot engine through the API')
+    }
+    patch.model = model
   }
 
   function requireScope(principal, scope) {
@@ -691,23 +711,10 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     async createBot(principal, body) {
       requireScope(principal, 'team:manage')
       if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
-      // Hard forbidden zone: API can never create or flip private Bots.
-      if (body.private === true) {
-        throw httpError(403, 'api/forbidden', 'Private Bots can only be created or changed on the computer')
-      }
+      const patch = safeFields(body, BOT_FIELDS)
+      await checkModelEngine(patch, 'model')
       await rt.bootstrap()
-      const bot = await rt.createBot({
-        name: body.name,
-        role: body.role,
-        color: body.color,
-        instructions: body.instructions,
-        brief: body.brief,
-        model: body.model,
-        effort: body.effort,
-        workDir: body.workDir,
-        section: body.section,
-        sectionId: body.sectionId,
-      })
+      const bot = await rt.createBot(patch, API_ACTOR)
       return botSummary(bot)
     },
 
@@ -715,11 +722,9 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       requireScope(principal, 'team:manage')
       if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
       const bot = findAuthorizedBot(principal, botId)
-      if (body.private !== undefined) {
-        throw httpError(403, 'api/forbidden', 'Bot privacy settings can only be changed on the computer')
-      }
-      const { private: _ignored, computer: _ignoredComputer, ...safePatch } = body
-      const updated = await rt.updateBot(bot.id, safePatch)
+      const patch = safeFields(body, BOT_FIELDS)
+      await checkModelEngine(patch, rt.engineOfBot(bot) ?? 'model')
+      const updated = await rt.updateBot(bot.id, patch, API_ACTOR)
       return botSummary(updated)
     },
 
@@ -745,21 +750,12 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       requireScope(principal, 'team:manage')
       if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
       const room = findAuthorizedGroup(principal, groupId)
-      for (const id of [...(body.members ?? []), ...(body.add ?? [])]) {
+      const patch = safeFields(body, GROUP_FIELDS)
+      for (const id of [...(patch.members ?? []), ...(patch.add ?? [])]) {
         const bot = findAuthorizedBot(principal, String(id))
         if (bot.private === true) throw httpError(403, 'api/forbidden', 'Private Bots cannot join groups')
       }
-      const { room: updated } = await rt.updateRoom(room.id, {
-        name: body.name,
-        notice: body.notice,
-        mode: body.mode,
-        admin: body.admin,
-        members: Array.isArray(body.members) ? body.members : undefined,
-        add: Array.isArray(body.add) ? body.add : undefined,
-        remove: Array.isArray(body.remove) ? body.remove : undefined,
-        workDir: body.workDir,
-        permission: body.permission,
-      })
+      const { room: updated } = await rt.updateRoom(room.id, patch, API_ACTOR)
       return groupSummary(updated, principal)
     },
 
