@@ -1888,6 +1888,23 @@ test('a running conversation learns of memory changes as a message, and its prom
   assert.ok(existsSync(join(home, 'memory', 'snapshots', 'b2.seen')))
 })
 
+test('a running conversation retries an unreadable memory journal on the next step', async (t) => {
+  const { ctx, home, read, warnings, stop } = start()
+  t.after(() => stop())
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  mkdirSync(journalPath)
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  assert.ok(warnings.some(line => line.includes('memory update for Writer not read') && line.includes('EISDIR')))
+
+  rmSync(journalPath, { recursive: true })
+  const time = new Date(Date.parse(read('snapshots', 'b2.seen')) + 1).toISOString()
+  const row = { id: 'team-change', time, scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Ships on Friday' }
+  writeFileSync(journalPath, `${JSON.stringify(row)}\n`)
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to team memory by the user: Ships on Friday/)
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+})
+
 test('a topic entry and another group stay out of the memory update', async (t) => {
   const { ctx, tool, section, stop } = start()
   t.after(() => stop())
