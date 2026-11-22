@@ -16372,7 +16372,8 @@ function countCards(state, sessionId, callIds, delta) {
 function createAvatarResolver(fetchAvatar) {
   let cache = /* @__PURE__ */ new Map();
   let missing = 0;
-  async function resolveAvatars(value) {
+  let committed = 0;
+  async function resolveAvatars(value, order) {
     if (!Array.isArray(value?.bots)) return value;
     const next = /* @__PURE__ */ new Map();
     const pending = /* @__PURE__ */ new Map();
@@ -16386,8 +16387,10 @@ function createAvatarResolver(fetchAvatar) {
         next.set(ref, known);
         return { ...bot, avatar: { ...avatar, image: known } };
       }
-      if (!pending.has(ref)) pending.set(ref, fetchAvatar(bot.id).catch(() => null));
-      const answer = await pending.get(ref);
+      let shared2 = pending.get(ref);
+      if (shared2 === void 0) pending.set(ref, shared2 = { botId: bot.id, answer: fetchAvatar(bot.id).catch(() => null) });
+      let answer = await shared2.answer;
+      if (shared2.botId !== bot.id && typeof answer?.ref === "string" && answer.ref !== ref) answer = await fetchAvatar(bot.id).catch(() => null);
       if (typeof answer?.image !== "string") {
         failed += 1;
         return { ...bot, avatar };
@@ -16395,12 +16398,19 @@ function createAvatarResolver(fetchAvatar) {
       if (typeof answer.ref === "string") next.set(answer.ref, answer.image);
       return { ...bot, avatar: { ...avatar, image: answer.image } };
     }));
-    cache = next;
-    missing = failed;
+    if (order === void 0 || order >= committed) {
+      if (order !== void 0) committed = order;
+      cache = next;
+      missing = failed;
+    }
     return { ...value, bots };
   }
   resolveAvatars.missing = () => missing > 0;
   return resolveAvatars;
+}
+function sameRoster(value, current2, retrying = false) {
+  if (value.unchanged) return true;
+  return !retrying && value.revision === current2.revision && value.modelsKey === current2.modelsKey;
 }
 
 // src/client/team-actions.js
@@ -53284,7 +53294,8 @@ function apply(ctx) {
   const pull = async () => {
     const order = ++pulls;
     const known = roster.getSnapshot();
-    const value = await resolveAvatars(await call("state", { since: resolveAvatars.missing() ? void 0 : known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" }));
+    const retrying = resolveAvatars.missing();
+    const value = await resolveAvatars(await call("state", { since: retrying ? void 0 : known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" }), order);
     if (order < applied) return;
     applied = order;
     const prevLiveKey = liveKey;
@@ -53327,7 +53338,7 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current2.imVia ?? {})) live2.imVia = value.imVia;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current2.readOnly ?? null)) live2.readOnly = value.readOnly;
     if (Object.keys(live2).length > 0 && current2.ready) roster.set({ ...current2, ...live2 });
-    if (value.unchanged || value.revision === current2.revision && value.modelsKey === current2.modelsKey) {
+    if (sameRoster(value, current2, retrying)) {
       return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
     }
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));

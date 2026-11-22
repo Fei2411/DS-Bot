@@ -2,7 +2,7 @@ import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
-import { createAvatarResolver } from './avatar-refs.js'
+import { createAvatarResolver, sameRoster } from './avatar-refs.js'
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
@@ -202,7 +202,8 @@ export function apply(ctx) {
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await resolveAvatars(await call('state', { since: resolveAvatars.missing() ? undefined : known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' }))
+    const retrying = resolveAvatars.missing()
+    const value = await resolveAvatars(await call('state', { since: retrying ? undefined : known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' }), order)
     if (order < applied) return
     applied = order
     const prevLiveKey = liveKey
@@ -239,7 +240,7 @@ export function apply(ctx) {
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+    if (sameRoster(value, current, retrying)) {
       return value.liveKey !== undefined && value.liveKey !== prevLiveKey
     }
     // On a browser with no visit record yet, everything already there counts as seen.

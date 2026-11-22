@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createAvatarResolver } from '../src/client/avatar-refs.js'
+import { createAvatarResolver, sameRoster } from '../src/client/avatar-refs.js'
 
 const state = refs => ({ revision: 1, bots: Object.entries(refs).map(([id, ref]) => ({ id, name: id, avatar: ref ? { shape: 'circle', imageRef: ref } : { shape: 'circle' } })) })
 
@@ -52,4 +52,36 @@ test('Bots that share a photo fetch it once', async () => {
   const value = await resolve(state({ a: 'r1', b: 'r1' }))
   assert.deepEqual(value.bots.map(bot => bot.avatar.image), ['data:logo', 'data:logo'])
   assert.deepEqual(asked, ['a'])
+})
+
+test('a full answer asked for to fetch missing photos is applied at the same revision', () => {
+  const current = { revision: 4, modelsKey: 'm' }
+  assert.equal(sameRoster({ revision: 4, modelsKey: 'm', bots: [] }, current), true)
+  assert.equal(sameRoster({ revision: 4, modelsKey: 'm', bots: [] }, current, true), false)
+  assert.equal(sameRoster({ revision: 4, unchanged: true }, current, true), true)
+})
+
+test('an older pull that finishes late keeps the newer pull\'s cache and missing count', async () => {
+  let release
+  const slow = new Promise(resolve => { release = resolve })
+  const asked = []
+  const resolve = createAvatarResolver(async (botId) => {
+    asked.push(botId)
+    if (botId === 'old') { await slow; throw new Error('busy') }
+    return { botId, ref: 'r2', image: 'data:new' }
+  })
+  const older = resolve(state({ old: 'r1' }), 1)
+  await resolve(state({ b: 'r2' }), 2)
+  release()
+  await older
+  assert.equal(resolve.missing(), false)
+  await resolve(state({ b: 'r2' }), 3)
+  assert.deepEqual(asked, ['old', 'b'])
+})
+
+test('a Bot sharing a ref asks for its own photo when the shared answer has another ref', async () => {
+  const photos = { a: { ref: 'r9', image: 'data:a-new' }, b: { ref: 'r1', image: 'data:logo' } }
+  const resolve = createAvatarResolver(async (botId) => ({ botId, ...photos[botId] }))
+  const value = await resolve(state({ a: 'r1', b: 'r1' }))
+  assert.deepEqual(value.bots.map(bot => bot.avatar.image), ['data:a-new', 'data:logo'])
 })
