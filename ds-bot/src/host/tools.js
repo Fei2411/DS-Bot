@@ -13,6 +13,7 @@ import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
+import { imViewChoices } from './im/view-choices.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
@@ -985,7 +986,7 @@ export function install(rt) {
       const title = checked.title
       const view = checked.view
       if (owner !== undefined && args.report_issue !== undefined) return 'Issue reports only work in your own chat.'
-      if (owner !== undefined && (checked.interactive || args.await_reply === true)) return 'Interactive views cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
+      if (owner !== undefined && checked.interactive && imViewChoices(view).length === 0) return 'Views with typed inputs cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const issueDraft = args.report_issue === undefined ? undefined : rt.claimIssueDraft?.(id, args.report_issue, checked)
@@ -1005,6 +1006,9 @@ export function install(rt) {
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),
         askedAt: Date.now(),
+      }
+      if (owner !== undefined) {
+        rt.logRoom(rt.roomOf(owner.roomId), { who: rt.botOf(owner.botId).name, botId: owner.botId, viewId: state.views[id].id, text: viewCardText({ title, view }) || title })
       }
       await rt.save()
       rt.cardShown?.(id, 'view', title)

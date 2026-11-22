@@ -11,6 +11,7 @@ import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { imViewChoices } from './view-choices.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -974,6 +975,39 @@ export function install(rt) {
     }
     return undefined
   }
+  const viewById = id => {
+    for (const [sessionId, view] of Object.entries(state.views ?? {})) {
+      if (view.id === id) return { sessionId, view }
+    }
+    return undefined
+  }
+  const answerViewCard = async (conn, chat, cardKey, index, senderId) => {
+    if (openCard(conn, chat.key, cardKey) === undefined) return false
+    const found = viewById(cardKey.slice(2))
+    if (found === undefined) {
+      await sendCardReply(conn, chat, text('stale'))
+      return 'stale'
+    }
+    const choice = imViewChoices(found.view.view)[index]
+    if (choice === undefined || found.view.issueDraft !== undefined) return false
+    const requestId = `im:${conn.platform}:${randomUUID()}`
+    rememberRequest(requestId, conn, chat.key, senderId)
+    try {
+      await rt.answerView(found.sessionId, found.view.id, choice.action, choice.values, requestId)
+      await settleCard(conn.id, cardKey, choice.label)
+      await settledEdits(conn)
+    } catch (error) {
+      requests.delete(requestId)
+      if (error?.code === 'bot/stale') {
+        await settleCard(conn.id, cardKey, text('answered'))
+        await sendCardReply(conn, chat, text('stale'))
+        await settledEdits(conn)
+        return 'stale'
+      }
+      throw error
+    }
+    return 'answered'
+  }
   // 'answered': the answer continued the turn the chat claimed. 'stale': the card was
   // gone and only the stale text was sent, so this chat claims nothing. false: the pick
   // was not an answer to this card at all.
@@ -1029,7 +1063,7 @@ export function install(rt) {
     const data = runtimes.get(conn.id)?.data
     if (data === undefined) return undefined
     for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
-      if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:')) continue
+      if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
       const entry = entries.find(item => item.chatKey === chatKey && item.answer === undefined)
       if (entry !== undefined) return { cardKey, entry }
     }
@@ -1083,6 +1117,12 @@ export function install(rt) {
             const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
             if (answered !== false) return
           }
+        }
+      } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
+        const found = viewById(held.cardKey.slice(2))
+        if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
+          const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
+          if (answered !== false) return
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
         && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
@@ -1145,6 +1185,11 @@ export function install(rt) {
         return
       }
       const answered = await answerQuestionCard(conn, chat, cardKey, [label], action.sender.id)
+      if (answered === false) await sendCardReply(conn, chat, text('stale'))
+      return
+    }
+    if (data.startsWith('v:') && cut > 2) {
+      const answered = /^\d+$/.test(choice) && await answerViewCard(conn, chat, cardKey, Number(choice), action.sender.id)
       if (answered === false) await sendCardReply(conn, chat, text('stale'))
       return
     }
@@ -1236,7 +1281,7 @@ export function install(rt) {
           await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], text('secretAsk', { bot: bot.name, name: request.name }))
         }
       }
-      // Views awaiting a reply: text form only.
+      // Views with typed fields stay text-only; simple choices can be answered here.
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
         const owner = rt.groupOwners.get(sessionId)
@@ -1246,7 +1291,11 @@ export function install(rt) {
         const origin = originOf(owner === undefined ? sessionId : (rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const form = viewCardText({ title: view.title, view: view.view })
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
+        const choices = view.issueDraft === undefined ? imViewChoices(view.view) : []
+        const picks = choices.length === 0 ? '' : `\n${choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')}\n(${text('numbers')})`
+        const buttons = imPlatform(conn.platform)?.buttons === true && choices.length > 0
+          ? choices.map((choice, index) => ({ data: `v:${view.id}:${index}`, label: choice.label })) : undefined
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons)
       }
     }
   }
@@ -1860,7 +1909,7 @@ export function install(rt) {
   })
 
   rt.onRoomLine((room, line) => {
-    if (line.questionId !== undefined) return
+    if (line.questionId !== undefined || line.viewId !== undefined) return
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
     const roomSessionId = room.sessionId ?? room.id
     const origin = originOf(roomSessionId)

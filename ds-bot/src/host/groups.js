@@ -1197,7 +1197,7 @@ export function install(rt) {
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
-      if (rt.state.questions[sessionId] !== undefined) rt.roomWaiters.get(exchangeId)?.resolve({ answer: true })
+      if (rt.state.questions[sessionId] !== undefined || rt.state.views[sessionId] !== undefined) rt.roomWaiters.get(exchangeId)?.resolve({ answer: true })
       else if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
       // Still at earlier work: the call steers it at its next step; the round goes on.
       else if (busy) rt.roomWaiters.get(exchangeId)?.resolve({ working: true })
@@ -2157,7 +2157,7 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
-    if (rt.state.questions[sessionId] !== undefined) {
+    if (rt.state.questions[sessionId] !== undefined || rt.state.views[sessionId] !== undefined) {
       if (!isPass(text)) {
         await postToRoom(room, member, text, { progress: true, quiet: true })
           .catch(error => rt.warn('ds-bot: question lead-in from %s failed: %s', member.name, error))

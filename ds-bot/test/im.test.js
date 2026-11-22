@@ -1061,6 +1061,64 @@ test('member cards follow only the originating IM group and answers return throu
   assert.equal(s.agentOf('member-b').followed, followed)
 })
 
+test('IM view buttons and numbered replies answer the asking member, not other chats', async (t) => {
+  for (const buttons of [true, false]) {
+    const s = await start({ adapter: fakeAdapter({ buttons }) })
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    const room = s.rt.roomOf('r1')
+    room.sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'confirm the plan')
+    s.imTurn('r1')
+    s.fake.sent.length = 0
+    let concluded = false
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Proceed?', view: { type: 'confirm', id: 'proceed' } }, { agent: { id: 'member-b' }, concludeTurn() { concluded = true } })
+    assert.equal(concluded, true)
+    const view = s.rt.state.views['member-b']
+    await s.flush()
+    assert.equal(s.fake.sent.length, 1)
+    assert.equal(s.fake.sent[0].chat.key, 'g1')
+    assert.match(s.fake.sent[0].text, /1\. Confirm\n2\. Cancel/)
+    assert.equal(s.fake.sent[0].buttons?.[0].data, buttons ? `v:${view.id}:0` : undefined)
+    assert.ok(room.log.some(line => line.viewId === view.id))
+    await s.fake.handlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    assert.ok(s.rt.state.views['member-b'])
+    if (buttons) {
+      await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    } else {
+      await gm(s, 'u1', '1', { mentioned: false })
+      assert.ok(s.rt.state.views['member-b'])
+      await gm(s, 'u1', '1')
+    }
+    assert.equal(s.rt.state.views['member-b'], undefined)
+    const answer = s.agentOf('member-b').lastFollowup
+    assert.match(answer.source.rpcId, /^im:/)
+    assert.deepEqual(JSON.parse(answer.content[0].text).answers, [{ id: view.id, action: 'proceed', values: { confirmed: true } }])
+    assert.equal(s.rt.roomHasImOrigin('r1'), true)
+    const followed = s.agentOf('member-b').followed
+    await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    assert.equal(s.agentOf('member-b').followed, followed)
+  }
+})
+
+test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'pick a route')
+  s.imTurn('a')
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Route', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
+  const view = s.rt.state.views.a
+  await s.flush()
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
+  assert.equal(s.rt.state.views.a, undefined)
+  assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
+})
+
 test('a member question preserves its unshown lead-in in the room and originating IM group', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -1111,7 +1169,7 @@ test('IM group display views are sent as room lines and unowned completions with
     await s.flush()
     assert.ok(s.fake.sent.some(job => job.text.includes('70%')))
     assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
-    assert.match(await show({ title: 'Pick', view: { type: 'options', id: 'pick', options: [{ label: 'A' }] } }), /Use ask_user for a choice/)
+    assert.match(await show({ title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }), /Use ask_user for a choice/)
     s.fake.sent.length = 0
     s.emitEvent('member-b', 'user/message', { source: { kind }, content: [{ type: 'text', text: 'old result' }] })
     assert.equal(s.rt.roomHasImOrigin('r1'), false)

@@ -120,7 +120,7 @@ const waitFor = async (check) => {
 }
 const turnFor = (sent, ...earlier) => waitFor(() => sent.find(entry => !earlier.includes(entry) && entry.message.source.role === 'room'))
 
-test('an IM group question leaves its member waiting for the user while the round continues', async (t) => {
+for (const card of ['question', 'view']) test(`an IM group ${card} leaves its member waiting for the user while the round continues`, async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
@@ -133,9 +133,8 @@ test('an IM group question leaves its member waiting for the user while the roun
   await emit(first.sessionId, { type: 'user/message', data: first.message })
   await emit(first.sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'I checked both routes before asking.' }] } } })
   let concluded = false
-  const ask = rt.teamTools.find(tool => tool.name === 'ask_user')
-  assert.equal(await ask.execute({ question: 'Choose?', options: [] }, { agent: { id: first.sessionId } }), 'Give at least one option.')
-  await ask.execute({ question: 'Choose?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: first.sessionId }, concludeTurn() { concluded = true } })
+  const ask = rt.teamTools.find(tool => tool.name === (card === 'question' ? 'ask_user' : 'show_view'))
+  await ask.execute(card === 'question' ? { question: 'Choose?', options: [{ label: 'A' }, { label: 'B' }] } : { title: 'Choose?', view: { type: 'confirm', id: 'go' } }, { agent: { id: first.sessionId }, concludeTurn() { concluded = true } })
   assert.equal(concluded, true)
   await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
   const second = await turnFor(sent, first)
@@ -143,8 +142,8 @@ test('an IM group question leaves its member waiting for the user while the roun
   assert.match(second.message.content[0].text, /waiting for the user's answer/)
   await answer(second.sessionId, second.message.source.exchangeId, 'I will wait for the choice.', 2)
   await running
-  assert.ok(rt.state.questions[first.sessionId])
-  assert.ok(rt.roomOf(room.id).log.some(line => line.text?.includes('Asked: Choose?')))
+  assert.ok((card === 'question' ? rt.state.questions : rt.state.views)[first.sessionId])
+  assert.ok(rt.roomOf(room.id).log.some(line => line.text?.includes('Choose?')))
   assert.equal(rt.roomOf(room.id).log.filter(line => line.text?.includes('I checked both routes before asking.')).length, 1)
   assert.ok(!rt.roomOf(room.id).log.some(line => line.kind === 'failed'))
   assert.equal(sent.filter(entry => entry.message.source.role === 'post').length, 0, 'asking does not post a second empty late reply')

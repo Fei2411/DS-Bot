@@ -310,7 +310,7 @@ test('issue report redaction preserves the destination of a failed rename', asyn
   assert.ok(args.view.children[1].text.includes(expected.join('\n')))
 })
 
-test('show_view registers interactive own-chat cards and only permits display views in IM-origin groups', async (t) => {
+test('show_view permits display and choice views but not typed forms in IM-origin groups', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
@@ -320,8 +320,12 @@ test('show_view registers interactive own-chat cards and only permits display vi
   assert.equal(group.concluded, false)
   rt.roomHasImOrigin = () => true
   const interactiveGroup = await show('writer-group', { title: 'Pick', view: CHOICES })
-  assert.match(interactiveGroup.text, /Use ask_user for a choice/)
-  assert.equal(interactiveGroup.concluded, false)
+  assert.match(interactiveGroup.text, /user's answer arrives/)
+  assert.equal(interactiveGroup.concluded, true)
+  assert.ok(rt.state.views['writer-group'])
+  const typedGroup = await show('writer-group', { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } })
+  assert.match(typedGroup.text, /Use ask_user for a choice/)
+  delete rt.state.views['writer-group']
   const displayGroup = await show('writer-group', { title: 'Meter', view: METER })
   assert.equal(displayGroup.text, 'The view is on screen.')
   assert.equal(displayGroup.concluded, false)
