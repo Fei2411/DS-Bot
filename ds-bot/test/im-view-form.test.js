@@ -12,7 +12,7 @@ const calculator = { type: 'stack', children: [
 
 test('token forms render types, defaults, bounds and an answer example', () => {
   const text = imViewFormText(calculator, 'V3')
-  for (const part of ['Card V3', 'Submit', 'number', 'slider', 'min 1', 'max 10', 'default 2', '1=Fast; 2=Safe', 'Reply example: /card V3\\n1: 2', 'mention the Bot before /card']) assert.ok(text.includes(part), part)
+  for (const part of ['Card V3', 'Submit', 'number', 'slider', 'min 1', 'max 10', 'default 2', '1=Fast; 2=Safe', 'Reply example: !card V3\\n1: 2', 'mention the Bot before !card']) assert.ok(text.includes(part), part)
   assert.ok(!text.includes('1. Submit'))
 })
 
@@ -20,7 +20,7 @@ test('legacy reply shapes include defaults, options, fields and cancellation but
   for (const text of ['', '\n', '1 3', '1,3', '\n1: Alice\n  continued\tvalue', '2\r\n1: Alice', 'cancel', '2 CANCEL', '1: value']) {
     assert.equal(isLegacyImViewFormAnswer(text), true, text)
   }
-  for (const text of ['is our release', '2 is our release', '1. value', '/card V1 1', 'cancel prose', '1\nnot a field']) {
+  for (const text of ['is our release', '2 is our release', '1. value', '!card V1 1', 'cancel prose', '1\nnot a field']) {
     assert.equal(isLegacyImViewFormAnswer(text), false, text)
   }
 })

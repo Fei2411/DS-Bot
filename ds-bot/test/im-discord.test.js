@@ -106,13 +106,13 @@ test('stop and card commands pass through direct messages and mentioned group me
   t.after(() => { handle.stop(); fake.close() })
   const ws = await until(() => fake.sockets[0])
   await until(() => fake.packets.some(packet => packet.op === 2))
-  const commands = ['/stop', '/card V3\n1: first  line\nsecond\tline']
+  const commands = ['/stop', '!card V3\n1: first  line\nsecond\tline', '/card V3 1,3']
   let sequence = 1
   for (const text of commands) {
     fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: ++sequence, d: { id: String(sequence), channel_id: 'dm1', content: text, author: { id: 'u1' } } })
     fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: ++sequence, d: { id: String(sequence), channel_id: 'g1', guild_id: 'w1', content: `<@81> ${text}`, author: { id: 'u1' }, mentions: [{ id: '81' }] } })
   }
-  await until(() => messages.length === 4)
+  await until(() => messages.length === commands.length * 2)
   for (const text of commands) {
     assert.ok(messages.some(msg => msg.chat.kind === 'direct' && msg.text === text && !msg.mentioned))
     assert.ok(messages.some(msg => msg.chat.kind === 'group' && msg.text === text && msg.mentioned))

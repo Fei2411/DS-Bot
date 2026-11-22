@@ -17,7 +17,7 @@ import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './vie
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RECENT_VIEW_CODES_KEEP = 100
-const VIEW_REPLY_VERSION = 1
+const VIEW_REPLY_VERSION = 2
 const RETRY_MS = 5_000
 // A send that keeps failing is given up on, with a bounded backoff, so one broken
 // message cannot hold every later message in the same chat forever (#1417).
@@ -1095,17 +1095,17 @@ export function install(rt) {
     return 'answered'
   }
   const answerViewCode = async (conn, chat, body, senderId) => {
-    if (!/^\/card/i.test(body)) {
+    if (!/^[!/]card\b/i.test(body)) {
       const legacy = /^(V([1-9]\d*))(?=\s|$)/i.exec(body)
       if (legacy === null || !isLegacyImViewFormAnswer(body.slice(legacy[0].length))) return false
       const data = await dataOf(conn.id)
       if (Number(legacy[2]) > data.legacyViewCodeCutoff) return false
-      await sendCardReply(conn, chat, `Card replies now start with /card — use /card ${legacy[1].toUpperCase()} … on the refreshed card.`)
+      await sendCardReply(conn, chat, `Card replies now start with !card — use !card ${legacy[1].toUpperCase()} … on the refreshed card.`)
       return true
     }
-    const command = /^\/card(?:@\S+)?\s+(V[1-9]\d*)(?=\s|$)/i.exec(body)
+    const command = /^(?:!card|\/card(?:@\S+)?)\s+(V[1-9]\d*)(?=\s|$)/i.exec(body)
     if (command === null) {
-      await sendCardReply(conn, chat, 'Invalid card reply. Use /card <code> followed by your answer.')
+      await sendCardReply(conn, chat, 'Invalid card reply. Use !card <code> followed by your answer.')
       return true
     }
     const code = command[1].toUpperCase()
