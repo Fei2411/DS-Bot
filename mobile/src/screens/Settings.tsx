@@ -7,6 +7,7 @@ import { areSystemNotificationsEnabled } from '../team/notifications-native'
 import { t, getLang, setLang } from '../ui/i18n.ts'
 import { ChevronRightIcon } from '../ui/icons.tsx'
 import { onPrefsChange, readPrefs, writePrefs } from '../store.ts'
+import { enterMode } from './chat/enter-key.ts'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 
 function Row({ label, value, valueColor, onPress, end }: { label: string; value?: string; valueColor?: string; onPress?: () => void; end?: React.ReactNode }) {
@@ -139,6 +140,8 @@ export function Settings({ navigation }: { navigation?: any }) {
             end={<Switch value={notifyPrefs.banners} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
           />
         )}
+        <Choice label={t('Enter sends message')} value={enterMode(prefs, team?.prefs)} onPick={next => set('enterToSend', next)}
+          options={[{ id: 'follow', label: t('Follow computer') }, { id: 'send', label: t('Always send') }, { id: 'newline', label: t('Always newline') }]} />
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>
