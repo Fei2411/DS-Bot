@@ -6,6 +6,7 @@ test('IM views map confirms, options and action buttons to validated answers', (
   assert.deepEqual(imViewChoices({ type: 'confirm', id: 'ok' }).map(choice => choice.values), [{ confirmed: true }, { confirmed: false }])
   assert.deepEqual(imViewChoices({ type: 'options', id: 'pick', options: [{ label: 'A' }] }), [{ label: 'A', action: 'pick', values: { selected: ['A'] } }])
   assert.deepEqual(imViewChoices({ type: 'submit', id: 'go', label: 'Go' }), [{ label: 'Go', action: 'go', values: {} }])
+  assert.deepEqual(imViewChoices({ type: 'submit', id: 'go' }), [{ label: 'Submit', action: 'go', values: {} }])
   assert.deepEqual(imViewChoices({ type: 'stack', children: [
     { type: 'choice', id: 'route', label: 'Route', options: [{ label: 'Short', value: 'a' }, { label: 'Scenic', value: 'b' }] },
     { type: 'submit', id: 'go', label: 'Go' },

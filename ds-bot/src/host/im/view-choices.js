@@ -18,7 +18,7 @@ export function imViewChoices(view) {
     } else if (node.type === 'options') {
       choices.push(...node.options.map(option => ({ label: option.label, action: node.id, values: { selected: [option.label] } })))
     } else if (node.type === 'submit') {
-      choices.push({ label: node.label, action: node.id, values: {} })
+      choices.push({ label: node.label ?? 'Submit', action: node.id, values: {} })
     }
   }
   const expanded = inputs.length === 0 ? choices : choices.flatMap(choice => inputs[0].options.map(option => ({
