@@ -73,7 +73,7 @@ async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w
   const registry = await dshRegistry(t, join(home, 'dsh'), live, ctx)
   for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   ctx.workspaceRegistry = registry
-  before?.(registry)
+  before?.(registry, ctx)
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   const rt = createRuntime(ctx, { home })
@@ -234,4 +234,58 @@ test('a host that takes over the team later retires the withdrawn parallel parts
   assert.equal((await call('state')).value.readOnly, null)
   await until(() => [...registry.archivedSessionIds].includes('w3'))
   await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+})
+
+// The schedule service can attach after the team loads: the part waits for it, so its
+// reminders move before the archive drops them.
+test('a retired parallel part waits for a schedule service that attaches late', async (t) => {
+  const order = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w3' } }],
+    edit: async (request) => { order.push(['move', request.id, request.patch?.target?.sessionId]); return { id: request.id } },
+    list: async () => [],
+  }
+  let attach
+  const { registry, rt } = await team(t, [], LEGACY, undefined, {
+    before: (inner, ctx) => {
+      ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
+      const archive = inner.archiveSession.bind(inner)
+      inner.archiveSession = async (id, options) => { order.push(['archive', String(id)]); return archive(id, options) }
+    },
+  })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.deepEqual(order, [])
+  assert.equal(rt.isRetiring('w3'), true)
+  attach({ schedule, effect: () => {} })
+  await until(() => [...registry.archivedSessionIds].includes('w3'))
+  assert.deepEqual(order, [['move', 's1', 'w2'], ['archive', 'w3']])
+  await until(() => rt.isRetiring('w3') === false)
+})
+
+// A plugin that stops while it waits for the schedule service leaves the part listed
+// for the next start instead of archiving it with its reminders.
+test('a retired parallel part is left for the next start when the plugin stops first', async (t) => {
+  let attach
+  const { registry, home, stop } = await team(t, [], LEGACY, undefined, {
+    before: (inner, ctx) => {
+      ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
+    },
+  })
+  await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  await stop()
+  attach?.({ schedule: { catalog: async () => [], edit: async () => ({}), list: async () => [] }, effect: () => {} })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).retiredParts.map(entry => entry.sessionId), ['w3'])
+})
+
+// Parts opened while the Bot was busy can predate its earlier parts: the fold keeps
+// them in time order and places a live one where its last Session began.
+test('a folded parallel part keeps its place in time among the earlier parts', async (t) => {
+  const legacy = JSON.parse(JSON.stringify(TEAM))
+  legacy.bots.w1.segments = [{ sessionId: 'w1', endedAt: 10 }]
+  legacy.bots.w1.openParts = [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }], startedAt: 4 }]
+  const { home } = await team(t, [], legacy)
+  await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.deepEqual(saved(home).bots.w1.segments, [{ sessionId: 'w4', endedAt: 5 }, { sessionId: 'w3', endedAt: 5 }, { sessionId: 'w1', endedAt: 10 }])
 })
