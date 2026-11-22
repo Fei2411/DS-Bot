@@ -15,6 +15,14 @@ export async function loadClientBundle(contents) {
     write: false,
     logLevel: 'silent',
     external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+    plugins: [{
+      name: 'harness-packages',
+      setup(bundler) {
+        bundler.onResolve({ filter: /^@deepseek-ai\/(dsh-llm\/assistant-stream|dsh-util-values)$/ }, (args) => {
+          try { return { path: fileURLToPath(import.meta.resolve(args.path)) } } catch { return { path: args.path, external: true } }
+        })
+      },
+    }],
   })
   return outputFiles[0].text
 }

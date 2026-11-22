@@ -76,7 +76,7 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
     rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
   }
   if (fonts) {
-    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`)
+    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`, `--dsh-content-font-size:${look.fontSize}px`)
     if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`)
   }
   if (look.density !== undefined) rules.push(scoped(DENSITY[look.density], 'html body'))

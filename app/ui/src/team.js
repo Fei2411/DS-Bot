@@ -61,6 +61,7 @@ export function createTeam() {
   const memoryNews = createSource({})
   const live = createSource({})
   const cards = createSource({})
+  const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
   const browserPages = createSource({})
@@ -130,7 +131,15 @@ export function createTeam() {
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    roster.set(indexRoster(value))
+    const indexed = indexRoster(value)
+    roster.set(indexed)
+    // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
+    const open = shown.getSnapshot()
+    if (open) {
+      const target = indexed.byId[open] ?? indexed.roomsById[open]
+      const nextPart = target ? currentPart(target) : open
+      if (nextPart && nextPart !== open) show(nextPart)
+    }
   }
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   const partFor = (id) => {
@@ -142,7 +151,7 @@ export function createTeam() {
   }
 
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, turnClock }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     openSession: (id) => {
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
@@ -265,6 +274,7 @@ export function createTeam() {
     useMemoryNews: use(memoryNews),
     useLive: use(live),
     useCards: use(cards),
+    useHeldCards: use(heldCards),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
     useRegistry: use(registry),
