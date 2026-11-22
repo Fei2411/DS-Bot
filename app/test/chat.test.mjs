@@ -12,11 +12,11 @@ import { build } from 'esbuild'
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
-  'primitives.js': 'export const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
+  'primitives.js': 'export const MarkdownText = ({ text }) => ({ type: "markdown", props: { text, children: [text] } })\nexport const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
 }
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../ui/src/chat.js', import.meta.url))],
@@ -37,8 +37,9 @@ const { outputFiles } = await build({
 })
 let current
 const slot = (make) => {
-  const index = current.index++
-  return current.slots[index] ??= make()
+  const bucket = current.fiber
+  const index = bucket.index++
+  return bucket.slots[index] ??= make()
 }
 const effect = (make, deps) => {
   const cell = slot(() => ({}))
@@ -71,6 +72,8 @@ const react = {
   useCallback: fn => fn,
   useId: () => slot(() => ({ id: 'card-id' })).id,
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
+  createContext: value => ({ _default: value, Provider: ({ children }) => children }),
+  useContext: ctx => ctx?._default,
 }
 const module = { exports: {} }
 const defaultCall = async () => ({ sessionId: 'b1', items: [], cursor: null })
@@ -138,34 +141,44 @@ runInNewContext(outputFiles[0].text, sandbox)
 const { Chat } = module.exports
 
 // Function children stay inert in the React stand-in, so the tree is expanded by
-// calling them: Composer, ComposerPlus and ComposerVoice really run, in order,
-// sharing the hook slots the way React would.
-const expand = (node) => {
-  if (Array.isArray(node)) return node.map(expand)
+// calling them with per-component fiber buckets so dynamic siblings never shift hook slots.
+const expand = (node, path = 'root') => {
+  if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
   if (!node || typeof node !== 'object') return node
   if (typeof node.type === 'function') {
-    if (node.type.prototype instanceof TestComponent) {
-      const comp = new node.type(node.props)
-      return expand(comp.render())
+    const id = `${path}/${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+    let bucket = current.fibers.get(id)
+    if (!bucket) { bucket = { slots: [], index: 0 }; current.fibers.set(id, bucket) }
+    bucket.index = 0
+    const prev = current.fiber
+    current.fiber = bucket
+    try {
+      if (node.type.prototype instanceof TestComponent) {
+        const comp = new node.type(node.props)
+        return expand(comp.render(), id)
+      }
+      return expand(node.type(node.props), id)
+    } finally {
+      current.fiber = prev
     }
-    return expand(node.type(node.props))
   }
-  return { ...node, props: { ...node.props, children: node.props.children.map(expand) } }
+  return { ...node, props: { ...node.props, children: node.props.children.map((child, idx) => expand(child, `${path}.${idx}`)) } }
 }
 const mount = (props) => {
   const instance = {
-    slots: [], effects: [], props,
+    fibers: new Map(), effects: [], props,
     render(next = instance.props) {
       instance.props = next
-      instance.index = 0
       current = instance
-      const out = expand(Chat(next))
+      const out = expand(react.createElement(Chat, next))
       current = undefined
       for (const run of instance.effects.splice(0)) run()
       return out
     },
     unmount() {
-      for (const cell of instance.slots) cell?.stop?.()
+      for (const bucket of instance.fibers.values()) {
+        for (const cell of bucket.slots) cell?.stop?.()
+      }
     },
   }
   return instance
@@ -349,7 +362,8 @@ function mountRoom(callImpl) {
     const t = instance.render()
     const rows = all(t, child => child.type === 'chat-rows')
     const main = rows[0]?.props.items ?? []
-    const pending = rows[1]?.props.items ?? []
+    const pendingWrap = all(t, child => child.type === 'div' && child.props?.className === 'dsb-pending')[0]
+    const pending = pendingWrap ? all(pendingWrap, child => child.type === 'div' && child.props?.className === 'bt-umsg') : []
     return { tree: t, main, pending }
   }
   return {
@@ -475,5 +489,151 @@ test('group chat pending dedup does not drop repeated short messages like "ç»§ç»
     assert.equal(room.rowsOf().pending.length, 0, 'second server message clears second pending entry')
   } finally {
     room.unmount()
+  }
+})
+
+test('composer supports file picker, clipboard paste, drag-drop, attachment-only send, failure recovery, and Stop button for DM and group', async () => {
+  const createdUrls = []
+  const revokedUrls = []
+  sandbox.URL = {
+    createObjectURL: (file) => {
+      const url = `blob:test/${createdUrls.length + 1}/${file.name}`
+      createdUrls.push(url)
+      return url
+    },
+    revokeObjectURL: (url) => { revokedUrls.push(url) },
+  }
+  const stagedImages = []
+  const stagedFiles = []
+  const sentCalls = []
+  const stoppedBots = []
+  const stoppedRooms = []
+  let failSendOnce = false
+  const statusMap = new Map([['b1', { running: true }]])
+  const roster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] } },
+    rooms: [{ id: 'r1', name: 'Design', admin: 'b1', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Design', admin: 'b1', members: ['b1'] } },
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      stageImage: async (mediaType, data) => {
+        stagedImages.push({ mediaType, data })
+        return { id: `img-${stagedImages.length}` }
+      },
+      stageFile: async (name, data, mediaType) => {
+        stagedFiles.push({ name, data, mediaType })
+        return { id: `file-${stagedFiles.length}` }
+      },
+      send: async (...args) => {
+        if (failSendOnce) { failSendOnce = false; throw new Error('Network dropped') }
+        sentCalls.push(args)
+      },
+      stopChat: async (botId) => { stoppedBots.push(botId) },
+      stopRoomWork: async (roomId) => { stoppedRooms.push(roomId) },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useSessionStatus: select => select(statusMap),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  const dm = mount({ sessionId: 'b1', team })
+  try {
+    let tree = dm.render()
+    // Hidden file input sits inside [data-composer-card] so ComposerPlus surfaces "Add files".
+    const fileInputs = all(tree, n => n.type === 'input' && n.props?.type === 'file')
+    assert.equal(fileInputs.length, 1)
+    assert.equal(fileInputs[0].props.multiple, true)
+
+    // Running DM shows Stop button and calls stopChat(bot.id).
+    const stopBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
+    assert.ok(stopBtn, 'running DM renders Stop button')
+    stopBtn.props.onClick()
+    await tick()
+    assert.deepEqual(stoppedBots, ['b1'])
+
+    // Clipboard paste with an image attaches it and prevents default when no plain text.
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const imageFile = { name: 'shot.png', type: 'image/png', size: pngBytes.length, arrayBuffer: async () => pngBytes.buffer }
+    let prevented = false
+    textarea(tree).props.onPaste({
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => imageFile }],
+        getData: () => '',
+      },
+      preventDefault() { prevented = true },
+    })
+    assert.equal(prevented, true)
+
+    // Drag-and-drop attaches a regular file AND rejects an oversized (>16MB) file with alert.
+    const txtBytes = new TextEncoder().encode('hello attachment')
+    const txtFile = { name: 'readme.txt', type: 'text/plain', size: txtBytes.length, arrayBuffer: async () => txtBytes.buffer }
+    const hugeFile = { name: 'huge.bin', type: 'application/octet-stream', size: 17 * 1024 * 1024, arrayBuffer: async () => new ArrayBuffer(0) }
+    const chatRoot = all(dm.render(), n => n.type === 'div' && n.props?.className === 'dsb-chat')[0]
+    chatRoot.props.onDragEnter({ dataTransfer: { types: ['Files'] }, preventDefault() {} })
+    assert.equal(all(dm.render(), n => n.type === 'div' && n.props?.className === 'dsb-dropzone').length, 1)
+    chatRoot.props.onDrop({ dataTransfer: { files: [txtFile, hugeFile] }, preventDefault() {} })
+    tree = dm.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-dropzone').length, 0)
+    assert.equal(all(tree, n => n.type === 'p' && n.props?.className === 'dsb-composer-error').length, 1, 'oversized file surfaces error')
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 1)
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-chip').length, 1)
+
+    // Attachment-only send is enabled even with empty text; failure restores both attachments cleanly!
+    failSendOnce = true
+    assert.equal(sendButton(tree).props.disabled, false)
+    sendButton(tree).props.onClick()
+    await tick()
+    await tick()
+    tree = dm.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 1, 'failed send restores image attachment')
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-chip').length, 1, 'failed send restores file attachment')
+    assert.equal(revokedUrls.length, 0, 'failed send must not revoke restored preview URL')
+
+    // Retry succeeds and stages image + file before calling actions.send.
+    sendButton(tree).props.onClick()
+    await tick()
+    await tick()
+    assert.equal(stagedImages.at(-1).mediaType, 'image/png')
+    assert.equal(stagedFiles.at(-1).name, 'readme.txt')
+    assert.deepEqual(JSON.parse(JSON.stringify(sentCalls.at(-1))), ['b1', '', { images: ['img-2'], files: ['file-2'] }])
+
+    // Removing a staged image revokes its preview URL immediately.
+    const img2 = { name: 'two.png', type: 'image/png', size: pngBytes.length, arrayBuffer: async () => pngBytes.buffer }
+    fileInputs[0].props.onChange({ target: { files: [img2], value: 'x' } })
+    tree = dm.render()
+    const removeBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-attach-x')[0]
+    removeBtn.props.onClick()
+    assert.ok(revokedUrls.some(url => url.includes('two.png')))
+  } finally {
+    dm.unmount()
+  }
+
+  // Group chat running Stop button calls stopRoomWork(room.id).
+  statusMap.set('r1', { running: true })
+  const grp = mount({ sessionId: 'r1', team })
+  try {
+    const stopBtn = all(grp.render(), n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
+    assert.ok(stopBtn, 'running group chat renders Stop button')
+    stopBtn.props.onClick()
+    await tick()
+    assert.deepEqual(stoppedRooms, ['r1'])
+  } finally {
+    grp.unmount()
   }
 })

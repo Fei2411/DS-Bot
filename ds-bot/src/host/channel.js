@@ -11,6 +11,15 @@ import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constan
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+const STAGED_FILE_MAX = 16 * 1024 * 1024
+const STAGED_MAX_ENTRIES = 64
+
+function sanitizeFileName(raw) {
+  const base = String(raw ?? '').split(/[\\/]/).pop() ?? ''
+  // eslint-disable-next-line no-control-regex
+  const clean = base.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 255)
+  return clean === '.' || clean === '..' ? '' : clean
+}
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -54,8 +63,17 @@ export function install(rt) {
     return LANGUAGES[lower] ?? LANGUAGES[lower.split('-')[0]] ?? uiLocale
   }
 
-  // Photos staged by `stage-image`, kept until the message that names them is sent.
+  // Photos and files staged by `stage-image` / `stage-file`, kept until the message that names them is sent.
   const staged = new Map()
+  const stagedFiles = new Map()
+  const pruneStaged = (map, now) => {
+    for (const [id, entry] of map) if (entry.at < now - STAGED_MS) map.delete(id)
+    while (map.size >= STAGED_MAX_ENTRIES) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) break
+      map.delete(oldest)
+    }
+  }
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -733,27 +751,54 @@ export function install(rt) {
           const mediaType = String(body.mediaType ?? '')
           const data = typeof body.data === 'string' ? body.data : ''
           if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          const name = body.name === undefined ? '' : sanitizeFileName(body.name)
           const now = Date.now()
-          for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
+          pruneStaged(staged, now)
           const id = randomUUID()
-          staged.set(id, { mediaType, data, at: now })
+          staged.set(id, { mediaType, data, ...(name ? { name } : {}), at: now })
+          return ok({ id })
+        }
+        // A file for the next `send`: held here until `sendUser` resolves the receiving
+        // Session (after any foreground rollover) and uploads it through DSH's fileUploads.
+        case 'stage-file': {
+          if (typeof ctx.get?.('fileUploads')?.uploadStream !== 'function') {
+            return fail('File uploads are not available on this host', 'bot/refused')
+          }
+          const name = sanitizeFileName(body.name)
+          const data = typeof body.data === 'string' ? body.data : null
+          if (name === '' || data === null || (data !== '' && !/^[A-Za-z0-9+/]+={0,2}$/.test(data))) {
+            return fail('This is not a file DS Bot can send', 'bot/invalid')
+          }
+          const bytes = data === '' ? Buffer.alloc(0) : Buffer.from(data, 'base64')
+          if (bytes.length > STAGED_FILE_MAX) {
+            return fail('This file is too large to send (max 16 MB)', 'bot/refused')
+          }
+          const now = Date.now()
+          pruneStaged(stagedFiles, now)
+          const id = randomUUID()
+          stagedFiles.set(id, { name, bytes, at: now })
           return ok({ id })
         }
         case 'send': {
           const text = String(body.text ?? '').trim()
           const ids = Array.isArray(body.images) ? body.images.map(String) : []
-          if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
+          if ((text === '' && ids.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           const images = ids.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          const files = fileIds.map(id => stagedFiles.get(id))
+          if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
           await rt.load()
           await rt.sendUser({
             sessionId: body.sessionId,
             content: [
               ...(text === '' ? [] : [{ type: 'text', text }]),
-              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+              ...images.map(({ mediaType, data, name }) => ({ type: 'image', mediaType, data, ...(name ? { name } : {}) })),
             ],
+            ...(files.length > 0 ? { files } : {}),
           })
           for (const id of ids) staged.delete(id)
+          for (const id of fileIds) stagedFiles.delete(id)
           return ok(true)
         }
         case 'btw-delete': {
@@ -964,7 +1009,7 @@ export function install(rt) {
     return undefined
   }
 
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  async function sendUser({ sessionId: ref, content, files = [], requestId = randomUUID() }) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
     let sessionId = ownThreadTarget(ref, past)
@@ -977,12 +1022,30 @@ export function install(rt) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
+    let blocks = content
+    if (Array.isArray(files) && files.length > 0) {
+      const uploads = ctx.get?.('fileUploads')
+      if (typeof uploads?.uploadStream !== 'function') {
+        throw Object.assign(new Error('File uploads are not available on this host'), { code: 'bot/refused' })
+      }
+      const uploaded = []
+      for (const file of files) {
+        const bytes = file.bytes
+        const receipt = await uploads.uploadStream({
+          sessionId,
+          name: file.name,
+          data: (async function* () { yield bytes })(),
+        })
+        uploaded.push({ type: 'file', receiptId: receipt.receiptId })
+      }
+      blocks = [...(Array.isArray(content) ? content : []), ...uploaded]
+    }
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,
       sessionId,
       mode: 'queue',
-      content,
+      content: blocks,
     }, AbortSignal.timeout(30_000))
   }
 

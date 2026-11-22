@@ -39,11 +39,13 @@ import { USER_MESSAGE_CSS } from '../../../ds-bot/src/client/user-message.js'
 import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
 import { createLocale } from './locale.js'
 import { App } from './app.js'
+import { registerBuiltinToolViews } from './builtin-tool-views.js'
 import { paintMode } from './mode.js'
 import './app.css'
 
 installLocale(createLocale(navigator.language))
 installMotionRest()
+registerBuiltinToolViews()
 document.documentElement.lang = navigator.language
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).
 if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) document.documentElement.dataset.mac = ''

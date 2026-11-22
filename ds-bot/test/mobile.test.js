@@ -378,6 +378,91 @@ test('a phone stages photos one by one, then send puts them in one message with 
   await stop()
 })
 
+test('stage-file validates inputs, uploads via fileUploads after handoffForeground rollover, and retains staged files on prompt failure', async () => {
+  const { ctx, rt, call, sent, stop } = start()
+  const { chief } = await team(call)
+  const payload = Buffer.from('hello world\n', 'utf8').toString('base64')
+
+  // Without fileUploads service, stage-file fails closed with bot/refused.
+  assert.equal((await call('stage-file', { name: 'notes.txt', data: payload })).error.code, 'bot/refused')
+
+  const uploads = []
+  const prevGet = ctx.get
+  ctx.get = name => (name === 'fileUploads'
+    ? {
+      uploadStream: async ({ sessionId, name: fileName, data }) => {
+        const chunks = []
+        for await (const chunk of data) chunks.push(Buffer.from(chunk))
+        const receiptId = `rcpt-${uploads.length + 1}`
+        uploads.push({ sessionId, name: fileName, bytes: Buffer.concat(chunks).toString('utf8'), receiptId })
+        return { receiptId }
+      },
+    }
+    : prevGet(name))
+
+  // Invalid names and oversized payloads are refused.
+  assert.equal((await call('stage-file', { name: '..', data: payload })).error.code, 'bot/invalid')
+  assert.equal((await call('stage-file', { name: 'bad.txt', data: 'not-base64!' })).error.code, 'bot/invalid')
+  const staged = await call('stage-file', { name: '../dir/report.txt', data: payload })
+  assert.equal(staged.ok, true)
+  const fileId = staged.value.id
+
+  // Prompt failure keeps the staged file so a retry succeeds.
+  const origPrompt = ctx.sessionController.prompt
+  let failOnce = true
+  ctx.sessionController.prompt = async (request) => {
+    if (failOnce) { failOnce = false; throw new Error('temporary failure') }
+    return origPrompt(request)
+  }
+  const failed = await call('send', { sessionId: chief, text: '', files: [fileId] })
+  assert.equal(failed.ok, false)
+
+  // Simulate foreground rollover: uploadStream MUST receive the new segment sessionId.
+  rt.shouldMoveForeground = () => true
+  rt.handoffForeground = async () => 's-rolled-over'
+  const before = sent.length
+  const sentOk = await call('send', { sessionId: chief, text: 'check this', files: [fileId] })
+  assert.equal(sentOk.ok, true)
+  assert.equal(uploads.at(-1).sessionId, 's-rolled-over')
+  assert.equal(uploads.at(-1).name, 'report.txt')
+  assert.equal(uploads.at(-1).bytes, 'hello world\n')
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
+  assert.equal(prompt.sessionId, 's-rolled-over')
+  assert.deepEqual(prompt.content, [
+    { type: 'text', text: 'check this' },
+    { type: 'file', receiptId: uploads.at(-1).receiptId },
+  ])
+
+  // Once sent, the file id is consumed and cannot be replayed.
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [fileId] })).error.code, 'bot/stale')
+  await stop()
+})
+
+test('image endpoint passes throughSeq from resolveAgent to sessionController.page for strict DSH compatibility', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const ref = await ctx.get('attachments').saveImage({
+    mediaType: 'image/png',
+    data: Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63f80f00000101000518d84e0000000049454e44ae426082', 'hex'),
+  })
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: ref }] } },
+  ]
+  const pageRequests = []
+  const origPage = ctx.sessionController.page
+  ctx.sessionController.page = async (req, signal) => {
+    pageRequests.push(req)
+    assert.equal(Number.isSafeInteger(req.throughSeq) && req.throughSeq >= -1, true, 'image must pass valid throughSeq')
+    return origPage(req, signal)
+  }
+  const got = await call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
+  assert.equal(got.ok, true)
+  assert.equal(got.value.mime, 'image/png')
+  assert.equal(pageRequests.length, 1)
+  await stop()
+})
+
 test('chat with steps folds the turn tool calls into a steps row after its last text', async () => {
   const { call, history, stop } = start()
   const { chief } = await team(call)

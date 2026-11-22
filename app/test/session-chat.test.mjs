@@ -21,6 +21,19 @@ const stubs = {
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
     export const workPhrase = () => ''
+    export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua'].includes(name)
+    export const ToolCell = ({ node, sessionId, useHeldCards }) => {
+      const root = node?.data?.root
+      const heldCards = useHeldCards?.(state => state?.[sessionId])
+      const name = root?.name || root?.call?.name
+      if (name === 'show_view') {
+        return {
+          type: 'widget-cell',
+          props: { callId: root.callId, title: root.args?.text?.('title'), done: root.kind === 'tool-result', isError: root.isError === true, heldCards, children: ['widget:' + (root.args?.text?.('title') ?? root.callId)] },
+        }
+      }
+      return { type: 'bot-tool-cell', props: { toolName: name, callId: root?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+    }
   `,
   'widget-cell.js': `
     export const WidgetCell = ({ callId, args, done, isError, heldCards }) => ({
@@ -36,6 +49,7 @@ const stubs = {
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': `
+    export const MarkdownText = ({ text }) => ({ type: 'markdown', props: { text, children: [text] } })
     export const writeClipboard = async () => true
     export const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
     export const fileSizeText = bytes => (Number.isFinite(bytes) ? bytes + ' B' : '')
@@ -115,6 +129,8 @@ const react = {
   useCallback: fn => fn,
   useId: () => slot(() => ({ id: 'id' })).id,
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
+  createContext: value => ({ _default: value, Provider: ({ children }) => children }),
+  useContext: ctx => ctx?._default,
 }
 
 function createFetchControl() {
@@ -203,7 +219,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  Chat, createTeam,
+  SessionTranscript, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -723,7 +739,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     }
     const pendingCount = () => {
       const pendingRows = all(inst.render(), n => n.type === 'div' && n.props?.className === 'dsb-pending')
-      return pendingRows[0] ? all(pendingRows[0], n => n.type === 'chat-rows')[0].props.items.length : 0
+      return pendingRows[0] ? all(pendingRows[0], n => n.type === 'div' && n.props?.className === 'bt-umsg').length : 0
     }
     await sendText('继续')
     await sendText('继续')
@@ -804,4 +820,108 @@ test('createTeam wires heldCards store so WidgetDock noteHeldCard updates cleanl
   assert.deepEqual(plain(probeMount.render().props.held), { s1: { '["view","v1"]': 1 } })
   team.actions.noteHeldCard('s1', 'view', 'v1', -1)
   assert.deepEqual(plain(probeMount.render().props.held), { s1: {} })
+  assert.equal(typeof team.hooks.useComputer, 'function')
+  assert.equal(typeof team.hooks.useBrowserHolds, 'function')
+  assert.equal(typeof team.actions.stopChat, 'function')
+  assert.equal(typeof team.actions.stageFile, 'function')
+  assert.equal(typeof team.actions.stageImage, 'function')
+})
+
+test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via ToolCell and loads user image thumbnails', async () => {
+  const imageCalls = []
+  sandbox.__testCall = async (endpoint, payload) => {
+    if (endpoint === 'image') {
+      imageCalls.push(payload)
+      return { mime: 'image/png', data: 'iVBORw0KGgo=' }
+    }
+    return {}
+  }
+  const log = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 5,
+    hasMore: false,
+    records: [
+      {
+        type: 'event',
+        event: {
+          seq: 1,
+          time: 1000,
+          type: 'user/message',
+          data: {
+            source: { kind: 'user' },
+            content: [
+              { type: 'image', attachment: { attachmentId: 'att-img-1', name: 'chart.png', width: 100, height: 80 } },
+              { type: 'text', text: 'check this chart' },
+            ],
+          },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 2,
+          time: 1010,
+          type: 'tool/call',
+          data: { turn: 1, callId: 'ptc-1', name: 'run_code', arguments: '{"code":"ask_user(...)"}' },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 3,
+          time: 1015,
+          type: 'tool/ptc-dispatch-start',
+          data: { turn: 1, subCallId: 'sub-ask-1', parentCallId: 'ptc-1', rootCallId: 'ptc-1', name: 'ask_user', arguments: '{"question":"Pick one"}' },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 4,
+          time: 1020,
+          type: 'tool/ptc-dispatch',
+          data: { turn: 1, subCallId: 'sub-ask-1', parentCallId: 'ptc-1', rootCallId: 'ptc-1', name: 'ask_user', isError: false, content: [] },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 5,
+          time: 1030,
+          type: 'tool/result',
+          data: { turn: 1, message: { toolCallId: 'ptc-1', isError: false, content: [{ type: 'text', text: 'done' }] } },
+        },
+      },
+    ],
+  }).log
+  const roster = {
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue' }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue' } },
+    rooms: [],
+    roomsById: {},
+    prefs: {},
+    exchangeTurns: {},
+  }
+  const inst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot: roster.byId.b1,
+    roster,
+    actions: { openSession() {}, noteTurnTime() {} },
+  })
+  try {
+    inst.render()
+    await tick()
+    const tree = inst.render()
+    assert.deepEqual(plain(imageCalls), [{ sessionId: 'b1', attachmentId: 'att-img-1', preview: true }])
+    const imgs = all(tree, n => n.type === 'img' && n.props?.className === 'dsb-uimg')
+    assert.equal(imgs.length, 1)
+    assert.equal(imgs[0].props.src, 'data:image/png;base64,iVBORw0KGgo=')
+    const botCells = all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user')
+    assert.equal(botCells.length, 1)
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
+  }
 })

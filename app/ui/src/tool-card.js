@@ -76,7 +76,7 @@ export function clipLongText(text) {
   return { shown: `${head}\n…`, folded: true, lines: split.length }
 }
 
-function CodeSection({ label, text, error = false }) {
+export function CodeSection({ label, text, error = false }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const clipped = useMemo(() => clipLongText(text), [text])
@@ -107,9 +107,16 @@ function CodeSection({ label, text, error = false }) {
     }, expanded ? t('Show less') : t('Show all ({count} lines)', { count: clipped.lines })) : null)
 }
 
-// Stable disclosure hook matching DSH's `UseDisclosure` contract.
-function useToolDisclosure() {
-  const [expanded, setExpanded] = useState(false)
+export function formatToolDuration(block, phase) {
+  const durationMs = phase === 'result' && Number.isFinite(block?.time) && Number.isFinite(block?.callTime)
+    ? block.time - block.callTime
+    : undefined
+  return Number.isFinite(durationMs) && durationMs >= 1000 ? elapsedLabel(durationMs) : ''
+}
+
+// Stable disclosure hook matching DSH's `UseDisclosure` contract (accepting an optional initial state).
+function useToolDisclosure(initial = false) {
+  const [expanded, setExpanded] = useState(initial)
   const toggle = useCallback(() => setExpanded(value => !value), [])
   return useMemo(() => ({ expanded, setExpanded, toggle }), [expanded, toggle])
 }
@@ -128,10 +135,7 @@ export function GenericToolCard({ callId, toolName, phase, block, useDisclosure 
   }, [isError, block?.error])
   const hasBody = argsText !== '' || resultText !== '' || errorLine !== ''
   const title = toolName || (callId ? `${t('Tool call')} · ${callId}` : t('Tool call'))
-  const durationMs = phase === 'result' && Number.isFinite(block?.time) && Number.isFinite(block?.callTime)
-    ? block.time - block.callTime
-    : undefined
-  const duration = Number.isFinite(durationMs) && durationMs >= 1000 ? elapsedLabel(durationMs) : ''
+  const duration = formatToolDuration(block, phase)
 
   return h('div', {
     className: 'dsb-tool',
@@ -208,6 +212,7 @@ function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback })
         openFile,
         loadImage,
         registry,
+        fallback,
       }))))
 }
 

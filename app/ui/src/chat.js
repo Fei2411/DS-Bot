@@ -2,18 +2,95 @@ import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, u
 import { call } from '../../../ds-bot/src/client/api.js'
 import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
+import { AppAccessDock, ComputerHandoffDock } from '../../../ds-bot/src/client/computer.js'
+import { ConnectorDock, MailDock } from '../../../ds-bot/src/client/connectors.js'
+import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
+import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { ArrowUpIcon } from '../../../ds-bot/src/client/icons.js'
+import { ArrowUpIcon, CloseIcon, FileIcon, StopIcon } from '../../../ds-bot/src/client/icons.js'
+import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
+import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
-import { PendingQuestion } from '../../../ds-bot/src/client/questions.js'
+import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
+import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
-import { SessionTranscript, useSessionFollow } from './session-chat.js'
+import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
+const STAGED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
+const EMPTY_OBJ = {}
+const EMPTY_WORK = { bots: {}, approvals: [] }
+const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
+const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
+
+export function bytesToBase64(bytes) {
+  if (typeof globalThis.btoa === 'function') {
+    const CHUNK = 0x2000
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    return globalThis.btoa(binary)
+  }
+  if (typeof globalThis.Buffer === 'function') {
+    return globalThis.Buffer.from(bytes).toString('base64')
+  }
+  return ''
+}
+
+async function fileToBase64(file) {
+  if (typeof file?.arrayBuffer === 'function') {
+    const buf = await file.arrayBuffer()
+    return bytesToBase64(new Uint8Array(buf))
+  }
+  if (typeof globalThis.FileReader === 'function') {
+    return new Promise((resolve, reject) => {
+      const reader = new globalThis.FileReader()
+      reader.onload = () => {
+        const result = String(reader.result ?? '')
+        const comma = result.indexOf(',')
+        resolve(comma >= 0 ? result.slice(comma + 1) : result)
+      }
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+  return ''
+}
+
+function filesFromClipboard(clipboardData) {
+  if (!clipboardData) return []
+  const out = []
+  const items = clipboardData.items ? Array.from(clipboardData.items) : []
+  for (const item of items) {
+    if (item?.kind === 'file' && typeof item.getAsFile === 'function') {
+      const file = item.getAsFile()
+      if (file) out.push(file)
+    }
+  }
+  if (out.length > 0) return out
+  return clipboardData.files ? Array.from(clipboardData.files) : []
+}
+
+function hasFileDrag(dataTransfer) {
+  const types = dataTransfer?.types
+  if (!types) return false
+  if (typeof types.includes === 'function') return types.includes('Files')
+  return Array.from(types).includes('Files')
+}
+
+function revokeUrl(url) {
+  if (url && typeof URL?.revokeObjectURL === 'function') URL.revokeObjectURL(url)
+}
+
+function revokeEntryUrls(entry) {
+  for (const url of entry?.previewUrls ?? []) revokeUrl(url)
+}
 const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
   ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
   : a.kind === b.kind && a.time === b.time && a.text === b.text)
@@ -193,54 +270,211 @@ function useInput(field, setText) {
   }), [field, setText])
 }
 
-function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, useRoster }) {
+function ComposerAttachments({ items, onRemove }) {
+  if (!items || items.length === 0) return null
+  return h('div', { className: 'dsb-attach-rail' }, items.map((item) => {
+    const meta = [fileExtension(item.name)?.toUpperCase().slice(0, 8), fileSizeText(item.size)].filter(Boolean).join(' · ')
+    if (item.isImage && item.previewUrl) {
+      return h('div', { key: item.id, className: 'dsb-attach-thumb', title: item.name },
+        h('img', { src: item.previewUrl, alt: item.name }),
+        h('button', {
+          type: 'button',
+          className: 'dsb-attach-x',
+          'aria-label': t('Remove {name}', { name: item.name }),
+          title: t('Remove'),
+          onClick: () => onRemove(item.id),
+        }, h(CloseIcon)))
+    }
+    return h('div', { key: item.id, className: 'dsb-attach-chip', title: item.name },
+      h('span', { className: 'dsb-attach-icon', 'aria-hidden': true }, h(FileIcon)),
+      h('span', { className: 'dsb-attach-text' },
+        h('span', { className: 'dsb-attach-name' }, item.name),
+        meta ? h('span', { className: 'dsb-attach-meta' }, meta) : null),
+      h('button', {
+        type: 'button',
+        className: 'dsb-attach-x',
+        'aria-label': t('Remove {name}', { name: item.name }),
+        title: t('Remove'),
+        onClick: () => onRemove(item.id),
+      }, h(CloseIcon)))
+  }))
+}
+
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, useUi, useRoster }) {
   const [text, setText] = useState('')
+  const [attachments, setAttachments] = useState([])
+  const [stopping, setStopping] = useState(false)
   const [error, setError] = useState(null)
   const field = useRef(null)
+  const fileInput = useRef(null)
+  const seqRef = useRef(0)
+  const ownedUrlsRef = useRef(undefined)
+  if (ownedUrlsRef.current === undefined) ownedUrlsRef.current = new Set()
   const inputActions = useInput(field, setText)
   const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
+
   useLayoutEffect(() => {
     const node = field.current
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [text])
   useEffect(() => { if (!disabled) field.current?.focus() }, [sessionId, disabled])
+  useEffect(() => { if (!running) setStopping(false) }, [running])
+  useEffect(() => {
+    const owned = ownedUrlsRef.current
+    return () => {
+      for (const url of owned) revokeUrl(url)
+      owned.clear()
+    }
+  }, [])
+
+  const addFiles = useCallback((fileList) => {
+    const list = Array.from(fileList ?? []).filter(Boolean)
+    if (list.length === 0) return
+    const next = []
+    let oversized = false
+    for (const file of list) {
+      const size = Number.isFinite(file.size) ? file.size : 0
+      if (size > MAX_ATTACHMENT_BYTES) {
+        oversized = true
+        continue
+      }
+      const mediaType = typeof file.type === 'string' ? file.type : ''
+      const isImage = STAGED_IMAGE_TYPES.has(mediaType)
+      const previewUrl = isImage && typeof URL?.createObjectURL === 'function' ? URL.createObjectURL(file) : null
+      if (previewUrl) ownedUrlsRef.current.add(previewUrl)
+      seqRef.current += 1
+      next.push({
+        id: `att-${seqRef.current}`,
+        file,
+        name: file.name || (isImage ? `image-${seqRef.current}.${mediaType.split('/')[1] || 'png'}` : `file-${seqRef.current}`),
+        size,
+        mediaType,
+        isImage,
+        previewUrl,
+      })
+    }
+    if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
+    else if (next.length > 0) setError(null)
+    if (next.length > 0) setAttachments(current => [...current, ...next])
+  }, [])
+
+  if (addFilesRef) addFilesRef.current = addFiles
+
+  const removeAttachment = useCallback((id) => {
+    setAttachments((current) => {
+      const target = current.find(item => item.id === id)
+      if (target?.previewUrl) {
+        ownedUrlsRef.current.delete(target.previewUrl)
+        revokeUrl(target.previewUrl)
+      }
+      return current.filter(item => item.id !== id)
+    })
+  }, [])
+
+  const onFilePick = (event) => {
+    addFiles(event.target?.files)
+    if (event.target) event.target.value = ''
+  }
+
+  const onPaste = (event) => {
+    if (disabled) return
+    const files = filesFromClipboard(event.clipboardData)
+    if (files.length === 0) return
+    addFiles(files)
+    const plain = typeof event.clipboardData?.getData === 'function' ? event.clipboardData.getData('text/plain') : ''
+    if (!plain) event.preventDefault()
+  }
+
+  const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
   const submit = async () => {
     const value = text.trim()
-    if (value === '' || disabled) return
+    const items = attachments.slice()
+    if ((value === '' && items.length === 0) || disabled) return
     setError(null)
     setText('')
+    setAttachments([])
     try {
-      await onSend(value)
+      await onSend(value, items)
+      // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
+      for (const item of items) {
+        if (item.previewUrl) ownedUrlsRef.current.delete(item.previewUrl)
+      }
     } catch (failure) {
       setText(current => (current === '' ? value : current))
-      setError(failure.message)
+      if (items.length > 0) setAttachments(current => [...items, ...current])
+      setError(failure?.message ?? String(failure))
     }
   }
+
+  const stop = async () => {
+    if (!running || stopping || typeof onStop !== 'function') return
+    setError(null)
+    setStopping(true)
+    try {
+      await onStop()
+    } catch (failure) {
+      setStopping(false)
+      setError(failure?.message ?? String(failure))
+    }
+  }
+
   return h('div', { className: 'dsb-composer-wrap' },
     error ? h('p', { className: 'dsb-composer-error', role: 'alert' }, error) : null,
-    h('div', { className: 'dsb-composer', 'data-composer-card': '', 'data-multiline': text.includes('\n') || undefined },
-      h('div', { className: 'dsb-composer-tools' }, h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
-      h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
-        h('textarea', {
-          ref: field,
-          rows: 1,
-          value: text,
-          disabled,
-          placeholder,
-          'aria-label': placeholder,
-          'data-composer-input': '',
-          onChange: event => setText(event.target.value),
-          onKeyDown: (event) => {
-            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-              event.preventDefault()
-              void submit()
-            }
-          },
-        })),
-      h('div', { className: 'dsb-composer-trailing' },
-        h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
-        h('button', { type: 'button', className: 'dsb-send', disabled: disabled || text.trim() === '', 'aria-label': t('Send message'), title: t('Send message'), onClick: () => { void submit() } }, h(ArrowUpIcon)))))
+    h('div', {
+      className: 'dsb-composer',
+      'data-composer-card': '',
+      'data-multiline': (text.includes('\n') || attachments.length > 0) || undefined,
+      'data-running': (running && typeof onStop === 'function') || undefined,
+    },
+    h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
+    h(ComposerAttachments, { items: attachments, onRemove: removeAttachment }),
+    h('div', { className: 'dsb-composer-tools' }, h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
+    h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
+      h('textarea', {
+        ref: field,
+        rows: 1,
+        value: text,
+        disabled,
+        placeholder,
+        'aria-label': placeholder,
+        'data-composer-input': '',
+        onChange: event => setText(event.target.value),
+        onPaste,
+        onKeyDown: (event) => {
+          if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+            event.preventDefault()
+            void submit()
+          }
+        },
+      })),
+    h('div', { className: 'dsb-composer-trailing' },
+      h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
+      running && typeof onStop === 'function' ? h('button', {
+        type: 'button',
+        className: 'dsb-stop',
+        disabled: stopping,
+        'aria-busy': stopping || undefined,
+        'aria-label': t('Stop generating'),
+        title: t('Stop generating'),
+        onClick: () => { void stop() },
+      }, h(StopIcon)) : null,
+      h('button', {
+        type: 'button',
+        className: 'dsb-send',
+        disabled: !canSend,
+        'aria-label': t('Send message'),
+        title: t('Send message'),
+        onClick: () => { void submit() },
+      }, h(ArrowUpIcon)))))
+}
+
+function PendingUserRows({ items, sessionId }) {
+  if (!items || items.length === 0) return null
+  return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
+    h('div', { className: 'bt-ustack' },
+      entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, entry.text) : null))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -257,7 +491,12 @@ export function Chat({ sessionId, team, registry }) {
   const name = bot?.name ?? room?.name ?? ''
 
   const [pending, setPending] = useState([])
+  const [dragging, setDragging] = useState(false)
   const sendGen = useRef(0)
+  const dragDepth = useRef(0)
+  const addFilesRef = useRef(undefined)
+  const pendingRef = useRef(undefined)
+  pendingRef.current = pending
   const scroller = useRef(null)
   const follow = useRef(true)
   const keep = useRef(null)
@@ -266,18 +505,27 @@ export function Chat({ sessionId, team, registry }) {
     sendGen.current += 1
     keep.current = null
     follow.current = true
-    setPending([])
+    setPending((list) => {
+      for (const entry of list) revokeEntryUrls(entry)
+      return []
+    })
   }, [activeSessionId])
+
+  useEffect(() => () => {
+    for (const entry of pendingRef.current ?? []) revokeEntryUrls(entry)
+  }, [])
 
   const clearPendingUsers = useCallback((freshUsers, initial) => {
     setPending((list) => {
       if (list.length === 0) return list
       const next = list.slice()
+      const removed = []
       for (const item of freshUsers) {
         const at = next.findIndex(entry => entry.text === item.text
           && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
-        if (at >= 0) next.splice(at, 1)
+        if (at >= 0) removed.push(...next.splice(at, 1))
       }
+      for (const entry of removed) revokeEntryUrls(entry)
       return next.length === list.length ? list : next
     })
   }, [])
@@ -310,7 +558,8 @@ export function Chat({ sessionId, team, registry }) {
   }, [isRoom])
 
   const question = roster.questions?.[activeSessionId] ?? roster.questions?.[sessionId]
-  const running = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
+  const sessionRunning = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
+  const running = sessionRunning || (!isRoom && dmChat.log.writing !== null)
 
   const contentRevision = isRoom ? roomChat.view.items : dmChat.log.revision
   useLayoutEffect(() => {
@@ -329,18 +578,52 @@ export function Chat({ sessionId, team, registry }) {
   }
 
   // Shown at once: the message can arrive on the follow/feed before the request returns.
-  const send = async (text) => {
+  const send = async (text, items = []) => {
+    follow.current = true
     const myGen = sendGen.current
-    const entry = { kind: 'user', text, time: Date.now() }
+    const pendingAttachments = items.map(item => (item.isImage
+      ? { type: 'image', attachment: { name: item.name, previewUrl: item.previewUrl } }
+      : { type: 'file', attachment: { name: item.name, bytes: item.size } }))
+    const entry = {
+      kind: 'user',
+      text,
+      attachments: pendingAttachments,
+      previewUrls: items.map(item => item.previewUrl).filter(Boolean),
+      time: Date.now(),
+    }
     setPending(list => [...list, entry])
     actions.noteSent(activeSessionId)
     try {
-      await actions.send(activeSessionId, text)
+      const imageIds = []
+      const fileIds = []
+      for (const item of items) {
+        const base64 = await fileToBase64(item.file)
+        if (item.isImage) {
+          const staged = await (typeof actions.stageImage === 'function'
+            ? actions.stageImage(item.mediaType, base64, item.name)
+            : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
+          imageIds.push(staged.id)
+        } else {
+          const staged = await (typeof actions.stageFile === 'function'
+            ? actions.stageFile(item.name, base64, item.mediaType)
+            : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
+          fileIds.push(staged.id)
+        }
+      }
+      if (imageIds.length > 0 || fileIds.length > 0) {
+        await actions.send(activeSessionId, text, { images: imageIds, files: fileIds })
+      } else {
+        await actions.send(activeSessionId, text)
+      }
     } catch (error) {
       if (sendGen.current === myGen) setPending(list => list.filter(item => item !== entry))
       throw error
     }
   }
+
+  const onStop = isRoom
+    ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)
+    : (typeof actions.stopChat === 'function' && bot?.id ? () => actions.stopChat(bot.id) : undefined)
 
   const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
   const earlier = isRoom
@@ -358,30 +641,100 @@ export function Chat({ sessionId, team, registry }) {
     : null
 
   const waiting = bot?.waiting === true
+  const useWork = hooks.useWork ?? NO_WORK_HOOK
+  const useCards = hooks.useCards ?? NO_OBJ_HOOK
+  const useHeldCards = hooks.useHeldCards ?? NO_OBJ_HOOK
+  const useComputer = hooks.useComputer ?? NO_OBJ_HOOK
+  const useBrowserHolds = hooks.useBrowserHolds ?? NO_OBJ_HOOK
+  const useBrowserTabs = hooks.useBrowserTabs ?? NO_OBJ_HOOK
+  const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
 
-  return h('div', { className: 'dsb-chat' },
-    h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', onScroll },
-      h('div', { className: 'dsb-column' },
-        earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
-        sessionNotice,
-        h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
-          isRoom
-            ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
-            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, useHeldCards: hooks.useHeldCards, thinkingAt: dmChat.thinkingAt, hasMore: dmChat.hasMore, registry }),
-          pending.length ? h('div', { className: 'dsb-pending' }, h(ChatRows, { items: pending, sessionId: activeSessionId, roster, actions })) : null,
-          // The Bot views' activity row (from the header pill) draws itself in here.
-          h('div', { 'data-chat-running': '' }),
-          question ? h(PendingQuestion, { key: JSON.stringify([activeSessionId, question.id]), sessionId: activeSessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
-    h('div', { className: 'dsb-composer-root' },
-      !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards: hooks.useCards, useHeldCards: hooks.useHeldCards, actions }) : null,
-      h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
-      h(Composer, {
-        sessionId: activeSessionId,
-        disabled: waiting,
-        placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
-        onSend: send,
-        actions,
-        useUi: hooks.useUi,
-        useRoster: hooks.useRoster,
-      })))
+  const onDragEnter = (event) => {
+    if (waiting || !hasFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    dragDepth.current += 1
+    setDragging(true)
+  }
+  const onDragOver = (event) => {
+    if (waiting || !hasFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  }
+  const onDragLeave = (event) => {
+    if (dragDepth.current === 0) return
+    event.preventDefault()
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragging(false)
+  }
+  const onDrop = (event) => {
+    dragDepth.current = 0
+    setDragging(false)
+    if (waiting || !event.dataTransfer?.files?.length) return
+    event.preventDefault()
+    addFilesRef.current?.(event.dataTransfer.files)
+  }
+
+  return h('div', {
+    className: 'dsb-chat',
+    'data-dragging': dragging || undefined,
+    onDragEnter,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+  },
+  dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
+    h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', onScroll },
+    h('div', { className: 'dsb-column' },
+      earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
+      sessionNotice,
+      h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+        isRoom
+          ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
+          : h(SessionTranscript, {
+            log: dmChat.log,
+            sessionId: activeSessionId,
+            bot,
+            roster,
+            actions,
+            useUi: hooks.useUi,
+            useRoster: hooks.useRoster,
+            useWork,
+            useTurnClock: hooks.useTurnClock,
+            useHeldCards,
+            useBrowserHolds,
+            useBrowserTabs,
+            useBrowserPages,
+            useComputer,
+            thinkingAt: dmChat.thinkingAt,
+            hasMore: dmChat.hasMore,
+            registry,
+          }),
+        h(PendingUserRows, { items: pending, sessionId: activeSessionId }),
+        // The Bot views' activity row (from the header pill) draws itself in here.
+        h('div', { 'data-chat-running': '' })))),
+  h('div', { className: 'dsb-composer-root' },
+    h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
+    h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
+    h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
+    !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+    !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && typeof actions.turnFacts === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    h(Composer, {
+      sessionId: activeSessionId,
+      disabled: waiting,
+      running,
+      placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
+      onSend: send,
+      onStop,
+      addFilesRef,
+      actions,
+      useUi: hooks.useUi,
+      useRoster: hooks.useRoster,
+    })))
 }

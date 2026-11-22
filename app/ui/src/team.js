@@ -64,6 +64,8 @@ export function createTeam() {
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const computer = createSource({})
+  const browserHolds = createSource({})
   const browserPages = createSource({})
   const browserTabs = createSource({})
   const layout = createSource({ wide: true })
@@ -122,6 +124,7 @@ export function createTeam() {
     applied = order
     setChanged(activity, value.activity ?? {})
     setChanged(work, value.work ?? NO_WORK)
+    if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
     noteNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
     const changed = {}
@@ -195,6 +198,8 @@ export function createTeam() {
     canReferenceChat: () => false,
     speech: () => undefined,
     voiceSetup: () => null,
+    turnFacts: () => ({ turns: undefined, openTurn: undefined }),
+    watchTurns: () => () => {},
     noteSent: (sessionId) => {
       sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? []), { placement: 'direct', time: Date.now() }] }))
     },
@@ -278,6 +283,8 @@ export function createTeam() {
     useTurnClock: use(turnClock),
     useUpdate: use(update),
     useRegistry: use(registry),
+    useComputer: use(computer),
+    useBrowserHolds: use(browserHolds),
     useBrowserPages: use(browserPages),
     useBrowserTabs: use(browserTabs),
     useSessions: use(sessions),

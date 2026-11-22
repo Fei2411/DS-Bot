@@ -1167,6 +1167,7 @@ const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_na
 const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
+export const isBotTool = name => DRAWN.has(name) || isComputerCall(name)
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {

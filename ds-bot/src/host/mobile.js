@@ -394,10 +394,14 @@ export function install(rt) {
       ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
     ])]
     for (const targetId of sessions) {
+      const agent = await rt.resolveAgent(targetId).catch(() => undefined)
+      const seq = Number(agent?.session?.seq)
+      const throughSeq = Number.isSafeInteger(seq) && seq >= 0 ? seq - 1 : undefined
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId: targetId },
+          ...(throughSeq !== undefined ? { throughSeq } : {}),
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
@@ -511,10 +515,14 @@ export function install(rt) {
       return attachmentChunk(attachments, locator.ref, offset)
     }
     for (const targetId of sessions) {
+      const agent = await rt.resolveAgent(targetId).catch(() => undefined)
+      const seq = Number(agent?.session?.seq)
+      const throughSeq = Number.isSafeInteger(seq) && seq >= 0 ? seq - 1 : undefined
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId: targetId },
+          ...(throughSeq !== undefined ? { throughSeq } : {}),
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
