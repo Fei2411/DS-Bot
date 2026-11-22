@@ -38,7 +38,61 @@ const visibleReasoning = text => {
 // A local agent's own tool calls ride its reasoning as lines that start with
 // "▸ ". They show as activity rows of their step, not folded into the thought.
 const ACTIVITY = '▸ '
+const IGNORED_ACTIVITY = new Set(['userMessage', 'user_message', 'developerMessage', 'developer_message', 'contextCompaction', 'context_compaction'])
 const isActivity = line => line.startsWith(ACTIVITY)
+
+export function cleanActivityLine(raw) {
+  const text = String(raw ?? '').trim()
+  if (text === '' || IGNORED_ACTIVITY.has(text)) return ''
+  const match = /^(?:\/\S+\/)?(?:ba|z|da|k)?sh\s+-[a-z]*c\s+([\s\S]+)$/i.exec(text)
+  if (!match) return text
+  const body = match[1].trim()
+  if ((body.startsWith('"') && body.endsWith('"')) || (body.startsWith("'") && body.endsWith("'"))) {
+    const quote = body[0]
+    const inner = body.slice(1, -1)
+    return quote === '"' ? inner.replace(/\\(["\\$`])/g, '$1') : inner.replace(/'\\''/g, "'")
+  }
+  return body
+}
+
 const reasoningText = step => step.blocks.filter(block => block.kind === 'reasoning').map(block => visibleReasoning(block.text)).join('\n')
 const stepReasoning = step => reasoningText(step).split('\n').filter(line => !isActivity(line)).join('\n').trim()
-export const stepActivity = step => reasoningText(step).split('\n').filter(isActivity).map(line => line.slice(ACTIVITY.length).trim()).filter(Boolean)
+export const stepActivity = step => reasoningText(step).split('\n').filter(isActivity).map(line => cleanActivityLine(line.slice(ACTIVITY.length))).filter(Boolean)
+
+// True when a local agent CLI spoke a text block first and then ran tools or
+// thoughts inside the same step, so blocks must render in chronological order.
+export function hasInterleavedBlocks(step) {
+  let seenText = false
+  for (const block of step.blocks ?? []) {
+    if (block.kind === 'text' && block.text.trim() !== '') seenText = true
+    else if (seenText && block.kind === 'reasoning' && visibleReasoning(block.text).trim() !== '') return true
+  }
+  return false
+}
+
+export function stepSegments(step) {
+  const segments = []
+  for (const block of step.blocks ?? []) {
+    if (block.kind === 'text') {
+      if (block.text.trim() === '') continue
+      const last = segments.at(-1)
+      if (last?.kind === 'text') last.texts.push(block.text)
+      else segments.push({ kind: 'text', texts: [block.text] })
+    } else if (block.kind === 'reasoning') {
+      const raw = visibleReasoning(block.text)
+      if (raw.trim() === '') continue
+      const lines = raw.split('\n')
+      const activity = lines.filter(isActivity).map(line => cleanActivityLine(line.slice(ACTIVITY.length))).filter(Boolean)
+      const thought = lines.filter(line => !isActivity(line)).join('\n').trim()
+      if (activity.length === 0 && thought === '') continue
+      const last = segments.at(-1)
+      if (last?.kind === 'process') {
+        last.activity.push(...activity)
+        if (thought) last.thought = last.thought ? `${last.thought}\n\n${thought}` : thought
+      } else {
+        segments.push({ kind: 'process', activity: [...activity], thought })
+      }
+    }
+  }
+  return segments
+}

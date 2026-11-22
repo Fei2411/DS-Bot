@@ -17,7 +17,7 @@ import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.
 import { mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
-import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
+import { cleanActivityLine, hasInterleavedBlocks, opensReply, stepActivity, stepSegments, thinkingStep, turnReasoning } from './turn-reasoning.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
@@ -251,6 +251,30 @@ export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource
     h('div', { ref: box, className: 'bt-think-text', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, 'data-text-interaction-source': textInteractionSource && !live ? '' : undefined, onScroll: measure }, text))
 }
 
+export function ActivityFold({ lines, live = false, viewKey }) {
+  const cleaned = (lines ?? []).map(cleanActivityLine).filter(Boolean)
+  const [open, setOpen] = useState(() => (viewKey !== undefined ? rowViews.get(viewKey)?.open ?? false : false))
+  if (cleaned.length === 0) return null
+  const toggle = (event) => {
+    const next = event.currentTarget.open
+    if (viewKey !== undefined) rowViews.set(viewKey, { ...rowViews.get(viewKey), open: next })
+    setOpen(next)
+  }
+  const latest = cleaned.at(-1) ?? ''
+  const count = cleaned.length
+  const label = live
+    ? (count > 1 ? t('Running {count} steps', { count }) : t('Running command'))
+    : (count === 1 ? t('Ran 1 step') : t('Ran {count} steps', { count }))
+  return h('details', { className: 'bt-think bt-act-fold', open, onToggle: toggle },
+    h('summary', null,
+      h('span', { className: 'bt-act-sum-label' }, label),
+      !open && latest ? h('span', { className: 'bt-act-sum-tail' }, '· ', activityParts(latest)) : null),
+    h('div', { className: 'bt-agent-activity' },
+      cleaned.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
+        h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }),
+        h('span', { className: 'bt-agent-act-text' }, activityParts(line))))))
+}
+
 // The files a finished turn changed or delivered, linked from inline code in its
 // reply as in DSH's own chat. DSH resolves them for the step that closes the turn.
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -271,6 +295,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const contexts = useTurnContext(String(data.turn))
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData })
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
+  const interleaved = hasInterleavedBlocks(data)
   const texts = groupPart === 'reasoning' ? [] : data.blocks
     .filter(block => block.kind === 'text')
     .map(block => stripToolCallTags(block.text))
@@ -279,14 +304,63 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const textInteractionSource = data.status === 'settled' && data.finalNode?.messageId !== undefined
   const members = steps.length ? steps : [data]
   const shown = thinkingShown(roster.prefs)
-  const reasoning = groupPart === 'response' || !shown ? '' : turnReasoning(steps, data)
+  const reasoning = interleaved || groupPart === 'response' || !shown ? '' : turnReasoning(steps, data)
   // A live step of the same Turn keeps the row ticking even when it sits on an
   // earlier step's cell.
-  const thinking = groupPart === 'response' || !shown ? undefined : thinkingStep(members)
-  const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter(step => step.status !== 'running').length, skip: hidden || reasoning === '' })
+  const thinking = interleaved || groupPart === 'response' || !shown ? undefined : thinkingStep(members)
+  const hasAnyReasoning = interleaved ? shown && data.blocks.some(block => block.kind === 'reasoning') : reasoning !== ''
+  const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter(step => step.status !== 'running').length, skip: hidden || !hasAnyReasoning })
+  const streamingText = interleaved ? data.blocks.at(-1)?.kind === 'text' && texts.length > 0 : texts.length > 0
   // A streaming reply stands in for the activity row.
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && streamingText ? { text: true } : null)
   if (hidden) return h(CellEmpty)
+  if (interleaved) {
+    if (groupPart === 'reasoning') return h(CellEmpty)
+    const segments = stepSegments(data)
+    const relays = relaysBefore(contexts, steps, data)
+    if (segments.length === 0 && relays.length === 0) return h(CellEmpty)
+    const selfBot = roster.byId[sessionId]
+    const selfId = selfBot?.id ?? sessionId
+    const speaker = layoutOf(roster.prefs) === 'flat' ? selfBot : undefined
+    const head = speaker !== undefined && opensReply(steps, data, shown)
+    const lastTextIndex = segments.findLastIndex(seg => seg.kind === 'text')
+    const lastThoughtIndex = segments.findLastIndex(seg => seg.kind === 'process' && Boolean(seg.thought))
+    return h(Fragment, null,
+      relays.map(relay => {
+        const source = relay.source
+        const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
+        return h(EventLine, {
+          key: relay.seq,
+          prefix: source.role === 'stopped' ? t('Stopped by') : source.role === 'reply' ? t('Reply from') : t('Message from'),
+          bots: [sender],
+          onOpen: () => { if (sender.id) actions.openExchange(selfId, sender.id) },
+          whole: true,
+        })
+      }),
+      head ? h(SpeakerHead, { bot: speaker, time: data.time }) : null,
+      segments.map((seg, segIndex) => {
+        const isLast = segIndex === segments.length - 1
+        if (seg.kind === 'text') {
+          const segTexts = seg.texts.map(stripToolCallTags).filter(text => text.trim() !== '')
+          if (segTexts.length === 0) return null
+          return h(Bubbles, {
+            key: `txt:${segIndex}`, texts: segTexts, roster, selfId, actions,
+            streaming: running && isLast, sessionId,
+            msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}:${segIndex}`,
+            useUi, mentions: segIndex === lastTextIndex ? mentions : undefined,
+            fold: FOLD_HUGE, time: speaker === undefined && segIndex === lastTextIndex ? data.time : undefined,
+            textInteractionSource,
+          })
+        }
+        const segLive = running && isLast
+        return h(Fragment, { key: `proc:${segIndex}` },
+          seg.activity.length ? h(ActivityFold, { lines: seg.activity, live: segLive && !seg.thought, viewKey: `${sessionId}:${data.turn}:act:${data.step ?? 0}:${segIndex}` }) : null,
+          shown && seg.thought ? h(ThinkingRow, {
+            text: seg.thought, live: segLive, viewKey: `${sessionId}:${data.turn}:think:${data.step ?? 0}:${segIndex}`, textInteractionSource,
+            ...(segLive ? {} : { ms: segIndex === lastThoughtIndex ? ms : undefined }),
+          }) : null)
+      }))
+  }
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
@@ -312,7 +386,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       })
     }),
     head ? h(SpeakerHead, { bot: speaker, time: data.time }) : null,
-    activity.length ? h('div', { className: 'bt-agent-activity' }, activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line }, h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }), h('span', { className: 'bt-agent-act-text' }, activityParts(line))))) : null,
+    activity.length ? h(ActivityFold, { lines: activity, live: running && texts.length === 0 && !reasoning, viewKey: `${sessionId}:${data.turn}:act:${data.step ?? 0}` }) : null,
     reasoning ? h(ThinkingRow, {
       text: reasoning, live: thinking !== undefined, viewKey: `${sessionId}:${data.turn}`, textInteractionSource,
       // The live clock counts the settled steps too: backing `at` by the settled
