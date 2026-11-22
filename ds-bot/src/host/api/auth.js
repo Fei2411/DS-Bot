@@ -572,6 +572,14 @@ export function createApiAuth(rt) {
 
   // Builds a live authorization principal that always re-checks current Bot privacy on rt.state.
   function buildPrincipal(entry) {
+    const fingerprint = tokenFingerprint(entry)
+    const isCurrent = () => {
+      reloadTokens()
+      const current = tokens.find(item => item.keyId === entry.keyId)
+      return current !== undefined && current.revoked !== true && current.paused !== true
+        && !(typeof current.expiresAt === 'number' && Date.now() >= current.expiresAt)
+        && tokenFingerprint(current) === fingerprint
+    }
     const scopes = new Set(normalizeTokenScopes(entry.scopes))
     // Compatibility with event-driven branch's `allowedTargets` array.
     const legacyTargets = Array.isArray(entry.allowedTargets) ? entry.allowedTargets.filter(id => typeof id === 'string') : []
@@ -631,6 +639,7 @@ export function createApiAuth(rt) {
       maxConcurrentRuns: positiveLimit(entry.maxConcurrentRuns, config.maxConcurrentRuns),
       rateLimitPerMin: positiveLimit(entry.rateLimitPerMin, config.rateLimitPerMin),
       hasScope,
+      isCurrent,
       canAccessBot,
       canAccessRoom,
       assertBotAccess,

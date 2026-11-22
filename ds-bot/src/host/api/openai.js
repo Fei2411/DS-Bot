@@ -96,6 +96,8 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
       const chatId = `chatcmpl-${run.runId}`
 
       if (wantsStream) {
+        let unsub
+        let authTimer
         res.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-store',
@@ -104,6 +106,7 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
           'x-dsbot-status': run.status,
         })
         const sendChunk = (delta, finishReason = null) => {
+          if (principal.isCurrent?.() === false) { client.close(); return }
           if (res.writableEnded) return
           res.write(`data: ${JSON.stringify({
             id: chatId,
@@ -116,6 +119,8 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
         const client = {
           res,
           close: () => {
+            clearInterval(authTimer)
+            unsub?.()
             sseClients.delete(client)
             if (!res.writableEnded) {
               try { res.write('data: [DONE]\n\n'); res.end() } catch {}
@@ -123,9 +128,13 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
           },
         }
         sseClients.add(client)
+        authTimer = setInterval(() => {
+          if (principal.isCurrent?.() === false) client.close()
+        }, 1_000)
+        authTimer.unref?.()
         sendChunk({ role: 'assistant' })
         let sawDelta = false
-        const unsub = runs.subscribeRun(run.runId, (entry) => {
+        unsub = runs.subscribeRun(run.runId, (entry) => {
           if (entry.event === 'delta' && typeof entry.data?.text === 'string') {
             sawDelta = true
             sendChunk({ content: entry.data.text })
@@ -140,6 +149,7 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
               res.end()
             }
             sseClients.delete(client)
+            clearInterval(authTimer)
             unsub?.()
           } else if (entry.event === 'run.completed' || entry.event === 'run.failed' || entry.event === 'run.stopped') {
             if (!sawDelta && entry.data?.output?.text) {
@@ -151,10 +161,13 @@ export function createOpenAiHandler({ auth, service, runs, sseClients }) {
               res.end()
             }
             sseClients.delete(client)
+            clearInterval(authTimer)
             unsub?.()
           }
         })
+        if (res.writableEnded) { clearInterval(authTimer); unsub?.() }
         req.on('close', () => {
+          clearInterval(authTimer)
           sseClients.delete(client)
           unsub?.()
         })

@@ -807,13 +807,16 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     },
   }
 
-  function openSse(res, req) {
+  function openSse(res, req, principal) {
+    const closers = new Set()
+    let authTimer
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
       connection: 'keep-alive',
     })
     const writeEvent = (event, data, id) => {
+      if (principal?.isCurrent?.() === false) { client.close(); return }
       if (res.writableEnded) return
       const lines = []
       if (id !== undefined) lines.push(`id: ${id}`)
@@ -834,15 +837,23 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
           try { res.write('event: shutdown\ndata: {"reason":"server_shutdown"}\n\n') } catch {}
           try { res.end() } catch {}
         }
+        cleanup()
       },
     }
     sseClients.add(client)
     const cleanup = () => {
       clearInterval(keepalive)
+      clearInterval(authTimer)
       sseClients.delete(client)
+      for (const close of closers) close()
+      closers.clear()
     }
+    authTimer = setInterval(() => {
+      if (principal?.isCurrent?.() === false) client.close()
+    }, 1_000)
+    authTimer.unref?.()
     req.on('close', cleanup)
-    return { writeEvent, cleanup }
+    return { writeEvent, cleanup, onClose: fn => closers.add(fn) }
   }
 
   async function handleUpload(req, res, principal) {
@@ -944,9 +955,9 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     res.end(bytes)
   }
 
-  function streamRunSse(req, res, runId) {
+  function streamRunSse(req, res, runId, principal) {
     const lastEventId = req.headers['last-event-id'] ? String(req.headers['last-event-id']) : undefined
-    const { writeEvent, cleanup } = openSse(res, req)
+    const { writeEvent, cleanup, onClose } = openSse(res, req, principal)
     const unsub = runs.subscribeRun(runId, (entry) => {
       writeEvent(entry.event, entry.data, entry.id)
       if (entry.event === 'run.completed' || entry.event === 'run.failed' || entry.event === 'run.stopped') {
@@ -959,6 +970,8 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       if (!res.writableEnded) res.end()
       return
     }
+    onClose(unsub)
+    if (res.writableEnded) unsub()
     req.on('close', () => unsub())
   }
 
@@ -986,7 +999,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       return true
     }
 
-    const { writeEvent } = openSse(res, req)
+    const { writeEvent, onClose } = openSse(res, req, principal)
     writeEvent('hello', { apiVersion: 'v1', revision: state.revision })
 
     if (lastEventId) {
@@ -1001,6 +1014,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       if (visible(record)) writeEvent(record.event, record.data, record.id)
     }
     globalSubscribers.add(listener)
+    onClose(() => { globalSubscribers.delete(listener); syncFeedTap() })
     syncFeedTap()
     req.on('close', () => {
       globalSubscribers.delete(listener)
@@ -1083,7 +1097,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
           audit.targetName = run.target.name
           audit.runId = run.runId
           if (wantsStream) {
-            streamRunSse(req, res, run.runId)
+            streamRunSse(req, res, run.runId, principal)
             return true
           }
           const done = run.status === 'completed' || run.status === 'failed' || run.status === 'stopped'
@@ -1176,7 +1190,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
           audit.targetName = run.target.name
           audit.runId = run.runId
           if (wantsStream) {
-            streamRunSse(req, res, run.runId)
+            streamRunSse(req, res, run.runId, principal)
             return true
           }
           const done = run.status === 'completed' || run.status === 'failed' || run.status === 'stopped'
@@ -1267,7 +1281,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       if (method === 'GET' && sub === 'events' && segments.length === 4) {
         const run = service.getRun(principal, id)
         audit.runId = run.runId
-        streamRunSse(req, res, run.runId)
+        streamRunSse(req, res, run.runId, principal)
         return true
       }
       if (method === 'POST' && sub === 'cancel' && segments.length === 4) {
