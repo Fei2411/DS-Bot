@@ -258,7 +258,7 @@ export function install(rt) {
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
 
-  const handle = async (endpoint, payload, signal) => {
+  const handle = async (endpoint, payload, signal, remote = false) => {
     try {
       const body = payload ?? {}
       await rt.refresh()
@@ -271,12 +271,14 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
+          const { api: _, ...remoteLive } = answer.value
+          const liveValue = remote ? remoteLive : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
-            return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...answer.value })
+            return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...liveValue })
           }
           // A phone asks for photos by reference and fetches each once (`avatar`).
-          const out = { ...view(), liveKey: answer.key, ...answer.value }
+          const out = { ...view(), liveKey: answer.key, ...liveValue }
           return ok(body.avatars === 'ref' ? rt.slimAvatars(out) : out)
         }
         case 'models':
@@ -909,7 +911,7 @@ export function install(rt) {
   }
 
   rt.channelCall = handle
-  rt.phoneServe(handle)
+  rt.phoneServe((endpoint, payload, signal) => handle(endpoint, payload, signal, true))
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
   // part of either resolves to its current part. `content` is the prompt blocks DSH

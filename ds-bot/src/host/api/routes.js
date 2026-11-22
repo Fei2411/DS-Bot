@@ -230,7 +230,6 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       private: bot.private === true,
       engine: rt.localAgentBadge?.(bot.model ?? bot.appliedModel) ?? 'dsh',
       model: bot.model ?? bot.appliedModel ?? rt.cachedDefault?.() ?? null,
-      workDir: rt.workDirOf?.({ botId: bot.id }) ?? null,
       busy,
       activeTaskCount: activeTasks.length,
       sessionId: sid ?? null,
@@ -393,7 +392,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       }
       return {
         ...botSummary(bot),
-        instructions: bot.instructions ?? '',
+        ...(principal.hasScope('team:manage') ? { instructions: bot.instructions ?? '' } : {}),
         tasks: rt.taskViewOf?.(bot) ?? [],
         pendingActions,
       }
@@ -981,7 +980,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
         if (!principal.canAccessRoom(record.targetId)) return false
         if (filterGroup && record.targetId !== filterGroup) return false
         if (filterBot) return false
-      } else if (filterBot || filterGroup) {
+      } else if (filterBot || filterGroup || principal.targetScope !== 'all_public') {
         return false
       }
       return true

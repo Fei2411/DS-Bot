@@ -137,6 +137,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     const before = (await link.client.rpc('bot', { endpoint: 'state', payload: {} })).value
     const opened = (await desk.call('phone-pair', {})).value.pairing
     const desktop = (await desk.call('state', {})).value
+    assert.ok(Object.hasOwn(desktop, 'api'))
     assert.deepEqual(desktop.phone.pairing, opened)
     for (const uri of [opened.uri, opened.browserUri]) assert.ok(parsePairingUri(uri).code)
     const answers = [
@@ -151,6 +152,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     for (const answer of answers) {
       assert.equal(answer.ok, true)
       const view = answer.state ?? answer.value
+      assert.equal(Object.hasOwn(view, 'api'), false)
       assert.ok(view.phone)
       assert.equal(Object.hasOwn(view.phone, 'pairing'), false)
       for (const uri of [opened.uri, opened.browserUri]) {
