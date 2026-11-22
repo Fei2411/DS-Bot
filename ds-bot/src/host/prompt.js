@@ -50,12 +50,13 @@ export function install(rt) {
     const self = rt.selfOf(id)
     const bot = rt.botOf(self)
     if (bot !== undefined) {
+      const main = rt.isMainForTurn?.(id) ?? rt.isMain(self)
       return [
         '# Your identity',
         `You are ${bot.name}, a Bot on the user's team in DS Bot.${bot.role ? ` Your role: ${bot.role}.` : ''}`,
         bot.instructions ? `\n${bot.instructions}` : '',
         '',
-        rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
+        main ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
       ].join('\n')
     }
     const room = rt.roomOf(id)
