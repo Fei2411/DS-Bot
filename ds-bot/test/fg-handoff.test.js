@@ -371,6 +371,7 @@ test('rapid double Desktop messages share one handoff and post-commit race settl
   await env.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Finished mid-fork.' }] } })
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await waitFor(() => env.rt.botOf('a').sessionId === 'fork-1'
     && env.agentMap.get('fork-1')?.followups.filter(m => m.source?.kind === 'user').length === 2
@@ -461,6 +462,7 @@ test('P0 #4: sendUser initiating handoff drains concurrent Desktop spliced messa
   await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [desktopMsg] })
   assert.equal(dmA.inbox.nextStep.length, 0, 'Desktop message must be pulled from busy inbox')
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await sendPromise
   await waitFor(() => env.agentMap.get('fork-1')?.followups.some(m => m.content?.[0]?.text === 'From desktop concurrently'))
@@ -622,6 +624,7 @@ test('post-fork race inspects turn/end error reason and skips still-running noti
   dmA.status = 'idle'
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'RATE_LIMIT', message: '429 busy' } } })
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await p
   await waitFor(() => env.rt.botOf('a').tasks[0]?.status === 'failed')
