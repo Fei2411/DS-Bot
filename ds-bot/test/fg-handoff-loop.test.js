@@ -514,11 +514,6 @@ test('real DSH SessionStore + ReactLoopAgent: startup reconcile waits for an in-
   const rig = await createRealLoopRig(t, { holdFork: true })
   const dmA = rig.agents.get('dm-a')
 
-  // Simulate a pre-crash saved prompt still on disk from a prior host run.
-  rig.rt.state.pendingHandoffInputs = [
-    { id: 'rpc-pre-crash-1', botId: 'a', content: [{ type: 'text', text: 'Summarize the report' }], source: { kind: 'user', rpcId: 'rpc-pre-crash-1' }, at: Date.now() - 10_000 },
-  ]
-
   // Start a busy turn and trigger a brand-new live handoff paused in `fork()`.
   dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
   await rig.toolStarted.promise
@@ -526,10 +521,26 @@ test('real DSH SessionStore + ReactLoopAgent: startup reconcile waits for an in-
   await rig.forkStarted.promise
   assert.equal(rig.rt.isHandingOff('dm-a'), true, 'live handoff must be in flight when startup reconcile runs')
 
-  // Startup reconcile runs while the live handoff is paused: it must NOT strand the
-  // pre-crash prompt, nor duplicate the live handoff's own prompt once it finishes.
-  const reconcilePromise = rig.rt.reconcileTasksAfterRestart()
+  // Prepend a pre-crash saved prompt AFTER `forkStarted` (after resume.js's 0ms startup
+  // timer has already passed) so the queue holds `[E_old, E_live]` while `handoffing` is active.
+  rig.rt.state.pendingHandoffInputs = [
+    { id: 'rpc-pre-crash-1', botId: 'a', content: [{ type: 'text', text: 'Summarize the report' }], source: { kind: 'user', rpcId: 'rpc-pre-crash-1' }, at: Date.now() - 10_000 },
+    ...(rig.rt.state.pendingHandoffInputs ?? []),
+  ]
+  assert.equal(rig.rt.state.pendingHandoffInputs.length, 2, 'must have both pre-crash and live pending entries before reconcile')
+
+  // Startup reconcile must wait on `handoffing` (not return early and strand `E_old`),
+  // then replay `E_old` onto the new foreground without duplicating `E_live`.
+  let reconciled = false
+  const reconcilePromise = rig.rt.reconcileTasksAfterRestart().then(() => { reconciled = true })
   await realDelay(30)
+  assert.equal(reconciled, false, 'reconcileTasksAfterRestart must wait for the in-flight handoff to settle')
+  assert.equal(
+    rig.rt.state.pendingHandoffInputs?.some(item => item?.id === 'rpc-pre-crash-1'),
+    true,
+    'pre-crash entry must still be pending while handoff is paused',
+  )
+
   rig.forkGate.resolve()
   await reconcilePromise
 
@@ -548,10 +559,16 @@ test('real DSH SessionStore + ReactLoopAgent: startup reconcile waits for an in-
   assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'pendingHandoffInputs must be drained and cleared')
 })
 
-test('real DSH SessionStore + ReactLoopAgent: concurrent reconcileTasksAfterRestart calls replay a pre-crash pendingHandoffInputs entry only once', async (t) => {
+test('real DSH SessionStore + ReactLoopAgent: concurrent reconcileTasksAfterRestart short-circuits via inFlightTransferIds and cleans malformed/id-less entries', async (t) => {
   const rig = await createRealLoopRig(t, { delayResolveMs: 40 })
+  // Let resume.js's 0ms startup reconcile timer settle before spying on replay calls.
+  await realDelay(20)
+  const ensureSpy = t.mock.method(rig.rt, 'ensureCapabilities')
+
   rig.rt.state.pendingHandoffInputs = [
+    null,
     { id: 'rpc-concurrent-reconcile-1', botId: 'a', content: [{ type: 'text', text: 'Only replay once' }], source: { kind: 'user', rpcId: 'rpc-concurrent-reconcile-1' }, at: Date.now() - 5000 },
+    { botId: 'a', content: [{ type: 'text', text: 'Idless crash entry' }], source: { kind: 'user' }, at: Date.now() - 4000 },
   ]
 
   await Promise.all([
@@ -559,16 +576,15 @@ test('real DSH SessionStore + ReactLoopAgent: concurrent reconcileTasksAfterRest
     rig.rt.reconcileTasksAfterRestart(),
   ])
 
-  await settle(
-    () => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Only replay once')),
-    4000,
-    'pre-crash prompt must replay onto dm-a',
-  )
+  await settle(() => {
+    const replies = rig.repliesBySession.get('dm-a') ?? []
+    return replies.some(r => r.includes('Only replay once')) && replies.some(r => r.includes('Idless crash entry'))
+  }, 4000, 'both valid pre-crash prompts must replay onto dm-a')
   await realDelay(60)
-  assert.equal(
-    (rig.repliesBySession.get('dm-a') ?? []).filter(r => r.includes('Only replay once')).length,
-    1,
-    'concurrent reconcileTasksAfterRestart calls must not duplicate a pre-crash transfer',
-  )
-  assert.equal(rig.rt.state.pendingHandoffInputs, undefined)
+
+  const replies = rig.repliesBySession.get('dm-a') ?? []
+  assert.equal(replies.filter(r => r.includes('Only replay once')).length, 1, 'concurrent reconcile calls must not duplicate a keyed transfer')
+  assert.equal(replies.filter(r => r.includes('Idless crash entry')).length, 1, 'concurrent reconcile calls must not duplicate an id-less transfer')
+  assert.equal(ensureSpy.mock.callCount(), 2, 'each of the 2 valid entries must enter forwardPulledMessages exactly once (second concurrent reconcile short-circuited via inFlightTransferIds)')
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'malformed and id-less entries must be fully cleared from state')
 })

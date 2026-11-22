@@ -609,26 +609,32 @@ export function install(rt) {
     // Skip transfers actively owned by this process; if a Bot is mid-handoff, wait for
     // that handoff to settle before re-checking and replaying onto the new foreground.
     if (Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
-      const pending = [...state.pendingHandoffInputs]
-      const stillPending = (entry, id) => Array.isArray(state.pendingHandoffInputs)
-        && state.pendingHandoffInputs.some(item => (id !== undefined ? item?.id === id : item === entry))
+      const valid = state.pendingHandoffInputs.filter(entry => entry !== null && typeof entry === 'object')
+      if (valid.length !== state.pendingHandoffInputs.length) {
+        if (valid.length === 0) delete state.pendingHandoffInputs
+        else state.pendingHandoffInputs = valid
+        await rt.save().catch(() => {})
+      }
+      const pending = [...valid]
+      const stillPending = id => Array.isArray(state.pendingHandoffInputs)
+        && state.pendingHandoffInputs.some(item => item?.id === id)
       for (const entry of pending) {
-        const id = entry?.id
-        if (!stillPending(entry, id)) continue
-        if (id !== undefined && inFlightTransferIds.has(id)) continue
-        if (id !== undefined) inFlightTransferIds.add(id)
+        const id = (entry.id ??= entry.source?.rpcId ?? newId())
+        if (!stillPending(id)) continue
+        if (inFlightTransferIds.has(id)) continue
+        inFlightTransferIds.add(id)
         try {
-          while (entry?.botId !== undefined && handoffing.has(entry.botId)) {
+          while (entry.botId !== undefined && handoffing.has(entry.botId)) {
             await handoffing.get(entry.botId)?.promise?.catch(() => {})
           }
-          if (!stillPending(entry, id)) continue
+          if (!stillPending(id)) continue
           let targetSid
           let label
-          if (entry?.roomId !== undefined) {
+          if (entry.roomId !== undefined) {
             const room = rt.roomOf(entry.roomId)
             targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
             label = room?.name
-          } else if (entry?.botId !== undefined) {
+          } else if (entry.botId !== undefined) {
             const bot = rt.botOf(entry.botId)
             targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
             label = bot?.name
@@ -642,7 +648,7 @@ export function install(rt) {
             transferId: id,
           }], label)
         } finally {
-          if (id !== undefined) inFlightTransferIds.delete(id)
+          inFlightTransferIds.delete(id)
         }
       }
     }
