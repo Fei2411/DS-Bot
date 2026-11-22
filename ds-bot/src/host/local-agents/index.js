@@ -17,7 +17,7 @@ import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } fr
 import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
-const SIGNED_IN_RETRY_MS = 5_000
+const SIGNED_IN_RETRY_MS = 20_000
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -73,12 +73,19 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     }))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
-  async function probeSignIns() {
+  async function probeSignIns({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
-      if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
-      if (entry.signInProbe === undefined) {
-        const probe = Promise.resolve().then(() => checkSignIn(entry.path, ENGINES[entry.route].signedIn)).catch(() => null).then((result) => {
+      const check = ENGINES[entry.route]?.signedIn
+      if (check === undefined) {
+        entry.signedIn = null
+        return
+      }
+      if (!force) {
+        const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
+        if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
+      }
+      if (force || entry.signInProbe === undefined) {
+        const probe = Promise.resolve().then(() => checkSignIn(entry.path, check)).catch(() => null).then((result) => {
           if (entry.signInProbe !== probe) return
           entry.signedIn = result
           entry.signedInAt = now()
@@ -87,12 +94,14 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         })
         entry.signInProbe = probe
       }
-      await entry.signInProbe
+      while (entry.signInProbe !== undefined) {
+        await entry.signInProbe
+      }
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList() {
-    await Promise.all([probeVersions(), probeSignIns()])
+  async function freshList({ forceSignIn = false } = {}) {
+    await Promise.all([probeVersions(), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -244,12 +253,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         adapter.dropModelCache()
         await scan()
         await rt.catalog?.({ fresh: true })
-        for (const entry of found.values()) {
-          delete entry.signedIn
-          delete entry.signedInAt
-          delete entry.signInProbe
-        }
-        return freshList()
+        return freshList({ forceSignIn: true })
       }
       case 'local-agent-models': {
         const models = await localAgentModels(String(body.route ?? ''))
