@@ -47,6 +47,13 @@ export function install(rt) {
   // Idle `taskOwners` sessions whose stale user prompt was pulled during `agent/inbox/inserted`:
   // reject the phantom empty wake that `ReactLoopAgent.send()` still triggers right afterward.
   const rejectEmptyTaskWake = new Set()
+  // Transfer IDs created and actively handled by this host process so startup
+  // `reconcileTasksAfterRestart()` only replays entries left on disk by a prior crash.
+  const inFlightTransferIds = new Set()
+  // Transfer rpcIds already admitted onto a destination session during this process
+  // (covers the window after `inbox.claim()` removes the item from inbox and before
+  // `step()` appends `user/message` to the session log).
+  const admittedRpcIds = new Map()
   // In-flight foreground-to-background handoffs per Bot:
   // botId -> { oldSid, committed, newSid, promise, messages }.
   const handoffing = new Map()
@@ -598,10 +605,13 @@ export function install(rt) {
         await settleTask(bot, task, 'interrupted', { notifyForeground: true })
       }
     }
-    // Replay any foreground handoff inputs persisted before a host crash/restart.
+    // Replay any foreground handoff inputs left on disk by a prior host crash/restart.
+    // Skip transfers actively owned by this process or Bots currently mid-handoff.
     if (Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
       const pending = [...state.pendingHandoffInputs]
       for (const entry of pending) {
+        if (entry?.id !== undefined && inFlightTransferIds.has(entry.id)) continue
+        if (entry?.botId !== undefined && handoffing.has(entry.botId)) continue
         let targetSid
         let label
         if (entry?.roomId !== undefined) {
@@ -713,6 +723,7 @@ export function install(rt) {
     let added = false
     for (const item of items) {
       const id = transferIdOf(item)
+      inFlightTransferIds.add(id)
       if (list.some(entry => entry?.id === id)) continue
       list.push({
         id,
@@ -728,8 +739,9 @@ export function install(rt) {
   }
 
   const clearPendingTransfers = async (ids) => {
-    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
     const drop = new Set(ids.filter(id => id !== undefined))
+    for (const id of drop) inFlightTransferIds.delete(id)
+    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
     if (drop.size === 0) return
     const next = state.pendingHandoffInputs.filter(entry => !drop.has(entry?.id))
     if (next.length === state.pendingHandoffInputs.length) return
@@ -738,8 +750,21 @@ export function install(rt) {
     await rt.save().catch(() => {})
   }
 
+  const noteAdmittedRpc = (sessionId, rpcId) => {
+    if (sessionId === undefined || rpcId === undefined) return
+    let set = admittedRpcIds.get(sessionId)
+    if (set === undefined) {
+      set = new Set()
+      admittedRpcIds.set(sessionId, set)
+    }
+    set.add(rpcId)
+    if (set.size > 200) set.delete(set.values().next().value)
+  }
+
   const isAdmittedOn = (agent, rpcId) => {
     if (rpcId === undefined || agent === undefined) return false
+    const sid = agent.id ?? agent.session?.id
+    if (sid !== undefined && admittedRpcIds.get(sid)?.has(rpcId)) return true
     for (const list of [agent.inbox?.nextStep ?? [], agent.inbox?.nextTurn ?? []]) {
       if (list.some(msg => msg?.source?.rpcId === rpcId)) return true
     }
@@ -808,6 +833,7 @@ export function install(rt) {
             skipInterceptIds.add(forwarded.id)
             try {
               freshAgent.followup(forwarded)
+              noteAdmittedRpc(targetSid, rpcId)
             } finally {
               skipInterceptIds.delete(forwarded.id)
             }
@@ -821,6 +847,9 @@ export function install(rt) {
         if (attempt < delays.length) {
           await new Promise(resolve => setTimeout(resolve, delays[attempt]))
           continue
+        }
+        for (const item of items) {
+          if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
         }
         rt.warn('ds-bot: forwarding queued input to new foreground %s for %s failed: %s', targetSid, botName ?? '?', error)
       }

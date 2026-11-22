@@ -457,29 +457,45 @@ test('real DSH SessionStore + ReactLoopAgent: durable pendingHandoffInputs repla
   assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'cleared pendingHandoffInputs must be removed from state')
 })
 
-test('real DSH SessionStore + ReactLoopAgent: polling-gap steer on an idle task redirects without invoking LLM on the idle task', async (t) => {
+test('real DSH SessionStore + ReactLoopAgent: polling-gap steer on an idle active taskOwners session rejects empty wake and resists concurrent reconcileTasksAfterRestart', async (t) => {
   const rig = await createRealLoopRig(t)
   const dmA = rig.agents.get('dm-a')
 
   dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
   await rig.toolStarted.promise
   dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Move to background' }], source: { kind: 'user' } }))
-  await settle(() => rig.rt.botOf('a').sessionId !== 'dm-a', 5000)
+  await settle(() => rig.rt.botOf('a').sessionId !== 'dm-a'
+    && (rig.repliesBySession.get(rig.rt.botOf('a').sessionId) ?? []).some(r => r.includes('Move to background')), 5000)
   const fgSid = rig.rt.botOf('a').sessionId
 
-  // Let background task finish so dm-a becomes completely idle while still in taskOwners.
+  // Attach an open outgoing work to dm-a so when slow_check ends, dm-a stays an ACTIVE
+  // `waiting_work` task (still inside `rt.taskOwners`) while `dmA.status === 'idle'`.
+  rig.rt.state.works['w-open-1'] = { id: 'w-open-1', from: 'a', to: 'b', fromPart: 'dm-a', openedAt: Date.now() }
   rig.toolGate.resolve()
-  await settle(() => rig.rt.botOf('a').tasks[0]?.status === 'completed' && dmA.status === 'idle', 5000)
+  await settle(() => rig.rt.botOf('a').tasks[0]?.status === 'waiting_work' && dmA.status === 'idle', 5000)
+  assert.equal(rig.rt.taskOwners.has('dm-a'), true, 'waiting_work task must remain in rt.taskOwners')
+  assert.equal(dmA.status, 'idle')
   const callsBefore = rig.modelCallsBySession.get('dm-a') ?? 0
 
-  // Stale Desktop tab sends a prompt to the now-idle background task session.
+  // Stale Desktop tab sends a prompt to the idle `taskOwners` session while startup
+  // `reconcileTasksAfterRestart()` also fires concurrently (must NOT duplicate!).
   dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Late stale tab prompt' }], source: { kind: 'user' } }))
+  const reconcilePromise = rig.rt.reconcileTasksAfterRestart()
 
   await settle(
     () => (rig.repliesBySession.get(fgSid) ?? []).some(r => r.includes('Late stale tab prompt')),
     4000,
-    'late prompt on idle task must redirect to foreground',
+    'late prompt on idle taskOwners session must redirect to foreground',
   )
-  await realDelay(50)
-  assert.equal(rig.modelCallsBySession.get('dm-a') ?? 0, callsBefore, 'idle background task must not run a phantom LLM step on redirected input')
+  await reconcilePromise
+  await realDelay(60)
+
+  const lastTurnEnd = dmA.session.snapshotEvents().findLast(ev => ev.type === 'turn/end')
+  assert.equal(lastTurnEnd?.data?.reason?.kind, 'blocked', 'phantom empty wake on idle taskOwners session must be rejected via agent/pre-step')
+  assert.equal(rig.modelCallsBySession.get('dm-a') ?? 0, callsBefore, 'idle taskOwners session must not invoke LLM on redirected input')
+  assert.equal(
+    (rig.repliesBySession.get(fgSid) ?? []).filter(r => r.includes('Late stale tab prompt')).length,
+    1,
+    'concurrent reconcileTasksAfterRestart must not duplicate an in-flight transfer',
+  )
 })
