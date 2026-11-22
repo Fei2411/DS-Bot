@@ -143,6 +143,12 @@ export function install(rt) {
         bot.capabilities = []
         migrated = true
       }
+      const packs = Array.isArray(bot.packs) ? [...new Set(bot.packs.filter(name => typeof name === 'string' && !bot.capabilities.includes(name)))] : []
+      if (bot.packs === undefined) bot.packs = packs
+      else if (JSON.stringify(bot.packs) !== JSON.stringify(packs)) {
+        bot.packs = packs
+        migrated = true
+      }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
         migrated = true
