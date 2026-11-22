@@ -127,7 +127,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
         .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
     } catch { /* the menu still has the CLI's default */ }
-    if (!this.engineInUse(engine)) await engine.close?.().catch(() => {})
+    if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -308,6 +308,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engineInUse(engine, except) {
     return [...this.live.values()].some(other => other.engine === engine && !other.dead)
       || [...this.sideRequests].some(request => request !== except && request.engine === engine)
+      || [...this.probes.keys()].some(route => route !== except && this.engines.get(route) === engine)
   }
 
   async closeLive(live, { idle = false } = {}) {
@@ -331,6 +332,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
+    live.stopped = true
     live.queue.length = 0
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
@@ -647,6 +649,10 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, input, signal, effort) {
+    if (live.stopped) {
+      this.discardTurnOutput(live)
+      live.stopped = false
+    }
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
     // The turn an engine names is the one this stream reads: a finished turn's late
@@ -655,7 +661,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     try {
       const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
       return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
@@ -741,7 +747,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     else options.signal?.addEventListener('abort', onAbort)
     try {
     for (;;) {
-      const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
+      const next = this.take(live)
+      const event = await Promise.race([next.event, abortPromise])
+        .catch(error => ({ type: 'abort', error }))
+        .finally(() => next.drop())
       if (event.type === 'abort') {
         this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
@@ -1059,7 +1068,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.disposed = true
     const requests = [...this.sideRequests]
     for (const request of requests) request.controller.abort(new LlmError('the local agents adapter is disposed', 'NO_ADAPTER'))
-    await Promise.all(requests.filter(request => request.isolated).map(request => request.engine.close?.().catch(() => {})))
+    await Promise.all([...new Set(requests.map(request => request.engine))].map(engine => engine.close?.().catch(() => {})))
     await Promise.all(requests.map(request => request.done.promise))
     for (const live of Array.from(this.live.values())) await this.closeLive(live)
     for (const engine of Array.from(this.engines.values())) await engine.close?.().catch(() => {})

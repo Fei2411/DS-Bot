@@ -61,13 +61,19 @@ Use the phone app's interface in a browser without installing it. On the compute
 
 The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
 
+### Local API & MCP
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, Antigravity, or your own scripts) can call your Bots and group chats through the unified local API gateway. Open **Settings → API**, turn it on (off by default, bound to `127.0.0.1:17830`), and create scoped, revocable Bearer tokens. Each token is shown once and stored as a salted hash; private Bots stay excluded unless explicitly confirmed per token.
+
+The same local gateway serves versioned `/v1/*` REST + SSE endpoints, Streamable HTTP MCP (`/mcp`), an optional OpenAI-compatible adapter (`/compat/openai/v1/*`), and the `ds-bot` CLI (`ds-bot mcp` stdio bridge, `ds-bot send`, `ds-bot event`). Existing `mcp.json` setups and `npx -p ds-bot ds-bot-mcp` commands migrate automatically. See the [design](docs/plans/2026-11-21-external-api.md).
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model and thinking level you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
 
 Bots also have memory. A bot remembers what you like and uses it in later work. You can manage its memory on the bot's details page, or just tell the bot.
 
-Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. While a bot is working, you can send a message to steer it right away, or type `/side` to ask a side question without interrupting its task; it can also draw charts, tables and forms in its replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can start background tasks on its own or move an in-flight turn to the background when you send a new message; you can inspect progress, answer approvals, send follow-ups, or stop tasks from the header island, read task transcripts and stop tasks in the Tasks tab, or track active tasks, answer approvals, and stop them on mobile, or type `/side` to ask a side question. Bots can also draw charts, tables and forms in their replies, or run scheduled tasks. In the sidebar, you can group bots and group chats into collapsible sections by work.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 
@@ -132,10 +138,6 @@ A DeepSeek API key can add independent image and document reading, DeepSeek text
 ### Office files
 
 Bots can create, check and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel (`.xlsx`) documents directly, and render pages to images to check layout. The desktop app includes the full runtime out of the box; DSH Web does not bundle this runtime, so it can only check and edit existing documents, while creating files from scratch and rendering pages require the desktop app or DSH Desktop.
-
-### Local API & MCP
-
-Turn on the local API server in **Settings → API** (off by default, bound to `127.0.0.1:17830`) to let external coding agents, scripts and local services call your Bots and groups with scoped, revocable Bearer tokens. The same local gateway serves versioned `/v1/*` REST + SSE endpoints, Streamable HTTP MCP (`/mcp`), an optional OpenAI-compatible adapter (`/compat/openai/v1/*`), and the `ds-bot` CLI (`ds-bot mcp` stdio bridge, `ds-bot send`, `ds-bot event`). Private Bots stay excluded unless explicitly confirmed per token.
 
 ### Usage
 

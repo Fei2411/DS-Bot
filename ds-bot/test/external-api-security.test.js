@@ -292,3 +292,68 @@ test('persisted in-flight Runs settle cleanly as stopped on host restart', async
   assert.equal(oldRun.status, 'stopped')
   assert.equal(oldRun.error.code, 'api/host-restarted')
 })
+
+test('legacy v0.3.9 mcp.json migrates seamlessly into api-config/api-tokens and keeps old tokens working', async (t) => {
+  const { createHash } = await import('node:crypto')
+  const home = mkdtempSync(join(tmpdir(), 'dsb-mcpmig-'))
+  const legacyToken = 'dsb_legacyTokenSecretValueForMigrationTest123456'
+  const legacyHash = createHash('sha256').update(legacyToken).digest('hex')
+  writeFileSync(join(home, 'mcp.json'), JSON.stringify({
+    on: true,
+    port: 0, // ephemeral when migrating? note: >=1024 kept, <1024 falls back to default, so pick a free high port via 19876
+    clients: [
+      { id: 'c-1111', name: 'Claude Desktop', hash: legacyHash, bots: ['b1', 'bp'], rooms: [], createdAt: 1000 },
+    ],
+  }))
+  // Pick a guaranteed free high port >= 1024 to test exact port preservation during migration
+  const { createServer } = await import('node:net')
+  const freePort = await new Promise((resolve, reject) => {
+    const s = createServer()
+    s.listen(0, '127.0.0.1', () => {
+      const p = s.address().port
+      s.close(() => resolve(p))
+    })
+    s.on('error', reject)
+  })
+  writeFileSync(join(home, 'mcp.json'), JSON.stringify({
+    on: true,
+    port: freePort,
+    clients: [
+      { id: 'c-1111', name: 'Claude Desktop', hash: legacyHash, bots: ['b1', 'bp'], rooms: [], createdAt: 1000 },
+    ],
+  }))
+
+  const { ctx, rt } = startHost(home, {
+    version: 1,
+    mainBotIds: ['b1'],
+    bots: {
+      b1: { id: 'b1', name: 'Chief', role: 'Lead', createdAt: 1 },
+      bp: { id: 'bp', name: 'PrivateVault', role: 'Secret', private: true, workDir: join(home, 'pv'), createdAt: 2 },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    revision: 1,
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.apiReconcile()
+
+  const view = rt.apiView()
+  assert.equal(view.status, 'running')
+  assert.equal(view.boundPort, freePort)
+  assert.equal(view.tokens.length, 1)
+  assert.equal(view.tokens[0].name, 'Claude Desktop')
+  // Private Bot must be stripped during migration
+  assert.deepEqual(view.tokens[0].botIds, ['b1'])
+  assert.deepEqual(view.tokens[0].privateBotIds, [])
+
+  // Legacy dsb_ token authenticates on both /mcp and /v1/bots without rotating
+  const mcpRes = await fetch(`${view.baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${legacyToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'dsbot_list_bots', arguments: {} } }),
+  }).then(r => r.json())
+  assert.deepEqual(mcpRes.result.structuredContent.bots.map(b => b.id), ['b1'])
+  assert.equal((await fetch(`${view.baseUrl}/v1/bots/bp`, { headers: { Authorization: `Bearer ${legacyToken}` } })).status, 404)
+})

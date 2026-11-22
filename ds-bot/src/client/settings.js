@@ -2,8 +2,8 @@ import { Component, createElement as h, useCallback, useEffect, useRef, useState
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { ApiIcon, CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
-import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
+import { ApiIcon, BlocksIcon, CloseIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, PhoneIcon, PlusIcon, PuzzleIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
@@ -46,12 +46,12 @@ const LAST_PAGES = new Set(['feedback', 'about'])
 const MERGED_SECTIONS = new Set(['general', 'models'])
 // DSH General rows that sit under Appearance; the rest go under More.
 const LOOK_ITEMS = ['appearance', 'font-size']
-const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
+const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: PuzzleIcon, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, api: ApiIcon, capabilities: PlugIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [

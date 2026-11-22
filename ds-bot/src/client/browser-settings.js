@@ -79,7 +79,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     h(Section, { title: t('Allowed actions') },
       h('p', { className: 'bt-browser-note' }, t('These grants apply only after an interactive browser plugin is enabled.')),
       grants.length === 0
-        ? h(Row, { label: t('Nothing allowed yet.') })
+        ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Nothing allowed yet.')))
         : grants.map(({ bot, grant, index, expired }) => h('div', {
           key: `${bot.id}:${index}`,
           className: `bt-browser-grant${expired ? ' bt-browser-grant-expired' : ''}`,

@@ -2,7 +2,8 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { manualDirectory } from './manual-skills.js'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions } from './threads.js'
@@ -82,6 +83,7 @@ export function install(rt) {
     join(rt.home, 'ocr.json'),
     join(rt.home, 'secrets.json'),
     join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-runs.json'),
@@ -126,7 +128,7 @@ export function install(rt) {
       // A walk of the archive stays closed while a private Bot's memory is on its way
       // there: until the path is known, the walk cannot be told which folder to skip.
       const moving = search && bots.some(bot => bot.archiving === true)
-      const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, ...ownRegions].filter(Boolean)
+      const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory()), ...ownRegions].filter(Boolean)
       const folders = (await Promise.all(open.map(spellings))).flat()
       const roots = (await Promise.all(dataRoots().map(spellings))).flat()
       for (const key of keys) {
@@ -310,6 +312,7 @@ export function install(rt) {
   // with no private Bots.
   const apiProtectedFiles = async () => (await Promise.all([
     join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-runs.json'),

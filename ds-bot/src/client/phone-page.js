@@ -110,7 +110,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
       : h(Row, { label: t('Show a QR code'), hint: online ? t('Your phone scans it once. After that it connects by itself.') : t('Turn on phone access first') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: () => void run(actions.phonePair()) }, t('Show')))),
     h(Section, { title: t('Phones') }, phone.phones.length === 0
-      ? h(Row, { label: t('No phones yet') })
+      ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No phones yet')))
       : phone.phones.map(entry => h(Row, {
         key: entry.id,
         label: entry.kind === 'browser' ? t('Web browser') : entry.name || t('Phone'),

@@ -62,6 +62,7 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
+import { TASKS_CSS } from './bot-tasks.js'
 import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, installUserBubble } from './user-message.js'
 import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
@@ -77,6 +78,8 @@ import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
+
+const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
 
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
@@ -94,7 +97,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -217,7 +220,7 @@ export function apply(ctx) {
     }
     if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
     const current = roster.getSnapshot()
-    // Connector, capability and phone states change without a new revision.
+    // Connector, capability, phone and MCP states change without a new revision.
     const live = {}
     if (value.partsRunning !== undefined && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) live.partsRunning = value.partsRunning
     if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live.secretStore = value.secretStore
@@ -437,6 +440,7 @@ export function apply(ctx) {
       document.body.dataset.btMotion = motion
       document.body.dataset.btLayout = layout
       document.body.dataset.btEffects = effects
+      if (WINDOWS) document.body.dataset.btOs = 'windows'
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
       const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
@@ -467,6 +471,7 @@ export function apply(ctx) {
         delete document.body.dataset.btMotion
         delete document.body.dataset.btLayout
         delete document.body.dataset.btEffects
+        delete document.body.dataset.btOs
         document.body.style.removeProperty('--bt-msg-w')
         document.body.style.removeProperty('--bt-flat-w')
         style.remove()
@@ -620,7 +625,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null }))
+      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
     },
@@ -721,7 +726,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -1225,6 +1230,7 @@ export function apply(ctx) {
     [OPENING_CSS, 'opening'],
     [IM_CSS, 'im'],
     [GOAL_CSS, 'goal'],
+    [TASKS_CSS, 'tasks'],
     [USER_MESSAGE_CSS, 'user-messages'],
     [WIDGET_CSS, 'widgets'],
     [CHANGES_CSS, 'changes'],
@@ -1240,6 +1246,7 @@ export function apply(ctx) {
     const syncEffects = () => {
       const current = roster.getSnapshot()
       document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs)
+      if (WINDOWS) document.body.dataset.btOs = 'windows'
     }
     syncEffects()
     const snapshot = roster.getSnapshot()
@@ -1253,6 +1260,7 @@ export function apply(ctx) {
     ]
     return () => {
       delete document.body.dataset.btEffects
+      delete document.body.dataset.btOs
       for (const off of offs) off()
     }
   }

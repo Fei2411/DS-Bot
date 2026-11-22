@@ -165,3 +165,19 @@ test('a dropped socket reconnects and resumes the session', async (t) => {
   await until(() => fake.packets.some(packet => packet.op === 6))
   assert.ok(statuses.some(status => status.state === 'connecting'))
 })
+
+test('edit keeps the Markdown send put in the message', async (t) => {
+  // Discord renders Markdown in `content`, so an edit that goes through `toPlain` drops
+  // every emphasis and code fence: a streamed reply looked formatted while it was being
+  // sent and plain as soon as it was edited.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = '**Status:** pending\n\n```js\nconst a = 1\n```'
+  await handle.edit({ key: 'dm1', kind: 'direct' }, '55', { text, buttons: [] })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && /messages\/55$/.test(call.path))
+  assert.ok(patch, 'PATCH called')
+  assert.equal(patch.params.content, text)
+  assert.equal(patch.params.components.length, 0)
+})

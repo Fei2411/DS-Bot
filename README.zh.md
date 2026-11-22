@@ -61,13 +61,19 @@ DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `we
 
 中转服务器需要部署网页构建：在 `mobile/` 运行 `npm ci && npm run export:web`，启动[中转服务器](link/README.md)时把 `DSBOT_LINK_WEB_DIR` 设为 `mobile/dist` 的绝对路径。localhost 以外使用 HTTPS/WSS。`relay.dsbot.app` 完成这项部署后，默认服务器的浏览器链接才能使用。浏览器存储由 IndexedDB 中不可导出的密钥进行 AES-GCM 加密，但浏览器仍运行服务器提供的网页，请只使用可信的服务器。敏感操作需要改用手机 App 或电脑；网页没有后台通知。详见[设计与安全限制](docs/plans/2026-11-17-web-remote.md)。
 
+### 本地 API 与 MCP
+
+本机的其他智能体（Claude Desktop、Cursor、Codex、Antigravity 或你自己的脚本与本地服务）可以通过统一的本地 API 网关调用你的 Bot 和群聊。打开 **设置 → API** 开启服务（默认关闭，仅监听 `127.0.0.1:17830`），按能力域与目标范围创建可撤销的 Bearer 令牌；令牌只在创建时展示一次并仅存哈希，隐私 Bot 默认彻底隔离，仅在显式二次确认后才对指定令牌开放。
+
+同一本地网关同时提供版本化 `/v1/*` REST + SSE、MCP Streamable HTTP（`/mcp`）、可单独开关的 OpenAI 兼容层（`/compat/openai/v1/*`）以及薄层命令行（`ds-bot mcp` stdio 桥、`ds-bot send`、`ds-bot event`）。旧版 `mcp.json` 配置与 `npx -p ds-bot ds-bot-mcp` 命令自动平滑迁移与兼容。详见[设计](docs/plans/2026-11-21-external-api.md)。
+
 ### Bot
 
 你可以在一个窗口中和一个 bot 完成所有对话和工作，你无需担心背后的上下文问题。你可以在 bot 详情页查看 bot 信息，也可以为 bot 选择你想使用的模型和思考强度。你可以随时切换模型，但我仍然建议你为一个 bot 长期保持一个模型，仅在真正必要的时刻切换。
 
 另外，bot 拥有记忆，它会记住你的喜好并在下次的工作中应用。你可以在 bot 的详情页管理记忆，也可以直接和 bot 对话来进行管理。
 
-每个 bot 可以单独设置工作文件夹和权限，换文件夹直接和它说一声就行。它干活时你可以随时插话，或者输入 `/side` 开侧边对话顺手问一句而不打断它；它也能在回复里直接画图表、表格和表单，或者跑定时任务。侧边栏里还可以把 bot 和群聊按工作收进分组。
+每个 bot 可以单独设置工作文件夹和权限，换文件夹直接和它说一声就行。它干活时前台始终能接话：耗时的终端命令会自动转到后台执行，bot 也能主动开启后台任务，或在它正忙时你直接发新消息把正在做的活顺手移到后台继续跑；你可以在顶栏灵动岛查看进度、批复权限、发追问或停止，在详情页的「任务」标签查看任务记录与停止，或在手机端查看活跃任务、批复权限与停止，也可以输入 `/side` 开侧边对话顺手问一句。它还能在回复里直接画图表、表格和表单，或者跑定时任务。侧边栏里还可以把 bot 和群聊按工作收进分组。
 
 ![bot 详情页：模型、记忆、用量](docs/images/details.zh.png)
 
@@ -132,10 +138,6 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 ### Office 文件
 
 bot 可以直接创建、检查和修改 Word（`.docx`）、PowerPoint（`.pptx`）和 Excel（`.xlsx`）文档，还能把页面渲染成图片来检查排版。桌面应用已经自带完整的运行环境，开箱即用；dsh Web 没有打包这套环境，只能检查和修改已有文档，从零建文件和渲染页面需要用桌面应用或 dsh Desktop。
-
-### 本地 API 与 MCP
-
-在 **设置 → API** 中开启本地 API 服务（默认关闭，仅监听 `127.0.0.1:17830`），外部编码 Agent、脚本与本地服务即可使用按能力域与目标范围授权的可撤销 Bearer Token 调用你的 Bot 和群聊。同一本地网关同时提供版本化 `/v1/*` REST + SSE、MCP Streamable HTTP（`/mcp`）、可单独开关的 OpenAI 兼容层（`/compat/openai/v1/*`）以及薄层命令行（`ds-bot mcp` stdio 桥、`ds-bot send`、`ds-bot event`）。隐私 Bot 默认彻底隔离，仅在显式二次确认后才对指定令牌开放。
 
 ### 用量
 

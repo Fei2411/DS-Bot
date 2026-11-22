@@ -15,6 +15,7 @@ export const HIGH_RISK_SCOPES = new Set(['approval', 'team:manage'])
 const CONFIG_FILE = 'api-config.json'
 const TOKENS_FILE = 'api-tokens.json'
 const AUDIT_FILE = 'api-audit.jsonl'
+const LEGACY_MCP_FILE = 'mcp.json'
 const LAST_USED_THROTTLE_MS = 60_000
 const AUDIT_MAX_ENTRIES = 5_000
 const AUDIT_ROTATE_CHECK_EVERY = 200
@@ -44,9 +45,20 @@ function hashScrypt(salt, secret) {
   return scryptSync(secret, salt, 32, { N: 16384, r: 8, p: 1 }).toString('hex')
 }
 
-function verifySecret(entry, secret) {
-  if (typeof entry?.salt !== 'string' || typeof entry?.hash !== 'string') return false
-  const digest = entry.hashAlgo === 'scrypt' ? hashScrypt(entry.salt, secret) : hashSha256(entry.salt, secret)
+function hashSha256Raw(token) {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+function verifySecret(entry, secret, fullToken) {
+  if (typeof entry?.hash !== 'string' || !/^[0-9a-f]{64}$/i.test(entry.hash)) return false
+  let digest
+  if (entry.hashAlgo === 'sha256-raw') {
+    if (typeof fullToken !== 'string' || fullToken === '') return false
+    digest = hashSha256Raw(fullToken)
+  } else {
+    if (typeof entry?.salt !== 'string') return false
+    digest = entry.hashAlgo === 'scrypt' ? hashScrypt(entry.salt, secret) : hashSha256(entry.salt, secret)
+  }
   const actual = Buffer.from(digest, 'hex')
   const expected = Buffer.from(entry.hash, 'hex')
   return actual.length > 0 && actual.length === expected.length && timingSafeEqual(actual, expected)
@@ -98,9 +110,11 @@ export function createApiAuth(rt) {
   const configPath = join(rt.home, CONFIG_FILE)
   const tokensPath = join(rt.home, TOKENS_FILE)
   const auditPath = join(rt.home, AUDIT_FILE)
+  const legacyMcpPath = join(rt.home, LEGACY_MCP_FILE)
 
   let config = normalizeConfig(readJson(configPath, {}))
   let tokens = []
+  let migratedLegacyMcp = false
   let auditWrites = 0
   // Sliding 60-second request timestamps per token keyId for optional per-minute limits.
   const rateWindows = new Map()
@@ -109,7 +123,70 @@ export function createApiAuth(rt) {
 
   const writes = () => rt.readOnly?.() === undefined
 
+  // One-time seamless migration from v0.3.9's standalone mcp.json into unified
+  // api-config.json + api-tokens.json so existing MCP clients keep working without
+  // rotating tokens or changing ports.
+  function migrateLegacyMcpIfNeeded() {
+    if (migratedLegacyMcp || !writes()) return
+    if (existsSync(configPath)) {
+      migratedLegacyMcp = true
+      return
+    }
+    if (!existsSync(legacyMcpPath)) return
+    migratedLegacyMcp = true
+    const legacy = readJson(legacyMcpPath, null)
+    if (!legacy || typeof legacy !== 'object') return
+    const wasOn = legacy.on === true
+    const legacyPort = Number.isInteger(legacy.port) && legacy.port >= 1024 && legacy.port <= 65535 ? legacy.port : DEFAULT_PORT
+    config = normalizeConfig({
+      enabled: wasOn,
+      host: DEFAULT_HOST,
+      port: wasOn ? legacyPort : DEFAULT_PORT,
+      openaiCompat: true,
+    })
+    writeJsonAtomic(configPath, config)
+    const legacyClients = Array.isArray(legacy.clients) ? legacy.clients : []
+    if (legacyClients.length > 0) {
+      const existing = readJson(tokensPath, [])
+      const list = Array.isArray(existing) ? existing : []
+      const usedKeys = new Set(list.map(item => item?.keyId).filter(Boolean))
+      for (const client of legacyClients) {
+        if (!client || typeof client.hash !== 'string' || !/^[0-9a-f]{64}$/i.test(client.hash)) continue
+        const rawId = String(client.id ?? randomBytes(4).toString('hex')).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || randomBytes(4).toString('hex')
+        let keyId = `mcp_${rawId}`
+        while (usedKeys.has(keyId)) keyId = `mcp_${randomBytes(4).toString('hex')}`
+        usedKeys.add(keyId)
+        const botIds = uniqueIds(client.bots).filter(id => rt.botOf?.(id)?.private !== true)
+        const roomIds = uniqueIds(client.rooms)
+        list.push({
+          keyId,
+          name: String(client.name ?? 'MCP client').trim().slice(0, TOKEN_NAME_MAX) || 'MCP client',
+          prefix: 'dsb_mcp',
+          hashAlgo: 'sha256-raw',
+          salt: '',
+          hash: client.hash.toLowerCase(),
+          scopes: ['read', 'message'],
+          targetScope: 'selected',
+          botIds,
+          roomIds,
+          privateBotIds: [],
+          createdAt: Number.isFinite(client.createdAt) ? client.createdAt : Date.now(),
+          expiresAt: null,
+          lastUsedAt: Number.isFinite(client.lastUsedAt) ? client.lastUsedAt : null,
+          paused: false,
+          revoked: false,
+          maxConcurrentRuns: null,
+          rateLimitPerMin: null,
+          migratedFrom: 'mcp.json',
+        })
+      }
+      tokens = list
+      writeJsonAtomic(tokensPath, tokens)
+    }
+  }
+
   const reloadConfig = () => {
+    migrateLegacyMcpIfNeeded()
     config = normalizeConfig(readJson(configPath, {}))
     return config
   }
@@ -380,23 +457,26 @@ export function createApiAuth(rt) {
       return { ok: false, status: 401, code: 'api/unauthorized', message: 'Missing Bearer token' }
     }
     const presented = raw.slice('Bearer '.length).trim()
-    if (!presented.startsWith(TOKEN_PREFIX)) {
-      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
-    }
-    const rest = presented.slice(TOKEN_PREFIX.length)
-    const sep = rest.indexOf('_')
-    if (sep <= 0) {
-      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
-    }
-    const keyId = rest.slice(0, sep)
-    const secret = rest.slice(sep + 1)
-    if (secret === '') {
-      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
-    }
-
     reloadTokens()
-    const entry = tokens.find(item => item.keyId === keyId && item.revoked !== true)
-    if (entry === undefined || !verifySecret(entry, secret)) {
+    let entry
+    if (presented.startsWith(TOKEN_PREFIX)) {
+      const rest = presented.slice(TOKEN_PREFIX.length)
+      const sep = rest.indexOf('_')
+      if (sep <= 0) {
+        return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+      }
+      const keyId = rest.slice(0, sep)
+      const secret = rest.slice(sep + 1)
+      if (secret === '') {
+        return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+      }
+      const candidate = tokens.find(item => item.keyId === keyId && item.revoked !== true)
+      if (candidate !== undefined && verifySecret(candidate, secret, presented)) entry = candidate
+    } else if (presented.startsWith('dsb_')) {
+      // Support tokens migrated from v0.3.9 mcp.json (raw sha256 hashes of `dsb_<secret>`).
+      entry = tokens.find(item => item.revoked !== true && item.hashAlgo === 'sha256-raw' && verifySecret(item, '', presented))
+    }
+    if (entry === undefined) {
       return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
     }
     if (entry.paused === true) {

@@ -11,7 +11,7 @@ export function SidebarIcon() {
     h('rect', { x: 3, y: 4, width: 14, height: 12, rx: 2.5 }), h('path', { d: 'M8 4v12' }))
 }
 export function PeopleIcon() {
-  return h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': true },
+  return h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': true },
     h('circle', { cx: 7.5, cy: 7, r: 3 }), h('path', { d: 'M2 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5' }),
     h('path', { d: 'M13 4.3a3 3 0 0 1 0 5.4M15 12.4c1.6.6 2.6 2 3 4.1' }))
 }
@@ -123,4 +123,12 @@ export const ApiIcon = lineIcon(['M7 6.5L3.5 10 7 13.5', 'M13 6.5L16.5 10 13 13.
 export const ImIcon = lineIcon(['M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z', 'M8 15.8h4', 'M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z'])
 // Stacked lines with a running start: queued messages.
 export const QueueIcon = lineIcon(['M4 6h12', 'M4 10h12', 'M4 14h8', 'M14 12.5l2 1.5-2 1.5'])
-export const SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon }
+// Stacked layers: batch model assignment across Bots.
+export const LayersIcon = lineIcon(['M10 3.5L3 7.25 10 11l7-3.75z', 'M3 10.5L10 14.25l7-3.75', 'M3 13.75L10 17.5l7-3.75'])
+// Modular tiles with a rotated accent block: shared capabilities (distinct from MCP plug).
+export const BlocksIcon = lineIcon(['M3.5 3.5h5v5h-5z', 'M3.5 11.5h5v5h-5z', 'M11.5 11.5h5v5h-5z', 'M14 3.5l2.5 2.5L14 8.5 11.5 6z'])
+// Paper plane: external IM channels (distinct from group chat bubbles and Phone).
+export const SendIcon = lineIcon(['M16.8 3.5L9.5 10.8', 'M16.8 3.5l-4.6 13-2.7-5.7-5.7-2.7z'])
+// Puzzle piece: built-in plugins fallback (distinct from model sliders).
+export const PuzzleIcon = lineIcon(['M8 3.5a1.5 1.5 0 0 1 3 0v1.25h3.5a1 1 0 0 1 1 1v3.5h1.25a1.5 1.5 0 0 1 0 3H15.5v3.25a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1H8z'])
+export const SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: SendIcon, usage: GaugeIcon }

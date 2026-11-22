@@ -122,7 +122,27 @@ test('ds-bot CLI subcommands (health, bots, send, event, mcp stdio bridge) work 
   assert.equal(byId[2].result.tools.some(tool => tool.name === 'dsbot_write_memory'), false, 'scope without memory:write hides dsbot_write_memory')
   assert.equal(byId[3].result.structuredContent.bots[0].name, 'Chief')
 
-  // 6. doctor subcommand delegation still works
+  // 6. ds-bot-mcp compatibility shim honors DSBOT_MCP_TOKEN and --url
+  const mcpShimPath = fileURLToPath(new URL('../bin/ds-bot-mcp.mjs', import.meta.url))
+  const shimResponses = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [mcpShimPath, '--url', h.rt.apiView().mcpUrl], {
+      env: { ...process.env, DSBOT_MCP_TOKEN: token },
+    })
+    let out = ''
+    let err = ''
+    child.stdout.on('data', chunk => { out += chunk })
+    child.stderr.on('data', chunk => { err += chunk })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(`ds-bot-mcp exited ${code}: ${err}`))
+      else resolve(out.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)))
+    })
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'dsbot_list_bots', arguments: {} } })}\n`)
+    child.stdin.end()
+  })
+  assert.equal(shimResponses[0].result.structuredContent.bots[0].name, 'Chief')
+
+  // 7. doctor subcommand delegation still works
   const doc = spawnSync(process.execPath, [CLI_PATH, 'doctor', '--home', h.home, '--dsh-version', '0.2.2-rc.1'], { encoding: 'utf8' })
   assert.equal(doc.status, 0, doc.stderr)
   assert.ok(doc.stdout.includes('ds-bot doctor:'))

@@ -43,6 +43,7 @@
 | [群聊 Goal](2026-11-01-group-goal.md) | 管理员先对齐再写 Goal；分阶段派给成员、每阶段带证据验收；每轮带 Goal 账本防跑偏；空闲时自动推进；暂停、纠偏、终止；会话头胶囊和吊舱显示进度与分工 |
 | [Bot 聊天和群聊的 `/` 菜单](2026-11-13-bot-slash-commands.md) | `/` 菜单里 DSH 命令行的执行被按 agent 作用域遮蔽（菜单行仍在）；DS Bot 动作进菜单：`/scheduled-task`、群里 bare `/goal` 打开群 Goal；技能不受影响 |
 | [iOS 出包与 TestFlight](2026-11-13-ios-release.md) | 用户要办的 Apple 账号、App ID、App Store Connect API Key；拿到后的签名、archive、上传 TestFlight 和排查；真机配对等账号和设备 |
+| [MCP 访问](2026-11-20-mcp-access.md) | （已收口至 [对外统一 API](2026-11-21-external-api.md)）初版独立 MCP 访问设计记录；现统一由设置 → API 同端口 `/mcp` 与自动迁移承接 |
 | [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页版与 Relay 同源部署；浏览器链接配对、独立设备身份、localStorage 与 CSP 安全边界 |
 | [群聊任务面板](2026-11-12-group-task-board.md) | Bot 用 `group_task` 显式登记群里的任务：负责人、目标、状态、最新进展、结果摘要、历史；面板上补备注以 `@负责人` 的用户消息下发；数据随群保存 |
 | [群聊里的改动](2026-11-12-group-changes.md) | 群里每个 Bot 的一轮下面有一行改动：改了几个文件、增删行数、前几个文件名；点开是 DSH 自己的改动审查（英文文档） |
