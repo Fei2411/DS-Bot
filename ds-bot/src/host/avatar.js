@@ -18,7 +18,7 @@ const ascii = (bytes, start, end) => Buffer.from(bytes.subarray(start, end)).toS
 
 // The real format, from the bytes themselves: an extension, a Content-Type header, or
 // the mime in a data URL can all be wrong.
-function mimeOf(bytes) {
+export function mimeOf(bytes) {
   if (bytes.length >= 8 && ascii(bytes, 0, 8) === '\x89PNG\r\n\x1a\n') return 'image/png'
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   if (bytes.length >= 6 && /^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return 'image/gif'

@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openTasksOf } from '../tasks.js'
 import { API_ACTOR } from '../roster.js'
+import { mimeOf } from '../avatar.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'))
 
@@ -26,6 +27,30 @@ function safeFields(body, allowed) {
 }
 
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+
+function validateCursor(cursor) {
+  if (cursor === undefined) return cursor
+  if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)
+    || !Number.isSafeInteger(cursor.part) || cursor.part < 0
+    || Object.keys(cursor).some(key => !['part', 'beforeSeq'].includes(key))
+    || (cursor.beforeSeq !== undefined && (!Number.isSafeInteger(cursor.beforeSeq) || cursor.beforeSeq < 0))) {
+    throw httpError(400, 'api/invalid', 'cursor must contain a non-negative integer part and optional beforeSeq')
+  }
+  return cursor
+}
+
+function parseCursor(raw) {
+  if (raw === null) return undefined
+  try { return validateCursor(JSON.parse(raw)) } catch {
+    throw httpError(400, 'api/invalid', 'Invalid cursor')
+  }
+}
+
+function decodePath(value) {
+  try { return decodeURIComponent(value) } catch {
+    throw httpError(400, 'api/invalid', 'Invalid path escape')
+  }
+}
 
 const monthKey = (ms = Date.now()) => {
   const date = new Date(ms)
@@ -459,7 +484,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     async readBotHistory(principal, botId, { cursor, limit } = {}) {
       requireScope(principal, 'read')
       const bot = findAuthorizedBot(principal, botId)
-      const page = await rt.chatPage(bot.id, cursor, false)
+      const page = await rt.chatPage(bot.id, validateCursor(cursor), false)
       const cap = Math.max(1, Math.min(200, Number(limit) || 60))
       const items = (page.items ?? []).slice(-cap).map(item => {
         const out = { ...item }
@@ -485,7 +510,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     async readGroupHistory(principal, groupId, { cursor, limit } = {}) {
       requireScope(principal, 'read')
       const room = findAuthorizedGroup(principal, groupId)
-      const page = await rt.mobileEndpoint('room-chat', { roomId: room.id, cursor })
+      const page = await rt.mobileEndpoint('room-chat', { roomId: room.id, cursor: validateCursor(cursor) })
       const cap = Math.max(1, Math.min(200, Number(limit) || 60))
       const items = (page.items ?? []).slice(-cap)
       return {
@@ -765,11 +790,18 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       requireScope(principal, 'team:manage')
       if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
       const room = findAuthorizedGroup(principal, groupId)
+      const fields = body.action === 'draft' ? ['action', 'text'] : ['action', 'goalId', ...(body.action === 'pause' ? ['stopWork'] : [])]
+      const patch = safeFields(body, new Set(fields))
+      if (!['draft', 'pause', 'resume', 'stop', 'clear'].includes(patch.action)
+        || (patch.action === 'draft' ? typeof patch.text !== 'string' || !patch.text.trim() : typeof patch.goalId !== 'string' || !patch.goalId.trim())
+        || (patch.stopWork !== undefined && typeof patch.stopWork !== 'boolean')) {
+        throw httpError(400, 'api/invalid', 'Invalid goal action, text, goalId, or stopWork')
+      }
       if (body.action === 'draft' && typeof body.text === 'string') {
         const res = await rt.goalDraft(room.id, body.text)
         if (res?.error) throw httpError(400, res.code ?? 'bot/refused', res.error)
       } else {
-        const res = await rt.goalControl(room.id, body)
+        const res = await rt.goalControl(room.id, patch)
         if (res?.error) throw httpError(400, res.code ?? 'bot/refused', res.error)
       }
       return groupSummary(rt.roomOf(room.id), principal)
@@ -858,6 +890,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     }
 
     checkCapacity(bytes.length)
+    mime = mimeOf(bytes) ?? 'application/octet-stream'
     const uploadId = `upl_${randomBytes(8).toString('hex')}`
     mkdirSync(uploadsDir, { recursive: true })
     const filePath = join(uploadsDir, uploadId)
@@ -983,9 +1016,9 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     if (segments[0] !== 'v1') return false
 
     const resource = segments[1]
-    const id = segments[2] ? decodeURIComponent(segments[2]) : undefined
+    const id = segments[2] ? decodePath(segments[2]) : undefined
     const sub = segments[3]
-    const subId = segments[4] ? decodeURIComponent(segments[4]) : undefined
+    const subId = segments[4] ? decodePath(segments[4]) : undefined
 
     // Meta
     if (method === 'GET' && resource === 'health' && segments.length === 2) {
@@ -1034,9 +1067,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       }
       if (sub === 'messages' && segments.length === 4) {
         if (method === 'GET') {
-          const cursorRaw = url.searchParams.get('cursor')
-          let cursor
-          if (cursorRaw) { try { cursor = JSON.parse(cursorRaw) } catch {} }
+          const cursor = parseCursor(url.searchParams.get('cursor'))
           const data = await service.readBotHistory(principal, id, { cursor, limit: url.searchParams.get('limit') })
           audit.targetKind = 'bot'
           audit.targetId = data.botId
@@ -1129,9 +1160,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       }
       if (sub === 'messages' && segments.length === 4) {
         if (method === 'GET') {
-          const cursorRaw = url.searchParams.get('cursor')
-          let cursor
-          if (cursorRaw) { try { cursor = JSON.parse(cursorRaw) } catch {} }
+          const cursor = parseCursor(url.searchParams.get('cursor'))
           const data = await service.readGroupHistory(principal, id, { cursor, limit: url.searchParams.get('limit') })
           audit.targetKind = 'group'
           audit.targetId = data.groupId

@@ -1116,11 +1116,22 @@ export function createRunCoordinator(rt, auth) {
         return { ok: false, status: 403, code: 'api/scope-required', message: 'The "message" scope is required to answer questions' }
       }
       let normalized = body.answer
+      const question = rt.own(state.questions, action.sessionId)
+      const labels = new Set((question.options ?? []).map(opt => typeof opt === 'string' ? opt : opt?.label).filter(label => typeof label === 'string'))
+      const customAllowed = question.allowCustom === true || labels.size === 0
       if (typeof normalized === 'string') {
-        const labels = new Set((action.options ?? []).map(opt => (typeof opt === 'string' ? opt : opt?.label)).filter(Boolean))
         normalized = labels.has(normalized) ? { selected: [normalized] } : { custom: normalized }
       } else if (Array.isArray(normalized)) {
-        normalized = { selected: normalized.map(String) }
+        normalized = { selected: normalized }
+      }
+      if (!normalized || typeof normalized !== 'object'
+        || Object.keys(normalized).some(key => !['selected', 'custom'].includes(key))
+        || (normalized.selected !== undefined && (!Array.isArray(normalized.selected)
+          || normalized.selected.some(label => typeof label !== 'string' || !labels.has(label))
+          || (question.multiSelect !== true && normalized.selected.length > 1)))
+        || (normalized.custom !== undefined && (!customAllowed || typeof normalized.custom !== 'string'))
+        || (!(normalized.selected?.length) && !(normalized.custom?.trim()))) {
+        return { ok: false, status: 400, code: 'api/invalid', message: 'answer must contain valid question choices or permitted custom text' }
       }
       await rt.answerQuestion(action.sessionId, action.actionId, normalized, `api:${principal.keyId}:${record.runId}:q`)
       if (tracker !== undefined) clearWaitingHuman(tracker)

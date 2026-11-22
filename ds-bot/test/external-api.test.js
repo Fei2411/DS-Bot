@@ -532,6 +532,9 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   h.rt.state.questions[runQ.pendingAction.sessionId] = { ...question, id: 'replacement' }
   assert.equal((await respond(runQ, { actionId: runQ.pendingAction.actionId, answer: 'Yes' })).status, 409)
   h.rt.state.questions[runQ.pendingAction.sessionId] = question
+  for (const answer of [null, 42, {}, { custom: {} }, { selected: [123] }, { selected: ['Unknown'] }, { selected: ['Yes', 'No'] }, { selected: ['Yes'], extra: true }, 'Unlisted']) {
+    assert.equal((await respond(runQ, { actionId: runQ.pendingAction.actionId, answer })).status, 400)
+  }
 
   const ansQ = await fetch(`${view.baseUrl}/v1/runs/${runQ.runId}/respond`, {
     method: 'POST',
