@@ -523,6 +523,44 @@ describe('finding the team', () => {
     assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'session-r1', 'session-g', 'session-gone', 'session-g0'])
   })
 
+  test('names running and settled task Sessions and their earlier parts once', () => {
+    assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks: [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }, { sessionId: 'task-running' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ] } } }), ['bot', 'task-running', 'task-running-old', 'task-settled', 'task-settled-old'])
+  })
+
+  test('ignores absent, empty and malformed tasks and task parts', () => {
+    assert.deepEqual(sessionIdsOf({}), [])
+    for (const tasks of [undefined, null, {}, [], [null, {}, { sessionId: '', segments: null }, { sessionId: 42, segments: {} }, { segments: [null, {}, { sessionId: false }] }]]) {
+      assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks } } }), ['bot'])
+    }
+  })
+
+  test('copies background-task Session directories for import and the check', async () => {
+    const taskRoot = join(root, 'background-tasks')
+    const taskFrom = oldHome(taskRoot)
+    const team = readJson(join(taskFrom, 'bot', 'state.json'))
+    team.bots['session-a'].tasks = [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ]
+    write(join(taskFrom, 'bot', 'state.json'), JSON.stringify(team))
+    const taskIds = ['task-running', 'task-running-old', 'task-settled', 'task-settled-old']
+    for (const id of taskIds) write(join(taskFrom, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), id)
+    const oldTree = treeHash(taskFrom)
+    const check = join(taskRoot, 'check')
+    const ids = await copySessions(taskFrom, team, check)
+    const { to, workspace } = newHome(taskRoot)
+    const summary = await importTeam({ from: taskFrom, to, workspace, profile: 'desktop' })
+    assert.equal(summary.sessions, TEAM_SESSIONS.length + taskIds.length)
+    for (const id of taskIds) {
+      assert.ok(ids.includes(id))
+      for (const home of [check, to]) assert.equal(readFileSync(join(home, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), 'utf8'), id)
+    }
+    assert.equal(treeHash(taskFrom), oldTree)
+  })
+
   test('names the own Session of every group, so an imported group can be opened', () => {
     assert.ok(sessionIdsOf(TEAM).includes('session-r1'))
     assert.deepEqual(sessionIdsOf({ bots: {}, rooms: { 'session-r2': { id: 'session-r2' } } }), ['session-r2'])
