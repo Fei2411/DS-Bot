@@ -2358,7 +2358,8 @@ export function install(rt) {
     if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
     const live = rt.live.get(current)
     if (live?.turn !== undefined) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-    await rt.keepRetiredPart?.(partId)
+    // The chat may have changed while a retirement under way finished, so look again.
+    if (await rt.keepRetiredPart?.(partId) === true) return switchPart(botId, partId)
     // DSH turns away every step of an archived Session and every task aimed at it, so
     // the part leaves the archive before it becomes current.
     await ctx.workspaceRegistry.unarchiveSession(partId)
