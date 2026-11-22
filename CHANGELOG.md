@@ -6,10 +6,17 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [0.3.10] - 2026-11-22
 
+### Added
+
+- **Settings redesign**: Settings is grouped into eight sections (General, Appearance, Models, Team, Connect, Tools, Usage, About DS Bot) with sub-tabs and a search bar, a new Appearance page with theme previews, and a step-by-step Settings guide that runs once on first open and can be replayed from each section or from About DS Bot. Existing deep links into Settings keep working. ([#2006](https://github.com/Fei2411/DS-Bot/pull/2006))
+- **IM group cards**: when an IM chat starts a group turn, Bots' question cards, views, forms and multi-select cards show in that IM group and can be answered there by replying with the card code. ([#1118](https://github.com/Fei2411/DS-Bot/issues/1118), [#2014](https://github.com/Fei2411/DS-Bot/pull/2014), [#2018](https://github.com/Fei2411/DS-Bot/pull/2018))
+- **Blank new session**: a Bot's **New session** asks whether to start blank or continue with a handoff; a blank session works while the Bot is idle too. (reported by @DandiCloud; [#1792](https://github.com/Fei2411/DS-Bot/issues/1792), [#1996](https://github.com/Fei2411/DS-Bot/pull/1996))
+- **Sidebar status**: Bot, group and collapsed section rows show pending approvals and questions. ([#2021](https://github.com/Fei2411/DS-Bot/pull/2021))
+
 ### Changed
 
 - **Settings polish**: Settings navigation no longer shows duplicate or distorted icons (Capabilities and MCP, IM and Group chats, Bot models and Plugins, the key icon), and Settings cards have even padding, dividers and header alignment. ([#1995](https://github.com/Fei2411/DS-Bot/pull/1995))
-- **Performance**: `bot_recall` search reuses parsed memory files, and secret redaction of chat history is computed once per message. ([#1955](https://github.com/Fei2411/DS-Bot/pull/1955), [#1958](https://github.com/Fei2411/DS-Bot/pull/1958))
+- **Performance**: `bot_recall` search reuses parsed memory files, and secret redaction of chat history is computed once per message; typing and streaming in long chats are smoother, phone message toolbars no longer re-render on keyboard or scroll, memory writes no longer slow down as the memory change log grows, group chats with long histories open and scroll faster, local agent CLIs that print very long lines no longer stall the host, and the desktop app stays responsive while the Bot host logs a lot. ([#1955](https://github.com/Fei2411/DS-Bot/pull/1955), [#1958](https://github.com/Fei2411/DS-Bot/pull/1958), [#1987](https://github.com/Fei2411/DS-Bot/pull/1987), [#1988](https://github.com/Fei2411/DS-Bot/pull/1988), [#1990](https://github.com/Fei2411/DS-Bot/pull/1990), [#1982](https://github.com/Fei2411/DS-Bot/pull/1982), [#1984](https://github.com/Fei2411/DS-Bot/pull/1984), [#1985](https://github.com/Fei2411/DS-Bot/pull/1985), [#1991](https://github.com/Fei2411/DS-Bot/pull/1991))
 
 ### Fixed
 
@@ -19,6 +26,13 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - **Web remote**: stopping a background task from the task bar in the web remote works. ([#1959](https://github.com/Fei2411/DS-Bot/pull/1959))
 - **WeChat iLink**: queued WeChat iLink messages get their replies after a restart without the user sending another message. (reported by @darrentangdt; [#1940](https://github.com/Fei2411/DS-Bot/issues/1940), [#2010](https://github.com/Fei2411/DS-Bot/pull/2010))
 - **Feishu and Lark**: long-connection discovery uses the app credentials, brief gateway policy refusals are retried, and app-credential requests no longer follow redirects. (reported by @bigstage915; [#1957](https://github.com/Fei2411/DS-Bot/issues/1957), [#2008](https://github.com/Fei2411/DS-Bot/pull/2008))
+- **Dialog crashes**: a render error inside a dialog, menu or panel closes only that view and shows an error notice, instead of disabling the sidebar `+` button and other overlays until reload. ([#2027](https://github.com/Fei2411/DS-Bot/pull/2027))
+- **Computer handback**: after a Bot hands the computer over and the user hands it back, the conversation keeps working and its history loads again instead of failing with a session format error. (reported by @DodgeZhang; [#2009](https://github.com/Fei2411/DS-Bot/issues/2009), [#2023](https://github.com/Fei2411/DS-Bot/pull/2023))
+- **Steered requests**: a steered Bot request is no longer stranded when a restart lands between a completed turn and its delivery, and shell steering works when shell tools are registered in the Bot's own or a parent preset scope. ([#1946](https://github.com/Fei2411/DS-Bot/issues/1946), [#2001](https://github.com/Fei2411/DS-Bot/pull/2001), [#2032](https://github.com/Fei2411/DS-Bot/pull/2032))
+- **Local agents in groups**: a local agent CLI in a group round shows its current command, counts its tool work and is no longer marked missed during a long run. ([#1889](https://github.com/Fei2411/DS-Bot/issues/1889), [#2000](https://github.com/Fei2411/DS-Bot/pull/2000))
+- **Deleted Sessions**: a DSH Agent Session deleted by another plugin no longer leaves a dead row in the sidebar, and archiving an already-gone Session works. (reported by @xzjncu; [#1773](https://github.com/Fei2411/DS-Bot/issues/1773), [#1999](https://github.com/Fei2411/DS-Bot/pull/1999))
+- **New Bot greeting**: a failed greeting for a new Bot no longer stops the whole team. ([#1961](https://github.com/Fei2411/DS-Bot/issues/1961), [#1979](https://github.com/Fei2411/DS-Bot/pull/1979))
+- **Antigravity models**: a Bot on the Antigravity plugin's `antigravity/*` models keeps its model across restarts instead of moving to the local Antigravity CLI route. (reported by @Pegasus02; [#2020](https://github.com/Fei2411/DS-Bot/issues/2020), [#2022](https://github.com/Fei2411/DS-Bot/pull/2022))
 
 ## [0.3.9] - 2026-11-21
 
