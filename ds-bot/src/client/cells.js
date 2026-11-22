@@ -33,6 +33,8 @@ export { clockLabel }
 // Chat cells
 
 
+const useNullUi = () => null
+
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
@@ -47,7 +49,8 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     actions.openSession(target)
   }
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
-  const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
+  const useReadUi = useUi ?? useNullUi
+  const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const last = index === cleaned.length - 1
