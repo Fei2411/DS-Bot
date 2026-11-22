@@ -1,6 +1,22 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "ChatGPT plan": "Forfait ChatGPT",
+  "Sign in with ChatGPT": "Se connecter avec ChatGPT",
+  "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "La connexion à ChatGPT nécessite l’application de bureau DS Bot et le stockage sécurisé du système d’exploitation.",
+  "Sign in to use your ChatGPT plan": "Connectez-vous pour utiliser votre forfait ChatGPT",
+  "Complete sign-in in your browser": "Terminez la connexion dans votre navigateur",
+  "Enable plan usage to load your ChatGPT models": "Activez l’utilisation du forfait pour charger vos modèles ChatGPT",
+  "Your ChatGPT session expired or was revoked. Sign in again.": "Votre session ChatGPT a expiré ou a été révoquée. Reconnectez-vous.",
+  "ChatGPT is temporarily unavailable. Retry without signing out.": "ChatGPT est temporairement indisponible. Réessayez sans vous déconnecter.",
+  "Could not read the ChatGPT connection. Retry.": "Impossible de consulter la connexion ChatGPT. Réessayez.",
+  "Checking ChatGPT connection…": "Vérification de la connexion ChatGPT…",
+  "Enable plan usage": "Activer l’utilisation du forfait",
+  "Sign out": "Se déconnecter",
+  "Plan usage enabled": "Utilisation du forfait activée",
+  "Plan usage disabled": "Utilisation du forfait désactivée",
+  "No models are available for this ChatGPT account.": "Aucun modèle n’est disponible pour ce compte ChatGPT.",
+  "Local credentials were cleared, but remote revocation was not confirmed.": "Les identifiants locaux ont été effacés, mais la révocation à distance n’a pas été confirmée.",
   'Always on': 'Toujours actif',
   'In catalog': 'Dans le catalogue',
   'In catalog: the Bot loads this only when it needs it.': 'Dans le catalogue : le Bot le charge uniquement en cas de besoin.',

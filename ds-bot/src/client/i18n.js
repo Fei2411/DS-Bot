@@ -11,6 +11,22 @@ import { DSH_DE, HOST_ERRORS_DE, DE } from './locales/de.js'
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'ChatGPT plan': 'ChatGPT 套餐',
+  'Sign in with ChatGPT': '使用 ChatGPT 登录',
+  'ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.': 'ChatGPT 登录需要 DS Bot 桌面应用和操作系统安全存储支持。',
+  'Sign in to use your ChatGPT plan': '登录以使用你的 ChatGPT 套餐',
+  'Complete sign-in in your browser': '请在浏览器中完成登录',
+  'Enable plan usage to load your ChatGPT models': '启用套餐用量以加载你的 ChatGPT 模型',
+  'Your ChatGPT session expired or was revoked. Sign in again.': '你的 ChatGPT 会话已过期或被撤销，请重新登录。',
+  'ChatGPT is temporarily unavailable. Retry without signing out.': 'ChatGPT 暂时不可用，请重试，无需退出登录。',
+  'Could not read the ChatGPT connection. Retry.': '无法读取 ChatGPT 连接状态，请重试。',
+  'Checking ChatGPT connection…': '正在检查 ChatGPT 连接…',
+  'Enable plan usage': '启用套餐用量',
+  'Sign out': '退出登录',
+  'Plan usage enabled': '套餐用量已启用',
+  'Plan usage disabled': '套餐用量未启用',
+  'No models are available for this ChatGPT account.': '此 ChatGPT 账户暂无可用模型。',
+  'Local credentials were cleared, but remote revocation was not confirmed.': '本地凭据已清除，但未能确认远程凭据已撤销。',
   // Shared
   'Main Bot': '主 Bot',
   Working: '进行中',
