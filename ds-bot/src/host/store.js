@@ -202,6 +202,7 @@ export function install(rt) {
         if (memberSid !== undefined) liveTeamSessions.add(memberSid)
       }
     }
+    let foldedOpenParts = false
     for (const [id, bot] of Object.entries(state.bots)) {
       if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
       const botId = sessionIdOf(bot.id) ?? id
@@ -228,6 +229,7 @@ export function install(rt) {
       if (added.length > 0) bot.segments = [...existingSegments, ...added]
       delete bot.openParts
       migrated = true
+      foldedOpenParts = true
     }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
@@ -350,7 +352,7 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
-    return { migrated: migrated || stale.length > 0, stale }
+    return { migrated: migrated || stale.length > 0, stale, foldedOpenParts }
   }
 
   const hasLoaded = () => storeReady
@@ -464,16 +466,16 @@ export function install(rt) {
           warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
         }
       }
-      const { migrated } = adopt(readFileState())
+      const { foldedOpenParts } = adopt(readFileState())
       notifyStoreSync()
-      return migrated
+      return foldedOpenParts
     })
     writing = run.catch(() => {})
-    const tracked = run.then((migrated) => {
+    const tracked = run.then((foldedOpenParts) => {
       if (adopting === tracked) adopting = undefined
       void retireParts()
-      if (migrated && stuck === undefined && !stopped && readOnly() === undefined) {
-        void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
+      if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped && readOnly() === undefined) {
+        void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
       }
     }, (error) => {
       if (adopting === tracked) adopting = undefined
@@ -502,11 +504,11 @@ export function install(rt) {
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
-        const { migrated } = adopt(readFileState())
+        const { foldedOpenParts } = adopt(readFileState())
         notifyStoreSync()
         void retireParts()
-        if (migrated && stuck === undefined && !stopped) {
-          void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
+        if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped) {
+          void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
         }
         return
       }
