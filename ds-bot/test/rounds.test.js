@@ -1995,3 +1995,33 @@ test('in-round pass-with-files reports admin goal tasks and late [PASS] with @me
   assert.deepEqual(posts[0].message.source.route?.to, [adminId])
   assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
 })
+
+test('a line the book did not keep is reported to whoever posted it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  // A post joins the round only once the round is the one a member's turn runs in.
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  // The book is there and readable; its write is the one that fails.
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  chmodSync(book, 0o444)
+  try {
+    // Drawn already, but not on disk: the caller must hear it.
+    await assert.rejects(rt.postToRoom(live, sender, 'a line that will not land'), /may not have been saved/)
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})

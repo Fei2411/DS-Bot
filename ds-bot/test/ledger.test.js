@@ -279,3 +279,25 @@ test('a book another host starts while the importer runs is read, not replaced',
   assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
   assert.equal(readFileSync(file('group-r1'), 'utf8').includes('imported'), false)
 })
+// The slot holds the book's last write, not "the write after this record". A caller that
+// captures it right after its own append gets its own write; a later record cannot answer
+// for an earlier one.
+test('a capture of written() speaks for the record it followed, not for a later one', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home } = host(t)
+  const book = 'group-r1'
+  rt.ledger.append(book, { seq: 1, text: 'kept before' })
+  await rt.ledger.written(book)
+  const file = join(home, 'ledger', bookFile(book))
+  chmodSync(file, 0o444)
+  rt.ledger.append(book, { seq: 2, text: 'lost' })
+  const first = rt.ledger.written(book)
+  const outcome = first.then(() => 'resolved', () => 'rejected')
+  await assert.rejects(first)
+  chmodSync(file, 0o644)
+  rt.ledger.append(book, { seq: 3, text: 'kept after' })
+  // A later write does not rewrite what happened to the earlier record.
+  await rt.ledger.written(book)
+  assert.equal(await outcome, 'rejected')
+  assert.deepEqual(rt.ledger.records(book).map(record => record.seq), [1, 3])
+})
+

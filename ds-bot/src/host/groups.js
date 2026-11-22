@@ -605,6 +605,17 @@ export function install(rt) {
     room.seq += 1
     const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
     rt.ledger.append(bookOf(room.id), record)
+    // A line the book did not keep is told once to the room here, so every caller is
+    // covered; a caller that waits for written() hears the rejection as well. The notice
+    // itself is not told again.
+    if (record.reason !== 'unsaved') {
+      rt.ledger.written(bookOf(room.id)).catch((error) => {
+        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+        try {
+          say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
+        } catch {}
+      })
+    }
     // The phone link hears every line the chat will draw (mobile.js).
     rt.roomLineAdded?.(room, record)
     if (!memberLine(record)) return record
@@ -2459,6 +2470,11 @@ export function install(rt) {
       noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
       say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      // The round takes the line in now; it must not go on as if the book had it.
+      await rt.ledger.written(bookOf(room.id)).catch((error) => {
+        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+        throw new Error(`the user's line may not have been saved: ${error?.message ?? error}`)
+      })
       unpauseRoomIdle(room)
       round.userMessage = true
       rt.goalUserMessage?.(room.id)
@@ -3238,22 +3254,32 @@ export function install(rt) {
       if (postExtra.reportBack === true) {
         registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
       }
+      let said
       if (postExtra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
         running.failed.push(sender.name)
       } else if (postExtra.resumed === true || postExtra.stopped === true || postExtra.done === true) {
         const kind = postExtra.done === true ? 'done' : postExtra.stopped === true ? 'stopped' : postExtra.again === true ? 'cut' : 'resumed'
-        say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
+        said = say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
+        said = say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
         if (postExtra.batch !== undefined && (line !== '' || presented.length > 0)) recordResult(postExtra.batch, sender.name, room.seq)
       }
+      // The line is drawn already; the book may not have it. The write say() queued is taken
+      // here, before any await, so a record written later cannot stand in for this one.
+      const landed = said === undefined ? undefined : rt.ledger.written(bookOf(room.id))
       const callOutcome = callPost(room, running, sender, text, postExtra)
       // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
       settleQueuedReportInRound(room, postExtra)
       if (postExtra.batchEnd) closeBatch(postExtra.batch)
       await rt.save()
+      if (landed !== undefined) {
+        await landed.catch((error) => {
+          rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+          throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
+        })
+      }
       return callOutcome === 'paused' ? { paused: true } : undefined
     }
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
