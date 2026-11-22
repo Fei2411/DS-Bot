@@ -1188,13 +1188,16 @@ export function install(rt) {
   // after this one.
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
+    // These hooks see every Session's requests, not only this Agent's.
     const filterTools = agent.ctx.on('llm/stream', function filterBuiltinTools(options, next) {
+      if (options.sessionId !== undefined && options.sessionId !== agent.session?.id) return next()
       const hidden = rt.hiddenBuiltinTools(agent.session?.id)
       if (!options.tools?.some(tool => hidden.has(tool.name))) return next()
       return agent.ctx.llm.stream({ ...options, tools: options.tools.filter(tool => !hidden.has(tool.name)) })
     })
     if (typeof filterTools === 'function') held.disposers.push(filterTools)
-    const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+    const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      if (context?.agent !== undefined && context.agent !== agent) return next()
       const assembled = await next()
       const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(agent.session?.id)])
       // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
