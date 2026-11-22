@@ -183,13 +183,23 @@ export function install(rt) {
       if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
       const botId = sessionIdOf(bot.id) ?? id
       const now = Date.now()
+      const segments = Array.isArray(bot.segments) ? bot.segments : []
+      // Earlier parts are kept in time order: each one starts where the one before ended.
+      const fold = (segment) => {
+        const at = segments.findIndex(other => Number(other?.endedAt) > segment.endedAt)
+        segments.splice(at === -1 ? segments.length : at, 0, segment)
+      }
       for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
         const sid = sessionIdOf(part?.sessionId)
         const earlier = Array.isArray(part?.segments) ? part.segments.filter(segment => sessionIdOf(segment?.sessionId) !== undefined) : []
         if (sid === undefined && earlier.length === 0) continue
-        bot.segments = [...(Array.isArray(bot.segments) ? bot.segments : []), ...earlier, ...(sid === undefined ? [] : [{ sessionId: sid, endedAt: now }])]
+        for (const segment of earlier) fold({ ...segment, endedAt: Number.isFinite(segment.endedAt) ? segment.endedAt : now })
+        // A live part has no end of its own: it is placed where its last Session began.
+        const began = Math.max(Number.isFinite(part.startedAt) ? part.startedAt : 0, ...earlier.map(segment => Number.isFinite(segment.endedAt) ? segment.endedAt : 0))
+        if (sid !== undefined) fold({ sessionId: sid, endedAt: began > 0 ? began : now })
         if (sid !== undefined) (state.retiredParts ??= []).push({ sessionId: sid, botId })
       }
+      bot.segments = segments
       delete bot.openParts
       migrated = true
     }
@@ -332,11 +342,20 @@ export function install(rt) {
   // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
+  let waitingForSchedules
+  // How long retirement waits for DSH's schedule service, so no part is archived with
+  // its reminders still on it.
+  const scheduleDeadline = Date.now() + 10_000
   const retireParts = () => {
     if (retiring !== undefined || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
     retiring = (async () => {
       // The schedule service attaches after the store loads.
       await new Promise(resolve => setImmediate(resolve))
+      if (rt.schedulesPending?.() === true && Date.now() < scheduleDeadline) {
+        waitingForSchedules ??= setTimeout(() => { waitingForSchedules = undefined; void retireParts() }, scheduleDeadline - Date.now())
+        waitingForSchedules.unref?.()
+        return
+      }
       for (const entry of [...state.retiredParts]) {
         const sessionId = sessionIdOf(entry?.sessionId)
         try {
@@ -714,7 +733,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
