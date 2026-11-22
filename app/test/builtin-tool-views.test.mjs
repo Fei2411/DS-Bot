@@ -368,3 +368,124 @@ test('plugin tool.call.toolview registration at default priority 0 overrides bui
     disposeBuiltins()
   }
 })
+
+test('Round 2 DSH contract edge cases: create empty diffs, failed edit error + preview, trailing newline, apply_patch input, working_directory cd, empty read, streaming todo/present, run_code description', () => {
+  const registry = createSlotRegistry()
+  const dispose = registerBuiltinToolViews(registry)
+  try {
+    // 1. DSH write on file create emits `{ operation: 'create', path, diffs: [] }`.
+    assert.ok(diffMetaFromMeta({ operation: 'create', path: '/repo/new.js', diffs: [] }))
+    const writeCreate = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('write', { file_path: '/repo/new.js', content: 'export const x = 1\n' }, {
+        meta: { operation: 'create', path: '/repo/new.js', diffs: [] },
+      }),
+    })
+    let tree = writeCreate.render()
+    assert.match(textOf(tree), /Created/)
+    assert.match(textOf(tree), /\+1/)
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    assert.match(textOf(writeCreate.render()), /export const x = 1/)
+
+    // 2. Failed edit MUST show BOTH error result text AND attempted preview diff.
+    const failedEdit = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('edit', { file_path: '/repo/a.js', old_string: 'missing', new_string: 'replacement' }, {
+        isError: true,
+        content: [{ type: 'text', text: 'old_string not found in file' }],
+      }),
+    })
+    all(failedEdit.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = failedEdit.render()
+    assert.match(textOf(tree), /old_string not found in file/)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-diff-row' && n.props['data-kind'] === 'del').length, 1)
+
+    // 3. Trailing-newline-only edit produces +1 -1 and renders `\ No newline at end of file` in view & copy.
+    const nlDiff = computeLineDiff('hello', 'hello\n')
+    assert.equal(nlDiff.added, 1)
+    assert.equal(nlDiff.removed, 1)
+    assert.equal(nlDiff.rows.some(r => r.noNewline === true), true)
+    const nlView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('edit', { file_path: '/repo/nl.txt' }, {
+        meta: { operation: 'update', stopped: true, diffs: [{ path: '/repo/nl.txt', oldText: 'hello', newText: 'hello\n' }] },
+      }),
+    })
+    tree = nlView.render()
+    assert.match(textOf(tree), /Stopped/)
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = nlView.render()
+    assert.match(textOf(tree), /\\ No newline at end of file/)
+    sandbox.__copied.length = 0
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-tool-copy'))[0].props.onClick()
+    assert.match(sandbox.__copied[0] ?? '', /\\ No newline at end of file/)
+
+    // 4. apply_patch reads DSH `input` argument.
+    const patchView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('apply_patch', { input: '*** Begin Patch\n*** Update File: a.js\n-old\n+new\n*** End Patch' }),
+    })
+    all(patchView.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    assert.match(textOf(patchView.render()), /\*\*\* Update File: a\.js/)
+
+    // 5. working_directory reads DSH `cd` argument.
+    const wdView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('working_directory', { cd: '/repo/packages/core' }),
+    })
+    assert.match(textOf(wdView.render()), /packages\/core/)
+
+    // 6. read on empty file (`lines: []`) omits misleading `L1–1` pill and falls back to result text.
+    const emptyRead = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('read', { file_path: '/repo/empty.txt' }, {
+        meta: { path: '/repo/empty.txt', offset: 1, totalLines: 0, lines: [] },
+        content: [{ type: 'text', text: '(empty file)' }],
+      }),
+    })
+    tree = emptyRead.render()
+    assert.equal(textOf(tree).includes('L1–1'), false)
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    assert.match(textOf(emptyRead.render()), /\(empty file\)/)
+
+    // 7. todo_write & present mounted while `preparing` (empty) auto-open once populated.
+    const liveTodo = renderTree(ToolCallCard, {
+      registry,
+      block: makeBlock('todo_write', {}, { phase: 'preparing' }),
+    })
+    liveTodo.render()
+    tree = liveTodo.render({
+      registry,
+      block: makeBlock('todo_write', { todos: [{ content: 'Ship it', status: 'in_progress' }] }, { phase: 'result' }),
+    })
+    assert.match(textOf(tree), /Ship it/)
+
+    const livePresent = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('present', {}, { phase: 'preparing' }),
+    })
+    livePresent.render()
+    tree = livePresent.render({
+      registry,
+      cwd: '/repo',
+      block: makeBlock('present', { files: [{ path: '/repo/out.csv' }] }, { phase: 'result' }),
+    })
+    assert.match(textOf(tree), /out\.csv/)
+
+    // 8. run_code prefers `description` arg over first line of code.
+    const ptcView = renderTree(ToolCallCard, {
+      registry,
+      block: makeBlock('run_code', { description: 'Summarize metrics', code: 'const x = 1\nreturn x' }),
+    })
+    assert.match(textOf(ptcView.render()), /Summarize metrics/)
+  } finally {
+    dispose()
+  }
+})

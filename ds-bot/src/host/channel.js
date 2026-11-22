@@ -11,7 +11,9 @@ import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constan
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+const STAGED_SWEEP_MS = 5 * 60_000
 const STAGED_FILE_MAX = 16 * 1024 * 1024
+const STAGED_TOTAL_MAX = 64 * 1024 * 1024
 const STAGED_MAX_ENTRIES = 64
 
 function sanitizeFileName(raw) {
@@ -19,6 +21,18 @@ function sanitizeFileName(raw) {
   // eslint-disable-next-line no-control-regex
   const clean = base.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 255)
   return clean === '.' || clean === '..' ? '' : clean
+}
+
+function decodeCanonicalBase64(data, maxBytes, { allowEmpty = false } = {}) {
+  if (typeof data !== 'string') return { invalid: true }
+  if (data === '') return allowEmpty ? { bytes: Buffer.alloc(0) } : { invalid: true }
+  const maxEncoded = Math.ceil(maxBytes / 3) * 4
+  if (data.length > maxEncoded) return { tooLarge: true }
+  if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { invalid: true }
+  const bytes = Buffer.from(data, 'base64')
+  if (bytes.length > maxBytes) return { tooLarge: true }
+  if (bytes.toString('base64') !== data) return { invalid: true }
+  return { bytes }
 }
 
 const LANGUAGES = {
@@ -66,14 +80,45 @@ export function install(rt) {
   // Photos and files staged by `stage-image` / `stage-file`, kept until the message that names them is sent.
   const staged = new Map()
   const stagedFiles = new Map()
-  const pruneStaged = (map, now) => {
-    for (const [id, entry] of map) if (entry.at < now - STAGED_MS) map.delete(id)
+  const stagedTotalBytes = () => {
+    let total = 0
+    for (const entry of staged.values()) total += entry.byteLength ?? 0
+    for (const entry of stagedFiles.values()) total += entry.byteLength ?? 0
+    return total
+  }
+  const sweepStaged = (now = Date.now()) => {
+    for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
+    for (const [id, entry] of stagedFiles) if (entry.at < now - STAGED_MS) stagedFiles.delete(id)
+  }
+  const evictOldestStaged = () => {
+    const oldestImg = staged.entries().next().value
+    const oldestFile = stagedFiles.entries().next().value
+    if (oldestImg === undefined && oldestFile === undefined) return false
+    if (oldestFile === undefined || (oldestImg !== undefined && oldestImg[1].at <= oldestFile[1].at)) {
+      staged.delete(oldestImg[0])
+    } else {
+      stagedFiles.delete(oldestFile[0])
+    }
+    return true
+  }
+  const pruneStaged = (map, incomingBytes, now) => {
+    sweepStaged(now)
     while (map.size >= STAGED_MAX_ENTRIES) {
       const oldest = map.keys().next().value
       if (oldest === undefined) break
       map.delete(oldest)
     }
+    while (stagedTotalBytes() + incomingBytes > STAGED_TOTAL_MAX && evictOldestStaged()) { /* evict oldest across both maps */ }
   }
+  ctx.effect(() => {
+    const timer = setInterval(() => sweepStaged(Date.now()), STAGED_SWEEP_MS)
+    timer.unref?.()
+    return () => {
+      clearInterval(timer)
+      staged.clear()
+      stagedFiles.clear()
+    }
+  }, 'ds-bot: staged upload expiry')
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -750,12 +795,17 @@ export function install(rt) {
         case 'stage-image': {
           const mediaType = String(body.mediaType ?? '')
           const data = typeof body.data === 'string' ? body.data : ''
-          if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          if (!STAGED_TYPES.has(mediaType)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          const maxBytes = ctx.get?.('attachments')?.imageLimits?.maxImageBytes ?? STAGED_FILE_MAX
+          const decoded = decodeCanonicalBase64(data, maxBytes, { allowEmpty: false })
+          if (decoded.tooLarge) return fail('This file is too large to send (max 16 MB)', 'bot/refused')
+          if (decoded.invalid) return fail('This is not a photo DS Bot can send', 'bot/invalid')
           const name = body.name === undefined ? '' : sanitizeFileName(body.name)
           const now = Date.now()
-          pruneStaged(staged, now)
+          const byteLength = data.length
+          pruneStaged(staged, byteLength, now)
           const id = randomUUID()
-          staged.set(id, { mediaType, data, ...(name ? { name } : {}), at: now })
+          staged.set(id, { mediaType, data, byteLength, ...(name ? { name } : {}), at: now })
           return ok({ id })
         }
         // A file for the next `send`: held here until `sendUser` resolves the receiving
@@ -766,17 +816,16 @@ export function install(rt) {
           }
           const name = sanitizeFileName(body.name)
           const data = typeof body.data === 'string' ? body.data : null
-          if (name === '' || data === null || (data !== '' && !/^[A-Za-z0-9+/]+={0,2}$/.test(data))) {
+          if (name === '' || data === null) {
             return fail('This is not a file DS Bot can send', 'bot/invalid')
           }
-          const bytes = data === '' ? Buffer.alloc(0) : Buffer.from(data, 'base64')
-          if (bytes.length > STAGED_FILE_MAX) {
-            return fail('This file is too large to send (max 16 MB)', 'bot/refused')
-          }
+          const decoded = decodeCanonicalBase64(data, STAGED_FILE_MAX, { allowEmpty: true })
+          if (decoded.tooLarge) return fail('This file is too large to send (max 16 MB)', 'bot/refused')
+          if (decoded.invalid) return fail('This is not a file DS Bot can send', 'bot/invalid')
           const now = Date.now()
-          pruneStaged(stagedFiles, now)
+          pruneStaged(stagedFiles, decoded.bytes.length, now)
           const id = randomUUID()
-          stagedFiles.set(id, { name, bytes, at: now })
+          stagedFiles.set(id, { name, bytes: decoded.bytes, byteLength: decoded.bytes.length, at: now })
           return ok({ id })
         }
         case 'send': {
@@ -784,22 +833,37 @@ export function install(rt) {
           const ids = Array.isArray(body.images) ? body.images.map(String) : []
           const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
           if ((text === '' && ids.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          sweepStaged(Date.now())
           const images = ids.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
           const files = fileIds.map(id => stagedFiles.get(id))
           if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
-          await rt.load()
-          await rt.sendUser({
-            sessionId: body.sessionId,
-            content: [
-              ...(text === '' ? [] : [{ type: 'text', text }]),
-              ...images.map(({ mediaType, data, name }) => ({ type: 'image', mediaType, data, ...(name ? { name } : {}) })),
-            ],
-            ...(files.length > 0 ? { files } : {}),
-          })
+          // Claim entries before awaiting so concurrent duplicate sends cannot replay them.
+          const claimedImages = ids.map((id, i) => [id, images[i]])
+          const claimedFiles = fileIds.map((id, i) => [id, files[i]])
           for (const id of ids) staged.delete(id)
           for (const id of fileIds) stagedFiles.delete(id)
-          return ok(true)
+          try {
+            await rt.load()
+            await rt.sendUser({
+              sessionId: body.sessionId,
+              content: [
+                ...(text === '' ? [] : [{ type: 'text', text }]),
+                ...images.map(({ mediaType, data, name }) => ({ type: 'image', mediaType, data, ...(name ? { name } : {}) })),
+              ],
+              ...(files.length > 0 ? { files } : {}),
+            })
+            return ok(true)
+          } catch (error) {
+            const now = Date.now()
+            for (const [id, entry] of claimedImages) {
+              if (entry.at >= now - STAGED_MS && !staged.has(id)) staged.set(id, entry)
+            }
+            for (const [id, entry] of claimedFiles) {
+              if (entry.at >= now - STAGED_MS && !stagedFiles.has(id)) stagedFiles.set(id, entry)
+            }
+            throw error
+          }
         }
         case 'btw-delete': {
           if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.cardId !== 'string' || body.cardId === '') return fail('Nothing to delete', 'bot/invalid')
@@ -1035,6 +1099,7 @@ export function install(rt) {
           sessionId,
           name: file.name,
           data: (async function* () { yield bytes })(),
+          signal: AbortSignal.timeout(30_000),
         })
         uploaded.push({ type: 'file', receiptId: receipt.receiptId })
       }

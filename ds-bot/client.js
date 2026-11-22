@@ -32884,20 +32884,26 @@ var scrollParent = (node) => {
   }
   return null;
 };
-function EarlierUser({ row, actions }) {
+function EarlierUser({ row, actions, renderUserAttachments }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
   const body = row.text && shown !== "" ? (0, import_react35.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels(), variant: "compact" }) : null;
   const area = foldArea(body, code, codeHead, actions);
+  const hasRich = typeof renderUserAttachments === "function" && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0);
+  const attachments = hasRich ? renderUserAttachments(row) : null;
+  const fileNames = !hasRich && Array.isArray(row.fileRefs) && row.fileRefs.length > 0 ? row.fileRefs.map((file) => file.name).filter(Boolean).join(", ") : "";
+  const showBubble = Boolean(body || code !== void 0 || !hasRich && (row.images || fileNames));
   return (0, import_react35.createElement)(
     "div",
     { className: "bt-urow" },
-    (0, import_react35.createElement)(
+    attachments,
+    showBubble ? (0, import_react35.createElement)(
       "div",
       { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body || code !== void 0 ? "" : void 0 },
       control ? (0, import_react35.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
-      row.images ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
-    ),
+      !hasRich && row.images ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null,
+      fileNames ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, fileNames) : null
+    ) : null,
     row.via ? (0, import_react35.createElement)("div", { className: "bt-utime" }, (0, import_react35.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
 }
@@ -32978,7 +32984,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     (0, import_react35.createElement)(PartLine, { time: view.startedAt })
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -32991,7 +32997,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
   let before;
   return rows2.flatMap((row, index) => {
     const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];
@@ -33001,12 +33007,12 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
     return pause ? [(0, import_react35.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
 }
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
   switch (row.kind) {
     case "divider":
       return (0, import_react35.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react35.createElement)(EarlierUser, { key, row, actions });
+      return (0, import_react35.createElement)(EarlierUser, { key, row, actions, renderUserAttachments });
     case "answer":
       return (0, import_react35.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -33552,7 +33558,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   );
 }
 var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "computer_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
 var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
 var isBotTool = (name) => DRAWN.has(name) || isComputerCall(name);
 function callTree(root) {

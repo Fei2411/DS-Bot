@@ -12,9 +12,9 @@ import { build } from 'esbuild'
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot"].includes(name)\n',
-  'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\n',
-  'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
+  'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
+  'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': 'export const MarkdownText = ({ text }) => ({ type: "markdown", props: { text, children: [text] } })\nexport const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
 }
@@ -30,6 +30,12 @@ const { outputFiles } = await build({
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'app-chat-stub' }
+      })
+      // Sibling modules inside `ds-bot/src/client/` import `./cells.js`, `./widget-cell.js`,
+      // `./model-menu.js`, `./api.js` relatively; stub those too without intercepting `app/ui/src/api.js`.
+      bundler.onResolve({ filter: /^\.\/(cells|widget-cell|model-menu|api)\.js$/ }, (args) => {
+        if (!args.resolveDir.replace(/\\/g, '/').endsWith('/ds-bot/src/client')) return null
+        return { path: args.path.slice(2), namespace: 'app-chat-stub' }
       })
       bundler.onLoad({ filter: /.*/, namespace: 'app-chat-stub' }, args => ({ contents: stubs[args.path], loader: 'js' }))
     },
@@ -624,16 +630,150 @@ test('composer supports file picker, clipboard paste, drag-drop, attachment-only
     dm.unmount()
   }
 
-  // Group chat running Stop button calls stopRoomWork(room.id).
+  // Group chat running Stop button calls stopRoomWork(room.id) and passes renderUserAttachments to ChatRows.
   statusMap.set('r1', { running: true })
   const grp = mount({ sessionId: 'r1', team })
   try {
-    const stopBtn = all(grp.render(), n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
+    const grpTree = grp.render()
+    const stopBtn = all(grpTree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
     assert.ok(stopBtn, 'running group chat renders Stop button')
     stopBtn.props.onClick()
     await tick()
     assert.deepEqual(stoppedRooms, ['r1'])
+    const rowsNode = all(grpTree, n => n.type === 'chat-rows')[0]
+    assert.equal(typeof rowsNode?.props?.renderUserAttachments, 'function', 'group chat passes renderUserAttachments to ChatRows')
   } finally {
     grp.unmount()
+  }
+})
+
+test('composer guards read-only mode, resets Stop on queued turns, preserves blob URL across rollover failure, and matches pending attachments by counts', async () => {
+  const createdUrls = []
+  const revokedUrls = []
+  sandbox.URL = {
+    createObjectURL: (file) => {
+      const url = `blob:ro/${createdUrls.length + 1}/${file.name}`
+      createdUrls.push(url)
+      return url
+    },
+    revokeObjectURL: (url) => { revokedUrls.push(url) },
+  }
+  let rejectSend = null
+  let stopCalls = 0
+  const statusMap = new Map([['b1', { running: true }]])
+  const roster = {
+    ready: true,
+    readOnly: true,
+    prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] } },
+    rooms: [],
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      stageImage: async () => ({ id: 'img-ro' }),
+      stageFile: async () => ({ id: 'file-ro' }),
+      send: () => new Promise((_, reject) => { rejectSend = reject }),
+      stopChat: async () => { stopCalls += 1 },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useSessionStatus: select => select(statusMap),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  const inst = mount({ sessionId: 'b1', team })
+  try {
+    // Read-only window: textarea & send disabled, no Stop button, paste & drag-drop ignored.
+    let tree = inst.render()
+    assert.equal(textarea(tree).props.disabled, true)
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop').length, 0)
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const imageFile = { name: 'keep.png', type: 'image/png', size: pngBytes.length, arrayBuffer: async () => pngBytes.buffer }
+    textarea(tree).props.onPaste({
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => imageFile }], getData: () => '' },
+      preventDefault() {},
+    })
+    const chatRoot = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-chat')[0]
+    chatRoot.props.onDrop({ dataTransfer: { files: [imageFile] }, preventDefault() {} })
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 0, 'read-only blocks paste & drop')
+
+    // Unlock read-only: Stop resolves while running stays true (queued turn) -> Stop button unlocks again!
+    roster.readOnly = false
+    tree = inst.render()
+    const stopBtn1 = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
+    assert.equal(stopBtn1.props.disabled, false)
+    stopBtn1.props.onClick()
+    await tick()
+    tree = inst.render()
+    assert.equal(stopCalls, 1)
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0].props.disabled, false, 'Stop must re-enable after resolving even while queued turn keeps running=true')
+
+    // Foreground rollover while send is in flight and then fails -> restored preview URL must NOT be revoked!
+    textarea(tree).props.onPaste({
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => imageFile }], getData: () => '' },
+      preventDefault() {},
+    })
+    tree = inst.render()
+    assert.equal(createdUrls.length, 1)
+    sendButton(tree).props.onClick()
+    await tick()
+    // Session rolls over from b1 -> b1-p2 while send is still pending.
+    roster.byId['b1-p2'] = { id: 'b1-p2', name: 'Chief', color: 'blue', sessionId: 'b1-p2', parts: ['b1'] }
+    inst.render({ sessionId: 'b1-p2', team })
+    assert.equal(revokedUrls.length, 0, 'unsettled pending preview URL must not be revoked on rollover')
+    // Send now rejects -> Composer restores the image attachment with its live blob URL intact!
+    rejectSend(new Error('offline'))
+    await tick()
+    await tick()
+    tree = inst.render({ sessionId: 'b1-p2', team })
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 1)
+    assert.equal(revokedUrls.length, 0, 'restored preview URL must still be unrevoked')
+  } finally {
+    inst.unmount()
+  }
+
+  // Pending dedup distinguishes attachment-only sends by imageCount & fileCount.
+  let serverItems = []
+  const room = mountRoom(async () => ({ roomId: 'r1', items: serverItems, cursor: null }))
+  try {
+    await tick()
+    room.rowsOf()
+    const fileA = { name: 'a.txt', type: 'text/plain', size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
+    const imgA = { name: 'p.png', type: 'image/png', size: 4, arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer }
+    // Send 1 file-only message and 1 image-only message (both with empty text '').
+    let tree = room.rowsOf().tree
+    all(tree, n => n.type === 'input' && n.props?.type === 'file')[0].props.onChange({ target: { files: [fileA], value: '' } })
+    sendButton(room.rowsOf().tree).props.onClick()
+    await tick()
+    await tick()
+    tree = room.rowsOf().tree
+    all(tree, n => n.type === 'input' && n.props?.type === 'file')[0].props.onChange({ target: { files: [imgA], value: '' } })
+    sendButton(room.rowsOf().tree).props.onClick()
+    await tick()
+    await tick()
+    assert.equal(room.rowsOf().pending.length, 2)
+
+    // Server settles ONLY the image message (text: '', images: 1) -> must NOT clear the file-only pending entry!
+    serverItems = [{ id: '20', kind: 'user', text: '', images: 1, imageRefs: [{ attachmentId: 'att-img' }], time: Date.now() }]
+    room.emit('room', { roomId: 'r1' })
+    await tick()
+    assert.equal(room.rowsOf().pending.length, 1)
+    assert.equal(all(room.rowsOf().pending[0], n => n.props?.className === 'bt-ufile').length, 1, 'remaining pending entry is the file attachment')
+  } finally {
+    room.unmount()
   }
 })

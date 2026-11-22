@@ -125,6 +125,7 @@ export function createTeam() {
     setChanged(activity, value.activity ?? {})
     setChanged(work, value.work ?? NO_WORK)
     if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
+    if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
     noteNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
     const changed = {}

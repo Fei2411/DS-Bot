@@ -89,7 +89,8 @@ function revokeUrl(url) {
 }
 
 function revokeEntryUrls(entry) {
-  for (const url of entry?.previewUrls ?? []) revokeUrl(url)
+  if (entry?.settled !== true) return
+  for (const url of entry.previewUrls ?? []) revokeUrl(url)
 }
 const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
   ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
@@ -319,7 +320,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     node.style.height = `${node.scrollHeight}px`
   }, [text])
   useEffect(() => { if (!disabled) field.current?.focus() }, [sessionId, disabled])
-  useEffect(() => { if (!running) setStopping(false) }, [running])
+  useEffect(() => { if (!running) setStopping(false) }, [running, sessionId])
   useEffect(() => {
     const owned = ownedUrlsRef.current
     return () => {
@@ -328,7 +329,11 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }
   }, [])
 
+  const attachmentsRef = useRef(undefined)
+  attachmentsRef.current = attachments
+
   const addFiles = useCallback((fileList) => {
+    if (disabled) return
     const list = Array.from(fileList ?? []).filter(Boolean)
     if (list.length === 0) return
     const next = []
@@ -357,19 +362,17 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
     else if (next.length > 0) setError(null)
     if (next.length > 0) setAttachments(current => [...current, ...next])
-  }, [])
+  }, [disabled])
 
   if (addFilesRef) addFilesRef.current = addFiles
 
   const removeAttachment = useCallback((id) => {
-    setAttachments((current) => {
-      const target = current.find(item => item.id === id)
-      if (target?.previewUrl) {
-        ownedUrlsRef.current.delete(target.previewUrl)
-        revokeUrl(target.previewUrl)
-      }
-      return current.filter(item => item.id !== id)
-    })
+    const target = attachmentsRef.current?.find(item => item.id === id)
+    if (target?.previewUrl) {
+      ownedUrlsRef.current.delete(target.previewUrl)
+      revokeUrl(target.previewUrl)
+    }
+    setAttachments(current => current.filter(item => item.id !== id))
   }, [])
 
   const onFilePick = (event) => {
@@ -414,8 +417,9 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     try {
       await onStop()
     } catch (failure) {
-      setStopping(false)
       setError(failure?.message ?? String(failure))
+    } finally {
+      setStopping(false)
     }
   }
 
@@ -521,7 +525,11 @@ export function Chat({ sessionId, team, registry }) {
       const next = list.slice()
       const removed = []
       for (const item of freshUsers) {
+        const itemImages = item.images ?? item.imageRefs?.length ?? 0
+        const itemFiles = item.files ?? item.fileRefs?.length ?? 0
         const at = next.findIndex(entry => entry.text === item.text
+          && entry.imageCount === itemImages
+          && entry.fileCount === itemFiles
           && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
         if (at >= 0) removed.push(...next.splice(at, 1))
       }
@@ -530,8 +538,13 @@ export function Chat({ sessionId, team, registry }) {
     })
   }, [])
 
-  const onSessionUser = useCallback((text, time, initial) => {
-    clearPendingUsers([{ text, time }], initial)
+  const onSessionUser = useCallback((text, time, initial, summary) => {
+    clearPendingUsers([{
+      text,
+      time,
+      images: summary?.images ?? 0,
+      files: summary?.files ?? 0,
+    }], initial)
   }, [clearPendingUsers])
 
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
@@ -584,11 +597,16 @@ export function Chat({ sessionId, team, registry }) {
     const pendingAttachments = items.map(item => (item.isImage
       ? { type: 'image', attachment: { name: item.name, previewUrl: item.previewUrl } }
       : { type: 'file', attachment: { name: item.name, bytes: item.size } }))
+    const imageCount = items.filter(item => item.isImage).length
+    const fileCount = items.length - imageCount
     const entry = {
       kind: 'user',
       text,
       attachments: pendingAttachments,
+      imageCount,
+      fileCount,
       previewUrls: items.map(item => item.previewUrl).filter(Boolean),
+      settled: false,
       time: Date.now(),
     }
     setPending(list => [...list, entry])
@@ -615,15 +633,21 @@ export function Chat({ sessionId, team, registry }) {
       } else {
         await actions.send(activeSessionId, text)
       }
+      // Ownership of previewUrls transfers here: if pending already cleared (e.g. fast SSE or
+      // rollover), revoke now; otherwise pending clear/unmount will revoke them.
+      entry.settled = true
+      if (!(pendingRef.current ?? []).includes(entry)) revokeEntryUrls(entry)
     } catch (error) {
       if (sendGen.current === myGen) setPending(list => list.filter(item => item !== entry))
       throw error
     }
   }
 
-  const onStop = isRoom
-    ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)
-    : (typeof actions.stopChat === 'function' && bot?.id ? () => actions.stopChat(bot.id) : undefined)
+  const readOnly = roster.readOnly === true
+  const onStop = readOnly ? undefined
+    : isRoom
+      ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)
+      : (typeof actions.stopChat === 'function' && bot?.id ? () => actions.stopChat(bot.id) : undefined)
 
   const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
   const earlier = isRoom
@@ -641,6 +665,7 @@ export function Chat({ sessionId, team, registry }) {
     : null
 
   const waiting = bot?.waiting === true
+  const locked = waiting || readOnly
   const useWork = hooks.useWork ?? NO_WORK_HOOK
   const useCards = hooks.useCards ?? NO_OBJ_HOOK
   const useHeldCards = hooks.useHeldCards ?? NO_OBJ_HOOK
@@ -650,13 +675,13 @@ export function Chat({ sessionId, team, registry }) {
   const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
 
   const onDragEnter = (event) => {
-    if (waiting || !hasFileDrag(event.dataTransfer)) return
+    if (locked || !hasFileDrag(event.dataTransfer)) return
     event.preventDefault()
     dragDepth.current += 1
     setDragging(true)
   }
   const onDragOver = (event) => {
-    if (waiting || !hasFileDrag(event.dataTransfer)) return
+    if (locked || !hasFileDrag(event.dataTransfer)) return
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
   }
@@ -669,10 +694,19 @@ export function Chat({ sessionId, team, registry }) {
   const onDrop = (event) => {
     dragDepth.current = 0
     setDragging(false)
-    if (waiting || !event.dataTransfer?.files?.length) return
+    if (locked || !event.dataTransfer?.files?.length) return
     event.preventDefault()
     addFilesRef.current?.(event.dataTransfer.files)
   }
+
+  const renderRoomUserAttachments = useCallback((row) => {
+    const blocks = [
+      ...(Array.isArray(row.imageRefs) ? row.imageRefs.map(ref => ({ type: 'image', attachment: ref })) : []),
+      ...(Array.isArray(row.fileRefs) ? row.fileRefs.map(ref => ({ type: 'file', attachment: ref })) : []),
+    ]
+    if (blocks.length === 0) return null
+    return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
+  }, [activeSessionId])
 
   return h('div', {
     className: 'dsb-chat',
@@ -690,7 +724,7 @@ export function Chat({ sessionId, team, registry }) {
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
         isRoom
-          ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
+          ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
           : h(SessionTranscript, {
             log: dmChat.log,
             sessionId: activeSessionId,
@@ -727,7 +761,7 @@ export function Chat({ sessionId, team, registry }) {
     !isRoom && typeof actions.turnFacts === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     h(Composer, {
       sessionId: activeSessionId,
-      disabled: waiting,
+      disabled: locked,
       running,
       placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
       onSend: send,

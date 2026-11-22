@@ -108,9 +108,10 @@ export function readMetaFromMeta(meta) {
 }
 
 // Defensive narrowing of DSH `FsDiffMeta` (`@deepseek-ai/dsh-tool-fs/diff` & `apply_patch`).
+// Note: DSH `write` on a newly created file emits `{ operation: 'create', path, diffs: [] }`.
 export function diffMetaFromMeta(meta) {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  if (!Array.isArray(meta.diffs) || meta.diffs.length === 0) return undefined
+  if (!Array.isArray(meta.diffs)) return undefined
   const diffs = []
   for (const item of meta.diffs) {
     if (typeof item !== 'object' || item === null) return undefined
@@ -119,35 +120,63 @@ export function diffMetaFromMeta(meta) {
     if (typeof item.newText !== 'string') return undefined
     diffs.push({ path: item.path, oldText: item.oldText, newText: item.newText })
   }
+  const operation = meta.operation === 'create' || meta.operation === 'update' ? meta.operation : undefined
+  const path = typeof meta.path === 'string' && meta.path !== '' ? meta.path : undefined
+  const stopped = meta.stopped === true ? true : undefined
+  if (diffs.length === 0 && operation === undefined && path === undefined && stopped === undefined) return undefined
   return {
     diffs,
-    ...(meta.operation === 'create' || meta.operation === 'update' ? { operation: meta.operation } : {}),
-    ...(meta.stopped === true ? { stopped: true } : {}),
+    ...(operation ? { operation } : {}),
+    ...(path ? { path } : {}),
+    ...(stopped ? { stopped } : {}),
   }
 }
 
-function splitLines(text) {
+// Keep line terminators attached to each token so adding/removing a trailing newline
+// produces an exact diff rather than looking identical to an unchanged file.
+function splitLineTokens(text) {
   if (text === null || text === undefined || text === '') return []
-  const lines = text.split('\n')
-  if (lines.length > 1 && lines.at(-1) === '') lines.pop()
-  return lines
+  const tokens = []
+  let start = 0
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 10) {
+      tokens.push(text.slice(start, i + 1))
+      start = i + 1
+    }
+  }
+  if (start < text.length) tokens.push(text.slice(start))
+  return tokens
+}
+
+const tokenText = token => (token.endsWith('\n') ? token.slice(0, -1) : token)
+const tokenNoNewline = token => !token.endsWith('\n')
+
+function makeDiffRow(kind, token, nums, showNoNewline = false) {
+  return {
+    kind,
+    ...nums,
+    text: tokenText(token),
+    ...(showNoNewline && kind !== 'ctx' && tokenNoNewline(token) ? { noNewline: true } : {}),
+  }
 }
 
 // Bounded line diff: exact LCS for normal hunks, linear prefix/suffix fallback for huge inputs.
 export function computeLineDiff(oldText, newText) {
-  const before = oldText === null ? [] : splitLines(oldText)
-  const after = splitLines(newText)
+  const before = oldText === null ? [] : splitLineTokens(oldText)
+  const after = splitLineTokens(newText)
+  const showNoNewline = oldText !== null && oldText.length > 0 && newText.length > 0
+    && oldText.endsWith('\n') !== newText.endsWith('\n')
   if (before.length === 0 && after.length === 0) return { rows: [], added: 0, removed: 0 }
   if (before.length === 0) {
     return {
-      rows: after.map((text, index) => ({ kind: 'add', newNum: index + 1, text })),
+      rows: after.map((tok, index) => makeDiffRow('add', tok, { newNum: index + 1 })),
       added: after.length,
       removed: 0,
     }
   }
   if (after.length === 0) {
     return {
-      rows: before.map((text, index) => ({ kind: 'del', oldNum: index + 1, text })),
+      rows: before.map((tok, index) => makeDiffRow('del', tok, { oldNum: index + 1 })),
       added: 0,
       removed: before.length,
     }
@@ -169,7 +198,7 @@ export function computeLineDiff(oldText, newText) {
   let removed = 0
 
   for (let i = 0; i < prefix; i += 1) {
-    rows.push({ kind: 'ctx', oldNum: i + 1, newNum: i + 1, text: before[i] })
+    rows.push(makeDiffRow('ctx', before[i], { oldNum: i + 1, newNum: i + 1 }))
   }
 
   if (midBefore.length === 0 && midAfter.length === 0) {
@@ -190,36 +219,36 @@ export function computeLineDiff(oldText, newText) {
     let j = 0
     while (i < m && j < n) {
       if (midBefore[i] === midAfter[j]) {
-        rows.push({ kind: 'ctx', oldNum: prefix + i + 1, newNum: prefix + j + 1, text: midBefore[i] })
+        rows.push(makeDiffRow('ctx', midBefore[i], { oldNum: prefix + i + 1, newNum: prefix + j + 1 }))
         i += 1
         j += 1
       } else if (dp[(i + 1) * cols + j] >= dp[i * cols + (j + 1)]) {
-        rows.push({ kind: 'del', oldNum: prefix + i + 1, text: midBefore[i] })
+        rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
         removed += 1
         i += 1
       } else {
-        rows.push({ kind: 'add', newNum: prefix + j + 1, text: midAfter[j] })
+        rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
         added += 1
         j += 1
       }
     }
     while (i < m) {
-      rows.push({ kind: 'del', oldNum: prefix + i + 1, text: midBefore[i] })
+      rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
       removed += 1
       i += 1
     }
     while (j < n) {
-      rows.push({ kind: 'add', newNum: prefix + j + 1, text: midAfter[j] })
+      rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
       added += 1
       j += 1
     }
   } else {
     for (let i = 0; i < midBefore.length; i += 1) {
-      rows.push({ kind: 'del', oldNum: prefix + i + 1, text: midBefore[i] })
+      rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
       removed += 1
     }
     for (let j = 0; j < midAfter.length; j += 1) {
-      rows.push({ kind: 'add', newNum: prefix + j + 1, text: midAfter[j] })
+      rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
       added += 1
     }
   }
@@ -227,7 +256,7 @@ export function computeLineDiff(oldText, newText) {
   for (let k = 0; k < suffix; k += 1) {
     const oldIdx = before.length - suffix + k
     const newIdx = after.length - suffix + k
-    rows.push({ kind: 'ctx', oldNum: oldIdx + 1, newNum: newIdx + 1, text: before[oldIdx] })
+    rows.push(makeDiffRow('ctx', before[oldIdx], { oldNum: oldIdx + 1, newNum: newIdx + 1 }))
   }
 
   return { rows, added, removed }
@@ -420,20 +449,20 @@ function ReadToolView({ block, cwd, phase, useDisclosure }) {
   const meta = useMemo(() => (phase === 'result' && !isError ? readMetaFromMeta(block?.meta) : undefined), [phase, isError, block?.meta])
   const rawPath = meta?.path ?? readArgText(block, 'file_path', 'path')
   const displayPath = shortPath(rawPath, cwd)
-  const rawResult = useMemo(() => (phase === 'result' && !meta ? formatResult(block) : ''), [phase, meta, block])
+  const hasLines = meta !== undefined && meta.lines.length > 0
+  const rawResult = useMemo(() => (phase === 'result' && !hasLines ? formatResult(block) : ''), [phase, hasLines, block])
   const errLine = errorLineOf(block, isError)
   const duration = formatToolDuration(block, phase)
 
   const badges = []
-  if (meta) {
-    const first = meta.lines[0]?.number ?? meta.offset
-    const last = meta.lines.at(-1)?.number ?? first
-    const range = meta.lines.length > 0 && (first > 1 || last < meta.totalLines)
+  if (hasLines) {
+    const first = meta.lines[0].number
+    const last = meta.lines.at(-1).number
+    const range = first > 1 || last < meta.totalLines
       ? t('Lines {start}–{end} of {total}', { start: first, end: last, total: meta.totalLines })
       : `L${first}–${last}`
     badges.push(h('span', { key: 'range', className: 'dsb-tool-pill' }, range))
   }
-  const hasLines = meta !== undefined && meta.lines.length > 0
   const hasBody = hasLines || rawResult !== '' || errLine !== ''
   const clipped = hasLines && meta.lines.length > READ_FOLD_LINES
   const visibleLines = hasLines ? (showAll || !clipped ? meta.lines : meta.lines.slice(0, READ_FOLD_LINES)) : []
@@ -529,14 +558,16 @@ function patchPathsFromArg(patchText) {
   return paths
 }
 
-function DiffFileView({ diff, cwd }) {
+function DiffFileView({ diff, computed, cwd }) {
   const [showAll, setShowAll] = useState(false)
   const displayPath = shortPath(diff.path, cwd)
-  const computed = useMemo(() => computeLineDiff(diff.oldText, diff.newText), [diff.oldText, diff.newText])
   const clipped = computed.rows.length > DIFF_FOLD_LINES
   const visible = showAll || !clipped ? computed.rows : computed.rows.slice(0, DIFF_FOLD_LINES)
   const unifiedText = useMemo(
-    () => computed.rows.map(row => `${row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}${row.text}`).join('\n'),
+    () => computed.rows.flatMap(row => [
+      `${row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}${row.text}`,
+      ...(row.noNewline ? ['\\ No newline at end of file'] : []),
+    ]).join('\n'),
     [computed.rows],
   )
   return h('div', { className: 'dsb-diff-file' },
@@ -546,10 +577,16 @@ function DiffFileView({ diff, cwd }) {
       computed.removed > 0 ? h('span', { className: 'dsb-diff-minus' }, `-${computed.removed}`) : null,
       unifiedText !== '' ? h(MiniCopy, { text: unifiedText }) : null),
     visible.length > 0 ? h('div', { className: 'dsb-diff-lines' },
-      visible.map((row, index) => h('div', { key: index, className: 'dsb-diff-row', 'data-kind': row.kind },
-        h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, row.kind === 'del' ? row.oldNum : (row.newNum ?? '')),
-        h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
-        h('span', { className: 'dsb-diff-text' }, row.text || '\u00a0')))) : null,
+      visible.flatMap((row, index) => [
+        h('div', { key: `${index}:l`, className: 'dsb-diff-row', 'data-kind': row.kind },
+          h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, row.kind === 'del' ? row.oldNum : (row.newNum ?? '')),
+          h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
+          h('span', { className: 'dsb-diff-text' }, row.text || '\u00a0')),
+        ...(row.noNewline ? [h('div', { key: `${index}:nnl`, className: 'dsb-diff-row dsb-diff-note', 'data-kind': row.kind },
+          h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, ''),
+          h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, '\\'),
+          h('span', { className: 'dsb-diff-text' }, 'No newline at end of file'))] : []),
+      ])) : null,
     clipped ? h('button', {
       type: 'button',
       className: 'dsb-tool-fold',
@@ -562,24 +599,28 @@ function DiffToolView({ toolName, block, cwd, phase, useDisclosure }) {
   const disclosure = useDisclosure()
   const isError = phase === 'result' && block?.isError === true
   const meta = useMemo(() => (phase === 'result' && !isError ? diffMetaFromMeta(block?.meta) : undefined), [phase, isError, block?.meta])
-  const diffs = useMemo(() => meta?.diffs ?? previewDiffsFromArgs(toolName, block), [meta, toolName, block])
-  const patchArg = toolName === 'apply_patch' ? readArgText(block, 'patch') : ''
+  const diffs = useMemo(() => (meta?.diffs?.length ? meta.diffs : previewDiffsFromArgs(toolName, block)), [meta, toolName, block])
+  // DSH `apply_patch` uses `input` for the patch payload; fall back to `patch` for compatibility.
+  const patchArg = toolName === 'apply_patch' ? readArgText(block, 'input', 'patch') : ''
   const patchPaths = useMemo(() => (diffs.length === 0 ? patchPathsFromArg(patchArg) : []), [diffs.length, patchArg])
+  const computedDiffs = useMemo(
+    () => diffs.map(diff => ({ diff, computed: computeLineDiff(diff.oldText, diff.newText) })),
+    [diffs],
+  )
   const totals = useMemo(() => {
     let added = 0
     let removed = 0
-    for (const diff of diffs) {
-      const c = computeLineDiff(diff.oldText, diff.newText)
-      added += c.added
-      removed += c.removed
+    for (const { computed } of computedDiffs) {
+      added += computed.added
+      removed += computed.removed
     }
     return { added, removed }
-  }, [diffs])
+  }, [computedDiffs])
 
   const label = toolName === 'write' || toolName === 'write_file' ? t('Write')
     : toolName === 'apply_patch' ? t('Patch')
       : t('Edit')
-  const rawPrimary = diffs[0]?.path ?? patchPaths[0] ?? readArgText(block, 'file_path', 'path')
+  const rawPrimary = meta?.path ?? diffs[0]?.path ?? patchPaths[0] ?? readArgText(block, 'file_path', 'path')
   const extraCount = Math.max(diffs.length, patchPaths.length) - 1
   const summary = rawPrimary
     ? `${shortPath(rawPrimary, cwd)}${extraCount > 0 ? ` (+${extraCount})` : ''}`
@@ -587,12 +628,14 @@ function DiffToolView({ toolName, block, cwd, phase, useDisclosure }) {
 
   const badges = []
   if (meta?.operation === 'create') badges.push(h('span', { key: 'op', className: 'dsb-tool-pill', 'data-tone': 'ok' }, t('Created')))
+  if (meta?.stopped) badges.push(h('span', { key: 'stop', className: 'dsb-tool-pill', 'data-tone': 'warn' }, t('Stopped')))
   if (totals.added > 0) badges.push(h('span', { key: 'add', className: 'dsb-diff-plus' }, `+${totals.added}`))
   if (totals.removed > 0) badges.push(h('span', { key: 'del', className: 'dsb-diff-minus' }, `-${totals.removed}`))
 
-  const rawResult = phase === 'result' && diffs.length === 0 ? formatResult(block) : ''
+  // Always preserve returned diagnostics on failed edits/writes even when preview diffs exist.
+  const rawResult = phase === 'result' && (!meta || isError) ? formatResult(block) : ''
   const errLine = errorLineOf(block, isError)
-  const hasBody = diffs.length > 0 || patchArg !== '' || rawResult !== '' || errLine !== ''
+  const hasBody = computedDiffs.length > 0 || patchArg !== '' || rawResult !== '' || errLine !== ''
 
   return h(ToolCardShell, {
     icon: DiffIcon,
@@ -608,10 +651,11 @@ function DiffToolView({ toolName, block, cwd, phase, useDisclosure }) {
     hasBody,
   },
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
-  diffs.length > 0
-    ? diffs.map((diff, index) => h(DiffFileView, { key: `${diff.path}:${index}`, diff, cwd }))
+  rawResult !== '' && isError ? h(CodeSection, { label: t('Error'), text: rawResult, error: true }) : null,
+  computedDiffs.length > 0
+    ? computedDiffs.map(({ diff, computed }, index) => h(DiffFileView, { key: `${diff.path}:${index}`, diff, computed, cwd }))
     : patchArg !== '' ? h(CodeSection, { label: t('Patch'), text: patchArg }) : null,
-  rawResult !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: rawResult, error: isError }) : null)
+  rawResult !== '' && !isError ? h(CodeSection, { label: t('Result'), text: rawResult, error: false }) : null)
 }
 
 function SearchToolView({ toolName, block, cwd, phase, useDisclosure }) {
@@ -767,7 +811,8 @@ function WebFetchToolView({ block, phase, useDisclosure }) {
 
 function TodoToolView({ block, phase, useDisclosure }) {
   const items = useMemo(() => parseTodoItems(block), [block])
-  const disclosure = useDisclosure(items.length > 0)
+  // Start open regardless of initial readiness so live preparing->start streams expand cleanly.
+  const disclosure = useDisclosure(true)
   const isError = phase === 'result' && block?.isError === true
   const done = items.filter(item => item.status === 'completed').length
   const active = items.find(item => item.status === 'in_progress')
@@ -799,7 +844,7 @@ function TodoToolView({ block, phase, useDisclosure }) {
 
 function PresentToolView({ block, cwd, phase, useDisclosure }) {
   const files = useMemo(() => parsePresentedFiles(block), [block])
-  const disclosure = useDisclosure(files.length > 0)
+  const disclosure = useDisclosure(true)
   const isError = phase === 'result' && block?.isError === true
   const errLine = errorLineOf(block, isError)
   const badges = files.length > 0
@@ -838,6 +883,7 @@ function PresentToolView({ block, cwd, phase, useDisclosure }) {
 function RunCodeToolView({ block, phase, useDisclosure }) {
   const disclosure = useDisclosure()
   const isError = phase === 'result' && block?.isError === true
+  const description = readArgText(block, 'description')
   const code = readArgText(block, 'code', 'script')
   const firstLine = code.split('\n').map(line => line.trim()).find(line => line !== '' && !line.startsWith('//') && !line.startsWith('#')) ?? ''
   const rawResult = phase === 'result' ? formatResult(block) : ''
@@ -847,7 +893,7 @@ function RunCodeToolView({ block, phase, useDisclosure }) {
   return h(ToolCardShell, {
     icon: CodeIcon,
     label: t('Run code'),
-    summary: compact(firstLine),
+    summary: compact(description || firstLine),
     phase,
     isError,
     duration: formatToolDuration(block, phase),
@@ -896,7 +942,7 @@ const SkillToolView = makeSimpleToolView({
 const WorkingDirectoryToolView = makeSimpleToolView({
   icon: FolderIcon,
   label: 'Working directory',
-  summaryOf: (block, cwd) => shortPath(readArgText(block, 'path', 'cwd', 'directory'), cwd),
+  summaryOf: (block, cwd) => shortPath(readArgText(block, 'cd', 'path', 'cwd', 'directory'), cwd),
 })
 
 const JobToolView = makeSimpleToolView({

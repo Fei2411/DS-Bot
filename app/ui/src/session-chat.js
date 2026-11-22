@@ -5,6 +5,7 @@
 // (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
 // compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
 import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
@@ -68,7 +69,16 @@ function loadAttachmentImage(sessionId, attachmentId) {
   return promise
 }
 
-const userTextOf = event => contentParts(event?.data?.content).text
+function userSummaryOf(event) {
+  const { text, attachments } = contentParts(event?.data?.content)
+  let images = 0
+  let files = 0
+  for (const block of attachments) {
+    if (block?.type === 'image') images += 1
+    else if (block?.type === 'file') files += 1
+  }
+  return { text, images, files }
+}
 
 function collectUserEvents(events) {
   const out = []
@@ -149,12 +159,14 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
           for (const userEv of users) {
             if (seenUserSeqsRef.current.has(userEv.seq)) continue
             seenUserSeqsRef.current.add(userEv.seq)
-            onUserRef.current?.(userTextOf(userEv), userEv.time, initial)
+            const summary = userSummaryOf(userEv)
+            onUserRef.current?.(summary.text, userEv.time, initial, summary)
           }
         } else if (!next.reopen && data?.type === 'event' && data.event?.type === 'user/message' && data.event.data?.source?.kind === 'user') {
           if (!seenUserSeqsRef.current.has(data.event.seq)) {
             seenUserSeqsRef.current.add(data.event.seq)
-            onUserRef.current?.(userTextOf(data.event), data.event.time, false)
+            const summary = userSummaryOf(data.event)
+            onUserRef.current?.(summary.text, data.event.time, false, summary)
           }
         }
         const now = Date.now()
@@ -268,6 +280,7 @@ function UserImageThumb({ sessionId, attachment }) {
   const cached = !direct && sessionId && attachmentId ? imageCache.get(`${sessionId}:${attachmentId}`) ?? null : null
   const [loaded, setLoaded] = useState(cached)
   const [zoomed, setZoomed] = useState(false)
+  const closeBtn = useRef(null)
   const src = direct ?? loaded
 
   useEffect(() => {
@@ -286,9 +299,15 @@ function UserImageThumb({ sessionId, attachment }) {
 
   useEffect(() => {
     if (!zoomed) return undefined
-    const onKey = (event) => { if (event.key === 'Escape') setZoomed(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    closeBtn.current?.focus?.()
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setZoomed(false)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [zoomed])
 
   if (!src) {
@@ -296,6 +315,23 @@ function UserImageThumb({ sessionId, attachment }) {
       h('span', { className: 'dsb-ufile-icon', 'aria-hidden': true }, h(ImageIcon)),
       h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name)))
   }
+  const lightbox = zoomed ? h('div', {
+    className: 'dsb-lightbox',
+    role: 'dialog',
+    'aria-modal': true,
+    'aria-label': name,
+    onClick: (event) => { if (event.target === event.currentTarget) setZoomed(false) },
+  },
+  h('button', {
+    ref: closeBtn,
+    type: 'button',
+    className: 'dsb-lightbox-close',
+    'aria-label': t('Close'),
+    title: t('Close'),
+    onClick: () => setZoomed(false),
+  }, h(CloseIcon)),
+  h('img', { className: 'dsb-lightbox-img', src, alt: name })) : null
+  const portalTarget = typeof document !== 'undefined' && document?.body ? document.body : null
   return h(Fragment, null,
     h('button', {
       type: 'button',
@@ -304,21 +340,7 @@ function UserImageThumb({ sessionId, attachment }) {
       'aria-label': name,
       onClick: () => setZoomed(true),
     }, h('img', { className: 'dsb-uimg', src, alt: name, loading: 'lazy' })),
-    zoomed ? h('div', {
-      className: 'dsb-lightbox',
-      role: 'dialog',
-      'aria-modal': true,
-      'aria-label': name,
-      onClick: (event) => { if (event.target === event.currentTarget) setZoomed(false) },
-    },
-    h('button', {
-      type: 'button',
-      className: 'dsb-lightbox-close',
-      'aria-label': t('Close'),
-      title: t('Close'),
-      onClick: () => setZoomed(false),
-    }, h(CloseIcon)),
-    h('img', { className: 'dsb-lightbox-img', src, alt: name })) : null)
+    lightbox && portalTarget ? createPortal(lightbox, portalTarget) : lightbox)
 }
 
 export function UserAttachments({ attachments, sessionId }) {
