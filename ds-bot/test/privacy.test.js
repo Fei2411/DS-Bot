@@ -13,7 +13,7 @@ let rt
 const P = 'd1a40000-1111-4222-8333-444444444444'
 
 // Chief (Main), Writer in the group Ops, and Diary, a Bot with a folder of its own.
-function seed({ diary, privateBot, archives = [], picked, openPart = false }) {
+function seed({ diary, privateBot, archives = [], picked, openPart = false, parts = [] }) {
   return {
     version: 1,
     mainBotIds: ['a'],
@@ -22,7 +22,7 @@ function seed({ diary, privateBot, archives = [], picked, openPart = false }) {
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
       b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
-      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}), ...(openPart ? { openParts: [{ sessionId: 'p-bg', segments: [] }] } : {}) },
+      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}), ...(openPart ? { openParts: [{ sessionId: 'p-bg', segments: [] }] } : {}), ...(parts.length > 0 ? { segments: parts } : {}) },
     },
     rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, ...(picked === undefined ? {} : { memberDirs: { b: picked } }) } },
     agents: {},
@@ -34,7 +34,7 @@ function seed({ diary, privateBot, archives = [], picked, openPart = false }) {
   }
 }
 
-async function start({ services = {}, privateBot = true, archives, memberPick = false, openPart = false } = {}) {
+async function start({ services = {}, privateBot = true, archives, memberPick = false, openPart = false, parts = [] } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-privacy-')))
   const dsh = join(root, 'dsh')
@@ -45,7 +45,7 @@ async function start({ services = {}, privateBot = true, archives, memberPick = 
   const picked = join(root, 'picked')
   for (const dir of [team, project, diary, ...(memberPick ? [picked] : [])]) mkdirSync(dir, { recursive: true })
   writeFileSync(join(diary, 'notes.txt'), 'secret')
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined, openPart })))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined, openPart, parts })))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -259,10 +259,10 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
 // #1939: deleting a conversation from a private Bot's chat list archives its Session but
 // keeps the transcript, so the id stays on the Bot and other Bots still cannot read it.
 test('a part deleted from a private Bot\'s chat stays closed to other Bots', async (t) => {
-  const { rt, run, stop } = await start({ openPart: true })
+  const { rt, run, stop } = await start({ parts: [{ sessionId: 'p-bg', endedAt: 1 }] })
   t.after(stop)
   await rt.deletePart(P, 'p-bg')
-  assert.equal(rt.botOf(P).openParts, undefined)
+  assert.deepEqual(rt.botOf(P).segments ?? [], [])
   const denied = await run('session_trace', { session_id: 'p-bg' }, 'b')
   assert.equal(denied.ran, false)
   assert.match(denied.error, CLOSED)

@@ -3,13 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Deleting a conversation (#1905): a part the user is not reading leaves the Bot's chat
-// and its Session is archived; the part on screen stays, and a live parallel part goes
-// with its own earlier parts once it is idle.
+// and its Session is archived; the part on screen stays, and a part still waiting to
+// retire keeps its place until its reminders have moved.
 
 let rt
 
@@ -150,105 +149,10 @@ test('a background task session is refused: tasks are read-only', async (t) => {
   assert.deepEqual(archived, [])
 })
 
-test('an idle parallel conversation goes with its own earlier parts', async (t) => {
-  const { archived, call, stored, stop } = await start(seed({
-    segments: earlier('b1'),
-    openParts: [{ sessionId: 'o1', segments: earlier('o0'), startedAt: 5 }],
-  }))
-  t.after(stop)
-
-  const out = await call('bot-delete-part', { botId: 'b', sessionId: 'o1' })
-  assert.equal(out.ok, true)
-  assert.deepEqual(archived.map(entry => entry.id).sort(), ['o0', 'o1'])
-  // Its thread ends here, so the parts it was reading in that thread go with it.
-  assert.equal(stored().bots.b.openParts, undefined)
-  // The foreground chat and its own earlier parts are untouched.
-  assert.equal(stored().bots.b.sessionId, 'b2')
-  assert.deepEqual(stored().bots.b.segments.map(segment => segment.sessionId), ['b1'])
-})
-
-test('a parallel conversation that is working is refused, and deletable once it stops', async (t) => {
-  const { archived, call, emit, stop } = await start(seed({
-    openParts: [{ sessionId: 'o1', segments: [], startedAt: 5 }],
-  }))
-  t.after(stop)
-
-  emit('o1', 'turn/start', { turn: 1 })
-  const busy = await call('bot-delete-part', { botId: 'b', sessionId: 'o1' })
-  assert.equal(busy.ok, false)
-  assert.equal(busy.error.code, 'bot/busy')
-  assert.deepEqual(archived, [])
-
-  emit('o1', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  const after = await call('bot-delete-part', { botId: 'b', sessionId: 'o1' })
-  assert.equal(after.ok, true)
-  assert.deepEqual(archived.map(entry => entry.id), ['o1'])
-})
-
-// #1939: opening an earlier part awaits `unarchiveSession`, and a delete in another
-// window can move that history meanwhile. The switch must find its part again by id
-// instead of splicing at a stale index, which dropped a neighbour and saved the opened
-// part twice.
-
-test('a delete during a switch keeps the neighbour the switch used to drop', async (t) => {
-  const { ctx, rt, stored, stop } = await start(seed({ sessionId: 'b4', segments: earlier('b1', 'b2', 'b3') }))
-  t.after(stop)
-
-  let release
-  ctx.workspaceRegistry.unarchiveSession = () => new Promise((resolve) => { release = resolve })
-  const switched = rt.switchPart('b', 'b2')
-  await delay(20)
-  // A is gone from the list while B is still unarchiving.
-  await rt.deletePart('b', 'b1')
-  release()
-  assert.equal(await switched, true)
-
-  assert.equal(stored().bots.b.sessionId, 'b2')
-  // B is current, D is the part it replaced, and C — the neighbour a stale index would
-  // have replaced — is still there.
-  assert.deepEqual(stored().bots.b.segments.map(segment => segment.sessionId), ['b4', 'b3'])
-})
-
-test('a switch whose target was deleted meanwhile refuses instead of saving it twice', async (t) => {
-  const { ctx, rt, stored, stop } = await start(seed({ sessionId: 'b4', segments: earlier('b1', 'b2', 'b3') }))
-  t.after(stop)
-
-  let release
-  ctx.workspaceRegistry.unarchiveSession = () => new Promise((resolve) => { release = resolve })
-  const switched = rt.switchPart('b', 'b2')
-  await delay(20)
-  await rt.deletePart('b', 'b2')
-  release()
-
-  await assert.rejects(switched, error => error.code === 'bot/not-found')
-  assert.equal(stored().bots.b.sessionId, 'b4')
-  assert.deepEqual(stored().bots.b.segments.map(segment => segment.sessionId), ['b1', 'b3'])
-})
-
-test('a refused switch puts its target back into the archive', async (t) => {
-  const { ctx, rt, archived, stop } = await start(seed({ sessionId: 'b4', segments: earlier('b1', 'b2') }))
-  t.after(stop)
-
-  let release
-  ctx.workspaceRegistry.unarchiveSession = () => new Promise((resolve) => { release = resolve })
-  const switched = rt.switchPart('b', 'b1')
-  await delay(20)
-  // Another window starts a new conversation while B1 is still unarchiving.
-  await rt.newPart('b4')
-  release()
-
-  await assert.rejects(switched, error => error.code === 'bot/busy')
-  // B1 never became current, so it goes back to the archive instead of staying live.
-  const last = archived.at(-1)
-  assert.equal(last.id, 'b1')
-  assert.equal(last.options?.stopActivity, true)
-})
-
 test('a browser handoff raised from a deleted part stays with the user, detached from it', async (t) => {
   const { rt, stored, stop } = await start(seed({
     sessionId: 'b4',
     segments: earlier('b1', 'b2'),
-    openParts: [{ sessionId: 'o1', segments: [], startedAt: 5 }],
   }))
   t.after(stop)
   const holds = []
@@ -272,6 +176,25 @@ test('a browser handoff raised from a deleted part stays with the user, detached
   assert.equal(hold.callId, undefined)
   assert.match(hold.note, /controlling this browser/)
   assert.deepEqual(stored().bots.b.retiredSessions, ['b2', 'b1'])
+})
+
+test('a part waiting to retire is refused until its tasks have moved', async (t) => {
+  const { rt, archived, call, stop } = await start(seed({ segments: earlier('b1') }))
+  t.after(stop)
+  // A legacy part folded into the chat and still listed by `store.js` until `retireParts`
+  // has moved its tasks: archiving it here would drop the reminders it is owed.
+  rt.state.retiredParts = [{ sessionId: 'b1', botId: 'b' }]
+
+  const out = await call('bot-delete-part', { botId: 'b', sessionId: 'b1' })
+  assert.equal(out.ok, false)
+  assert.equal(out.error.code, 'bot/busy')
+  assert.deepEqual(archived, [])
+
+  // Once the retirement pass has moved them, the part deletes like any other.
+  delete rt.state.retiredParts
+  const after = await call('bot-delete-part', { botId: 'b', sessionId: 'b1' })
+  assert.equal(after.ok, true)
+  assert.deepEqual(archived.map(entry => entry.id), ['b1'])
 })
 
 test('a deleted private part keeps its id on the Bot, so the archive stays closed', async (t) => {

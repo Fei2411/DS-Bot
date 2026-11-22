@@ -339,45 +339,6 @@ test('no Bot shows a Sessions list or New session control, including local-agent
   assert.equal(buttonsOf(engine).find(button => textOf(button).includes('New session')), undefined)
 })
 
-// #1905: a conversation can be deleted from the list, but never the one on screen.
-const nodesWithClass = (node, className, found = []) => {
-  if (Array.isArray(node)) {
-    for (const child of node) nodesWithClass(child, className, found)
-    return found
-  }
-  if (node === null || typeof node !== 'object') return found
-  if (typeof node.type === 'function') return nodesWithClass(node.type(node.props), className, found)
-  const name = String(node.props?.className ?? '')
-  if (name.split(' ').includes(className)) found.push(node)
-  for (const child of node.children ?? []) nodesWithClass(child, className, found)
-  return found
-}
-
-test('an earlier session offers a delete control; the session on screen does not', () => {
-  const partsBot = { id: 'a', name: 'Chief', sessionId: 'a', parts: ['a', 'a-old', 'a-older'] }
-  const node = drawer('a', {}, { ...roster, byId: { a: partsBot } })
-  // Newest first: current, then the two earlier ones.
-  const rows = nodesWithClass(node, 'bt-agent-session-row')
-  assert.equal(rows.length, 3)
-  const controls = rows.map(row => nodesWithClass(row, 'bt-agent-session-del')[0] ?? null)
-  assert.equal(controls[0], null, 'the current session has no delete control')
-  for (const control of controls.slice(1)) {
-    assert.ok(control, 'each earlier session has one')
-    assert.equal(control.props['aria-label'], 'Delete this session')
-  }
-  // A click on the control must not also open (or switch to) that session.
-  let stopped = 0
-  controls[1].props.onClick({ stopPropagation: () => { stopped += 1 } })
-  assert.equal(stopped, 1)
-})
-
-test('a live parallel session offers a delete control too', () => {
-  const parallel = { id: 'a', name: 'Chief', sessionId: 'a', openParts: [{ sessionId: 'o1' }] }
-  const rows = nodesWithClass(drawer('a', {}, { ...roster, byId: { a: parallel } }), 'bt-agent-session-row')
-  assert.equal(rows.length, 2)
-  assert.ok(nodesWithClass(rows[1], 'bt-agent-session-del')[0], 'the parallel session can be deleted')
-})
-
 // A second instance of the drawer bundle whose React runs effects at once and keeps
 // one state slot, so the status line can resolve its host read and render.
 
