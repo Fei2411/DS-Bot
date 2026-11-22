@@ -475,6 +475,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     },
 
     async respondRun(principal, runId, body) {
+      requireScope(principal, 'card:respond')
       const result = await runs.respondToRun(runId, principal, body)
       if (!result.ok) throw httpError(result.status, result.code, result.message)
       return result.run
@@ -522,7 +523,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
     },
 
     async readMemory(principal, { kind, targetId, q, scope }) {
-      requireScope(principal, 'read')
+      requireScope(principal, 'memory:read')
       if (rt.memoryEnabled === false) return { entries: [], enabled: false }
       let body
       let defaultScope

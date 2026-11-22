@@ -94,7 +94,7 @@ export function normalizeConfig(raw) {
     host,
     confirmLan: !isLoopbackHost(host) && raw?.confirmLan === true,
     port,
-    openaiCompat: raw?.openaiCompat !== false,
+    openaiCompat: raw?.openaiCompat === true,
     rateLimitPerMin: positiveLimit(raw?.rateLimitPerMin, DEFAULT_RATE_LIMIT),
     maxConcurrentRuns: positiveLimit(raw?.maxConcurrentRuns, DEFAULT_CONCURRENT_RUNS),
   }
@@ -166,7 +166,7 @@ export function createApiAuth(rt) {
       enabled: wasOn,
       host: DEFAULT_HOST,
       port: wasOn ? legacyPort : DEFAULT_PORT,
-      openaiCompat: true,
+      openaiCompat: false,
     })
     writeJsonAtomic(configPath, config)
     const legacyClients = Array.isArray(legacy.clients) ? legacy.clients : []
@@ -595,7 +595,11 @@ export function createApiAuth(rt) {
       }
     }
 
-    const hasScope = scope => scopes.has(normalizeScopeName(scope))
+    const hasScope = scope => {
+      if (scope === 'memory:read') return entry.migratedFrom !== 'mcp.json' && scopes.has('read')
+      if (scope === 'card:respond') return entry.migratedFrom !== 'mcp.json' && (scopes.has('message') || scopes.has('approval'))
+      return scopes.has(normalizeScopeName(scope))
+    }
 
     const canAccessBot = (botId) => {
       const bot = rt.botOf(botId)

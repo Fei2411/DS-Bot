@@ -454,6 +454,8 @@ test('legacy v0.3.9 mcp.json migrates seamlessly into api-config/api-tokens and 
   assert.equal(view.boundPort, freePort)
   assert.equal(view.tokens.length, 1)
   assert.equal(view.tokens[0].name, 'Claude Desktop')
+  assert.deepEqual(view.tokens[0].scopes, ['read', 'message'])
+  assert.equal(view.openaiCompat, false)
   // Private Bot must be stripped during migration
   assert.deepEqual(view.tokens[0].botIds, ['b1'])
   assert.deepEqual(view.tokens[0].privateBotIds, [])
@@ -466,4 +468,26 @@ test('legacy v0.3.9 mcp.json migrates seamlessly into api-config/api-tokens and 
   }).then(r => r.json())
   assert.deepEqual(mcpRes.result.structuredContent.bots.map(b => b.id), ['b1'])
   assert.equal((await fetch(`${view.baseUrl}/v1/bots/bp`, { headers: { Authorization: `Bearer ${legacyToken}` } })).status, 404)
+  const headers = { Authorization: `Bearer ${legacyToken}`, 'Content-Type': 'application/json' }
+  const mcp = async (name, args = {}) => fetch(`${view.baseUrl}/mcp`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } }),
+  }).then(response => response.json())
+  const sent = (await mcp('send_to_bot', { bot: 'b1', text: 'Legacy message' })).result.structuredContent
+  assert.equal(sent.sent, true)
+  assert.equal(typeof sent.after, 'number')
+  const waited = (await mcp('wait_for_reply', { bot: 'b1', after: sent.after, timeout: 0 })).result.structuredContent
+  assert.equal(waited.runId, sent.runId)
+  assert.equal(typeof waited.done, 'boolean')
+  assert.equal(Array.isArray(waited.messages), true)
+  assert.equal((await mcp('wait_for_reply', { bot: 'b1', after: -1, timeout: 0 })).result.isError, true)
+  assert.equal((await mcp('send_to_bot', { bot: 'bp', text: 'Forbidden' })).result.isError, true)
+  for (const name of ['dsbot_read_memory', 'dsbot_respond_run']) {
+    assert.equal((await mcp(name, { kind: 'bot', id: 'b1', runId: sent.runId, actionId: 'missing' })).result.isError, true)
+  }
+  assert.equal((await fetch(`${view.baseUrl}/v1/bots/b1/memory`, { headers })).status, 403)
+  assert.equal((await fetch(`${view.baseUrl}/v1/runs/${sent.runId}/respond`, {
+    method: 'POST', headers, body: JSON.stringify({ actionId: 'missing', answer: 'no' }),
+  })).status, 403)
+  assert.equal((await fetch(`${view.baseUrl}/compat/openai/v1/models`, { headers })).status, 404)
 })

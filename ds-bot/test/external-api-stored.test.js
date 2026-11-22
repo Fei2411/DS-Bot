@@ -6,6 +6,13 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createApiAuth, normalizeConfig } from '../src/host/api/auth.js'
 
+test('OpenAI compatibility requires explicit opt-in', () => {
+  for (const raw of [undefined, {}, { openaiCompat: false }, { openaiCompat: 'true' }]) {
+    assert.equal(normalizeConfig(raw).openaiCompat, false)
+  }
+  assert.equal(normalizeConfig({ openaiCompat: true }).openaiCompat, true)
+})
+
 test('stored hosts require valid IP literals and persisted LAN confirmation', t => {
   for (const host of ['127.0.0.1', '127.42.0.2', 'localhost', '::1']) {
     assert.equal(normalizeConfig({ host }).host, host)

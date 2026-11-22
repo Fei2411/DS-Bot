@@ -115,7 +115,7 @@ const TOOL_SPECS = [
   },
   {
     name: 'dsbot_read_memory',
-    scope: 'read',
+    scope: 'memory:read',
     description: 'Read or search long-term memory of an authorized Bot, group, or the shared team.',
     inputSchema: {
       type: 'object',
@@ -195,11 +195,13 @@ function toolErr(error) {
 }
 
 export function createMcpHandler({ service }) {
+  const legacySends = new Map()
+  let legacyAfter = 0
   function allowedTools(principal) {
     return TOOL_SPECS
       .filter(spec => {
         if (spec.name === 'dsbot_respond_run') {
-          return principal.hasScope('message') || principal.hasScope('approval')
+          return principal.hasScope('card:respond')
         }
         return principal.hasScope(spec.scope)
       })
@@ -213,12 +215,12 @@ export function createMcpHandler({ service }) {
     return [
       { uri: 'dsbot://team/bots', name: 'Authorized Bots', mimeType: 'application/json' },
       { uri: 'dsbot://team/groups', name: 'Authorized Groups', mimeType: 'application/json' },
-      ...bots.map(bot => ({
+      ...(principal.hasScope('memory:read') ? bots : []).map(bot => ({
         uri: `dsbot://bots/${encodeURIComponent(bot.id)}/memory`,
         name: `${bot.name} memory`,
         mimeType: 'application/json',
       })),
-      ...groups.map(group => ({
+      ...(principal.hasScope('memory:read') ? groups : []).map(group => ({
         uri: `dsbot://groups/${encodeURIComponent(group.id)}/memory`,
         name: `${group.name} memory`,
         mimeType: 'application/json',
@@ -237,12 +239,14 @@ export function createMcpHandler({ service }) {
     }
     const botMatch = /^dsbot:\/\/bots\/([^/]+)\/memory$/.exec(raw)
     if (botMatch) {
+      if (!principal.hasScope('memory:read')) throw httpError(403, 'api/scope-required', 'Memory access requires a newly authorized token')
       const botId = decodeURIComponent(botMatch[1])
       const mem = await service.readMemory(principal, { kind: 'bot', targetId: botId })
       return { contents: [{ uri: raw, mimeType: 'application/json', text: JSON.stringify(mem, null, 2) }] }
     }
     const groupMatch = /^dsbot:\/\/groups\/([^/]+)\/memory$/.exec(raw)
     if (groupMatch) {
+      if (!principal.hasScope('memory:read')) throw httpError(403, 'api/scope-required', 'Memory access requires a newly authorized token')
       const groupId = decodeURIComponent(groupMatch[1])
       const mem = await service.readMemory(principal, { kind: 'group', targetId: groupId })
       return { contents: [{ uri: raw, mimeType: 'application/json', text: JSON.stringify(mem, null, 2) }] }
@@ -251,6 +255,41 @@ export function createMcpHandler({ service }) {
   }
 
   async function callTool(principal, name, args = {}, audit) {
+    if (name === 'send_to_bot' || name === 'send_to_group') {
+      const mapped = name === 'send_to_bot' ? 'dsbot_send_to_bot' : 'dsbot_send_to_group'
+      const result = await callTool(principal, mapped, args, audit)
+      const run = result.structuredContent
+      const after = legacyAfter = Math.max(Date.now(), legacyAfter + 1)
+      const key = JSON.stringify([principal.keyId, after])
+      legacySends.set(key, { runId: run.runId })
+      if (legacySends.size > 1024) legacySends.delete(legacySends.keys().next().value)
+      return toolOk({ sent: true, after, runId: run.runId })
+    }
+    if (name === 'wait_for_reply') {
+      const saved = legacySends.get(JSON.stringify([principal.keyId, args.after]))
+      const runId = args.runId ?? saved?.runId
+      if (typeof runId !== 'string') throw httpError(400, 'mcp/legacy-handle-expired', 'Unknown legacy wait handle; use the runId returned by send_to_bot')
+      if (!principal.hasScope('read')) throw httpError(403, 'api/scope-required', 'Waiting requires read access')
+      const timeout = Math.min(50, Math.max(0, Number(args.timeout ?? 50) || 0)) * 1000
+      const deadline = Date.now() + timeout
+      let run
+      do {
+        if (principal.isCurrent?.() === false) throw httpError(403, 'api/token-changed', 'Token authorization changed')
+        run = service.getRun(principal, runId)
+        if (['completed', 'failed', 'stopped', 'waiting_human'].includes(run.status) || Date.now() >= deadline) break
+        await new Promise(resolve => setTimeout(resolve, Math.min(100, deadline - Date.now())))
+      } while (true)
+      audit.runId = runId
+      return toolOk({
+        done: ['completed', 'failed', 'stopped'].includes(run.status),
+        working: ['queued', 'running'].includes(run.status),
+        messages: run.output?.messages ?? [],
+        after: args.after,
+        runId,
+      })
+    }
+    const aliases = { list_bots: 'dsbot_list_bots', list_groups: 'dsbot_list_groups' }
+    name = aliases[name] ?? name
     const allowed = allowedTools(principal)
     if (!allowed.some(tool => tool.name === name)) {
       throw httpError(403, 'api/scope-required', `Tool "${name}" is not available for this token`)

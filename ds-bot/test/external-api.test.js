@@ -194,6 +194,7 @@ test('full REST + SSE + Idempotency + Upload + Memory + Events + MCP + OpenAI co
   }
 
   // Create a full-scope token (all public targets)
+  await h.rt.apiEndpoint('api-set', { openaiCompat: true })
   const { token } = await h.rt.apiEndpoint('api-token-create', {
     name: 'Test Runner',
     scopes: ['read', 'message', 'event:ingest', 'memory:write', 'approval', 'team:manage'],

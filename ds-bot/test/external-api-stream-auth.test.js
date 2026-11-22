@@ -15,6 +15,7 @@ for (const transport of ['events', 'run', 'openai']) {
       const home = mkdtempSync(join(tmpdir(), 'dsb-stream-auth-'))
       const rt = { home, ctx: {}, state: {}, botOf: id => ({ id }) }
       const auth = createApiAuth(rt)
+      auth.updateConfig({ openaiCompat: true })
       const created = auth.createToken({ name: 'Streaming', scopes: ['read', 'message'], targetScope: 'all_public' })
       const checked = await auth.authenticate({
         headers: { host: 'localhost', authorization: `Bearer ${created.token}` },
