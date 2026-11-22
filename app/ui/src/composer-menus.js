@@ -6,9 +6,12 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ChatsIcon, ClockIcon, GoalIcon, InfoIcon, PeopleIcon, SlidersIcon } from '../../../ds-bot/src/client/icons.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
+import { ALL_WORDS } from '../../../ds-bot/src/shared/mentions.js'
 
 /**
  * Inspects the composer draft up to `caret` for an active `@` mention or leading `/` command.
+ * The query stays bounded by `caret`, while `end` extends through the rest of the token so
+ * completing mid-token replaces the whole token cleanly without leaving trailing fragments.
  * @param {string} text
  * @param {number} caret
  * @returns {{ kind: 'mention' | 'command', start: number, end: number, query: string } | null}
@@ -22,7 +25,9 @@ export function activeComposerTrigger(text, caret) {
   if (before.startsWith('/')) {
     const body = before.slice(1)
     if (!/\s/.test(body)) {
-      return { kind: 'command', start: 0, end: pos, query: body }
+      let end = pos
+      while (end < text.length && !/\s/.test(text[end])) end += 1
+      return { kind: 'command', start: 0, end, query: body }
     }
   }
 
@@ -33,7 +38,9 @@ export function activeComposerTrigger(text, caret) {
     if (atIndex === 0 || /\s/.test(prev)) {
       const query = before.slice(atIndex + 1)
       if (!/[\s@]/.test(query)) {
-        return { kind: 'mention', start: atIndex, end: pos, query }
+        let end = pos
+        while (end < text.length && !/[\s@]/.test(text[end])) end += 1
+        return { kind: 'mention', start: atIndex, end, query }
       }
     }
   }
@@ -42,6 +49,7 @@ export function activeComposerTrigger(text, caret) {
 
 /**
  * Replaces `[trigger.start, trigger.end]` in `text` with `replacement` and returns the new text and caret.
+ * Collapses a duplicate space when `replacement` already ends with a space before an existing space.
  * @param {string} text
  * @param {{ start: number, end: number }} trigger
  * @param {string} replacement
@@ -51,7 +59,8 @@ export function applyTriggerText(text, trigger, replacement) {
   const source = typeof text === 'string' ? text : ''
   const start = Math.max(0, Math.min(trigger?.start ?? source.length, source.length))
   const end = Math.max(start, Math.min(trigger?.end ?? start, source.length))
-  const next = source.slice(0, start) + replacement + source.slice(end)
+  const tailStart = replacement.endsWith(' ') && source[end] === ' ' ? end + 1 : end
+  const next = source.slice(0, start) + replacement + source.slice(tailStart)
   return { text: next, caret: start + replacement.length }
 }
 
@@ -130,15 +139,21 @@ export function buildComposerMenuItems({ mode, query = '', roster, sessions, ses
   if (!roster?.ready || !sessionId) return []
   if (mode === 'mention') {
     const rows = mentionRows(roster, sessionId, query) ?? []
-    return rows.map((row) => ({
-      key: row.bot ? `bot:${row.bot.id}` : 'room:everyone',
-      kind: 'insert',
-      bot: row.bot,
-      icon: row.bot ? null : PeopleIcon,
-      title: row.bot ? row.bot.name : t('Everyone'),
-      subtitle: row.bot?.role || (row.room ? t('{count} members', { count: row.room.members.length }) : ''),
-      insertText: row.text,
-    }))
+    return rows.map((row) => {
+      // Only emit localized "@Everyone" when `mentionSpans` recognizes the word (e.g. "Everyone", "所有人");
+      // otherwise emit "@everyone " so group routing reaches every member across all locales.
+      const rawWord = String(row.text ?? '').replace(/^@/, '').trim().toLowerCase()
+      const everyoneText = ALL_WORDS.includes(rawWord) ? row.text : '@everyone '
+      return {
+        key: row.bot ? `bot:${row.bot.id}` : 'room:everyone',
+        kind: 'insert',
+        bot: row.bot,
+        icon: row.bot ? null : PeopleIcon,
+        title: row.bot ? row.bot.name : t('Everyone'),
+        subtitle: row.bot?.role || (row.room ? t('{count} members', { count: row.room.members.length }) : ''),
+        insertText: row.bot ? row.text : everyoneText,
+      }
+    })
   }
   if (mode === 'reference') {
     const rows = chatRows(roster, sessions, sessionId)

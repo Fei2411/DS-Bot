@@ -526,17 +526,27 @@ function DeliverablesRow({ row, sessionId }) {
   if (files.length === 0) return null
   return h('div', { className: 'dsb-deliverables', role: 'region', 'aria-label': t('Delivered files') },
     files.map((file, index) => {
+      const fileIndex = Number.isInteger(file.index) ? file.index : index
       const name = String(file.path ?? '').split(/[\\/]/).filter(Boolean).at(-1) || file.path
       const actionUrl = sessionId && Number.isInteger(row.seq)
-        ? `present://file?sessionId=${encodeURIComponent(sessionId)}&seq=${row.seq}&index=${index}`
+        ? `present://file?sessionId=${encodeURIComponent(sessionId)}&seq=${row.seq}&index=${fileIndex}`
         : ''
-      return h('div', { key: `${row.seq}:${index}:${file.path}`, className: 'dsb-deliverable' },
+      return h('div', { key: `${row.seq}:${fileIndex}:${file.path}`, className: 'dsb-deliverable' },
         h('span', { className: 'dsb-deliverable-icon', 'aria-hidden': true }, h(FileIcon)),
         h('span', { className: 'dsb-deliverable-text' },
           h('span', { className: 'dsb-deliverable-name', title: file.path }, name),
           file.description ? h('span', { className: 'dsb-deliverable-desc' }, file.description) : null),
         actionUrl ? h(SaveFileAction, { actionUrl }) : null)
     }))
+}
+
+function turnFactsSignature(facts) {
+  if (!facts?.turns) return ''
+  const parts = [`open:${facts.openTurn ?? ''}`]
+  for (const entry of facts.turns.values()) {
+    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}`)
+  }
+  return parts.join('|')
 }
 
 function TurnTailRow({ row, sessionId, useRoster, actions }) {
@@ -554,6 +564,9 @@ export function SessionTranscript({
 }) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
   const turnFacts = useMemo(() => extractTurnFacts(log?.events), [log?.events])
+  const turnSig = turnFactsSignature(turnFacts)
+  const turnFactsRef = useRef(turnFacts)
+  turnFactsRef.current = turnFacts
   const safeRoster = useMemo(() => ({
     bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
   }), [roster])
@@ -566,12 +579,13 @@ export function SessionTranscript({
   const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
   const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
   const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
-  // Sync turn facts (`{ turns, openTurn }`) for BtwDock/BtwTurnTail/LearningDock/LearningTurnTail.
+  // Sync turn facts (`{ turns, openTurn }`) only when turn boundaries actually change so
+  // non-turn streaming events do not fan out re-renders across every turn tail.
   useEffect(() => {
     if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
-    actions.noteTurnFacts(sessionId, turnFacts)
+    actions.noteTurnFacts(sessionId, turnFactsRef.current)
     return undefined
-  }, [turnFacts, sessionId, actions])
+  }, [turnSig, sessionId, actions])
   useEffect(() => () => {
     if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
   }, [sessionId, actions])

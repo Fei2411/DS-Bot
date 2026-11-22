@@ -290,7 +290,7 @@ function useInput(field, textRef, setText, setCaret) {
     captureInsertion: () => (field.current ? { start: field.current.selectionStart, end: field.current.selectionEnd } : null),
     insertText: (value, at) => {
       const current = textRef.current ?? ''
-      const start = Math.min(at?.start ?? current.length, current.length)
+      const start = Math.max(0, Math.min(at?.start ?? current.length, current.length))
       const end = Math.max(start, Math.min(at?.end ?? start, current.length))
       const nextText = current.slice(0, start) + value + current.slice(end)
       const nextCaret = start + value.length
@@ -368,6 +368,11 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const skipNextSaveRef = useRef(false)
   const ownedUrlsRef = useRef(undefined)
   if (ownedUrlsRef.current === undefined) ownedUrlsRef.current = new Set()
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const attachmentsRef = useRef(undefined)
   attachmentsRef.current = attachments
   const textRef = useRef(text)
@@ -595,6 +600,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setDismissedKey(null)
     if (item.kind === 'insert') {
       const { text: nextText, caret: nextCaret } = applyTriggerText(text, trigger, item.insertText)
+      textRef.current = nextText
       setText(nextText)
       setCaret(nextCaret)
       const focusCaret = () => {
@@ -606,6 +612,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       return
     }
     const { text: nextText, caret: nextCaret } = applyTriggerText(text, trigger, '')
+    textRef.current = nextText
     setText(nextText)
     setCaret(nextCaret)
     item.run?.()
@@ -619,6 +626,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setError(null)
     setReferenceTrigger(null)
     setDismissedKey(null)
+    textRef.current = ''
+    attachmentsRef.current = []
     setText('')
     setCaret(0)
     setAttachments([])
@@ -630,8 +639,33 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         if (item.previewUrl) ownedUrlsRef.current.delete(item.previewUrl)
       }
     } catch (failure) {
-      setText(current => (current === '' ? value : current))
-      if (items.length > 0) setAttachments(current => [...items, ...current])
+      if (!mountedRef.current) {
+        if (chatId) {
+          keepDraft({
+            chatId,
+            part: sessionId,
+            text: value,
+            files: items.map(item => ({
+              kind: item.isImage ? 'image' : 'file',
+              file: item.file,
+              ...(item.pastedText ? { pastedText: item.pastedText } : {}),
+            })),
+          })
+        }
+        return
+      }
+      setText((current) => {
+        const next = current === '' ? value : current
+        textRef.current = next
+        return next
+      })
+      if (items.length > 0) {
+        setAttachments((current) => {
+          const next = [...items, ...current]
+          attachmentsRef.current = next
+          return next
+        })
+      }
       setError(failure?.message ?? String(failure))
     }
   }
@@ -695,7 +729,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         onClick: syncCaret,
         onKeyUp: syncCaret,
         onSelect: syncCaret,
-        onBlur: () => { if (referenceTrigger) setReferenceTrigger(null) },
+        onBlur: closeMenu,
         onPaste,
         onKeyDown: (event) => {
           if (menuItems.length > 0 && !isImeComposing(event)) {
@@ -709,7 +743,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
               setMenuIndex((clampedMenuIndex - 1 + menuItems.length) % menuItems.length)
               return
             }
-            if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+            if (((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') && !event.altKey && !event.ctrlKey && !event.metaKey) {
               event.preventDefault()
               selectMenuItem(menuItems[clampedMenuIndex])
               return
@@ -1054,8 +1088,8 @@ export function Chat({ sessionId, team, registry }) {
     !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom ? h(ApprovalDock, { botId: bot?.id, useWork, actions, readOnly }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     h(Composer, {
       sessionId: activeSessionId,
       disabled: locked,

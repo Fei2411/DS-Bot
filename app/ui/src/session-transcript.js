@@ -214,8 +214,8 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
 }
 
 /**
- * Extracts DSH-compatible `{ turns: Map<number, { turn, start, end? }>, openTurn }` from
- * `SessionLog.events` for `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`.
+ * Extracts DSH-compatible `{ turns: Map<number, { turn, status, start, end? }>, openTurn }`
+ * from `SessionLog.events` for `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`.
  */
 export function extractTurnFacts(events) {
   const turns = new Map()
@@ -224,11 +224,13 @@ export function extractTurnFacts(events) {
     if (!event || typeof event !== 'object') continue
     const turn = event.data?.turn
     if (!Number.isInteger(turn)) continue
+    const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
     if (event.type === 'turn/start') {
       const existing = turns.get(turn)
       turns.set(turn, {
         turn,
-        start: existing?.start ?? { seq: event.seq },
+        status: existing?.end ? 'closed' : 'open',
+        start: existing?.start ?? mark,
         ...(existing?.end ? { end: existing.end } : {}),
       })
       if (!existing?.end) openTurn = turn
@@ -236,8 +238,9 @@ export function extractTurnFacts(events) {
       const existing = turns.get(turn)
       turns.set(turn, {
         turn,
-        start: existing?.start ?? { seq: event.seq },
-        end: { seq: event.seq },
+        status: 'closed',
+        start: existing?.start ?? mark,
+        end: mark,
       })
       if (openTurn === turn) openTurn = undefined
     }
@@ -362,7 +365,9 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'turn/start') {
       if (Number.isInteger(item.data?.turn)) {
         currentTurn = item.data.turn
-        if (!turnStarts.has(currentTurn)) turnStarts.set(currentTurn, item.seq)
+        if (!turnStarts.has(currentTurn)) {
+          turnStarts.set(currentTurn, Number.isFinite(item.time) ? { seq: item.seq, time: item.time } : { seq: item.seq })
+        }
       }
       currentStep = undefined
       continue
@@ -396,13 +401,14 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
         })
       }
       if (!hidden(turn) && Number.isInteger(turn)) {
+        const endMark = Number.isFinite(item.time) ? { seq: item.seq, time: item.time } : { seq: item.seq }
         rows.push({
           kind: 'turn-tail',
           key: `turn-tail:${turn}`,
           seq: item.seq,
           time: null,
           turn,
-          turnInfo: { turn, start: { seq: turnStarts.get(turn) ?? item.seq }, end: { seq: item.seq } },
+          turnInfo: { turn, status: 'closed', start: turnStarts.get(turn) ?? endMark, end: endMark },
         })
       }
       currentTurn = undefined
@@ -413,7 +419,9 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'deliverables/presented') {
       const turn = item.data?.turn ?? currentTurn
       const files = Array.isArray(item.data?.files)
-        ? item.data.files.filter(file => typeof file?.path === 'string' && file.path.trim() !== '')
+        ? item.data.files
+          .map((file, index) => (file && typeof file.path === 'string' && file.path.trim() !== '' ? { ...file, index } : null))
+          .filter(Boolean)
         : []
       if (!hidden(turn) && files.length > 0) {
         rows.push({

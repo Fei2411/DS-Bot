@@ -1,4 +1,5 @@
 import { Component, createElement as h, Fragment, useEffect, useMemo, useState } from 'react'
+import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
@@ -80,6 +81,7 @@ export function App() {
   const shown = hooks.useShown(id => id)
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
   const settingsOpen = hooks.useUi(state => Boolean(state.settings))
+  const paletteOpen = hooks.useUi(state => Boolean(state.palette))
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => { setDrawerOpen(false) }, [shown])
   useEscape(() => setDrawerOpen(false), drawerOpen)
@@ -88,20 +90,26 @@ export function App() {
       const hit = matchGlobalShortcut(event, { settingsOpen })
       if (!hit) return
       event.preventDefault()
-      if (hit === 'palette') actions.openPalette()
-      else if (hit === 'settings') {
-        if (settingsOpen) actions.closeSettings()
-        else actions.openSettings()
-      } else if (hit === 'new-chat') actions.openNewChat('new')
-      else if (hit === 'sidebar') actions.toggleSidebar()
-      else if (hit === 'shortcuts') {
+      if (hit === 'shortcuts') {
         if (shortcutsOpen) actions.closeShortcuts()
         else actions.openShortcuts()
+        return
       }
+      if (shortcutsOpen) actions.closeShortcuts()
+      if (hit === 'palette') {
+        if (paletteOpen) actions.closePalette()
+        else actions.openPalette()
+      } else if (hit === 'settings') {
+        if (settingsOpen) actions.closeSettings()
+        else actions.openSettings()
+      } else if (hit === 'new-chat') {
+        if (settingsOpen) actions.closeSettings()
+        actions.openNewChat('new')
+      } else if (hit === 'sidebar') actions.toggleSidebar()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [actions, settingsOpen, shortcutsOpen])
+  }, [actions, settingsOpen, shortcutsOpen, paletteOpen])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
@@ -138,7 +146,8 @@ export function App() {
       shown ? h(Fragment, { key: chatKey },
         h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
         h(Chat, { key: chatKey, sessionId: shown, team })) : null),
-    h(Contain, { onError: closeOverlays }, h(Overlays, views)),
-    h(ShortcutsDialog, { open: shortcutsOpen, onClose: actions.closeShortcuts }),
+    h(Contain, { onError: closeOverlays },
+      h(Overlays, views),
+      h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts })),
     h(ErrorToast, views))
 }

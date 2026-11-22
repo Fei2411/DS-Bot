@@ -43,6 +43,9 @@ const entryCode = `
   export { forgetKeptFiles } from '../ds-bot/src/client/draft-keep.js'
   export { STORAGE } from '../ds-bot/src/client/storage.js'
   export { PASTE_LIMIT } from '../ds-bot/src/client/paste-card.js'
+  export { installLocale } from '../ds-bot/src/client/i18n.js'
+  export { createLocale } from './ui/src/locale.js'
+  export { mentionSpans } from '../ds-bot/src/shared/mentions.js'
 `
 
 const { outputFiles } = await build({
@@ -199,6 +202,9 @@ const {
   forgetKeptFiles,
   STORAGE,
   PASTE_LIMIT,
+  installLocale,
+  createLocale,
+  mentionSpans,
 } = mod.exports
 
 const expand = (node, path = 'root') => {
@@ -270,7 +276,15 @@ test('activeComposerTrigger and applyTriggerText parse @ mentions and leading / 
   assert.equal(activeComposerTrigger('/sch extra', 10), null, 'space closes / command')
 
   const spliced = applyTriggerText('hi @wr please', { start: 3, end: 6 }, '@Writer ')
-  assert.deepEqual(plain(spliced), { text: 'hi @Writer  please', caret: 11 })
+  assert.deepEqual(plain(spliced), { text: 'hi @Writer please', caret: 11 })
+
+  // Mid-token caret replaces the whole mention without leaving trailing characters or double spaces.
+  const midTrigger = activeComposerTrigger('Ask @Wr|iter for help'.replace('|', ''), 7)
+  assert.deepEqual(plain(midTrigger), { kind: 'mention', start: 4, end: 11, query: 'Wr' })
+  assert.deepEqual(plain(applyTriggerText('Ask @Writer for help', midTrigger, '@Writer ')), { text: 'Ask @Writer for help', caret: 12 })
+
+  const midCmd = activeComposerTrigger('/shor', 3)
+  assert.deepEqual(plain(midCmd), { kind: 'command', start: 0, end: 5, query: 'sh' })
 })
 
 test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', () => {
@@ -300,9 +314,29 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   assert.deepEqual(plain(dmMentions.map(i => i.title)), ['Writer'])
   assert.equal(dmMentions[0].insertText, '@Writer ')
 
-  // Group mentions include members + Everyone.
+  // Group mentions include members + Everyone, and localized non-English locales (e.g. French)
+  // emit canonical "@everyone " so `mentionSpans` routes to every member while Chinese keeps "@所有人 ".
   const roomMentions = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
   assert.deepEqual(plain(roomMentions.map(i => i.title)), ['Chief', 'Writer', 'Everyone'])
+  const stopFr = installLocale(createLocale('fr'))
+  try {
+    const frRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
+    const everyoneRow = frRoom.find(item => item.key === 'room:everyone')
+    assert.equal(everyoneRow.insertText, '@everyone ')
+    assert.equal(mentionSpans(everyoneRow.insertText, roster.bots).some(span => span.all === true), true)
+  } finally {
+    stopFr()
+  }
+  const stopZh = installLocale(createLocale('zh'))
+  try {
+    const zhRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
+    const everyoneRow = zhRoom.find(item => item.key === 'room:everyone')
+    assert.equal(everyoneRow.insertText, '@所有人 ')
+    assert.equal(mentionSpans(everyoneRow.insertText, roster.bots).some(span => span.all === true), true)
+  } finally {
+    stopZh()
+  }
+  installLocale(createLocale('en'))
 
   // Reference a chat formats canonical dsh-session mention.
   const refs = buildComposerMenuItems({ mode: 'reference', query: '', roster, sessions: { ids: ['ext-1'], byId: { 'ext-1': { id: 'ext-1', title: 'External Chat', updatedAt: 1000 } } }, sessionId: 'b1', actions })
@@ -351,14 +385,18 @@ test('ApprovalDock shows only foreground DM approvals and dispatches allow/rejec
     // Failed answer surfaces inline alert and unlocks buttons.
     failOnce = true
     const btns = all(tree, n => n.type === 'button')
+    assert.equal(btns[0].props.className, 'bt-q-btn')
+    assert.equal(btns[1].props.className, 'bt-q-submit')
     btns[1].props.onClick() // Allow once
     await tick()
     tree = inst.render()
     assert.match(textOf(tree), /Stale approval/)
     assert.equal(all(tree, n => n.type === 'button')[1].props.disabled, false)
 
-    // Reject & Allow once dispatch exact choices.
-    all(tree, n => n.type === 'button')[0].props.onClick()
+    // Synchronous double-click fires answerApproval exactly once.
+    const liveBtns = all(tree, n => n.type === 'button')
+    liveBtns[0].props.onClick()
+    liveBtns[1].props.onClick()
     await tick()
     assert.deepEqual(decisions, [['a-fg', 'reject']])
 
@@ -382,25 +420,51 @@ test('matchGlobalShortcut and ShortcutsDialog respect platform, IME, settings Cm
 
   let closed = 0
   portalTargets.length = 0
-  const inst = mount(ShortcutsDialog, { open: true, onClose: () => { closed += 1 } })
+  const inst = mount(ShortcutsDialog, { open: true, enterToSend: false, onClose: () => { closed += 1 } })
   try {
     const tree = inst.render()
     assert.equal(portalTargets.includes(sandbox.document.body), true)
     assert.match(textOf(tree), /Keyboard shortcuts/)
     assert.match(textOf(tree), /Toggle sidebar/)
+    // enterToSend: false displays Cmd+Enter for Send message.
+    const sendRow = all(tree, n => n.props?.className === 'dsb-shortcuts-row' && /Send message/.test(textOf(n)))[0]
+    assert.match(textOf(sendRow), /⌘.*Enter/)
+    // Escape key dismisses the modal via shared overlay-hooks stack.
+    for (const fn of winListeners.get('keydown') ?? []) {
+      fn({ key: 'Escape', defaultPrevented: false, preventDefault() {}, stopPropagation() {} })
+    }
+    assert.equal(closed, 1)
     const closeBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-shortcuts-close'))[0]
     closeBtn.props.onClick()
-    assert.equal(closed, 1)
+    assert.equal(closed, 2)
   } finally {
     inst.unmount()
   }
 })
 
-test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables SaveFileAction, and createTeam turnFacts/watchTurns wire end-to-end', () => {
+test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables SaveFileAction, and createTeam turnFacts/watchTurns wire end-to-end', async () => {
+  const calls = []
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'state') return { unchanged: true }
+    return {}
+  }
   const team = createTeam()
   let notified = 0
   const unwatch = team.actions.watchTurns('b1', () => { notified += 1 })
   try {
+    // Verify actions.learningAnswer and shortcuts overlay cleanup on createTeam.
+    await team.actions.learningAnswer('lp-pending', true)
+    assert.deepEqual(plain(calls[0]), ['learning-answer', { id: 'lp-pending', approve: true }])
+    team.actions.openShortcuts()
+    team.actions.openSettings('general')
+    const uiProbe = mount(() => {
+      const shortcuts = team.hooks.useUi(s => s.shortcuts)
+      return { type: 'probe', props: { shortcuts } }
+    }, {})
+    assert.equal(uiProbe.render().props.shortcuts, false, 'opening Settings clears shortcuts modal')
+    uiProbe.unmount()
+
     const log = applyFrame(emptyLog(), {
       type: 'snapshot',
       header: { id: 'b1', cwd: '/repo' },
@@ -409,7 +473,8 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
       records: [
         { type: 'event', event: { seq: 1, time: 1000, type: 'turn/start', data: { turn: 1 } } },
         { type: 'event', event: { seq: 2, time: 1010, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Here is your report.' }] } } } },
-        { type: 'event', event: { seq: 3, time: 1015, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/repo/out/summary.pdf', description: 'Q4 summary' }] } } },
+        // First item is invalid (empty path); second item MUST retain original index=1 for present://file!
+        { type: 'event', event: { seq: 3, time: 1015, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '' }, { path: '/repo/out/summary.pdf', description: 'Q4 summary' }] } } },
         { type: 'event', event: { seq: 4, time: 1020, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } } },
         { type: 'event', event: { seq: 5, time: 2000, type: 'turn/start', data: { turn: 2 } } },
       ],
@@ -417,11 +482,12 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
 
     const facts = extractTurnFacts(log.events)
     assert.equal(facts.openTurn, 2)
-    assert.deepEqual(plain(facts.turns.get(1)), { turn: 1, start: { seq: 1 }, end: { seq: 4 } })
-    assert.deepEqual(plain(facts.turns.get(2)), { turn: 2, start: { seq: 5 } })
+    assert.deepEqual(plain(facts.turns.get(1)), { turn: 1, status: 'closed', start: { seq: 1, time: 1000 }, end: { seq: 4, time: 1020 } })
+    assert.deepEqual(plain(facts.turns.get(2)), { turn: 2, status: 'open', start: { seq: 5, time: 2000 } })
 
     const rows = buildSessionRows(log, { roster: { exchangeTurns: {} }, sessionId: 'b1' })
     assert.deepEqual(plain(rows.map(r => r.kind)), ['assistant', 'deliverables', 'turn-tail'])
+    assert.equal(rows[1].files[0].index, 1, 'filtered deliverable preserves original array index')
 
     const roster = {
       ready: true,
@@ -432,6 +498,16 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
         b1: [
           { id: 'btw-1', partId: 'b1', question: 'Quick check?', answer: 'All good.', status: 'done', anchorSeq: 2 },
           { id: 'btw-2', partId: 'b1', question: 'Open turn aside?', answer: 'Still running.', status: 'done', anchorSeq: 5 },
+        ],
+      },
+      learning: {
+        b1: [
+          { id: 'lp-pending', botId: 'b1', kind: 'skill', action: 'create', name: 'terse-replies', content: '# Terse\nKeep replies crisp.', why: 'Remember terse replies', at: 1030 },
+        ],
+      },
+      learningSettled: {
+        b1: [
+          { id: 'lp-settled', botId: 'b1', kind: 'skill', action: 'create', name: 'cite-tests', content: '# Tests\nCite test commands.', at: 1025, settledAt: 1028, outcome: 'approved' },
         ],
       },
     }
@@ -448,12 +524,26 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
       assert.ok(notified >= 1, 'SessionTranscript syncs turnFacts to createTeam')
       assert.equal(team.actions.turnFacts('b1').openTurn, 2)
       const tree = inst.render()
-      // Delivered file renders name, description, and SaveFileAction button.
+      // Delivered file renders name, description, and SaveFileAction button with preserved original index=1.
       assert.match(textOf(tree), /summary\.pdf/)
       assert.match(textOf(tree), /Q4 summary/)
-      assert.match(textOf(tree), /Save/)
+      const saveBtn = all(tree, n => n.type === 'button' && /Save/.test(textOf(n)))[0]
+      assert.ok(saveBtn, 'Save button must render')
+      calls.length = 0
+      sandbox.__testCall = async (endpoint, body) => {
+        calls.push([endpoint, body])
+        if (endpoint === 'file-download') return { data: '', name: 'summary.pdf', eof: true }
+        return {}
+      }
+      saveBtn.props.onClick()
+      await tick()
+      assert.equal(calls.some(([ep, body]) => ep === 'file-download' && body?.seq === 3 && body?.index === 1), true, 'SaveFileAction downloads original deliverable index=1')
       // BtwTurnTail renders the closed-turn side chat card right on Turn 1!
       assert.match(textOf(tree), /Quick check\?/)
+      // LearningTurnTail renders BOTH pending and settled learning cards on closed Turn 1!
+      assert.match(textOf(tree), /skills\/terse-replies/)
+      assert.match(textOf(tree), /Remember terse replies/)
+      assert.match(textOf(tree), /Approved · cite-tests/)
     } finally {
       inst.unmount()
     }
@@ -471,6 +561,7 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
     emit: (ev, data) => { for (const fn of listeners) fn(ev, data) },
   }
   const shortcutsOpened = []
+  const sentMessages = []
   const roster = {
     ready: true,
     readOnly: null,
@@ -487,7 +578,7 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
   }
   const team = {
     actions: {
-      noteSent() {}, noteLive() {}, send: async () => {},
+      noteSent() {}, noteLive() {}, send: async (sid, text) => { sentMessages.push([sid, text]) },
       speech: () => undefined, openVoice() {}, clearQuote() {},
       canReferenceChat: () => true,
       referenceChat: (sid, ins) => feed.emit('reference-chat', { sessionId: sid, insertion: ins }),
@@ -562,6 +653,34 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
     tree = second.render()
     assert.equal(shortcutsOpened.length, 1)
     assert.equal(all(tree, n => n.type === 'textarea')[0].props.value, '')
+
+    // 5. Blur closes an open @ mention menu so it never sticks over other UI.
+    all(tree, n => n.type === 'textarea')[0].props.onChange({ target: { value: 'hello @Wr', selectionStart: 9 } })
+    tree = second.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-cmenu').length, 1)
+    all(tree, n => n.type === 'textarea')[0].props.onBlur()
+    tree = second.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-cmenu').length, 0, 'textarea blur closes @ menu')
+
+    // 6. "+ -> Reference a chat" bus trigger opens chat reference menu and inserts dsh-session mention.
+    team.actions.referenceChat('b1', { start: 0, end: 0 })
+    tree = second.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-cmenu').length, 1)
+    all(tree, n => n.props?.className === 'dsb-cmenu-row')[0].props.onClick()
+    tree = second.render()
+    assert.match(all(tree, n => n.type === 'textarea')[0].props.value, /^@\[Chat with Writer\]\(dsh-session:/)
+
+    // 7. Cmd/Ctrl+Enter sends even when a composer suggestion menu is visible.
+    all(tree, n => n.type === 'textarea')[0].props.onChange({ target: { value: 'ping @Wr', selectionStart: 8 } })
+    tree = second.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-cmenu').length, 1)
+    all(tree, n => n.type === 'textarea')[0].props.onKeyDown({
+      key: 'Enter', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false,
+      nativeEvent: { isComposing: false }, preventDefault() {},
+    })
+    await tick()
+    tree = second.render()
+    assert.deepEqual(sentMessages, [['b1', 'ping @Wr']])
   } finally {
     second.unmount()
     storageMap.clear()

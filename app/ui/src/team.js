@@ -183,8 +183,15 @@ export function createTeam() {
     }
   }
 
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
+  const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
+
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
+    ...baseActions,
+    openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
+    openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
+    openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
+    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     openSession: (id) => {
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.shortcuts ? { ...state, newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : state))

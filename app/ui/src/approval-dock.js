@@ -1,4 +1,4 @@
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 
 const EMPTY_APPROVALS = []
@@ -19,15 +19,25 @@ export function foregroundApprovalsOf(approvals, botId) {
 function ApprovalCard({ entry, actions, readOnly }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const busyRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const decide = async (choice) => {
-    if (busy || readOnly || typeof actions?.answerApproval !== 'function') return
+    if (busyRef.current || busy || readOnly || typeof actions?.answerApproval !== 'function') return
+    busyRef.current = true
     setBusy(true)
     setError('')
     try {
       await actions.answerApproval(entry.id, choice)
     } catch (failure) {
-      setError(hostText(failure?.message ?? String(failure)))
-      setBusy(false)
+      busyRef.current = false
+      if (mountedRef.current) {
+        setError(hostText(failure?.message ?? String(failure)))
+        setBusy(false)
+      }
     }
   }
   const code = typeof entry.detail?.code === 'string' && entry.detail.code.trim() !== '' ? entry.detail.code : ''
@@ -37,7 +47,7 @@ function ApprovalCard({ entry, actions, readOnly }) {
     h('div', { className: 'dsb-approval-head' },
       h('span', { className: 'dsb-approval-dot', 'aria-hidden': true }),
       h('span', { className: 'dsb-approval-title' }, t('Waiting for approval')),
-      entry.tool ? h('span', { className: 'dsb-approval-tool' }, entry.tool) : null),
+      entry.tool ? h('span', { className: 'dsb-approval-tool', title: entry.tool }, entry.tool) : null),
     code ? h('pre', { className: 'dsb-approval-code' }, h('code', null, code)) : null,
     detailText ? h('p', { className: 'dsb-approval-text' }, detailText) : null,
     reason ? h('p', { className: 'dsb-approval-reason' }, reason) : null,
@@ -45,13 +55,13 @@ function ApprovalCard({ entry, actions, readOnly }) {
     h('div', { className: 'dsb-approval-foot' },
       h('button', {
         type: 'button',
-        className: 'bt-btask-btn',
+        className: 'bt-q-btn',
         disabled: busy || readOnly,
         onClick: () => { void decide('reject') },
       }, t('Reject')),
       h('button', {
         type: 'button',
-        className: 'bt-btask-btn is-primary',
+        className: 'bt-q-submit',
         disabled: busy || readOnly,
         onClick: () => { void decide('allow') },
       }, t('Allow once'))))

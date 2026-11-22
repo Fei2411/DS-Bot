@@ -32,11 +32,21 @@ export function matchGlobalShortcut(event, { mac = isMacPlatform(), settingsOpen
 /**
  * Keyboard shortcuts cheatsheet modal, portaled into `document.body` and dismissed via Esc or backdrop.
  */
-export function ShortcutsDialog({ open, onClose }) {
+export function ShortcutsDialog({ open, enterToSend = true, onClose }) {
   const closeBtn = useRef(null)
+  const returnFocus = useRef(null)
   useEscape(onClose, open)
   useEffect(() => {
-    if (open) closeBtn.current?.focus?.()
+    if (open) {
+      returnFocus.current = typeof document !== 'undefined' ? document.activeElement : null
+      closeBtn.current?.focus?.()
+      return undefined
+    }
+    if (returnFocus.current && typeof returnFocus.current.focus === 'function') {
+      returnFocus.current.focus()
+      returnFocus.current = null
+    }
+    return undefined
   }, [open])
   if (!open) return null
   const mod = isMacPlatform() ? '⌘' : 'Ctrl'
@@ -48,8 +58,8 @@ export function ShortcutsDialog({ open, onClose }) {
     { keys: [mod, '/'], label: t('Keyboard shortcuts') },
     { keys: ['@'], label: t('Mention a Bot') },
     { keys: ['/'], label: t('Commands') },
-    { keys: ['Enter'], label: t('Send message') },
-    { keys: ['Shift', 'Enter'], label: t('New line') },
+    { keys: enterToSend ? ['Enter'] : [mod, 'Enter'], label: t('Send message') },
+    { keys: enterToSend ? ['Shift', 'Enter'] : ['Enter'], label: t('New line') },
     { keys: ['Esc'], label: t('Close dialog or menu') },
   ]
   const dialog = h('div', {
