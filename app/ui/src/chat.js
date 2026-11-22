@@ -197,7 +197,7 @@ function useChat(botId, roomId, part, feed) {
 
   useEffect(() => feed.on((event, data) => {
     // The feed came back after a break: entries may have been missed.
-    if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
+    if (event === 'hello') { setStream(null); if (ready.current) void loadRef.current(undefined, undefined, true); return }
     if (roomId !== undefined) {
       if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
       return

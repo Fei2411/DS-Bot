@@ -32,13 +32,29 @@ credential store except the loopback-only relay secret.
 Responses bodies are limited to 32 MiB, parsed as JSON, and normalized for the
 preview: store:false, stream:true, unsupported fields removed, system input messages
 appended to instructions, developer messages retained. String input becomes a user
-message array. Tools pass through unchanged. **To verify:** the preview documentation
-requires namespaces/additional_tools for function/custom tools but does not specify
-their complete wire format. This implementation does not invent a namespace wrapper;
-live tool compatibility remains unverified.
+message array. Flat function/custom tools are grouped in the reserved ds_bot namespace
+using {type:'namespace',name:'ds_bot',description,tools:[...]}; schemas, tool names and
+tool_choice are retained. Existing namespaces and hosted tool definitions are retained.
+Replayed function_call/custom_tool_call items without a namespace receive ds_bot,
+including history whose tool definition is no longer present. Function results stay
+linked by their unchanged call_id; no qualified name or namespace is needed on the
+ordinary {type:'function_call_output',call_id,output} result.
 
-Upstream status, content-type and bytes (including subscription_sharing_* errors)
-pass through without SSE buffering. Disconnects abort upstream requests. A 401 before
+The [function-calling guide](https://developers.openai.com/api/docs/guides/function-calling#defining-namespaces)
+documents namespace declarations. The [Responses reference](https://developers.openai.com/api/reference/resources/responses/methods/create)
+defines call name and namespace as separate fields. Its forced tool_choice schema
+defines only type and name, so the relay keeps the original leaf name rather than
+inventing a dotted name or an undocumented choice namespace. The reference does not
+explain forced selection between identical leaf names in different namespaces;
+DSH's flat tools do not introduce that ambiguity.
+
+SSE output_item events and response output arrays have the relay's namespace removed
+from function/custom calls, while names, IDs and arguments remain unchanged. Echoed
+ds_bot tool declarations are flattened. Only complete SSE events are buffered, not
+the response; chunked UTF-8, multiline data and event metadata are preserved.
+Upstream status, content-type and non-SSE bodies (including subscription_sharing_*
+errors) pass through unchanged. Live account/tool compatibility remains unverified.
+Disconnects abort upstream requests. A 401 before
 streaming triggers one refresh and one retry. Redirects are never followed; they
 return a fixed local 502 error. Credential errors return 401 (sign-in/consent needed)
 or 503 (unsupported/temporary failure), with a fixed safe message and

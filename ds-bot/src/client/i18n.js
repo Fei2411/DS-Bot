@@ -1692,7 +1692,6 @@ const ZH = {
   'Hide steps': '隐藏步骤',
   'Show steps': '显示步骤',
   'Current chat': '当前对话',
-  'Earlier & parallel sessions': '更早与并行段',
   '{count} tools': '{count} 个工具',
   'Mailbox': '邮箱',
   'Email address': '邮箱地址',

@@ -366,13 +366,13 @@ export function install(rt) {
   }
   function readTail(path) {
     if (tailsRead.has(path)) return
-    tailsRead.add(path)
     for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
       try {
         const row = JSON.parse(line)
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
       } catch { /* a line cut by the tail, or half-written */ }
     }
+    tailsRead.add(path)
   }
 
   // Whether anything but a tidy changed a memory after a time.

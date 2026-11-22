@@ -34,11 +34,13 @@ export function userDshHome(env = process.env) {
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 
-/** Every Session the team names: each Bot's and group's parts, the group conversations and each group's own Session. */
+/** Every Session the team names: each Bot's chat and tasks' parts, the group conversations and each group's own Session. */
 export function sessionIdsOf(team) {
   const ids = segments => segments.map(part => part?.sessionId)
   return [...new Set([
-    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? [])]),
+    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? []),
+      ...(Array.isArray(bot.tasks) ? bot.tasks : []).flatMap(task => [task?.sessionId, ...ids(Array.isArray(task?.segments) ? task.segments : [])]),
+    ]),
     // A group keeps the earlier parts per member: { [botId]: segments }. The group's own
     // Session, the one it relays in, has the group's id.
     ...Object.values(team.rooms ?? {}).flatMap(room => [room.id, ...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),

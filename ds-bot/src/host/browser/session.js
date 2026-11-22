@@ -137,6 +137,14 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
   let lastImage = ''
   let activeDownloads = null
   let closed = false
+  const lifetime = new AbortController()
+  const disconnect = () => {
+    closed = true
+    lifetime.abort(new Error('The browser session is closed. Retry browser_open to reconnect.'))
+    activeDownloads?.notify?.()
+  }
+  context.on('close', disconnect)
+  browser?.on('disconnected', disconnect)
   let pendingDelete = null
   let pendingDeleteLocator = null
 
@@ -609,6 +617,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
   return {
     botId,
     userDataDir,
+    signal: lifetime.signal,
     get hold() { return hold },
     get lastImage() { return lastImage },
     takeLastImage() {
@@ -620,7 +629,11 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     async open(url) {
       ready()
       await clearPendingDelete()
-      const target = activePage()
+      ready()
+      const target = activePage() ?? await context.newPage()
+      trackPage(target)
+      current = target
+      ready()
       return finishAction(() => target.goto(String(url), { waitUntil: 'domcontentloaded', timeout: 30_000 }), target, false)
     },
     tabs,
@@ -872,8 +885,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       }
     },
     async close() {
-      closed = true
-      activeDownloads?.notify?.()
+      disconnect()
       for (const { download } of activeDownloads?.items ?? []) await download.cancel().catch(() => {})
       if (browser) { await browser.close().catch(() => {}); return }
       const cookies = await context.cookies().catch(() => [])

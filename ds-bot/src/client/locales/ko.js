@@ -1599,7 +1599,6 @@ export const KO = {
   'Hide steps': '단계 숨기기',
   'Show steps': '단계 보기',
   'Current chat': '현재 대화',
-  'Earlier & parallel sessions': '이전 및 병렬 세션',
   '{count} tools': '도구 {count}개',
   'Mailbox': '메일함',
   'Email address': '이메일 주소',

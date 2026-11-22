@@ -1685,7 +1685,6 @@ var JA = {
   "Hide steps": "ステップを隠す",
   "Show steps": "ステップを表示",
   "Current chat": "現在の会話",
-  "Earlier & parallel sessions": "過去・並行セッション",
   "{count} tools": "{count} 個のツール",
   "Mailbox": "メールボックス",
   "Email address": "メールアドレス",
@@ -4429,7 +4428,6 @@ var KO = {
   "Hide steps": "단계 숨기기",
   "Show steps": "단계 보기",
   "Current chat": "현재 대화",
-  "Earlier & parallel sessions": "이전 및 병렬 세션",
   "{count} tools": "도구 {count}개",
   "Mailbox": "메일함",
   "Email address": "이메일 주소",
@@ -7176,7 +7174,6 @@ var ES = {
   "Hide steps": "Ocultar pasos",
   "Show steps": "Mostrar pasos",
   "Current chat": "Chat actual",
-  "Earlier & parallel sessions": "Sesiones anteriores y paralelas",
   "{count} tools": "{count} herramientas",
   "Mailbox": "Buzón de correo",
   "Email address": "Dirección de correo",
@@ -9881,7 +9878,6 @@ var FR = {
   "Hide steps": "Masquer les étapes",
   "Show steps": "Afficher les étapes",
   "Current chat": "Chat actuel",
-  "Earlier & parallel sessions": "Sessions précédentes et parallèles",
   "{count} tools": "{count} outils",
   "Mailbox": "Boîte mail",
   "Email address": "Adresse e-mail",
@@ -12625,7 +12621,6 @@ var DE = {
   "Hide steps": "Schritte ausblenden",
   "Show steps": "Schritte anzeigen",
   "Current chat": "Aktueller Chat",
-  "Earlier & parallel sessions": "Frühere & parallele Sitzungen",
   "{count} tools": "{count} Werkzeuge",
   "Mailbox": "Postfach",
   "Email address": "E-Mail-Adresse",
@@ -15453,7 +15448,6 @@ var ZH = {
   "Hide steps": "隐藏步骤",
   "Show steps": "显示步骤",
   "Current chat": "当前对话",
-  "Earlier & parallel sessions": "更早与并行段",
   "{count} tools": "{count} 个工具",
   "Mailbox": "邮箱",
   "Email address": "邮箱地址",
@@ -18075,10 +18069,10 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
    and the floating drawer keeps the opaque fill over the conversation. */
 .bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{border-right:none}
-.bt-leftcol{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-entering]{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-leftcol[data-leaving]{transform:translateX(-100%);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};pointer-events:none}
 @keyframes bt-leftcol-in{from{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.bt-leftcol{animation:none}.bt-leftcol[data-leaving],[class*="_centerCol"]{transition:none}}
+@media (prefers-reduced-motion:reduce){.bt-leftcol[data-entering]{animation:none}.bt-leftcol[data-leaving],[class*="_centerCol"]{transition:none}}
 .bt-leftcol-grip{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
 /* The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
@@ -33794,10 +33788,10 @@ function useListGlide(listRef, layout, key) {
     tops.current = { layout, map: next };
   }, [layout, key]);
 }
-function LeftColumn({ mode, width, onGrip, leaving, children }) {
+function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
   return (0, import_react_dom6.createPortal)((0, import_react37.createElement)(
     "div",
-    { className: "bt-leftcol", "data-left": mode, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
+    { className: "bt-leftcol", "data-left": mode, "data-entering": entering || void 0, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
     children,
     (0, import_react37.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
@@ -33852,6 +33846,10 @@ function TeamSidebar(props) {
   const mode = drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
+  const firstColumn = (0, import_react37.useRef)(true);
+  (0, import_react37.useLayoutEffect)(() => {
+    if (shown === "hidden") firstColumn.current = false;
+  }, [shown]);
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
@@ -34175,7 +34173,7 @@ function TeamSidebar(props) {
     import_react37.Fragment,
     null,
     (0, import_react37.createElement)(TitleToggle, { hidden: mode === "hidden", onToggle }),
-    shown === "hidden" ? null : (0, import_react37.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
+    shown === "hidden" ? null : (0, import_react37.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
   );
 }
 function UpdateButton({ useUpdate, actions }) {
@@ -51771,10 +51769,11 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     }
   };
 }
-var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+var POLL_TIMEOUT_MS = 8e3;
 function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
   let stopped = false;
   let poll;
+  let stopBackoff;
   let reported = "";
   const answered = /* @__PURE__ */ new Map();
   const answer = async ({ id, botId }) => {
@@ -51797,21 +51796,36 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
   const loop = async () => {
     let failures = 0;
     while (!stopped) {
-      poll = new AbortController();
+      const current2 = poll = new AbortController();
       const open = browsers.openPages();
       reported = JSON.stringify(open);
+      let expired2 = false;
+      const timeout = setTimeout(() => {
+        expired2 = true;
+        current2.abort();
+      }, POLL_TIMEOUT_MS);
       try {
-        const response = await post("browser-wait", { clientId, open }, poll.signal);
+        const response = await post("browser-wait", { clientId, open }, current2.signal);
         browsers.setHolds?.(response?.holds);
         failures = 0;
         const requests = Array.isArray(response) ? response : response?.requests;
         for (const request of Array.isArray(requests) ? requests : []) void answer(request);
-      } catch {
+        continue;
+      } catch (error) {
         if (stopped) return;
-        if (poll.signal.aborted) continue;
+        if (current2.signal.aborted && !expired2 && error?.code !== "HTTP_503") continue;
         failures += 1;
-        await sleep(Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+      } finally {
+        clearTimeout(timeout);
       }
+      await new Promise((resolve2) => {
+        const timer = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+        stopBackoff = () => {
+          clearTimeout(timer);
+          resolve2();
+        };
+      });
+      stopBackoff = void 0;
     }
   };
   const offPages = browsers.pages.subscribe(() => {
@@ -51822,6 +51836,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
     stopped = true;
     offPages();
     poll?.abort();
+    stopBackoff?.();
   };
 }
 
