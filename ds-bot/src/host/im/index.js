@@ -12,12 +12,11 @@ import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 import { imViewChoices } from './view-choices.js'
-import { imViewFormText, isImViewFormAnswer, parseImViewForm } from './view-form.js'
+import { imViewFormText, parseImViewForm } from './view-form.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RECENT_VIEW_CODES_KEEP = 100
-const VIEW_CODE_HISTORY_KEEP = 200
 const RETRY_MS = 5_000
 // A send that keeps failing is given up on, with a bounded backoff, so one broken
 // message cannot hold every later message in the same chat forever (#1417).
@@ -42,12 +41,6 @@ const SENT_ID_LEN = 100
 const SENT_STORE_LIMIT = 200_000
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
-
-const rememberViewCode = (history, chatKey, number) => {
-  const codes = history[chatKey] ?? []
-  if (!codes.includes(number)) codes.push(number)
-  history[chatKey] = codes.sort((a, b) => a - b).slice(-VIEW_CODE_HISTORY_KEEP)
-}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -258,18 +251,9 @@ export function install(rt) {
     } catch { data = undefined }
     const cards = data?.cards !== null && typeof data?.cards === 'object' ? data.cards : {}
     let viewCodeSeq = Number.isSafeInteger(data?.viewCodeSeq) && data.viewCodeSeq > 0 ? data.viewCodeSeq : 0
-    const viewCodes = Object.create(null)
-    for (const [chatKey, numbers] of Object.entries(data?.viewCodes ?? {})) {
-      if (!Array.isArray(numbers)) continue
-      for (const number of numbers) {
-        if (!Number.isSafeInteger(number) || number < 1) continue
-        rememberViewCode(viewCodes, chatKey, number)
-        viewCodeSeq = Math.max(viewCodeSeq, number)
-      }
-    }
-    for (const [chatKey, number] of Object.entries(data?.viewCodeHighWater ?? {})) {
+    const previousCodes = Object.values(data?.viewCodes ?? {}).flat().concat(Object.values(data?.viewCodeHighWater ?? {}))
+    for (const number of previousCodes) {
       if (!Number.isSafeInteger(number) || number < 1) continue
-      rememberViewCode(viewCodes, chatKey, number)
       viewCodeSeq = Math.max(viewCodeSeq, number)
     }
     for (const entries of Object.values(cards)) {
@@ -278,7 +262,6 @@ export function install(rt) {
         const number = code === null ? 0 : Number(code[1])
         if (code !== null && Number.isSafeInteger(number)) {
           viewCodeSeq = Math.max(viewCodeSeq, number)
-          rememberViewCode(viewCodes, entry.chatKey, number)
         }
         if (code !== null && entry.delivered !== true && entry.messageId === undefined && entry.answer === undefined) interruptedCards.add(entry)
       }
@@ -289,7 +272,6 @@ export function install(rt) {
         cards,
         sent: data?.sent !== null && typeof data?.sent === 'object' ? data.sent : {},
         viewCodeSeq,
-        viewCodes,
       },
       timer: undefined,
     }
@@ -320,7 +302,6 @@ export function install(rt) {
     const { runtime, cards, sent } = held.data
     const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
     if (held.data.viewCodeSeq > 0) data.viewCodeSeq = held.data.viewCodeSeq
-    if (Object.keys(held.data.viewCodes).length > 0) data.viewCodes = held.data.viewCodes
     try {
       await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
@@ -1108,16 +1089,18 @@ export function install(rt) {
     return 'answered'
   }
   const answerViewCode = async (conn, chat, body, senderId) => {
-    const code = body.split(/\s/, 1)[0].toUpperCase()
-    if (!/^V[1-9]\d*$/.test(code)) return false
-    const answer = body.slice(code.length).replace(/^[ \t]+/, '')
-    if (!isImViewFormAnswer(answer)) return false
+    if (!/^\/card/i.test(body)) return false
+    const command = /^\/card(?:@\S+)?\s+(V[1-9]\d*)(?=\s|$)/i.exec(body)
+    if (command === null) {
+      await sendCardReply(conn, chat, 'Invalid card reply. Use /card <code> followed by your answer.')
+      return true
+    }
+    const code = command[1].toUpperCase()
+    const answer = body.slice(command[0].length).replace(/^[ \t]+/, '')
     const data = runtimes.get(conn.id)?.data
     const binding = bindingOf(conn, chat.key)
-    if (data === undefined) return false
-    const held = Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key))
+    const held = data === undefined ? undefined : Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key))
     if (held === undefined) {
-      if (!data.viewCodes[chat.key]?.includes(Number(code.slice(1)))) return false
       await sendCardReply(conn, chat, 'This card is no longer answerable in this chat.')
       return true
     }
@@ -1373,7 +1356,6 @@ export function install(rt) {
         continue
       }
       const code = tokenView === undefined ? undefined : `V${++data.viewCodeSeq}`
-      if (code !== undefined) rememberViewCode(data.viewCodes, chatKey, data.viewCodeSeq)
       const message = code === undefined ? body : `${body}\n${imViewFormText(tokenView, code)}`
       entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code, delivered: false }) })
     }

@@ -24,7 +24,7 @@ function schema(view) {
 
 export function imViewFormText(view, code) {
   const { actions, fields } = schema(view)
-  const lines = [`Card ${code}`]
+  const lines = [`Card ${code} — answer with /card ${code}`]
   for (const [index, action] of actions.entries()) {
     lines.push(`${actions.length > 1 ? `${index + 1}. ` : ''}${action.label}`)
     if (action.node.type === 'options' && action.node.multi === true) {
@@ -44,25 +44,17 @@ export function imViewFormText(view, code) {
     details.push(`default ${JSON.stringify(form === undefined ? inputDefault(node) : node.value ?? '')}`)
     lines.push(`${index + 1}: ${node.label} (${details.join('; ')})`)
   }
-  if (actions.some(action => action.node.type === 'form' && action.node.cancelLabel)) lines.push(`Cancel: ${code} cancel (choose an action first if there are several forms)`)
+  if (actions.some(action => action.node.type === 'form' && action.node.cancelLabel)) lines.push(`Cancel: /card ${code} cancel (choose an action first if there are several forms)`)
   const first = actions[0]
   const picks = first?.node.type === 'options' && first.node.multi === true ? ' 1' : ''
   const index = fields.findIndex(field => field.form === undefined || field.form === first?.node.id)
   const field = fields[index]
   const sample = field === undefined ? '' : field.form !== undefined ? field.node.value || 'example'
     : field.node.type === 'toggle' ? 'yes' : field.node.type === 'choice' ? '1' : inputDefault(field.node)
-  lines.push(`Reply example: ${code}${actions.length > 1 ? ' 1' : ''}${picks}${field === undefined ? '' : `\\n${index + 1}: ${String(sample).replaceAll('\n', '\\n')}`} (\\n means a new line)`)
+  lines.push(`Reply example: /card ${code}${actions.length > 1 ? ' 1' : ''}${picks}${field === undefined ? '' : `\\n${index + 1}: ${String(sample).replaceAll('\n', '\\n')}`} (\\n means a new line)`)
+  lines.push('In groups, mention the Bot before /card. Bare card codes are ordinary chat text.')
   if (fields.length > 0) lines.push('Use <n>: <value> lines; values continue until the next numbered line. Omitted inputs and fields use defaults.')
   return lines.join('\n')
-}
-
-export function isImViewFormAnswer(text) {
-  const [head, ...lines] = text.replaceAll('\r\n', '\n').split('\n')
-  const command = head.trim()
-  if (/^\d+:/.test(command)) return true
-  if (command !== '' && !/^(?:\d[\d, \t]*|(?:\d+[ \t]+)?cancel)$/i.test(command)) return false
-  const fields = lines.join('\n').trimStart()
-  return fields === '' || /^\d+:/.test(fields)
 }
 
 export function parseImViewForm(view, text) {

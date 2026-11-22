@@ -969,7 +969,7 @@ export function install(rt) {
   // the sessions ds-bot does not own, while this one shadows it inside them.
   rt.teamTools.push(defineTool({
     name: 'show_view',
-    description: `${showViewDescription({ where: 'your own chat or an IM-origin group' })} IM forms and multi-select views show a card code and instructions for replying with typed values.`,
+    description: `${showViewDescription({ where: 'your own chat or an IM-origin group' })} IM forms and multi-select views show instructions for replying with /card <code> and typed values. Group replies must mention the Bot. Bare codes are ordinary chat text.`,
     parameters: {
       ...showViewParameters,
       report_issue: { type: 'string', description: 'Only for DS Bot issue approval: use the exact arguments from prepare_ds_bot_issue' },
