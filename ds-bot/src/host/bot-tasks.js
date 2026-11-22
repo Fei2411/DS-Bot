@@ -606,31 +606,44 @@ export function install(rt) {
       }
     }
     // Replay any foreground handoff inputs left on disk by a prior host crash/restart.
-    // Skip transfers actively owned by this process or Bots currently mid-handoff.
+    // Skip transfers actively owned by this process; if a Bot is mid-handoff, wait for
+    // that handoff to settle before re-checking and replaying onto the new foreground.
     if (Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
       const pending = [...state.pendingHandoffInputs]
+      const stillPending = (entry, id) => Array.isArray(state.pendingHandoffInputs)
+        && state.pendingHandoffInputs.some(item => (id !== undefined ? item?.id === id : item === entry))
       for (const entry of pending) {
-        if (entry?.id !== undefined && inFlightTransferIds.has(entry.id)) continue
-        if (entry?.botId !== undefined && handoffing.has(entry.botId)) continue
-        let targetSid
-        let label
-        if (entry?.roomId !== undefined) {
-          const room = rt.roomOf(entry.roomId)
-          targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-          label = room?.name
-        } else if (entry?.botId !== undefined) {
-          const bot = rt.botOf(entry.botId)
-          targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
-          label = bot?.name
+        const id = entry?.id
+        if (!stillPending(entry, id)) continue
+        if (id !== undefined && inFlightTransferIds.has(id)) continue
+        if (id !== undefined) inFlightTransferIds.add(id)
+        try {
+          while (entry?.botId !== undefined && handoffing.has(entry.botId)) {
+            await handoffing.get(entry.botId)?.promise?.catch(() => {})
+          }
+          if (!stillPending(entry, id)) continue
+          let targetSid
+          let label
+          if (entry?.roomId !== undefined) {
+            const room = rt.roomOf(entry.roomId)
+            targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            label = room?.name
+          } else if (entry?.botId !== undefined) {
+            const bot = rt.botOf(entry.botId)
+            targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
+            label = bot?.name
+          }
+          if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
+            await clearPendingTransfers([id])
+            continue
+          }
+          await forwardPulledMessages(targetSid, [{
+            msg: { id, content: entry.content, source: entry.source },
+            transferId: id,
+          }], label)
+        } finally {
+          if (id !== undefined) inFlightTransferIds.delete(id)
         }
-        if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
-          await clearPendingTransfers([entry?.id])
-          continue
-        }
-        await forwardPulledMessages(targetSid, [{
-          msg: { id: entry.id, content: entry.content, source: entry.source },
-          transferId: entry.id,
-        }], label)
       }
     }
   }

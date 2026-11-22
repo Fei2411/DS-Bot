@@ -19,7 +19,7 @@ const settle = async (check, ms = 4000, label = 'condition not reached') => {
 
 const textOf = message => (message?.content ?? []).map(block => block.text ?? '').join('\n')
 
-async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false } = {}) {
+async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-fg-loop-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -54,6 +54,8 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
   const toolGate = Promise.withResolvers()
   const firstModelStarted = Promise.withResolvers()
   const firstModelGate = Promise.withResolvers()
+  const forkStarted = Promise.withResolvers()
+  const forkGate = Promise.withResolvers()
   let callSeq = 0
   let modelCalls = 0
   const repliesBySession = new Map()
@@ -155,7 +157,10 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
         archiveSession: async () => {},
       },
       sessionController: {
-        resolveAgent: async sessionId => ({ agent: agents.get(sessionId) ?? root.agents.get(sessionId) }),
+        resolveAgent: async (sessionId) => {
+          if (delayResolveMs > 0) await realDelay(delayResolveMs)
+          return { agent: agents.get(sessionId) ?? root.agents.get(sessionId) }
+        },
         create: async () => {
           if (failForkAndCreate) throw new Error('simulated create failure')
           const sid = `new-${++forkSeq}`
@@ -163,6 +168,10 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
           return { sessionId: sid }
         },
         fork: async () => {
+          if (holdFork) {
+            forkStarted.resolve()
+            await forkGate.promise
+          }
           if (failForkAndCreate) throw new Error('simulated fork failure')
           const sid = `fork-${++forkSeq}`
           await makeRealAgent(sid)
@@ -209,12 +218,13 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     }
     toolGate.resolve()
     firstModelGate.resolve()
+    forkGate.resolve()
     await root.fiber.dispose()
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, repliesBySession, modelCallsBySession }
+  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, forkStarted, forkGate, repliesBySession, modelCallsBySession }
 }
 
 test('real DSH SessionStore + ReactLoopAgent: Desktop steer while busy hands off foreground without reentrancy error', async (t) => {
@@ -498,4 +508,67 @@ test('real DSH SessionStore + ReactLoopAgent: polling-gap steer on an idle activ
     1,
     'concurrent reconcileTasksAfterRestart must not duplicate an in-flight transfer',
   )
+})
+
+test('real DSH SessionStore + ReactLoopAgent: startup reconcile waits for an in-flight handoff instead of stranding pre-crash pendingHandoffInputs', async (t) => {
+  const rig = await createRealLoopRig(t, { holdFork: true })
+  const dmA = rig.agents.get('dm-a')
+
+  // Simulate a pre-crash saved prompt still on disk from a prior host run.
+  rig.rt.state.pendingHandoffInputs = [
+    { id: 'rpc-pre-crash-1', botId: 'a', content: [{ type: 'text', text: 'Summarize the report' }], source: { kind: 'user', rpcId: 'rpc-pre-crash-1' }, at: Date.now() - 10_000 },
+  ]
+
+  // Start a busy turn and trigger a brand-new live handoff paused in `fork()`.
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
+  await rig.toolStarted.promise
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Check the budget' }], source: { kind: 'user' } }))
+  await rig.forkStarted.promise
+  assert.equal(rig.rt.isHandingOff('dm-a'), true, 'live handoff must be in flight when startup reconcile runs')
+
+  // Startup reconcile runs while the live handoff is paused: it must NOT strand the
+  // pre-crash prompt, nor duplicate the live handoff's own prompt once it finishes.
+  const reconcilePromise = rig.rt.reconcileTasksAfterRestart()
+  await realDelay(30)
+  rig.forkGate.resolve()
+  await reconcilePromise
+
+  await settle(() => {
+    const fgSid = rig.rt.botOf('a').sessionId
+    const replies = rig.repliesBySession.get(fgSid) ?? []
+    return fgSid !== 'dm-a'
+      && replies.some(r => r.includes('Check the budget'))
+      && replies.some(r => r.includes('Summarize the report'))
+  }, 5000, 'both the live handoff prompt and the pre-crash saved prompt must reach the new foreground')
+
+  const fgSid = rig.rt.botOf('a').sessionId
+  const replies = rig.repliesBySession.get(fgSid) ?? []
+  assert.equal(replies.filter(r => r.includes('Check the budget')).length, 1, 'live handoff prompt must be answered exactly once')
+  assert.equal(replies.filter(r => r.includes('Summarize the report')).length, 1, 'pre-crash prompt must be replayed exactly once')
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'pendingHandoffInputs must be drained and cleared')
+})
+
+test('real DSH SessionStore + ReactLoopAgent: concurrent reconcileTasksAfterRestart calls replay a pre-crash pendingHandoffInputs entry only once', async (t) => {
+  const rig = await createRealLoopRig(t, { delayResolveMs: 40 })
+  rig.rt.state.pendingHandoffInputs = [
+    { id: 'rpc-concurrent-reconcile-1', botId: 'a', content: [{ type: 'text', text: 'Only replay once' }], source: { kind: 'user', rpcId: 'rpc-concurrent-reconcile-1' }, at: Date.now() - 5000 },
+  ]
+
+  await Promise.all([
+    rig.rt.reconcileTasksAfterRestart(),
+    rig.rt.reconcileTasksAfterRestart(),
+  ])
+
+  await settle(
+    () => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Only replay once')),
+    4000,
+    'pre-crash prompt must replay onto dm-a',
+  )
+  await realDelay(60)
+  assert.equal(
+    (rig.repliesBySession.get('dm-a') ?? []).filter(r => r.includes('Only replay once')).length,
+    1,
+    'concurrent reconcileTasksAfterRestart calls must not duplicate a pre-crash transfer',
+  )
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined)
 })
