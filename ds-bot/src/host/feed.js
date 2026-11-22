@@ -112,7 +112,6 @@ export function install(rt) {
     const connection = requests.get(controller)
     connection?.request.signal.removeEventListener('abort', connection.abort)
     requests.delete(controller)
-    if (!listening()) writing.clear()
     try { controller.close() } catch { /* already closed or errored */ }
   }
 
@@ -144,6 +143,7 @@ export function install(rt) {
       clearTimeout(liveTimer)
       offSaved()
       for (const controller of clients) leave(controller)
+      writing.clear()
     }
   }, 'ds-bot: live feed')
 }

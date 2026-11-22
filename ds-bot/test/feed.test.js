@@ -104,6 +104,46 @@ test('an already disconnected HTTP feed closes without waiting for its lifetime'
   assert.equal(await next(), undefined)
 })
 
+for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq: 101 }, { kind: 'committed', eventType: 'assistant/attempt', seq: 101 }, { kind: 'abandoned' }]) {
+  test(`streaming survives HTTP feed rotation and cleans up ${outcome.eventType ?? outcome.kind} attempts`, async (t) => {
+    const { ctx, call, stop, routes } = start()
+    t.after(stop)
+    await call('state')
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
+    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'rotating', ...frame } })
+    const target = { botId: 'm1', sessionId: 'm1c', attemptId: 'rotating' }
+    const first = await connect()
+    assert.equal((await first()).event, 'hello')
+    emit({ type: 'start', turn: 8 })
+    assert.deepEqual(await first(), { event: 'stream', data: { ...target, phase: 'start' } })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Before' } })
+    assert.deepEqual(await first(), { event: 'stream', data: { ...target, text: 'Before' } })
+    t.mock.timers.tick(6_000)
+    assert.equal(await first(), undefined)
+    const second = await connect()
+    assert.equal((await second()).event, 'hello')
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'After' } })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, text: 'After' } })
+    emit({ type: 'end', outcome })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, phase: 'end' } })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Late' } })
+    emit({ type: 'end', outcome })
+    // A terminal frame without any connected client must also release its attempt.
+    emit({ type: 'start', turn: 9 })
+    assert.equal((await second()).data.phase, 'start')
+    t.mock.timers.tick(6_000)
+    assert.equal(await second(), undefined)
+    emit({ type: 'end', outcome })
+    const third = await connect()
+    assert.equal((await third()).event, 'hello')
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Late again' } })
+    t.mock.timers.tick(6_000)
+    assert.equal(await third(), undefined)
+  })
+}
+
 test('state and live feed keep question and view routing metadata private', async (t) => {
   const imOrigin = { connId: 'private-connection', chatKey: 'private-chat', binding: 'room:r1' }
   const question = { id: 'q1', question: 'Which?', options: [{ label: 'A' }] }
