@@ -356,7 +356,7 @@ export function install(rt) {
   const keepRetiredPart = async (sessionId) => {
     if (!isRetiring(sessionId)) return false
     dropRetired(entry => entry?.sessionId === sessionId)
-    await retiring
+    await retiring?.catch(() => {})
     return true
   }
   // How long retirement waits for DSH's schedule service, so no part is archived with
@@ -373,7 +373,7 @@ export function install(rt) {
         waitingForSchedules.unref?.()
         return
       }
-      for (const entry of [...state.retiredParts]) {
+      for (const entry of [...(state.retiredParts ?? [])]) {
         if (stopped) return
         const sessionId = sessionIdOf(entry?.sessionId)
         // A part the user opened again is the Bot's chat now (keepRetiredPart), so it stays.

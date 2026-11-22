@@ -337,7 +337,10 @@ test('a withdrawn parallel part opened again before it is retired stays the Bot 
   await rt.retireParts()
   assert.equal(rt.isRetiring('w3'), true)
   failing = false
+  // A retirement starts just before the switch and finds the list already empty.
+  const running = rt.retireParts()
   assert.equal(await rt.switchPart('w1', 'w3'), true)
+  await running
   await rt.retireParts()
   assert.equal(rt.chatOf('w1'), 'w3')
   assert.equal(rt.isRetiring('w3'), false)
