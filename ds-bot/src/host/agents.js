@@ -112,10 +112,10 @@ export function install(rt) {
   // is still cleared by the archive action above.
   ctx.on('session-manager/session-deleted', async ({ sessionId } = {}) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
-    writeCheck()
     await rt.load()
     const agent = Object.values(state.agents).find(item => item.sessions?.includes(sessionId))
     if (agent === undefined) return
+    writeCheck()
     const position = agent.sessions.indexOf(sessionId)
     agent.sessions = agent.sessions.filter(id => id !== sessionId)
     try {
@@ -129,7 +129,9 @@ export function install(rt) {
       // rebuild the Agent index after putting the reference back: until the next
       // save or adopt, rt.agentOf must still see an owned Agent Session, or every
       // window treats it as a Session no Agent owns.
-      if (!agent.sessions.includes(sessionId)) agent.sessions.splice(Math.min(position, agent.sessions.length), 0, sessionId)
+      if (state.agents[agent.id] === agent && !agent.sessions.includes(sessionId)) {
+        agent.sessions.splice(Math.min(position, agent.sessions.length), 0, sessionId)
+      }
       rt.indexAgents()
       throw error
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
@@ -13,9 +13,10 @@ const flush = async () => { for (let index = 0; index < 8; index += 1) await Pro
 // Enough of the dsh services for the roster and the agents module; tool restrict
 // calls and archived Sessions are recorded for the assertions.
 let rt
-function start(team, { config = {} } = {}) {
+function start(team, { config = {}, lock } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-agents-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const ctx = fakeContext()
   const workspaces = new Map()
   const created = []
@@ -272,6 +273,25 @@ test('a failed save keeps the reference and its Agent index for a retry', { skip
   await ctx.emitAsync('session-manager/session-deleted', { sessionId: second.sessionId })
   assert.deepEqual((await call('state', {})).value.agents[0].sessions, [agent.sessions[0]])
   assert.equal(rt.agentOf(second.sessionId), undefined)
+})
+
+test('a read-only host ignores unrelated delete notices and refuses owned ones', async (t) => {
+  // Another dsh host holds state.lock before this host even starts or loads state.json.
+  const { call, stop, ctx, rt } = start(
+    { ...TEAM, agents: { a1: { id: 'a1', name: 'DSH Agent', sessions: ['s1'], createdAt: 1 } } },
+    { lock: { pid: process.ppid, host: hostname(), token: 'other' } },
+  )
+  t.after(stop)
+  // Deleting an unrelated non-Agent Session must not throw a read-only error.
+  await ctx.emitAsync('session-manager/session-deleted', { sessionId: 'not-in-any-agent' })
+  assert.equal(typeof rt.readOnly(), 'string')
+  // Deleting an owned Agent Session still refuses to write and leaves the reference intact.
+  await assert.rejects(
+    ctx.emitAsync('session-manager/session-deleted', { sessionId: 's1' }),
+    /another dsh|read-only/i,
+  )
+  assert.deepEqual((await call('state', {})).value.agents[0].sessions, ['s1'])
+  assert.equal(rt.agentOf('s1')?.id, 'a1')
 })
 
 test('agent-rename retitles an owned Session and refuses others', async (t) => {
