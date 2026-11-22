@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createApiRoutes } from '../src/host/api/routes.js'
 
-test('event dedupe is isolated by token, target, source and ledger book across reloads', async t => {
+test('event dedupe is isolated by token, source and target book across reloads', async t => {
   const books = new Map()
   const bots = { b1: { id: 'b1' }, b2: { id: 'b2' }, bp: { id: 'bp', private: true } }
   const rt = {
@@ -32,10 +32,10 @@ test('event dedupe is isolated by token, target, source and ledger book across r
   const independent = await service.ingestEvent(second, body)
   assert.equal(independent.status, 'accepted')
   assert.notEqual(independent.ledgerEventId, initial.ledgerEventId)
-  for (const target of [{ kind: 'bot', id: 'b2' }, { kind: 'bot', id: 'bp' }]) {
-    assert.equal((await service.ingestEvent(first, { ...body, target })).status, 'accepted')
-    assert.equal((await service.ingestEvent(first, { ...body, target })).status, 'duplicate')
-  }
+  assert.equal((await service.ingestEvent(first, { ...body, target: { kind: 'bot', id: 'b2' } })).ledgerEventId, initial.ledgerEventId)
+  const privateBody = { ...body, target: { kind: 'bot', id: 'bp' } }
+  assert.equal((await service.ingestEvent(first, privateBody)).status, 'accepted')
+  assert.equal((await service.ingestEvent(first, privateBody)).status, 'duplicate')
   assert.equal((await service.ingestEvent(first, { ...body, source: 'other-source' })).status, 'accepted')
   for (let i = 0; i < 2; i += 1) {
     assert.equal((await service.ingestEvent(first, { ...body, eventId: '' })).status, 'accepted')

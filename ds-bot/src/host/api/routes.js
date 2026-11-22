@@ -676,7 +676,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       const book = privateBotId
         ? `events-priv-${privateBotId}-${monthKey(now)}`
         : `events-${monthKey(now)}`
-      const dedupeKey = eventId !== '' ? JSON.stringify([principal.keyId, book, target?.kind ?? null, target?.id ?? null, source, eventId]) : ''
+      const dedupeKey = eventId !== '' ? JSON.stringify([principal.keyId, book, source, eventId]) : ''
       if (dedupeKey !== '' && dedupeEvents.has(dedupeKey)) {
         return {
           ledgerEventId: dedupeEvents.get(dedupeKey),
