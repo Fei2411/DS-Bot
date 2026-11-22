@@ -73,6 +73,113 @@ function reader(response) {
   }
 }
 
+test('HTTP feed connections expire within the update deadline and reconnect with hello', async (t) => {
+  const { call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const connect = () => routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed'))
+  const next = reader(await connect())
+  assert.equal((await next()).event, 'hello')
+  let closed = false
+  const end = next().then(value => { closed = true; return value })
+  t.mock.timers.tick(5_999)
+  await Promise.resolve()
+  assert.equal(closed, false)
+  t.mock.timers.tick(1)
+  assert.equal(await end, undefined)
+  const reconnected = reader(await connect())
+  assert.equal((await reconnected()).event, 'hello')
+  t.mock.timers.tick(6_000)
+  assert.equal(await reconnected(), undefined)
+})
+
+test('an already disconnected HTTP feed closes without waiting for its lifetime', async (t) => {
+  const { stop, routes } = start()
+  t.after(stop)
+  const abort = new AbortController()
+  abort.abort()
+  const next = reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal })))
+  assert.equal((await next()).event, 'hello')
+  assert.equal(await next(), undefined)
+})
+
+for (const scenario of ['chunk', 'start', 'end']) {
+  test(`HTTP feed replays in-flight replies after a ${scenario} in the reconnect gap`, async (t) => {
+    const { ctx, call, stop, routes } = start()
+    t.after(stop)
+    await call('state')
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
+    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'gap', ...frame } })
+    const first = await connect()
+    assert.equal((await first()).event, 'hello')
+    if (scenario !== 'start') {
+      emit({ type: 'start', turn: 8 })
+      assert.equal((await first()).data.phase, 'start')
+      emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Before' } })
+      assert.equal((await first()).data.text, 'Before')
+    }
+    t.mock.timers.tick(6_000)
+    assert.equal(await first(), undefined)
+    if (scenario === 'start') emit({ type: 'start', turn: 8 })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Gap' } })
+    if (scenario === 'end') emit({ type: 'end', outcome: { kind: 'abandoned' } })
+    const next = await connect()
+    assert.equal((await next()).event, 'hello')
+    if (scenario !== 'end') {
+      const target = { botId: 'm1', sessionId: 'm1c', attemptId: 'gap' }
+      assert.deepEqual(await next(), { event: 'stream', data: { ...target, phase: 'start' } })
+      assert.deepEqual(await next(), { event: 'stream', data: { ...target, text: scenario === 'chunk' ? 'BeforeGap' : 'Gap' } })
+    }
+    t.mock.timers.tick(6_000)
+    assert.equal(await next(), undefined)
+  })
+}
+
+for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq: 101 }, { kind: 'committed', eventType: 'assistant/attempt', seq: 101 }, { kind: 'abandoned' }]) {
+  test(`streaming survives HTTP feed rotation and cleans up ${outcome.eventType ?? outcome.kind} attempts`, async (t) => {
+    const { ctx, call, stop, routes } = start()
+    t.after(stop)
+    await call('state')
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
+    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'rotating', ...frame } })
+    const target = { botId: 'm1', sessionId: 'm1c', attemptId: 'rotating' }
+    const first = await connect()
+    assert.equal((await first()).event, 'hello')
+    emit({ type: 'start', turn: 8 })
+    assert.deepEqual(await first(), { event: 'stream', data: { ...target, phase: 'start' } })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Before' } })
+    assert.deepEqual(await first(), { event: 'stream', data: { ...target, text: 'Before' } })
+    t.mock.timers.tick(6_000)
+    assert.equal(await first(), undefined)
+    const second = await connect()
+    assert.equal((await second()).event, 'hello')
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, phase: 'start' } })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, text: 'Before' } })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'After' } })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, text: 'After' } })
+    emit({ type: 'end', outcome })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, phase: 'end' } })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Late' } })
+    emit({ type: 'end', outcome })
+    // A terminal frame without any connected client must also release its attempt.
+    emit({ type: 'start', turn: 9 })
+    assert.equal((await second()).data.phase, 'start')
+    t.mock.timers.tick(6_000)
+    assert.equal(await second(), undefined)
+    emit({ type: 'end', outcome })
+    const third = await connect()
+    assert.equal((await third()).event, 'hello')
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Late again' } })
+    t.mock.timers.tick(6_000)
+    assert.equal(await third(), undefined)
+  })
+}
+
 test('state and live feed keep question and view routing metadata private', async (t) => {
   const imOrigin = { connId: 'private-connection', chatKey: 'private-chat', binding: 'room:r1' }
   const question = { id: 'q1', question: 'Which?', options: [{ label: 'A' }] }

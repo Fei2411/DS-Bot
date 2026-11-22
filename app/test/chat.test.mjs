@@ -160,6 +160,26 @@ test('with Enter sending on, a plain Enter sends the draft and clears it', async
   assert.equal(textarea(tree()).props.value, '')
 })
 
+test('hello clears a stale reply and its reload preserves the replayed preview', async () => {
+  const { tree, emit } = view({})
+  await tick()
+  const textOf = () => JSON.stringify(tree())
+  const target = { botId: 'b1', sessionId: 'b1', attemptId: 'old' }
+  emit('stream', { ...target, phase: 'start' })
+  emit('stream', { ...target, text: 'stale-preview' })
+  assert.ok(textOf().includes('stale-preview'))
+  emit('hello', {})
+  assert.ok(!textOf().includes('stale-preview'))
+  emit('stream', { ...target, attemptId: 'active', phase: 'start' })
+  emit('stream', { ...target, attemptId: 'active', text: 'replayed-preview' })
+  assert.ok(textOf().includes('replayed-preview'))
+  await tick()
+  assert.ok(textOf().includes('replayed-preview'))
+  emit('hello', {})
+  await tick()
+  assert.ok(!textOf().includes('replayed-preview'))
+})
+
 test('with Enter sending off, a plain Enter is a newline and the send button sends', async () => {
   const { sent, tree } = view({ enterToSend: false })
   const event = enter()

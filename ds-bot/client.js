@@ -51519,10 +51519,11 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     }
   };
 }
-var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+var POLL_TIMEOUT_MS = 8e3;
 function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
   let stopped = false;
   let poll;
+  let stopBackoff;
   let reported = "";
   const answered = /* @__PURE__ */ new Map();
   const answer = async ({ id, botId }) => {
@@ -51545,21 +51546,36 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
   const loop = async () => {
     let failures = 0;
     while (!stopped) {
-      poll = new AbortController();
+      const current2 = poll = new AbortController();
       const open = browsers.openPages();
       reported = JSON.stringify(open);
+      let expired2 = false;
+      const timeout = setTimeout(() => {
+        expired2 = true;
+        current2.abort();
+      }, POLL_TIMEOUT_MS);
       try {
-        const response = await post("browser-wait", { clientId, open }, poll.signal);
+        const response = await post("browser-wait", { clientId, open }, current2.signal);
         browsers.setHolds?.(response?.holds);
         failures = 0;
         const requests = Array.isArray(response) ? response : response?.requests;
         for (const request of Array.isArray(requests) ? requests : []) void answer(request);
-      } catch {
+        continue;
+      } catch (error) {
         if (stopped) return;
-        if (poll.signal.aborted) continue;
+        if (current2.signal.aborted && !expired2 && error?.code !== "HTTP_503") continue;
         failures += 1;
-        await sleep(Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+      } finally {
+        clearTimeout(timeout);
       }
+      await new Promise((resolve2) => {
+        const timer = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+        stopBackoff = () => {
+          clearTimeout(timer);
+          resolve2();
+        };
+      });
+      stopBackoff = void 0;
     }
   };
   const offPages = browsers.pages.subscribe(() => {
@@ -51570,6 +51586,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
     stopped = true;
     offPages();
     poll?.abort();
+    stopBackoff?.();
   };
 }
 

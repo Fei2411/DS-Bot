@@ -774,7 +774,7 @@ export function install(rt) {
           const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 100) : ''
           if (clientId === '') return fail('A browser poll needs a clientId', 'bot/invalid')
           await rt.load()
-          const requests = await rt.browserChannel.wait(clientId, rt.browserOpen(body.open))
+          const requests = await rt.browserChannel.wait(clientId, rt.browserOpen(body.open), signal)
           return ok({ requests, holds: rt.browserChannel.holdSnapshot() })
         }
         case 'browser-result':

@@ -141,3 +141,36 @@ test('partEnd prefers a blank line, then a line break, and cuts hard only withou
   assert.equal(partEnd('a\n' + 'b'.repeat(20), 0, 10), 10)
   assert.equal(partEnd('short', 0, 10), 5)
 })
+
+test('the desktop window idle browser poll drains before the update deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const channel = createBrowserChannel()
+  let drained = false
+  const poll = channel.wait('desktop-window', {}).then(result => { drained = true; return result })
+  t.mock.timers.tick(8_000)
+  await Promise.resolve()
+  t.mock.timers.tick(1_999)
+  await Promise.resolve()
+  const drainedBeforeDeadline = drained
+  channel.dispose()
+  assert.deepEqual(await poll, [])
+  assert.equal(drainedBeforeDeadline, true, 'the idle browser-wait request is still admitted after 9,999 ms')
+})
+
+test('disconnecting a browser poll frees it without disturbing other windows', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const channel = createBrowserChannel()
+  t.after(() => channel.dispose())
+  const disconnected = new AbortController()
+  const out = channel.wait('one', { a: {} }, disconnected.signal)
+  let otherFinished = false
+  const other = channel.wait('two', { b: {} }).then(requests => { otherFinished = true; return requests })
+  disconnected.abort()
+  assert.deepEqual(await out, [])
+  assert.equal(otherFinished, false)
+  const reading = channel.read('b')
+  const [request] = await other
+  assert.equal(request.botId, 'b')
+  assert.equal(channel.result({ id: request.id, ok: true, page: { title: 'Other window' } }), true)
+  assert.deepEqual(await reading, { page: { title: 'Other window' } })
+})
