@@ -109,7 +109,7 @@ export const hasSectionTour = page => Object.hasOwn(SECTION_TOURS, page)
 export function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } = {}) {
   if (mode === 'full') {
     return [
-      { page: 'general', target: 'search', title: 'Search settings', cue: 'Type a keyword here to jump straight to any setting.' },
+      { page: 'overview', target: 'search', title: 'Search settings', cue: 'Click here to search any setting, Bot, or model.' },
       hasProviders
         ? { page: 'models', target: 'provider-list', title: 'Models', cue: 'Click a provider to enter your API key, or click "+ Add a provider".' }
         : { page: 'bot-models', target: 'bm-bar', title: 'Bot models', cue: 'Select Bots below and pick a model here to switch them together.' },

@@ -1,4 +1,4 @@
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ModelMenu, modelOf } from './model-menu.js'
@@ -32,7 +32,8 @@ export const summaryLine = (results) => {
   return parts.join(' · ')
 }
 
-export function BotModelsPage({ roster, actions, run, Section }) {
+// `preset`: a model search offered to switch to; the page asks before it moves any Bot.
+export function BotModelsPage({ roster, actions, run, Section, preset = null }) {
   const bots = roster.bots ?? []
   const [selected, setSelected] = useState(() => new Set())
   const [target, setTarget] = useState(undefined)
@@ -49,9 +50,11 @@ export function BotModelsPage({ roster, actions, run, Section }) {
       return next
     })
   }
-  const apply = (ref) => {
+  const [offer, setOffer] = useState(preset)
+  useEffect(() => { setOffer(preset) }, [preset])
+  const offered = offer ? (roster.models ?? []).find(entry => entry.ref === offer) : undefined
+  const apply = (ref, chosen = bots.filter(bot => selected.has(bot.id))) => {
     if (busy) return
-    const chosen = bots.filter(bot => selected.has(bot.id))
     if (chosen.length === 0) return
     setTarget(ref)
     setBusy(true)
@@ -65,6 +68,11 @@ export function BotModelsPage({ roster, actions, run, Section }) {
   })
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
+      offered && eligible.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {count} Bots to {model}?', { count: eligible.length, model: offered.name ?? offered.ref }))),
+        h('div', { className: 'bt-set-control bt-bm-actions' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
+          h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, eligible) } }, t('Switch')))) : null,
       h('div', { className: 'bt-set-row bt-bm-bar' },
         h('span', { className: 'bt-set-copy' },
           h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),

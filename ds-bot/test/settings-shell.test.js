@@ -271,7 +271,7 @@ test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no 
   assert.deepEqual(labels.slice(-4), ['Account', 'Plugins', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
-  assert.equal(labels[0], 'General')
+  assert.equal(labels[0], 'Overview')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
@@ -283,9 +283,9 @@ test('a DSH page opens in the dialog and draws that section', () => {
   assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
 })
 
-test('a DSH page that left the ledger falls back to General', () => {
+test('a DSH page that left the ledger falls back to Overview', () => {
   const { tree, drawn } = dialog({ page: 'dsh', id: 'gone' })
-  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'General')
+  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'Overview')
   assert.ok(!drawn.some(([name]) => name === 'settings.section'))
 })
 
