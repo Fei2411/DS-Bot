@@ -126,7 +126,6 @@ const view = (prefs, ready = true, question, { ui = {} } = {}) => {
   const listeners = new Set()
   const sent = []
   const answered = []
-  const stopped = []
   const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
   const team = {
     actions: {
@@ -148,7 +147,7 @@ const view = (prefs, ready = true, question, { ui = {} } = {}) => {
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, answered, stopped, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
+  return { sent, answered, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
 }
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {

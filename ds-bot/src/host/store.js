@@ -179,12 +179,34 @@ export function install(rt) {
     // the Bot's chat and its Session is archived, which stops what still runs there; the
     // list is saved, so a host that cannot finish now finishes at a later start.
     if (!Array.isArray(state.retiredParts)) delete state.retiredParts
+    const liveTeamSessions = new Set()
+    for (const [id, entry] of Object.entries(state.bots)) {
+      if (entry === null || typeof entry !== 'object') continue
+      const currentSid = sessionIdOf(entry.sessionId) ?? sessionIdOf(entry.id) ?? id
+      if (currentSid !== undefined) liveTeamSessions.add(currentSid)
+      for (const task of Array.isArray(entry.tasks) ? entry.tasks : []) {
+        const taskSid = sessionIdOf(task?.sessionId)
+        if (taskSid !== undefined) liveTeamSessions.add(taskSid)
+        for (const seg of Array.isArray(task?.segments) ? task.segments : []) {
+          const segSid = sessionIdOf(seg?.sessionId)
+          if (segSid !== undefined) liveTeamSessions.add(segSid)
+        }
+      }
+    }
+    for (const [id, room] of Object.entries(state.rooms)) {
+      if (room === null || typeof room !== 'object') continue
+      const roomSid = sessionIdOf(room.sessionId) ?? sessionIdOf(room.id) ?? id
+      if (roomSid !== undefined) liveTeamSessions.add(roomSid)
+      for (const sid of Object.values(room.sessions ?? {})) {
+        const memberSid = sessionIdOf(sid)
+        if (memberSid !== undefined) liveTeamSessions.add(memberSid)
+      }
+    }
     for (const [id, bot] of Object.entries(state.bots)) {
       if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
       const botId = sessionIdOf(bot.id) ?? id
-      const currentSid = sessionIdOf(bot.sessionId) ?? botId
       const existingSegments = Array.isArray(bot.segments) ? bot.segments : []
-      const seen = new Set([currentSid, ...existingSegments.map(segment => sessionIdOf(segment?.sessionId)).filter(Boolean)])
+      const seen = new Set([...liveTeamSessions, ...existingSegments.map(segment => sessionIdOf(segment?.sessionId)).filter(Boolean)])
       const now = Date.now()
       const added = []
       for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
@@ -347,31 +369,61 @@ export function install(rt) {
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
   const retireParts = () => {
-    if (retiring !== undefined || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
-    retiring = (async () => {
+    if (retiring !== undefined || stopped || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
+    const epoch = lockEpoch
+    const run = (async () => {
       // The schedule service attaches after the store loads.
       await new Promise(resolve => setImmediate(resolve))
-      for (const entry of [...state.retiredParts]) {
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return
+      const snapshot = state.retiredParts.slice()
+      let changed = false
+      const dropEntry = (entry, sessionId) => {
+        if (!Array.isArray(state.retiredParts)) return
+        const before = state.retiredParts.length
+        state.retiredParts = state.retiredParts.filter(item => (sessionId !== undefined ? sessionIdOf(item?.sessionId) !== sessionId : item !== entry))
+        if (state.retiredParts.length !== before) changed = true
+      }
+      for (const entry of snapshot) {
+        if (stopped || readOnly() !== undefined || lockEpoch !== epoch || !Array.isArray(state.retiredParts)) return
         const sessionId = sessionIdOf(entry?.sessionId)
         try {
           if (sessionId !== undefined) {
+            // Never archive or move schedules off any live team session (foreground chat,
+            // active #783 background task, group member session, or group's own session).
+            if (chatOwners.has(sessionId) || groupOwners.has(sessionId) || roomOwners.has(sessionId)) {
+              dropEntry(entry, sessionId)
+              continue
+            }
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
-            if (target !== sessionId) {
-              if (target !== undefined) await rt.moveSchedules(sessionId, target)
+            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
+            try {
               await registry.archiveSession(sessionId, { stopActivity: true })
+            } catch (archiveError) {
+              // Session already gone from DSH live registry and persistence: treat as retired.
+              if (archiveError?.name !== 'WorkspaceUnknownSessionError') throw archiveError
             }
           }
-          state.retiredParts = state.retiredParts.filter(item => item !== entry)
+          dropEntry(entry, sessionId)
         } catch (error) {
           warn('ds-bot: withdrawn parallel part %s not retired yet: %s', sessionId, error)
         }
       }
-      if (state.retiredParts.length === 0) delete state.retiredParts
-      await save().catch(error => warn('ds-bot: saving the retired parallel parts failed: %s', error))
-    })().finally(() => { retiring = undefined })
-    return retiring
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
+      if (Array.isArray(state.retiredParts) && state.retiredParts.length === 0) {
+        delete state.retiredParts
+        changed = true
+      }
+      if (changed) {
+        await save().catch(error => warn('ds-bot: saving the retired parallel parts failed: %s', error))
+      }
+    })()
+    const tracked = run.catch(error => warn('ds-bot: retiring withdrawn parallel parts failed: %s', error))
+      .finally(() => { if (retiring === tracked) retiring = undefined })
+    retiring = tracked
+    return tracked
   }
 
   const load = () => loaded ??= (async () => {
@@ -412,11 +464,21 @@ export function install(rt) {
           warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
         }
       }
-      adopt(readFileState())
+      const { migrated } = adopt(readFileState())
       notifyStoreSync()
+      return migrated
     })
     writing = run.catch(() => {})
-    const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
+    const tracked = run.then((migrated) => {
+      if (adopting === tracked) adopting = undefined
+      void retireParts()
+      if (migrated && stuck === undefined && !stopped && readOnly() === undefined) {
+        void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
+      }
+    }, (error) => {
+      if (adopting === tracked) adopting = undefined
+      throw error
+    })
     adopting = tracked
     return tracked
   }
@@ -440,9 +502,12 @@ export function install(rt) {
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
-        adopt(readFileState())
+        const { migrated } = adopt(readFileState())
         notifyStoreSync()
         void retireParts()
+        if (migrated && stuck === undefined && !stopped) {
+          void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
+        }
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -552,7 +617,7 @@ export function install(rt) {
 
   ctx.effect(() => () => {
     stopped = true
-    return writing.finally(() => lock.release())
+    return Promise.allSettled([writing, retiring]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))

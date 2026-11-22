@@ -173,6 +173,54 @@ test('folding legacy openParts never archives the Bot current foreground session
   assert.deepEqual(kept.segments.map(segment => segment.sessionId), ['w1', 'w4'])
 })
 
+test('a retired parallel part absent from DSH live and persisted sessions clears retiredParts without stalling', async (t) => {
+  // Real DSH WorkspaceRegistry throws WorkspaceUnknownSessionError when w3 does not exist.
+  const { home, registry, call } = await team(t, [], LEGACY, ['m1', 'w1', 'w2', 'w4'])
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
+})
+
+test('legacy openParts or retiredParts matching an active background task session never archives or moves that task', async (t) => {
+  const moved = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w-task' } }],
+    edit: async (request) => { moved.push(request); return { id: request.id } },
+    list: async () => [],
+  }
+  const withTask = JSON.parse(JSON.stringify(TEAM))
+  withTask.bots.w1.tasks = [{ id: 't1', title: 'Audit', sessionId: 'w-task', status: 'running', segments: [] }]
+  withTask.bots.w1.openParts = [{ sessionId: 'w-task', segments: [], startedAt: 6 }]
+  withTask.retiredParts = [{ sessionId: 'w-task', botId: 'w1' }]
+  const { home, registry, call } = await team(t, [], withTask, ['m1', 'w1', 'w2', 'w-task'], { services: { schedule } })
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w-task'), false)
+  assert.deepEqual(moved, [])
+  assert.equal(saved(home).bots.w1.tasks[0].sessionId, 'w-task')
+})
+
+test('retireParts handles shutdown and disk-failure without unhandled rejections or spurious saves', async (t) => {
+  let rejections = 0
+  const onRejection = () => { rejections += 1 }
+  process.on('unhandledRejection', onRejection)
+  t.after(() => process.off('unhandledRejection', onRejection))
+
+  const host = await team(t, [], LEGACY, undefined, {
+    before: (registry) => {
+      registry.archiveSession = async () => { throw new Error('temporary io error') }
+    },
+  })
+  await host.call('state')
+  const revBefore = saved(host.home).revision
+  await new Promise(resolve => setTimeout(resolve, 40))
+  // Failed archive does not bump revision with a spurious save.
+  assert.equal(saved(host.home).revision, revBefore)
+  await host.stop()
+  assert.equal(rejections, 0)
+})
+
 // A host that starts while another dsh saves the team only reads it; once that dsh
 // closes and this host takes over, it retires the parts the other one left.
 test('a host that takes over the team later retires the withdrawn parallel parts', async (t) => {
