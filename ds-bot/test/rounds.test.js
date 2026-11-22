@@ -2025,3 +2025,51 @@ test('a line the book did not keep is reported to whoever posted it', { skip: pr
   await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
   await running
 })
+
+// #2066 review: the line's write is awaited, and the round can close meanwhile. A line
+// that comes in then must not be taken into the round that closed: it waits for the next
+// round, which starts at its line, without being said a second time.
+test('a user line that joins a round closing meanwhile waits for the next round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  // The user's next message waits in the group's inbox while the round runs.
+  await emit(room.id, userMessage('@Writer late question'))
+
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  try {
+    const mid = relay(room.id, 'mid')
+    const line = await waitFor(() => rt.roomOf(room.id).log.find(entry => entry.text === '@Writer late question'))
+    assert.ok(line, 'the line is said before its write is awaited')
+    const round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+
+    // The last member finishes while the line's write is still on its way: the round closes.
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const second = await turnFor(sent, first)
+    await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+    await waitFor(() => round.closed === true)
+    const slots = round.slots.length
+    release()
+    const next = relay(room.id, 'after')
+
+    const late = await turnFor(sent, first, second)
+    assert.ok(late, 'the next round calls the member the line names')
+    const after = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress !== round)
+    assert.ok(after, 'a round of its own runs it')
+    assert.equal(after.startSeq, line.seq, 'the next round starts at the line it carries')
+    // The closed round did not take the line in: no new call was left waiting in it.
+    assert.equal(round.slots.length, slots)
+    await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+    await Promise.all([mid, next, running])
+  } finally {
+    rt.ledger.written = realWritten
+  }
+})

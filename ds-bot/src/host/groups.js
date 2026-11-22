@@ -2469,12 +2469,20 @@ export function install(rt) {
       // The user's message, as one the round takes in from the Session's inbox.
       noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
-      say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      const line = say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      // Said once, here: a round that takes it up later must not say it again.
+      if (line?.seq !== undefined) post.logged = line.seq
       // The round takes the line in now; it must not go on as if the book had it.
       await rt.ledger.written(bookOf(room.id)).catch((error) => {
         rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
         throw new Error(`the user's line may not have been saved: ${error?.message ?? error}`)
       })
+      // The write can outlast the round: one that closed meanwhile takes no more lines,
+      // so this one waits for the next round, which starts at its seq.
+      if (round.closed || round.abort?.signal.aborted) {
+        laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), post])
+        continue
+      }
       unpauseRoomIdle(room)
       round.userMessage = true
       rt.goalUserMessage?.(room.id)
@@ -2482,8 +2490,12 @@ export function install(rt) {
       const { speakers, ordered } = openingCall(room, { text: post.text ?? '' })
       callIn(round, speakers, all || found.length > 0 ? 'the user mentioned you' : 'new message from the user', undefined, { ordered })
     }
-    releaseParked(room, round)
-    round.nudge?.()
+    // A round that closed while a line was being written keeps its parked calls for the
+    // round that takes them, instead of being told to run in a round that is over.
+    if (!round.closed && !round.abort?.signal.aborted) {
+      releaseParked(room, round)
+      round.nudge?.()
+    }
     await rt.save()
   }
 
