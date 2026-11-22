@@ -4,7 +4,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join, win32 } from 'node:path'
+import { delimiter, isAbsolute, join, posix, win32 } from 'node:path'
 
 // The CLI signs in by itself; an API key or another agent's backend variable in
 // our environment would shadow that or leak, so neither reaches the child.
@@ -208,7 +208,7 @@ function classifySignIn(error, stdout, stderr, check) {
   const fromJson = parseJsonSignIn(stdout)
   if (fromJson !== null) return fromJson
   const text = `${stdout ?? ''}${stderr ?? ''}`
-  if (/not (?:logged|signed) in|not authenticated|unauthenticated|no (?:active )?(?:account|credentials|token)|please (?:log ?in|sign ?in|authenticate)/iu.test(text)) {
+  if (/not (?:logged|signed) in|not authenticated|unauthenticated|partially authenticated|no (?:active )?(?:account|credentials|token)|please (?:log ?in|sign ?in|authenticate)/iu.test(text)) {
     return false
   }
   if (/(?:logged|signed) in/iu.test(text) || /^authenticated(?:\s|$|[:.,])/imu.test(text)) {
@@ -218,15 +218,18 @@ function classifySignIn(error, stdout, stderr, check) {
   return null
 }
 
-const SIGN_IN_TIMEOUT_MS = 3_000
+// Network-backed status commands (e.g. `devin auth status`, `cursor-agent status`)
+// routinely take 2-4s under concurrent startup; 3s killed them before stdout flushed.
+const SIGN_IN_TIMEOUT_MS = 6_000
+const KEYCHAIN_TIMEOUT_MS = 2_000
 
-function probeMacKeychain({ service, account }, spawnKeychain) {
+function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
   return new Promise((resolve) => {
     try {
       // Without -g or -w this looks up metadata only. A miss proves nothing:
       // the CLI may be using a fallback credential store.
       const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
-        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(SIGN_IN_TIMEOUT_MS), killSignal: 'SIGKILL',
+        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
       })
       child.once('error', () => resolve(null))
       child.once('close', (code) => resolve(code === 0 ? true : null))
@@ -234,45 +237,144 @@ function probeMacKeychain({ service, account }, spawnKeychain) {
   })
 }
 
+async function probeMacKeychain({ service, services, account }, spawnKeychain, timeoutMs = KEYCHAIN_TIMEOUT_MS) {
+  const cap = Math.min(timeoutMs, KEYCHAIN_TIMEOUT_MS)
+  const list = services ?? (service === undefined ? [] : [service])
+  if (list.length === 0) return null
+  const results = await Promise.all(list.map(name => probeMacKeychainItem(name, account, spawnKeychain, cap)))
+  return results.every(result => result === true) ? true : null
+}
+
 // The per-user data folder as CodeBuddy resolves it from the home directory
 // (it ignores XDG_DATA_HOME and LOCALAPPDATA).
 const APP_DATA = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'] }
 
-function hasJsonPaths(file, paths) {
+const pathValue = (data, path) => path.reduce((current, key) => current?.[key], data)
+const isNonEmptyString = value => typeof value === 'string' && value.trim() !== ''
+function isNonEmptyValue(value) {
+  if (typeof value === 'string') return value.trim() !== ''
+  if (value !== null && typeof value === 'object') return Array.isArray(value) ? value.length > 0 : Object.keys(value).length > 0
+  return Boolean(value)
+}
+
+function readJsonFile(file) {
   try {
-    const data = JSON.parse(readFileSync(file, 'utf8'))
-    return paths.every((path) => Boolean(path.reduce((value, key) => value?.[key], data)))
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+function parseTomlStringValue(raw) {
+  const quote = raw[0]
+  if (quote !== '"' && quote !== "'") return undefined
+  if (quote === "'") {
+    const end = raw.indexOf("'", 1)
+    if (end === -1) return undefined
+    const tail = raw.slice(end + 1).trim()
+    return tail === '' || tail.startsWith('#') ? raw.slice(1, end) : undefined
+  }
+  let out = ''
+  for (let i = 1; i < raw.length; i++) {
+    const ch = raw[i]
+    if (ch === '\\') {
+      if (i + 1 >= raw.length) return undefined
+      out += raw[++i]
+      continue
+    }
+    if (ch === '"') {
+      const tail = raw.slice(i + 1).trim()
+      return tail === '' || tail.startsWith('#') ? out : undefined
+    }
+    out += ch
+  }
+  return undefined
+}
+
+// Checks top-level TOML string keys (stops at the first `[table]` header so
+// keys nested inside sections cannot spoof top-level credentials).
+function hasTomlTopLevelStrings(file, keys) {
+  try {
+    const found = new Set()
+    for (const rawLine of readFileSync(file, 'utf8').split(/\r?\n/u)) {
+      const trimmed = rawLine.trim()
+      if (trimmed === '' || trimmed.startsWith('#')) continue
+      if (trimmed.startsWith('[')) break
+      const eq = rawLine.indexOf('=')
+      if (eq === -1) continue
+      const key = rawLine.slice(0, eq).trim()
+      if (!keys.includes(key)) continue
+      const value = parseTomlStringValue(rawLine.slice(eq + 1).trim())
+      if (value !== undefined && value.trim() !== '') found.add(key)
+    }
+    return keys.every(key => found.has(key))
   } catch {
     return false
   }
 }
 
-function probeAppDataFile({ path, loggedOut, has = [] }, home, platform) {
-  const file = join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...path)
+function probeFile(file, { loggedOut, has = [], stringGroups = [], tomlStrings = [] } = {}) {
   if (!isFile(file) || (loggedOut !== undefined && isFile(`${file}${loggedOut}`))) return null
-  return has.length === 0 || hasJsonPaths(file, has) ? true : null
+  if (has.length > 0 || stringGroups.length > 0) {
+    const data = readJsonFile(file)
+    if (data === undefined) return null
+    if (has.length > 0 && !has.every(path => isNonEmptyValue(pathValue(data, path)))) return null
+    if (stringGroups.length > 0 && !stringGroups.some(group => group.every(path => isNonEmptyString(pathValue(data, path))))) return null
+  }
+  if (tomlStrings.length > 0 && !hasTomlTopLevelStrings(file, tomlStrings)) return null
+  return true
+}
+
+const isAbsoluteFor = (value, platform) => (platform === 'win32' ? win32.isAbsolute(value) : (posix.isAbsolute(value) || isAbsolute(value)))
+
+function envValue(env, name, platform) {
+  if (env === undefined || env === null || name === undefined) return ''
+  if (platform !== 'win32') return String(env[name] ?? '').trim()
+  const upper = name.toUpperCase()
+  const key = Object.keys(env).find(candidate => candidate.toUpperCase() === upper)
+  return key === undefined ? '' : String(env[key] ?? '').trim()
+}
+
+function resolvePlatformFile(spec, home, platform, env) {
+  const entry = spec[platform] ?? spec.default
+  if (entry === undefined) return undefined
+  const envRoot = envValue(env, entry.env, platform)
+  const base = envRoot !== '' && isAbsoluteFor(envRoot, platform) ? envRoot : join(home, ...(entry.base ?? []))
+  return join(base, ...entry.path)
+}
+
+function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, deadline }) {
+  if (check.macKeychain !== undefined) {
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs) : Promise.resolve(null)
+  }
+  if (check.file !== undefined) return Promise.resolve(probeFile(join(home, ...check.file)))
+  if (check.appDataFile !== undefined) {
+    return Promise.resolve(probeFile(join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...check.appDataFile.path), check.appDataFile))
+  }
+  if (check.platformFile !== undefined) {
+    const file = resolvePlatformFile(check.platformFile, home, platform, env)
+    return Promise.resolve(file === undefined ? null : probeFile(file, check.platformFile))
+  }
+  if (check.args === undefined) return Promise.resolve(null)
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    try {
+      const launch = launchOf(executable, check.args)
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: remaining, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+        resolve(classifySignIn(error, stdout, stderr, check))
+      })
+    } catch { resolve(null) }
+  })
 }
 
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
-export function probeSignIn(executable, check, { home = homedir(), platform = process.platform, spawnKeychain = spawn } = {}) {
-  if (check === undefined) return Promise.resolve(null)
-  if (check.macKeychain !== undefined) {
-    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain) : Promise.resolve(null)
+export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs
+  for (let current = check; current !== undefined; current = current.fallback) {
+    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, deadline })
+    if (result !== null) return result
   }
-  if (check.file !== undefined) return Promise.resolve(isFile(join(home, ...check.file)) ? true : null)
-  if (check.appDataFile !== undefined) return Promise.resolve(probeAppDataFile(check.appDataFile, home, platform))
-  return new Promise((resolve) => {
-    try {
-      const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: SIGN_IN_TIMEOUT_MS, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
-        const result = classifySignIn(error, stdout, stderr, check)
-        if (result !== null || check.fallback === undefined) {
-          resolve(result)
-          return
-        }
-        void probeSignIn(executable, check.fallback, { home, platform, spawnKeychain }).then(resolve, () => resolve(null))
-      })
-    } catch { resolve(null) }
-  })
+  return null
 }

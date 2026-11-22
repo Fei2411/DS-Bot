@@ -580,10 +580,24 @@ export function install(rt) {
     else next[id] = value
     activity = next
   }
+  // An activity line starts with the tool's name, so only that name may mark a team
+  // call. Reading the whole line would treat a `dsbot/` path in a shell argument as the
+  // team server and hide real work from the group.
+  const LOCAL_TEAM_TOOL = /^(?:mcp(?:__|_)dsbot(?=[_:]|$)|dsbot(?=[_:]|$))/i
+  const localTeamCall = text => LOCAL_TEAM_TOOL.test(String(text ?? '').trim().split(/\s+/)[0] ?? '')
+  const LOCAL_READ_TOOL = /^(?:read|view|cat|search|grep|glob|ls|find|list|fetch|browse|web_?search|web_?fetch|notebookread)\b/i
+  // A local CLI's activity line is `▸ <tool> <detail>`; keep it short and route read
+  // tools to the searching state instead of the generic working one.
+  const localActivityOf = (raw) => {
+    const line = String(raw ?? '').replace(/^\s*▸\s*/, '').replaceAll('`', '').replace(/\s+/g, ' ').trim()
+    if (line === '') return undefined
+    return { tool: LOCAL_READ_TOOL.test(line) ? 'read' : 'cli', note: line.slice(0, 120) }
+  }
+
   // The newest call still running, a program's sub-calls included, is what the Session
-  // is doing.
+  // is doing; a local agent CLI's own tool run stands in while no bridged call runs.
   const showCall = (id, entry) => {
-    const name = [...(entry.calls?.values() ?? [])].at(-1)?.name
+    const name = [...(entry.calls?.values() ?? [])].at(-1)?.name ?? entry.localDoing?.tool
     entry.tool = name
     if (name !== undefined) setActivity(id, name === 'ask_user' || name === 'show_view' ? undefined : activityOf(name))
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
@@ -595,6 +609,38 @@ export function install(rt) {
   const endCall = (id, entry, callId) => {
     entry.calls?.delete(callId)
     showCall(id, entry)
+  }
+
+  // A local agent CLI streams its thoughts and tool runs inside one LLM call, without
+  // DSH tool/call events: mirror them onto the live turn so the group clock, work
+  // grace, tool count and status views see what the CLI is doing.
+  const noteLocalAgentEvent = (id, event) => {
+    const entry = live.get(id)
+    if (entry?.turn === undefined || event === undefined) return
+    if (event.type === 'idle') {
+      if (entry.localDoing !== undefined) {
+        entry.localDoing = undefined
+        showCall(id, entry)
+      }
+      return
+    }
+    if (rt.groupOwners.has(id)) rt.touchRoomTurn?.(id)
+    if (event.type !== 'activity' && event.type !== 'status') return
+    const text = String(event.text ?? '').replace(/^\s*▸\s*/, '').trim()
+    // A call to DS Bot's own MCP server is dispatched by DSH and counted there. An
+    // adapter that knows the call is a team call marks it; the name fallback covers a
+    // CLI that reports the tool name without that marker, and stays out of the way when
+    // the adapter says the call is the CLI's own.
+    if (event.team === true) return
+    if (event.team !== false && localTeamCall(text)) return
+    const doing = localActivityOf(text)
+    if (doing === undefined) return
+    entry.localDoing = doing
+    showCall(id, entry)
+    if (event.type === 'activity' && event.failed !== true) {
+      entry.toolCount = (entry.toolCount ?? 0) + 1
+      if (rt.groupOwners.has(id)) rt.workRoomTurn?.(id, doing.tool)
+    }
   }
 
   const markExchangeTurn = (sessionId, turn) => {
@@ -720,7 +766,7 @@ export function install(rt) {
   // that made it, the call's description, or the file, search or site it works on.
   const doingOf = (entry) => {
     const call = [...(entry.calls?.values() ?? [])].at(-1)
-    if (call === undefined) return {}
+    if (call === undefined) return entry.localDoing ?? {}
     const said = entry.step?.replace(/\s+/g, ' ').trim().slice(0, 160)
     let args
     try { args = JSON.parse(call.args || '{}') } catch { args = {} }
@@ -1037,6 +1083,7 @@ export function install(rt) {
         entry.step = undefined
         entry.info = undefined
         entry.toolCount = 0
+        entry.localDoing = undefined
         entry.usage = undefined
         entry.suppressedSubagent = false
         // A turn turned away before its first step may end without a turn/end.
@@ -1325,6 +1372,7 @@ export function install(rt) {
         entry.since = undefined
         entry.steeredAt = undefined
         entry.tool = undefined
+        entry.localDoing = undefined
         entry.calls = undefined
         entry.lastText = undefined
         entry.lastCalled = undefined
@@ -1473,7 +1521,7 @@ export function install(rt) {
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
             if (failure !== undefined) waiter.fail(failure)
-            else waiter.resolve(reason?.kind === 'aborted' ? null : groupReply())
+            else waiter.resolve(reason?.kind === 'aborted' ? null : state.questions[id] !== undefined || state.views[id] !== undefined ? { answer: true, text: groupReply() } : groupReply())
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
@@ -1592,5 +1640,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
 }

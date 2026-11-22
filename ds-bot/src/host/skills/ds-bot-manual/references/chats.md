@@ -8,8 +8,8 @@ Use **Settings → Group chats** to inspect and change groups. In a chat's **+**
 
 - `message_bot` delegates to another Bot. Use it only for work or useful facts, not acknowledgements. Replies arrive later; do not poll. In a group it reaches only that group's members.
 - `create_group` is Main Bot only. It joins the creator as admin unless another admin is named.
-- `update_group` changes name, notice, members, admin, reply mode or work_dir. A Main Bot can manage any group; the group's admin can manage its group.
-- `post_to_group` posts from outside a group. The admin's post starts a discussion. Another member's post calls the members it names with @Name. A Main Bot can post to any group.
+- `update_group` changes name, notice, members, admin, reply mode or work_dir. A Main Bot can manage any group; the group's admin can manage its group, but only a Main Bot can change its working folder or sidebar section.
+- `post_to_group` posts from outside a group. A Main Bot's or the admin's post starts a discussion. Another member's post calls the members it names with @Name. A Main Bot can post to any group.
 - `delete_group` archives a group and is Main Bot only. Use it only when the user asks.
 - `group_goal` manages staged goals. The admin normally runs it. Load goal-grill before starting: align objective, acceptance, constraints, stages and assigned tasks with the user.
 - `group_task` manages the group's shared task board. `group_todo` manages its checklist. These are not scheduled reminders.

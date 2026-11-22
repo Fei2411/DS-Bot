@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { headOf } from './text.js'
-import { isOpenPart, ownChatSessions, threadCurrentOfPart } from './threads.js'
+import { ownChatSessions, threadCurrentOfPart } from './threads.js'
 
 const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
@@ -411,8 +411,7 @@ export function install(rt) {
       if (room) return `in group "${room.name}"`
       const task = rt.taskBySession?.(sessionId)?.task
       if (task !== undefined) return `in background task "${task.title}"`
-      // The same words the message_bot note uses for a background part.
-      return isOpenPart(bot, sessionId) ? 'in another of its conversations' : 'in its own chat'
+      return 'in its own chat'
     }
     const forWhom = (sessionId, info) => {
       if (rt.groupOwners.has(sessionId)) return info?.askedBy && nameOf(info.askedBy) ? `, for ${nameOf(info.askedBy)}` : ''

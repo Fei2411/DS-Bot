@@ -36,7 +36,7 @@ Bot 是长期身份。登录应该跟着 Bot 走，而不是跟着某一段对�
 - 不在 Bot 之间同步 cookie。
 - 不把 Chrome DevTools MCP 做成可选后端。它留在调研里，不进这三个插件。
 - 不在这台没有 ego lite 的环境里假装测过 ego。
-- 默认不打开任何一个插件，所以现有的只读行为不变。选定之前不合进 `dev`。
+- 默认不启用交互式浏览器插件，保留只读 `read_browser` 行为；需在 DSH profile 的 `bot.config.browserPlugin` 中显式配置 `refs`、`script` 或 `task` 并重启 DS Bot 生效。
 
 ## 已知限制
 
@@ -47,6 +47,8 @@ Bot 是长期身份。登录应该跟着 Bot 走，而不是跟着某一段对�
 - 这次实测用的是自建多步页面，加上 WebVoyager 里两条 arXiv 任务，不是整套 600 多条。
 
 ## 变更
+
+- 2026-11-22：标记已过时的待合并状态，说明 profile 配置和重启要求，对照 dev 代码校正。
 
 - 2026-10-21：维护者定下全团队一个后端、每 Bot 一份 profile、cookie 不同步。三个插件和实测在同一分支，默认关闭。
 - 2026-10-22：`browser_task` 使用调用 Bot 在 DSH 中配置的模型；基准测试模型由 `BENCH_BASE_URL`、`BENCH_MODEL` 和 `BENCH_API_KEY` 配置。
