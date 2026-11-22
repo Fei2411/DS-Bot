@@ -145,7 +145,7 @@ export function ChangesReview({ changes, onOpenFile }) {
       onOpenFile ? h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
-        onClick: () => onOpenFile(currentFile.path),
+        onClick: () => onOpenFile({ path: currentFile.path, sessionId }),
       }, h(FileIcon), t('Open file')) : null) : null,
     h('div', { className: 'dsb-chg-body' },
       loadingDiff ? h('div', { className: 'dsb-rp-empty' }, t('Loading…'))

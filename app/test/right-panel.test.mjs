@@ -425,10 +425,11 @@ test('ChangesReview renders summary errors before loading state and guards cycli
     return Promise.resolve({})
   }
   const team = createTeam()
-  // Whitespace in file paths must be preserved verbatim by openFile.
-  team.actions.openFile('spaced.txt ')
+  // Whitespace in file paths must be preserved verbatim by openFile, and target sessionId is retained.
+  team.actions.openFile({ path: 'spaced.txt ', sessionId: 'member-s1' })
   const fileProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
   assert.equal(fileProbe.render().props.file, 'spaced.txt ')
+  assert.equal(fileProbe.render().props.fileSessionId, 'member-s1')
   fileProbe.unmount()
 
   const term = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, autoOpenNonce: 1 })

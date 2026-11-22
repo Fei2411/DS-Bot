@@ -129,10 +129,14 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
   const [refreshTick, setRefreshTick] = useState(0)
   const genRef = useRef(0)
 
+  const rootPathRef = useRef('')
+  rootPathRef.current = rootInfo.root
+
   const loadDir = useCallback(async (dirPath, gen) => {
     setLoadingDirs(current => new Set(current).add(dirPath))
     try {
-      const res = await call('workspace-list', { sessionId, path: dirPath, includeHidden })
+      const expectedRoot = dirPath !== '' && rootPathRef.current ? rootPathRef.current : undefined
+      const res = await call('workspace-list', { sessionId, path: dirPath, includeHidden, ...(expectedRoot ? { expectedRoot } : {}) })
       if (genRef.current !== gen) return
       if (dirPath === '') {
         setRootInfo({
@@ -146,6 +150,10 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
       setError('')
     } catch (failure) {
       if (genRef.current !== gen) return
+      if (dirPath !== '' && failure?.code === 'bot/stale') {
+        setRefreshTick(n => n + 1)
+        return
+      }
       if (dirPath === '') setError(hostText(failure?.message ?? String(failure)))
     } finally {
       if (genRef.current === gen) {
@@ -191,7 +199,7 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
     selectedPath,
     filter,
     onToggleDir: toggleDir,
-    onSelectFile: onOpenFile,
+    onSelectFile: path => onOpenFile(rootPathRef.current ? { path, root: rootPathRef.current } : path),
   })
 
   return h('div', { className: 'dsb-ft' },
@@ -252,6 +260,8 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
   const open = panel !== null && panel !== undefined
   const activeTab = panel?.tab ?? 'files'
   const filePath = panel?.file ?? null
+  const fileSessionId = panel?.fileSessionId ?? sessionId
+  const fileRoot = panel?.fileRoot ?? null
   const changes = panel?.changes ?? null
   const terminalNonce = panel?.terminalNonce ?? 0
 
@@ -302,7 +312,10 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
       loading: true,
       error: '',
     }))
-    void call('workspace-read', { sessionId, path: filePath })
+    // Enforce `expectedRoot` on the initial click from FileTree so a mid-session `working_directory`
+    // move never opens a different file; an explicit Retry (`reloadNonce > 0`) reads the live root.
+    const expectedRoot = reloadNonce === 0 && fileRoot ? fileRoot : undefined
+    void call('workspace-read', { sessionId: fileSessionId, path: filePath, ...(expectedRoot ? { expectedRoot } : {}) })
       .then((res) => {
         if (fileReqRef.current !== reqId) return
         setFileState({ path: filePath, data: res, loading: false, error: '' })
@@ -314,7 +327,7 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
     return () => {
       if (fileReqRef.current === reqId) fileReqRef.current += 1
     }
-  }, [open, sessionId, filePath, reloadNonce])
+  }, [open, fileSessionId, filePath, fileRoot, reloadNonce])
 
   const pluginTabs = useMemo(() => pluginEntries
     .filter(entry => entry && typeof entry.id === 'string' && entry.component)

@@ -437,11 +437,7 @@ a.dsb-web-link:focus-visible,.dsb-web-url:focus-visible{outline:2px solid var(--
 .dsb-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:var(--bt-mono);font-size:11px;line-height:1;color:var(--bt-ink)}
 
 body[data-bt-effects=off] .dsb-tool-dot{animation:none}
-body[data-bt-effects=off] :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-rightbar-tab,.dsb-right-toggle,.dsb-rightbar-resize::after){transition:none}
-@media (prefers-reduced-motion:reduce){
-  .dsb-tool-dot{animation:none}
-  :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-rightbar-tab,.dsb-right-toggle,.dsb-rightbar-resize::after){transition:none}
-}
+body[data-bt-effects=off] :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-rightbar-tab,.dsb-right-toggle),body[data-bt-effects=off] .dsb-rightbar-resize::after{transition:none}
 
 .dsb-mobile-menu,.dsb-drawer-scrim{display:none}
 .dsb-frame{height:100vh;height:100dvh}
@@ -473,4 +469,4 @@ body[data-bt-effects=off] :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev
   .dsb-composer-input textarea{font-size:16px}
   .dsb-mobile-menu,.dsb-send,.dsb-stop{min-width:40px;min-height:40px}
 }
-@media (prefers-reduced-motion:reduce){.dsb-side,.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-rightbar-tab,.dsb-right-toggle{transition:none}.dsb-tool-dot{animation:none}}
+@media (prefers-reduced-motion:reduce){.dsb-side,.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-rightbar-tab,.dsb-right-toggle,.dsb-rightbar-resize::after{transition:none}.dsb-tool-dot{animation:none}}

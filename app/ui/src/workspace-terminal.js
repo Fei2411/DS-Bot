@@ -134,6 +134,9 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
       if (!mountedRef.current) return
       const pending = pendingEventsRef.current.get(created.id)
       pendingEventsRef.current.delete(created.id)
+      // Mark id known synchronously before React commits `setTerms` so no SSE chunk arriving
+      // in the micro-window between drain and re-render is stashed back into `pendingEventsRef`.
+      knownIdsRef.current.add(created.id)
       setTerms((current) => {
         if (current.some(item => item.id === created.id)) return current
         return [...current, {
@@ -161,15 +164,20 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     void call('terminal-list', {})
       .then((list) => {
         if (!alive || !Array.isArray(list)) return
-        const mapped = list.map(item => ({
-          id: item.id,
-          cwd: item.cwd,
-          title: item.title,
-          pty: item.pty,
-          exited: item.exited === true,
-          exitCode: item.exitCode ?? null,
-          buffer: String(item.snapshot ?? ''),
-        }))
+        const mapped = list.map((item) => {
+          const pending = pendingEventsRef.current.get(item.id)
+          pendingEventsRef.current.delete(item.id)
+          knownIdsRef.current.add(item.id)
+          return {
+            id: item.id,
+            cwd: item.cwd,
+            title: item.title,
+            pty: item.pty,
+            exited: item.exited === true || pending?.exited === true,
+            exitCode: item.exitCode ?? pending?.exitCode ?? null,
+            buffer: trimTail(String(item.snapshot ?? '') + (pending?.buffer ?? '')),
+          }
+        })
         setTerms((current) => {
           if (current.length === 0) return mapped
           const existing = new Set(current.map(item => item.id))
@@ -366,12 +374,12 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
               onChange: event => setCommand(event.target.value),
               onKeyDown: (event) => {
                 if (event.ctrlKey && !event.metaKey && !event.altKey) {
-                  if (event.key.toLowerCase() === 'c') {
+                  if (event.key.toLowerCase() === 'c' && active.pty) {
                     event.preventDefault()
                     void sendInput('\x03')
                     return
                   }
-                  if (event.key.toLowerCase() === 'd') {
+                  if (event.key.toLowerCase() === 'd' && active.pty) {
                     event.preventDefault()
                     void sendInput('\x04')
                     return
@@ -395,12 +403,12 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
                 }
               },
             }),
-            h('button', {
+            active.pty ? h('button', {
               type: 'button',
               className: 'bt-soft bt-soft-sm',
               disabled: active.exited || readOnly,
               title: 'Ctrl+C',
               onClick: () => { void sendInput('\x03') },
-            }, 'Ctrl+C')),
+            }, 'Ctrl+C') : null),
           ])
 }

@@ -174,6 +174,38 @@ test('resolveWorkspaceRoot resolves rolled-over Bot segments, live working_direc
 
   // A session pointing into protected DSH data must be refused.
   await assert.rejects(() => rt.workspaceEndpoint('list', { sessionId: 'seg-in-data', path: '' }), { code: 'bot/refused' })
+
+  // Stale expectedRoot must be rejected with bot/stale when working_directory moved in place.
+  await assert.rejects(() => rt.workspaceEndpoint('read', { sessionId: 'seg-live', path: 'sub.txt', expectedRoot: botDir }), { code: 'bot/stale' })
+
+  // If config.workspace is an ancestor containing dshHome, files inside dshHome remain strictly refused.
+  const parentDir = mkdtempSync(join(tmpdir(), 'dsb-wp-anc-'))
+  const nestedDsh = join(parentDir, '.dsh')
+  mkdirSync(join(nestedDsh, 'bot'), { recursive: true })
+  writeFileSync(join(nestedDsh, 'bot', 'secrets.json'), '{"k":"v"}')
+  t.after(() => rmSync(parentDir, { recursive: true, force: true }))
+  const ctxAnc = {
+    get: () => undefined,
+    workspaceRegistry: { get: () => undefined, list: () => [] },
+    sessions: { get: () => undefined },
+  }
+  const rtAnc = {
+    ctx: ctxAnc,
+    config: { workspace: parentDir },
+    dshHome: nestedDsh,
+    home: join(nestedDsh, 'bot'),
+    state: { revision: 1, bots: {}, rooms: {} },
+    load: async () => {},
+    botOf: () => undefined,
+    selfOf: () => undefined,
+    roomOf: () => undefined,
+    groupOwners: new Map(),
+    taskOwners: new Map(),
+    pastOwners: new Map(),
+  }
+  installFolders(rtAnc)
+  installWorkspacePanel(rtAnc)
+  await assert.rejects(() => rtAnc.workspaceEndpoint('read', { sessionId: '', path: '.dsh/bot/secrets.json' }), { code: 'bot/refused' })
 })
 
 test('workspace-changes delegates to ctx.workspaceChanges with a valid AbortSignal and reports bot/stale when disposed', async (t) => {

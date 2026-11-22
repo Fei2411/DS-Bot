@@ -226,6 +226,8 @@ export function createTeam() {
           ? {
             ...state.rightPanel,
             file: null,
+            fileSessionId: null,
+            fileRoot: null,
             changes: null,
             tab: state.rightPanel.tab === 'preview' || state.rightPanel.tab === 'changes' ? 'files' : state.rightPanel.tab,
           }
@@ -281,7 +283,9 @@ export function createTeam() {
     openFile: (path) => {
       const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
       if (target === '') return
-      openRightPanel(prev => ({ ...prev, tab: 'preview', file: target }))
+      const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
+      const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
+      openRightPanel(prev => ({ ...prev, tab: 'preview', file: target, fileSessionId, fileRoot }))
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return

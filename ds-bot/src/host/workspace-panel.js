@@ -149,10 +149,11 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   }
   if (typeof kit?.createConverter !== 'function') return { status: 'unavailable' }
   activeOfficeConversions += 1
-  const workDir = await mkdtemp(join(tmpdir(), 'dsb-office-'))
+  let workDir = null
   let converter = null
   try {
     if (signal?.aborted) throw Object.assign(new Error('Conversion cancelled'), { code: 'bot/aborted' })
+    workDir = await mkdtemp(join(tmpdir(), 'dsb-office-'))
     const stagedInput = join(workDir, `source${ext}`)
     const outputPdf = join(workDir, 'preview.pdf')
     await copyFile(inputRealPath, stagedInput)
@@ -173,7 +174,7 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   } finally {
     activeOfficeConversions = Math.max(0, activeOfficeConversions - 1)
     await converter?.dispose?.().catch(() => {})
-    await rm(workDir, { recursive: true, force: true }).catch(() => {})
+    if (workDir !== null) await rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -191,14 +192,17 @@ export function install(rt) {
     else rt.publishFeed?.(event, data)
   }
 
-  // Mirror folders.js's team-workspace exception when `defaultTeamFolder()` is used before
-  // `ensureWorkspace()` has registered `state.workspaceId` in `workspaceRegistry`.
+  // Mirror folders.js's team-workspace exception strictly when `defaultTeamFolder()` is used
+  // before `ensureWorkspace()` registers `state.workspaceId`: only a default workspace lying
+  // strictly inside a data root is exempted; an ancestor containing a data root never opens it up.
   const isProtectedData = async (target) => {
     if (!(await rt.inData(target))) return false
+    if (rt.teamFolder() !== undefined) return true
     const defaultWs = await rt.real(resolve(rt.defaultTeamFolder()))
     if (!withinRoot(target, defaultWs)) return true
     for (const root of [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)) {
-      if (defaultWs === await rt.real(root)) return true
+      const data = await rt.real(root)
+      if (withinRoot(target, data) && !(defaultWs !== data && withinRoot(defaultWs, data))) return true
     }
     return false
   }
@@ -215,16 +219,14 @@ export function install(rt) {
         if (room !== undefined) {
           raw = rt.workDirOf({ roomId: room.id }) ?? rt.teamFolder()
         } else {
-          const selfBotId = rt.selfOf?.(sessionId)
-          if (selfBotId !== undefined) {
-            raw = rt.workDirOf({ botId: selfBotId }) ?? rt.teamFolder()
+          // Check room-scoped owners before `selfOf` so non-live group/task sessions keep `roomId`.
+          const owner = rt.groupOwners?.get(sessionId) ?? rt.taskOwners?.get(sessionId) ?? rt.pastOwners?.get(sessionId)
+          if (owner?.roomId !== undefined || owner?.botId !== undefined) {
+            raw = rt.workDirOf({ roomId: owner.roomId, botId: owner.botId ?? rt.selfOf?.(sessionId) }) ?? rt.teamFolder()
           } else {
-            const groupOwner = rt.groupOwners?.get(sessionId)
-            const taskOwner = rt.taskOwners?.get(sessionId)
-            const pastOwner = rt.pastOwners?.get(sessionId)
-            const owner = groupOwner ?? taskOwner ?? pastOwner
-            if (owner?.roomId !== undefined || owner?.botId !== undefined) {
-              raw = rt.workDirOf({ roomId: owner.roomId, botId: owner.botId }) ?? rt.teamFolder()
+            const selfBotId = rt.selfOf?.(sessionId)
+            if (selfBotId !== undefined) {
+              raw = rt.workDirOf({ botId: selfBotId }) ?? rt.teamFolder()
             } else {
               const bot = rt.botOf(sessionId)
               if (bot !== undefined) raw = rt.workDirOf({ botId: bot.id }) ?? rt.teamFolder()
@@ -272,6 +274,13 @@ export function install(rt) {
         return { root: fallback, rootName: basename(fallback) || fallback, path: '', entries: [], truncated: false, missing: true }
       }
       throw error
+    }
+
+    if (typeof body.expectedRoot === 'string' && body.expectedRoot !== '') {
+      const expected = await rt.real(body.expectedRoot)
+      if (expected !== realRoot) {
+        throw Object.assign(new Error('Workspace folder changed'), { code: 'bot/stale' })
+      }
     }
 
     if (name === 'list') {
@@ -592,10 +601,9 @@ export function install(rt) {
           buffer: '',
           write: async (data) => {
             if (record.exited || record.closed) return
-            if (data === '\x03') {
-              signalGroup('SIGINT')
-              return
-            }
+            // Non-PTY fallback has no foreground job group, so Ctrl+C cannot interrupt a
+            // command without killing the shell itself (UI disables Ctrl+C for non-PTY).
+            if (data === '\x03') return
             if (data === '\x04') {
               try { child.stdin?.end() } catch { /* already closed */ }
               return
