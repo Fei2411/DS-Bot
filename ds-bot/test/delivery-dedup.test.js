@@ -711,6 +711,8 @@ test('a completed turn hands a steered request back after a restart', async (t) 
   assert.match(textOf(handed[0]), /answer it now/, 'it asks for the turn it still owes')
   assert.deepEqual(handed[0].content.filter(block => block.type === 'image').map(block => block.attachment), [image], 'the attachments are kept')
 
+  assert.equal(host.rt.state.works['req-1'], undefined, 'the answered request is closed in memory')
+  await host.rt.save({ required: true })
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(state.works['req-1'], undefined, 'the answered request is closed')
   assert.deepEqual(state.works['req-2'], seed.works['req-2'], 'the handed-back request keeps its work and parent')

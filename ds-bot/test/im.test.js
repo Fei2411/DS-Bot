@@ -1446,7 +1446,7 @@ test('only reserved card commands answer forms and all malformed or unknown comm
     const prompts = s.prompts.length
     const sent = s.fake.sent.length
     await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
-    await s.flush()
+    await t.waitFor(() => s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
     assert.equal(s.prompts.length, prompts)
     assert.equal(s.rt.state.views.b.id, pending)
     assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
