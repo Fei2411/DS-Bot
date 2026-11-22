@@ -349,6 +349,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   const narrowViewport = typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth <= 640
   const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 }
   const cardStyle = placeCard(activeSpot, cardSize.width, cardSize.height) ?? fallbackStyle
+  const backdropStyle = activeSpot ? {
+    clipPath: `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${activeSpot.left}px ${activeSpot.top}px, ${activeSpot.left}px ${activeSpot.top + activeSpot.height}px, ${activeSpot.left + activeSpot.width}px ${activeSpot.top + activeSpot.height}px, ${activeSpot.left + activeSpot.width}px ${activeSpot.top}px, ${activeSpot.left}px ${activeSpot.top}px, 0 0)`,
+  } : undefined
 
   return h('div', {
     ref: layerRef,
@@ -361,6 +364,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   },
   h('div', {
     className: activeSpot ? 'bt-tour-backdrop' : 'bt-tour-backdrop bt-tour-backdrop-dim',
+    style: backdropStyle,
     onMouseDown: event => event.stopPropagation(),
   }),
   activeSpot ? h('div', {

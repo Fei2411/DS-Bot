@@ -602,6 +602,7 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
 
     let tree = draw()
     // Server input is collapsed by default.
+    assert.equal(findAll(tree, n => n.type === 'a' && textOf(n) === 'Download').length, 1)
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server').length, 0)
     // Click Edit to reveal Server input.
     const editBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit')[0]
@@ -664,6 +665,10 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     const pairTree = draw()
     assert.match(textOf(pairTree), /Phone online/)
     assert.match(textOf(pairTree), /Only use a Server you trust/)
+    const download = findAll(pairTree, n => n.type === 'a' && textOf(n) === 'Download')
+    assert.equal(download.length, 1)
+    assert.equal(download[0].props.href, 'https://github.com/Fei2411/DS-Bot/releases/latest')
+    assert.equal(findAll(pairTree, n => n.props?.['aria-label'] === 'Pairing QR code').length, 1)
     harness.unmount()
   })
 })

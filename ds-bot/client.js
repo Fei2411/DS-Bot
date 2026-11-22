@@ -38066,26 +38066,28 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       ) : null
     ),
     error ? (0, import_react44.createElement)("div", { className: "bt-connector-error bt-phone-error", role: "alert" }, error) : null,
-    (0, import_react44.createElement)(Section2, { title: t("Pair a phone"), tour: "phone-pair" }, phone.pairing ? (0, import_react44.createElement)(
-      "div",
-      { className: "bt-phone-pair" },
-      (0, import_react44.createElement)(QrCode, { text: phone.pairing.uri }),
-      (0, import_react44.createElement)(
+    (0, import_react44.createElement)(
+      Section2,
+      { title: t("Pair a phone"), tour: "phone-pair" },
+      phone.pairing ? (0, import_react44.createElement)(
         "div",
-        { className: "bt-phone-pair-copy" },
-        (0, import_react44.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
-        (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
-        browserUrl !== null ? (0, import_react44.createElement)(
+        { className: "bt-phone-pair" },
+        (0, import_react44.createElement)(QrCode, { text: phone.pairing.uri }),
+        (0, import_react44.createElement)(
           "div",
-          { className: "bt-phone-pair-actions" },
-          (0, import_react44.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
-          (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
-        ) : null,
-        browserUrl !== null ? (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
-        (0, import_react44.createElement)("div", null, (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
-      )
-    ) : [
-      (0, import_react44.createElement)(
+          { className: "bt-phone-pair-copy" },
+          (0, import_react44.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
+          (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
+          browserUrl !== null ? (0, import_react44.createElement)(
+            "div",
+            { className: "bt-phone-pair-actions" },
+            (0, import_react44.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+            (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+          ) : null,
+          browserUrl !== null ? (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
+          (0, import_react44.createElement)("div", null, (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
+        )
+      ) : (0, import_react44.createElement)(
         Row4,
         { key: "qr", label: t("Show QR code") },
         wantPair ? [
@@ -38101,7 +38103,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { key: "app", label: t("Android beta") },
         (0, import_react44.createElement)("a", { className: "bt-soft bt-soft-sm", href: APP_DOWNLOAD, target: "_blank", rel: "noopener noreferrer" }, t("Download"))
       )
-    ]),
+    ),
     (0, import_react44.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react44.createElement)("div", { className: "bt-set-row" }, (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("No phones yet"))) : phone.phones.map((entry) => (0, import_react44.createElement)(Row4, {
       key: entry.id,
       label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
@@ -40782,6 +40784,9 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
   const narrowViewport = typeof window !== "undefined" && typeof window.innerWidth === "number" && window.innerWidth <= 640;
   const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 };
   const cardStyle = placeCard(activeSpot, cardSize.width, cardSize.height) ?? fallbackStyle;
+  const backdropStyle = activeSpot ? {
+    clipPath: `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${activeSpot.left}px ${activeSpot.top}px, ${activeSpot.left}px ${activeSpot.top + activeSpot.height}px, ${activeSpot.left + activeSpot.width}px ${activeSpot.top + activeSpot.height}px, ${activeSpot.left + activeSpot.width}px ${activeSpot.top}px, ${activeSpot.left}px ${activeSpot.top}px, 0 0)`
+  } : void 0;
   return (0, import_react54.createElement)(
     "div",
     {
@@ -40795,6 +40800,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     },
     (0, import_react54.createElement)("div", {
       className: activeSpot ? "bt-tour-backdrop" : "bt-tour-backdrop bt-tour-backdrop-dim",
+      style: backdropStyle,
       onMouseDown: (event) => event.stopPropagation()
     }),
     activeSpot ? (0, import_react54.createElement)("div", {

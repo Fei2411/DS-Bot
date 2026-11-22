@@ -158,17 +158,15 @@ export function PhonePage({ roster, actions, Section, Row }) {
             : null,
           browserUrl !== null ? h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')) : null,
           h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
-      : [
-          h(Row, { key: 'qr', label: t('Show QR code') },
-            wantPair
-              ? [
-                  h('span', { key: 'wait', className: 'bt-set-hint' }, t('Waiting for connection…')),
-                  h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { wantPairRef.current = false; setWantPair(false) } }, t('Cancel')),
-                ]
-              : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
-          h(Row, { key: 'app', label: t('Android beta') },
-            h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download'))),
-        ]),
+      : h(Row, { key: 'qr', label: t('Show QR code') },
+        wantPair
+          ? [
+              h('span', { key: 'wait', className: 'bt-set-hint' }, t('Waiting for connection…')),
+              h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { wantPairRef.current = false; setWantPair(false) } }, t('Cancel')),
+            ]
+          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
+      h(Row, { key: 'app', label: t('Android beta') },
+        h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download')))),
     h(Section, { title: t('Phones') }, phone.phones.length === 0
       ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No phones yet')))
       : phone.phones.map(entry => h(Row, {
