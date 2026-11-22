@@ -116,6 +116,7 @@ export function install(rt) {
     return job
   }
   let redact = text => text
+  let redactedMessages = new WeakMap()
   let refreshEnv = () => {}
   let refreshQueued = false
   let seenStamp = ''
@@ -138,6 +139,7 @@ export function install(rt) {
 
   const notify = ({ declare = true } = {}) => {
     redact = redactor([...secrets.values()])
+    redactedMessages = new WeakMap()
     if (declare) refreshEnv()
     else scheduleRefreshEnv()
     rt.secretsChanged?.()
@@ -746,9 +748,42 @@ export function install(rt) {
   // A value that is part of its own label would be replaced again on every pass, so a
   // request this listener rewrote passes straight through.
   const rewritten = new WeakSet()
+  const freezeCopies = value => {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value
+    for (const key of Reflect.ownKeys(value)) freezeCopies(Object.getOwnPropertyDescriptor(value, key).value)
+    return Object.freeze(value)
+  }
+  const immutableData = value => {
+    if (value === null || typeof value !== 'object') return typeof value !== 'function'
+    const prototype = Object.getPrototypeOf(value)
+    if (!Object.isFrozen(value)) return false
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return false
+      for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) return false
+    } else if (prototype !== Object.prototype && prototype !== null) return false
+    return Reflect.ownKeys(value).every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return Object.hasOwn(descriptor, 'value') && immutableData(descriptor.value)
+    })
+  }
   ctx.on('llm/stream', (options, next) => {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
-    const messages = redactDeep(options.messages, redact)
+    let messages = options.messages
+    if (Array.isArray(messages)) {
+      let changed = false
+      const nextMessages = messages.map((message) => {
+        const object = message !== null && typeof message === 'object'
+        let replaced
+        if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
+        else {
+          replaced = redactDeep(message, redact)
+          if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
+        }
+        if (replaced !== message) changed = true
+        return replaced
+      })
+      if (changed) messages = nextMessages
+    } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
     const fresh = [...(messages ?? [])]

@@ -6,8 +6,10 @@ import feishu, { decodeFrame, encodeFrame } from '../src/host/im/platforms/feish
 
 const FIELDS = { appId: 'fixture', appSecret: 'fixture', clientId: 'fixture', clientSecret: 'fixture' }
 const adapters = { feishu, dingtalk }
+const POLICY_DENIAL = 'Access denied due to platform policy. Untrusted gateway response.'
+const POLICY_ERROR = 'Feishu denied long-connection discovery under its platform policy. Contact Feishu support if the problem persists.'
 
-function fixture(t, name, { autoOpen = true, constructFailures = 0, pauseHandshake = false } = {}) {
+function fixture(t, name, { autoOpen = true, constructFailures = 0, pauseHandshake = false, gatewayRefusals = 0 } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 })
   const sockets = []
   const statuses = []
@@ -48,9 +50,15 @@ function fixture(t, name, { autoOpen = true, constructFailures = 0, pauseHandsha
       if (path === '/open-apis/bot/v3/info') return Response.json({ bot: { open_id: 'fixture-bot' } })
       if (path === '/gettoken') return Response.json({ errcode: 0, access_token: 'fixture-token', expires_in: 7200 })
       if (pauseHandshake) await new Promise(resolve => { releaseHandshake = resolve })
-      if (name === 'feishu') return Response.json({
-        code: 0, data: { URL: 'ws://fixture.invalid/feishu?service_id=100', ClientConfig: { PingInterval: 90 } },
-      })
+      if (name === 'feishu') {
+        if (gatewayRefusals > 0) {
+          gatewayRefusals -= 1
+          return Response.json({ msg: POLICY_DENIAL })
+        }
+        return Response.json({
+          code: 0, data: { URL: 'ws://fixture.invalid/feishu?service_id=100', ClientConfig: { PingInterval: 90 } },
+        })
+      }
       return Response.json({ endpoint: 'ws://fixture.invalid/dingtalk', ticket: 'fixture' })
     },
     log: { warn() {} },
@@ -84,6 +92,33 @@ const inbound = name => name === 'feishu' ? encodeFrame({
 }) : JSON.stringify({
   type: 'CALLBACK', headers: { messageId: 'fixture-message' },
   data: JSON.stringify({ conversationType: '1', senderStaffId: 'fixture-user', text: { content: 'hello' } }),
+})
+
+test('Feishu retries a code-less gateway policy refusal and recovers', async (t) => {
+  const fake = fixture(t, 'feishu', { gatewayRefusals: 1 })
+  await flush()
+  assert.deepEqual(fake.statuses.at(-1), { state: 'retrying', error: POLICY_ERROR })
+  await fake.advance(4_999)
+  assert.equal(fake.sockets.length, 0)
+  await fake.advance(1)
+  assert.equal(fake.statuses.at(-1).state, 'ready')
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('Feishu stops after two retries of a code-less gateway policy refusal', async (t) => {
+  const fake = fixture(t, 'feishu', { gatewayRefusals: Infinity })
+  const attempts = () => fake.calls.filter(path => path === '/callback/ws/endpoint').length
+  await flush()
+  assert.equal(attempts(), 1)
+  await fake.advance(5_000)
+  assert.equal(attempts(), 2)
+  await fake.advance(14_999)
+  assert.equal(attempts(), 2)
+  await fake.advance(1)
+  await fake.advance(60_000)
+  assert.equal(attempts(), 3)
+  assert.equal(fake.sockets.length, 0)
+  assert.deepEqual(fake.statuses.at(-1), { state: 'error', error: POLICY_ERROR })
 })
 
 test('Feishu sends a control ping using the handshake service id and interval', async (t) => {

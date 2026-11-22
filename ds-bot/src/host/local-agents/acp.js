@@ -15,6 +15,7 @@ const CLIENT = { name: 'ds-bot', version: '1' }
 const MCP_SERVER = 'dsbot'
 const AUTH_ERROR = /not signed in|not logged in|login required|unauthorized|authentication/i
 const TIMEOUT_ERROR = /timed out|timeout/i
+const CANCEL_ACK_TIMEOUT_MS = 3_000
 const BUNDLED_MCP_STDIO = join(dirname(fileURLToPath(import.meta.url)), 'mcp-stdio.js')
 
 const extractedBridges = new Map()
@@ -43,12 +44,13 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map() }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
     this.sessionEfforts = sessionEfforts
+    this.cancelAckTimeoutMs = cancelAckTimeoutMs
     this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
@@ -117,7 +119,7 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
     )
   }
 
@@ -207,7 +209,16 @@ export class AcpEngine {
 
   createSession(dshSessionId) {
     const queue = new EventQueue()
-    return { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
+    return {
+      dshSessionId,
+      acpSessionId: undefined,
+      dead: false,
+      modes: [],
+      toolCalls: new Map(),
+      reportedToolCalls: new Set(),
+      push: event => queue.push(event),
+      next: () => queue.next(),
+    }
   }
 
   sessionFor(dshSessionId) {
@@ -230,6 +241,7 @@ export class AcpEngine {
     }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
+    if (session.promptTurn?.cancelled) return
     // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
     if (method === '_cognition.ai/compaction') {
       session.push({ type: 'compaction', status: compactionStatus(params?.status) })
@@ -248,8 +260,22 @@ export class AcpEngine {
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
         if (id !== undefined) session.toolCalls.set(id, call)
-        if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
-        else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
+        const team = ownToolCall(call)
+        const described = describeCall(call)
+        const reported = id !== undefined && session.reportedToolCalls.has(id)
+        if (!reported) {
+          if (update.status === 'failed' && known?.status !== 'failed') {
+            if (id !== undefined) session.reportedToolCalls.add(id)
+            session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
+          } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
+            if (id !== undefined) session.reportedToolCalls.add(id)
+            session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
+          }
+        } else if (update.status === 'failed' && known?.status !== 'failed') {
+          session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
+        } else if (update.status !== 'completed' && described !== describeCall(known)) {
+          session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
+        }
         break
       }
       case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
@@ -492,9 +518,38 @@ export class AcpEngine {
     return (this.workerOf(session) ?? this).caps.image
   }
 
+  async waitForPrompt(session, signal) {
+    signal?.throwIfAborted()
+    if (session.pendingPrompt === undefined) return
+    const turn = session.promptTurn
+    let timer
+    let onAbort
+    try {
+      await Promise.race([
+        session.pendingPrompt.catch(() => {}),
+        new Promise((resolve, reject) => {
+          onAbort = () => reject(signal.reason ?? new Error('aborted'))
+          signal?.addEventListener('abort', onAbort, { once: true })
+          if (turn?.cancelled) timer = setTimeout(() => {
+            turn.controller.abort(new Error('cancel acknowledgement timed out'))
+            resolve()
+          }, this.cancelAckTimeoutMs)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    signal?.throwIfAborted()
+  }
+
   async prompt(session, blocks, { signal, effort } = {}) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
+    // ACP notices have no turn id. Give cancellation a bounded grace period
+    // before accepting notices for another prompt on the same session.
+    await this.waitForPrompt(session, signal)
+    signal?.throwIfAborted()
     const peer = await this.ensure()
     if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined || session.defaultEffort !== undefined || session.effort !== undefined) {
       const current = session.effort ?? session.defaultEffort
@@ -512,13 +567,20 @@ export class AcpEngine {
         session.push({ type: 'effort', defaultEffort: session.defaultEffort, effort: undefined })
       }
     }
+    signal?.throwIfAborted()
+    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
+    const onAbort = () => { turn.cancelled = true }
+    signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
-    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal, timeout: 0 })
+    const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
-      result => { session.running = false; session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
-      error => { session.running = false; session.push({ type: 'error', error }) },
-    )
-    return reply
+      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
+    ).finally(() => {
+      if (session.promptTurn === turn) session.running = false
+      signal?.removeEventListener('abort', onAbort)
+    })
+    return reply.catch((error) => { if (!turn.cancelled) throw error })
   }
 
   canSteer(session) {
@@ -556,6 +618,7 @@ export class AcpEngine {
   cancel(session) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) { worker.cancel(session); return }
+    if (session.promptTurn !== undefined) session.promptTurn.cancelled = true
     this.peer?.notify('session/cancel', { sessionId: session.acpSessionId })
   }
 
@@ -718,6 +781,7 @@ const ownToolCall = (call) => {
     || input.mcpServer === MCP_SERVER
     || call?._meta?.mcpServer === MCP_SERVER
     || call?._meta?.serverName === MCP_SERVER
+    || String(call?._meta?.['cognition.ai/toolName'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
     || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
     || name.startsWith(`mcp__${MCP_SERVER}__`)
     || name.startsWith(`mcp_${MCP_SERVER}_`)
@@ -726,12 +790,34 @@ const ownToolCall = (call) => {
     || name.startsWith(`${MCP_SERVER}/`)
     || (name === 'call_mcp_tool' && (input.ServerName === MCP_SERVER || args.ServerName === MCP_SERVER))
 }
+const ANONYMOUS_MCP_TITLE = /^mcp(?:\s*:\s*tool)?$/i
+// Cursor opens an MCP call as an empty placeholder (`MCP: tool`) and names the
+// provider only in a follow-up tool_call_update; defer activity until identity arrives.
+const isAnonymousMcpPlaceholder = (call) => {
+  if (ownToolCall(call)) return false
+  const title = typeof call?.title === 'string' ? call.title.trim() : ''
+  if (!ANONYMOUS_MCP_TITLE.test(title)) return false
+  if (call?.name !== undefined || call?.toolName !== undefined) return false
+  if (Object.keys(inputOf(call)).length > 0) return false
+  if ((call?.locations?.length ?? 0) > 0) return false
+  const meta = call?._meta
+  if (meta !== null && typeof meta === 'object' && (
+    meta.mcpServer !== undefined
+    || meta.serverName !== undefined
+    || meta['cognition.ai/toolName'] !== undefined
+    || meta['cognition.ai/permissionRule'] !== undefined
+  )) return false
+  return true
+}
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
 const mergeCall = (known, update) => ({
   ...known,
   ...Object.fromEntries(Object.entries(update).filter(([key, value]) => key !== 'sessionUpdate' && value !== undefined && value !== null)),
+  ...(known?._meta !== null && typeof known?._meta === 'object' && update?._meta !== null && typeof update?._meta === 'object'
+    ? { _meta: { ...known._meta, ...update._meta } }
+    : {}),
 })
 const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefined ? undefined : session.toolCalls.get(toolCall.toolCallId), toolCall ?? {})
 // ACP tool kinds that change files or run something.
