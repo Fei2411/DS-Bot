@@ -544,6 +544,7 @@ export function createApiAuth(rt) {
     const presented = raw.slice('Bearer '.length).trim()
     reloadTokens()
     let entry
+    let secretChecked = false
     if (presented.startsWith(TOKEN_PREFIX)) {
       const rest = presented.slice(TOKEN_PREFIX.length)
       const sep = rest.indexOf('_')
@@ -556,18 +557,24 @@ export function createApiAuth(rt) {
         return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
       }
       const candidate = tokens.find(item => item.keyId === keyId && item.revoked !== true)
-      if (candidate !== undefined && await checkSecret(candidate, secret, presented)) entry = candidate
+      if (candidate !== undefined) {
+        secretChecked = true
+        if (await checkSecret(candidate, secret, presented)) entry = candidate
+      }
     } else if (presented.startsWith('dsb_')) {
       // Support tokens migrated from v0.3.9 mcp.json (raw sha256 hashes of `dsb_<secret>`).
       for (const item of tokens) {
-        if (item.revoked !== true && item.hashAlgo === 'sha256-raw' && await checkSecret(item, '', presented)) {
-          entry = item
-          break
+        if (item.revoked !== true && item.hashAlgo === 'sha256-raw') {
+          secretChecked = true
+          if (await checkSecret(item, '', presented)) {
+            entry = item
+            break
+          }
         }
       }
     }
     if (entry === undefined) {
-      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token', failedSecret: true }
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token', failedSecret: secretChecked }
     }
     const current = tokens.find(item => item.keyId === entry.keyId)
     if (!current || tokenFingerprint(current) !== tokenFingerprint(entry)) {

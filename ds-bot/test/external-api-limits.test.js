@@ -105,7 +105,7 @@ test('failed-auth attempts are bounded before scrypt and isolated per remote add
 test('unauthenticated browser traffic never consumes the failed-secret budget', async t => {
   const { auth, created, req } = authHarness(t)
   for (let i = 0; i < 20; i += 1) {
-    for (const token of ['', 'garbage', 'dsb_', 'dsb_live_no-secret', 'dsb_live_id_']) {
+    for (const token of ['', 'garbage', 'dsb_', 'dsb_live_no-secret', 'dsb_live_id_', 'dsb_live_missing_secret']) {
       assert.equal((await auth.authenticate(req(token))).status, 401)
     }
     const missing = req()
@@ -122,7 +122,11 @@ test('unauthenticated browser traffic never consumes the failed-secret budget', 
 })
 
 test('a full failed-auth address table evicts its oldest entry', async t => {
-  const { auth, created, req } = authHarness(t)
+  const { auth, created, req, home } = authHarness(t)
+  const path = join(home, 'api-tokens.json')
+  const tokens = JSON.parse(readFileSync(path, 'utf8'))
+  tokens.push({ keyId: 'legacy', hashAlgo: 'sha256-raw', hash: createHash('sha256').update('dsb_correct').digest('hex'), scopes: ['read'] })
+  writeFileSync(path, JSON.stringify(tokens))
   for (let i = 0; i < 1024; i += 1) {
     assert.equal((await auth.authenticate(req('dsb_unknown', `address-${i}`))).status, 401)
   }
