@@ -994,7 +994,8 @@ export function install(rt) {
   // card, so it must never fall through to a newer card of the same kind.
   const openCard = (conn, chatKey, cardKey) => {
     const entries = runtimes.get(conn.id)?.data?.cards[cardKey]
-    const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined)
+    const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined
+      && item.binding !== undefined && item.binding === bindingOf(conn, chatKey))
     return entry === undefined ? undefined : { cardKey, entry }
   }
   const questionById = (id) => {
@@ -1094,7 +1095,7 @@ export function install(rt) {
     if (data === undefined) return undefined
     for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
       if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
-      const entry = entries.find(item => item.chatKey === chatKey && item.answer === undefined)
+      const entry = openCard(conn, chatKey, cardKey)?.entry
       if (entry !== undefined) return { cardKey, entry }
     }
     return undefined
@@ -1254,7 +1255,7 @@ export function install(rt) {
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
-    for (const { chatKey } of pending) entries.push({ chatKey, messageId: undefined, text: body })
+    for (const { chatKey } of pending) entries.push({ chatKey, binding: bindingOf(conn, chatKey), messageId: undefined, text: body })
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
       enqueueAfterStage(conn, chatKey, {

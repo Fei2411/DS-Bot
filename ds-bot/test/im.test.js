@@ -1179,6 +1179,31 @@ test('answering persisted member cards restores the room origin after a restart'
   }
 })
 
+test('own-chat view answers are refused after the delivering chat is rebound or unbound', async (t) => {
+  for (const target of [{ botId: 'b' }, null]) {
+    for (const buttons of [true, false]) {
+      const s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+      t.after(s.stop)
+      const { one } = await pairedConn(s)
+      one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+      await s.rt.save()
+      await gm(s, 'u1', 'confirm')
+      s.imTurn('a')
+      await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Proceed?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'a' } })
+      const view = s.rt.state.views.a
+      await s.flush()
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target })
+      if (buttons) {
+        await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+      } else {
+        await gm(s, 'u1', '1')
+      }
+      assert.equal(s.rt.state.views.a.id, view.id)
+      assert.equal(s.agentOf('a').followed ?? 0, 0)
+    }
+  }
+})
+
 test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
   const s = await start()
   t.after(s.stop)
