@@ -11,6 +11,7 @@ import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { imViewChoices } from './view-choices.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -678,10 +679,39 @@ export function install(rt) {
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
     return { conn, chatKey: entry.chatKey, chat, senderId: entry.senderId, binding: entry.binding }
   }
-  const rememberRequest = (requestId, conn, chatKey, senderId) => {
+  rt.roomHasImOrigin = roomId => originOf(rt.roomOf(roomId)?.sessionId ?? roomId) !== undefined
+  const cardOrigin = (sessionId, card) => {
+    const owner = rt.groupOwners.get(sessionId)
+    if (owner === undefined) return card.imOrigin === undefined ? originOf(sessionId) : originFromSaved(card.imOrigin)
+    const roomSid = rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId
+    if (mixed.has(roomSid)) return undefined
+    return originFromSaved(card.imOrigin)
+  }
+  const canAnswerCard = (sessionId, card, conn, chat) => {
+    if (!rt.groupOwners.has(sessionId) && card.imOrigin === undefined) return true
+    const origin = cardOrigin(sessionId, card)
+    return origin !== undefined && origin.conn.id === conn.id && origin.chatKey === chat.key
+  }
+  const rememberRequest = (requestId, conn, chatKey, senderId, roomCardOrigin) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
-    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now() })
+    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now(), ...(roomCardOrigin === undefined ? {} : { roomCardOrigin }) })
+  }
+  const restoreCardRoomOrigin = (sessionId, saved) => {
+    const owner = rt.groupOwners.get(sessionId)
+    if (owner === undefined || saved === undefined) return
+    const room = rt.roomOf(owner.roomId)
+    const roomSid = room?.sessionId ?? owner.roomId
+    if (originFromSaved(saved) === undefined) {
+      dropOrigin(roomSid)
+      return
+    }
+    const live = origins.get(roomSid)
+    if (live === undefined && !mixed.has(roomSid) && rt.roomActive?.(owner.roomId) !== true) {
+      claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+    } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+      dropOrigin(roomSid)
+    }
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
@@ -963,8 +993,11 @@ export function install(rt) {
   // One card this chat was sent and has not answered yet. A button names its own
   // card, so it must never fall through to a newer card of the same kind.
   const openCard = (conn, chatKey, cardKey) => {
+    const binding = bindingOf(conn, chatKey)
+    if (binding === undefined) return undefined
     const entries = runtimes.get(conn.id)?.data?.cards[cardKey]
-    const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined)
+    const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined
+      && (item.binding ?? legacyCardBinding(cardKey)) === binding)
     return entry === undefined ? undefined : { cardKey, entry }
   }
   const questionById = (id) => {
@@ -972,6 +1005,51 @@ export function install(rt) {
       if (question.id === id) return { sessionId, question }
     }
     return undefined
+  }
+  const viewById = id => {
+    for (const [sessionId, view] of Object.entries(state.views ?? {})) {
+      if (view.id === id) return { sessionId, view }
+    }
+    return undefined
+  }
+  const legacyCardBinding = cardKey => {
+    const id = cardKey.slice(2)
+    const found = cardKey.startsWith('q:') ? questionById(id)
+      : cardKey.startsWith('v:') ? viewById(id)
+        : rt.approvalsView?.().find(entry => entry.id === id)
+    const card = found?.question ?? found?.view ?? found
+    const sessionId = found?.sessionId
+    if (card === undefined || card.imOrigin !== undefined || card.roomId !== undefined || rt.groupOwners.has(sessionId)) return undefined
+    const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
+    return botId === undefined ? undefined : `bot:${botId}`
+  }
+  const answerViewCard = async (conn, chat, cardKey, index, senderId) => {
+    if (openCard(conn, chat.key, cardKey) === undefined) return false
+    const found = viewById(cardKey.slice(2))
+    if (found === undefined) {
+      await sendCardReply(conn, chat, text('stale'))
+      return 'stale'
+    }
+    const choice = imViewChoices(found.view.view)[index]
+    if (choice === undefined || found.view.issueDraft !== undefined) return false
+    if (!canAnswerCard(found.sessionId, found.view, conn, chat)) return false
+    const requestId = `im:${conn.platform}:${randomUUID()}`
+    rememberRequest(requestId, conn, chat.key, senderId, found.view.imOrigin)
+    try {
+      await rt.answerView(found.sessionId, found.view.id, choice.action, choice.values, requestId)
+      await settleCard(conn.id, cardKey, choice.label)
+      await settledEdits(conn)
+    } catch (error) {
+      requests.delete(requestId)
+      if (error?.code === 'bot/stale') {
+        await settleCard(conn.id, cardKey, text('answered'))
+        await sendCardReply(conn, chat, text('stale'))
+        await settledEdits(conn)
+        return 'stale'
+      }
+      throw error
+    }
+    return 'answered'
   }
   // 'answered': the answer continued the turn the chat claimed. 'stale': the card was
   // gone and only the stale text was sent, so this chat claims nothing. false: the pick
@@ -986,8 +1064,9 @@ export function install(rt) {
     }
     const valid = labels.filter(label => (found.question.options ?? []).some(option => option.label === label))
     if (valid.length === 0) return false
+    if (!canAnswerCard(found.sessionId, found.question, conn, chat)) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
-    rememberRequest(requestId, conn, chat.key, senderId)
+    rememberRequest(requestId, conn, chat.key, senderId, found.question.imOrigin)
     try {
       await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid }, requestId)
       await settleCard(conn.id, held.cardKey, valid.join(', '))
@@ -1027,10 +1106,11 @@ export function install(rt) {
   const newestOpenCard = (conn, chatKey) => {
     const data = runtimes.get(conn.id)?.data
     if (data === undefined) return undefined
-    for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
-      if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:')) continue
-      const entry = entries.find(item => item.chatKey === chatKey && item.answer === undefined)
-      if (entry !== undefined) return { cardKey, entry }
+    for (const cardKey of Object.keys(data.cards).reverse()) {
+      if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
+      const entry = openCard(conn, chatKey, cardKey)?.entry
+      if (entry === undefined) continue
+      if (entry.numbered ?? !cardKey.startsWith('v:')) return { cardKey, entry }
     }
     return undefined
   }
@@ -1082,6 +1162,12 @@ export function install(rt) {
             const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
             if (answered !== false) return
           }
+        }
+      } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
+        const found = viewById(held.cardKey.slice(2))
+        if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
+          const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
+          if (answered !== false) return
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
         && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
@@ -1147,6 +1233,11 @@ export function install(rt) {
       if (answered === false) await sendCardReply(conn, chat, text('stale'))
       return
     }
+    if (data.startsWith('v:') && cut > 2) {
+      const answered = /^\d+$/.test(choice) && await answerViewCard(conn, chat, cardKey, Number(choice), action.sender.id)
+      if (answered === false) await sendCardReply(conn, chat, text('stale'))
+      return
+    }
     if (data.startsWith('a:') && cut > 2) {
       if (choice === 'allow' || choice === 'reject') {
         const answered = await answerApprovalCard(conn, chat, cardKey, choice)
@@ -1170,15 +1261,15 @@ export function install(rt) {
     approval: (id) => [{ data: `a:${id}:allow`, label: text('allow') }, { data: `a:${id}:reject`, label: text('reject') }],
   }
 
-  const sendCard = async (conn, cardKey, targets, body, buttons) => {
+  const sendCard = async (conn, cardKey, targets, body, buttons, numbered = false) => {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
-    const entries = data.cards[cardKey] ??= []
+    const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined)
     const recorded = new Set(entries.map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
-    for (const { chatKey } of pending) entries.push({ chatKey, messageId: undefined, text: body })
+    for (const { chatKey } of pending) entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: body })
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
       enqueueAfterStage(conn, chatKey, {
@@ -1200,14 +1291,15 @@ export function install(rt) {
       // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
-        const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
+        const owner = rt.groupOwners.get(sessionId)
+        const botId = owner?.botId ?? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
         // A card follows its own turn: only the chat that asked for it gets one.
-        const origin = originOf(sessionId)
+        const origin = cardOrigin(sessionId, question)
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons, true)
       }
       // Approvals: one card per open approval id, resent to chats whose earlier send dropped.
       for (const entry of rt.approvalsView?.() ?? []) {
@@ -1220,7 +1312,7 @@ export function install(rt) {
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
-        await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons)
+        await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons, true)
       }
       // Secret requests: text only — the key is typed on the computer or phone.
       for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
@@ -1234,16 +1326,21 @@ export function install(rt) {
           await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], text('secretAsk', { bot: bot.name, name: request.name }))
         }
       }
-      // Views awaiting a reply: text form only.
+      // Views with typed fields stay text-only; simple choices can be answered here.
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
-        const botId = rt.chatOwners.get(sessionId)
+        const owner = rt.groupOwners.get(sessionId)
+        const botId = owner?.botId ?? rt.chatOwners.get(sessionId)
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
-        const origin = originOf(sessionId)
+        const origin = cardOrigin(sessionId, view)
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const form = viewCardText({ title: view.title, view: view.view })
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
+        const choices = view.issueDraft === undefined ? imViewChoices(view.view) : []
+        const picks = choices.length === 0 ? '' : `\n${choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')}\n(${text('numbers')})`
+        const buttons = imPlatform(conn.platform)?.buttons === true && choices.length > 0
+          ? choices.map((choice, index) => ({ data: `v:${view.id}:${index}`, label: choice.label })) : undefined
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons, choices.length > 0)
       }
     }
   }
@@ -1819,6 +1916,7 @@ export function install(rt) {
           else {
             consumedRequests.add(rpcId)
             if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
+            restoreCardRoomOrigin(session.id, asked.roomCardOrigin)
             claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
           }
         } else {
@@ -1857,6 +1955,7 @@ export function install(rt) {
   })
 
   rt.onRoomLine((room, line) => {
+    if (line.questionId !== undefined || line.viewId !== undefined) return
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
     const roomSessionId = room.sessionId ?? room.id
     const origin = originOf(roomSessionId)
@@ -1877,7 +1976,7 @@ export function install(rt) {
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
-        await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons)
+        await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons, true)
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
