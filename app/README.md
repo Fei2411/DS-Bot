@@ -14,7 +14,7 @@ When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirro
 
 `npm run runtime` downloads the runtime payload (Python with the document libraries, a standalone Node, the Office skill assets) into `build/runtime`. On Linux, run it before `npm start`: the Host uses this plain Node to keep sharp's libvips out of Electron's process. On macOS and Windows the payload is optional for source runs; without it only the Office skills are unavailable. `beforePack` prepares the payload for every package.
 
-npm installs `ds-bot` from `../ds-bot` as a copy of its package files (`install-links` in `.npmrc`), so the app runs the plugin of this checkout. Run `npm ci` again after you change `ds-bot` or merge a branch that changes it: while the version stays the same, `npm install` keeps the old copy. `overrides` in `package.json` pins the four peer dependencies of `ds-bot` to the DSH version: they are declared as `*`, and npm does not choose a pre-release to satisfy `*`.
+npm installs `ds-bot` from `../ds-bot` as a copy of its package files (`install-links` in `.npmrc`), so the app runs the plugin of this checkout. Run `npm ci` again after you change `ds-bot` or merge a branch that changes it: while the version stays the same, `npm install` keeps the old copy. `overrides` in `package.json` pins Cordis to 4.1.0 and `dsh-llm`, `dsh-tools` and `dsh-web` to the DSH version; npm does not choose a pre-release to satisfy their `*` ranges.
 
 | Variable | What it sets | Default |
 |---|---|---|

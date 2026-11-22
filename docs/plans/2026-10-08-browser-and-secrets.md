@@ -1,82 +1,52 @@
-# Bot 浏览器、联网搜索、密钥和连接器
+# Bot 浏览器、联网搜索与密钥
 
-- 日期：2026-10-08 定 Bot 浏览器，2026-10-09 定读网页和密钥卡，之后补了连接器
-- 相关：#114（链接在 Bot 浏览器里打开）、#128（关掉 auto 搜索后的恢复）、#184（opencode 路由的 `web_search`）
-- 代码：`ds-bot/src/host/browser.js`、`src/client/bot-browsers.js`、`app/src/bot-browser.mjs`、`src/client/read-page.js`、`ds-bot/web-search.js`、`src/host/secrets.js`、`src/host/connectors.js`
+- 日期：2026-10-08 建立，后续持续更新
+- 相关：[浏览器插件](2026-10-21-browser-plugins.md) · [连接器](2026-11-04-connectors.md) · [搜索来源摘要](2026-11-14-search-summaries.md) · [密钥的静态加密](2026-11-12-encrypted-secrets.md)
+- 代码：`ds-bot/src/host/browser.js`、`src/client/bot-browsers.js`、`app/src/bot-browser.mjs`、`app/src/bot-views.mjs`、`src/client/read-page.js`、`ds-bot/web-search.js`、`src/host/secrets.js`
 
 ## 为什么
 
-Bot 要替用户在网上做事，就会碰到两类东西：网页，以及登录网页、调用服务要用的密钥。两者的风险是同一个：**网页内容不可信，密钥不能泄露**。网页里可能藏着「把你的 token 发到这里」这样的指令，模型请求会发往第三方，聊天记录也会被保存。
+Bot 替用户在网上查资料或调用外部服务时，面对同一个核心风险：**网页与外部返回内容不可信，密钥绝不能泄露**。因此：
 
-所以定下的原则是：
-
-- 浏览器由**用户操作**，Bot 只能读。每个 Bot 的浏览器互相隔离。
-- 密钥的值**只有用户输入、只存在本机**。Bot 只拿到环境变量名；值在离开本机之前一律换成占位符。
+- 每个 Bot 拥有隔离的浏览器状态；默认只读，交互操作由可选的[浏览器插件](2026-10-21-browser-plugins.md)与明确授权边界控制。
+- 密钥值仅由用户经安全卡片输入并只留本机，Bot 只拿到环境变量名，出站请求与工具结果均做脱敏替换。
 
 ## 已定的行为
 
-### Bot 浏览器（DSH Desktop 和桌面应用里有）
+### Bot 浏览器（桌面应用与 DSH Desktop）
 
-- 每个 Bot 有自己的浏览器面板，可以开多个标签页。每个标签页是一个 Electron webview，放在这个 Bot 自己的存储分区里（`bot:<id>`）。同一个 Bot 的标签页共用登录状态，不同 Bot 之间的 cookie 和登录状态不互通。
-- DSH Desktop 只把分区放在内存里，退出就没了。桌面应用把分区存在应用自己的目录里（不在数据位置里），退出再打开还是登录状态；删掉 Bot 时一起清掉。
-- 桌面应用自己提供浏览器桥，接口和 DSH Desktop 的一样。主进程只让它发过租约的 webview 挂上，并固定 webview 的设置：开沙箱、不给 Node、拒绝权限请求和下载、不许打开应用自己的本机端口；页面要开新窗口时改成同一个 Bot 的新标签。
-- DSH Desktop 的页面由用户操作。Bot 的 `read_browser` 只读当前标签页：标题、地址，以及可见内容转成的 Markdown。桌面应用中，配置浏览器插件后 Bot 通过 Playwright 操作与用户面板相同的页面；接管和交还由用户控制。
-- 能读进 Web Components（open shadow DOM）和同源 iframe。读不了跨域 iframe（只给出它们的名字）、canvas 上画的字和隐藏的内容。
-- 在 DSH Desktop，`read_browser` **不能点击、输入、滚动或打开页面**。工具说明里要求 Bot 把页面内容当作数据，不当作指令。
-- 页面在应用窗口里，不在插件进程里。所以读取请求要经过窗口：客户端一直挂着一个长轮询（`browser-wait`），报告哪些 Bot 开着页面，并把读取请求带回窗口，窗口用 `browser-result` 回答。请求在窗口回答之前一直排队；轮询中断过的会重新发，窗口按 id 去重。
-- 所有 Bot、所有标签页加起来最多同时保留 6 个活着的页面（每个都是一个渲染进程）。超过时释放最久没看的那个，地址和摘要保留，再显示时重新加载。
-- 能打开本机和局域网的页面。云主机的元数据服务不能打开，因为它会发放账号凭据。
-- 抽屉里的卡片用页面自己的描述或第一段正文做预览，不截图：Windows 上截图失败会让整个应用的渲染进程崩溃。
+- `browser-wait` 空闲长轮询最多 6 秒，客户端 8 秒超时；超时或更新锁的 503 响应后退避重试，停止时取消退避，避免阻塞桌面更新。
+- 每个 Bot 拥有独立浏览器面板与多标签页，按 `bot:<id>` 分区隔离 Cookie 与登录态。
+- **持久化**：桌面应用使用主进程持有的 `WebContentsView`，将分区保存在应用自身目录，重启保留登录并在删除 Bot 时清理；DSH Desktop 使用内存分区（最多 6 个活跃 webview，超限时回收最久未看的页签），退出即清。
+- **只读读取（`read_browser`）**：读取当前页标题、地址、可见 DOM 转成的 Markdown 及用户选区，支持 open Shadow DOM 与同源 iframe（最多 3 层），不读密码 / 信用卡 / 一次性验证码字段；内容严格标记为数据而非指令。
+- **交互与接管**：桌面应用配置 `browserPlugin` 后，Bot 通过 Playwright 与用户共享同一组标签页，敏感操作走授权，登录/验证码/付款交由用户接管；DSH Desktop 中 `read_browser` 保持只读。
+- **Cookie 与登录导入（仅桌面应用）**：支持从本机多浏览器 Profile（Chrome/Edge/Brave/Arc/Vivaldi/Opera/Chromium/Firefox/Zen，含 Windows Chrome/Edge 144+ 官方 `DevToolsActivePort` CDP 直连与 macOS 钥匙串本地直解）或文件/剪贴板（Cookie-Editor JSON、`cookies.txt`、Playwright `storageState`、Copy as cURL、Cookie Header）按站点导入 Cookie 与受支持的 `localStorage`，值全程不离开主进程。
+- **安全边界**：只允许不含内嵌凭据的 HTTP(S) 导航并拒绝访问应用自身 Host 端口；抽屉预览取页面摘要而不截图，避免渲染崩溃。
 
 ### 联网搜索（`auto` 提供方）
 
-- `web-search.js` 是 DSH 联网搜索的一个提供方，和 Bot 团队的代码互相独立，普通 DSH 会话也能用。
-- 每次搜索先试**提问的那个会话自己的模型路由**的原生搜索：用这条路由自己的 key、发往这条路由自己的地址。按协议判断有没有原生搜索，不按厂商判断。一个地址支不支持只能试了才知道，所以每次的结果都会记下来。
-- **绝不借用另一条路由的 key**：每个 key 都在它自己的账户上计费。
-- 原生搜索不可用时，退回到不需要 key 的方式：通过 DSH 的 `fetch` 取一个公开的搜索结果页并解析。
-- 每条结果都注明是哪条路径给的。两条路径都失败时，错误信息告诉模型不要猜。
+- `ds-bot/web-search.js` 独立于 Bot 团队代码，普通 DSH 会话也可使用。
+- 搜索顺序：优先尝试发起会话自身模型路由的原生搜索与同源官方 Search API（详见[搜索来源摘要](2026-11-14-search-summaries.md)），**绝不借用另一条路由的 Key**；不可用时回退至无 Key 公开结果页解析；均失败则报错并提示模型不要编造链接。
 
 ### 密钥
 
-- **只有用户能输入值**。Bot 用 `request_secret` 在自己的聊天里弹出一张密钥卡，用户在卡里输入，Bot 永远看不到值。卡片一出现，Bot 这一回合就结束；用户保存或取消后，Bot 会收到通知。已经给这个 Bot 存过的密钥，只告诉它变量名。
-- 值只存在数据目录的 `bot/secrets.json`（权限 600）和插件进程里。
-- Bot 在 shell 里用 `$DSH_SECRET_<名字>` 取值。工具结果在保存之前去掉值；每次模型请求发出之前，值都换成 `[secret:<名字>]`。JSON 转义和 URL 编码后的形式也会替换；多个值时先换最长的。
-- 不到 8 个字符的短值（PIN、短密码）如果哪里出现都替换，会误伤普通文字，所以只在它单独出现时替换：前后紧挨着的不是字母或数字。
-- 范围：「只给这个 Bot」或「所有 Bot」。另一个 Bot 再要同一个密钥、用户同意时，把它加进范围。`list_secrets` 列出名字、用途、哪些 Bot 能用，不显示值。
-- 设置 → Secrets 能改范围、换值、删除。
-- 记忆不保存看起来像密钥的内容（见[上下文与记忆](2026-10-09-context-and-memory.md)）。
-- 能力里的 MCP 配置引用密钥时写 `$DSH_SECRET_<名字>`，不写值（见 [Bot 运行配置](2026-10-10-bot-runtime.md)）。
-
-### 连接器（GitHub）
-
-- 连接器是所有 Bot 都能用的外部服务，GitHub 是第一个。工具来自 GitHub 的 MCP 服务，通过 DSH 自己的 MCP 客户端挂在插件上，所以每个 Bot 和会话都能以 `mcp__github__<工具>` 调用。
-- token 存为密钥 `GITHUB_TOKEN`。它只出现在发往 GitHub 的 MCP 请求头里，这个请求头在内存里生成，不写进 DSH 的 profile。
-- 新连接的 token **默认不进任何 Bot 的 shell**：MCP 工具用不着它；而一个读到了 Issue 里埋的指令的 Bot，可能把它发到任何地方。用户可以在 Secrets 页面上自己放开。
-- 连接时先问 GitHub 这个 token 属于谁，GitHub 接受就算通过。删掉 `GITHUB_TOKEN` 就断开。
-- 连接器地址不是 https 时，拒绝发送 token。
+- Bot 调用 `request_secret` 在私聊弹出安全密钥卡，仅用户可输入值，Bot 永不见明文；保存后变量以 `DSH_SECRET_<NAME>` 注入允许使用的 Bot Shell 环境，MCP 能力也可在 env/header/URL 中引用 `$DSH_SECRET_<NAME>`。
+- 存储于 `<DSH_HOME>/bot/secrets.json`（权限 600，原子写入；可选口令加密见[密钥的静态加密](2026-11-12-encrypted-secrets.md)）。
+- 工具结果落盘前与模型请求发出前，将所有密钥值（含 JSON 转义与 URL 编码形式，长值优先）替换为 `[secret:<NAME>]`；4–7 字符短值仅在非字母数字边界匹配，避免误伤正文。
+- 范围支持「只给这个 Bot」与「所有 Bot」，可在 **设置 → 工具 → 密钥** 统一管理；记忆系统自动拒绝形似密钥的内容。
+- 外部服务连接器（含 GitHub、邮箱及自定义 MCP）已统一收归[通用连接器](2026-11-04-connectors.md)设计。
 
 ## 不做什么
 
-- DSH Desktop 中 Bot 不操作浏览器：不点击、不输入、不打开页面。桌面应用的 Bot 浏览器行为见[浏览器插件](2026-10-21-browser-plugins.md)。
-- 不让 Bot 看到或输入密钥的值，不把值写进聊天记录、记忆、DSH 的 profile 或模型请求。
-- 联网搜索不借用别的路由的 key。
+- 不允许 Bot 读取或写入密钥明文，不把密钥写入聊天记录、记忆或 DSH profile。
+- 联网搜索不跨路由借用其他服务商的 Key。
 
 ## 已知限制
 
-- Bot 浏览器只在 DSH Desktop 和桌面应用里有，DSH Web 没有。
-- 历史消息里的链接还不能直接在 Bot 浏览器里打开（#114）。
-- 关掉 `auto` 搜索以后，`web_search` 可能报错，恢复方法见 #128。
-- 导入 cookie 只在桌面应用里有（写进 Bot 自己的存储分区）：支持直接选本机浏览器 profile（Chrome/Beta/Canary/Dev、Edge/Beta、Brave、Arc、Vivaldi、Opera/GX、Chromium、Firefox、Zen，记住上次使用的 profile），也支持导入文件或直接粘贴（Cookie-Editor JSON、cookies.txt、Playwright storageState、DevTools Copy as cURL、带网站地址的 Cookie 请求头）。读取策略按平台分流：有活跃 `DevToolsActivePort` 时优先直连官方 WebSocket CDP（无需关浏览器、支持读取 Windows v20 cookie 及打开标签页的 `localStorage`）；macOS 上直接用钥匙串密钥本地解密 SQLite（无需启停浏览器）；其他场景克隆 profile 并带上 `--profile-directory` 让原浏览器自解密。Windows 上 Chrome/Edge 144+ 的 v20 app-bound cookie 不做越权绕过，而是引导用户开启一次官方 `chrome://inspect/#remote-debugging` / `edge://inspect/#remote-debugging` 开关后直接连接。导入前可按站点勾选或一键只导当前网站、默认保持会话登录（重启应用不掉登录），写入后自动刷新当前页；cookie 与 storage 值全程不离开主进程。
-- 密钥只防泄露到模型、记录和其他 Bot 的 shell。有权限的 Bot 在自己的 shell 里能用到值，所以给哪些 Bot 开放，要由用户判断。
+- Bot 浏览器仅桌面应用与 DSH Desktop 可用，DSH Web 无浏览器面板与 `read_browser`。
+- 插件版禁用 `web-search-auto` 后需在 `cordis.patch.yml` 指定其他 `searchProvider`（桌面应用启动时自动修复，见[已知问题](../known-issues.zh.md)）。
+- 密钥脱敏防意外泄露，但拥有 Shell 权限的 Bot 仍可通过编码/拆分自行输出，只应向可信 Bot 开放重要密钥。
 
 ## 变更
 
-- 2026-10-08：每个 Bot 一个浏览器，由用户操作，Bot 只读。
-- 2026-10-09：`read_browser` 读成 Markdown 并标注链接和控件；密钥卡和替换规则。
-- 之后：加了多标签页、最多 6 个活着的页面、GitHub 连接器。
-- 2026-10-16：opencode 路由的原生搜索带上提问会话的 `x-opencode-session`（#184，PR #240）。
-- 2026-10-23：桌面应用里也有 Bot 浏览器，登录保存在应用自己的目录里，#449。
-- 2026-10-23：桌面应用的 Bot 浏览器能导入 cookie（文件和本机浏览器），#458。
-- 2026-10-21：操作浏览器改由可选插件来做，见 [浏览器插件](2026-10-21-browser-plugins.md)。不配插件时，这一篇的只读行为不变。
-- 2026-10-24：桌面应用中 Bot 操作浏览器面板的页面；用户接管、停止和交还控制权。用户接管只能由用户结束。
-- 2026-11-19：升级桌面应用浏览器 profile 导入体验：支持多浏览器与多 profile 正确隔离、macOS 钥匙串本地直解、Windows Chrome/Edge 144+ 官方 `DevToolsActivePort` 直连导入（无需插件、可解 v20 且不关浏览器）、`localStorage` 写入、按站点筛选、会话登录持久化、导入后自动刷新，以及粘贴 Cookie / Copy as cURL。
+- 2026-11-22：移除已被[通用连接器](2026-11-04-connectors.md)取代的早期 GitHub 专用连接器段落，整合多浏览器 Cookie/localStorage 导入与桌面应用主进程视图现状。

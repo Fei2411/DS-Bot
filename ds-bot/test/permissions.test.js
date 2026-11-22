@@ -180,54 +180,54 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
 })
 
-test('a change that fails on one part puts the parts already changed back', async () => {
-  // The Bot had no preset of its own: the chat takes the wider one, then the background
-  // part refuses it. Rolling the field back alone would leave the chat wide while the
-  // user is told the Bot is strict again.
+test('a change that fails on one active task puts the sessions already changed back', async () => {
+  // The Bot had no preset of its own: the chat takes the wider one, then the active task
+  // refuses it. Rolling the field back alone would leave the chat wide while the user is
+  // told the Bot is strict again.
   const { rt, writes, releases, settle, control } = runtime({ hold: true })
-  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', name: 'Ada', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   const change = rt.setPermission(bot, 'danger-full-access')
   const refused = assert.rejects(change, /rejected/)
   await settle(0) // the chat takes the wider preset
-  control.fail = session => session === 'b1-bg'
-  await settle(0) // the background part refuses it, so the change rolls back
+  control.fail = session => session === 'b1-task'
+  await settle(0) // the active task refuses it, so the change rolls back
   control.fail = false
-  while (releases.length) await settle(0) // the chat, that part and the group go back
+  while (releases.length) await settle(0) // the chat, that task and the group go back
   await refused
   assert.equal(bot.permission, undefined)
-  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=workspace-write', 'b1-task=workspace-write', 'b1-group=workspace-write'])
 })
 
 test('a rollback that is still applying does not write over a newer, stricter request', async () => {
-  // The older request widens the Bot and fails on a background part. Its rollback waits
-  // on the chat's agent; a newer, stricter request applies to that chat meanwhile. The
+  // The older request widens the Bot and fails on an active task. Its rollback waits on
+  // the chat's agent; a newer, stricter request applies to that chat meanwhile. The
   // rollback's write must not land on it: the Bot and that Session would disagree.
   const { rt, writes, releases, settle, settleAt, control } = runtime({ hold: true, more: ['read-only'] })
-  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   const first = rt.setPermission(bot, 'danger-full-access')
   const firstFails = assert.rejects(first, /rejected/)
   await settle(0) // the chat takes the wider preset
-  control.fail = 'b1-bg'
-  await settle(0) // the background part refuses it, so the rollback starts
+  control.fail = 'b1-task'
+  await settle(0) // the active task refuses it, so the rollback starts
   assert.deepEqual(releases.map(release => release.sessionId), ['b1-chat'])
   control.fail = false
   const second = rt.setPermission(bot, 'read-only')
   await settleAt('b1-chat') // the newer request takes the chat
-  await settleAt('b1-bg') // and the background part
+  await settleAt('b1-task') // and the active task
   await settleAt('b1-group')
   await second
   await settleAt('b1-chat') // the older rollback's first write resolves only now
   await firstFails
   assert.equal(bot.permission, 'read-only')
-  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=read-only', 'b1-bg=read-only', 'b1-group=read-only'])
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=read-only', 'b1-task=read-only', 'b1-group=read-only'])
 })
 
-test('a stricter preset reaches the parts opened while the Bot was busy', async () => {
-  // Two Sessions running at once must not let the background one keep the old,
-  // wider preset after the user was told the Bot was made stricter.
+test('a stricter preset reaches active background tasks too', async () => {
+  // Active background tasks must not keep the old, wider preset after the user was told
+  // the Bot was made stricter.
   const { rt, writes } = runtime()
-  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', name: 'Ada', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   await rt.setPermission(bot, 'workspace-write')
   assert.equal(bot.permission, 'workspace-write')
-  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
+  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-task=workspace-write', 'b1-group=workspace-write'])
 })

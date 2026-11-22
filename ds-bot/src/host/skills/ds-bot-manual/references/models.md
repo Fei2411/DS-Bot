@@ -2,9 +2,11 @@
 
 A provider supplies model access. Each DS Bot-model Bot has its own model and optional thinking level. Switching a model is different from signing in to a provider or switching to a local agent CLI.
 
+Each Bot's profile is its own saved configuration, not a separate DSH installation profile. Model Bots use DSH's model service and agent loop; local agents use the CLI's model access and tools. Memory review, handoffs, the context steward, image readings, side chats and browser_task call the model service outside the agent loop. Web search/fetch and DeepSeek OCR, TTS and ASR also make direct service requests: do not tell users every request goes through DSH model routing.
+
 ## Steps
 
-1. The user opens **Settings → Models** to configure provider access.
+1. The user opens **Settings → Models → Providers** to configure provider access.
 2. Open **Settings → Bots**, select the Bot, then **Model** to choose its model and supported thinking level.
 3. Use **Settings → Bot models** to review model choices across the team. **Settings → Usage** shows usage information.
 
