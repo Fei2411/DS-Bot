@@ -35,11 +35,13 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // transcript is only mid-mount.
 // The slot sits at the end of the flow, so the search walks the whole transcript; it
 // runs every frame the transcript changes, so the last slot found is kept while it
-// stays in its flow.
+// stays in its flow and running. The row lets it go when it stops, so a chat left
+// behind is not held in memory.
 let mountMissed = false
 let runningSlot = null
 export function findHost() {
-  if (runningSlot?.slot.isConnected && runningSlot.slot.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
+  const kept = runningSlot?.slot
+  if (kept?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
   const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
   const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
   runningSlot = slot ? { slot, host: node } : null
@@ -50,10 +52,14 @@ export function findHost() {
   return node
 }
 
+export function releaseHost() {
+  runningSlot = null
+}
+
 function useRunningHost(active) {
   const [host, setHost] = useState(null)
   useEffect(() => {
-    if (!active) { setHost(null); return undefined }
+    if (!active) { releaseHost(); setHost(null); return undefined }
     let frame = 0
     const find = () => {
       frame = 0
@@ -65,7 +71,7 @@ function useRunningHost(active) {
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
-    return () => { cancelAnimationFrame(frame); observer.disconnect() }
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
   }, [active])
   return host
 }

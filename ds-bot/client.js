@@ -32883,7 +32883,8 @@ var freshInputAt = (submissions, steeredAt) => Math.max(
 var mountMissed = false;
 var runningSlot = null;
 function findHost() {
-  if (runningSlot?.slot.isConnected && runningSlot.slot.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
+  const kept = runningSlot?.slot;
+  if (kept?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
   const slot = document.querySelector("[data-chat-flow] [data-chat-running]");
   const node = slot?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
   runningSlot = slot ? { slot, host: node } : null;
@@ -32893,10 +32894,14 @@ function findHost() {
   }
   return node;
 }
+function releaseHost() {
+  runningSlot = null;
+}
 function useRunningHost(active) {
   const [host, setHost] = (0, import_react36.useState)(null);
   (0, import_react36.useEffect)(() => {
     if (!active) {
+      releaseHost();
       setHost(null);
       return void 0;
     }
@@ -32916,6 +32921,7 @@ function useRunningHost(active) {
     return () => {
       cancelAnimationFrame(frame2);
       observer.disconnect();
+      releaseHost();
     };
   }, [active]);
   return host;
