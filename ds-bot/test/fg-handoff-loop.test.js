@@ -57,15 +57,24 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
   let callSeq = 0
   let modelCalls = 0
   const repliesBySession = new Map()
+  const modelCallsBySession = new Map()
 
   root.tools.register({
     name: 'slow_check',
     description: 'Pause mid-turn so a Desktop user message arrives while busy',
     parameters: {},
     output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    async execute() {
+    async execute(_args, exec) {
       toolStarted.resolve()
-      await toolGate.promise
+      await new Promise((resolve) => {
+        if (exec?.signal?.aborted) { resolve(); return }
+        const onAbort = () => resolve()
+        exec?.signal?.addEventListener('abort', onAbort, { once: true })
+        toolGate.promise.then(() => {
+          exec?.signal?.removeEventListener('abort', onAbort)
+          resolve()
+        })
+      })
       return { ok: true, detail: 'background check done' }
     },
   })
@@ -76,9 +85,11 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     }
     async *stream(options) {
       modelCalls += 1
+      modelCallsBySession.set(options.sessionId, (modelCallsBySession.get(options.sessionId) ?? 0) + 1)
       const callNo = modelCalls
       const last = options.messages.at(-1)
-      const lastText = textOf(last)
+      const lastUser = options.messages.findLast(m => m.role === 'user' && (m.source?.kind === 'user' || m.source?.role === 'task-report'))
+      const lastText = textOf(lastUser ?? last)
 
       if (holdFirstModel && options.sessionId === 'dm-a' && callNo === 1) {
         firstModelStarted.resolve()
@@ -97,7 +108,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
         }
       }
 
-      if (options.sessionId === 'dm-a' && last?.role === 'user' && lastText.includes('run slow work')) {
+      if (options.sessionId === 'dm-a' && !options.messages.some(m => m.role === 'tool') && lastText.includes('run slow work')) {
         const id = `call_${++callSeq}`
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
         yield { type: 'tool-call-delta', index: 0, id, name: 'slow_check', argumentsDelta: '{}' }
@@ -106,7 +117,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
         return
       }
 
-      const reply = options.sessionId === 'dm-a' && last?.role === 'tool'
+      const reply = options.sessionId === 'dm-a' && options.messages.some(m => m.role === 'tool')
         ? 'Background slow work finished.'
         : `Answered on ${options.sessionId}: ${lastText}`
       const list = repliesBySession.get(options.sessionId) ?? []
@@ -174,7 +185,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     sessionTitle: ctx.get('sessionTitle'),
   })
 
-  // Forward real DSH session/event and agent/inbox/inserted to the DS Bot runtime.
+  // Forward real DSH session/event, agent/inbox/inserted, and agent/pre-step to the DS Bot runtime.
   root.on('session/event', (session, event) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener(session, event)
@@ -185,17 +196,25 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
       listener(payload)
     }
   })
+  root.on('agent/pre-step', (req, next) => {
+    const chain = ctx.listeners.get('agent/pre-step') ?? []
+    const run = index => (index < chain.length ? chain[index](req, () => run(index + 1)) : next())
+    return run(0)
+  })
 
   const rt = createRuntime(ctx, { home })
   t.after(async () => {
+    for (const agent of agents.values()) {
+      try { agent.cancel({ kind: 'disposed' }) } catch {}
+    }
     toolGate.resolve()
     firstModelGate.resolve()
-    await ctx.dispose()
     await root.fiber.dispose()
+    await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, repliesBySession }
+  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, repliesBySession, modelCallsBySession }
 }
 
 test('real DSH SessionStore + ReactLoopAgent: Desktop steer while busy hands off foreground without reentrancy error', async (t) => {
@@ -322,27 +341,145 @@ test('real DSH SessionStore + ReactLoopAgent: fast-turn steer below waitMs still
   assert.equal(dmA.inbox.nextStep.length, 0)
 })
 
-test('real DSH SessionStore + ReactLoopAgent: threshold tick between spliced and maybeCut microtask never strands steer unread', async (t) => {
+test('real DSH SessionStore + ReactLoopAgent: threshold tick between spliced and maybeCut microtask cuts cleanly without double delivery or false handoff', async (t) => {
   const rig = await createRealLoopRig(t, { prefs: { backgroundAfterSec: 30 }, holdFirstModel: true })
   const dmA = rig.agents.get('dm-a')
 
   dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Long first thought' }], source: { kind: 'user' } }))
   await rig.firstModelStarted.promise
 
-  // Simulate clock crossing backgroundAfterSec right after `agent/inbox/spliced` +
-  // `agent/inbox/inserted` both saw `false`, just before `maybeCut` microtask runs.
-  let checks = 0
-  t.mock.method(rig.rt, 'shouldMoveForeground', () => {
-    checks += 1
-    return checks > 2
-  })
-
+  // Steer while still below backgroundAfterSec (both steer.js and bot-tasks.js see false),
+  // then advance the real turn's `entry.since` past the threshold BEFORE the `maybeCut` microtask runs.
   dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Boundary steer' }], source: { kind: 'user' } }))
+  rig.rt.live.get('dm-a').since = Date.now() - 31_000
 
   await settle(
     () => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Boundary steer')),
     4000,
-    'boundary steer must not be stranded unread when threshold flips before maybeCut',
+    'boundary steer must be cut and answered once on dm-a without handoff',
+  )
+  await realDelay(50)
+  assert.equal(rig.rt.botOf('a').sessionId, 'dm-a', 'STEER_CUT turn must NOT be handed off to background')
+  assert.equal(rig.rt.botOf('a').tasks?.length ?? 0, 0, 'must not spawn a false background task for a STEER_CUT turn')
+  assert.equal(
+    (rig.repliesBySession.get('dm-a') ?? []).filter(r => r.includes('Boundary steer')).length,
+    1,
+    'boundary steer must be answered exactly once (no duplicate delivery)',
   )
   assert.equal(dmA.inbox.nextStep.length, 0)
+})
+
+test('real DSH SessionStore + ReactLoopAgent: inbox.replace() queue edit on a busy Bot keeps prompt queued instead of triggering handoff', async (t) => {
+  const rig = await createRealLoopRig(t, { prefs: { backgroundAfterSec: 30 }, holdFirstModel: true })
+  const dmA = rig.agents.get('dm-a')
+
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Long first thought' }], source: { kind: 'user' } }))
+  await rig.firstModelStarted.promise
+
+  // Queue a prompt before the handoff threshold.
+  const queued = createUserMessage({ content: [{ type: 'text', text: 'Draft queued prompt' }], source: { kind: 'user' } })
+  dmA.followup(queued)
+  assert.equal(dmA.inbox.nextTurn.length, 1)
+
+  // Now cross the handoff threshold and edit the queued prompt in place via inbox.replace().
+  rig.rt.live.get('dm-a').since = Date.now() - 31_000
+  assert.equal(rig.rt.shouldMoveForeground(rig.rt.botOf('a'), 'dm-a'), true)
+  const edited = Object.freeze({ ...queued, content: [{ type: 'text', text: 'Edited queued prompt' }] })
+  assert.equal(dmA.inbox.replace(queued.id, edited), true)
+  await realDelay(50)
+
+  assert.equal(rig.rt.botOf('a').sessionId, 'dm-a', 'editing a queued prompt must not trigger foreground handoff')
+  assert.equal(rig.rt.botOf('a').tasks?.length ?? 0, 0)
+  assert.equal(dmA.inbox.nextTurn.length, 1, 'edited prompt must remain queued')
+  assert.equal(textOf(dmA.inbox.nextTurn[0]), 'Edited queued prompt')
+})
+
+test('real DSH SessionStore + ReactLoopAgent: handoff transfers earlier queued user prompts in FIFO order and survives stopping the task', async (t) => {
+  const rig = await createRealLoopRig(t, { prefs: { backgroundAfterSec: 30 }, holdFirstModel: true })
+  const dmA = rig.agents.get('dm-a')
+
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Long first thought' }], source: { kind: 'user' } }))
+  await rig.firstModelStarted.promise
+
+  // Queue an earlier user prompt and a non-user notice before the handoff threshold.
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Earlier queued prompt' }], source: { kind: 'user' } }))
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Internal notice' }], source: { kind: 'tool-jobs', form: 'notice', summary: 'job' } }))
+  assert.equal(dmA.inbox.nextTurn.length, 2)
+
+  // Cross threshold and send a new prompt that triggers foreground handoff.
+  rig.rt.live.get('dm-a').since = Date.now() - 31_000
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Trigger handoff prompt' }], source: { kind: 'user' } }))
+
+  await settle(() => {
+    const fgSid = rig.rt.botOf('a').sessionId
+    const replies = rig.repliesBySession.get(fgSid) ?? []
+    return fgSid !== 'dm-a'
+      && replies.some(r => r.includes('Earlier queued prompt'))
+      && replies.some(r => r.includes('Trigger handoff prompt'))
+  }, 5000, 'both earlier queued prompt and triggering prompt must arrive on new foreground')
+
+  const fgSid = rig.rt.botOf('a').sessionId
+  const replies = rig.repliesBySession.get(fgSid) ?? []
+  const earlierIdx = replies.findIndex(r => r.includes('Earlier queued prompt'))
+  const triggerIdx = replies.findIndex(r => r.includes('Trigger handoff prompt'))
+  assert.ok(earlierIdx !== -1 && triggerIdx !== -1 && earlierIdx < triggerIdx, `must preserve FIFO order; replies=${JSON.stringify(replies)}`)
+  assert.equal(dmA.inbox.nextTurn.some(m => m.source?.kind === 'user'), false, 'no user prompt may remain stranded on the moved task')
+  assert.equal(dmA.inbox.nextTurn.some(m => m.source?.kind === 'tool-jobs'), true, 'non-user notices stay with the background task')
+
+  // Stopping the background task must not have lost the earlier user prompt (already answered on fgSid).
+  const task = rig.rt.botOf('a').tasks[0]
+  await rig.rt.stopTask('a', task.id)
+  assert.equal(task.status, 'stopped')
+})
+
+test('real DSH SessionStore + ReactLoopAgent: durable pendingHandoffInputs replays on restart and deduplicates already-admitted prompts', async (t) => {
+  const rig = await createRealLoopRig(t)
+  const dmA = rig.agents.get('dm-a')
+
+  // Seed two persisted pending transfers as if the host crashed mid-handoff:
+  // one not yet admitted on dm-a, and one already admitted with the same rpcId.
+  const admittedMsg = createUserMessage({ content: [{ type: 'text', text: 'Already admitted before crash' }], source: { kind: 'user', rpcId: 'rpc-admitted-1' } })
+  dmA.followup(admittedMsg)
+  await settle(() => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Already admitted before crash')), 4000)
+
+  rig.rt.state.pendingHandoffInputs = [
+    { id: 'rpc-admitted-1', botId: 'a', content: [{ type: 'text', text: 'Already admitted before crash' }], source: { kind: 'user', rpcId: 'rpc-admitted-1' }, at: Date.now() },
+    { id: 'rpc-lost-2', botId: 'a', content: [{ type: 'text', text: 'Recovered after crash' }], source: { kind: 'user', rpcId: 'rpc-lost-2' }, at: Date.now() },
+  ]
+  await rig.rt.reconcileTasksAfterRestart()
+
+  await settle(() => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Recovered after crash')), 4000, 'persisted transfer must replay on restart')
+  assert.equal(
+    (rig.repliesBySession.get('dm-a') ?? []).filter(r => r.includes('Already admitted before crash')).length,
+    1,
+    'already-admitted prompt must not be duplicated on restart replay',
+  )
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'cleared pendingHandoffInputs must be removed from state')
+})
+
+test('real DSH SessionStore + ReactLoopAgent: polling-gap steer on an idle task redirects without invoking LLM on the idle task', async (t) => {
+  const rig = await createRealLoopRig(t)
+  const dmA = rig.agents.get('dm-a')
+
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
+  await rig.toolStarted.promise
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Move to background' }], source: { kind: 'user' } }))
+  await settle(() => rig.rt.botOf('a').sessionId !== 'dm-a', 5000)
+  const fgSid = rig.rt.botOf('a').sessionId
+
+  // Let background task finish so dm-a becomes completely idle while still in taskOwners.
+  rig.toolGate.resolve()
+  await settle(() => rig.rt.botOf('a').tasks[0]?.status === 'completed' && dmA.status === 'idle', 5000)
+  const callsBefore = rig.modelCallsBySession.get('dm-a') ?? 0
+
+  // Stale Desktop tab sends a prompt to the now-idle background task session.
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Late stale tab prompt' }], source: { kind: 'user' } }))
+
+  await settle(
+    () => (rig.repliesBySession.get(fgSid) ?? []).some(r => r.includes('Late stale tab prompt')),
+    4000,
+    'late prompt on idle task must redirect to foreground',
+  )
+  await realDelay(50)
+  assert.equal(rig.modelCallsBySession.get('dm-a') ?? 0, callsBefore, 'idle background task must not run a phantom LLM step on redirected input')
 })

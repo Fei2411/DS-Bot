@@ -40,6 +40,13 @@ export function install(rt) {
   // or forwarded onto a newly forked foreground Agent, so `interceptForegroundUserMessage`
   // never re-intercepts its own writes (including when `backgroundAfterSec === 0`).
   const skipInterceptIds = new Set()
+  // Message IDs replaced in-place by `inbox.replace()` (e.g. QueueDock Edit); tagged
+  // during `session/event` (`agent/inbox/spliced` with removedCount > 0 && inserted.length > 0)
+  // and consumed immediately on the paired `agent/inbox/inserted` notification.
+  const replacedIds = new Set()
+  // Idle `taskOwners` sessions whose stale user prompt was pulled during `agent/inbox/inserted`:
+  // reject the phantom empty wake that `ReactLoopAgent.send()` still triggers right afterward.
+  const rejectEmptyTaskWake = new Set()
   // In-flight foreground-to-background handoffs per Bot:
   // botId -> { oldSid, committed, newSid, promise, messages }.
   const handoffing = new Map()
@@ -591,6 +598,31 @@ export function install(rt) {
         await settleTask(bot, task, 'interrupted', { notifyForeground: true })
       }
     }
+    // Replay any foreground handoff inputs persisted before a host crash/restart.
+    if (Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
+      const pending = [...state.pendingHandoffInputs]
+      for (const entry of pending) {
+        let targetSid
+        let label
+        if (entry?.roomId !== undefined) {
+          const room = rt.roomOf(entry.roomId)
+          targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+          label = room?.name
+        } else if (entry?.botId !== undefined) {
+          const bot = rt.botOf(entry.botId)
+          targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
+          label = bot?.name
+        }
+        if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
+          await clearPendingTransfers([entry?.id])
+          continue
+        }
+        await forwardPulledMessages(targetSid, [{
+          msg: { id: entry.id, content: entry.content, source: entry.source },
+          transferId: entry.id,
+        }], label)
+      }
+    }
   }
 
   // Approval state bridge: mark task as waiting_approval while an approval card is open.
@@ -625,7 +657,7 @@ export function install(rt) {
     if (isLocalCliBot(bot, session)) return false
     if (handoffing.get(bot.id)?.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
-    if (entry?.turn === undefined) return false
+    if (entry?.turn === undefined || entry.cut !== undefined) return false
     if ((entry.toolCount ?? 0) > 0 || (entry.calls?.size ?? 0) > 0) return true
     if ((rt.runningJobs?.(sessionId)?.length ?? 0) > 0) return true
     const waitMs = rt.backgroundWaitMs?.() ?? 5000
@@ -668,10 +700,79 @@ export function install(rt) {
     return 'Background task'
   }
 
+  const transferIdOf = (item) => {
+    if (item.transferId === undefined) {
+      item.transferId = item.msg?.source?.rpcId ?? item.msg?.id ?? newId()
+    }
+    return item.transferId
+  }
+
+  const recordPendingTransfers = (items, owner) => {
+    if (rt.readOnly?.() !== undefined || items.length === 0) return
+    const list = Array.isArray(state.pendingHandoffInputs) ? state.pendingHandoffInputs : (state.pendingHandoffInputs = [])
+    let added = false
+    for (const item of items) {
+      const id = transferIdOf(item)
+      if (list.some(entry => entry?.id === id)) continue
+      list.push({
+        id,
+        ...(owner?.botId !== undefined ? { botId: owner.botId } : {}),
+        ...(owner?.roomId !== undefined ? { roomId: owner.roomId } : {}),
+        content: item.msg.content,
+        source: item.msg.source,
+        at: Date.now(),
+      })
+      added = true
+    }
+    if (added) void rt.save().catch(() => {})
+  }
+
+  const clearPendingTransfers = async (ids) => {
+    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
+    const drop = new Set(ids.filter(id => id !== undefined))
+    if (drop.size === 0) return
+    const next = state.pendingHandoffInputs.filter(entry => !drop.has(entry?.id))
+    if (next.length === state.pendingHandoffInputs.length) return
+    if (next.length === 0) delete state.pendingHandoffInputs
+    else state.pendingHandoffInputs = next
+    await rt.save().catch(() => {})
+  }
+
+  const isAdmittedOn = (agent, rpcId) => {
+    if (rpcId === undefined || agent === undefined) return false
+    for (const list of [agent.inbox?.nextStep ?? [], agent.inbox?.nextTurn ?? []]) {
+      if (list.some(msg => msg?.source?.rpcId === rpcId)) return true
+    }
+    for (const ev of agent.session?.snapshotEvents?.() ?? []) {
+      if (ev?.type === 'user/message' && ev.data?.source?.rpcId === rpcId) return true
+    }
+    return false
+  }
+
+  // Pulls earlier pending user-authored messages in FIFO order (next-step before
+  // next-turn, matching DSH claim order) so queued foreground prompts travel with
+  // a foreground handoff instead of being stranded on the background task.
+  const pullPendingUserMessages = (agent, excludeId) => {
+    if (agent?.inbox?.remove === undefined) return []
+    const pending = [
+      ...(agent.inbox.nextStep ?? []).map(msg => ({ msg, target: 'next-step' })),
+      ...(agent.inbox.nextTurn ?? []).map(msg => ({ msg, target: 'next-turn' })),
+    ].filter(item => item.msg?.source?.kind === 'user'
+      && item.msg.id !== excludeId
+      && !skipInterceptIds.has(item.msg.id))
+    const pulled = []
+    for (const item of pending) {
+      if (agent.inbox.remove(item.msg.id)) pulled.push({ msg: item.msg, target: item.target, oldAgent: agent })
+    }
+    return pulled
+  }
+
   // Restores pulled user messages back to their original Agent (pre-commit failure only)
   // without triggering `interceptForegroundUserMessage`, waking an idle Agent if needed.
   const restorePulledMessages = (items) => {
+    const ids = []
     for (const item of items) {
+      if (item.transferId !== undefined) ids.push(item.transferId)
       const key = item.msg?.id
       if (key !== undefined) skipInterceptIds.add(key)
       try {
@@ -682,6 +783,7 @@ export function install(rt) {
         if (key !== undefined) skipInterceptIds.delete(key)
       }
     }
+    if (ids.length > 0) void clearPendingTransfers(ids)
   }
 
   // Delivers pulled user messages onto a target foreground Session, retrying transient
@@ -696,16 +798,24 @@ export function install(rt) {
         const freshAgent = await rt.resolveAgent(targetSid)
         while (nextIndex < items.length) {
           const item = items[nextIndex]
-          const forwarded = createUserMessage({ content: item.msg.content, source: item.msg.source })
-          skipInterceptIds.add(forwarded.id)
-          try {
-            freshAgent.followup(forwarded)
-          } finally {
-            skipInterceptIds.delete(forwarded.id)
+          const rpcId = item.transferId ?? item.msg?.source?.rpcId
+          if (rpcId === undefined || !isAdmittedOn(freshAgent, rpcId)) {
+            const baseSource = item.msg.source ?? { kind: 'user' }
+            const source = baseSource.rpcId !== undefined || rpcId === undefined
+              ? baseSource
+              : { ...baseSource, rpcId }
+            const forwarded = createUserMessage({ content: item.msg.content, source })
+            skipInterceptIds.add(forwarded.id)
+            try {
+              freshAgent.followup(forwarded)
+            } finally {
+              skipInterceptIds.delete(forwarded.id)
+            }
           }
           nextIndex += 1
         }
         await ctx.sessions.flush(freshAgent.session)
+        await clearPendingTransfers(items.map(item => item.transferId))
         return
       } catch (error) {
         if (attempt < delays.length) {
@@ -725,6 +835,7 @@ export function install(rt) {
     const existing = handoffing.get(bot.id)
     if (existing !== undefined && existing.oldSid === oldSid) {
       if (initialMessages.length > 0) {
+        recordPendingTransfers(initialMessages, { botId: bot.id })
         if (existing.committed && existing.newSid !== undefined) {
           void forwardPulledMessages(existing.newSid, initialMessages, bot.name)
         } else {
@@ -735,6 +846,9 @@ export function install(rt) {
     }
     const entry = rt.live.get(oldSid)
     const oldAgent = ctx.get('agents')?.get(oldSid)
+    const earlier = pullPendingUserMessages(oldAgent)
+    const seededMessages = [...earlier, ...initialMessages]
+    recordPendingTransfers(seededMessages, { botId: bot.id })
     const info = entry?.info
     const activeWork = rt.workOf?.(info)
     const isBotHandoff = (info?.role === 'request' && info.audience !== 'user')
@@ -755,8 +869,9 @@ export function install(rt) {
     })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
-    const record = { oldSid, committed: false, newSid: undefined, messages: [...initialMessages], promise: undefined }
+    const record = { oldSid, committed: false, newSid: undefined, messages: seededMessages, promise: undefined }
     const run = (async () => {
+      if (record.messages.length > 0) await rt.save().catch(() => {})
       let forkedResult
       try {
         forkedResult = await rt.forkForegroundPart(bot, oldSid)
@@ -775,6 +890,8 @@ export function install(rt) {
             await forwardPulledMessages(currentSid, pending, bot.name)
           } else if (rt.botOf(bot.id) === bot) {
             restorePulledMessages(pending)
+          } else {
+            await clearPendingTransfers(pending.map(item => item.transferId))
           }
         }
         return currentSid ?? newSid
@@ -926,6 +1043,7 @@ export function install(rt) {
   // reentering `Session.append()`.
   const interceptForegroundUserMessage = (agent, msg) => {
     const id = agent?.id ?? agent?.session?.id
+    if (replacedIds.delete(msg?.id)) return
     if (id === undefined || msg?.source?.kind !== 'user' || skipInterceptIds.has(msg.id)) return
     const target = agent.inbox?.locate?.(msg.id)?.target
       ?? (agent.inbox?.nextStep?.some(item => item?.id === msg.id) ? 'next-step' : 'next-turn')
@@ -941,21 +1059,28 @@ export function install(rt) {
     const taskOwner = rt.taskOwners?.get(id)
     if (taskOwner !== undefined) {
       if (agent?.inbox?.remove === undefined) return
+      const wasIdle = agent.status === 'idle'
       if (!agent.inbox.remove(msg.id)) return
+      if (wasIdle && !hasInboxInput(agent)) rejectEmptyTaskWake.add(id)
       clearSteeredAt()
       const pulled = [{ msg, target, oldAgent: agent }]
+      recordPendingTransfers(pulled, taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId })
       void (async () => {
         if (taskOwner.roomId !== undefined) {
           const room = rt.roomOf(taskOwner.roomId)
           const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
           if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name)
+          else await clearPendingTransfers(pulled.map(item => item.transferId))
           return
         }
         const pending = handoffing.get(taskOwner.botId)
         if (pending !== undefined) await pending.promise.catch(() => {})
         const ownerBot = rt.botOf(taskOwner.botId)
         let fgSid = ownerBot === undefined ? undefined : rt.chatOf(ownerBot.id)
-        if (fgSid === undefined || fgSid === id || rt.taskOwners?.has(fgSid)) return
+        if (fgSid === undefined || fgSid === id || rt.taskOwners?.has(fgSid)) {
+          await clearPendingTransfers(pulled.map(item => item.transferId))
+          return
+        }
         if (shouldMoveForeground(ownerBot, fgSid)) {
           const fgAgent = ctx.get('agents')?.get(fgSid)
           const rebased = pulled.map(item => ({ ...item, oldAgent: fgAgent }))
@@ -967,15 +1092,20 @@ export function install(rt) {
       return
     }
 
-    // Case 2: Busy foreground — pull user message synchronously and move the busy
-    // turn intact into `bot.tasks[]`.
+    // Case 2: Busy foreground — pull any earlier queued user prompts plus this message
+    // synchronously in FIFO order and move the busy turn intact into `bot.tasks[]`.
     const botId = rt.chatOwners.get(id)
     const bot = botId === undefined ? undefined : rt.botOf(botId)
     if (!shouldMoveForeground(bot, id)) return
     if (agent?.inbox?.remove === undefined) return
-    if (!agent.inbox.remove(msg.id)) return
+    const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
+    if (!agent.inbox.remove(msg.id)) {
+      if (earlier.length > 0) restorePulledMessages(earlier)
+      return
+    }
     clearSteeredAt()
-    const pulled = [{ msg, target, oldAgent: agent }]
+    const pulled = [...earlier, { msg, target, oldAgent: agent }]
+    recordPendingTransfers(pulled, { botId: bot.id })
 
     void handoffForeground(bot, id, pulled).catch((error) => {
       rt.warn('ds-bot: foreground handoff for %s failed; restored input: %s', bot.name, error)
@@ -988,8 +1118,16 @@ export function install(rt) {
     interceptForegroundUserMessage(agent, message)
   })
 
-  // Strict turn/end state machine guard.
+  // Strict turn/end state machine guard + in-place queue edit (`inbox.replace`) tagging.
   ctx.on('session/event', (session, event) => {
+    if (event?.type === 'agent/inbox/spliced') {
+      if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0) {
+        for (const msg of event.data.inserted) {
+          if (msg?.id !== undefined) replacedIds.add(msg.id)
+        }
+      }
+      return
+    }
     if (event?.type !== 'turn/end') return
     const id = session?.id
     const found = taskBySession(id)
@@ -1204,6 +1342,8 @@ export function install(rt) {
   Object.assign(rt, {
     startTask,
     shouldMoveForeground,
+    isHandingOff: id => id !== undefined && [...handoffing.values()].some(record => record.oldSid === id),
+    consumeEmptyTaskWake: id => id !== undefined && rejectEmptyTaskWake.delete(id),
     handoffForeground,
     spawnBotHandoffTask,
     stopTask: async (botId, taskId, reason = 'cancelled by the user') => {
