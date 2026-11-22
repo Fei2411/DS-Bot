@@ -1096,8 +1096,8 @@ export function install(rt) {
     for (const cardKey of Object.keys(data.cards).reverse()) {
       if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
       const entry = openCard(conn, chatKey, cardKey)?.entry
-      if (entry?.numbered !== true) continue
-      if (entry !== undefined) return { cardKey, entry }
+      if (entry === undefined) continue
+      if (entry.numbered ?? !cardKey.startsWith('v:')) return { cardKey, entry }
     }
     return undefined
   }
@@ -1251,7 +1251,7 @@ export function install(rt) {
   const sendCard = async (conn, cardKey, targets, body, buttons, numbered = false) => {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
-    const entries = data.cards[cardKey] ??= []
+    const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined)
     const recorded = new Set(entries.map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return

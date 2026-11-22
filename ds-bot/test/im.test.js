@@ -1179,6 +1179,44 @@ test('answering persisted member cards restores the room origin after a restart'
   }
 })
 
+test('legacy question deliveries are resent with bindings and still accept buttons and numbers', async (t) => {
+  for (const missingBinding of [true, false]) {
+    for (const buttons of [true, false]) {
+      let s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+      t.after(() => s.stop())
+      const { one } = await pairedConn(s)
+      one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+      s.rt.roomOf('r1').sessions = { b: 'member-b' }
+      s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+      await s.rt.save()
+      await gm(s, 'u1', 'choose')
+      s.imTurn('r1')
+      await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Legacy route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' }, concludeTurn() {} })
+      const questionId = s.rt.state.questions['member-b'].id
+      await s.flush()
+      await s.close()
+      const path = join(s.home, 'im', `${one.id}.json`)
+      const data = JSON.parse(readFileSync(path, 'utf8'))
+      const delivery = data.cards[`q:${questionId}`][0]
+      delete delivery.numbered
+      if (missingBinding) delete delivery.binding
+      writeFileSync(path, JSON.stringify(data))
+      s = await start({ platform: buttons ? 'telegram' : 'dingtalk', home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+      await s.flush()
+      assert.equal(s.fake.sent.filter(job => job.text.includes('Legacy route?')).length, missingBinding ? 1 : 0)
+      if (buttons) {
+        await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${questionId}:1` })
+      } else {
+        await gm(s, 'u1', '2')
+      }
+      assert.equal(s.rt.state.questions['member-b'], undefined)
+      assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /Legacy route/)
+      assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /B/)
+    }
+  }
+})
+
 test('text-only and legacy view deliveries do not hide an older numbered question', async (t) => {
   for (const legacy of [false, true]) {
     let s = await start({ platform: 'dingtalk' })
