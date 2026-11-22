@@ -996,24 +996,3 @@ test('browser handoff open and settle emit live feed events and clear browserHol
   assert.notEqual(nextState.liveKey, openState.liveKey)
   assert.deepEqual(nextState.browserHolds, {})
 })
-
-test('switching to an earlier part closes open question and view cards instead of leaving orphaned keys', async (t) => {
-  const { call, ctx, rt, stop } = start()
-  t.after(stop)
-  const { chief } = await team(call)
-  const bot = rt.botOf(chief)
-  const part1 = bot.sessionId
-  const part2 = `s-${randomUUID()}`
-  bot.segments = [{ sessionId: part1, endedAt: 100 }]
-  bot.sessionId = part2
-  rt.save()
-  rt.state.questions[part2] = { id: 'q-1', question: 'Pick one', options: [{ label: 'A' }] }
-  rt.state.views[part2] = { id: 'v-1', title: 'Confirm', view: { type: 'text', text: 'hi' } }
-  ctx.workspaceRegistry.unarchiveSession = async () => {}
-  ctx.workspaceRegistry.archiveSession = async () => {}
-
-  await rt.switchPart(chief, part1)
-  const after = (await call('state', {})).value
-  assert.deepEqual(after.questions, {})
-  assert.deepEqual(after.views, {})
-})

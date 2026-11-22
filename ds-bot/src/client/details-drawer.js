@@ -3,18 +3,16 @@ import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
-import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
 import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
-import { NewPartMenu } from './new-part-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
-import { FreshMemberPart, MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
+import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { TaskBoard } from './task-board.js'
@@ -173,8 +171,7 @@ function MemberPile({ room, roster }) {
 const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
-// Stop beside it while it works here, New session when idle with a group session, and
-// the approvals it waits on below.
+// Stop beside it while it works here, and the approvals it waits on below.
 function MemberRow({ member, entry, room, roster, actions }) {
   return h('div', { role: 'listitem', className: 'bt-member' },
     h('div', { className: 'bt-member-row' },
@@ -185,8 +182,7 @@ function MemberRow({ member, entry, room, roster, actions }) {
             h('span', { className: 'bt-member-name' }, member.name),
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
-      h(StopMemberWork, { entry, bot: member, room, actions }),
-      h(FreshMemberPart, { entry, bot: member, room, actions })),
+      h(StopMemberWork, { entry, bot: member, room, actions })),
     h(MemberApprovals, { entry, bot: member, actions }))
 }
 
@@ -234,36 +230,6 @@ function GroupOverview({ room, roster, actions, usage, useWork, useComputer, ope
       h('div', { className: 'bt-kv' }, h('span', null, room.name), h('span', null, usage))) : null,
   ]
 }
-
-// A Bot's chat sessions: the current one first, then the earlier ones, newest first.
-// Every Bot's chat has parts, whether it answers with a DS Bot model or a local CLI.
-// Each row names when it started and how it was last titled. A Bot has one
-// conversation at a time, so no new one starts while its turn runs.
-function AgentSessions({ bot, part, run, useSessions, actions, running }) {
-  const ids = [part, ...(bot.parts ?? []).filter(id => id !== part).slice().reverse()]
-  const rows = useSessions(list => ids.map(id => list.byId?.[id]), rowsEqual)
-  const total = ids.length
-  return h('div', { className: 'bt-drawer-model' },
-    h('div', { className: 'bt-agent-sessions-head' },
-      h('div', { className: 'bt-section-title' }, t('Sessions')),
-      h(NewPartMenu, { botId: bot.id, busy: running, actions, run })),
-    h('div', { className: 'bt-agent-sessions' },
-      ids.map((id, index) => {
-        const row = rows[index]
-        const current = index === 0
-        const when = row?.updatedAt ?? row?.createdAt
-        const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
-        return h('button', {
-          key: id, type: 'button', disabled: current,
-          className: `bt-agent-session${current ? ' is-current' : ''}`,
-          title: current ? t('Current session') : t('Open this earlier session'),
-          onClick: current ? undefined : () => run(call('bot-open-part', { botId: bot.id, sessionId: id })),
-        },
-          h('span', { className: 'bt-agent-session-name' }, label),
-          h('span', { className: 'bt-agent-session-meta' }, current ? t('Current') : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
-      })))
-}
-const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt)
 
 export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer }) {
   const owner = roster.byId[sessionId]
@@ -400,7 +366,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
-        h(AgentSessions, { key: 'sessions', bot, part, run, useSessions, actions, running }),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },

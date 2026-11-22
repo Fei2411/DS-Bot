@@ -784,7 +784,7 @@ test('plugin reload (adoptLiveWork) on running bot-handoff task restores routing
   assert.equal(env.rt.state.works[task.exchangeId], undefined, 'work must be closed after adopted reply delivery')
 })
 
-test('fg-handoff snapshots inheritedSegments so foreground rollover or startOpenPart never shifts task anchors', async (t) => {
+test('fg-handoff snapshots inheritedSegments so foreground rollover never shifts task anchors', async (t) => {
   const env = await startEnv({
     team: makeTeam({
       bots: {

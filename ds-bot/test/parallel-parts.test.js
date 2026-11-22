@@ -13,9 +13,9 @@ import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
-// A Bot has one conversation at a time. Parallel parts (#1548) were withdrawn: a new
-// session replaces the current part only while the Bot is idle, and a team saved with
-// parallel parts keeps them as earlier parts of the Bot's chat, archived.
+// A Bot has one continuous conversation. Parallel parts (#1548), session switching, and
+// manual new sessions were withdrawn: a team saved with parallel parts folds them into
+// the Bot's earlier parts and archives them.
 
 const SessionPersistence = typeof Jsonl.apply === 'function' ? Jsonl : Jsonl.default
 
@@ -93,26 +93,6 @@ const until = async (check, ms = 2000) => {
   }
 }
 
-
-const idleAgent = (followed = []) => ({
-  id: 'w2', status: 'idle',
-  session: { id: 'w2', header: {}, requestHeader: () => ({}), deriveMessages: () => [], toolHistory: () => [] },
-  whenIdle: async () => {},
-  runMaintenance: async job => job(AbortSignal.timeout(5_000)),
-  inbox: { nextStep: [], nextTurn: [], remove: () => {} },
-  followup: message => followed.push(message),
-  inject: () => {},
-  send: async () => {},
-})
-
-const readyForSwitch = (rt, ctx, agent) => {
-  rt.resolveAgent = async () => agent
-  rt.eventsBackwards = async function* () {}
-  ctx.sessions = { flush: async () => {} }
-  rt.runningJobs = () => []
-  rt.createSession = async () => 'w5'
-}
-
 test('a team saved with parallel parts keeps them as earlier parts and archives them', async (t) => {
   const { home, registry, call, rt } = await team(t, [], LEGACY)
   const state = await call('state')
@@ -168,85 +148,77 @@ test('a retired parallel part whose archive fails is retried at the next start',
   assert.deepEqual(saved(first.home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
 })
 
-for (const [what, options] of [['a new session', {}], ['a blank session', { blank: true }], ['a handoff', { handoff: true }]]) {
-  test(`${what} is refused while the Bot works and starts no part`, async (t) => {
-    const { home, registry, call, rt } = await team(t)
-    await call('state')
-    rt.resolveAgent = async () => ({ id: 'w2', status: 'running', session: { id: 'w2', requestHeader: () => undefined } })
-    const made = []
-    rt.createSession = async (...args) => { made.push(args); return 'w5' }
-    const result = await call('bot-new-part', { botId: 'w1', ...options })
-    assert.equal(result.ok, false)
-    assert.equal(result.error.code, 'bot/busy')
-    assert.equal(made.length, 0)
-    assert.deepEqual([...registry.archivedSessionIds], [])
-    const writer = saved(home).bots.w1
-    assert.equal(writer.sessionId, 'w2')
-    assert.equal(writer.openParts, undefined)
-    assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w1'])
-  })
-}
-
-// The private chat's own work also blocks a new session: a running subagent, a waiting
-// approval or a background job means the part is not idle, and the switch would archive
-// it mid-work. A job list that cannot be read proves nothing and counts as busy.
-for (const [what, mark] of [
-  ['a subagent works', rt => { rt.hasSubagents = () => true }],
-  ['an approval waits', rt => { rt.waitsForApproval = () => true }],
-  ['a background job runs', rt => { rt.runningJobs = () => [{ id: 'j1', status: 'running' }] }],
-  ['the job list cannot be read', rt => { rt.runningJobs = () => undefined }],
-]) {
-  for (const options of [{ blank: true }, { handoff: true }]) {
-    test(`a ${options.blank ? 'blank session' : 'handoff'} is refused while ${what} in a private chat`, async (t) => {
-      const { home, registry, call, rt } = await team(t)
-      await call('state')
-      rt.resolveAgent = async () => ({ id: 'w2', status: 'idle', session: { id: 'w2', requestHeader: () => undefined } })
-      const made = []
-      rt.createSession = async (...args) => { made.push(args); return 'w5' }
-      mark(rt)
-      const result = await call('bot-new-part', { botId: 'w1', ...options })
-      assert.equal(result.ok, false)
-      assert.equal(result.error.code, 'bot/busy')
-      assert.equal(made.length, 0)
-      assert.deepEqual([...registry.archivedSessionIds], [])
-      assert.equal(saved(home).bots.w1.sessionId, 'w2')
-    })
-  }
-}
-
-test('a handoff replaces the idle part and starts the fresh one with the handoff package', async (t) => {
-  const { home, registry, call, ctx, rt } = await team(t)
-  await call('state')
-  const followed = []
-  readyForSwitch(rt, ctx, idleAgent(followed))
-  const result = await call('bot-new-part', { botId: 'w1', handoff: true })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  const writer = saved(home).bots.w1
-  assert.equal(writer.sessionId, 'w5')
-  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w1', 'w2'])
-  assert.equal(writer.openParts, undefined)
-  assert.deepEqual([...registry.archivedSessionIds], ['w2'])
-  assert.equal(followed.length, 1)
-  assert.match(String(followed[0]?.content?.[0]?.text ?? ''), /\[Handoff · part 3\]/)
+test('manual session-switch and new-session endpoints are removed', async (t) => {
+  const { call, rt } = await team(t)
+  const openRes = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
+  assert.equal(openRes.ok, false)
+  assert.equal(openRes.error.code, 'bot/not-found')
+  const newRes = await call('bot-new-part', { botId: 'w1' })
+  assert.equal(newRes.ok, false)
+  assert.equal(newRes.error.code, 'bot/not-found')
+  assert.equal(rt.switchPart, undefined)
+  assert.equal(rt.newPart, undefined)
 })
 
-// #1792: a blank session leaves a stuck conversation without carrying it along, but it
-// still replaces the part: the old one is archived, not kept running beside it.
-test('a blank session replaces the idle part and carries nothing over', async (t) => {
-  const { home, registry, call, ctx, rt } = await team(t)
+test('folding legacy openParts never archives the Bot current foreground session', async (t) => {
+  const corrupt = JSON.parse(JSON.stringify(TEAM))
+  corrupt.bots.w1.openParts = [{ sessionId: 'w2', segments: [{ sessionId: 'w1', endedAt: 3 }, { sessionId: 'w4', endedAt: 5 }], startedAt: 6 }]
+  const { home, registry, call } = await team(t, [], corrupt)
   await call('state')
-  const followed = []
-  readyForSwitch(rt, ctx, idleAgent(followed))
-  const result = await call('bot-new-part', { botId: 'w1', blank: true })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  const writer = saved(home).bots.w1
-  assert.equal(writer.sessionId, 'w5')
-  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w1', 'w2'])
-  assert.equal(writer.openParts, undefined)
-  assert.deepEqual([...registry.archivedSessionIds], ['w2'])
-  assert.deepEqual(followed, [])
-  assert.equal(rt.chatOwners.get('w5'), 'w1')
-  assert.equal(rt.chatOwners.get('w2'), undefined)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal([...registry.archivedSessionIds].includes('w2'), false)
+  const kept = saved(home).bots.w1
+  assert.equal(kept.sessionId, 'w2')
+  assert.equal(Object.hasOwn(kept, 'openParts'), false)
+  assert.deepEqual(kept.segments.map(segment => segment.sessionId), ['w1', 'w4'])
+})
+
+test('a retired parallel part absent from DSH live and persisted sessions clears retiredParts without stalling', async (t) => {
+  // Real DSH WorkspaceRegistry throws WorkspaceUnknownSessionError when w3 does not exist.
+  const { home, registry, call } = await team(t, [], LEGACY, ['m1', 'w1', 'w2', 'w4'])
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
+})
+
+test('legacy openParts or retiredParts matching an active background task session never archives or moves that task', async (t) => {
+  const moved = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w-task' } }],
+    edit: async (request) => { moved.push(request); return { id: request.id } },
+    list: async () => [],
+  }
+  const withTask = JSON.parse(JSON.stringify(TEAM))
+  withTask.bots.w1.tasks = [{ id: 't1', title: 'Audit', sessionId: 'w-task', status: 'running', segments: [] }]
+  withTask.bots.w1.openParts = [{ sessionId: 'w-task', segments: [], startedAt: 6 }]
+  withTask.retiredParts = [{ sessionId: 'w-task', botId: 'w1' }]
+  const { home, registry, call } = await team(t, [], withTask, ['m1', 'w1', 'w2', 'w-task'], { services: { schedule } })
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w-task'), false)
+  assert.deepEqual(moved, [])
+  assert.equal(saved(home).bots.w1.tasks[0].sessionId, 'w-task')
+})
+
+test('retireParts handles shutdown and disk-failure without unhandled rejections or spurious saves', async (t) => {
+  let rejections = 0
+  const onRejection = () => { rejections += 1 }
+  process.on('unhandledRejection', onRejection)
+  t.after(() => process.off('unhandledRejection', onRejection))
+
+  const host = await team(t, [], LEGACY, undefined, {
+    before: (registry) => {
+      registry.archiveSession = async () => { throw new Error('temporary io error') }
+    },
+  })
+  await host.call('state')
+  const revBefore = saved(host.home).revision
+  await new Promise(resolve => setTimeout(resolve, 40))
+  // Failed archive does not bump revision with a spurious save.
+  assert.equal(saved(host.home).revision, revBefore)
+  await host.stop()
+  assert.equal(rejections, 0)
 })
 
 // A host that starts while another dsh saves the team only reads it; once that dsh

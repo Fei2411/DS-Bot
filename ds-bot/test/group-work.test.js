@@ -257,6 +257,17 @@ test('message_bot from a group does not reach a Bot outside it', async (t) => {
   assert.deepEqual([host.agentOf('c').calls, host.agentOf('r1').calls], [[], []])
 })
 
+test('ordinary group admins keep the guidance to edit their own group', async (t) => {
+  const host = await start(t, { admin: 'b' })
+  const done = host.round('c1', host.say('Discuss the plan'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const message = host.begin('gb')
+  assert.match(text(message), /You are this group's admin/)
+  assert.match(text(message), /When the user asks, change the group with update_group/)
+  host.finish('gb', 'Ready.')
+  await settle(() => done() !== undefined)
+})
+
 test('a Bot a post called by name gets no message_bot in that turn', async (t) => {
   const host = await start(t)
   host.emit('a', 'turn/start', { turn: 1 })
@@ -444,21 +455,28 @@ test('a report-back post a Bot wrote from another group comes back to that conve
   assert.match(text(host.agentOf('ga').calls[0]), /^\[Group chat "Design" · replies to your post\]/)
 })
 
-test('a report-back post whose origin openPart is gone falls back to the current foreground chat', async (t) => {
+test('a report-back post whose origin background task has settled falls back to the current foreground chat', async (t) => {
   const host = await start(t, {}, undefined, {}, {
-    a: { sessionId: 'a-fg', openParts: [{ sessionId: 'a-bg', segments: [] }] },
+    a: { sessionId: 'a-fg' },
   })
-  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a-bg')
+  const task = { id: 't1', title: 'Review', sessionId: 'a-task', status: 'running', segments: [] }
+  rt.botOf('a').tasks = [task]
+  rt.chatOwners.set('a-task', 'a')
+  rt.taskOwners.set('a-task', { botId: 'a', taskId: 't1' })
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a-task')
   const post = host.takePost()
-  // Simulate the openPart no longer existing on the Bot before the round finishes.
-  rt.botOf('a').openParts = []
+  // Simulate the background task settling before the group round finishes.
+  task.status = 'completed'
+  rt.chatOwners.delete('a-task')
+  rt.taskOwners.delete('a-task')
+  rt.pastOwners.set('a-task', { botId: 'a', taskId: 't1' })
   const done = host.round('c1', post)
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
   host.finish('gb', '文档没问题。')
   await settle(() => done() !== undefined)
   await settle(() => host.agentOf('a-fg').calls.length === 1)
-  assert.equal(host.agentOf('a-bg').calls.length, 0)
+  assert.equal(host.agentOf('a-task').calls.length, 0)
   assert.match(text(host.agentOf('a-fg').calls[0]), /Writer: 文档没问题。/)
 })
 
