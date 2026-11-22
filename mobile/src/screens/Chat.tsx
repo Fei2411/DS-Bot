@@ -766,7 +766,7 @@ function Streaming({ sessionId, p, flat, maxWidth, inRoom }: { sessionId: string
       if (event === 'hello') { attempts.clear(); setText(''); return }
       if (event !== 'stream' || data?.sessionId !== sessionId) return
       if (data.phase === 'start') attempts.set(data.attemptId, '')
-      else if (typeof data.text === 'string' && attempts.has(data.attemptId)) attempts.set(data.attemptId, attempts.get(data.attemptId)! + data.text)
+      else if (typeof data.text === 'string') attempts.set(data.attemptId, (attempts.get(data.attemptId) ?? '') + data.text)
       else if (data.phase === 'end') attempts.delete(data.attemptId)
       // Each attempt is its own reply part; the saved message shows them as separate bubbles.
       setText([...attempts.values()].filter(part => part !== '').join('\n\n'))
