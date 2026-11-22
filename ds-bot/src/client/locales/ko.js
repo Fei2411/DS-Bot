@@ -1,6 +1,22 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "ChatGPT plan": "ChatGPT 요금제",
+  "Sign in with ChatGPT": "ChatGPT로 로그인",
+  "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "ChatGPT 로그인에는 DS Bot 데스크톱 앱과 OS 보안 저장소가 필요합니다.",
+  "Sign in to use your ChatGPT plan": "ChatGPT 요금제를 사용하려면 로그인하세요",
+  "Complete sign-in in your browser": "브라우저에서 로그인을 완료하세요",
+  "Enable plan usage to load your ChatGPT models": "ChatGPT 모델을 불러오려면 요금제 사용을 활성화하세요",
+  "Your ChatGPT session expired or was revoked. Sign in again.": "ChatGPT 세션이 만료되었거나 취소되었습니다. 다시 로그인하세요.",
+  "ChatGPT is temporarily unavailable. Retry without signing out.": "ChatGPT를 일시적으로 사용할 수 없습니다. 로그아웃하지 않고 다시 시도하세요.",
+  "Could not read the ChatGPT connection. Retry.": "ChatGPT 연결 상태를 읽을 수 없습니다. 다시 시도하세요.",
+  "Checking ChatGPT connection…": "ChatGPT 연결 확인 중…",
+  "Enable plan usage": "요금제 사용 활성화",
+  "Sign out": "로그아웃",
+  "Plan usage enabled": "요금제 사용 활성화됨",
+  "Plan usage disabled": "요금제 사용 비활성화됨",
+  "No models are available for this ChatGPT account.": "이 ChatGPT 계정에서 사용할 수 있는 모델이 없습니다.",
+  "Local credentials were cleared, but remote revocation was not confirmed.": "로컬 인증 정보는 삭제되었지만 원격 취소는 확인되지 않았습니다.",
   'Always on': '항상 켜짐',
   'In catalog': '카탈로그에 포함',
   'In catalog: the Bot loads this only when it needs it.': '카탈로그에 포함: Bot이 필요할 때만 로드합니다.',

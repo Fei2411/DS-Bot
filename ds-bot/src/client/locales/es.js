@@ -1,6 +1,22 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  "ChatGPT plan": "Plan de ChatGPT",
+  "Sign in with ChatGPT": "Iniciar sesión con ChatGPT",
+  "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "El inicio de sesión con ChatGPT requiere la aplicación de escritorio DS Bot y el almacenamiento seguro del sistema operativo.",
+  "Sign in to use your ChatGPT plan": "Inicia sesión para usar tu plan de ChatGPT",
+  "Complete sign-in in your browser": "Completa el inicio de sesión en tu navegador",
+  "Enable plan usage to load your ChatGPT models": "Activa el uso del plan para cargar tus modelos de ChatGPT",
+  "Your ChatGPT session expired or was revoked. Sign in again.": "Tu sesión de ChatGPT ha caducado o se ha revocado. Vuelve a iniciar sesión.",
+  "ChatGPT is temporarily unavailable. Retry without signing out.": "ChatGPT no está disponible temporalmente. Reintenta sin cerrar sesión.",
+  "Could not read the ChatGPT connection. Retry.": "No se pudo consultar la conexión de ChatGPT. Reintenta.",
+  "Checking ChatGPT connection…": "Comprobando la conexión de ChatGPT…",
+  "Enable plan usage": "Activar uso del plan",
+  "Sign out": "Cerrar sesión",
+  "Plan usage enabled": "Uso del plan activado",
+  "Plan usage disabled": "Uso del plan desactivado",
+  "No models are available for this ChatGPT account.": "No hay modelos disponibles para esta cuenta de ChatGPT.",
+  "Local credentials were cleared, but remote revocation was not confirmed.": "Se borraron las credenciales locales, pero no se confirmó la revocación remota.",
   'Always on': 'Siempre activo',
   'In catalog': 'En el catálogo',
   'In catalog: the Bot loads this only when it needs it.': 'En el catálogo: el Bot solo lo carga cuando lo necesita.',

@@ -178,6 +178,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     efforts: ref => call('efforts', { ref }),
     // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
     providers: () => call('providers'),
+    chatgpt: () => call('chatgpt'),
+    chatgptSignIn: body => call('chatgpt-sign-in', body),
+    chatgptCancel: () => call('chatgpt-cancel'),
+    chatgptSignOut: () => call('chatgpt-sign-out'),
+    chatgptModels: () => call('chatgpt-models'),
     setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
     addProvider: body => after(call('provider-add', body)),
     providerModels: body => call('provider-models', body),

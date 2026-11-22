@@ -1,6 +1,22 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "ChatGPT plan": "ChatGPT プラン",
+  "Sign in with ChatGPT": "ChatGPT でサインイン",
+  "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "ChatGPT へのサインインには DS Bot デスクトップアプリと OS の安全なストレージが必要です。",
+  "Sign in to use your ChatGPT plan": "ChatGPT プランを使うにはサインインしてください",
+  "Complete sign-in in your browser": "ブラウザーでサインインを完了してください",
+  "Enable plan usage to load your ChatGPT models": "プランの利用を有効にして ChatGPT モデルを読み込んでください",
+  "Your ChatGPT session expired or was revoked. Sign in again.": "ChatGPT セッションが期限切れか取り消されました。再度サインインしてください。",
+  "ChatGPT is temporarily unavailable. Retry without signing out.": "ChatGPT は一時的に利用できません。サインアウトせずに再試行してください。",
+  "Could not read the ChatGPT connection. Retry.": "ChatGPT の接続状態を取得できませんでした。再試行してください。",
+  "Checking ChatGPT connection…": "ChatGPT の接続を確認中…",
+  "Enable plan usage": "プランの利用を有効にする",
+  "Sign out": "サインアウト",
+  "Plan usage enabled": "プランの利用は有効です",
+  "Plan usage disabled": "プランの利用は無効です",
+  "No models are available for this ChatGPT account.": "この ChatGPT アカウントで利用できるモデルはありません。",
+  "Local credentials were cleared, but remote revocation was not confirmed.": "ローカルの認証情報は削除されましたが、リモートでの取り消しは確認できませんでした。",
   'Always on': '常時有効',
   'In catalog': 'カタログ内',
   'In catalog: the Bot loads this only when it needs it.': 'カタログ内：Bot が必要なときにのみ読み込みます。',

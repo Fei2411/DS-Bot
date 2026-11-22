@@ -14,6 +14,22 @@ function bench() {
   return { actions, sent, ui, pulls: () => pulls }
 }
 
+test('ChatGPT uses only account endpoints, never provider keys or relay credentials', async () => {
+  const { actions, sent } = bench()
+  await actions.chatgpt()
+  await actions.chatgptSignIn({ consent: true })
+  await actions.chatgptCancel()
+  await actions.chatgptSignOut()
+  await actions.chatgptModels()
+  assert.deepEqual(sent, [
+    ['chatgpt', undefined],
+    ['chatgpt-sign-in', { consent: true }],
+    ['chatgpt-cancel', undefined],
+    ['chatgpt-sign-out', undefined],
+    ['chatgpt-models', undefined],
+  ])
+})
+
 test('every window reaches the host model providers, and key changes read the team again', async () => {
   const { actions, sent, pulls } = bench()
   await actions.providers()
