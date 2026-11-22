@@ -1,6 +1,9 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Always on': '항상 켜짐',
+  'In catalog': '카탈로그에 포함',
+  'Items in catalog load only when the Bot calls use_pack.': '카탈로그의 항목은 Bot이 use_pack을 호출할 때만 로드됩니다.',
   'Background work': '백그라운드 작업',
   'Background commands after (seconds)': '명령 백그라운드 전환(초)',
   'A new reply is waiting': "새 답변이 도착했습니다",

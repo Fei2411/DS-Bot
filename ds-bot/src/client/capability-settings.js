@@ -1,6 +1,7 @@
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { PlusIcon } from './icons.js'
 import { t } from './i18n.js'
+import { Segmented } from './motion.js'
 
 const blank = () => ({ name: '', kind: 'mcp', description: '', transport: 'stdio', command: '', argsText: '', envText: '{}', url: '', headersText: '{}', content: '', items: [] })
 const parseMap = (text, label) => {
@@ -154,17 +155,24 @@ export function CapabilitiesPage({ roster, actions, run }) {
         }))))
 }
 
-export function BotCapabilitiesCard({ bot, roster, actions, run, Card, SwitchRow }) {
+export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
   const items = [...(roster.capabilities ?? [])].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
   const attached = new Set(bot.capabilities ?? [])
+  const catalog = new Set(bot.packs ?? [])
   const statuses = roster.capabilityStatuses?.[bot.id] ?? {}
   if (items.length === 0) return null
   return h(Card, { title: t('Capabilities') },
-    items.map(item => h(SwitchRow, {
-      key: item.name,
-      label: item.name,
-      hint: attached.has(item.name) ? statusText(statuses[item.name]) : undefined,
-      on: attached.has(item.name),
-      onChange: enabled => void run(actions.setBotCapability(bot.id, item.name, enabled)),
-    })))
+    h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Items in catalog load only when the Bot calls use_pack.'))),
+    items.map(item => {
+      const mode = attached.has(item.name) ? 'always' : catalog.has(item.name) ? 'catalog' : 'off'
+      const hint = mode === 'always' ? statusText(statuses[item.name]) : undefined
+      return h('div', { key: item.name, className: 'bt-set-row bt-bs-row bt-bs-stack' },
+        h('span', { className: 'bt-set-copy' },
+          h('span', { className: 'bt-bs-label' }, item.name),
+          hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
+        h(Segmented, { label: item.name, value: mode }, [['always', 'Always on'], ['catalog', 'In catalog'], ['off', 'Off']].map(([value, label]) => h('button', {
+          key: value, type: 'button', 'aria-pressed': mode === value,
+          onClick: () => { if (mode !== value) void run(actions.setBotCapability(bot.id, item.name, value !== 'off', value === 'catalog' ? 'catalog' : 'always')) },
+        }, t(label)))))
+    }))
 }

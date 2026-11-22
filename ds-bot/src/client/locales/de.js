@@ -1,6 +1,9 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Always on': 'Immer aktiv',
+  'In catalog': 'Im Katalog',
+  'Items in catalog load only when the Bot calls use_pack.': 'Katalogeinträge werden nur geladen, wenn der Bot use_pack aufruft.',
   'Background work': 'Hintergrundarbeit',
   'Background commands after (seconds)': 'Befehle in den Hintergrund nach (Sekunden)',
   'A new reply is waiting': "Eine neue Antwort wartet auf dich",

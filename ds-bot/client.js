@@ -119,6 +119,9 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Always on": "常時有効",
+  "In catalog": "カタログ内",
+  "Items in catalog load only when the Bot calls use_pack.": "カタログ内の項目は Bot が use_pack を呼び出したときにのみ読み込まれます。",
   "Background work": "バックグラウンド作業",
   "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   "A new reply is waiting": "新しい返信があります",
@@ -2793,6 +2796,9 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Always on": "항상 켜짐",
+  "In catalog": "카탈로그에 포함",
+  "Items in catalog load only when the Bot calls use_pack.": "카탈로그의 항목은 Bot이 use_pack을 호출할 때만 로드됩니다.",
   "Background work": "백그라운드 작업",
   "Background commands after (seconds)": "명령 백그라운드 전환(초)",
   "A new reply is waiting": "새 답변이 도착했습니다",
@@ -5512,6 +5518,9 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Always on": "Siempre activo",
+  "In catalog": "En el catálogo",
+  "Items in catalog load only when the Bot calls use_pack.": "Los elementos del catálogo solo se cargan cuando el Bot llama a use_pack.",
   "Background work": "Trabajo en segundo plano",
   "Background commands after (seconds)": "Pasar comandos a segundo plano tras (segundos)",
   "A new reply is waiting": "Tienes una nueva respuesta",
@@ -8231,6 +8240,9 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Always on": "Toujours actif",
+  "In catalog": "Dans le catalogue",
+  "Items in catalog load only when the Bot calls use_pack.": "Les éléments du catalogue se chargent uniquement lorsque le Bot appelle use_pack.",
   "Background work": "Travail en arrière-plan",
   "Background commands after (seconds)": "Passer les commandes en arrière-plan après (secondes)",
   "A new reply is waiting": "Une nouvelle réponse vous attend",
@@ -10905,6 +10917,9 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Always on": "Immer aktiv",
+  "In catalog": "Im Katalog",
+  "Items in catalog load only when the Bot calls use_pack.": "Katalogeinträge werden nur geladen, wenn der Bot use_pack aufruft.",
   "Background work": "Hintergrundarbeit",
   "Background commands after (seconds)": "Befehle in den Hintergrund nach (Sekunden)",
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
@@ -13765,6 +13780,9 @@ var ZH = {
   "Remove?": "确认移除？",
   Disabled: "已停用",
   Capabilities: "能力",
+  "Always on": "常驻",
+  "In catalog": "清单",
+  "Items in catalog load only when the Bot calls use_pack.": "清单中的项目仅在 Bot 调用 use_pack 时加载。",
   "Shared capabilities": "共享能力",
   "Add capability": "添加能力",
   "No capabilities saved": "还没有保存能力",
@@ -16567,7 +16585,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     saveCapability: (capability) => after(call2("capability-save", capability)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
-    setBotCapability: (botId, name, attached) => after(call2("bot-capability", { botId, name, attached })),
+    setBotCapability: (botId, name, attached, mode = "always") => after(call2("bot-capability", { botId, name, attached, mode })),
     schedules: () => call2("schedules"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
@@ -27114,21 +27132,38 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
     )
   );
 }
-function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3, SwitchRow: SwitchRow2 }) {
+function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
   const items = [...roster.capabilities ?? []].sort((a, b) => Number(b.kind === "pack") - Number(a.kind === "pack") || a.name.localeCompare(b.name));
   const attached = new Set(bot.capabilities ?? []);
+  const catalog = new Set(bot.packs ?? []);
   const statuses = roster.capabilityStatuses?.[bot.id] ?? {};
   if (items.length === 0) return null;
   return (0, import_react24.createElement)(
     Card3,
     { title: t("Capabilities") },
-    items.map((item) => (0, import_react24.createElement)(SwitchRow2, {
-      key: item.name,
-      label: item.name,
-      hint: attached.has(item.name) ? statusText(statuses[item.name]) : void 0,
-      on: attached.has(item.name),
-      onChange: (enabled) => void run2(actions.setBotCapability(bot.id, item.name, enabled))
-    }))
+    (0, import_react24.createElement)("div", { className: "bt-set-row" }, (0, import_react24.createElement)("span", { className: "bt-set-hint" }, t("Items in catalog load only when the Bot calls use_pack."))),
+    items.map((item) => {
+      const mode = attached.has(item.name) ? "always" : catalog.has(item.name) ? "catalog" : "off";
+      const hint = mode === "always" ? statusText(statuses[item.name]) : void 0;
+      return (0, import_react24.createElement)(
+        "div",
+        { key: item.name, className: "bt-set-row bt-bs-row bt-bs-stack" },
+        (0, import_react24.createElement)(
+          "span",
+          { className: "bt-set-copy" },
+          (0, import_react24.createElement)("span", { className: "bt-bs-label" }, item.name),
+          hint ? (0, import_react24.createElement)("span", { className: "bt-set-hint" }, hint) : null
+        ),
+        (0, import_react24.createElement)(Segmented, { label: item.name, value: mode }, [["always", "Always on"], ["catalog", "In catalog"], ["off", "Off"]].map(([value, label]) => (0, import_react24.createElement)("button", {
+          key: value,
+          type: "button",
+          "aria-pressed": mode === value,
+          onClick: () => {
+            if (mode !== value) void run2(actions.setBotCapability(bot.id, item.name, value !== "off", value === "catalog" ? "catalog" : "always"));
+          }
+        }, t(label))))
+      );
+    })
   );
 }
 
@@ -28269,7 +28304,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react27.createElement)(InlineText, { label: t("Instructions"), value: bot.instructions, multiline: true, placeholder: t("What this Bot is responsible for…"), onSave: (instructions) => save({ instructions }) })
       )
     ),
-    (0, import_react27.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
+    (0, import_react27.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2 }),
     (0, import_react27.createElement)(BotComputerCard, { bot, roster, actions, run: run2, Card: Card2, Row }),
     roster.memory === false ? null : (0, import_react27.createElement)(MemoryCard, { bot, actions }),
     (0, import_react27.createElement)(BotSchedules, { bot, roster, actions }),
