@@ -85,11 +85,14 @@ export function isLoopbackHost(host) {
 }
 
 export function normalizeConfig(raw) {
-  const host = typeof raw?.host === 'string' && raw.host.trim() !== '' ? raw.host.trim() : DEFAULT_HOST
+  const candidate = typeof raw?.host === 'string' ? raw.host.trim() : DEFAULT_HOST
+  const validHost = candidate === 'localhost' || isIP(candidate) !== 0
+  const host = validHost && (isLoopbackHost(candidate) || raw?.confirmLan === true) ? candidate : DEFAULT_HOST
   const port = Number.isInteger(raw?.port) && raw.port >= 0 && raw.port <= 65535 ? raw.port : DEFAULT_PORT
   return {
     enabled: raw?.enabled === true,
     host,
+    confirmLan: !isLoopbackHost(host) && raw?.confirmLan === true,
     port,
     openaiCompat: raw?.openaiCompat !== false,
     rateLimitPerMin: positiveLimit(raw?.rateLimitPerMin, DEFAULT_RATE_LIMIT),
@@ -120,7 +123,7 @@ function normalizeTokenScopes(raw) {
 
 function uniqueIds(list) {
   if (!Array.isArray(list)) return []
-  return [...new Set(list.map(item => String(item ?? '').trim()).filter(Boolean))]
+  return [...new Set(list.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))]
 }
 
 export function createApiAuth(rt) {
@@ -260,6 +263,7 @@ export function createApiAuth(rt) {
       const host = String(patch.host ?? '').trim()
       if (host === '') {
         next.host = DEFAULT_HOST
+        next.confirmLan = false
       } else {
         if (host !== 'localhost' && isIP(host) === 0) {
           throw invalid('Host must be 127.0.0.1, localhost, or a valid IP address')
@@ -268,6 +272,7 @@ export function createApiAuth(rt) {
           throw invalid('Binding outside 127.0.0.1 exposes the API to other devices on the network and requires explicit confirmation')
         }
         next.host = host
+        next.confirmLan = !isLoopbackHost(host)
       }
     }
     config = next
@@ -569,15 +574,11 @@ export function createApiAuth(rt) {
   function buildPrincipal(entry) {
     const scopes = new Set(normalizeTokenScopes(entry.scopes))
     // Compatibility with event-driven branch's `allowedTargets` array.
-    const legacyTargets = Array.isArray(entry.allowedTargets) && entry.allowedTargets.length > 0 ? entry.allowedTargets : null
-    const targetScope = entry.targetScope === 'all_public'
-      ? 'all_public'
-      : (entry.targetScope === undefined && legacyTargets === null && !Array.isArray(entry.botIds) && !Array.isArray(entry.roomIds))
-        ? 'all_public'
-        : 'selected'
-    const botIds = new Set(Array.isArray(entry.botIds) ? entry.botIds : [])
-    const roomIds = new Set(Array.isArray(entry.roomIds) ? entry.roomIds : [])
-    const privateBotIds = new Set(Array.isArray(entry.privateBotIds) ? entry.privateBotIds : [])
+    const legacyTargets = Array.isArray(entry.allowedTargets) ? entry.allowedTargets.filter(id => typeof id === 'string') : []
+    const targetScope = entry.targetScope === 'all_public' ? 'all_public' : 'selected'
+    const botIds = new Set(uniqueIds(entry.botIds))
+    const roomIds = new Set(uniqueIds(entry.roomIds))
+    const privateBotIds = new Set(uniqueIds(entry.privateBotIds))
     if (legacyTargets !== null) {
       for (const item of legacyTargets) {
         if (item.startsWith('bot:')) botIds.add(item.slice(4))
