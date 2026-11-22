@@ -10,7 +10,7 @@ import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
-import { REPLY_KIND } from '../constants.js'
+import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { output } from '../tools.js'
 
 const REGISTRY_PACKAGE = '@deepseek-ai/dsh-computer-use'
@@ -1030,7 +1030,13 @@ export function install(rt) {
     const sessionId = rt.chatOf(botId)
     await rt.ensureCapabilities?.(sessionId)
     const agent = await rt.resolveAgent(sessionId)
-    agent.followup(createUserMessage({ content: [{ type: 'text', text: HANDBACK_TEXT }] }))
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: HANDBACK_TEXT }],
+      // The handback answers the handoff the Bot asked for. A `handoff` role would
+      // mark the turn as a hidden exchange, and the Bot's continuation after it would
+      // never show, so this stays a reply that the chat displays.
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'reply', senderName: 'DS Bot' },
+    }))
     await ctx.sessions.flush(agent.session)
     return true
   }

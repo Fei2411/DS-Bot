@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import { classify, levelAllows, isComputerTool } from '../src/host/computer/catalog.js'
 import { createLeases } from '../src/host/computer/leases.js'
 import { isProtectedApp } from '../src/host/computer/index.js'
@@ -631,6 +632,37 @@ test('takeover refuses the Bot and handback delivers a message with nothing the 
   const text = last.content?.[0]?.text ?? JSON.stringify(last)
   assert.match(text, /handed|back/i)
   assert.doesNotMatch(text, /typed|clicked|password/i)
+})
+
+test('handback writes a message a stored v4 session can reload', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const followups = []
+  ctx.sessions = { flush: async () => {} }
+  rt.resolveAgent = async () => ({ followup: message => followups.push(message), session: { id: 'w1' } })
+  rt.chatOf = () => 'w1'
+  await rt.computerEndpoint('handback', { botId: 'w1' })
+  const message = followups.at(-1)
+  // Every stored message needs a producer-owned source kind, or the whole session
+  // fails to load with a SessionFormatError.
+  assert.equal(message?.source?.kind, 'bot')
+  assert.equal(message?.source?.role, 'reply')
+  const at = Date.now()
+  const knownEventTypes = new Set(['turn/start', 'user/message'])
+  const artifact = (data) => ({
+    header: { version: 4, id: 'w1', createdAt: at, isSeeded: false, delegationDepth: 0 },
+    inheritedEventCount: 0,
+    events: [
+      { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+      { type: 'user/message', seq: 1, time: at, surfaceOp: 'append', data },
+    ],
+  })
+  assert.doesNotThrow(() => restoreReleasedV4Artifact(artifact(message), knownEventTypes))
+  const { source, ...withoutSource } = message
+  assert.throws(() => restoreReleasedV4Artifact(artifact(withoutSource), knownEventTypes), /producer-owned source kind/)
 })
 
 test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/waiting', async (t) => {
