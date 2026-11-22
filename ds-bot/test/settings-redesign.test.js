@@ -478,6 +478,13 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
         assert.ok(present, `tour target "${step.target}" (${mode}) must exist in client source`)
       }
     }
+
+    // Wrapped card rows (e.g. .bt-secret-item > .bt-set-row) must not get unscoped :first-child/:last-child corners.
+    const stylesSrc = readFileSync(join(clientDir, 'styles.js'), 'utf8')
+    assert.ok(!stylesSrc.includes('\n.bt-set-row:first-child{'), 'unscoped .bt-set-row:first-child causes notched hover corners on wrapped rows')
+    assert.ok(!stylesSrc.includes('\n.bt-set-row:last-child{'), 'unscoped .bt-set-row:last-child causes notched hover corners on wrapped rows')
+    assert.ok(stylesSrc.includes('.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:hidden}'))
+    assert.ok(stylesSrc.includes('button.bt-select{display:inline-flex;align-items:center;'))
     harness.unmount()
   })
 })
