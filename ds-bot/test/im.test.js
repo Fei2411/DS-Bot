@@ -13,6 +13,7 @@ import * as toolJobs from '@deepseek-ai/dsh-tool-jobs'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { capSentStore } from '../src/host/im/index.js'
 import { adapters } from '../src/host/im/platforms/index.js'
 
 // A platform adapter that records sends/edits and lets the test feed inbound
@@ -535,6 +536,37 @@ test('a runtime file written before sent existed still loads and behaves unchang
     adapters.telegram = original
   }
 })
+
+for (const extra of [0, 1]) {
+  test(`sent store eviction counts JSON characters at cap + ${extra}`, (t) => {
+    const entry = (id, at, text = '') => ({ ids: [id], text, at })
+    const filler = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [
+      `chat-${i}`, Array.from({ length: 20 }, (_, j) => entry(`f${i}-${j}`, 4)),
+    ]))
+    const retained = entry('kept', 3, '最新🦊')
+    const tied = entry('tied', 2, 'keep if at the limit')
+    const expected = { single: [], multi: [retained], tie: [tied], ...filler }
+    const { stringify } = JSON
+    const padding = 200_000 + extra - stringify(expected).length
+    Object.values(filler).flat().forEach((item, i, all) => {
+      item.text = 'x'.repeat(Math.floor((padding + i) / all.length))
+    })
+    assert.equal(stringify(expected).length, 200_000 + extra)
+
+    const sent = {
+      ...expected,
+      single: [entry('first', 1, 'oldest')],
+      multi: [retained, entry('second', 2, '"quote"\n\\🦊')],
+    }
+    delete expected.single
+    if (extra !== 0) delete expected.tie
+    const spy = t.mock.method(JSON, 'stringify')
+    capSentStore(sent)
+    assert.deepEqual(sent, expected)
+    assert.ok(stringify(sent).length <= 200_000)
+    assert.equal(spy.mock.calls.filter(call => call.arguments[0] === sent).length, 1)
+  })
+}
 
 test('the sent store is bounded across chats so the runtime file cannot grow without limit', async (t) => {
   const s = await start({ adapter: fakeAdapter({ quote: true }) })
