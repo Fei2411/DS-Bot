@@ -189,5 +189,48 @@ test('DSH settings pages keep usable height and scrolling (#1359)', async (t) =>
         assert.ok(layout.followingTop >= layout.contentBottom, JSON.stringify(layout))
       } finally { await page.close() }
     })
+    await t.test('direct .bt-set-card children keep natural height and scroll in short viewports', async () => {
+      const page = await browser.newPage({ viewport: { width: 800, height: 420 } })
+      try {
+        await page.setContent(`<!doctype html><style>
+          ${botOwnCss(SHELL_CSS)}
+          *{animation:none!important;transition:none!important}
+        </style>
+        <div class="bt-settings-layer"><div class="bt-settings">
+          <nav class="bt-settings-nav">Settings</nav>
+          <div class="bt-settings-main">
+            <div class="bt-settings-head"><h2>Models</h2></div>
+            <div class="bt-settings-scroll bt-settings-page">
+              <section class="bt-set-section"><div class="bt-set-card" style="height:520px"><div class="bt-set-row">Provider list</div></div></section>
+              <div class="bt-set-card" id="advanced-card">
+                <button type="button" class="bt-set-row" id="advanced-btn"><span class="bt-set-copy"><span>Advanced settings</span></span></button>
+              </div>
+            </div>
+          </div>
+        </div></div>`)
+        await page.locator('.bt-settings-scroll').evaluate(node => { node.scrollTop = node.scrollHeight })
+        const layout = await page.evaluate(() => {
+          const scroll = document.querySelector('.bt-settings-scroll')
+          const card = document.querySelector('#advanced-card')
+          const btn = document.querySelector('#advanced-btn')
+          const scrollRect = scroll.getBoundingClientRect()
+          const cardRect = card.getBoundingClientRect()
+          const btnRect = btn.getBoundingClientRect()
+          return {
+            scrollTop: scroll.scrollTop,
+            cardHeight: cardRect.height,
+            btnHeight: btnRect.height,
+            btnTop: btnRect.top,
+            btnBottom: btnRect.bottom,
+            scrollTopEdge: scrollRect.top,
+            scrollBottomEdge: scrollRect.bottom,
+          }
+        })
+        assert.ok(layout.scrollTop > 0, JSON.stringify(layout))
+        assert.ok(layout.cardHeight >= 48, `direct .bt-set-card must not collapse: ${JSON.stringify(layout)}`)
+        assert.ok(layout.btnHeight >= 48, `button inside .bt-set-card must not be clipped: ${JSON.stringify(layout)}`)
+        assert.ok(layout.btnTop >= layout.scrollTopEdge && layout.btnBottom <= layout.scrollBottomEdge, JSON.stringify(layout))
+      } finally { await page.close() }
+    })
   } finally { await browser.close() }
 })
