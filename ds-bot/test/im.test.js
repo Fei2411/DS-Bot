@@ -1191,6 +1191,14 @@ test('own-chat IM views accept a button answer using the shared view reply path'
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
   assert.equal(s.rt.state.views.a, undefined)
   assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Multi route', view: { type: 'options', id: 'routes', multi: true, options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
+  await s.flush()
+  const multiCard = s.fake.sent.find(job => job.text.includes('Multi route'))
+  assert.ok(multiCard)
+  assert.equal(multiCard.buttons, undefined)
+  const pending = s.rt.state.views.a
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${pending.id}:0` })
+  assert.equal(s.rt.state.views.a.id, pending.id)
 })
 
 test('a member question preserves its unshown lead-in in the room and originating IM group', async (t) => {

@@ -988,7 +988,7 @@ export function install(rt) {
       const title = checked.title
       const view = checked.view
       if (owner !== undefined && args.report_issue !== undefined) return 'Issue reports only work in your own chat.'
-      if (owner !== undefined && checked.interactive && imViewChoices(view).length === 0) return 'Views with typed inputs cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
+      if (owner !== undefined && checked.interactive && imViewChoices(view).length === 0) return 'Views with typed inputs or multiple selections cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const issueDraft = args.report_issue === undefined ? undefined : rt.claimIssueDraft?.(id, args.report_issue, checked)

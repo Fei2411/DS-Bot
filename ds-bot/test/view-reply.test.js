@@ -325,6 +325,9 @@ test('show_view permits display and choice views but not typed forms in IM-origi
   assert.ok(rt.state.views['writer-group'])
   const typedGroup = await show('writer-group', { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } })
   assert.match(typedGroup.text, /Use ask_user for a choice/)
+  const multiGroup = await show('writer-group', { title: 'Several', view: { ...CHOICES, multi: true } })
+  assert.match(multiGroup.text, /multiple selections cannot be answered in an IM group/)
+  assert.equal(multiGroup.concluded, false)
   delete rt.state.views['writer-group']
   const displayGroup = await show('writer-group', { title: 'Meter', view: METER })
   assert.equal(displayGroup.text, 'The view is on screen.')

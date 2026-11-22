@@ -15,6 +15,7 @@ test('IM views map confirms, options and action buttons to validated answers', (
 
 test('IM views without choices or with typed or multiple inputs have no IM answers', () => {
   assert.deepEqual(imViewChoices({ type: 'text', text: 'Hello' }), [])
+  assert.deepEqual(imViewChoices({ type: 'options', id: 'pick', multi: true, options: [{ label: 'A' }, { label: 'B' }] }), [])
   for (const type of ['form', 'number', 'slider', 'toggle']) {
     assert.deepEqual(imViewChoices({ type: 'stack', children: [{ type, id: 'field' }, { type: 'submit', id: 'go', label: 'Go' }] }), [])
   }

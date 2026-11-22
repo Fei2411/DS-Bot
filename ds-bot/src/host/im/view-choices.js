@@ -8,6 +8,7 @@ export function imViewChoices(view) {
   }
   visit(view)
   if (nodes.some(node => ['number', 'slider', 'toggle', 'form'].includes(node.type))) return []
+  if (nodes.some(node => node.type === 'options' && node.multi === true)) return []
   const inputs = nodes.filter(node => node.type === 'choice')
   if (inputs.length > 1) return []
   const choices = []
