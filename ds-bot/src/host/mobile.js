@@ -26,6 +26,7 @@ export const CAPABILITIES = [
   'state',
   'state-avatar-refs',
   'avatar',
+  'room-avatars',
   'chat',
   'room-chat',
   'agents',
@@ -292,11 +293,25 @@ export function install(rt) {
   }
 
   // A state answer with each photo replaced by its reference; `avatar` sends the image.
-  rt.slimAvatars = value => (Array.isArray(value?.bots)
-    ? { ...value, bots: value.bots.map(bot => (typeof bot.avatar?.image === 'string' ? { ...bot, avatar: { ...bot.avatar, image: undefined, imageRef: avatarRef(bot.avatar.image) } } : bot)) }
-    : value)
+  const avatarByRef = entry => {
+    const image = entry.avatar?.image
+    return typeof image === 'string'
+      ? { ...entry, avatar: { ...entry.avatar, image: undefined, imageRef: avatarRef(image) } }
+      : entry
+  }
+  rt.slimAvatars = value => ({
+    ...value,
+    bots: value.bots.map(avatarByRef),
+    rooms: value.rooms.map(avatarByRef),
+  })
 
   function avatar(body) {
+    if (body.botId === undefined && typeof body.roomId === 'string') {
+      const room = rt.roomOf(body.roomId)
+      if (room === undefined) throw Object.assign(new Error('Unknown group chat'), { code: 'bot/not-found' })
+      const image = room.avatar?.image
+      return typeof image === 'string' ? { roomId: room.id, ref: avatarRef(image), image } : { roomId: room.id, ref: null, image: null }
+    }
     const bot = rt.botOf(String(body.botId ?? ''))
     if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const image = bot.avatar?.image
