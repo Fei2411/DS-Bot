@@ -67,10 +67,9 @@ export function install(rt) {
 
   async function onRequest(req, res) {
     const started = Date.now()
-    const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`)
     const audit = {
       method: req.method,
-      path: url.pathname,
+      path: '',
       tokenId: null,
       tokenName: null,
       status: 0,
@@ -83,6 +82,13 @@ export function install(rt) {
     res.once('finish', finishAudit)
 
     try {
+      let url
+      try {
+        url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`)
+      } catch {
+        throw httpError(400, 'api/invalid-request-url', 'Malformed request URL or Host header')
+      }
+      audit.path = url.pathname
       await rt.refresh()
       const check = auth.authenticate(req)
       if (!check.ok) {

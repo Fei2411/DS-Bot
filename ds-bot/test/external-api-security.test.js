@@ -3,7 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { request } from 'node:http'
 import { createRuntime } from '../index.js'
+import { isLoopbackHost } from '../src/host/api/auth.js'
 import { homeLock } from '../src/host/home-lock.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -30,6 +32,41 @@ function startHost(home, state) {
   const rt = createRuntime(ctx, { home })
   return { ctx, rt }
 }
+
+test('loopback hosts require literal addresses and malformed Host headers return 400', async t => {
+  const accepted = ['127.0.0.1:17830', '127.42.0.2', 'localhost:17830', '[::1]:17830', '::1', 'LOCALHOST']
+  const rejected = ['127.attacker.example', '127.0.0.1.evil.com', 'localhost.evil', '127.999.1.1', '127.1', '[::1]evil', '[::1]:bad', 'localhost:65536', 'localhost@evil.com', '192.168.1.1', '0.0.0.0', '']
+  for (const host of accepted) assert.equal(isLoopbackHost(host), true, host)
+  for (const host of rejected) assert.equal(isLoopbackHost(host), false, host)
+  const home = mkdtempSync(join(tmpdir(), 'dsb-apihost-'))
+  const { ctx, rt } = startHost(home, {
+    version: 1, mainBotIds: ['b1'],
+    bots: { b1: { id: 'b1', name: 'Chief', createdAt: 1 } },
+    rooms: {}, exchanges: [], exchangeTurns: {}, revision: 1,
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  const view = await rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  assert.equal(view.lanExposed, false)
+  const { token } = await rt.apiEndpoint('api-token-create', { name: 'Host guard', scopes: ['read'], targetScope: 'all_public' })
+  const statusForHost = host => new Promise((resolve, reject) => {
+    const req = request(`${view.baseUrl}/v1/health`, { headers: { Host: host, Authorization: `Bearer ${token}` } }, res => {
+      res.resume()
+      resolve(res.statusCode)
+    })
+    req.on('error', reject)
+    req.end()
+  })
+  for (const host of ['127.attacker.example', '127.0.0.1.evil.com', 'localhost.evil']) {
+    assert.equal(await statusForHost(host), 403, host)
+  }
+  for (const host of ['[::1', 'localhost:bad', '[::1]:999999']) {
+    assert.equal(await statusForHost(host), 400, host)
+  }
+  for (const host of ['127.0.0.1:17830', 'localhost:17830', '[::1]:17830']) {
+    assert.equal(await statusForHost(host), 200, host)
+  }
+})
 
 test('default off, auth rejections, query token rejection, DNS rebinding, and rate limits', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-apisec-'))

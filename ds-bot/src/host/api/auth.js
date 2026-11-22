@@ -20,7 +20,6 @@ const LAST_USED_THROTTLE_MS = 60_000
 const AUDIT_MAX_ENTRIES = 5_000
 const AUDIT_ROTATE_CHECK_EVERY = 200
 const TOKEN_NAME_MAX = 80
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
 const QUERY_SECRET_RE = /[?&](?:token|api_key|apikey|access_token|auth|bearer|key)=/i
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
@@ -65,8 +64,13 @@ function verifySecret(entry, secret, fullToken) {
 }
 
 export function isLoopbackHost(host) {
-  const clean = String(host ?? '').trim().toLowerCase()
-  return LOOPBACK_HOSTS.has(clean) || clean.startsWith('127.')
+  const clean = String(host ?? '').toLowerCase()
+  if (clean === '::1') return true
+  const match = /^(?:\[([^\]]+)\]|([^:\s/\\?#@]+))(?::([0-9]+))?$/.exec(clean)
+  if (!match || (match[3] !== undefined && Number(match[3]) > 65535)) return false
+  const hostname = match[1] ?? match[2]
+  if (match[1] !== undefined) return hostname === '::1'
+  return hostname === 'localhost' || (isIP(hostname) === 4 && hostname.startsWith('127.'))
 }
 
 export function normalizeConfig(raw) {
@@ -425,17 +429,9 @@ export function createApiAuth(rt) {
       return { ok: false, status: 403, code: 'api/origin-forbidden', message: 'Cross-origin browser requests are not allowed' }
     }
     if (isLoopbackHost(config.host)) {
-      const hostHeader = String(req.headers.host ?? '').trim().toLowerCase()
+      const hostHeader = String(req.headers.host ?? '')
       if (hostHeader !== '') {
-        let hostname = hostHeader
-        if (hostHeader.startsWith('[')) {
-          const end = hostHeader.indexOf(']')
-          hostname = end > 0 ? hostHeader.slice(1, end) : hostHeader
-        } else {
-          const colon = hostHeader.indexOf(':')
-          hostname = colon >= 0 ? hostHeader.slice(0, colon) : hostHeader
-        }
-        if (!isLoopbackHost(hostname)) {
+        if (!isLoopbackHost(hostHeader)) {
           return { ok: false, status: 403, code: 'api/host-forbidden', message: 'Invalid Host header for local API' }
         }
       }
