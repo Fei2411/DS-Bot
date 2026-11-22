@@ -177,6 +177,7 @@ const slotLabel = (slot, self) => {
   if (slot.status === 'missed') return `${slot.name} (no answer)`
   if (slot.status === 'working') return `${slot.name} (working on it; posts when done)`
   if (slot.status === 'waiting-approval') return `${slot.name} (waiting for the user's approval; posts when done)`
+  if (slot.status === 'waiting-answer') return `${slot.name} (waiting for the user's answer; posts when answered)`
   if (slot.status === 'failed') return `${slot.name} (could not answer: error)`
   if (slot.status === 'left') return `${slot.name} (left the group)`
   return slot.name
@@ -1196,7 +1197,8 @@ export function install(rt) {
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
-      if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
+      if (rt.state.questions[sessionId] !== undefined) rt.roomWaiters.get(exchangeId)?.resolve({ answer: true })
+      else if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
       // Still at earlier work: the call steers it at its next step; the round goes on.
       else if (busy) rt.roomWaiters.get(exchangeId)?.resolve({ working: true })
     } catch (error) {
@@ -1478,7 +1480,7 @@ export function install(rt) {
     // nothing said. The group says so once, so the user knows to call a member.
     const alone = round.soleAdmin !== undefined && round.slots.find(slot => slot.id === round.soleAdmin.id)?.status === 'passed'
     // An answer that came, or is still coming, means the round is not left silent.
-    const answered = round.slots.some(slot => ['posted', 'working', 'waiting-approval'].includes(slot.status))
+    const answered = round.slots.some(slot => ['posted', 'working', 'waiting-approval', 'waiting-answer'].includes(slot.status))
     if (alone && !answered) {
       say(room, { who: 'DS Bot', kind: 'notice', reason: 'admin-passed', names: [round.soleAdmin.name], about: round.soleAdmin.id })
       await rt.save()
@@ -1548,6 +1550,8 @@ export function install(rt) {
       slot.status = 'failed'
       round.failed.push(member.name)
       noteFailure(room, member, reply.failure)
+    } else if (reply?.answer) {
+      slot.status = 'waiting-answer'
     } else if (reply?.approval) {
       // The member's turn goes on in the background and posts when it ends.
       slot.status = 'waiting-approval'
@@ -2145,6 +2149,7 @@ export function install(rt) {
   // as soon as it is ready, and the caller is woken once when the last member in the
   // batch finishes.
   async function lateRoomReply(sessionId, info, reply, { shown = false, toolCount = 0 } = {}) {
+    if (rt.state.questions[sessionId] !== undefined) return
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)

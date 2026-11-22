@@ -678,6 +678,7 @@ export function install(rt) {
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
     return { conn, chatKey: entry.chatKey, chat, senderId: entry.senderId, binding: entry.binding }
   }
+  rt.roomHasImOrigin = roomId => originOf(rt.roomOf(roomId)?.sessionId ?? roomId) !== undefined
   const rememberRequest = (requestId, conn, chatKey, senderId) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
@@ -1200,11 +1201,12 @@ export function install(rt) {
       // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
-        const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
+        const owner = rt.groupOwners.get(sessionId)
+        const botId = owner?.botId ?? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
         // A card follows its own turn: only the chat that asked for it gets one.
-        const origin = originOf(sessionId)
+        const origin = originOf(owner === undefined ? sessionId : (rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
         await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
@@ -1237,10 +1239,11 @@ export function install(rt) {
       // Views awaiting a reply: text form only.
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
-        const botId = rt.chatOwners.get(sessionId)
+        const owner = rt.groupOwners.get(sessionId)
+        const botId = owner?.botId ?? rt.chatOwners.get(sessionId)
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
-        const origin = originOf(sessionId)
+        const origin = originOf(owner === undefined ? sessionId : (rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const form = viewCardText({ title: view.title, view: view.view })
         await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)

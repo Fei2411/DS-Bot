@@ -120,6 +120,34 @@ const waitFor = async (check) => {
 }
 const turnFor = (sent, ...earlier) => waitFor(() => sent.find(entry => !earlier.includes(entry) && entry.message.source.role === 'room'))
 
+test('an IM group question leaves its member waiting for the user while the round continues', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  rt.roomHasImOrigin = () => true
+  await emit(room.id, userMessage('Choose a route'))
+  const running = relay(room.id, 'question-round')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(first.sessionId, { type: 'user/message', data: first.message })
+  let concluded = false
+  const ask = rt.teamTools.find(tool => tool.name === 'ask_user')
+  assert.equal(await ask.execute({ question: 'Choose?', options: [] }, { agent: { id: first.sessionId } }), 'Give at least one option.')
+  await ask.execute({ question: 'Choose?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: first.sessionId }, concludeTurn() { concluded = true } })
+  assert.equal(concluded, true)
+  await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is not blocked on the question')
+  assert.match(second.message.content[0].text, /waiting for the user's answer/)
+  await answer(second.sessionId, second.message.source.exchangeId, 'I will wait for the choice.', 2)
+  await running
+  assert.ok(rt.state.questions[first.sessionId])
+  assert.ok(rt.roomOf(room.id).log.some(line => line.text?.includes('Asked: Choose?')))
+  assert.ok(!rt.roomOf(room.id).log.some(line => line.kind === 'failed'))
+  assert.equal(sent.filter(entry => entry.message.source.role === 'post').length, 0, 'asking does not post a second empty late reply')
+})
+
 test('a new group Session waits for capabilities before its first member prompt', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)

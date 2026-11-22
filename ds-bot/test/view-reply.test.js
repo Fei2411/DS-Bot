@@ -310,7 +310,7 @@ test('issue report redaction preserves the destination of a failed rename', asyn
   assert.ok(args.view.children[1].text.includes(expected.join('\n')))
 })
 
-test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
+test('show_view registers interactive own-chat cards and only permits display views in IM-origin groups', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
@@ -318,6 +318,16 @@ test('show_view registers an interactive card, refuses a group and a display-onl
   const group = await show('writer-group', { title: 'Pick', view: CHOICES })
   assert.equal(group.text, 'View cards only work in your own chat. In a group, ask in your message instead.')
   assert.equal(group.concluded, false)
+  rt.roomHasImOrigin = () => true
+  const interactiveGroup = await show('writer-group', { title: 'Pick', view: CHOICES })
+  assert.match(interactiveGroup.text, /Use ask_user for a choice/)
+  assert.equal(interactiveGroup.concluded, false)
+  const displayGroup = await show('writer-group', { title: 'Meter', view: METER })
+  assert.equal(displayGroup.text, 'The view is on screen.')
+  assert.equal(displayGroup.concluded, false)
+  assert.equal(rt.state.views['writer-group'], undefined)
+  assert.match(rt.roomOf('r1').log.at(-1).text, /70%/)
+  assert.match((await show('writer-group', { title: 'Meter', view: METER, report_issue: 'draft' })).text, /Issue reports only work in your own chat/)
   const stranger = await show('outsider', { title: 'Pick', view: CHOICES })
   assert.match(stranger.text, /^Only Bots on the team can use show_view\. Use ask_user_question if it is available in this session, or ask the user in your reply\.$/)
   assert.equal(stranger.concluded, false)

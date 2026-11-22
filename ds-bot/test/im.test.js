@@ -998,6 +998,120 @@ test('reply origin: an IM turn answers its own chat, and only that chat', async 
   assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
 })
 
+test('member cards follow only the originating IM group and answers return through the room', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  const firstHandlers = s.fake.handlers
+  one.chats.g1 = { kind: 'group', title: 'G1', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', title: 'G2', target: { roomId: 'r1' }, at: 1 }
+  const other = await add(s)
+  const secondHandlers = s.fake.handlers
+  const two = s.rt.state.im.connections[other.id]
+  two.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  two.chats.g3 = { kind: 'group', title: 'G3', target: { roomId: 'r1' }, at: 1 }
+  const room = s.rt.roomOf('r1')
+  room.sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, {
+    agent: { id: 'member-b' }, concludeTurn() {},
+  })
+  const args = { question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }
+  assert.equal(await ask(args), 'Question cards only work in your own chat. In a group, ask in your message instead.')
+  await firstHandlers.onMessage({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, text: 'ask the group', mentioned: true })
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  assert.match(await ask(args), /card is on screen/)
+  const question = s.rt.state.questions['member-b']
+  await s.flush()
+  assert.match(room.log.at(-1).text, /Asked: Which route\?\n1\. A\n2\. B/)
+  const cards = s.fake.sent.filter(job => job.buttons?.some(button => button.data.startsWith('q:')))
+  assert.equal(cards.length, 1)
+  assert.equal(cards[0].chat.key, 'g1')
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  await secondHandlers.onAction({ chat: { key: 'g3', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.ok(s.rt.state.questions['member-b'])
+  await firstHandlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.ok(s.rt.state.questions['member-b'])
+  await firstHandlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.equal(s.rt.state.questions['member-b'], undefined)
+  const answer = s.agentOf('member-b').lastFollowup
+  assert.match(answer.source.rpcId, /^im:/)
+  s.emitEvent('member-b', 'turn/start', { turn: 2 })
+  s.emitEvent('member-b', 'user/message', answer)
+  s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Using route A.' }] } })
+  s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+  await s.flush()
+  const post = s.agentOf('r1').lastFollowup
+  assert.equal(post.source.role, 'post')
+  assert.match(post.content[0].text, /Using route A/)
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', post)
+  const relay = s.rt.teamTools.find(tool => tool.name === 'group_relay')
+  await relay.execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'late-answer', signal: new AbortController().signal })
+  await s.flush()
+  assert.ok(room.log.some(line => line.text?.includes('Using route A.')))
+  assert.ok(s.fake.sent.some(job => job.chat.key === 'g1' && job.text.includes('Using route A.')))
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  const followed = s.agentOf('member-b').followed
+  await firstHandlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.equal(s.agentOf('member-b').followed, followed)
+})
+
+test('IM group display views are sent as room lines and unowned completions withhold member cards', async (t) => {
+  for (const kind of ['tool-jobs', 'subagent-settled']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    s.rt.roomOf('r1').sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'show progress')
+    s.imTurn('r1')
+    s.fake.sent.length = 0
+    const show = args => s.rt.teamTools.find(tool => tool.name === 'show_view').execute(args, { agent: { id: 'member-b' } })
+    assert.equal(await show({ title: 'Progress', view: { type: 'metric', label: 'Done', value: '70%' } }), 'The view is on screen.')
+    await s.flush()
+    assert.ok(s.fake.sent.some(job => job.text.includes('70%')))
+    assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+    assert.match(await show({ title: 'Pick', view: { type: 'options', id: 'pick', options: [{ label: 'A' }] } }), /Use ask_user for a choice/)
+    s.fake.sent.length = 0
+    s.emitEvent('member-b', 'user/message', { source: { kind }, content: [{ type: 'text', text: 'old result' }] })
+    assert.equal(s.rt.roomHasImOrigin('r1'), false)
+    const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, { agent: { id: 'member-b' } })
+    assert.match(await ask({ question: 'Private?', options: [{ label: 'A' }] }), /Question cards only work in your own chat/)
+    s.rt.state.questions['member-b'] = { id: `private-${kind}`, question: 'Private?', options: [{ label: 'A' }] }
+    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'text', text: 'Private' } }
+    await s.rt.save()
+    await s.flush()
+    assert.deepEqual(s.fake.sent, [])
+  }
+})
+
+test('numbered group answers keep the mention gate and resume the asking member', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ buttons: false }) })
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  s.rt.roomOf('r1').sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  await gm(s, 'u1', 'ask')
+  s.imTurn('r1')
+  await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' } })
+  await s.flush()
+  await gm(s, 'u1', '2', { mentioned: false })
+  assert.ok(s.rt.state.questions['member-b'])
+  await gm(s, 'u1', '2')
+  assert.equal(s.rt.state.questions['member-b'], undefined)
+  assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /B/)
+  assert.equal(s.rt.roomHasImOrigin('r1'), true)
+})
+
 test('reply origin: a background job from one IM turn must not be reported to the next chat', async (t) => {
   const jobsCtx = new Context()
   const agents = new Map()
