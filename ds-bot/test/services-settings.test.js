@@ -281,7 +281,7 @@ test('Settings wires the page into its nav, render switch and action gate', () =
   assert.match(source, /\['deepseek-services', 'DeepSeek services'\]/)
   assert.match(source, /'deepseek-services': WaveIcon/)
   assert.match(source, /key !== 'deepseek-services' \|\| actions\.deepseekServices !== undefined/)
-  assert.match(source, /shown === 'deepseek-services' \? h\(DeepSeekServicesPage/)
+  assert.match(source, /case 'deepseek-services': return h\(DeepSeekServicesPage/)
 })
 
 test('loading state stays neutral and hides setup buttons when Plugins page is unavailable or ASR is not ready', () => {
