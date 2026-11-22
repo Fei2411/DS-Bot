@@ -692,10 +692,26 @@ export function install(rt) {
     const origin = cardOrigin(sessionId, card)
     return origin !== undefined && origin.conn.id === conn.id && origin.chatKey === chat.key
   }
-  const rememberRequest = (requestId, conn, chatKey, senderId) => {
+  const rememberRequest = (requestId, conn, chatKey, senderId, roomCardOrigin) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
-    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now() })
+    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now(), ...(roomCardOrigin === undefined ? {} : { roomCardOrigin }) })
+  }
+  const restoreCardRoomOrigin = (sessionId, saved) => {
+    const owner = rt.groupOwners.get(sessionId)
+    if (owner === undefined || saved === undefined) return
+    const room = rt.roomOf(owner.roomId)
+    const roomSid = room?.sessionId ?? owner.roomId
+    if (originFromSaved(saved) === undefined) {
+      dropOrigin(roomSid)
+      return
+    }
+    const live = origins.get(roomSid)
+    if (live === undefined && !mixed.has(roomSid) && rt.roomActive?.(owner.roomId) !== true) {
+      claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+    } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+      dropOrigin(roomSid)
+    }
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
@@ -1004,7 +1020,7 @@ export function install(rt) {
     if (choice === undefined || found.view.issueDraft !== undefined) return false
     if (!canAnswerCard(found.sessionId, found.view, conn, chat)) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
-    rememberRequest(requestId, conn, chat.key, senderId)
+    rememberRequest(requestId, conn, chat.key, senderId, found.view.imOrigin)
     try {
       await rt.answerView(found.sessionId, found.view.id, choice.action, choice.values, requestId)
       await settleCard(conn.id, cardKey, choice.label)
@@ -1036,7 +1052,7 @@ export function install(rt) {
     if (valid.length === 0) return false
     if (!canAnswerCard(found.sessionId, found.question, conn, chat)) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
-    rememberRequest(requestId, conn, chat.key, senderId)
+    rememberRequest(requestId, conn, chat.key, senderId, found.question.imOrigin)
     try {
       await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid }, requestId)
       await settleCard(conn.id, held.cardKey, valid.join(', '))
@@ -1885,6 +1901,7 @@ export function install(rt) {
           else {
             consumedRequests.add(rpcId)
             if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
+            restoreCardRoomOrigin(session.id, asked.roomCardOrigin)
             claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
           }
         } else {

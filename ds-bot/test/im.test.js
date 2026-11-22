@@ -1138,6 +1138,47 @@ test('a later IM round cannot read or answer another chat\'s pending member card
   }
 })
 
+test('answering persisted member cards restores the room origin after a restart', async (t) => {
+  for (const kind of ['question', 'view']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    const room = s.rt.roomOf('r1')
+    room.sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'choose')
+    s.imTurn('r1')
+    await s.rt.teamTools.find(tool => tool.name === (kind === 'question' ? 'ask_user' : 'show_view')).execute(kind === 'question'
+      ? { question: 'Choose?', options: [{ label: 'A' }] }
+      : { title: 'Choose?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'member-b' } })
+    const card = (kind === 'question' ? s.rt.state.questions : s.rt.state.views)['member-b']
+    await s.flush()
+    s.rt.clearImOrigin('r1')
+    s.rt.clearImOrigin('member-b')
+    assert.equal(s.rt.roomHasImOrigin('r1'), false)
+    await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `${kind === 'question' ? 'q' : 'v'}:${card.id}:0` })
+    const answer = s.agentOf('member-b').lastFollowup
+    s.emitEvent('member-b', 'turn/start', { turn: 2 })
+    s.emitEvent('member-b', 'user/message', answer)
+    assert.equal(s.rt.roomHasImOrigin('r1'), true)
+    s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Resumed after restart.' }] } })
+    s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+    await s.flush()
+    const post = s.agentOf('r1').lastFollowup
+    s.fake.sent.length = 0
+    s.emitEvent('r1', 'turn/start', { turn: 2 })
+    s.emitEvent('r1', 'user/message', post)
+    await s.rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'restart-answer', signal: new AbortController().signal })
+    await s.flush()
+    assert.ok(room.log.some(line => line.text?.includes('Resumed after restart.')))
+    assert.ok(s.fake.sent.some(job => job.text.includes('Resumed after restart.')))
+    assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  }
+})
+
 test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
   const s = await start()
   t.after(s.stop)
