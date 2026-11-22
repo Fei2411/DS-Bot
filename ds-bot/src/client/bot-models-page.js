@@ -61,7 +61,7 @@ export function BotModelsPage({ roster, actions, run, Section }) {
   }
   const picker = h(ModelMenu, {
     bot: { id: 'selected-bots', name: t('Selected Bots'), model: target }, roster, actions, run,
-    wide: true, withEfforts: false, onPick: apply,
+    withEfforts: false, onPick: apply,
   })
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },

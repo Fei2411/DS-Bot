@@ -634,7 +634,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-subnav{flex:none;padding:0 28px 12px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none}
 .bt-settings-subnav::-webkit-scrollbar{display:none}
 .bt-settings-tabs{flex:none}
-.bt-settings-tabs button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-settings-tabs button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;white-space:nowrap}
 .bt-tab-tag{font-size:10px;line-height:14px;padding:1px 5px}
 /* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
    An auto basis without shrinking keeps natural-height content inside its section. */
@@ -690,9 +690,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-tour-backdrop{position:absolute;inset:0;pointer-events:auto;background:transparent}
 .bt-tour-backdrop-dim{background:rgba(0,0,0,.36)}
 body[data-ds-dark-theme] .bt-tour-backdrop-dim{background:rgba(0,0,0,.56)}
-.bt-tour-spot{position:absolute;border-radius:12px;border:2px solid var(--bt-accent);box-shadow:0 0 0 9999px rgba(0,0,0,.38),0 0 0 4px color-mix(in srgb,var(--bt-accent) 20%,transparent);pointer-events:none;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_SHAPE, 'top')},${spring(SPRING_SHAPE, 'width')},${spring(SPRING_SHAPE, 'height')};animation:bt-veil-in .18s ease-out}
-body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 9999px rgba(0,0,0,.58),0 0 0 4px color-mix(in srgb,var(--bt-accent) 26%,transparent)}
-.bt-tour-card{position:absolute;width:304px;max-width:calc(100% - 24px);padding:14px 16px;border-radius:16px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_SHAPE, 'top')};animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .18s ease-out}
+.bt-tour-spot{position:absolute;border-radius:12px;border:2px solid var(--bt-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bt-accent) 22%,transparent),0 0 0 9999px rgba(0,0,0,.38);pointer-events:none;box-sizing:border-box;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_SHAPE, 'top')},${spring(SPRING_SHAPE, 'width')},${spring(SPRING_SHAPE, 'height')};animation:bt-veil-in .18s ease-out}
+body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,var(--bt-accent) 28%,transparent),0 0 0 9999px rgba(0,0,0,.58)}
+.bt-tour-card{position:absolute;width:304px;max-width:calc(100% - 24px);padding:14px 16px;border-radius:16px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;outline:none;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_SHAPE, 'top')};animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .18s ease-out}
 .bt-tour-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-tour-title{font-size:14px;line-height:20px;font-weight:600;color:var(--bt-ink)}
 .bt-tour-count{flex:none;font-size:11px;line-height:16px;font-weight:500;font-variant-numeric:tabular-nums;padding:1px 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2)}
@@ -759,6 +759,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-browser-form .bt-select{width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-browser-site{width:min(320px,100%);max-width:320px}
+.bt-browser-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+.bt-browser-seg::-webkit-scrollbar{display:none}
+.bt-browser-seg button{flex:none;padding:0 10px;white-space:nowrap}
 .bt-browser-form-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
@@ -1215,6 +1218,12 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
 :is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb,.bt-tour-spot,.bt-tour-card{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*,.bt-tour-spot,.bt-tour-card{animation:none}}
+/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
+.bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
+.bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+.bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+.bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
    or scroll instead of overflowing. These rules sit at the end of the sheet:
@@ -1238,7 +1247,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-subnav{padding:0 16px 8px}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip;padding:4px 16px calc(24px + env(safe-area-inset-bottom,0px))}
-  .bt-tour-card{width:auto;max-width:none}
+  .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
@@ -1250,12 +1259,6 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
-/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
-.bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-.bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
-.bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
-.bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
-.bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input,.bt-set-search-input{font-size:16px}

@@ -52,6 +52,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
   const [server, setServer] = useState(phone.server)
   const [editingServer, setEditingServer] = useState(false)
   const [wantPair, setWantPair] = useState(false)
+  const wantPairRef = useRef(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -75,17 +76,19 @@ export function PhonePage({ roster, actions, Section, Row }) {
       .finally(() => setBusy(false))
   }
   // One-click pairing: turning on phone access from the Pair button starts pairing as soon as online.
-  // Only cancel pending intent on fresh transitions (not stale pre-click error/offline state).
+  // Only cancel pending intent on fresh transitions (not stale pre-click error/offline state);
+  // clear wantPairRef synchronously so React StrictMode double-effects never invoke phonePair twice.
   useEffect(() => {
     const prev = prevState.current
     prevState.current = { on: phone.on, status: phone.status, error: phone.error }
-    if (!wantPair) return
-    if (phone.pairing) { setWantPair(false); return }
+    if (!wantPair || !wantPairRef.current) return
+    if (phone.pairing) { wantPairRef.current = false; setWantPair(false); return }
     const newlyFailed = Boolean(phone.error) && phone.error !== prev.error
     const newlyOffline = phone.status === 'offline' && prev.status !== 'offline'
     const turnedOff = !phone.on && prev.on
-    if (newlyFailed || newlyOffline || turnedOff) { setWantPair(false); return }
+    if (newlyFailed || newlyOffline || turnedOff) { wantPairRef.current = false; setWantPair(false); return }
     if (phone.on && phone.status === 'online') {
+      wantPairRef.current = false
       setWantPair(false)
       void run(actions.phonePair())
     }
@@ -101,9 +104,10 @@ export function PhonePage({ roster, actions, Section, Row }) {
       void run(actions.phonePair())
       return
     }
+    wantPairRef.current = true
     setWantPair(true)
     if (!phone.on) {
-      void run(actions.phoneSet({ on: true })).then((ok) => { if (!ok) setWantPair(false) })
+      void run(actions.phoneSet({ on: true })).then((ok) => { if (!ok) { wantPairRef.current = false; setWantPair(false) } })
     }
   }
   const copyBrowserLink = (url) => {
@@ -131,7 +135,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
           label: t('Phone access'),
           disabled: busy,
           onChange: (on) => {
-            if (!on) setWantPair(false)
+            if (!on) { wantPairRef.current = false; setWantPair(false) }
             void run(actions.phoneSet({ on }))
           },
         })),
@@ -159,7 +163,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
             wantPair
               ? [
                   h('span', { key: 'wait', className: 'bt-set-hint' }, t('Waiting for connection…')),
-                  h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setWantPair(false) }, t('Cancel')),
+                  h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { wantPairRef.current = false; setWantPair(false) } }, t('Cancel')),
                 ]
               : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
           h(Row, { key: 'app', label: t('Android beta') },

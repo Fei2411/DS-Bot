@@ -130,13 +130,27 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
-function measureSpotlight(dialogEl, targetKey) {
+function sameSpot(a, b) {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height && a.dialogW === b.dialogW && a.dialogH === b.dialogH
+}
+
+function findTourTarget(dialogEl, targetKey) {
   if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== 'function') return null
   const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`)
   if (!el || typeof el.getBoundingClientRect !== 'function') return null
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return el
+}
+
+export function measureSpotlight(dialogEl, targetKey) {
+  const el = findTourTarget(dialogEl, targetKey)
+  if (!el || typeof dialogEl.getBoundingClientRect !== 'function') return null
   const dialogRect = dialogEl.getBoundingClientRect()
   const rect = el.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0 || dialogRect.width <= 0 || dialogRect.height <= 0) return null
+  if (dialogRect.width <= 0 || dialogRect.height <= 0) return null
 
   let left = rect.left - dialogRect.left - PAD
   let top = rect.top - dialogRect.top - PAD
@@ -173,7 +187,6 @@ function measureSpotlight(dialogEl, targetKey) {
     height: Math.round(height),
     dialogW: Math.round(dialogRect.width),
     dialogH: Math.round(dialogRect.height),
-    el,
   }
 }
 
@@ -251,10 +264,17 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   // Priority 1 catches Escape before SettingsDialog closes.
   useEscape(dismiss, active, { priority: 1 })
 
+  // Move keyboard focus into the walkthrough card so Tab/Enter cannot activate dimmed controls behind it.
+  useEffect(() => {
+    if (active) cardRef.current?.focus?.({ preventScroll: true })
+  }, [active, tourKey])
+
   useEffect(() => {
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
-      if (isImeComposing(event)) return
+      if (isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      const tag = event.target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }
       else if (event.key === 'ArrowLeft') { event.preventDefault(); prev() }
     }
@@ -268,7 +288,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     onNavigate(step.page)
   }, [step?.page, currentPage, onNavigate])
 
-  // Measure target element & keep spotlight glued on scroll, resize, and async page mounts.
+  // Measure target element & keep spotlight glued on scroll, resize, animations, and async page mounts.
   useEffect(() => {
     if (!active || !step) { setSpot(null); return undefined }
     if (step.page && step.page !== currentPage) { setSpot(null); return undefined }
@@ -282,30 +302,35 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
       if (box && box.offsetWidth > 0 && box.offsetHeight > 0) {
         setCardSize(prev => (prev.width === box.offsetWidth && prev.height === box.offsetHeight ? prev : { width: box.offsetWidth, height: box.offsetHeight }))
       }
-      const measured = measureSpotlight(dialogEl, step.target)
-      if (measured && scrolledRef.current !== stepKey) {
+      // Scroll off-screen targets into view BEFORE clipping against `.bt-settings-scroll`.
+      const targetEl = findTourTarget(dialogEl, step.target)
+      if (targetEl && scrolledRef.current !== stepKey) {
         scrolledRef.current = stepKey
-        measured.el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-        const afterScroll = measureSpotlight(dialogEl, step.target)
-        setSpot(afterScroll ?? measured)
-        return
+        targetEl.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
       }
-      setSpot(measured)
+      const measured = measureSpotlight(dialogEl, step.target)
+      setSpot(prev => (sameSpot(prev, measured) ? prev : measured))
     }
     const schedule = () => {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
       if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(sync)
       else sync()
     }
+    const onMutate = (records) => {
+      const layer = layerRef.current
+      if (layer && Array.isArray(records) && records.every(record => layer.contains?.(record.target))) return
+      schedule()
+    }
 
     sync()
-    // Re-measure after dialog/page entrance transforms finish.
-    const settleTimer = setTimeout(sync, 260)
+    // Re-measure after dialog/page entrance transforms finish (SPRING_SHAPE + stagger).
+    const settleTimer = setTimeout(sync, 580)
     window.addEventListener?.('resize', schedule)
     dialogEl.addEventListener?.('scroll', schedule, true)
+    dialogEl.addEventListener?.('animationend', schedule, true)
     let observer = null
     if (typeof MutationObserver === 'function') {
-      observer = new MutationObserver(schedule)
+      observer = new MutationObserver(onMutate)
       observer.observe(dialogEl, { childList: true, subtree: true, attributes: false })
     }
     return () => {
@@ -313,13 +338,17 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
       window.removeEventListener?.('resize', schedule)
       dialogEl.removeEventListener?.('scroll', schedule, true)
+      dialogEl.removeEventListener?.('animationend', schedule, true)
       observer?.disconnect()
     }
   }, [active, step, currentPage, dialogRef, tourKey, index])
 
   if (!active || !step) return null
 
-  const cardStyle = placeCard(spot, cardSize.width, cardSize.height) ?? { right: 20, bottom: 20 }
+  const activeSpot = step.page && step.page !== currentPage ? null : spot
+  const narrowViewport = typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth <= 640
+  const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 }
+  const cardStyle = placeCard(activeSpot, cardSize.width, cardSize.height) ?? fallbackStyle
 
   return h('div', {
     ref: layerRef,
@@ -331,16 +360,17 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     'data-tour-step': step.target,
   },
   h('div', {
-    className: spot ? 'bt-tour-backdrop' : 'bt-tour-backdrop bt-tour-backdrop-dim',
+    className: activeSpot ? 'bt-tour-backdrop' : 'bt-tour-backdrop bt-tour-backdrop-dim',
     onMouseDown: event => event.stopPropagation(),
   }),
-  spot ? h('div', {
+  activeSpot ? h('div', {
     className: 'bt-tour-spot',
     'aria-hidden': true,
-    style: { left: spot.left, top: spot.top, width: spot.width, height: spot.height },
+    style: { left: activeSpot.left, top: activeSpot.top, width: activeSpot.width, height: activeSpot.height },
   }) : null,
   h('div', {
     ref: cardRef,
+    tabIndex: -1,
     className: 'bt-tour-card',
     style: cardStyle,
     onMouseDown: event => event.stopPropagation(),
