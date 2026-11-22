@@ -419,6 +419,20 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
       continue
     }
 
+    if (item.type === 'workspace/changes') {
+      const turn = item.data?.turn ?? currentTurn
+      if (!hidden(turn) && Number.isInteger(item.seq)) {
+        rows.push({
+          kind: 'changes',
+          key: `changes:${item.seq}`,
+          seq: item.seq,
+          time: item.time,
+          turn,
+        })
+      }
+      continue
+    }
+
     if (item.type === 'deliverables/presented') {
       const turn = item.data?.turn ?? currentTurn
       const files = Array.isArray(item.data?.files)

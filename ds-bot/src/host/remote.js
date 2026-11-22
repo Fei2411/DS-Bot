@@ -161,11 +161,17 @@ export function createRemoteService(rt) {
       if (name.startsWith('session-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
       }
+      if (name.startsWith('workspace-') || name.startsWith('terminal-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} } }
+      }
       return plain(await rt.channelCall(name, payload ?? {}, signal))
     }
 
     feed(signal) {
-      return feedEvents(rt.subscribeFeed, signal, this[STOP])
+      return feedEvents((listener) => rt.subscribeFeed((event, data) => {
+        if (event === 'terminal' || event === 'terminal-exit') return
+        listener(event, data)
+      }), signal, this[STOP])
     }
   }
   const initializers = [

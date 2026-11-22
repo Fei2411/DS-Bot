@@ -7,16 +7,25 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 
 export const TOOL_VIEW_SLOT = 'tool.call.toolview'
 export const CHAT_NODE_SLOT = 'conversation.chat.node'
+export const RIGHT_PANE_TAB_SLOT = 'sidebar.right.pane.tab'
+export const SETTINGS_SECTION_SLOT = 'settings.section'
+export const SETTINGS_GENERAL_ITEM_SLOT = 'settings.general.item'
+export const SHELL_OVERLAY_SLOT = 'shell.overlay'
+
+const EMPTY_LIST = Object.freeze([])
 
 const isReactComponent = value => typeof value === 'function'
   || (typeof value === 'object' && value !== null && '$$typeof' in value)
 
 export function createSlotRegistry() {
   const bySlot = new Map()
+  const snapshots = new Map()
   const listeners = new Map()
   let seq = 0
 
   const notify = (name) => {
+    const entries = bySlot.get(name)
+    snapshots.set(name, entries && entries.length > 0 ? Object.freeze(entries.slice()) : EMPTY_LIST)
     const group = listeners.get(name)
     if (!group) return
     for (const listener of Array.from(group)) listener()
@@ -32,11 +41,11 @@ export function createSlotRegistry() {
   }
 
   return {
-    register({ name, key, priority = 0 }, component) {
+    register({ name, key, id, priority = 0, meta }, component) {
       if (typeof name !== 'string' || name === '' || !isReactComponent(component)) {
         throw new TypeError('Slot registration requires a slot name and component')
       }
-      const entry = { key, priority, order: ++seq, component }
+      const entry = { key, id: id ?? key, priority, order: ++seq, meta, component }
       const entries = listOf(name)
       entries.push(entry)
       entries.sort((a, b) => (a.priority - b.priority) || (a.order - b.order))
@@ -51,6 +60,9 @@ export function createSlotRegistry() {
         if (at >= 0) current.splice(at, 1)
         notify(name)
       }
+    },
+    list(name) {
+      return snapshots.get(name) ?? EMPTY_LIST
     },
     resolve(name, key) {
       const entries = bySlot.get(name)
@@ -72,8 +84,15 @@ export function createSlotRegistry() {
   }
 }
 
-// Default window-wide registry; the upcoming UI plugin runtime will register into this.
+// Default window-wide registry; the UI plugin runtime registers into this.
 export const slots = createSlotRegistry()
+export const defaultSlots = slots
+
+export function useSlotEntries(registry = slots, name) {
+  const subscribe = useCallback(listener => registry.subscribe(name, listener), [registry, name])
+  const getSnapshot = useCallback(() => registry.list(name), [registry, name])
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
 
 // One plugin view throwing must only affect its own block and offer Retry.
 export class SlotErrorBoundary extends Component {

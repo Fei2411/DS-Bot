@@ -1022,3 +1022,52 @@ test('createTeam pull() syncs browserHolds, computerLive, and readOnly transitio
     fetchCtrl.reset()
   }
 })
+
+test('DM SessionTranscript projects workspace/changes into ChangesCard wired to actions.openChanges', async () => {
+  const opened = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-changes' && body.sessionId === 's1' && body.seq === 2) {
+      return {
+        sessionId: 's1', seq: 2, turn: 1, total: 1, added: 5, deleted: 2,
+        files: [{ index: 0, path: 'src/app.js', display: 'src/app.js', added: 5, deleted: 2 }],
+      }
+    }
+    return {}
+  }
+  const snapshot = {
+    type: 'snapshot',
+    header: { id: 's1', cwd: '/repo' },
+    cursor: 3,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'turn/start', seq: 1, time: 1000, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'workspace/changes', seq: 2, time: 1005, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'turn/end', seq: 3, time: 1010, data: { turn: 1, reason: { kind: 'done' } } } },
+    ],
+  }
+  const { log } = applyFrame(emptyLog(), snapshot)
+  const rows = buildSessionRows(log, { roster: {}, sessionId: 's1' })
+  assert.equal(rows.some(r => r.kind === 'changes' && r.seq === 2 && r.turn === 1), true)
+
+  const inst = mount(SessionTranscript, {
+    log,
+    sessionId: 's1',
+    bot: { id: 'b1', name: 'Chief', sessionId: 's1' },
+    roster: { bots: [], rooms: [], byId: {}, roomsById: {}, prefs: {} },
+    actions: { openChanges: value => opened.push(value) },
+  })
+  try {
+    inst.render()
+    await tick()
+    const tree = inst.render()
+    const btn = all(tree, n => n.type === 'button' && n.props?.['data-bt-changes'] === '')[0]
+    assert.ok(btn, 'DM transcript must render ChangesCard for workspace/changes')
+    btn.props.onClick()
+    assert.equal(opened.length, 1)
+    assert.equal(opened[0].sessionId, 's1')
+    assert.equal(opened[0].seq, 2)
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
+  }
+})
