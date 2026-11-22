@@ -1340,6 +1340,76 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   assert.notEqual(next, code)
 })
 
+test('expired form codes stay private after pruning, rebinding and restart', async (t) => {
+  for (const restart of [false, true]) await t.test(restart ? 'restart' : 'live', async (t) => {
+    let s = await start()
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { botId: 'b' }, at: 1 }
+    await s.rt.save()
+    await gm(s, 'u1', 'show a form')
+    s.imTurn('a')
+    const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'a' }, concludeTurn() {} })
+    const id = s.rt.state.views.a.id
+    const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    await gm(s, 'u1', `${code}\n1: First`)
+    assert.equal(s.rt.state.views.a, undefined)
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    delete data.viewCodeHighWater
+    data.viewCodeSeq += 1000
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    await s.rt.save()
+    let pruned
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      pruned = JSON.parse(readFileSync(path, 'utf8'))
+      if (pruned.cards[`v:${id}`] === undefined) break
+      await delay(10)
+    }
+    assert.equal(pruned.cards[`v:${id}`], undefined, 'the settled delivery must actually be pruned')
+    assert.equal(pruned.viewCodeHighWater.g1, Number(code.slice(1)), 'legacy deliveries backfill durable per-chat history')
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+    if (restart) {
+      await s.close()
+      const saved = JSON.parse(readFileSync(path, 'utf8'))
+      delete saved.viewCodeSeq
+      writeFileSync(path, JSON.stringify(saved))
+      s = await start({ home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    const refused = async () => {
+      const prompts = s.prompts.length
+      const sent = s.fake.sent.length
+      await gm(s, 'u1', `${code.toLowerCase()}\n1: Private form value`)
+      await s.flush()
+      assert.equal(s.prompts.length, prompts)
+      assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
+      assert.equal(s.agentOf('b').lastFollowup, undefined)
+    }
+    await refused()
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
+    await refused()
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+    let prompts = s.prompts.length
+    await gm(s, 'u1', `${code} is our release version`, { chat: { key: 'g2', kind: 'group' } })
+    assert.equal(s.prompts.length, prompts + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, `${code} is our release version`)
+    prompts = s.prompts.length
+    await gm(s, 'u1', 'ordinary group text')
+    await gm(s, 'u1', 'V999999 unknown code')
+    assert.equal(s.prompts.length, prompts + 2)
+    s.imTurn('b')
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'b' }, concludeTurn() {} })
+    const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    assert.ok(Number(next.slice(1)) > Number(code.slice(1)), 'history prevents code reuse even without the counter or delivery')
+  })
+})
+
 test('token reservations recover interrupted sends without replaying completed deliveries after a killed process', async (t) => {
   for (const mode of ['open', 'complete', 'complete-no-id', 'settled']) await t.test(mode, async (t) => {
     const home = mkdtempSync(join(tmpdir(), 'dsb-im-crash-'))

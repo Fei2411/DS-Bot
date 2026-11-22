@@ -251,11 +251,20 @@ export function install(rt) {
     } catch { data = undefined }
     const cards = data?.cards !== null && typeof data?.cards === 'object' ? data.cards : {}
     let viewCodeSeq = Number.isSafeInteger(data?.viewCodeSeq) && data.viewCodeSeq > 0 ? data.viewCodeSeq : 0
+    const viewCodeHighWater = Object.create(null)
+    for (const [chatKey, number] of Object.entries(data?.viewCodeHighWater ?? {})) {
+      if (!Number.isSafeInteger(number) || number < 1) continue
+      viewCodeHighWater[chatKey] = number
+      viewCodeSeq = Math.max(viewCodeSeq, number)
+    }
     for (const entries of Object.values(cards)) {
       for (const entry of entries) {
         const code = /^V([1-9]\d*)$/.exec(entry.code ?? '')
         const number = code === null ? 0 : Number(code[1])
-        if (Number.isSafeInteger(number)) viewCodeSeq = Math.max(viewCodeSeq, number)
+        if (code !== null && Number.isSafeInteger(number)) {
+          viewCodeSeq = Math.max(viewCodeSeq, number)
+          viewCodeHighWater[entry.chatKey] = Math.max(viewCodeHighWater[entry.chatKey] ?? 0, number)
+        }
         if (code !== null && entry.delivered !== true && entry.messageId === undefined && entry.answer === undefined) interruptedCards.add(entry)
       }
     }
@@ -265,6 +274,7 @@ export function install(rt) {
         cards,
         sent: data?.sent !== null && typeof data?.sent === 'object' ? data.sent : {},
         viewCodeSeq,
+        viewCodeHighWater,
       },
       timer: undefined,
     }
@@ -295,6 +305,7 @@ export function install(rt) {
     const { runtime, cards, sent } = held.data
     const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
     if (held.data.viewCodeSeq > 0) data.viewCodeSeq = held.data.viewCodeSeq
+    if (Object.keys(held.data.viewCodeHighWater).length > 0) data.viewCodeHighWater = held.data.viewCodeHighWater
     try {
       await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
@@ -1088,7 +1099,11 @@ export function install(rt) {
     const binding = bindingOf(conn, chat.key)
     if (data === undefined) return false
     const held = Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key))
-    if (held === undefined) return false
+    if (held === undefined) {
+      if (Number(code.slice(1)) > (data.viewCodeHighWater[chat.key] ?? 0)) return false
+      await sendCardReply(conn, chat, 'This card is no longer answerable in this chat.')
+      return true
+    }
     const delivery = held[1].find(entry => entry.code === code && entry.chatKey === chat.key)
     if (binding === undefined || delivery.binding !== binding) {
       await sendCardReply(conn, chat, 'This card is no longer answerable in this chat.')
@@ -1341,6 +1356,7 @@ export function install(rt) {
         continue
       }
       const code = tokenView === undefined ? undefined : `V${++data.viewCodeSeq}`
+      if (code !== undefined) data.viewCodeHighWater[chatKey] = data.viewCodeSeq
       const message = code === undefined ? body : `${body}\n${imViewFormText(tokenView, code)}`
       entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code, delivered: false }) })
     }
