@@ -140,10 +140,18 @@ test('feature catalog is sorted, summarized, empty when absent, and frozen until
   assert.match(workerText, /- alpha: Echo service/)
   await rt.capabilitySave({ ...mcp('alpha'), description: 'Updated description' }, { ui: true })
   assert.equal(render('worker'), workerText)
-  await finish({ id: 'worker' }, { type: 'turn/start' })
+  await finish({ id: 'worker' }, { type: 'turn/update' })
   assert.equal(render('worker'), workerText)
   await finish({ id: 'worker' }, { type: 'turn/end' })
   assert.match(render('worker'), /- alpha: Updated description/)
+  await rt.capabilitySave({ ...mcp('alpha'), description: 'Edited while idle' }, { ui: true })
+  rt.state.bots.worker.packs = ['alpha', 'zebra']
+  await finish({ id: 'worker' }, { type: 'turn/start' })
+  const nextTurn = render('worker')
+  assert.match(nextTurn, /- alpha: Edited while idle/)
+  assert.match(nextTurn, /- zebra:/)
+  rt.state.bots.worker.packs = []
+  assert.equal(render('worker'), nextTurn)
 })
 
 test('use_pack mounts only the calling session and drop_pack waits for turn end', async t => {

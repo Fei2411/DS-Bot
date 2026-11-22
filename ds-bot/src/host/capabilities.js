@@ -602,9 +602,10 @@ export function install(rt) {
     return `${name} will be dropped at the end of this turn.`
   }
   ctx.on('session/event', async function finishFeaturePacks(session, event) {
-    if (event.type !== 'turn/end') return
+    if (event.type !== 'turn/start' && event.type !== 'turn/end') return
     const sessionId = session?.id
     if (frozenCatalogs.has(sessionId) && frozenCatalogs.get(sessionId) !== renderCatalog(sessionId)) frozenCatalogs.delete(sessionId)
+    if (event.type !== 'turn/end') return
     const entries = loaded.get(sessionId)
     if (!entries) return
     const bot = botOfSession(sessionId)
