@@ -2135,6 +2135,42 @@ test('stream reports live thoughts, tool activities and end-of-stream idle to th
   assert.deepEqual(seen, [])
 })
 
+test('stream reports idle in finally when a consumer terminates the generator early', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null]) },
+  })
+  t.after(() => adapter.dispose())
+  const gen = adapter.stream(options('s1', [user('m1', 'inspect files')]))
+  for await (const chunk of gen) {
+    if (chunk.type === 'reasoning-delta' && chunk.text.includes('Read src/a.js')) break
+  }
+  assert.equal(seen.some(([, type, text]) => type === 'activity' && text === '▸ Read src/a.js'), true)
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null])
+})
+
+test('Devin and Cursor recorded ACP team-MCP streams emit only team-marked activities', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const devin = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(devin.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s1', 'activity', '▸ Calling message_bot from dsbot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null, false])
+
+  seen.length = 0
+  const cursor = await collect(adapter.stream(options('s2', [user('m1', 'team-permission')])))
+  assert.equal(cursor.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s2', 'activity', '▸ dsbot: message_bot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s2', 'idle', null, false])
+})
+
 test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', () => {
   assert.equal(unwrapShellCommand('/bin/zsh -lc pwd'), 'pwd')
   assert.equal(unwrapShellCommand('/bin/zsh -lc "python3 -c \'print(\\"hi\\")\'"'), 'python3 -c \'print("hi")\'')

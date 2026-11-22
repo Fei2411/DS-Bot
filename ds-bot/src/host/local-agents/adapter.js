@@ -745,7 +745,6 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
-        report({ type: 'idle' })
         this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
@@ -784,7 +783,6 @@ export class LocalAgentAdapter extends LlmAdapter {
           break
         case 'usage': yield addUsage(event.usage); break
         case 'call': {
-          report({ type: 'idle' })
           yield* closeBlocks()
           live.state = 'suspended'
           // A team tool the CLI invoked over the loopback MCP server.
@@ -797,7 +795,6 @@ export class LocalAgentAdapter extends LlmAdapter {
           // matching mode of its own: full access allows, read-only refuses a change.
           const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
           if (answer !== undefined) { event.reply(answer); break }
-          report({ type: 'idle' })
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
@@ -829,12 +826,10 @@ export class LocalAgentAdapter extends LlmAdapter {
             this.sendInput(live, next, options.signal, options.reasoningEffort)
             break
           }
-          report({ type: 'idle' })
           yield { type: 'finish', reason: { kind: 'stop' } }
           return
         }
         case 'error': {
-          report({ type: 'idle' })
           live.state = 'idle'
           throw toLlmError(event.error, live)
         }
@@ -842,6 +837,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
     } finally {
+      report({ type: 'idle' })
       options.signal?.removeEventListener('abort', onAbort)
     }
   }

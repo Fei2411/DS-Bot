@@ -7,6 +7,7 @@ import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { ROOM_REPLY_TIMEOUT_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { AcpEngine } from '../src/host/local-agents/acp.js'
 
 let rt
 
@@ -399,6 +400,108 @@ test('a dsbot/ path inside a local CLI command is the CLI\'s own work', async (t
   const state = (await host.call('state', {})).value
   assert.equal(host.rt.liveOf('gb').toolCount, 1)
   assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/user/dsbot/work'])
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+})
+
+test('recorded Devin ACP team MCP sequence stays team work and starts no grace; non-team MCP counts', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  const engine = new AcpEngine('local-devin-cli', { name: 'Devin' }, { findExecutable: () => undefined })
+  const session = engine.sessionFor('gb')
+  session.acpSessionId = 'acp-1'
+  session.push = event => host.rt.noteLocalAgentEvent('gb', event)
+
+  // Recorded Devin ACP shape: server identity arrives in _meta['cognition.ai/toolName']
+  // before session/request_permission carries cognition.ai/permissionRule.
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_call_tool:0#1',
+      title: 'Calling message_bot from dsbot',
+      rawInput: { to: 'River', message: 'ping' },
+      _meta: { 'cognition.ai/toolName': 'mcp__dsbot__message_bot', 'cognition.ai/eventType': 'mcp_tool_call' },
+    },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // A non-team MCP server in the same Devin shape still counts as CLI work and starts grace.
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_call_tool:0#2',
+      title: 'Calling message_bot from github',
+      rawInput: { to: 'River', message: 'ping' },
+      _meta: { 'cognition.ai/toolName': 'mcp__github__message_bot', 'cognition.ai/eventType': 'mcp_tool_call' },
+    },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.equal(host.rt.liveOf('gb').localDoing?.note, 'Calling message_bot from github')
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+})
+
+test('recorded Cursor ACP anonymous MCP placeholder defers counting until provider arrives', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  const engine = new AcpEngine('local-cursor-cli', { name: 'Cursor' }, { findExecutable: () => undefined })
+  const session = engine.sessionFor('gb')
+  session.acpSessionId = 'acp-1'
+  session.push = event => host.rt.noteLocalAgentEvent('gb', event)
+
+  // Recorded Cursor ACP team MCP sequence: placeholder opens empty, then names dsbot.
+  const teamCallId = 'call-1\nfc_1_0'
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call', toolCallId: teamCallId, title: 'MCP: tool', kind: 'other', status: 'pending', rawInput: {} },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: teamCallId, title: 'dsbot: message_bot', rawInput: { providerIdentifier: 'dsbot', toolName: 'message_bot', args: { to: 'River', message: 'ping' } } },
+  })
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: teamCallId, status: 'in_progress' },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // Recorded Cursor ACP non-team MCP sequence: placeholder stays uncounted until github arrives.
+  const otherCallId = 'call-2\nfc_2_0'
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call', toolCallId: otherCallId, title: 'MCP: tool', kind: 'other', status: 'pending', rawInput: {} },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: otherCallId, title: 'github: message_bot', rawInput: { providerIdentifier: 'github', toolName: 'message_bot', args: { to: 'River', message: 'ping' } } },
+  })
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: otherCallId, status: 'in_progress' },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.equal(host.rt.liveOf('gb').localDoing?.note, 'github: message_bot')
   t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
   await settle(() => result() !== undefined)
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
