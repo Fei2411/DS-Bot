@@ -79,6 +79,7 @@ async function fixture(t, options = {}) {
     }
     if (req.url === '/revoke') { res.writeHead(behavior.revokeStatus ?? 200); res.end(); return }
     if (req.url === '/models') {
+      if (behavior.modelsStatus) return send({ error: 'server_error' }, behavior.modelsStatus)
       assert.equal(req.headers.authorization, `Bearer ${refreshCount ? 'synthetic-access-rotated' : 'synthetic-access'}`)
       return send({ models: behavior.models ?? [{ slug: 'z-model', display_name: 'Z', visibility: 'list' }, { slug: 'hidden', display_name: 'Hidden', visibility: 'hidden' }, { slug: 'a-model', display_name: 'A', visibility: 'list' }] })
     }
@@ -280,6 +281,33 @@ test('lists only visible models in server order and handles an empty list', asyn
   assert.deepEqual(await f.client.listModels(), [])
   f.behavior.redirect = '/models'
   await assert.rejects(f.client.listModels(), typed('temporarily-unavailable', 'redirect-refused'))
+})
+
+for (const operation of ['token', 'models', 'empty models']) test(`successful ${operation} restores connected status after a temporary failure without refreshing`, async t => {
+  const changes = []
+  const f = await fixture(t, { client: { onChange: status => changes.push(status.state) } })
+  await f.login()
+  const first = await f.stored()
+  f.behavior.modelsStatus = 503
+  await assert.rejects(f.client.listModels(), typed('temporarily-unavailable'))
+  assert.equal(f.client.status().state, 'temporarily-unavailable')
+  f.behavior.modelsStatus = undefined
+  if (operation === 'empty models') f.behavior.models = []
+  if (operation === 'token') assert.equal(await f.client.getAccessToken(), first.tokens.accessToken)
+  else assert.equal((await f.client.listModels()).length, operation === 'empty models' ? 0 : 2)
+  assert.equal(f.client.status().state, 'connected')
+  assert.deepEqual(changes.slice(-2), ['temporarily-unavailable', 'connected'])
+  assert.equal(f.refreshCount, 0)
+  assert.deepEqual(await f.stored(), first)
+})
+
+test('recovering token access restores plan-usage-off without granting inference permission', async t => {
+  const f = await fixture(t, { scope: 'openid profile email offline_access resource.invoke' })
+  await f.login()
+  f.behavior.refreshStatus = 503
+  await assert.rejects(f.client.refresh(), typed('temporarily-unavailable'))
+  await assert.rejects(f.client.getAccessToken(), typed('plan-usage-off', 'plan-usage-required'))
+  assert.equal(f.client.status().state, 'plan-usage-off')
 })
 
 for (const unavailable of [{ isEncryptionAvailable: () => false }, { getSelectedStorageBackend: () => 'basic_text' }]) {

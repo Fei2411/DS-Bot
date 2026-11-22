@@ -79,6 +79,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     published = key
     try { onChange(next) } catch {}
   }
+  const recoverConnection = () => { if (state === 'temporarily-unavailable') setState(connectionState()) }
   const endpoint = value => {
     try {
       const url = new URL(value)
@@ -272,6 +273,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     if (signingOut || !record?.tokens) throw new ChatGPTSignInError(state, 'sign-in-required')
     if (record.tokens.expiresAt - now() < 5 * 60_000) await refresh()
     if (signingOut || !record?.tokens) throw new ChatGPTSignInError(state, 'sign-in-required')
+    recoverConnection()
     if (!record.tokens.scopes.includes(PLAN_SCOPE)) throw fail('plan-usage-off', 'plan-usage-required')
     return record.tokens.accessToken
   }
@@ -301,6 +303,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     success(response)
     const body = await json(response)
     if (!Array.isArray(body?.models)) throw fail('temporarily-unavailable', 'invalid-models')
+    recoverConnection()
     return body.models.filter(model => model?.visibility === 'list' && typeof model.slug === 'string' && typeof model.display_name === 'string')
       .map(model => ({ id: model.slug, name: model.display_name }))
   }
