@@ -323,7 +323,8 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h(SetRow, { label: t('Default model'), className: 'bt-set-model', tour: 'default-model' },
         h(ModelMenu, {
           bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
-          roster, actions, run, withEfforts: false,
+          roster, actions, run, wide: true, withEfforts: false,
+          fallbackModel: roster.defaultModel,
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),
         prefs.defaultBotModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ defaultBotModel: null })) }, t('Reset')) : null),

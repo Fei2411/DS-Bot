@@ -98,6 +98,28 @@ const listener = name => listeners.findLast(entry => entry.name === name)?.fn
 const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
 const thinking = { efforts, defaultEffort: 'high' }
 
+test('the Settings default picker labels the inherited usable model without changing other empty pickers', () => {
+  const model = { ref: 'official/flash', provider: 'official', providerName: 'DeepSeek', name: 'Flash' }
+  const render = (models, extra = {}) => {
+    const element = ModelMenu({ bot: { id: 'new-bots', name: 'New Bots' }, roster: { models, defaultModel: model.ref }, actions: {}, run: () => {}, wide: true, withEfforts: false, fallbackModel: model.ref, ...extra })
+    return mount(element.type, element.props).tree
+  }
+  const text = (tree, className) => nodes(tree, node => node.props.className === className).map(node => node.children.join(''))
+  const tree = render([model])
+  assert.deepEqual(text(tree, 'bt-model-name'), ['Flash'])
+  assert.deepEqual(text(tree, 'bt-model-provider'), ['DeepSeek'])
+  assert.deepEqual(text(tree, 'bt-model-default'), ['Default'])
+  for (const entries of [[], [{ ...model, needsKey: true }]]) {
+    const empty = render(entries)
+    assert.deepEqual(text(empty, 'bt-model-name'), ['Choose a model'])
+    assert.deepEqual(text(empty, 'bt-model-default'), [])
+  }
+  assert.deepEqual(text(render([model], { fallbackModel: undefined }), 'bt-model-name'), ['Choose a model'])
+  const explicit = render([model], { bot: { id: 'new-bots', model: 'gone/model' } })
+  assert.deepEqual(text(explicit, 'bt-model-name'), ['model'])
+  assert.deepEqual(text(explicit, 'bt-model-default'), [])
+})
+
 test('a save still under way keeps the slider on the newest pick', async () => {
   const saves = []
   const picked = []

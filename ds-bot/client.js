@@ -18787,8 +18787,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;line-height:32px;font-weight:450;text-align:left;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 button.bt-select{display:inline-flex;align-items:center;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-set-control>.bt-model-trigger{min-width:148px;min-height:34px;padding:5px 10px 5px 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);box-shadow:none;font-size:13px}
-.bt-set-control>.bt-model-trigger:hover,.bt-set-control>.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
+.bt-set-control>.bt-model-trigger:not([data-wide]){min-width:148px;min-height:34px;padding:5px 10px 5px 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);box-shadow:none;font-size:13px}
+.bt-set-control>.bt-model-trigger:not([data-wide]):hover,.bt-set-control>.bt-model-trigger:not([data-wide])[aria-expanded=true]{background:var(--bt-active)}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
 /* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
@@ -18989,6 +18989,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
   .bt-la-row>.bt-set-copy{width:auto}
   .bt-set-model .bt-set-control{max-width:none}
+  .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
@@ -25521,7 +25522,7 @@ function ModelRows({ roster, current: current2, onPick, query = "", filtering = 
   });
 }
 var Caret = () => (0, import_react20.createElement)("svg", { className: "bt-model-caret", width: 12, height: 12, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react20.createElement)("path", { d: "M5.5 8l4.5 4.5L14.5 8" }));
-function useAnchoredMenu() {
+function useAnchoredMenu(minWidth = 240) {
   const [anchor, setAnchor] = (0, import_react20.useState)(null);
   const [place, setPlace] = (0, import_react20.useState)(null);
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS);
@@ -25562,11 +25563,11 @@ function useAnchoredMenu() {
   (0, import_react20.useLayoutEffect)(() => {
     if (anchor === null || !button.current) return;
     const rect = button.current.getBoundingClientRect();
-    const width = Math.max(240, rect.width);
+    const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
     const below = viewBottom() - rect.bottom;
     setPlace(below >= 260 || below >= rect.top ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, "--bt-origin": "top right" } : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, "--bt-origin": "bottom right" });
-  }, [anchor, tick]);
+  }, [anchor, tick, minWidth]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
 function useInlineMenu() {
@@ -25623,10 +25624,11 @@ function useAgentModels(actions) {
   };
   return [reading, read];
 }
-function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts }) {
+function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts, fallbackModel }) {
   const [reading, readModels] = useAgentModels(actions);
-  const shown = modelOf(bot, roster);
-  const current2 = bot.model ?? bot.appliedModel;
+  const inherited = !bot.model && !bot.appliedModel && (roster.models ?? []).some((model) => model.ref === fallbackModel && !model.needsKey && !isLocalRoute(model.ref));
+  const current2 = bot.model ?? bot.appliedModel ?? (inherited ? fallbackModel : void 0);
+  const shown = modelOf({ ...bot, model: current2 }, roster);
   const local = isLocalRoute(current2);
   const served = servedOf(roster, current2);
   const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
@@ -25641,6 +25643,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     roster,
     shown,
     current: current2,
+    inherited,
     local,
     reasoning,
     picked,
@@ -25669,7 +25672,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   };
 }
 var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { shown, models, withEfforts, effortLabel } = picker;
+  const { shown, models, withEfforts, effortLabel, inherited } = picker;
   return (0, import_react20.createElement)(
     "button",
     {
@@ -25681,13 +25684,15 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
       "aria-expanded": isOpen,
       "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
       "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
-      onClick
+      onClick,
+      "data-empty": !shown || void 0
     },
     (0, import_react20.createElement)(
       "span",
       { className: "bt-model-copy" },
       (0, import_react20.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-      shown ? (0, import_react20.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
+      shown ? (0, import_react20.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null,
+      inherited ? (0, import_react20.createElement)("span", { className: "bt-model-default" }, t("Default")) : null
     ),
     (0, import_react20.createElement)(Caret)
   );
@@ -25731,9 +25736,9 @@ var modelMenuLabel = (bot) => t("Model for {name}", { name: bot.name });
 function ModelMenu(props) {
   return props.inline ? (0, import_react20.createElement)(InlineModelMenu, props) : (0, import_react20.createElement)(PopupModelMenu, props);
 }
-function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
-  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts });
+function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true, fallbackModel }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240);
+  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts, fallbackModel });
   const { manage, hasEfforts } = picker;
   const toggle = () => {
     if (isOpen) {
@@ -25753,7 +25758,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react20.createElement)(
       "div",
-      { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
+      { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, "data-wide": wide || void 0, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
       modelSearch(picker, menu),
       modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react20.createElement)(
@@ -25943,8 +25948,17 @@ var MODEL_CSS = `
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
-.bt-model-trigger[data-wide]{display:flex;width:100%;min-height:48px;padding:7px 12px;justify-content:space-between;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line)}
-.bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-hover)}
+.bt-model-trigger[data-wide]{display:flex;flex:none;width:240px;min-width:min(200px,100%);max-width:100%;height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+.bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
+.bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}
+.bt-model-trigger[data-wide] .bt-model-name{font-weight:450}
+.bt-model-trigger[data-wide] .bt-model-provider{flex-shrink:2}
+.bt-model-trigger[data-wide][data-empty] .bt-model-name{color:var(--bt-ink-3)}
+.bt-model-trigger[data-wide] .bt-model-caret{background:var(--bt-select-arrow) center/12px 12px no-repeat}
+.bt-model-trigger[data-wide] .bt-model-caret path{display:none}
+.bt-model-default,.bt-model-menu[data-wide] .bt-menu-hint{flex:none;background:var(--bt-tag-bg);color:var(--bt-tag-ink);font-size:10.5px;line-height:14px;border-radius:4px;padding:1px 5px}
+.bt-model-menu[data-wide] .bt-model-search-input:focus-visible{outline:none;border-color:transparent;box-shadow:0 0 0 1px color-mix(in srgb,var(--bt-accent) 40%,transparent)}
 .bt-model-copy{display:flex;flex-direction:column;min-width:0}
 .bt-model-name{font-size:13px;line-height:18px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-model-provider{font-size:11px;line-height:14px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -41435,7 +41449,9 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
           roster,
           actions,
           run: run2,
+          wide: true,
           withEfforts: false,
+          fallbackModel: roster.defaultModel,
           onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
         }),
         prefs.defaultBotModel ? (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
