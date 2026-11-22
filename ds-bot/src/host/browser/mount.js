@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openBotBrowser } from './session.js'
 import { gateScope } from './gate.js'
+import { closesBrowser } from './hold.js'
 
 export const browserOutput = {
   schema: {
@@ -102,7 +103,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     return next()
   }, { prepend: true })
   const unsubscribeHolds = subscribeHolds?.((botId, hold) => {
-    if (hold?.by !== 'user') return
+    if (!closesBrowser(hold)) return
     const session = sessions.get(botId)
     if (!session) return
     sessions.delete(botId)

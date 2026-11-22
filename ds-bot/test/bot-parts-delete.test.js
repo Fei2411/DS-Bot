@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { closesBrowser } from '../src/host/browser/hold.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Deleting a conversation (#1905): a part the user is not reading leaves the Bot's chat
@@ -175,6 +176,11 @@ test('a browser handoff raised from a deleted part stays with the user, detached
   assert.equal(hold.sessionId, undefined)
   assert.equal(hold.callId, undefined)
   assert.match(hold.note, /controlling this browser/)
+  // Detached, so the hold subscriber leaves the user's Chromium window and tabs open
+  // (`mountBrowserPlugin` closes a browser only when `closesBrowser(hold)` holds).
+  assert.equal(hold.detached, true)
+  assert.equal(closesBrowser(hold), false)
+  assert.equal(closesBrowser({ by: 'user', reason: 'stopped' }), true)
   assert.deepEqual(stored().bots.b.retiredSessions, ['b2', 'b1'])
 })
 

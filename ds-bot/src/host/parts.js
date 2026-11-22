@@ -2333,13 +2333,19 @@ export function install(rt) {
     if (rt.isRetiring?.(partId) === true) {
       throw Object.assign(new Error('This conversation is still being retired; delete it once its tasks have moved'), { code: 'bot/busy' })
     }
+    // A part mid-move is being handed on: deleting it here would race the job that is
+    // still moving its input and tasks.
+    if (rt.isSwitchingPart?.(partId) === true) {
+      throw Object.assign(new Error('This conversation is being moved; try again once it settles'), { code: 'bot/busy' })
+    }
     const at = (bot.segments ?? []).findIndex(segment => segment.sessionId === partId)
     if (at === -1) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     bot.segments.splice(at, 1)
     rt.chatOwners.delete(partId)
     rt.pastOwners.delete(partId)
     // Privacy: the archived transcript is still a private Bot's, so the id stays on the
-    // Bot even after it leaves the chat list (#1939).
+    // Bot even after it leaves the chat list, and it is never pruned for that reason
+    // (#1939).
     if (!(bot.retiredSessions ?? []).includes(partId)) (bot.retiredSessions ??= []).push(partId)
     if (state.questions?.[partId] !== undefined) {
       rt.closeCard(partId, state.questions[partId], 'dismissed')
@@ -2349,12 +2355,19 @@ export function install(rt) {
       rt.closeCard(partId, state.views[partId], 'dismissed')
       delete state.views[partId]
     }
+    // The per-Session records the roster also clears when a Bot goes: a closed card, the
+    // turns already fed out, and a move in flight for this part.
+    if (state.closedCards !== undefined) delete state.closedCards[partId]
+    delete state.exchangeTurns[partId]
+    delete state.switching[partId]
     // A browser handoff raised from a deleted part must not come back into the chat the
     // user is reading. The page stays with the user instead of returning to the Bot:
     // dropping the hold would let another chat drive a browser the user took over (#1939).
+    // No `callId`/`sessionId`, so Give back cannot answer the foreground chat; `detached`
+    // keeps the hold from closing the user's Chromium window on Desktop.
     const hold = rt.browserChannel?.holdOf?.(botId)
     if (hold?.sessionId !== undefined && hold.sessionId === partId) {
-      rt.browserChannel.setHold(botId, { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' })
+      rt.browserChannel.setHold(botId, { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.', detached: true })
     }
     await rt.save()
     await ctx.workspaceRegistry.archiveSession(partId, { stopActivity: true })
