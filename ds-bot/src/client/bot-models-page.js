@@ -64,7 +64,7 @@ export function BotModelsPage({ roster, actions, run, Section }) {
     wide: true, withEfforts: false, onPick: apply,
   })
   return [
-    h(Section, { key: 'change', title: t('Change several Bots') },
+    h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
       h('div', { className: 'bt-set-row bt-bm-bar' },
         h('span', { className: 'bt-set-copy' },
           h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
@@ -76,7 +76,7 @@ export function BotModelsPage({ roster, actions, run, Section }) {
             : selected.size === 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Choose a model')) : picker)),
       results === null ? null : h('div', { className: 'bt-set-row bt-bm-summary', role: 'status' },
         h('span', { className: 'bt-set-copy' }, h('span', null, summaryLine(results))))),
-    h(Section, { key: 'bots', title: t('Bots · {count}', { count: bots.length }) },
+    h(Section, { key: 'bots', title: t('Bots · {count}', { count: bots.length }), tour: 'bm-list' },
       bots.map((bot) => {
         const local = isLocalRoute(modelRefOf(bot))
         const entry = resultsById.get(bot.id)

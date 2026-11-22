@@ -53,6 +53,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on session/event',
     'effect ds-bot: lost hand-offs',
     'on tools/execute',
+    'on session-manager/session-deleted',
     'effect ds-bot: identity section',
     'prompt bot-identity 640',
     'on agent/pre-step (prepend)',
@@ -97,8 +98,9 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/status',
     'on llm/stream',
     'on session/event',
-    // bot-tasks.js: approval status bridge and turn/end task settlement.
+    // bot-tasks.js: approval status bridge, foreground inbox handoff, and turn/end task settlement.
     'effect ds-bot: bot-tasks approval bridge',
+    'on agent/inbox/inserted',
     'on session/event',
     // changes.js: the announced workspace/changes turn, remembered for the group row.
     'on session/event',
@@ -108,6 +110,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on llm/stream',
     'effect ds-bot: load secrets',
     'effect ds-bot: connectors',
+    'prompt feature-packs 646',
+    'on session/event',
     'on agent/created',
     'effect ds-bot: capabilities',
     'on agent/status',
@@ -136,6 +140,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: live feed route',
     'route GET /api/bot/feed',
     'effect ds-bot: live feed',
+    'effect ds-bot: mcp access',
     'on session/event',
     'effect ds-bot: im',
     'effect ds-bot: phone link',

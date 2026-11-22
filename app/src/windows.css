@@ -1,0 +1,22 @@
+/* Windows: any backdrop-filter on the page turns the whole page's text from ClearType to
+   grayscale antialiasing, which reads as blurry. The glass surfaces take their opaque fills
+   instead, as with reduced effects. The selectors outrank the !important glass rules. */
+html:root body {
+  --dsw-menu-backdrop-filter: none;
+  --dsw-mask-blur: none;
+  --dsw-specific-menu: var(--bt-main);
+  --dsw-menu-surface-fill: var(--bt-main);
+  --bt-glass-bg: var(--bt-card);
+  --bt-fx-blur-2: none;
+  --bt-fx-blur-3: none;
+  --bt-fx-blur-4: none;
+  --bt-fx-blur-5: none;
+  --bt-fx-blur-6: none;
+}
+
+html:root body *,
+html:root body *::before,
+html:root body *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

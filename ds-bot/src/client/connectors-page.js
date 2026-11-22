@@ -101,9 +101,9 @@ function Grid({ apps, actions, open, place = null, signInPlaces }) {
   })))
 }
 
-function Section({ title, apps, actions, open, onAll, place, signInPlaces }) {
+function Section({ title, apps, actions, open, onAll, place, signInPlaces, tour = null }) {
   if (apps.length === 0) return null
-  return h('section', { className: 'bt-app-section' },
+  return h('section', { className: 'bt-app-section', 'data-tour': tour || undefined },
     h('div', { className: 'bt-app-section-head' },
       h('h3', null, title),
       onAll && apps.length > PREVIEW ? h('button', { type: 'button', className: 'bt-app-all', onClick: onAll }, t('See all')) : null),
@@ -188,7 +188,7 @@ export function ConnectorsPage({ roster, actions }) {
   } else {
     const featured = FEATURED.map(id => apps.find(app => app.id === id)).filter(Boolean)
     body = [
-      h(Section, { key: 'featured', place: 'featured', signInPlaces, title: t('Recommended'), apps: featured, actions, open }),
+      h(Section, { key: 'featured', place: 'featured', signInPlaces, title: t('Recommended'), apps: featured, actions, open, tour: 'conn-grid' }),
       ...CATEGORIES.map(([id, label]) => h(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
       // An added server has no catalog category. Without its own section a new OAuth
       // entry, which stays off until its sign-in finishes, would be on neither the
@@ -198,7 +198,7 @@ export function ConnectorsPage({ roster, actions }) {
   }
   return h('div', { className: 'bt-apps' },
     banner,
-    h('div', { className: 'bt-app-bar' },
+    h('div', { className: 'bt-app-bar', 'data-tour': 'conn-search' },
       h('label', { className: 'bt-app-search' },
         h(SearchIcon),
         h('input', { type: 'search', 'aria-label': t('Search connectors'), placeholder: t('Search connectors'), value: query, onChange: e => setQuery(e.target.value) })),

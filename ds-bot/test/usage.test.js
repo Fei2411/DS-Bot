@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { foldCalls } from '../src/host/usage.js'
+import { foldCalls, sqliteLedger } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
 
 const header = (provider, model) => ({ type: 'request/header', data: { header: { config: { provider, model } }, reason: 'change' } })
@@ -46,6 +46,94 @@ test('a fork does not count the calls it inherited from its parent', () => {
 
 const HOUR = 3_600_000
 const LONG_AGO = 1_000
+
+async function openBook(t) {
+  const { DatabaseSync } = await import('node:sqlite')
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-slots-'))
+  const path = join(home, 'usage.sqlite')
+  const ledger = sqliteLedger(DatabaseSync, path)
+  const db = new DatabaseSync(path)
+  t.after(() => { db.close(); ledger.close(); rmSync(home, { recursive: true, force: true }) })
+  return { ledger, db, path, DatabaseSync }
+}
+
+function checkSlots(ledger, db) {
+  const expected = db.prepare('SELECT session, provider, model, kind, time / 900000 AS slot, SUM(input) AS input, SUM(cache_read) AS cacheRead, SUM(cache_write) AS cacheWrite, SUM(output) AS output, COUNT(*) AS calls FROM calls GROUP BY session, provider, model, kind, slot').all()
+  assert.deepEqual(ledger.groups(), expected.map(row => ({ ...row })))
+}
+
+const callRow = (key, extra = {}) => ({ key, session: 's', time: 0, provider: 'p', model: 'm', kind: 'turn', input: 10, cacheRead: 2, cacheWrite: 3, output: 4, ...extra })
+const callMark = { through: 1, fold: {}, sealed: false }
+
+test('SQLite slots track live calls and replacements across slots and models', async (t) => {
+  const { ledger, db } = await openBook(t)
+  checkSlots(ledger, db)
+  ledger.add(callRow('one'))
+  ledger.add(callRow('two'))
+  checkSlots(ledger, db)
+  ledger.add(callRow('one', { time: HOUR, session: 'other', provider: 'q', model: 'n', kind: 'compaction', input: 20, cacheRead: 7, cacheWrite: 8, output: 9 }))
+  checkSlots(ledger, db)
+  ledger.add(callRow('two', { output: 0 }))
+  checkSlots(ledger, db)
+})
+
+test('SQLite slots track plain inserts and v3 replacements from another connection', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.add(callRow('one'))
+  db.prepare("INSERT INTO calls VALUES ('two', 's', 0, 'p', 'm', 'turn', 1, 20, 3, 4, 5)").run()
+  checkSlots(ledger, db)
+  const replace = db.prepare("INSERT OR REPLACE INTO calls VALUES ('one', 'other', ?, 'q', 'n', 'compaction', 1, 50, 6, 7, 8)")
+  replace.run(HOUR)
+  checkSlots(ledger, db)
+  replace.run(2 * HOUR)
+  checkSlots(ledger, db)
+})
+
+test('SQLite rebuilds stale slots left when v3 recreates the ledger', async (t) => {
+  const { ledger, db, path, DatabaseSync } = await openBook(t)
+  ledger.add(callRow('stale'))
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type IN ('table', 'index') AND tbl_name IN ('calls', 'marks', 'owners', 'kinds') AND sql IS NOT NULL ORDER BY type DESC").all()
+  db.exec('DROP TABLE calls; DROP TABLE marks; DROP TABLE owners; DROP TABLE kinds')
+  for (const { sql } of schema) db.exec(sql)
+  db.exec("INSERT INTO calls VALUES ('fresh', 's', 3600000, 'p', 'm', 'turn', 1, 20, 3, 4, 5); PRAGMA user_version = 3")
+  const migrated = sqliteLedger(DatabaseSync, path)
+  try {
+    checkSlots(migrated, db)
+    assert.equal(migrated.groups()[0].input, 20)
+  } finally { migrated.close() }
+})
+
+test('SQLite slots track committed rows, resets and failed transactions', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.add(callRow('live'))
+  ledger.commit('s', { rows: [callRow('one'), callRow('two', { time: HOUR })], mark: callMark })
+  checkSlots(ledger, db)
+  ledger.commit('s', { rows: [callRow('one', { input: 50, time: 2 * HOUR })], mark: callMark })
+  checkSlots(ledger, db)
+  assert.throws(() => ledger.commit('s', { reset: true, rows: [callRow('bad', { model: null })], mark: callMark }))
+  checkSlots(ledger, db)
+  ledger.commit('s', { reset: true, rows: [callRow('new')], mark: callMark })
+  checkSlots(ledger, db)
+  ledger.commit('s', { reset: true, rows: [], mark: callMark })
+  checkSlots(ledger, db)
+  assert.equal(ledger.groups()[0].calls, 1)
+})
+
+for (const version of [2, 3]) test(`SQLite v${version} backfills slots without losing calls or marks`, async (t) => {
+  const { ledger, db, path, DatabaseSync } = await openBook(t)
+  ledger.add(callRow('live'))
+  ledger.commit('s', { rows: [callRow('logged', { time: HOUR })], mark: callMark })
+  db.exec(`DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; PRAGMA user_version = ${version}`)
+  if (version === 2) db.exec('ALTER TABLE marks DROP COLUMN listed')
+  const migrated = sqliteLedger(DatabaseSync, path)
+  try {
+    checkSlots(migrated, db)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 4)
+    assert.equal(migrated.mark('s').through, 1)
+    migrated.add(callRow('live', { time: 2 * HOUR }))
+    checkSlots(migrated, db)
+  } finally { migrated.close() }
+})
 
 function start(home, { listedExtra, logsExtra, subagentsExtra, background = false } = {}) {
   const fresh = home === undefined
@@ -167,24 +255,6 @@ test('the usage view counts every Session under its owner, by hour in the asked 
   await drain(meter({ sessionId: 's-b1', purpose: 'compaction', provider: 'deepseek', model: 'v4-flash', messages: [] }, async function* () { yield chunk }))
   const again = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
   assert.equal(totals(again)['Chief/compaction'], 1100)
-})
-
-// #1501: a Bot's own chat may keep a background thread that moved on. Both that
-// thread's Sessions are the Bot's, so their calls count for it, not for "other": the
-// Usage page must not show a Bot having spent nothing while it worked there.
-test('calls in a background thread count for the Bot they were made for', async (t) => {
-  const { call, stop } = start(undefined, {
-    background: true,
-    logsExtra: {
-      's-bg1': [header('deepseek', 'v4-flash'), message(1, 0, usage(11, 1), HOUR)],
-      's-bg2': [header('deepseek', 'v4-flash'), message(1, 0, usage(22, 2), HOUR)],
-    },
-  })
-  t.after(stop)
-  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
-  // Chief keeps the calls of both parts of its background thread; the unowned bucket
-  // still holds only the Session no Bot owns.
-  assert.deepEqual(totals(view), { 'Chief/chat': 160 + 220 + 10 + 12 + 24, 'Chief/group': 330, 'DSH Agent/chat': 77, 'other/chat': 44 })
 })
 
 test('a call made in a group chat stays group use after the room is gone', async (t) => {
@@ -330,7 +400,7 @@ test('a ledger from the previous version keeps its metered calls and gains the s
   await first.ctx.dispose()
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(join(home, 'usage.sqlite'))
-  db.exec('ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
+  db.exec('DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
   db.close()
 
   const second = start(home)

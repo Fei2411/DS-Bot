@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { manualDirectory } from '../src/host/manual-skills.js'
 import { install } from '../src/host/prompt.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -51,6 +53,16 @@ test('Bots are told how to open a PDF the user attached, once, in the shared pre
     assert.match(rule[0], /never answer only that the file cannot be read/)
   }
   assert.equal(prompt('group-worker'), prompt('worker'))
+})
+
+test('every Bot can read the manual directly when no skill loader is available', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['main', 'worker', 'group-worker']) {
+    assert.ok(prompt(id).includes(JSON.stringify(join(manualDirectory(), 'SKILL.md'))))
+    assert.match(prompt(id), /if you have no skill loader, use your read tool/)
+    assert.match(prompt(id), /linked references directly/)
+  }
 })
 
 test('the group relay and non-Bot sessions do not get progress instructions', (t) => {

@@ -32,6 +32,8 @@ test('sharp native modules and versioned libvips libraries are unpacked together
     'pnpm/bin/pnpm.cjs',
     'ds-bot/src/host/skills/ds-bot-maintenance/references/online-inspection.md',
     'ds-bot/src/host/skills/ds-bot-plugin-dev/references/capabilities-and-mcp.md',
+    'ds-bot/src/host/skills/ds-bot-manual/SKILL.md',
+    'ds-bot/src/host/skills/ds-bot-manual/references/settings.md',
   ]) assert.equal(filter(join(root, 'node_modules', file), stat), true, file)
   assert.equal(filter(join(root, 'node_modules/yaml/dist/index.js'), stat), false)
 })

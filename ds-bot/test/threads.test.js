@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { currentSession, focusOpenPart, isOpenPart, openSessions, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadOf } from '../src/host/threads.js'
+import { currentSession, isOpenPart, openSessions, ownChatSessions, pushThreadPart, threadCurrent, threadOf } from '../src/host/threads.js'
 
-// #1501: a Bot's own chat can keep a second part live while the first one runs. Each
-// thread (the current one and each open part) has its own earlier parts, so a handoff
+// Each thread of a Bot's own chat (the current one, a background task, and an open part
+// a team saved before #1548 was withdrawn) has its own earlier parts, so a handoff
 // never reads the other thread's conversation.
 
 const bot = () => ({
@@ -37,27 +37,6 @@ test('a fresh part replaces its own thread part and archives into that thread on
   assert.deepEqual(b.openParts[0].segments.map(s => s.sessionId), ['w4', 'w3'])
 })
 
-test('a part opened while the Bot works leaves the running part live with its chain', () => {
-  const b = bot()
-  startOpenPart(b, 'w5', 7)
-  assert.equal(b.sessionId, 'w5')
-  assert.deepEqual(b.segments, [])
-  assert.equal(b.openParts.at(-1).sessionId, 'w2')
-  assert.deepEqual(b.openParts.at(-1).segments.map(s => s.sessionId), ['w1'])
-  assert.equal(b.openParts.at(-1).startedAt, 7)
-  assert.equal(isOpenPart(b, 'w2'), true)
-})
-
-test('making an open part current swaps both threads and their chains', () => {
-  const b = bot()
-  assert.equal(focusOpenPart(b, 'w3'), true)
-  assert.equal(b.sessionId, 'w3')
-  assert.deepEqual(b.segments.map(s => s.sessionId), ['w4'])
-  assert.equal(b.openParts.at(-1).sessionId, 'w2')
-  assert.deepEqual(b.openParts.at(-1).segments.map(s => s.sessionId), ['w1'])
-  assert.equal(focusOpenPart(b, 'missing'), false)
-})
-
 test('every live thread is listed for a change that must reach them all', () => {
   const b = bot()
   assert.deepEqual(ownChatSessions(b), ['w2', 'w3'])
@@ -71,22 +50,4 @@ test('a Bot that never ran uses its own id as the current session', () => {
   const b = { id: 'w1', segments: [] }
   assert.equal(currentSession(b), 'w1')
   assert.equal(threadOf(b, 'w1').thread, 'current')
-  startOpenPart(b, 'w2', 8)
-  assert.equal(b.openParts[0].sessionId, 'w1')
-  assert.equal(b.sessionId, 'w2')
-  assert.equal(threadOf(b, 'w1').thread, 'open')
-})
-
-test('a part that became a background thread while it moved records that thread successor', () => {
-  // The user opened a new part while this part was switching: the switch captured the
-  // foreground thread, but by the time the part moved on it belongs to an open thread.
-  // Its successor must be recorded there, or scheduled tasks move to the new part.
-  const b = { id: 'w1', sessionId: 'w2', segments: [] }
-  startOpenPart(b, 'w3')
-  assert.equal(pushThreadPart(b, 'w2', 'w4', { sessionId: 'w2', endedAt: 9 }), true)
-  assert.equal(successorOfMovedPart(b, 'w4'), 'w4')
-  // A foreground move needs no successor: bot.sessionId already names the fresh part.
-  const fg = { id: 'w1', sessionId: 'w2', segments: [] }
-  pushThreadPart(fg, 'w2', 'w5', { sessionId: 'w2', endedAt: 9 })
-  assert.equal(successorOfMovedPart(fg, 'w5'), undefined)
 })
