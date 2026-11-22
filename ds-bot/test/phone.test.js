@@ -50,39 +50,6 @@ function phone(offer, hello, keys = generateKeyPair(), token = randomToken()) {
   return { client, keys, token }
 }
 
-test('the first ready phone receives active reply text from before its tap attached', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-phone-replay-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const desk = open(home)
-  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-  await desk.call('state', {})
-  const onStream = desk.ctx.listeners.get('agent/assistant-stream')[0]
-  const emit = frame => onStream({ agent: { id: 'm1' }, frame: { attemptId: 'already-writing', ...frame } })
-  emit({ type: 'start', turn: 1 })
-  emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Before the phone' } })
-  await desk.call('phone-set', { server: server.url, on: true })
-  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
-  const paired = await desk.call('phone-pair', {})
-  const offer = parsePairingUri(paired.value.pairing.uri)
-  const link = phone(offer, { pairingCode: offer.code })
-  const events = []
-  link.client.onEvent(event => events.push(event))
-  await link.client.connect()
-  await until(async () => events.filter(item => item.event === 'stream'), items => items.length === 2)
-  emit({ type: 'chunk', chunk: { type: 'text-delta', text: ' and after' } })
-  emit({ type: 'end', outcome: { kind: 'committed', eventType: 'assistant/message', seq: 1 } })
-  const streams = await until(async () => events.filter(item => item.event === 'stream'), items => items.length === 4)
-  const target = { botId: 'm1', sessionId: 'm1', attemptId: 'already-writing' }
-  assert.deepEqual(streams, [
-    { event: 'stream', data: { ...target, phase: 'start' } },
-    { event: 'stream', data: { ...target, text: 'Before the phone' } },
-    { event: 'stream', data: { ...target, text: ' and after' } },
-    { event: 'stream', data: { ...target, phase: 'end' } },
-  ])
-  assert.equal(events.some(item => item.event === 'hello'), false)
-  await link.client.close()
-})
-
 test('a phone pairs with the QR code and calls the same endpoints as the window', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
@@ -234,7 +201,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
-  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {}, replayFeedStreams: () => {}, agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined) }
+  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {}, agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined) }
   installPhone(rt)
   const served = []
   rt.phoneServe(async endpoint => { served.push(endpoint); return { ok: true, value: endpoint } })
@@ -281,7 +248,7 @@ test('the link strips pairing offers from feed events without changing the deskt
   const home = mkdtempSync(join(tmpdir(), 'dsb-private-feed-'))
   const ctx = fakeContext()
   let tap
-  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: listener => { tap = listener; return () => { tap = undefined } }, replayFeedStreams: () => {} }
+  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: listener => { tap = listener; return () => { tap = undefined } } }
   installPhone(rt)
   const application = { pairing: 'user value', phone: { pairing: 'not a phone view' }, view: { let: { pairing: 'ready' } } }
   rt.phoneServe(async () => ({ ok: true, value: application }))

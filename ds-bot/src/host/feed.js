@@ -41,15 +41,12 @@ export function install(rt) {
   }
 
   const feedHello = () => ({ revision: state.revision, ...(rt.noticeCursor ? { api: rt.apiVersion, ...rt.noticeCursor() } : {}) })
-  rt.replayFeedStreams = (listener) => {
+  const replay = (listener) => {
+    listener('hello', feedHello())
     for (const [attemptId, { text, ...target }] of writing) {
       listener('stream', { ...target, attemptId, phase: 'start' })
       if (text !== '') listener('stream', { ...target, attemptId, text })
     }
-  }
-  const replay = (listener) => {
-    listener('hello', feedHello())
-    rt.replayFeedStreams(listener)
   }
 
   // Non-SSE listeners (the phone link) get every event through a tap; a tap is
