@@ -227,3 +227,55 @@ test('ledger.after uses indexed range and ledger.search applies filter before li
   const topOne = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 1 })
   assert.deepEqual(topOne.map(r => r.seq), [2])
 })
+
+// A read that fails for a reason other than "no book yet" is not "no book yet": the
+// importer must not replace what is on disk, and this process must not claim any of its
+// records were written.
+test('a book that could not be read is left alone and its writes are refused', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home, file, warnings } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  const rows = Array.from({ length: 200 }, (_, at) => ({ seq: at + 1, text: `line ${at + 1}` }))
+  writeFileSync(file('group-r1'), rows.map(record => `${JSON.stringify(record)}\n`).join(''), 'utf8')
+  chmodSync(file('group-r1'), 0o000)
+  try {
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+    rt.ledger.append('group-r1', { seq: 201, text: 'after the failure' })
+    assert.equal(rt.ledger.prepend('group-r1', [{ seq: 0, text: 'recovered' }]), 0)
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+  } finally {
+    chmodSync(file('group-r1'), 0o644)
+  }
+  assert.equal(parseBook(readFileSync(file('group-r1'), 'utf8')).length, 200)
+  assert.equal(warnings.length > 0, true)
+})
+
+test('an importer write that fails is reported, and the book starts again once it can', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => [{ seq: 1, text: 'from before' }])
+  chmodSync(join(home, 'ledger'), 0o500)
+  try {
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+  } finally {
+    chmodSync(join(home, 'ledger'), 0o700)
+  }
+  assert.equal(existsSync(file('group-r1')), false)
+  // Nothing was cached from the failure: the next use starts the book from the importer.
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['from before'])
+  assert.equal(existsSync(file('group-r1')), true)
+  await rt.ledger.written('group-r1')
+})
+
+test('a book another host starts while the importer runs is read, not replaced', (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => {
+    writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'made elsewhere' })}\n`)
+    return [{ seq: 9, text: 'imported over it' }]
+  })
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
+  assert.equal(readFileSync(file('group-r1'), 'utf8').includes('imported'), false)
+})
