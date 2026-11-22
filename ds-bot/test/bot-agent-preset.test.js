@@ -431,31 +431,27 @@ test('a stale preset check preserves a newer opaque clear', async t => {
   assert.equal(host.headers.get(host.chatOf(writer.id)), undefined)
 })
 
-test('a new session opened during a running turn runs its first turn on the selected preset', async (t) => {
+test('a running turn does not open a parallel session; the current part already has the pick', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state')
   const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
   const running = writer.id
+  assert.equal(host.rt.newPart, undefined)
   host.agentOf(running).status = 'running'
-  assert.equal(await host.rt.newPart(running), true)
-  const fresh = host.chatOf(writer.id)
-  assert.notEqual(fresh, running)
-  // The part that was working stays live in the background; this path does not archive it.
-  assert.equal(host.state().bots[writer.id].openParts.at(-1).sessionId, running)
-  assert.equal(host.archived.some(([id]) => id === running), false)
-  assert.equal(host.created.at(-1).agentPreset, 'research')
-  assert.equal(host.headers.get(fresh), 'research')
-  // The first step is the new session's first turn, before an idle check can replace it.
-  assert.equal(await host.step(fresh), 'next')
-  assert.equal(host.chatOf(writer.id), fresh)
-  assert.equal(host.headers.get(fresh), 'research')
   const made = host.created.length
-  host.idle(fresh)
-  await settle()
-  assert.equal(host.chatOf(writer.id), fresh, 'the first turn does not roll onto the default composition')
+  await host.rt.applyBotPreset(host.rt.botOf(writer.id))
   assert.equal(host.created.length, made)
-  assert.equal(host.headers.get(fresh), 'research')
+  assert.equal(host.chatOf(writer.id), running)
+  assert.equal(host.state().bots[writer.id].openParts, undefined)
+  assert.equal(host.archived.some(([id]) => id === running), false)
+  assert.equal(host.headers.get(running), 'research')
+  assert.equal(await host.step(running), 'next')
+  host.idle(running)
+  await settle()
+  assert.equal(host.chatOf(writer.id), running, 'the current part already runs the pick, so idle does not roll it')
+  assert.equal(host.created.length, made)
+  assert.equal(host.headers.get(running), 'research')
 })
 
 test('fresh background and busy-foreground fallback sessions use the saved preset', async (t) => {
@@ -480,44 +476,49 @@ test('fresh background and busy-foreground fallback sessions use the saved prese
   assert.equal(host.headers.get(foreground.sessionId), 'research')
 })
 
-test('an opaque default clear moves a background part with the foreground', async (t) => {
+test('an opaque default clear moves the current part and group Sessions', async (t) => {
   const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
   t.after(host.stop)
   host.presetService.defaultId = undefined
-  await host.call('state')
+  const chief = (await host.call('state')).value.mainBotId
   const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
-  host.agentOf(writer.id).status = 'running'
-  assert.equal(await host.rt.newPart(writer.id), true)
-  const foreground = host.chatOf(writer.id)
-  const background = writer.id
-  assert.equal(host.state().bots[writer.id].openParts.at(-1).sessionId, background)
-  assert.equal(host.headers.get(foreground), 'research')
-  assert.equal(host.headers.get(background), 'research')
-  host.agentOf(foreground).status = 'running'
-  host.agentOf(background).status = 'running'
+  const room = (await host.call('create-room', { members: [chief, writer.id], admin: writer.id })).value
+  const cue = { role: 'user', content: [{ type: 'text', text: 'Hello team' }], source: { kind: 'user' } }
+  for (const listener of host.ctx.listeners.get('session/event') ?? []) listener({ id: room.id }, { type: 'user/message', data: cue })
+  const controller = new AbortController()
+  const relay = rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  await until(() => host.state().rooms[room.id]?.sessions?.[writer.id] !== undefined)
+  controller.abort()
+  await relay.catch(() => {})
+  const own = writer.id
+  const member = host.state().rooms[room.id].sessions[writer.id]
+  assert.equal(host.headers.get(own), 'research')
+  assert.equal(host.headers.get(member), 'research')
+  host.agentOf(own).status = 'running'
+  host.agentOf(member).status = 'running'
   assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
   await settle()
-  assert.deepEqual([...(host.state().bots[writer.id].agentPresetDefaultPending ?? [])].sort(), [background, foreground].sort())
-  assert.equal(host.chatOf(writer.id), foreground, 'a running turn finishes before the clear moves it')
-  assert.equal(host.state().bots[writer.id].openParts.some(part => part.sessionId === background), true)
-  host.agentOf(foreground).status = 'idle'
-  host.agentOf(background).status = 'idle'
+  assert.deepEqual([...(host.state().bots[writer.id].agentPresetDefaultPending ?? [])].sort(), [member, own].sort())
+  assert.equal(host.chatOf(writer.id), own, 'a running turn finishes before the clear moves it')
+  assert.equal(host.state().bots[writer.id].openParts, undefined)
+  host.idle(own)
+  host.idle(member)
   await host.rt.applyBotPreset(host.rt.botOf(writer.id))
-  await until(() => [foreground, background].every(id => host.archived.some(([archived]) => archived === id)))
-  const saved = host.state().bots[writer.id]
-  const freshForeground = saved.sessionId
-  const freshBackground = saved.openParts.find(part => (part.segments ?? []).some(segment => segment.sessionId === background))?.sessionId
-  assert.notEqual(freshForeground, foreground)
-  assert.ok(freshBackground !== undefined && freshBackground !== background)
-  for (const id of [freshForeground, freshBackground]) {
+  await until(() => [own, member].every(id => host.archived.some(([archived]) => archived === id)))
+  const saved = host.state()
+  const freshOwn = saved.bots[writer.id].sessionId
+  const freshMember = saved.rooms[room.id].sessions[writer.id]
+  assert.notEqual(freshOwn, own)
+  assert.notEqual(freshMember, member)
+  for (const id of [freshOwn, freshMember]) {
     assert.equal(host.headers.get(id), undefined, 'DSH composes its default without an explicit preset')
     assert.match(host.agentOf(id).calls.map(([, message]) => text(message)).join('\n'), /agent preset changed/)
   }
-  assert.equal(saved.agentPresetDefaultPending, undefined)
+  assert.equal(saved.bots[writer.id].agentPresetDefaultPending, undefined)
   const count = host.created.length
   await host.rt.applyBotPreset(host.rt.botOf(writer.id))
-  host.idle(freshForeground)
-  host.idle(freshBackground)
+  host.idle(freshOwn)
+  host.idle(freshMember)
   await settle()
   assert.equal(host.created.length, count, 'the default-composed parts do not keep rolling over')
 })
@@ -543,9 +544,21 @@ test('a Bot without a pick keeps the standard default and the team file gains no
   assert.equal(host.created.at(-1).agentPreset, 'standard')
   assert.equal(host.state().bots[writer.id].agentPreset, undefined)
 
-  // A Bot saved before the feature (no field) moves on to the standard default too.
-  await host.rt.newPart('chief')
-  await until(() => host.state().bots.chief.sessionId !== 'chief')
+  // A Bot saved before the feature (no field) does not archive on idle: there is no
+  // pick to follow. A later createSession path still uses the standard default.
+  assert.equal(host.rt.newPart, undefined)
+  const made = host.created.length
+  await host.rt.applyBotPreset(host.rt.botOf('chief'))
+  await settle()
+  assert.equal(host.state().bots.chief.sessionId, 'chief')
+  assert.equal(host.created.length, made)
+  assert.equal(host.state().bots.chief.agentPreset, undefined)
+
+  host.rt.desiredModel = async () => 'test/model'
+  const opened = await host.rt.openTaskPart(host.rt.botOf('chief'), 'chief', {
+    id: 'task-1', title: 'Research', status: 'running', startedAt: 1, updatedAt: 1,
+  })
+  assert.equal(opened.forked, false)
   assert.equal(host.created.at(-1).agentPreset, 'standard')
   assert.equal(host.state().bots.chief.agentPreset, undefined)
 })
