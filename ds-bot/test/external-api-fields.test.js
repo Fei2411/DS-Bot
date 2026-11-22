@@ -109,4 +109,14 @@ test('group membership edits authorize every supplied Bot against the token targ
   for (const field of ['members', 'add']) {
     await assert.rejects(routes.service.updateGroup(privatePrincipal, 'r1', { [field]: ['bp'] }), { status: 403 })
   }
+  room.members = ['b1', 'b2', 'bp']
+  for (const members of [['b1'], []]) {
+    await routes.service.updateGroup(principal, 'r1', { members })
+    assert.deepEqual(calls.at(-1)[1].members, [...members, 'b2', 'bp'])
+  }
+  const before = calls.length
+  for (const id of ['b2', 'bp']) {
+    await assert.rejects(routes.service.updateGroup(principal, 'r1', { remove: [id] }), error => [403, 404].includes(error.status))
+  }
+  assert.equal(calls.length, before)
 })

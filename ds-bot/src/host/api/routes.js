@@ -789,6 +789,9 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
           return bot.id
         })
       }
+      if (patch.members !== undefined) {
+        patch.members = [...new Set([...patch.members, ...(room.members ?? []).filter(id => !principal.canAccessBot(id))])]
+      }
       const { room: updated } = await rt.updateRoom(room.id, patch, API_ACTOR)
       return groupSummary(updated, principal)
     },
