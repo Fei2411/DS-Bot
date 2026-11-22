@@ -268,7 +268,7 @@ export function FreshMemberPart({ entry, bot, room, actions }) {
     const current = scope
     inFlight.current = current
     setStatus({ scope: current, phase: 'starting' })
-    void Promise.resolve(actions.newPart(bot.id, room.id)).then(
+    void Promise.resolve(actions.newPart(bot.id, { roomId: room.id })).then(
       () => {
         if (!mounted.current || scopeRef.current !== current) return
         setStatus({ scope: current, phase: 'done' })
