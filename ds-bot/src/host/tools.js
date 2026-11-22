@@ -197,7 +197,7 @@ export function install(rt) {
   // exactly as an "@Name" line would, and never reaches a Bot outside the group.
   const groupRefusal = (room, sender, target) => {
     if (room.members.includes(target.id)) return undefined
-    const add = rt.isMain(sender.id) ? ', or add it yourself with update_group first' : ''
+    const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 

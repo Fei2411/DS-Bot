@@ -79,7 +79,8 @@ test('ordinary Bot prompts never direct calls to team-admin tools', (t) => {
   t.after(() => ctx.dispose())
   for (const id of ['worker', 'group-worker']) {
     for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(!prompt(id).includes(name), name)
-    assert.match(prompt(id), /ask a Main Bot with message_bot/)
+    assert.match(prompt(id), /update_bot changes your own settings/)
+    assert.match(prompt(id), /change the group with update_group/)
   }
   for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(prompt('main').includes(name), name)
 })

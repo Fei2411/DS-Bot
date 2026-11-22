@@ -202,6 +202,7 @@ test('team-admin filtering preserves other tools and sessions, including empty r
   t.after(host.stop)
   await host.call('state', {})
   const names = BUILTIN_PACKS['team-admin'].tools
+  assert.deepEqual(names, ['create_bot', 'stop_bot', 'create_group', 'delete_group'])
   for (const id of ['a', 'b', 'plain']) {
     const agent = host.agentOf(id)
     let filter
@@ -209,9 +210,10 @@ test('team-admin filtering preserves other tools and sessions, including empty r
     await host.agentCreated(id)
     if (id === 'plain') { assert.equal(filter, undefined); continue }
     agent.ctx.llm = { stream: options => filter(options, () => options) }
-    const options = { tools: [...names, 'list_bots', 'save_capability', 'schedule_create', 'group_goal'].map(name => ({ name })) }
+    const available = ['update_bot', 'update_group', 'list_bot_models', 'list_bots', 'save_capability', 'schedule_create', 'group_goal']
+    const options = { tools: [...names, ...available].map(name => ({ name })) }
     const result = filter(options, () => options)
-    assert.deepEqual(result.tools.map(tool => tool.name), id === 'a' ? options.tools.map(tool => tool.name) : ['list_bots', 'save_capability', 'schedule_create', 'group_goal'])
+    assert.deepEqual(result.tools.map(tool => tool.name), id === 'a' ? options.tools.map(tool => tool.name) : available)
     for (const empty of [{}, { tools: [] }]) assert.equal(filter(empty, () => empty), empty)
   }
 })
@@ -260,6 +262,7 @@ for (const main of [false, true]) {
       assert.equal(seen.length, 3)
       for (const [index, tools] of seen.entries()) {
         for (const name of BUILTIN_PACKS['team-admin'].tools) assert.equal(tools.includes(name), index < 2 ? main : !main, `${name} at request ${index}`)
+        for (const name of ['update_bot', 'update_group', 'list_bot_models']) assert.ok(tools.includes(name), `${name} stays available at request ${index}`)
         assert.ok(tools.includes('list_bots'))
         assert.ok(tools.includes('save_capability'))
       }
