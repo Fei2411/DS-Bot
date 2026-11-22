@@ -2,6 +2,7 @@
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
 import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -125,17 +126,8 @@ class ClaudeSession {
       new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
       { code: 'LOCAL_AGENT_EXIT' },
     )
-    let rest = ''
     child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => {
-      rest += chunk
-      let at
-      while ((at = rest.indexOf('\n')) !== -1) {
-        const line = rest.slice(0, at).trim()
-        rest = rest.slice(at + 1)
-        if (line !== '') this.onLine(line)
-      }
-    })
+    child.stdout.on('data', lineSplitter(line => this.onLine(line)))
     // Writing to a CLI that has already exited fails asynchronously on stdin,
     // not on the child: without this listener the host dies with an unhandled
     // stream error. The failure goes into the session queue instead.

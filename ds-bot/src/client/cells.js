@@ -155,7 +155,7 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [copied, setCopied] = useState(false)
   const tools = useRef(null)
   const pop = useRef(null)
-  const tick = useViewport()
+  const tick = useViewport(panel !== null)
   const close = () => setPanel(null)
   useDismiss(panel !== null, close, [tools, pop])
   const open = (kind, event) => { if (panel?.kind === kind) { close(); return } setPanel({ kind, node: event.currentTarget }) }
@@ -780,8 +780,27 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   }
 }
 
-function NewDivider() {
-  return h('div', { className: 'bt-new-sep', role: 'separator', 'aria-label': t('New messages') }, h('span', null, t('New')))
+// The header's new-message pills look for the divider every frame; a query for it
+// walks the whole transcript whenever there is none, so the dividers register here.
+const newDividers = new Set()
+
+export function newDividerIn(scroller) {
+  let first = null
+  for (const node of newDividers) {
+    if (!scroller.contains(node)) continue
+    if (first === null || first.compareDocumentPosition(node) & first.DOCUMENT_POSITION_PRECEDING) first = node
+  }
+  return first
+}
+
+export function NewDivider() {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const node = ref.current
+    newDividers.add(node)
+    return () => { newDividers.delete(node) }
+  }, [])
+  return h('div', { ref, className: 'bt-new-sep', role: 'separator', 'aria-label': t('New messages') }, h('span', null, t('New')))
 }
 
 export function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi, useTurnClock, actions }) {

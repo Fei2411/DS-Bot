@@ -813,6 +813,8 @@ export const KO = {
   'Add DSH Agent': 'DSH Agent 추가',
   'Remove DSH Agent': 'DSH Agent 제거',
   'New session': '새 세션',
+  'Blank session': '빈 세션',
+  'Continue with handoff': '인수인계로 계속',
   'Start a new session for {name} in this group': '이 그룹에서 {name}의 새 세션 시작',
   Started: '시작됨',
   'Started a new session for {name} in this group': '이 그룹에서 {name}의 새 세션을 시작했습니다',

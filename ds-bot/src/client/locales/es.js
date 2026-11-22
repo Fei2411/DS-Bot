@@ -813,6 +813,8 @@ export const ES = {
   'Add DSH Agent': 'Añadir DSH Agent',
   'Remove DSH Agent': 'Quitar DSH Agent',
   'New session': 'Nueva sesión',
+  'Blank session': 'Sesión en blanco',
+  'Continue with handoff': 'Continuar con traspaso',
   'Start a new session for {name} in this group': 'Iniciar una nueva sesión para {name} en este grupo',
   Started: 'Iniciada',
   'Started a new session for {name} in this group': 'Nueva sesión iniciada para {name} en este grupo',

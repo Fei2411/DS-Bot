@@ -811,6 +811,8 @@ export const FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Blank session": "Session vierge",
+  "Continue with handoff": "Continuer avec passation",
   "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
   "Started": "Démarrée",
   "Started a new session for {name} in this group": "Nouvelle session démarrée pour {name} dans ce groupe",
