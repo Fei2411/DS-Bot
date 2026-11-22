@@ -778,9 +778,16 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
       const room = findAuthorizedGroup(principal, groupId)
       const patch = safeFields(body, GROUP_FIELDS)
-      for (const id of [...(patch.members ?? []), ...(patch.add ?? [])]) {
-        const bot = findAuthorizedBot(principal, String(id))
-        if (bot.private === true) throw httpError(403, 'api/forbidden', 'Private Bots cannot join groups')
+      for (const field of ['members', 'add', 'remove']) {
+        if (patch[field] === undefined) continue
+        if (!Array.isArray(patch[field]) || patch[field].some(id => typeof id !== 'string' || id.trim() === '')) {
+          throw httpError(400, 'api/invalid-field', `Field "${field}" must be an array of Bot IDs`)
+        }
+        patch[field] = patch[field].map(id => {
+          const bot = findAuthorizedBot(principal, id)
+          if (field !== 'remove' && bot.private === true) throw httpError(403, 'api/forbidden', 'Private Bots cannot join groups')
+          return bot.id
+        })
       }
       const { room: updated } = await rt.updateRoom(room.id, patch, API_ACTOR)
       return groupSummary(updated, principal)
