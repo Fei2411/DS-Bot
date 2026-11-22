@@ -1,6 +1,12 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  'Always on': '常時有効',
+  'In catalog': 'カタログ内',
+  'In catalog: the Bot loads this only when it needs it.': 'カタログ内：Bot が必要なときにのみ読み込みます。',
+  'Always on via {name}': '{name} 経由で常時有効',
+  'In catalog via {name}': '{name} 経由でカタログ内',
+  'Allow it in Shared capabilities.': '共有機能で許可してください。',
   "Background work": "バックグラウンド作業",
   "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   'A new reply is waiting': "新しい返信があります",
