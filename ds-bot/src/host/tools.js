@@ -952,6 +952,7 @@ export function install(rt) {
         options,
         multiSelect: args.multiSelect === true,
         ...(args.allowCustom === true ? { allowCustom: true } : {}),
+        ...(owner === undefined ? {} : { imOrigin: rt.captureImOrigin?.(rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId) }),
         askedAt: Date.now(),
       }
       if (owner !== undefined) {
@@ -1005,6 +1006,7 @@ export function install(rt) {
         title,
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),
+        ...(owner === undefined ? {} : { imOrigin: rt.captureImOrigin?.(rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId) }),
         askedAt: Date.now(),
       }
       if (owner !== undefined) {

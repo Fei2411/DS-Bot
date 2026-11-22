@@ -1105,6 +1105,37 @@ test('IM view buttons and numbered replies answer the asking member, not other c
   }
 })
 
+test('a later IM round cannot read or answer another chat\'s pending member cards', async (t) => {
+  for (const kind of ['question', 'view']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    s.rt.roomOf('r1').sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'private choice')
+    s.imTurn('r1')
+    await s.rt.teamTools.find(tool => tool.name === (kind === 'question' ? 'ask_user' : 'show_view')).execute(kind === 'question'
+      ? { question: 'Private route?', options: [{ label: 'A' }] }
+      : { title: 'Private route?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'member-b' } })
+    const store = kind === 'question' ? s.rt.state.questions : s.rt.state.views
+    const card = store['member-b']
+    assert.equal(card.imOrigin.chatKey, 'g1')
+    await s.flush()
+    s.fake.sent.length = 0
+    await gm(s, 'u1', 'new round', { chat: { key: 'g2', kind: 'group' } })
+    s.imTurn('r1')
+    await s.rt.save()
+    await s.flush()
+    assert.ok(!s.fake.sent.some(job => job.chat.key === 'g2' && job.text.includes('Private route?')))
+    await s.fake.handlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `${kind === 'question' ? 'q' : 'v'}:${card.id}:0` })
+    assert.equal(store['member-b'].id, card.id)
+    assert.equal(s.agentOf('member-b').followed ?? 0, 0)
+  }
+})
+
 test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
   const s = await start()
   t.after(s.stop)
