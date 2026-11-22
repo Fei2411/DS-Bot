@@ -127,7 +127,8 @@ test('the Settings default picker labels the inherited usable model without chan
 })
 
 test('a wide picker hides a squeezed provider rather than showing a stub', () => {
-  const props = { bot: { id: 'new-bots', model: 'official/flash' }, roster: { models: [{ ref: 'official/flash', name: 'Flash', provider: 'official' }] }, actions: {}, run: () => {}, wide: true, withEfforts: false }
+  const model = { ref: 'official/flash', name: 'Flash', provider: 'official', reasoning: thinking }
+  const props = { bot: { id: 'new-bots', model: 'official/flash', effort: 'low' }, roster: { models: [model] }, actions: {}, run: () => {}, wide: true, withEfforts: true }
   const element = ModelMenu(props)
   const view = mount(element.type, element.props)
   const provider = { clientWidth: 60, scrollWidth: 70, toggleAttribute(name, hidden) { this.hidden = hidden } }
@@ -144,8 +145,31 @@ test('a wide picker hides a squeezed provider rather than showing a stub', () =>
   provider.scrollWidth = 20
   observer.update()
   assert.equal(provider.hidden, false)
+  // Changing effortLabel or served state re-runs squeeze detection even when provider stays identical.
+  provider.clientWidth = 30
+  provider.scrollWidth = 90
+  view.rerender({ ...props, bot: { ...props.bot, effort: 'high' } })
+  assert.equal(provider.hidden, true)
+  view.rerender({ ...props, roster: { models: [{ ref: 'other/chat', name: 'Other', provider: 'other' }] } })
+  assert.equal(provider.hidden, true)
   view.rerender({ ...props, wide: false })
-  assert.equal(observer.disconnected, true)
+  assert.equal(resizeObservers.at(-1).disconnected, true)
+
+  // Missing ResizeObserver must not throw.
+  const prevRO = sandbox.ResizeObserver
+  try {
+    const noRoMod = { exports: {} }
+    runInNewContext(bundle.outputFiles[0].text, {
+      ...sandbox,
+      ResizeObserver: undefined,
+      module: noRoMod, exports: noRoMod.exports,
+      require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
+    })
+    const noRoEl = noRoMod.exports.ModelMenu(props)
+    assert.doesNotThrow(() => mount(noRoEl.type, noRoEl.props))
+  } finally {
+    sandbox.ResizeObserver = prevRO
+  }
 })
 
 test('a save still under way keeps the slider on the newest pick', async () => {

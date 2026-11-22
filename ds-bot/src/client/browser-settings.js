@@ -48,6 +48,12 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     const next = (bot.browserGrants ?? []).filter((grant, position) => position !== index && !expired(grant))
     void run(actions.updateBot(bot.id, { browserGrants: next.length ? next : null }))
   }
+  const resetForm = () => {
+    setSite('')
+    setKinds(['post'])
+    setDuration('hour')
+    setAdding(false)
+  }
   const add = event => {
     event.preventDefault()
     if (!selectedBot || kinds.length === 0 || busy) return
@@ -64,7 +70,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     void Promise.resolve(run(actions.updateBot(selectedBot.id, {
       browserGrants: [...(selectedBot.browserGrants ?? []).filter(entry => !expired(entry)), grant],
     }))).then((ok) => {
-      if (ok !== false) { setSite(''); setAdding(false) }
+      if (ok !== false) resetForm()
     }, () => {}).finally(() => setBusy(false))
   }
   const toggleKind = (kind, checked) => {
@@ -115,7 +121,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
               onClick: () => setDuration(key),
             }, t(label))))),
         h('div', { className: 'bt-browser-form-foot' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAdding(false) }, t('Cancel')),
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: resetForm }, t('Cancel')),
           h('button', {
             type: 'submit',
             className: 'bt-send bt-soft-sm',

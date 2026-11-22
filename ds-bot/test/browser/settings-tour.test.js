@@ -24,15 +24,31 @@ const fixture = await build({
       function Fixture() {
         const dialogRef = useRef(null)
         const [tour, setTour] = useState(null)
+        const [query, setQuery] = useState('')
         const [clicks, setClicks] = useState(0)
         const [page, setPage] = useState('general')
         const [enterSends, setEnterSends] = useState(true)
         const [saves, setSaves] = useState(0)
+        const trimmed = query.trim().toLowerCase()
+        const pickIm = () => { setQuery(''); setTour(null); setPage('im') }
         return h('div', { className: 'bt-settings-layer' },
           h('div', { className: 'bt-settings', ref: dialogRef },
-            h('nav', { className: 'bt-settings-nav' },
-              h('input', { id: 'search', 'data-tour': 'search', 'aria-label': 'Search settings' })),
+            h('div', { className: 'bt-settings-rail' },
+              h('div', { className: 'bt-set-search-wrap', 'data-tour': 'search', 'data-open': trimmed !== '' || undefined },
+                h('div', { className: 'bt-set-search' },
+                  h('input', {
+                    id: 'search',
+                    className: 'bt-set-search-input',
+                    value: query,
+                    'aria-label': 'Search settings',
+                    onChange: event => setQuery(event.target.value),
+                    onKeyDown: event => { if (event.key === 'Enter' && trimmed === 'im') { event.preventDefault(); pickIm() } },
+                  })),
+                trimmed !== '' ? h('div', { className: 'bt-set-search-list', role: 'listbox', 'aria-label': 'Search settings' },
+                  h('button', { type: 'button', role: 'option', className: 'bt-set-search-hit', onClick: pickIm }, 'IM')) : null),
+              trimmed === '' ? h('nav', { className: 'bt-settings-nav' }) : null),
             h('main', { className: 'bt-settings-main' },
+              h('output', { id: 'current-page' }, page),
               h('button', { onClick: () => setTour({ mode: 'full', nonce: 1 }) }, 'Open guide'),
               h('button', { id: 'enter-sends', role: 'switch', 'aria-checked': enterSends, onClick: () => { setEnterSends(value => !value); setSaves(value => value + 1) } }, 'Enter sends message'),
               h('output', { id: 'preference' }, String(enterSends)),
@@ -140,6 +156,40 @@ test('Settings guide contains keyboard focus and prevents dimmed preference save
           assert.equal(await page.locator('#saves').textContent(), '1')
           assert.equal(await page.locator('#already-inert').evaluate(element => element.inert), true)
           assert.equal(await page.locator('#search').evaluate(element => element.closest('[inert]')), null)
+        } finally { await page.close() }
+      })
+    }
+  } finally { await browser.close() }
+})
+
+test('Settings guide allows clicking search hits, avoids snap-back, and replays from step 0', async (t) => {
+  const browser = await launchBrowser()
+  try {
+    for (const viewport of [{ width: 1280, height: 860 }, { width: 390, height: 844 }]) {
+      await t.test(`${viewport.width}x${viewport.height}`, async () => {
+        const page = await browser.newPage({ viewport })
+        try {
+          await page.setContent(`<style>${botOwnCss(SHELL_CSS)} *{animation:none!important;transition:none!important}</style><div id="root"></div>`)
+          await page.addScriptTag({ content: fixture.outputFiles[0].text })
+          await page.getByRole('button', { name: 'Open guide', exact: true }).click()
+          await page.locator('.bt-tour-layer[data-tour-step="search"] .bt-tour-spot').waitFor()
+
+          // Advance, dismiss, and replay → must restart at step 0 (search), not bm-bar.
+          await page.getByRole('button', { name: 'Next', exact: true }).click()
+          await page.locator('.bt-tour-layer[data-tour-step="bm-bar"] .bt-tour-spot').waitFor()
+          await page.getByRole('button', { name: 'Skip', exact: true }).click()
+          await page.locator('.bt-tour-layer').waitFor({ state: 'detached' })
+          await page.getByRole('button', { name: 'Open guide', exact: true }).click()
+          await page.locator('.bt-tour-layer[data-tour-step="search"] .bt-tour-spot').waitFor()
+
+          // Type in search and click the rendered hit inside [data-tour="search"].
+          const search = page.getByRole('textbox', { name: 'Search settings', exact: true })
+          await search.fill('im')
+          const hit = page.getByRole('option', { name: 'IM', exact: true })
+          await hit.waitFor()
+          await hit.click({ timeout: 2500 })
+          await page.locator('.bt-tour-layer').waitFor({ state: 'detached' })
+          assert.equal(await page.locator('#current-page').textContent(), 'im')
         } finally { await page.close() }
       })
     }

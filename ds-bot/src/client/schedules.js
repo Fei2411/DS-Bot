@@ -223,7 +223,7 @@ function AutomationOff({ actions }) {
     h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
     h('span', { className: 'bt-task-off-title' }, t('Turn on Automation tasks in DSH')),
     h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'data-tour': 'open-plugins', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
 }
 
 // A plain `start` opens the create form for that Bot or group chat; the

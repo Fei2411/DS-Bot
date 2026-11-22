@@ -476,6 +476,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [tour, setTour] = useState(() => (!leaving && page === 'general' && !id && canAutoStartTour() ? { mode: 'full', nonce: 1 } : null))
   const dialogRef = useRef(null)
   const searchListRef = useRef(null)
+  const tourNonceRef = useRef(1)
   const tourRef = useRef(tour)
   tourRef.current = tour
   const close = useCallback(() => {
@@ -490,9 +491,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   useEscape(onEscape, !leaving)
   const startTour = useCallback((mode) => {
     setQuery('')
-    setTour(prev => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }))
+    tourNonceRef.current += 1
+    setTour({ mode, nonce: tourNonceRef.current })
   }, [])
-  const dismissTour = useCallback(() => setTour(null), [])
+  const dismissTour = useCallback(() => {
+    if (tourRef.current?.mode === 'full') markTourSeen()
+    setTour(null)
+  }, [])
   const navigateForTour = useCallback((nextPage) => {
     setQuery('')
     actions.openSettings(nextPage)
@@ -577,6 +582,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const pickHit = (hit) => {
     if (!hit) return
     setQuery('')
+    if (tourRef.current) dismissTour()
     if (hit.expandAdvanced) setAdvancedToken(token => token + 1)
     if (hit.page === 'dsh') actions.openSettings('dsh', hit.dshId)
     else actions.openSettings(hit.page)
@@ -629,58 +635,61 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     h('div', { className: 'bt-scrim', onMouseDown: close }),
     h('div', { ref: dialogRef, className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
       h('div', { className: 'bt-settings-rail' },
-        h('div', { className: 'bt-set-search', 'data-tour': 'search' },
-          h(SearchIcon),
-          h('input', {
-            type: 'text',
-            className: 'bt-set-search-input',
-            value: query,
-            placeholder: t('Search settings'),
-            'aria-label': t('Search settings'),
-            onChange: event => setQuery(event.target.value),
-            onKeyDown: (event) => {
-              if (isImeComposing(event)) return
-              if (event.key === 'Escape' && query !== '') {
-                event.preventDefault()
-                event.stopPropagation()
-                event.nativeEvent?.stopPropagation?.()
-                setQuery('')
-                return
-              }
-              if (searchHits.length === 0) return
-              if (event.key === 'ArrowDown') { event.preventDefault(); setHitIndex(index => (index + 1) % searchHits.length) }
-              else if (event.key === 'ArrowUp') { event.preventDefault(); setHitIndex(index => (index - 1 + searchHits.length) % searchHits.length) }
-              else if (event.key === 'Enter') { event.preventDefault(); pickHit(searchHits[hitIndex] ?? searchHits[0]) }
-            },
-          }),
-          query !== '' ? h('button', {
-            type: 'button',
-            className: 'bt-set-search-clear',
-            'aria-label': t('Clear search'),
-            onClick: () => setQuery(''),
-          }, h(CloseIcon)) : null),
-        trimmed !== ''
-          ? h('div', { ref: searchListRef, className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
-              searchHits.length === 0
-                ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings'))
-                : searchHits.map((hit, index) => h('button', {
-                    key: hit.id,
-                    type: 'button',
-                    role: 'option',
-                    'aria-selected': index === hitIndex,
-                    className: 'bt-set-search-hit',
-                    'data-active': index === hitIndex || undefined,
-                    onMouseEnter: () => setHitIndex(index),
-                    onClick: () => pickHit(hit),
-                  },
-                  hit.dshRow
-                    ? h('span', { className: 'bt-settings-icon', 'aria-hidden': true }, dsh.renderSlot('settings.section.icon', { size: 15, active: false }, {
-                        only: hit.dshRow.id, fallback: h(DSH_ICONS[hit.dshRow.id] ?? IconSettingsOutlineMedium, { size: 15 }),
-                      }))
-                    : h(PAGE_ICONS[hit.icon]),
-                  h('span', { className: 'bt-set-search-title' }, hit.title),
-                  hit.groupTitle && hit.groupTitle !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.groupTitle) : null)))
-          : h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
+        h('div', { className: 'bt-set-search-wrap', 'data-tour': 'search', 'data-open': trimmed !== '' || undefined },
+          h('div', { className: 'bt-set-search' },
+            h(SearchIcon),
+            h('input', {
+              type: 'text',
+              className: 'bt-set-search-input',
+              value: query,
+              placeholder: t('Search settings'),
+              'aria-label': t('Search settings'),
+              onChange: event => setQuery(event.target.value),
+              onKeyDown: (event) => {
+                if (isImeComposing(event)) return
+                if (event.key === 'Escape' && query !== '') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.nativeEvent?.stopPropagation?.()
+                  setQuery('')
+                  return
+                }
+                if (searchHits.length === 0) return
+                if (event.key === 'ArrowDown') { event.preventDefault(); setHitIndex(index => (index + 1) % searchHits.length) }
+                else if (event.key === 'ArrowUp') { event.preventDefault(); setHitIndex(index => (index - 1 + searchHits.length) % searchHits.length) }
+                else if (event.key === 'Enter') { event.preventDefault(); pickHit(searchHits[hitIndex] ?? searchHits[0]) }
+              },
+            }),
+            query !== '' ? h('button', {
+              type: 'button',
+              className: 'bt-set-search-clear',
+              'aria-label': t('Clear search'),
+              onClick: () => setQuery(''),
+            }, h(CloseIcon)) : null),
+          trimmed !== ''
+            ? h('div', { ref: searchListRef, className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
+                searchHits.length === 0
+                  ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings'))
+                  : searchHits.map((hit, index) => h('button', {
+                      key: hit.id,
+                      type: 'button',
+                      role: 'option',
+                      'aria-selected': index === hitIndex,
+                      className: 'bt-set-search-hit',
+                      'data-active': index === hitIndex || undefined,
+                      onMouseEnter: () => setHitIndex(index),
+                      onClick: () => pickHit(hit),
+                    },
+                    hit.dshRow
+                      ? h('span', { className: 'bt-settings-icon', 'aria-hidden': true }, dsh.renderSlot('settings.section.icon', { size: 15, active: false }, {
+                          only: hit.dshRow.id, fallback: h(DSH_ICONS[hit.dshRow.id] ?? IconSettingsOutlineMedium, { size: 15 }),
+                        }))
+                      : h(PAGE_ICONS[hit.icon]),
+                    h('span', { className: 'bt-set-search-title' }, hit.title),
+                    hit.groupTitle && hit.groupTitle !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.groupTitle) : null)))
+            : null),
+        trimmed === ''
+          ? h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
               h('span', { ref: nav.thumb, className: 'bt-thumb', 'aria-hidden': true }),
               mainGroups.map(groupButton),
               extra.length > 0 ? h('span', { className: 'bt-settings-rule', 'aria-hidden': true }) : null,
@@ -691,7 +700,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
                 only: row.id, fallback: h(DSH_ICONS[row.id] ?? IconSettingsOutlineMedium, { size: 16 }),
               })), h('span', { className: 'bt-settings-label' }, row.label))),
               h('span', { className: 'bt-settings-rule', 'aria-hidden': true }),
-              lastGroups.map(groupButton))),
+              lastGroups.map(groupButton))
+          : null),
       h('div', { className: 'bt-settings-main' },
         h('div', { className: 'bt-settings-head' },
           back ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': back, title: back, onClick: () => actions.openSettings(shown) }, h(ChevronLeftIcon)) : null,

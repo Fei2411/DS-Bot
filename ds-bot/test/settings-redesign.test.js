@@ -483,8 +483,141 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     const stylesSrc = readFileSync(join(clientDir, 'styles.js'), 'utf8')
     assert.ok(!stylesSrc.includes('\n.bt-set-row:first-child{'), 'unscoped .bt-set-row:first-child causes notched hover corners on wrapped rows')
     assert.ok(!stylesSrc.includes('\n.bt-set-row:last-child{'), 'unscoped .bt-set-row:last-child causes notched hover corners on wrapped rows')
-    assert.ok(stylesSrc.includes('.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:hidden}'))
+    assert.ok(stylesSrc.includes('.bt-set-card{flex-shrink:0;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}'))
     assert.ok(stylesSrc.includes('button.bt-select{display:inline-flex;align-items:center;'))
+    harness.unmount()
+  })
+})
+
+test('SettingsTour replays from step 0 without unmounting, keeps search hits inside spotlight, and avoids snap-back', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'; export { SettingsTour, TOUR_SEEN_KEY } from './src/client/settings-tour.js'")
+  await withGlobals(async () => {
+    const store = new Map()
+    globalThis.window.localStorage = {
+      getItem: key => (store.has(key) ? store.get(key) : null),
+      setItem: (key, val) => { store.set(key, String(val)) },
+    }
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog, SettingsTour, TOUR_SEEN_KEY } = mod.exports
+
+    let currentPage = 'general'
+    const opened = []
+    const actions = {
+      openSettings: (page, id) => { opened.push([page, id ?? null]); currentPage = page },
+      closeSettings() {},
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      deepseekServices: () => Promise.resolve(null),
+      folders: () => Promise.resolve({ team: '/work' }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+      repoStars: () => Promise.resolve(null),
+      setPrefs: () => Promise.resolve(),
+    }
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+      page: currentPage, id: null, roster: baseRoster, actions, useUpdate: sel => sel({}),
+    }))
+
+    // First-run full tour starts on step 0 (search).
+    let tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search')
+
+    // Typing in search during the search step renders results inside [data-tour="search"].
+    const searchInput = () => findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-set-search-input')[0]
+    searchInput().props.onChange({ target: { value: '微信' } })
+    tree = draw()
+    const searchWrap = findAll(tree, n => n.props?.['data-tour'] === 'search')[0]
+    assert.ok(searchWrap, '[data-tour="search"] wrapper must exist')
+    const hitsInsideWrap = findAll(searchWrap, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')
+    assert.equal(hitsInsideWrap.length, 1, 'search hits must live inside [data-tour="search"]')
+
+    // Picking a non-General hit navigates to IM, dismisses the tour, marks seen, and stays on IM.
+    searchInput().props.onKeyDown({ key: 'Enter', isComposing: false, preventDefault() {}, stopPropagation() {} })
+    tree = draw()
+    tree = draw()
+    assert.equal(currentPage, 'im', 'picking IM search hit must not snap back to general')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0, 'picking search hit dismisses tour')
+    assert.equal(store.get(TOUR_SEEN_KEY), '1', 'picking search hit during full tour marks it seen')
+
+    // Replay the same section guide without unmounting: advance, skip, then start again → must start at step 0.
+    currentPage = 'general'
+    tree = draw()
+    const guideBtn = () => findAll(tree, n => n.type === 'button' && typeof n.props?.className === 'string' && n.props.className.includes('bt-tour-trigger'))[0]
+    guideBtn().props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'default-model')
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-send bt-soft-sm')[0].props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'locations')
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-tour-skip')[0].props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0)
+    guideBtn().props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'default-model', 'replaying dismissed section guide must start at step 0')
+
+    // Replay full guide from About without unmounting: advance to Models, skip, start again → must start at step 0 (search).
+    currentPage = 'about'
+    tree = draw()
+    const startFull = () => findAll(tree, n => n.type === 'button' && textOf(n).includes('Start'))[0]
+    startFull().props.onClick()
+    tree = draw()
+    tree = draw()
+    assert.equal(currentPage, 'general')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search')
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-send bt-soft-sm')[0].props.onClick()
+    tree = draw()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'provider-list')
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-tour-skip')[0].props.onClick()
+    tree = draw()
+    currentPage = 'about'
+    tree = draw()
+    startFull().props.onClick()
+    tree = draw()
+    tree = draw()
+    assert.equal(currentPage, 'general')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search', 'replaying dismissed full guide must start at step 0')
+    harness.unmount()
+
+    // Standalone SettingsTour: changing currentPage externally must not snap back; schedules tour falls back to open-plugins when new-task is absent.
+    const navCalls = []
+    let standalonePage = 'general'
+    const openPluginsEl = {
+      getBoundingClientRect: () => ({ left: 400, top: 260, right: 520, bottom: 292, width: 120, height: 32 }),
+      closest: () => null,
+      scrollIntoView() {},
+    }
+    const dialogEl = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 1100, bottom: 780, width: 1100, height: 780 }),
+      querySelector: sel => (sel === '[data-tour="open-plugins"]' ? openPluginsEl : null),
+      addEventListener() {},
+      removeEventListener() {},
+    }
+    const drawStandalone = (tour) => harness.render(harness.React.createElement(SettingsTour, {
+      tour,
+      currentPage: standalonePage,
+      dialogRef: { current: dialogEl },
+      hasProviders: true,
+      hasAdvancedModels: false,
+      onNavigate: p => { navCalls.push(p); standalonePage = p },
+      onDismiss() {},
+    }))
+    drawStandalone({ mode: 'full', nonce: 1 })
+    assert.deepEqual(navCalls, [])
+    standalonePage = 'im'
+    drawStandalone({ mode: 'full', nonce: 1 })
+    assert.deepEqual(navCalls, [], 'external page change while staying on step 0 must not snap back')
+
+    standalonePage = 'schedules'
+    drawStandalone({ mode: 'schedules', nonce: 2 })
+    const fallbackTree = drawStandalone({ mode: 'schedules', nonce: 2 })
+    const schedLayer = findAll(fallbackTree, n => n.props?.className === 'bt-tour-layer')[0]
+    assert.equal(schedLayer.props['data-tour-step'], 'open-plugins')
+    assert.equal(schedLayer.props['aria-label'], 'Turn on Automation tasks in DSH')
+    assert.equal(findAll(fallbackTree, n => n.props?.className === 'bt-tour-spot').length, 1)
     harness.unmount()
   })
 })
@@ -692,12 +825,34 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
 
     let tree = draw()
     assert.equal(findAll(tree, n => n.type === 'form').length, 0, 'form should be collapsed initially')
-    const toggleBtn = findAll(tree, n => n.type === 'button' && textOf(n).includes('Allow action'))[0]
-    assert.ok(toggleBtn)
-    toggleBtn.props.onClick()
+    const toggleBtn = () => findAll(tree, n => n.type === 'button' && textOf(n).includes('Allow action'))[0]
+    assert.ok(toggleBtn())
+    toggleBtn().props.onClick()
     tree = draw()
     assert.equal(findAll(tree, n => n.type === 'form').length, 1)
     assert.ok(findAll(tree, n => n.props?.className?.includes('bt-seg')).length >= 1, 'Duration should use Segmented')
+
+    // Editing site, actions, and duration then clicking Cancel must discard the draft on reopen.
+    findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.onChange({ target: { value: 'example.com' } })
+    const checkboxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
+    checkboxes[1].props.onChange({ target: { checked: true } })
+    const permBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0]
+    permBtn.props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, 'example.com')
+    assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0].props['aria-pressed'], true)
+
+    findAll(tree, n => n.type === 'button' && textOf(n) === 'Cancel')[0].props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'form').length, 0)
+
+    toggleBtn().props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, '')
+    const resetBoxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
+    assert.deepEqual(resetBoxes.map(b => b.props.checked), [true, false, false, false])
+    assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === '1 hour')[0].props['aria-pressed'], true)
+    assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0].props['aria-pressed'], false)
     harness.unmount()
   })
 })

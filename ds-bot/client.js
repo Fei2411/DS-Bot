@@ -18325,7 +18325,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-dialog-sink{to{opacity:0;translate:0 6px;scale:.975;filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-rail{width:var(--bt-set-nav-w);flex:none;display:flex;flex-direction:column;min-height:0;border-right:.5px solid var(--bt-line);background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
-.bt-set-search{flex:none;display:flex;align-items:center;gap:7px;margin:16px 10px 8px;padding:0 10px;height:32px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink-3);transition:border-color .14s ease,box-shadow .14s ease}
+.bt-set-search-wrap{flex:none;display:flex;flex-direction:column;min-height:0;margin:16px 10px 8px}
+.bt-set-search-wrap[data-open]{flex:0 1 auto;margin-bottom:10px}
+.bt-set-search{flex:none;display:flex;align-items:center;gap:7px;padding:0 10px;height:32px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink-3);transition:border-color .14s ease,box-shadow .14s ease}
 .bt-set-search:focus-within{border-color:color-mix(in srgb,var(--bt-accent) 55%,var(--bt-line));box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 16%,transparent);color:var(--bt-ink-2)}
 .bt-set-search>svg{flex:none;width:14px;height:14px}
 .bt-set-search-input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px}
@@ -18333,7 +18335,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-set-search-clear{flex:none;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-set-search-clear:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-set-search-clear svg{width:12px;height:12px}
-.bt-set-search-list{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 16px;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
+.bt-set-search-list{flex:0 1 auto;min-height:0;overflow-y:auto;padding:12px 0 6px;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
 .bt-set-search-hit{display:flex;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-set-search-hit:hover,.bt-set-search-hit[data-active]{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-set-search-hit>svg{flex:none;width:14px;height:14px;color:var(--bt-ink-2)}
@@ -18455,7 +18457,7 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-theme-check{display:inline-flex;color:var(--bt-accent)}
 .bt-theme-check>svg{width:13px;height:13px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
-.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:hidden}
+.bt-set-card{flex-shrink:0;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
@@ -18965,8 +18967,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
   .bt-settings-rail{width:100%;flex:none;border-right:0;border-bottom:.5px solid var(--bt-line)}
-  .bt-set-search{margin:10px 52px 4px 10px}
-  .bt-set-search-list{max-height:46vh;padding:4px 10px 10px}
+  .bt-set-search-wrap{margin:10px 52px 4px 10px}
+  .bt-set-search-wrap[data-open]{margin-bottom:10px}
+  .bt-set-search-list{max-height:46vh;padding:8px 0 0}
   /* Right padding is not honored inside a scrolling flex row; a transparent
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
@@ -25744,8 +25747,9 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240);
   const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts, fallbackModel });
   const { manage, hasEfforts } = picker;
+  const hasModels = picker.models.length > 0;
   (0, import_react20.useLayoutEffect)(() => {
-    if (!wide) return;
+    if (!wide || typeof ResizeObserver !== "function") return;
     const provider = button.current?.querySelector(".bt-model-provider");
     if (!provider) return;
     const update = () => provider.toggleAttribute("data-squeezed", provider.clientWidth < Math.min(48, provider.scrollWidth));
@@ -25753,7 +25757,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     observer.observe(provider);
     update();
     return () => observer.disconnect();
-  }, [wide, button, picker.shown?.provider]);
+  }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels]);
   const toggle = () => {
     if (isOpen) {
       close();
@@ -26723,7 +26727,7 @@ function AutomationOff({ actions }) {
     (0, import_react23.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react23.createElement)(ClockIcon)),
     (0, import_react23.createElement)("span", { className: "bt-task-off-title" }, t("Turn on Automation tasks in DSH")),
     (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings.")),
-    (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
+    (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", "data-tour": "open-plugins", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
   );
 }
 function SchedulesPage({ roster, actions, start }) {
@@ -39081,6 +39085,12 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     const next = (bot.browserGrants ?? []).filter((grant, position) => position !== index && !expired(grant));
     void run2(actions.updateBot(bot.id, { browserGrants: next.length ? next : null }));
   };
+  const resetForm = () => {
+    setSite("");
+    setKinds(["post"]);
+    setDuration("hour");
+    setAdding(false);
+  };
   const add = (event) => {
     event.preventDefault();
     if (!selectedBot || kinds.length === 0 || busy) return;
@@ -39097,10 +39107,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     void Promise.resolve(run2(actions.updateBot(selectedBot.id, {
       browserGrants: [...(selectedBot.browserGrants ?? []).filter((entry) => !expired(entry)), grant]
     }))).then((ok) => {
-      if (ok !== false) {
-        setSite("");
-        setAdding(false);
-      }
+      if (ok !== false) resetForm();
     }, () => {
     }).finally(() => setBusy(false));
   };
@@ -39182,7 +39189,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
         (0, import_react48.createElement)(
           "div",
           { className: "bt-browser-form-foot" },
-          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAdding(false) }, t("Cancel")),
+          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: resetForm }, t("Cancel")),
           (0, import_react48.createElement)("button", {
             type: "submit",
             className: "bt-send bt-soft-sm",
@@ -40535,7 +40542,16 @@ var SECTION_TOURS = {
     { target: "group-list", title: "Group chats", cue: "Click a group row to change its members, admin, or shared folder." }
   ],
   schedules: [
-    { target: "new-task", title: "New task", cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.' }
+    {
+      target: "new-task",
+      title: "New task",
+      cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
+      fallback: {
+        target: "open-plugins",
+        title: "Turn on Automation tasks in DSH",
+        cue: "Switch on Automation tasks on the Plugins page in Settings."
+      }
+    }
   ],
   connectors: [
     { target: "conn-search", title: "Search connectors", cue: 'Search an app here, or click "+ Custom" to add your own MCP server.' },
@@ -40602,6 +40618,13 @@ function findTourTarget(dialogEl, targetKey) {
   const rect = el.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
   return el;
+}
+function resolveStep(dialogEl, step) {
+  if (!step) return { step: null, targetEl: null };
+  const primary = findTourTarget(dialogEl, step.target);
+  if (primary || !step.fallback) return { step, targetEl: primary };
+  const fallback = findTourTarget(dialogEl, step.fallback.target);
+  return fallback ? { step: step.fallback, targetEl: fallback } : { step, targetEl: null };
 }
 function measureSpotlight(dialogEl, targetKey) {
   const el = findTourTarget(dialogEl, targetKey);
@@ -40674,12 +40697,18 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
   );
   const tourKey = tour ? `${tour.mode}:${tour.nonce}` : "";
   const [stepState, setStepState] = (0, import_react54.useState)({ key: tourKey, index: 0 });
+  if (tourKey === "" && stepState.key !== "") setStepState({ key: "", index: 0 });
   const index = stepState.key === tourKey ? stepState.index : 0;
   const [spot, setSpot] = (0, import_react54.useState)(null);
+  const [resolvedStep, setResolvedStep] = (0, import_react54.useState)(null);
   const [cardSize, setCardSize] = (0, import_react54.useState)({ width: 304, height: 140 });
   const layerRef = (0, import_react54.useRef)(null);
   const cardRef = (0, import_react54.useRef)(null);
   const scrolledRef = (0, import_react54.useRef)("");
+  const currentPageRef = (0, import_react54.useRef)(currentPage);
+  currentPageRef.current = currentPage;
+  const onNavigateRef = (0, import_react54.useRef)(onNavigate);
+  onNavigateRef.current = onNavigate;
   const active = Boolean(tour && steps.length > 0);
   const step = active ? steps[Math.min(index, steps.length - 1)] : null;
   const isLast = active && index >= steps.length - 1;
@@ -40713,7 +40742,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     const allowed2 = (element) => card.contains(element) || Boolean(target?.contains(element));
     const sync = () => {
       restore();
-      target = !step.page || step.page === currentPage ? findTourTarget(dialog, step.target) : null;
+      target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null;
       const roots = [layer, target].filter(Boolean);
       const isolate = (element) => {
         if (roots.includes(element)) return;
@@ -40770,16 +40799,19 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [active, next, prev]);
   (0, import_react54.useEffect)(() => {
-    if (!step?.page || step.page === currentPage) return;
-    onNavigate(step.page);
-  }, [step?.page, currentPage, onNavigate]);
+    if (!active || !step?.page || step.page === currentPageRef.current) return;
+    onNavigateRef.current(step.page);
+  }, [active, tourKey, index, step?.page]);
   (0, import_react54.useEffect)(() => {
     if (!active || !step) {
+      scrolledRef.current = "";
       setSpot(null);
+      setResolvedStep(null);
       return void 0;
     }
     if (step.page && step.page !== currentPage) {
       setSpot(null);
+      setResolvedStep(null);
       return void 0;
     }
     const dialogEl = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
@@ -40788,18 +40820,21 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       return void 0;
     }
     let raf = 0;
-    const stepKey = `${tourKey}:${index}:${step.target}`;
+    const stepKey2 = `${tourKey}:${index}`;
     const sync = () => {
       const box = cardRef.current;
       if (box && box.offsetWidth > 0 && box.offsetHeight > 0) {
         setCardSize((prev2) => prev2.width === box.offsetWidth && prev2.height === box.offsetHeight ? prev2 : { width: box.offsetWidth, height: box.offsetHeight });
       }
-      const targetEl = findTourTarget(dialogEl, step.target);
-      if (targetEl && scrolledRef.current !== stepKey) {
-        scrolledRef.current = stepKey;
-        targetEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      const resolved = resolveStep(dialogEl, step);
+      const shown = resolved.step ?? step;
+      setResolvedStep((prev2) => prev2?.key === stepKey2 && prev2.step === shown ? prev2 : { key: stepKey2, step: shown });
+      const targetKey = `${stepKey2}:${shown.target}`;
+      if (resolved.targetEl && scrolledRef.current !== targetKey) {
+        scrolledRef.current = targetKey;
+        resolved.targetEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       }
-      const measured = measureSpotlight(dialogEl, step.target);
+      const measured = measureSpotlight(dialogEl, shown.target);
       setSpot((prev2) => sameSpot(prev2, measured) ? prev2 : measured);
     };
     const schedule = () => {
@@ -40832,6 +40867,8 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     };
   }, [active, step, currentPage, dialogRef, tourKey, index]);
   if (!active || !step) return null;
+  const stepKey = `${tourKey}:${index}`;
+  const shownStep = resolvedStep?.key === stepKey ? resolvedStep.step : step;
   const activeSpot = step.page && step.page !== currentPage ? null : spot;
   const narrowViewport = typeof window !== "undefined" && typeof window.innerWidth === "number" && window.innerWidth <= 640;
   const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 };
@@ -40846,9 +40883,9 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       className: "bt-tour-layer",
       role: "dialog",
       "aria-modal": false,
-      "aria-label": t(step.title),
+      "aria-label": t(shownStep.title),
       "data-tour-mode": tour.mode,
-      "data-tour-step": step.target
+      "data-tour-step": shownStep.target
     },
     (0, import_react54.createElement)("div", {
       className: activeSpot ? "bt-tour-backdrop" : "bt-tour-backdrop bt-tour-backdrop-dim",
@@ -40872,10 +40909,10 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       (0, import_react54.createElement)(
         "div",
         { className: "bt-tour-head" },
-        (0, import_react54.createElement)("span", { className: "bt-tour-title" }, t(step.title)),
+        (0, import_react54.createElement)("span", { className: "bt-tour-title" }, t(shownStep.title)),
         steps.length > 1 ? (0, import_react54.createElement)("span", { className: "bt-tour-count" }, `${index + 1} / ${steps.length}`) : null
       ),
-      (0, import_react54.createElement)("p", { className: "bt-tour-cue" }, t(step.cue)),
+      (0, import_react54.createElement)("p", { className: "bt-tour-cue" }, t(shownStep.cue)),
       (0, import_react54.createElement)(
         "div",
         { className: "bt-tour-foot" },
@@ -41741,6 +41778,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const [tour, setTour] = (0, import_react56.useState)(() => !leaving && page === "general" && !id && canAutoStartTour() ? { mode: "full", nonce: 1 } : null);
   const dialogRef = (0, import_react56.useRef)(null);
   const searchListRef = (0, import_react56.useRef)(null);
+  const tourNonceRef = (0, import_react56.useRef)(1);
   const tourRef = (0, import_react56.useRef)(tour);
   tourRef.current = tour;
   const close = (0, import_react56.useCallback)(() => {
@@ -41758,9 +41796,13 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   useEscape(onEscape, !leaving);
   const startTour = (0, import_react56.useCallback)((mode) => {
     setQuery("");
-    setTour((prev) => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }));
+    tourNonceRef.current += 1;
+    setTour({ mode, nonce: tourNonceRef.current });
   }, []);
-  const dismissTour = (0, import_react56.useCallback)(() => setTour(null), []);
+  const dismissTour = (0, import_react56.useCallback)(() => {
+    if (tourRef.current?.mode === "full") markTourSeen();
+    setTour(null);
+  }, []);
   const navigateForTour = (0, import_react56.useCallback)((nextPage) => {
     setQuery("");
     actions.openSettings(nextPage);
@@ -41842,6 +41884,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const pickHit = (hit) => {
     if (!hit) return;
     setQuery("");
+    if (tourRef.current) dismissTour();
     if (hit.expandAdvanced) setAdvancedToken((token) => token + 1);
     if (hit.page === "dsh") actions.openSettings("dsh", hit.dshId);
     else actions.openSettings(hit.page);
@@ -41897,67 +41940,72 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         { className: "bt-settings-rail" },
         (0, import_react56.createElement)(
           "div",
-          { className: "bt-set-search", "data-tour": "search" },
-          (0, import_react56.createElement)(SearchIcon),
-          (0, import_react56.createElement)("input", {
-            type: "text",
-            className: "bt-set-search-input",
-            value: query,
-            placeholder: t("Search settings"),
-            "aria-label": t("Search settings"),
-            onChange: (event) => setQuery(event.target.value),
-            onKeyDown: (event) => {
-              if (isImeComposing(event)) return;
-              if (event.key === "Escape" && query !== "") {
-                event.preventDefault();
-                event.stopPropagation();
-                event.nativeEvent?.stopPropagation?.();
-                setQuery("");
-                return;
+          { className: "bt-set-search-wrap", "data-tour": "search", "data-open": trimmed2 !== "" || void 0 },
+          (0, import_react56.createElement)(
+            "div",
+            { className: "bt-set-search" },
+            (0, import_react56.createElement)(SearchIcon),
+            (0, import_react56.createElement)("input", {
+              type: "text",
+              className: "bt-set-search-input",
+              value: query,
+              placeholder: t("Search settings"),
+              "aria-label": t("Search settings"),
+              onChange: (event) => setQuery(event.target.value),
+              onKeyDown: (event) => {
+                if (isImeComposing(event)) return;
+                if (event.key === "Escape" && query !== "") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.nativeEvent?.stopPropagation?.();
+                  setQuery("");
+                  return;
+                }
+                if (searchHits.length === 0) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setHitIndex((index) => (index + 1) % searchHits.length);
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setHitIndex((index) => (index - 1 + searchHits.length) % searchHits.length);
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  pickHit(searchHits[hitIndex] ?? searchHits[0]);
+                }
               }
-              if (searchHits.length === 0) return;
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setHitIndex((index) => (index + 1) % searchHits.length);
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setHitIndex((index) => (index - 1 + searchHits.length) % searchHits.length);
-              } else if (event.key === "Enter") {
-                event.preventDefault();
-                pickHit(searchHits[hitIndex] ?? searchHits[0]);
-              }
-            }
-          }),
-          query !== "" ? (0, import_react56.createElement)("button", {
-            type: "button",
-            className: "bt-set-search-clear",
-            "aria-label": t("Clear search"),
-            onClick: () => setQuery("")
-          }, (0, import_react56.createElement)(CloseIcon)) : null
-        ),
-        trimmed2 !== "" ? (0, import_react56.createElement)(
-          "div",
-          { ref: searchListRef, className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
-          searchHits.length === 0 ? (0, import_react56.createElement)("div", { className: "bt-set-search-empty" }, t("No matching settings")) : searchHits.map((hit, index) => (0, import_react56.createElement)(
-            "button",
-            {
-              key: hit.id,
+            }),
+            query !== "" ? (0, import_react56.createElement)("button", {
               type: "button",
-              role: "option",
-              "aria-selected": index === hitIndex,
-              className: "bt-set-search-hit",
-              "data-active": index === hitIndex || void 0,
-              onMouseEnter: () => setHitIndex(index),
-              onClick: () => pickHit(hit)
-            },
-            hit.dshRow ? (0, import_react56.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 15, active: false }, {
-              only: hit.dshRow.id,
-              fallback: (0, import_react56.createElement)(DSH_ICONS[hit.dshRow.id] ?? import_dsh_client_ui_primitives.IconSettingsOutlineMedium, { size: 15 })
-            })) : (0, import_react56.createElement)(PAGE_ICONS[hit.icon]),
-            (0, import_react56.createElement)("span", { className: "bt-set-search-title" }, hit.title),
-            hit.groupTitle && hit.groupTitle !== hit.title ? (0, import_react56.createElement)("span", { className: "bt-set-search-meta" }, hit.groupTitle) : null
-          ))
-        ) : (0, import_react56.createElement)(
+              className: "bt-set-search-clear",
+              "aria-label": t("Clear search"),
+              onClick: () => setQuery("")
+            }, (0, import_react56.createElement)(CloseIcon)) : null
+          ),
+          trimmed2 !== "" ? (0, import_react56.createElement)(
+            "div",
+            { ref: searchListRef, className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
+            searchHits.length === 0 ? (0, import_react56.createElement)("div", { className: "bt-set-search-empty" }, t("No matching settings")) : searchHits.map((hit, index) => (0, import_react56.createElement)(
+              "button",
+              {
+                key: hit.id,
+                type: "button",
+                role: "option",
+                "aria-selected": index === hitIndex,
+                className: "bt-set-search-hit",
+                "data-active": index === hitIndex || void 0,
+                onMouseEnter: () => setHitIndex(index),
+                onClick: () => pickHit(hit)
+              },
+              hit.dshRow ? (0, import_react56.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 15, active: false }, {
+                only: hit.dshRow.id,
+                fallback: (0, import_react56.createElement)(DSH_ICONS[hit.dshRow.id] ?? import_dsh_client_ui_primitives.IconSettingsOutlineMedium, { size: 15 })
+              })) : (0, import_react56.createElement)(PAGE_ICONS[hit.icon]),
+              (0, import_react56.createElement)("span", { className: "bt-set-search-title" }, hit.title),
+              hit.groupTitle && hit.groupTitle !== hit.title ? (0, import_react56.createElement)("span", { className: "bt-set-search-meta" }, hit.groupTitle) : null
+            ))
+          ) : null
+        ),
+        trimmed2 === "" ? (0, import_react56.createElement)(
           "nav",
           { ref: nav.box, className: "bt-settings-nav", "aria-label": t("Settings pages") },
           (0, import_react56.createElement)("span", { ref: nav.thumb, className: "bt-thumb", "aria-hidden": true }),
@@ -41975,7 +42023,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           })), (0, import_react56.createElement)("span", { className: "bt-settings-label" }, row.label))),
           (0, import_react56.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }),
           lastGroups.map(groupButton)
-        )
+        ) : null
       ),
       (0, import_react56.createElement)(
         "div",
