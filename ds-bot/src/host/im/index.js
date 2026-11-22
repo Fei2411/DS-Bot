@@ -41,6 +41,30 @@ const SENT_ID_LEN = 100
 // it without limit (#1306 review).
 const SENT_STORE_LIMIT = 200_000
 
+// Keep the global cap as well as each chat's cap, evicting the oldest entries
+// first. Empty lists still count toward the limit until eviction is done.
+export function capSentStore(sent) {
+  let size = JSON.stringify(sent).length
+  if (size <= SENT_STORE_LIMIT) return
+  const byAge = []
+  for (const [chatKey, list] of Object.entries(sent)) {
+    if (!Array.isArray(list)) continue
+    for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
+  }
+  byAge.sort((a, b) => a.age - b.age)
+  for (const { chatKey, entry } of byAge) {
+    if (size <= SENT_STORE_LIMIT) break
+    const list = sent[chatKey]
+    const at = list.indexOf(entry)
+    if (at === -1) continue
+    list.splice(at, 1)
+    size -= JSON.stringify(entry).length + (list.length > 0 ? 1 : 0)
+  }
+  for (const [chatKey, list] of Object.entries(sent)) {
+    if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
+  }
+}
+
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
 export function install(rt) {
@@ -394,32 +418,6 @@ export function install(rt) {
     data.sent[chatKey] = [...kept, ...entries].slice(-SENT_KEEP)
     capSentStore(data.sent)
     scheduleWrite(id)
-  }
-  // The runtime file is one blob, so bound the whole sent store, not just each
-  // chat's list. Collect every entry with its age and drop the oldest first —
-  // a chat's last message is the one a quoted reply is most likely to name, so
-  // it must survive even when older chats have to go. A single entry is already
-  // bounded above (text, id count and id length), so the store always converges.
-  const capSentStore = (sent) => {
-    let size = JSON.stringify(sent).length
-    if (size <= SENT_STORE_LIMIT) return
-    const byAge = []
-    for (const [chatKey, list] of Object.entries(sent)) {
-      if (!Array.isArray(list)) continue
-      for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
-    }
-    byAge.sort((a, b) => a.age - b.age)
-    for (const { chatKey, entry } of byAge) {
-      if (size <= SENT_STORE_LIMIT) break
-      const list = sent[chatKey]
-      const at = list.indexOf(entry)
-      if (at === -1) continue
-      list.splice(at, 1)
-      size = JSON.stringify(sent).length
-    }
-    for (const [chatKey, list] of Object.entries(sent)) {
-      if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
-    }
   }
   // The text a quoted reply answers: the first of its ids that names a message
   // this chat sent, else the text the platform kept of that message. An id only
