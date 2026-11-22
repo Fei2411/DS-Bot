@@ -931,3 +931,96 @@ test('recovery does not hand a request back after its work closed while it check
   assert.equal(host.agentOf('b').calls.length, 0, 'a closed work has nothing left to answer')
   await host.stop()
 })
+
+// A turn that carried a steered request across a part switch holds it under
+// source.joined on the handoff message rather than as a separate user/message.
+// A crash between turn/end in the new part and deferred delivery must still recover it.
+test('a steered request carried across a part switch via source.joined is recovered after a crash', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-reconcile-handoff-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.bots.b.segments = [{ sessionId: 'b', endedAt: 10 }]
+  seed.bots.b.sessionId = 'b-2'
+  seed.works = {
+    p1: { from: 'c', to: 'a', open: ['req-1'], results: [], at: 1 },
+    p2: { from: 'c', to: 'a', open: ['req-2'], results: [], at: 1 },
+    'req-1': { from: 'a', to: 'b', parent: 'p1', open: [], results: [], at: 2 },
+    'req-2': { from: 'a', to: 'b', parent: 'p2', open: [], results: [], at: 3 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const req2 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-2', senderName: 'Chief', senderSessionId: 'a' }
+  const handoff = {
+    kind: 'bot',
+    form: 'relay',
+    role: 'request',
+    exchangeId: 'req-1',
+    senderName: 'Chief',
+    senderSessionId: 'a',
+    handoff: true,
+    resume: true,
+    joined: [{ info: req2, text: '[URGENT]\nsecond across switch' }],
+  }
+  const logs = new Map([
+    ['a', []],
+    ['b-2', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: handoff, content: [{ type: 'text', text: '# Handoff\nYou were in the middle of a turn.' }] } },
+      { type: 'assistant/message', seq: 3, data: { message: { content: [{ type: 'text', text: 'first answer after switch' }] } } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { 'b-2': { botId: 'b', since: 1, trigger: { role: 'request', exchangeId: 'req-1', senderSessionId: 'a' } } },
+    queued: {},
+  }))
+
+  const host = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('a').calls.length >= 1 && host.agentOf('b-2').calls.length >= 1)
+
+  const replies = host.agentOf('a').calls
+  assert.equal(replies.filter(msg => msg.source.replyTo === 'req-1').length, 1, 'the primary request is answered once')
+  assert.equal(replies.filter(msg => msg.source.replyTo === 'req-2').length, 0, 'the carried request is not answered with the turn\'s text')
+  const handed = host.agentOf('b-2').calls
+  assert.equal(handed.length, 1, 'the carried steered request is handed back once')
+  assert.equal(handed[0].source.exchangeId, 'req-2')
+  assert.equal(handed[0].source.role, 'request')
+  assert.equal(handed[0].source.deferred, true)
+  assert.match(textOf(handed[0]), /\[URGENT\]\nsecond across switch/, 'the carried text is kept verbatim')
+  assert.doesNotMatch(textOf(handed[0]), /# Handoff/, 'the handoff body is not re-sent as the steered request')
+  assert.equal(host.rt.state.works['req-1'], undefined)
+  assert.deepEqual(host.rt.state.works['p2'].open, ['req-2'])
+  await host.stop()
+})
+
+// While recoverJoinedRequests awaits alreadyAnswered / resolveAgent, a live turn can
+// already pick up the deferred exchangeId — clearing queued notes and inbox while the
+// work is still open. Recovery must check rt.live before delivering a second copy.
+test('recovery does not duplicate a request a newly started live turn already owns', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { seed, logs, req2 } = completedSteerFixture()
+  const home = completedSteerHome(t, 'ds-bot-dedup-reconcile-live-owned', seed)
+  const host = await createRestartHost(t, home, logs)
+  const held = holdRecoveryResolve(host)
+  t.mock.timers.tick(3000)
+  await held.gate
+
+  // The Bot's next turn starts and reads req-2 while recovery is paused on resolveAgent:
+  // unreadOf and agent.inbox are both empty, and req-2's work is still open.
+  host.emit('b', 'turn/start', { turn: 2 })
+  host.emit('b', 'user/message', {
+    content: [{ type: 'text', text: '[Message from Chief · you read it during your last task; answer it now]\nsecond' }],
+    source: { ...req2, deferred: true },
+  })
+  assert.equal(host.rt.unreadOf('b').length, 0)
+  assert.equal(host.rt.live.get('b')?.info?.exchangeId, 'req-2')
+
+  held.release()
+  await settle(() => host.agentOf('a').calls.length >= 1)
+  await realDelay(30)
+  assert.equal(host.agentOf('b').calls.length, 0, 'a request already owned by a live turn must not be delivered again')
+  await host.stop()
+})

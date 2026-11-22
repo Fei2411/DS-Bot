@@ -51,6 +51,18 @@ export function turnsOf(events) {
         // deferred delivery made it: text, and the attachments it carried.
         current.messages[source.exchangeId] = { content: event.data?.content }
       }
+      // A turn resumed across a part switch carries steered requests in source.joined
+      // ({ info, text }[]) instead of separate user/message events.
+      if (Array.isArray(source?.joined)) {
+        for (const item of source.joined) {
+          const info = item?.info
+          if (info?.exchangeId === undefined) continue
+          current.took.push(info)
+          if (current.messages[info.exchangeId] === undefined) {
+            current.messages[info.exchangeId] = { text: typeof item.text === 'string' ? item.text : '' }
+          }
+        }
+      }
       continue
     }
     if (event.type === 'assistant/message') {
@@ -550,7 +562,7 @@ export function install(rt) {
   async function recoverJoinedRequests(sessionId, record, turn, events, name) {
     const bot = rt.botOf(record.botId)
     if (bot === undefined) return
-    const seen = new Set([record.trigger?.exchangeId])
+    const seen = new Set([rt.workOf?.(record.trigger), record.trigger?.exchangeId])
     for (const source of turn.took) {
       if (source?.kind !== SOURCE_KIND) continue
       if (source.role !== 'request' && source.role !== 'stopped') continue
@@ -565,7 +577,9 @@ export function install(rt) {
       // Handed back after this turn ended: it is already in the Session's log, and the
       // restart resend or its own inbox moves it; an earlier or later turn took it up.
       if (turn.end !== undefined && events.some(event => event.seq !== undefined && event.seq > turn.end
-        && event.type === 'user/message' && event.data?.source?.exchangeId === exchangeId)) continue
+        && event.type === 'user/message'
+        && (event.data?.source?.exchangeId === exchangeId
+          || event.data?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId)))) continue
       if (rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId)) continue
       // The reply went out in another run: the work closes with what it said, and the
       // Bot is not asked again.
@@ -581,17 +595,32 @@ export function install(rt) {
         }
       }
       const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
-      const content = turn.messages?.[exchangeId]?.content ?? []
-      const text = textOf(content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+      const saved = turn.messages?.[exchangeId]
+      const content = Array.isArray(saved?.content) ? saved.content : []
+      const text = typeof saved?.text === 'string'
+        ? saved.text
+        : textOf(content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
       const images = content.filter(block => block?.type === 'image' && block.attachment !== undefined).map(block => block.attachment)
       const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-      // The checks above awaited, so the normal path may have committed this exchange
-      // or closed its work in the meantime. Check once more with nothing awaited between
-      // here and the delivery: a queued note or an inbox entry for the same exchange
-      // means it was already handed back, and a closed work has nothing left to answer.
+      // The checks above awaited, so the normal path may have committed this exchange,
+      // started a live turn for it, or closed its work in the meantime. Check once more
+      // with nothing awaited between here and the delivery: a queued note, an inbox
+      // entry, or a live turn holding the same exchange means it was already handed back,
+      // and a closed work has nothing left to answer.
+      const liveEntry = rt.live?.get(sessionId)
+      const liveHeld = [
+        liveEntry?.info,
+        liveEntry?.pending,
+        liveEntry?.carry?.info,
+        ...(liveEntry?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.pending?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.carry?.joined ?? []).map(joined => joined?.info),
+      ]
       const alreadyHandedBack = rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId) === true
         || [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
-          .some(message => message?.source?.exchangeId === exchangeId)
+          .some(message => message?.source?.exchangeId === exchangeId
+            || message?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId))
+        || liveHeld.some(item => item?.exchangeId === exchangeId)
       const workOpen = source.role !== 'request'
         || (rt.ownsWork(record.botId, exchangeId) && rt.workAsker(exchangeId) !== undefined)
       if (alreadyHandedBack || !workOpen) continue
