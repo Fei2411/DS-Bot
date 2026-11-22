@@ -45085,8 +45085,8 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useUi, act
     if (typeof document === "undefined") return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    const box = button.current?.closest("[data-composer-card]")?.querySelector("[role=textbox][contenteditable=true]");
-    if (box instanceof HTMLElement) box.focus();
+    const focus = inputActions?.focus;
+    if (typeof focus === "function") focus.call(inputActions);
   }, [pickerOpen]);
   (0, import_react64.useEffect)(() => {
     if (!chatRef || typeof inputActions?.insertText !== "function") return;
