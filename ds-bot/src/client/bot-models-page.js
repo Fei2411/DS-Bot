@@ -16,6 +16,13 @@ export const modelLine = (bot, roster) => {
   return shown.served ? shown.name : t('{model} (not available)', { model: shown.name })
 }
 
+// A model's name, with its provider when another usable model shares the name.
+export const modelName = (entry, catalog) => {
+  const name = entry.name ?? entry.ref
+  const twin = catalog.some(other => other.ref !== entry.ref && (other.name ?? other.ref) === name)
+  return twin ? `${name} · ${entry.providerName ?? entry.ref.split('/')[0]}` : name
+}
+
 export const resultLine = (entry) => {
   if (entry.status === 'updated') return t('Changed')
   if (entry.status === 'unchanged') return t('Already on this model')
@@ -71,7 +78,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
       offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
-        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: offered.name ?? offered.ref }))),
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, roster.models ?? []) }))),
         h('div', { className: 'bt-set-control bt-bm-actions' },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
           h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,

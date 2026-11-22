@@ -231,7 +231,9 @@ function AutomationOff({ actions }) {
 // Bot's own view gets here.
 export function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions)
-  const owner = start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null
+  // "Show all" lifts the owner filter here: Settings keeps one Scheduled tasks page per
+  // visit, so a route back to the same page would not reach it.
+  const [owner, setOwner] = useState(() => (start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null))
   const [adding, setAdding] = useState(Boolean(start) && owner === null)
   if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
   if (!view.available) return h(AutomationOff, { actions })
@@ -242,7 +244,7 @@ export function SchedulesPage({ roster, actions, start }) {
   ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner))
   const addBar = adding ? null : h('div', { className: 'bt-actions' },
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
-    owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('schedules') }, t('Show all')) : null)
+    owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setOwner(null) }, t('Show all')) : null)
   return [
     adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0

@@ -27048,7 +27048,7 @@ function AutomationOff({ actions }) {
 }
 function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions);
-  const owner = start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null;
+  const [owner, setOwner] = (0, import_react23.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
   const [adding, setAdding] = (0, import_react23.useState)(Boolean(start) && owner === null);
   if (view === null) return (0, import_react23.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
   if (!view.available) return (0, import_react23.createElement)(AutomationOff, { actions });
@@ -27064,7 +27064,7 @@ function SchedulesPage({ roster, actions, start }) {
     "div",
     { className: "bt-actions" },
     (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-task", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New task")),
-    owner !== null ? (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
+    owner !== null ? (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setOwner(null) }, t("Show all")) : null
   );
   return [
     adding ? (0, import_react23.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
@@ -40768,6 +40768,11 @@ var modelLine = (bot, roster) => {
   if (shown === void 0) return t("No model picked yet");
   return shown.served ? shown.name : t("{model} (not available)", { model: shown.name });
 };
+var modelName = (entry, catalog) => {
+  const name = entry.name ?? entry.ref;
+  const twin = catalog.some((other) => other.ref !== entry.ref && (other.name ?? other.ref) === name);
+  return twin ? `${name} · ${entry.providerName ?? entry.ref.split("/")[0]}` : name;
+};
 var resultLine = (entry) => {
   if (entry.status === "updated") return t("Changed");
   if (entry.status === "unchanged") return t("Already on this model");
@@ -40831,7 +40836,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2, preset =
       offered && moving.length > 0 ? (0, import_react53.createElement)(
         "div",
         { className: "bt-set-row bt-bm-offer", role: "status" },
-        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {names} to {model}?", { names: moving.map((bot) => bot.name).join(t(", ")), model: offered.name ?? offered.ref }))),
+        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {names} to {model}?", { names: moving.map((bot) => bot.name).join(t(", ")), model: modelName(offered, roster.models ?? []) }))),
         (0, import_react53.createElement)(
           "div",
           { className: "bt-set-control bt-bm-actions" },
@@ -41741,10 +41746,15 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
     target: room2.id,
     haystack: `${room2.name} ${t("Group chats")}`.toLowerCase()
   })).filter((entry) => matches2(entry.haystack, tokens)).slice(0, PER_KIND);
-  const models = (roster.models ?? []).filter((entry) => !entry.needsKey && !isLocalRoute(entry.ref)).filter((entry) => matches2(`${entry.name ?? ""} ${entry.ref} ${entry.providerName ?? ""}`.toLowerCase(), tokens)).slice(0, 3).flatMap((entry) => [
-    { id: `model:${entry.ref}`, kind: "model", title: entry.name ?? entry.ref, meta: entry.providerName ?? entry.ref.split("/")[0], page: "models", icon: "models" },
-    { id: `switch:${entry.ref}`, kind: "action", title: t("Switch Bots to {model}…", { model: entry.name ?? entry.ref }), meta: t("Bot models"), page: "bot-models", target: entry.ref }
-  ]);
+  const usable = (roster.models ?? []).filter((entry) => !entry.needsKey && !isLocalRoute(entry.ref));
+  const models = usable.filter((entry) => matches2(`${entry.name ?? ""} ${entry.ref} ${entry.providerName ?? ""}`.toLowerCase(), tokens)).slice(0, 3).flatMap((entry) => {
+    const name = modelName(entry, usable);
+    const movers = (roster.bots ?? []).filter((bot) => !isLocalRoute(bot.model ?? bot.appliedModel) && (bot.model ?? bot.appliedModel) !== entry.ref);
+    return [
+      { id: `model:${entry.ref}`, kind: "model", title: entry.name ?? entry.ref, meta: entry.providerName ?? entry.ref.split("/")[0], page: "models", icon: "models" },
+      movers.length > 0 ? { id: `switch:${entry.ref}`, kind: "action", title: t("Switch Bots to {model}…", { model: name }), meta: t("Bot models"), page: "bot-models", target: entry.ref } : null
+    ].filter(Boolean);
+  });
   return [...settings, ...bots, ...rooms, ...models];
 }
 var KIND_TITLES = { setting: "Settings", bot: "Bots", room: "Group chats", model: "Models", action: "Models" };
@@ -42729,14 +42739,19 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   useEscape(onEscape, !leaving);
   const paletteRef = (0, import_react58.useRef)(palette);
   paletteRef.current = palette;
-  const openPalette = (0, import_react58.useCallback)(() => {
-    const current2 = tourRef.current;
-    if (current2) {
-      if (current2.mode === "full") markTourSeen();
-      setTour(null);
-    }
-    setPalette(true);
+  const startTour = (0, import_react58.useCallback)((mode) => {
+    setPalette(false);
+    tourNonceRef.current += 1;
+    setTour({ mode, nonce: tourNonceRef.current });
   }, []);
+  const dismissTour = (0, import_react58.useCallback)(() => {
+    if (tourRef.current?.mode === "full") markTourSeen();
+    setTour(null);
+  }, []);
+  const openPalette = (0, import_react58.useCallback)(() => {
+    if (tourRef.current) dismissTour();
+    setPalette(true);
+  }, [dismissTour]);
   (0, import_react58.useEffect)(() => {
     if (leaving || typeof window === "undefined") return void 0;
     const mac = isMac();
@@ -42751,15 +42766,6 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [leaving, openPalette]);
-  const startTour = (0, import_react58.useCallback)((mode) => {
-    setPalette(false);
-    tourNonceRef.current += 1;
-    setTour({ mode, nonce: tourNonceRef.current });
-  }, []);
-  const dismissTour = (0, import_react58.useCallback)(() => {
-    if (tourRef.current?.mode === "full") markTourSeen();
-    setTour(null);
-  }, []);
   const [jump, setJump] = (0, import_react58.useState)(0);
   const go = (0, import_react58.useCallback)((nextPage, nextId) => {
     setJump((count) => count + 1);
@@ -42835,11 +42841,16 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     anchors.box.current?.querySelector?.("[aria-current=location]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activePart]);
   const pageKey = parts ? `group:${activeGroup.id}` : `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown === "schedules" ? id ?? "" : "")}`;
-  const requests = (0, import_react58.useRef)({ pageKey, parts: {} });
-  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, parts: {} };
-  if ((shown === "bot-models" || shown === "schedules") && id) {
-    const ask = `${shown}:${id}:${jump}`;
-    if (requests.current.parts[shown]?.key !== ask) requests.current.parts[shown] = { key: ask, id };
+  const anchored = (0, import_react58.useRef)(null);
+  const requests = (0, import_react58.useRef)({ pageKey, route: null, parts: {} });
+  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, route: null, parts: {} };
+  const route = `${shown}|${id ?? ""}|${jump}`;
+  if (requests.current.route !== route) {
+    requests.current.route = route;
+    if (shown === "bot-models" || shown === "schedules") {
+      if (id) requests.current.parts[shown] = { key: `${shown}:${id}:${jump}`, id };
+      else if (anchored.current !== shown) delete requests.current.parts[shown];
+    }
   }
   const request = (part) => requests.current.parts[part];
   (0, import_react58.useEffect)(() => {
@@ -42854,7 +42865,6 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (section || owner?.id !== activeGroup?.id || depth > 0) setTour(null);
   }, [tour, shown, section, depth]);
   const userScrolled = (0, import_react58.useRef)(false);
-  const anchored = (0, import_react58.useRef)(null);
   const heading = (0, import_react58.useRef)(null);
   const headingTimer = (0, import_react58.useRef)(0);
   (0, import_react58.useEffect)(() => () => clearTimeout(headingTimer.current), []);

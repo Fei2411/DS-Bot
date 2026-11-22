@@ -1045,3 +1045,61 @@ test('a part keeps the request it opened with while the user moves to another pa
     harness.unmount()
   })
 })
+
+test('Scheduled tasks "Show all" clears a Bot filter, while an anchor round trip keeps it', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+    let route = ['schedules', 'bot:chief']
+    const actions = {
+      openSettings: (page, id) => { route = [page, id ?? null] },
+      closeSettings() {},
+      setPrefs: () => Promise.resolve(),
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+    }
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, { page: route[0], id: route[1], roster: baseRoster, actions, useUpdate: sel => sel({}) }))
+    const part = tree => findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === 'schedules')[0]
+    const showAll = tree => findAll(part(tree), n => n.type === 'button' && textOf(n) === 'Show all')
+    draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    let tree = draw()
+    assert.equal(showAll(tree).length, 1, "a Bot's link filters to that Bot")
+
+    // Anchor to Bots and back: still filtered.
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Bots')[0].props.onClick()
+    tree = draw()
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Scheduled tasks')[0].props.onClick()
+    tree = draw()
+    assert.equal(showAll(tree).length, 1, 'an anchor round trip keeps the filter')
+
+    // "Show all" routes to the part without an owner: every Bot's tasks.
+    showAll(tree)[0].props.onClick()
+    tree = draw()
+    tree = draw()
+    assert.equal(showAll(tree).length, 0, '"Show all" lifts the filter')
+    harness.unmount()
+  })
+})
+
+test('search names a model by provider when two share a name, and offers no switch when no Bot would move', async () => {
+  const code = await loadBundle("export { searchHits } from './src/client/settings-palette.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => makeStatefulReact().React)
+  const { searchHits } = mod.exports
+  const models = [
+    { ref: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', providerName: 'DeepSeek' },
+    { ref: 'router/deepseek-chat', name: 'DeepSeek Chat', providerName: 'Router' },
+  ]
+  const bots = [{ id: 'a', name: 'A', model: 'deepseek/deepseek-chat' }]
+  const titles = searchHits('deepseek chat', { roster: { bots, rooms: [], models } }).filter(hit => hit.kind === 'action').map(hit => hit.title)
+  // A is already on DeepSeek's model, so only the Router one would move it.
+  assert.deepEqual(titles, ['Switch Bots to DeepSeek Chat · Router…'])
+  const local = [{ id: 'l', name: 'L', model: 'local-codex-cli/default' }]
+  assert.equal(searchHits('deepseek chat', { roster: { bots: local, rooms: [], models } }).filter(hit => hit.kind === 'action').length, 0)
+})

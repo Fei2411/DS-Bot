@@ -2,7 +2,7 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { LayersIcon, SearchIcon, SwitchIcon } from './icons.js'
 import { IconSettingsOutlineMedium } from './dsh-primitives.js'
-import { modelLine } from './bot-models-page.js'
+import { modelLine, modelName } from './bot-models-page.js'
 import { isLocalRoute } from './agent-routes.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
@@ -69,13 +69,20 @@ export function searchHits(query, { roster, extra = [], pageAvailable = () => tr
     id: `room:${room.id}`, kind: 'room', room, title: room.name, meta: t('{count} members', { count: room.members?.length ?? 0 }), page: 'groups', target: room.id,
     haystack: `${room.name} ${t('Group chats')}`.toLowerCase(),
   })).filter(entry => matches(entry.haystack, tokens)).slice(0, PER_KIND)
-  const models = (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))
+  const usable = (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))
+  const models = usable
     .filter(entry => matches(`${entry.name ?? ''} ${entry.ref} ${entry.providerName ?? ''}`.toLowerCase(), tokens))
     .slice(0, 3)
-    .flatMap(entry => [
-      { id: `model:${entry.ref}`, kind: 'model', title: entry.name ?? entry.ref, meta: entry.providerName ?? entry.ref.split('/')[0], page: 'models', icon: 'models' },
-      { id: `switch:${entry.ref}`, kind: 'action', title: t('Switch Bots to {model}…', { model: entry.name ?? entry.ref }), meta: t('Bot models'), page: 'bot-models', target: entry.ref },
-    ])
+    .flatMap((entry) => {
+      const name = modelName(entry, usable)
+      // The switch is offered only when some Bot would move: not one on a local agent, not
+      // one already on the model.
+      const movers = (roster.bots ?? []).filter(bot => !isLocalRoute(bot.model ?? bot.appliedModel) && (bot.model ?? bot.appliedModel) !== entry.ref)
+      return [
+        { id: `model:${entry.ref}`, kind: 'model', title: entry.name ?? entry.ref, meta: entry.providerName ?? entry.ref.split('/')[0], page: 'models', icon: 'models' },
+        movers.length > 0 ? { id: `switch:${entry.ref}`, kind: 'action', title: t('Switch Bots to {model}…', { model: name }), meta: t('Bot models'), page: 'bot-models', target: entry.ref } : null,
+      ].filter(Boolean)
+    })
   return [...settings, ...bots, ...rooms, ...models]
 }
 

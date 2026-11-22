@@ -504,14 +504,19 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // the walkthrough keeps the keyboard to its own card.
   const paletteRef = useRef(palette)
   paletteRef.current = palette
-  const openPalette = useCallback(() => {
-    const current = tourRef.current
-    if (current) {
-      if (current.mode === 'full') markTourSeen()
-      setTour(null)
-    }
-    setPalette(true)
+  const startTour = useCallback((mode) => {
+    setPalette(false)
+    tourNonceRef.current += 1
+    setTour({ mode, nonce: tourNonceRef.current })
   }, [])
+  const dismissTour = useCallback(() => {
+    if (tourRef.current?.mode === 'full') markTourSeen()
+    setTour(null)
+  }, [])
+  const openPalette = useCallback(() => {
+    if (tourRef.current) dismissTour()
+    setPalette(true)
+  }, [dismissTour])
   // ⌘K on a Mac, Ctrl+K elsewhere, toggles search from anywhere in Settings. Ctrl+K on a
   // Mac stays the text fields' delete-to-end.
   useEffect(() => {
@@ -528,15 +533,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [leaving, openPalette])
-  const startTour = useCallback((mode) => {
-    setPalette(false)
-    tourNonceRef.current += 1
-    setTour({ mode, nonce: tourNonceRef.current })
-  }, [])
-  const dismissTour = useCallback(() => {
-    if (tourRef.current?.mode === 'full') markTourSeen()
-    setTour(null)
-  }, [])
   // Each explicit trip to a page counts, so going again to the part already routed (or to
   // the first part of the open domain) still scrolls to it.
   const [jump, setJump] = useState(0)
@@ -628,14 +624,22 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const pageKey = parts
     ? `group:${activeGroup.id}`
     : `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
+  // The part an anchor scrolled to itself; the route it sets does not jump again.
+  const anchored = useRef(null)
   // A request a part opened with (a search's model preset, a new-task link) stays with the
   // part while the user moves between the domain's parts; a new request replaces it, and
   // another domain or a page of its own starts clean.
-  const requests = useRef({ pageKey, parts: {} })
-  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, parts: {} }
-  if ((shown === 'bot-models' || shown === 'schedules') && id) {
-    const ask = `${shown}:${id}:${jump}`
-    if (requests.current.parts[shown]?.key !== ask) requests.current.parts[shown] = { key: ask, id }
+  // It changes only when the route does: a route that names the part again without one
+  // (Scheduled tasks' "Show all", search, the rail) clears it, an anchor does not.
+  const requests = useRef({ pageKey, route: null, parts: {} })
+  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, route: null, parts: {} }
+  const route = `${shown}|${id ?? ''}|${jump}`
+  if (requests.current.route !== route) {
+    requests.current.route = route
+    if (shown === 'bot-models' || shown === 'schedules') {
+      if (id) requests.current.parts[shown] = { key: `${shown}:${id}:${jump}`, id }
+      else if (anchored.current !== shown) delete requests.current.parts[shown]
+    }
   }
   const request = part => requests.current.parts[part]
   useEffect(() => { setError('') }, [pageKey])
@@ -652,7 +656,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // scrolled meanwhile. An anchor scrolls smoothly on its own: the route it sets does not
   // jump again, and the anchor row holds on it until the scroll gets there.
   const userScrolled = useRef(false)
-  const anchored = useRef(null)
   const heading = useRef(null)
   const headingTimer = useRef(0)
   useEffect(() => () => clearTimeout(headingTimer.current), [])
