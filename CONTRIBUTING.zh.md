@@ -51,6 +51,8 @@
 | 优先级 | `P0` 崩溃、丢数据或无法使用 · `P1` 影响日常使用 · `P2` 一般缺陷或功能 · `P3` 建议或窄场景 |
 | 领域 | `area/host` 服务端（`index.js`、`src/host/`）· `area/client` 界面（`src/client/`）· `area/group` 群聊、@ 提及、Bot 之间的消息 · `area/memory` 记忆、对话分段、上下文 · `area/browser` Bot 浏览器、读网页、网页搜索 · `area/build` CI、发版、脚本、测试台 · `area/docs` |
 | 流程 | `maintainer` 等维护者 · `needs-info` 等报告人 · `upstream` 原因在 DSH 或其他插件 · `duplicate` · `auto-found` 自动测试发现 |
+| PR 制作 Agent | `agent/antigravity` · `agent/claude-code` · `agent/codex` · `agent/devin` · `agent/dsbot` · `agent/other`（哪个 AI Agent 开的 PR） |
+| PR 审查状态 | `review/approved` · `review/changes-requested` · `review/needs-decision` · `review/re-review`（互斥）· `reviewed-by/<agent>`（哪个 AI Agent 做的独立审查） |
 
 跨多个领域或不属于任何领域的 Issue，不打领域标签。
 

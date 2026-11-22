@@ -4,7 +4,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import { GitHubMark } from './connector-marks.js'
 import { whenText } from './feedback.js'
 import { dateLocale, hostText, t } from './i18n.js'
-import { StarLineIcon } from './icons.js'
+import { CompassIcon, StarLineIcon } from './icons.js'
 import { SPRING_POP } from './motion.js'
 import { BotMark } from './mark.js'
 import { MAIN_LOOK } from './characters.js'
@@ -58,7 +58,7 @@ function dshHint(dsh, shown) {
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function AboutPage({ useUpdate, actions, run, Section, Row }) {
+export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour = null }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
   const [stars, setStars] = useState(null)
@@ -125,6 +125,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
       h(Row, { label: 'DS Bot', hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
       dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
     h(Section, { key: 'links', title: t('Links') },
+      onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
       update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
       h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
@@ -132,7 +133,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
 }
 
 export const ABOUT_CSS = `
-.bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
 .bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
 body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
@@ -141,7 +142,7 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:600}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.bt-about-ask{margin:-10px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-about-ask{margin:-12px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-star{flex:none;display:inline-flex;align-items:stretch;height:30px;border-radius:999px;border:1px solid var(--bt-line-2,var(--bt-line));overflow:hidden;color:var(--bt-ink);text-decoration:none;font-size:12px;line-height:28px;transition:transform .12s ease,border-color .15s ease}
 .bt-star:hover{border-color:color-mix(in srgb,var(--bt-star) 55%,var(--bt-line))}
 .bt-star:active{transform:scale(.96)}

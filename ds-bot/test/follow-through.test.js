@@ -202,33 +202,6 @@ test('a request cut off by a restart goes on under the same exchange; own-chat w
   assert.equal(state.exchanges.length, 0)
 })
 
-// #1501: a Bot may keep a part live in the background while the user reads the
-// foreground chat. Work a restart cut off in that part goes on there, not in the part
-// the user is reading.
-test('a restart picks a background part up in that part, not in the foreground chat', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const team = seed()
-  const home = freshHome(t, {
-    ...team,
-    bots: { ...team.bots, b: { ...team.bots.b, openParts: [{ sessionId: 'bb1', segments: [] }, { sessionId: 'bb2', segments: [] }] } },
-  })
-  const first = await start(home)
-  // Writer's own work in one background part, and Chief's request in another.
-  run(first, 'bb1', 1, { content: [{ type: 'text', text: 'sort the notes' }], source: { kind: 'user' } })
-  run(first, 'bb2', 1, { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', senderPart: 'a', hop: 0 } })
-  await settle(() => inflight(home).bb1 !== undefined && inflight(home).bb2?.trigger !== undefined)
-  await first.stop()
-
-  const second = await start(home)
-  t.mock.timers.tick(3000)
-  await settle(() => second.agentOf('bb1').calls.length === 1 && second.agentOf('bb2').calls.length === 1)
-  assert.equal(second.agentOf('b').calls.length, 0)
-  const own = second.agentOf('bb1').calls[0]
-  assert.deepEqual([own.source.role, own.source.resumed], ['resume', true])
-  const request = second.agentOf('bb2').calls[0]
-  assert.deepEqual([request.source.role, request.source.exchangeId, request.source.senderPart, request.source.resumed], ['request', 'x1', 'a', true])
-})
-
 test('when only DS Bot restarts, a turn still running or finished meanwhile is not picked up', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
@@ -416,7 +389,7 @@ test('a turn that ended on the token limit gives what it said, marked as not com
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)
   // The diagnostics name the route, so a wrong contextWindow can be found from them.
-  const entries = await readDiagnostics(home)
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
   const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
   assert.equal(cutOff.length, 1)
   assert.match(cutOff[0].text, /answer is not complete \(gateway\/step-5\)/)
@@ -444,7 +417,7 @@ test('a turn cut off on the token limit without any text is not reported as fini
   assert.doesNotMatch(text(reply), /finished without a reply/)
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)
-  const entries = await readDiagnostics(home)
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
   const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
   assert.equal(cutOff.length, 1)
   assert.match(cutOff[0].text, /cut off at the output limit before it wrote anything/)

@@ -938,6 +938,30 @@ test('a write that changed nothing fails the call with a code, and a saved one k
   })
 })
 
+test('a memory snapshot checks every entry in a file against the same day', async (t) => {
+  const DayFormat = Intl.DateTimeFormat
+  let calls
+  t.mock.method(Intl, 'DateTimeFormat', function (...args) {
+    const formatter = new DayFormat(...args)
+    if (args[0] === 'en-CA') {
+      const format = formatter.format
+      Object.defineProperty(formatter, 'format', { value: value => calls === undefined ? format(value) : calls++ === 0 ? '2099-06-01' : '2099-06-02' })
+    }
+    return formatter
+  })
+  const { tool, section, stop } = start({ config: { timeZone: 'UTC' } })
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Release checklist alpha', until: '2099-06-01' }, 'b2')
+  await tool('bot_remember', { text: 'Release checklist beta', until: '2099-06-01' }, 'b2')
+  await tool('bot_remember', { text: 'Release checklist expired', until: '2099-05-31' }, 'b2')
+  calls = 0
+  const snapshot = section('b2')
+  assert.match(snapshot, /Release checklist alpha/)
+  assert.match(snapshot, /Release checklist beta/)
+  assert.doesNotMatch(snapshot, /Release checklist expired/)
+  assert.equal(calls, 2)
+})
+
 test('a Session keeps the memory it began with, across restarts, until its snapshot goes', async (t) => {
   const first = start()
   t.after(() => first.stop())
@@ -2102,6 +2126,29 @@ test('a turn brings up matching topic entries once, as data, and only from what 
   assert.equal(await recallOf(ctx, 'b2', '这次发版前要做什么检查'), undefined)
 })
 
+test('auto recall checks every entry against the same day', async (t) => {
+  const DayFormat = Intl.DateTimeFormat
+  let calls
+  t.mock.method(Intl, 'DateTimeFormat', function (...args) {
+    const formatter = new DayFormat(...args)
+    if (args[0] === 'en-CA') {
+      const format = formatter.format
+      Object.defineProperty(formatter, 'format', { value: value => calls === undefined ? format(value) : calls++ === 0 ? '2099-06-01' : '2099-06-02' })
+    }
+    return formatter
+  })
+  const { ctx, tool, section, stop } = start({ config: { timeZone: 'UTC' } })
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Release checklist alpha', topic: 'release', until: '2099-06-01' }, 'b2')
+  await tool('bot_remember', { text: 'Release checklist beta', topic: 'release', until: '2099-06-01' }, 'b2')
+  section('b2')
+  calls = 0
+  const recalled = textOf(await recallOf(ctx, 'b2', 'Release checklist'))
+  assert.match(recalled, /Release checklist alpha/)
+  assert.match(recalled, /Release checklist beta/)
+  assert.equal(calls, 1)
+})
+
 test('recall reads a topic again only once its file has changed', async (t) => {
   const { ctx, tool, section, home, stop } = start()
   t.after(() => stop())
@@ -2135,6 +2182,51 @@ test('recall reads a topic again only once its file has changed', async (t) => {
   assert.deepEqual(reads, [release])
   unlinkSync(release)
   assert.equal(await recallOf(ctx, 'b2', asked), undefined)
+})
+
+test('bot_recall search reads a file again only once it has changed, and still fails on an unreadable one', async (t) => {
+  const { tool, home, stop } = start()
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Release check runs on a real phone' }, 'b2')
+  await tool('bot_remember', { text: 'Release check needs the signed build', topic: 'release' }, 'b2')
+  await tool('bot_remember', { text: 'Lunch is noodles', topic: 'food' }, 'b2')
+  const search = () => tool('bot_recall', { query: 'release check' }, 'b2')
+  const first = await search()
+  assert.match(first, /\[yours · MEMORY\.md\] Release check runs on a real phone/)
+  assert.match(first, /\[yours · \[\[release\]\]\] Release check needs the signed build/)
+  const memory = join(home, 'memory')
+  const reads = []
+  const realRead = fs.readFileSync
+  fs.readFileSync = (path, ...rest) => {
+    if (String(path).startsWith(memory) && String(path).endsWith('.md')) reads.push(String(path))
+    return realRead(path, ...rest)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fs.readFileSync = realRead
+    syncBuiltinESMExports()
+  })
+  assert.equal(await search(), first)
+  assert.deepEqual(reads, [])
+  // An edit by hand, even one of the same length, a tool's write and a removal are
+  // seen on the next search.
+  const release = join(memory, 'bots', 'b2', 'release.md')
+  const main = join(memory, 'bots', 'b2', 'MEMORY.md')
+  const before = realRead(release, 'utf8')
+  writeFileSync(release, before.replace('signed', 'tagged'))
+  assert.equal(realRead(release, 'utf8').length, before.length)
+  writeFileSync(main, realRead(main, 'utf8').replace('real phone', 'test phone'))
+  const edited = await search()
+  assert.match(edited, /Release check needs the tagged build/)
+  assert.match(edited, /Release check runs on a test phone/)
+  assert.doesNotMatch(edited, /signed|real phone/)
+  assert.deepEqual(reads, [main, release])
+  await tool('bot_remember', { text: 'Release check waits for the changelog', topic: 'release' }, 'b2')
+  assert.match(await search(), /Release check waits for the changelog/)
+  unlinkSync(release)
+  assert.doesNotMatch(await search(), /\[\[release\]\]/)
+  mkdirSync(join(memory, 'bots', 'b2', 'broken.md'))
+  assert.match(await search(), /^Memory file .*broken\.md could not be read \(EISDIR\)\. DS Bot leaves it as it is/)
 })
 
 test('bot_recall puts the entry that matches best first', () => {

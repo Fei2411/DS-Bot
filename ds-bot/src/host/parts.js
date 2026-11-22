@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { isTaskSession, ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -111,7 +111,9 @@ export function readReply(text) {
     return { handoff: { callId: value.callId, reason: value.reason, note: typeof value.note === 'string' ? value.note : '', outcome: value.outcome === 'skipped' || value.outcome === 'returned' ? value.outcome : 'done' } }
   }
   const viewReplyData = readViewReply(text)
-  if (viewReplyData !== undefined) return viewReplyData
+  if (viewReplyData !== undefined) {
+    return typeof value.issueReportResult === 'string' ? { ...viewReplyData, issueReportResult: value.issueReportResult } : viewReplyData
+  }
   const questions = Array.isArray(value?.questions) ? value.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
   if (questions.length === 0) return undefined
   const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
@@ -125,7 +127,10 @@ export function replyText(text) {
     const { reason, note, outcome } = reply.handoff
     return `[Browser handoff] ${note === '' ? reason : `${reason} — ${note}`}\nAnswer: ${outcome}`
   }
-  if (reply.views !== undefined) return viewReplyText(text)
+  if (reply.views !== undefined) {
+    const answer = viewReplyText(text)
+    return reply.issueReportResult === undefined ? answer : `${answer}\n${reply.issueReportResult}`
+  }
   return reply.questions.map((question) => {
     const answer = reply.answers.find(item => item.id === question.id)
     const values = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
@@ -1145,11 +1150,11 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, blank = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, blank, folder, engine, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -1313,7 +1318,7 @@ export function install(rt) {
     const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
     const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
+    const readLines = () => (job.bare || job.blank ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
@@ -1429,10 +1434,13 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
-      freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
-      await ctx.sessions.flush(fresh.session)
+      // A blank part starts with nothing from the part it replaces: no note, no messages.
+      if (!job.blank) {
+        const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+        freshParts.set(freshId, estimateTokens(text))
+        fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
+        await ctx.sessions.flush(fresh.session)
+      }
       carry.push(...job.carry.splice(0))
       await forward(job, [...carry, ...held], freshId)
     } catch (error) {
@@ -1468,6 +1476,9 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    if (payload.step === 1 && rt.consumeEmptyTaskWake?.(agent.id) && (payload.messages?.length ?? 0) === 0) {
+      return { kind: 'reject' }
+    }
     const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
     const route = splitRef(local)?.provider
     if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
@@ -1824,8 +1835,14 @@ export function install(rt) {
   // Earlier parts of a Bot's own chat, newest page first, for the chat to show above
   // the current part as one conversation.
   const EARLIER_PAGE = 60
-  function displayItems(partId, events, session, seedTurn) {
-    const hidden = new Set(state.exchangeTurns[partId] ?? [])
+  const stripRelayHeader = text => String(text ?? '').replace(/^\[[^\r\n]*\]\r?\n?/, '').trim()
+  const cleanTaskBrief = (text) => stripRelayHeader(text)
+    .replace(/\n\n\[Recent context from your own chat\][\s\S]*$/, '')
+    .replace(/\n\nDo this work here\. The user does not chat directly in this task session;[\s\S]*$/, '')
+    .trim()
+
+  function displayItems(partId, events, session, seedTurn, options = {}) {
+    const hidden = options.taskView === true ? new Set() : new Set(state.exchangeTurns[partId] ?? [])
     // Files a turn presented, attached to its closing Bot row so the phone can save
     // them: the card shows name and type, the save action names seq and index.
     const presented = []
@@ -1943,6 +1960,15 @@ export function install(rt) {
           ...(file ? { file, length: source.length } : {}),
           time: event.time,
         })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task') {
+        const brief = cleanTaskBrief(textOf(event.data.content))
+        if (brief !== '') stamp(event, { kind: 'task-brief', text: brief, time: event.time })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task-followup') {
+        const body = stripRelayHeader(textOf(event.data.content))
+        if (body !== '') stamp(event, { kind: 'user', text: body, time: event.time })
+      } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'request') {
+        const body = stripRelayHeader(textOf(event.data.content))
+        if (body !== '') stamp(event, { kind: 'task-brief', name: source.senderName ?? null, text: body, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       } else if (source?.kind === 'schedule') {
@@ -1961,7 +1987,7 @@ export function install(rt) {
     return items
   }
 
-  async function partPage(parts, index, cursor, steps = false) {
+  async function partPage(parts, index, cursor, steps = false, options = {}) {
     const part = parts[index]
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     // An archived earlier part may have no live agent left; its stored events
@@ -1973,7 +1999,12 @@ export function install(rt) {
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
     }, signal)
-    const events = page.records.map(record => record.event)
+    const rawEvents = page.records.map(record => record.event)
+    const minSeq = Number.isInteger(options.minSeq) && options.minSeq > 0 ? options.minSeq : undefined
+    const events = minSeq === undefined
+      ? rawEvents
+      : rawEvents.filter(event => !Number.isInteger(event?.seq) || event.seq >= minSeq)
+    const hitFloor = minSeq !== undefined && (rawEvents.length === 0 || (Number.isInteger(rawEvents[0]?.seq) && rawEvents[0].seq <= minSeq))
     let seedTurn
     if (agent === undefined) {
       // Without the live session's projection, rows on a page that does not
@@ -1995,16 +2026,20 @@ export function install(rt) {
         before = back.records[0]?.event?.seq
       }
     }
-    const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
-    if (index < parts.length - 1) {
+    const items = displayItems(part.sessionId, events, agent?.session, seedTurn, options)
+    if (options.taskView === true) {
+      for (const item of items) {
+        if (item.sessionId === undefined) item.sessionId = part.sessionId
+      }
+    } else if (index < parts.length - 1) {
       for (const item of items) {
         if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
       }
     }
-    const more = page.hasMore && events.length > 0
+    const more = !hitFloor && page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
-    if (steps === true) await applySteps(items, events, part.sessionId)
+    if (steps === true) await applySteps(items, events, part.sessionId, options)
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -2052,8 +2087,8 @@ export function install(rt) {
 
   // Per-turn folds of a page's tool calls, for `chat`/`room-chat` with
   // `steps: true`. Interactive calls stay out: they show as cards, not steps.
-  function stepsItems(events, partId) {
-    const hidden = new Set(state.exchangeTurns[partId] ?? [])
+  function stepsItems(events, partId, includeHidden = false) {
+    const hidden = includeHidden ? new Set() : new Set(state.exchangeTurns[partId] ?? [])
     const byTurn = new Map()
     let turn
     for (const event of events) {
@@ -2082,7 +2117,7 @@ export function install(rt) {
   // Places a page's `steps` items after the last row of each turn and fills in
   // `ms` from the turn's thinking time when the stream has it.
   async function applySteps(items, events, sessionId, options) {
-    const byTurn = stepsItems(events, sessionId)
+    const byTurn = stepsItems(events, sessionId, options?.taskView === true)
     const known = pageThinkingMs(events, options)
     for (const [turn, tools] of byTurn) {
       const item = { kind: 'steps', turn, tools, time: items.filter(it => it.turn === turn).at(-1)?.time ?? events.at(-1)?.time }
@@ -2138,50 +2173,37 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
   }
 
+  // A DSH Agent's newest Session, paged like one part of a Bot's chat.
+  async function agentPage(agentId, cursor, steps = false) {
+    const agent = rt.agentById(agentId)
+    if (agent === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+    // Every Session archived: the Agent is still there, with an empty chat.
+    const sessionId = agent.sessions.at(-1)
+    if (sessionId === undefined) return { items: [], cursor: null }
+    return { sessionId, ...(await partPage([{ sessionId }], 0, cursor, steps)) }
+  }
+
   // "New session" in a Bot's chat: a manual move to a fresh part with the
-  // deterministic handoff package, no model call. While the Bot is working the fresh
-  // part starts at once and the part it replaces keeps running in the background.
-  // A member's conversation in a group moves the same way, but only while it is idle.
-  async function newPart(sessionId) {
+  // deterministic handoff package, no model call. `blank` moves the same way but the
+  // fresh part starts with neither the handoff package nor the old chat. Either way the
+  // part it replaces is archived: a Bot has one conversation at a time, so a working
+  // Bot starts no new one. A member's conversation in a group moves the handoff way only.
+  async function newPart(sessionId, { blank = false, handoff = false } = {}) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
-    const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
-    if (agent.status === 'idle' && !busyHere) {
-      // Answers once the fresh part is there, so a switch that fails reaches the user.
-      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
-      return true
-    }
-    const bot = rt.botOf(place.botId)
-    if (bot === undefined || place.roomId !== undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-    await openPartNow(bot, agent)
+    if (blank && (rt.botOf(place.botId) === undefined || place.roomId !== undefined)) throw Object.assign(new Error('A blank part starts only in a Bot\'s own conversation'), { code: 'bot/invalid' })
+    // A subagent or a waiting approval keeps the part busy in a private chat too, not
+    // only in a group where the room decides.
+    const working = rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true
+    // The fresh part replaces this one and archives it, which stops its background jobs,
+    // so a part that still works keeps going: the user asks again when it is idle. A job
+    // list that cannot be read proves nothing and is treated the same way.
+    const jobs = rt.runningJobs === undefined ? [] : rt.runningJobs(sessionId)
+    if (agent.status !== 'idle' || working || switches.has(sessionId) || jobs === undefined || jobs.length > 0) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    if (await startSwitch(agent, { manual: true, ...(blank && !handoff ? { blank: true } : {}) }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
     return true
-  }
-
-  // The part the user leaves stays live: no handoff note, no archive, no stop of its
-  // turn. It keeps its own earlier parts with it (threads.js).
-  async function openPartNow(bot, agent) {
-    const dir = rt.workDirOf({ botId: bot.id })
-    const freshId = await rt.createSession(bot.name, { dir })
-    const picked = await freshRoute(bot, agent.session)
-    if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
-    await rt.applyPermission(bot, freshId, undefined)
-      .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
-      await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
-      return
-    }
-    startOpenPart(bot, freshId)
-    rt.chatOwners.set(freshId, bot.id)
-    await rt.save()
-    // A model the user picked while this part was being made went to the parts that were
-    // registered then, and the sync recorded it as applied; this part was not one of them
-    // yet, so the route picked at the top may be the old one. Read it again now that the
-    // part is the Bot's, as the switch does.
-    const now = await freshRoute(bot, agent.session)
-    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
@@ -2220,7 +2242,15 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
-    const stored = { ...task, sessionId, segments: [], ...(workDir !== undefined ? { workDir } : {}) }
+    let startSeq = 0
+    if (forked) {
+      const forkedAgent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      const inherited = forkedAgent?.session?.inheritedEventCount
+      const seq = forkedAgent?.session?.seq
+      if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
+      else if (Number.isInteger(seq) && seq > 0) startSeq = seq
+    }
+    const stored = { ...task, sessionId, segments: [], startSeq, ...(workDir !== undefined ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
@@ -2273,7 +2303,8 @@ export function install(rt) {
     return { sessionId, forked, syncRoute }
   }
 
-  // Read-only transcript paging for one background task across its own segments.
+  // Read-only transcript paging for one background task across its own segments,
+  // excluding any inherited foreground history that predates the task itself.
   async function taskPage(botId, taskId, cursor, steps = false) {
     const bot = rt.botOf(botId)
     const task = (bot?.tasks ?? []).find(item => item?.id === taskId)
@@ -2285,7 +2316,30 @@ export function install(rt) {
     if (parts.length === 0) return { sessionId: task.sessionId, items: [], cursor: null }
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
-    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
+    const hasStoredStart = Number.isInteger(task.startSeq) && task.startSeq >= 0
+    let minSeq = hasStoredStart ? task.startSeq : undefined
+    if (index === 0 && !hasStoredStart) {
+      const firstAgent = await rt.resolveAgent(parts[0].sessionId).catch(() => undefined)
+      const inherited = firstAgent?.session?.inheritedEventCount
+      const movedOrigin = task.origin === 'fg-handoff' || task.origin === 'bot-handoff'
+      if (!movedOrigin && Number.isInteger(inherited) && inherited > 0) {
+        minSeq = inherited
+      } else if (movedOrigin) {
+        const all = firstAgent?.session?.snapshotEvents?.() ?? []
+        const lastStart = all.findLastIndex(ev => ev?.type === 'turn/start')
+        const boundary = lastStart >= 0 ? lastStart : all.length
+        for (let i = boundary - 1; i >= 0; i -= 1) {
+          if (all[i]?.type === 'turn/end') {
+            minSeq = Number.isInteger(all[i].seq) ? all[i].seq + 1 : i + 1
+            break
+          }
+        }
+      }
+    }
+    return {
+      sessionId: parts.at(-1).sessionId,
+      ...(await partPage(parts, index, cursor, steps, { taskView: true, ...(index === 0 && minSeq !== undefined && minSeq > 0 ? { minSeq } : {}) })),
+    }
   }
 
   // Opening an earlier part again: it becomes the current one and the part that
@@ -2299,15 +2353,6 @@ export function install(rt) {
     }
     const current = rt.chatOf(botId)
     if (partId === current) return false
-    // A part opened while the Bot was busy is live. Making it current swaps the two
-    // threads; both stay live and neither is archived or stopped.
-    if (isOpenPart(bot, partId)) {
-      focusOpenPart(bot, partId)
-      await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
-      await rt.applyPermission(bot, partId, undefined).catch(() => {})
-      await rt.save()
-      return true
-    }
     const segments = bot.segments ?? []
     const at = segments.findIndex(segment => segment.sessionId === partId)
     if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
@@ -2350,5 +2395,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

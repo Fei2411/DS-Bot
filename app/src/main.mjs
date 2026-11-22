@@ -1472,7 +1472,7 @@ function createWindow() {
     win.on('leave-full-screen', sendFullscreen)
     contents.on('did-finish-load', sendFullscreen)
   }
-  for (const [on, file] of [[material !== undefined, 'material.css'], [process.platform === 'darwin', 'macos.css']]) {
+  for (const [on, file] of [[material !== undefined, 'material.css'], [process.platform === 'darwin', 'macos.css'], [process.platform === 'win32', 'windows.css']]) {
     if (!on) continue
     const css = readFileSync(join(here, file), 'utf8')
     contents.on('dom-ready', () => { void contents.insertCSS(css) })
