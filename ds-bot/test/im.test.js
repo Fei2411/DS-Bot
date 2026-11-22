@@ -1340,6 +1340,41 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   assert.notEqual(next, code)
 })
 
+test('form codes match exact receiving chats without capturing code-prefixed prose', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+  one.chats.g2 = { kind: 'group', target: { botId: 'b' }, at: 1 }
+  await s.rt.save()
+  const codes = []
+  for (const [index, botId] of ['a', 'b'].entries()) {
+    await gm(s, 'u1', 'show a form', { chat: { key: `g${index + 1}`, kind: 'group' } })
+    s.imTurn(botId)
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
+      type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }],
+    } }, { agent: { id: botId }, concludeTurn() {} })
+    codes.push(/Card (V\d+)/.exec((await tokenCard(s, index)).text)[1])
+  }
+  assert.notEqual(codes[0], codes[1])
+  for (const [chatKey, text] of [
+    ['g2', `${codes[0]} is our release version`],
+    ['g2', `${codes[0]}\n1: a code this chat never received`],
+    ['g2', `${codes[1]} is our release version`],
+    ['g1', `${codes[0]} is our release version`],
+  ]) {
+    const prompts = s.prompts.length
+    await gm(s, 'u1', text, { chat: { key: chatKey, kind: 'group' } })
+    assert.equal(s.prompts.length, prompts + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, text)
+  }
+  assert.ok(s.rt.state.views.a)
+  assert.ok(s.rt.state.views.b)
+  await gm(s, 'u1', `${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
+  assert.equal(s.rt.state.views.b, undefined)
+  assert.equal(JSON.parse(s.agentOf('b').lastFollowup.content[0].text).answers[0].values.fields.name, 'Bob')
+})
+
 test('expired form codes stay private after pruning, rebinding and restart', async (t) => {
   for (const restart of [false, true]) await t.test(restart ? 'restart' : 'live', async (t) => {
     let s = await start()
@@ -1360,6 +1395,7 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
     const path = join(s.home, 'im', `${one.id}.json`)
     const data = JSON.parse(readFileSync(path, 'utf8'))
     delete data.viewCodeHighWater
+    data.viewCodes = { archived: Array.from({ length: 205 }, (_, index) => index + 2) }
     data.viewCodeSeq += 1000
     writeFileSync(path, JSON.stringify(data))
     s = await start({ home: s.home })
@@ -1372,7 +1408,9 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
       await delay(10)
     }
     assert.equal(pruned.cards[`v:${id}`], undefined, 'the settled delivery must actually be pruned')
-    assert.equal(pruned.viewCodeHighWater.g1, Number(code.slice(1)), 'legacy deliveries backfill durable per-chat history')
+    assert.deepEqual(pruned.viewCodes.g1, [Number(code.slice(1))], 'legacy deliveries backfill exact per-chat history')
+    assert.equal(pruned.viewCodes.archived.length, 200)
+    assert.equal(pruned.viewCodes.archived[0], 7)
     await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
     if (restart) {
       await s.close()
@@ -1392,6 +1430,11 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
       assert.equal(s.agentOf('b').lastFollowup, undefined)
     }
     await refused()
+    const prose = `${code} is our release version`
+    const beforeProse = s.prompts.length
+    await gm(s, 'u1', prose)
+    assert.equal(s.prompts.length, beforeProse + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, prose)
     await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
     await refused()
     await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })

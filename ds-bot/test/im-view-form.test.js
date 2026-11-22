@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { imViewFormText, parseImViewForm } from '../src/host/im/view-form.js'
+import { imViewFormText, isImViewFormAnswer, parseImViewForm } from '../src/host/im/view-form.js'
 
 const calculator = { type: 'stack', children: [
   { type: 'number', id: 'count', label: 'Count', min: 1, max: 10, value: 2 },
@@ -9,6 +9,15 @@ const calculator = { type: 'stack', children: [
   { type: 'choice', id: 'route', label: 'Route', options: [{ label: 'Fast', value: 'f' }, { label: 'Safe', value: 's' }] },
   { type: 'submit', id: 'send' },
 ] }
+
+test('token reply shapes distinguish submissions from code-prefixed prose', () => {
+  for (const answer of ['', '1', '1 3', '1,3', 'cancel', '2 CANCEL', '\n1: Alice\nsecond line', '2\n1: yes', '1: value']) {
+    assert.equal(isImViewFormAnswer(answer), true, JSON.stringify(answer))
+  }
+  for (const prose of ['is our release version', '1 is our release', '\nordinary text', 'cancel the deployment', '1\nordinary text']) {
+    assert.equal(isImViewFormAnswer(prose), false, JSON.stringify(prose))
+  }
+})
 
 test('token forms render types, defaults, bounds and an answer example', () => {
   const text = imViewFormText(calculator, 'V3')

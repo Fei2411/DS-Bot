@@ -56,6 +56,15 @@ export function imViewFormText(view, code) {
   return lines.join('\n')
 }
 
+export function isImViewFormAnswer(text) {
+  const [head, ...lines] = text.replaceAll('\r\n', '\n').split('\n')
+  const command = head.trim()
+  if (/^\d+:/.test(command)) return true
+  if (command !== '' && !/^(?:\d[\d, \t]*|(?:\d+[ \t]+)?cancel)$/i.test(command)) return false
+  const fields = lines.join('\n').trimStart()
+  return fields === '' || /^\d+:/.test(fields)
+}
+
 export function parseImViewForm(view, text) {
   const { actions, fields } = schema(view)
   const [head, ...lines] = text.replaceAll('\r\n', '\n').split('\n')
