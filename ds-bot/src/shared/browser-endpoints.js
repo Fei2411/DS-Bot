@@ -9,7 +9,7 @@ export const BROWSER_ALLOWED = new Set([
   'usage', 'usage-summary', 'run-stats', 'update-check',
   'diagnostics', 'diagnostics-log', 'diagnostics-clear',
   // Chat, group chat, attachments, cards, and safe pending-request cancellations
-  'chat', 'room-chat', 'send', 'stage-image', 'image', 'markdown-image',
+  'chat', 'room-chat', 'send', 'stage-image', 'stage-file', 'image', 'markdown-image',
   'file-text', 'file-download', 'stop-chat', 'stop-room-work',
   'answer-question', 'dismiss-question', 'view-reply', 'dismiss-view',
   'approval-answer', 'btw-delete', 'secret-cancel', 'connector-request-cancel',

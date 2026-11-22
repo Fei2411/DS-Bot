@@ -5,11 +5,12 @@
 // (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
 // compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
-import { Bubbles, EarlierParts, PartLine, ThinkingRow } from '../../../ds-bot/src/client/cells.js'
+import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
 import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
-import { CheckIcon, ChevronRightIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
+import { CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, FileIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
 import { noHover } from '../../../ds-bot/src/client/motion.js'
@@ -18,18 +19,66 @@ import { clockLabel, messageClock } from '../../../ds-bot/src/client/text.js'
 import { layoutOf, thinkingShown } from '../../../ds-bot/src/client/themes.js'
 import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.js'
 import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
-import { AnsweredReply, WidgetCell } from '../../../ds-bot/src/client/widget-cell.js'
+import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
 import { buildSessionRows } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
-import { ToolCallCard } from './tool-card.js'
+import { GenericToolCard, ToolCallCard } from './tool-card.js'
 
 const PAGE_SIZE = 40
 const SEPARATOR_GAP_MS = 30 * 60 * 1000
+const IMAGE_CACHE_MAX = 120
+const EMPTY_OBJ = {}
+const EMPTY_WORK = { bots: {}, approvals: [] }
 const NO_UI_HOOK = () => false
+const NO_OBJECT_HOOK = selector => selector(EMPTY_OBJ)
+const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_HELD_CARDS_HOOK = () => undefined
 
-const userTextOf = event => contentParts(event?.data?.content).text
+const imageCache = new Map()
+const imageInflight = new Map()
+
+function rememberImage(key, value) {
+  imageCache.delete(key)
+  imageCache.set(key, value)
+  while (imageCache.size > IMAGE_CACHE_MAX) {
+    const oldest = imageCache.keys().next().value
+    if (oldest === undefined) break
+    imageCache.delete(oldest)
+  }
+}
+
+function loadAttachmentImage(sessionId, attachmentId) {
+  const key = `${sessionId}:${attachmentId}`
+  if (imageCache.has(key)) {
+    const cached = imageCache.get(key)
+    rememberImage(key, cached)
+    return Promise.resolve(cached)
+  }
+  const existing = imageInflight.get(key)
+  if (existing) return existing
+  const promise = Promise.resolve(call('image', { sessionId, attachmentId, preview: true }))
+    .then((res) => {
+      const src = res?.mime && res?.data ? `data:${res.mime};base64,${res.data}` : null
+      if (src) rememberImage(key, src)
+      return src
+    })
+    .catch(() => null)
+    .finally(() => { imageInflight.delete(key) })
+  imageInflight.set(key, promise)
+  return promise
+}
+
+function userSummaryOf(event) {
+  const { text, attachments } = contentParts(event?.data?.content)
+  let images = 0
+  let files = 0
+  for (const block of attachments) {
+    if (block?.type === 'image') images += 1
+    else if (block?.type === 'file') files += 1
+  }
+  return { text, images, files }
+}
 
 function collectUserEvents(events) {
   const out = []
@@ -110,12 +159,14 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
           for (const userEv of users) {
             if (seenUserSeqsRef.current.has(userEv.seq)) continue
             seenUserSeqsRef.current.add(userEv.seq)
-            onUserRef.current?.(userTextOf(userEv), userEv.time, initial)
+            const summary = userSummaryOf(userEv)
+            onUserRef.current?.(summary.text, userEv.time, initial, summary)
           }
         } else if (!next.reopen && data?.type === 'event' && data.event?.type === 'user/message' && data.event.data?.source?.kind === 'user') {
           if (!seenUserSeqsRef.current.has(data.event.seq)) {
             seenUserSeqsRef.current.add(data.event.seq)
-            onUserRef.current?.(userTextOf(data.event), data.event.time, false)
+            const summary = userSummaryOf(data.event)
+            onUserRef.current?.(summary.text, data.event.time, false, summary)
           }
         }
         const now = Date.now()
@@ -222,17 +273,86 @@ function CopyTextButton({ text }) {
   }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
-function UserAttachments({ attachments }) {
+function UserImageThumb({ sessionId, attachment }) {
+  const name = attachment?.name || t('Image')
+  const direct = attachment?.previewUrl ?? null
+  const attachmentId = attachment?.attachmentId
+  const cached = !direct && sessionId && attachmentId ? imageCache.get(`${sessionId}:${attachmentId}`) ?? null : null
+  const [loaded, setLoaded] = useState(cached)
+  const [zoomed, setZoomed] = useState(false)
+  const closeBtn = useRef(null)
+  const src = direct ?? loaded
+
+  useEffect(() => {
+    if (direct || !sessionId || !attachmentId) return undefined
+    const key = `${sessionId}:${attachmentId}`
+    if (imageCache.has(key)) {
+      setLoaded(imageCache.get(key))
+      return undefined
+    }
+    let alive = true
+    void loadAttachmentImage(sessionId, attachmentId).then((url) => {
+      if (alive && url) setLoaded(url)
+    })
+    return () => { alive = false }
+  }, [direct, sessionId, attachmentId])
+
+  useEffect(() => {
+    if (!zoomed) return undefined
+    closeBtn.current?.focus?.()
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setZoomed(false)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [zoomed])
+
+  if (!src) {
+    return h('span', { className: 'bt-ufile', title: name },
+      h('span', { className: 'dsb-ufile-icon', 'aria-hidden': true }, h(ImageIcon)),
+      h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name)))
+  }
+  const lightbox = zoomed ? h('div', {
+    className: 'dsb-lightbox',
+    role: 'dialog',
+    'aria-modal': true,
+    'aria-label': name,
+    onClick: (event) => { if (event.target === event.currentTarget) setZoomed(false) },
+  },
+  h('button', {
+    ref: closeBtn,
+    type: 'button',
+    className: 'dsb-lightbox-close',
+    'aria-label': t('Close'),
+    title: t('Close'),
+    onClick: () => setZoomed(false),
+  }, h(CloseIcon)),
+  h('img', { className: 'dsb-lightbox-img', src, alt: name })) : null
+  const portalTarget = typeof document !== 'undefined' && document?.body ? document.body : null
+  return h(Fragment, null,
+    h('button', {
+      type: 'button',
+      className: 'dsb-uimg-btn',
+      title: name,
+      'aria-label': name,
+      onClick: () => setZoomed(true),
+    }, h('img', { className: 'dsb-uimg', src, alt: name, loading: 'lazy' })),
+    lightbox && portalTarget ? createPortal(lightbox, portalTarget) : lightbox)
+}
+
+export function UserAttachments({ attachments, sessionId }) {
   if (!attachments || attachments.length === 0) return null
   return h('div', { className: 'bt-uattach' }, attachments.map((block, index) => {
     const file = block.attachment ?? {}
     if (block.type === 'image') {
-      const name = file.name || t('1 image')
-      return h('span', { key: index, className: 'bt-ufile', title: name },
-        h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name)))
+      return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, attachment: file })
     }
     const meta = [fileExtension(file.name)?.toUpperCase().slice(0, 8), fileSizeText(file.bytes)].filter(Boolean).join(' · ')
-    return h('span', { key: index, className: 'bt-ufile', title: file.name },
+    return h('span', { key: file.attachmentId ?? `${file.name ?? 'file'}:${index}`, className: 'bt-ufile', title: file.name },
+      h('span', { className: 'dsb-ufile-icon', 'aria-hidden': true }, h(FileIcon)),
       h('span', { className: 'bt-ufile-text' },
         h('span', { className: 'bt-ufile-name' }, file.name || 'file'),
         meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null))
@@ -266,7 +386,7 @@ function UserRow({ row, sessionId, roster, actions }) {
   const timeTitle = hasTime ? clockLabel(row.time) : undefined
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
-      h(UserAttachments, { attachments: row.attachments }),
+      h(UserAttachments, { attachments: row.attachments, sessionId }),
       row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control) : null,
@@ -375,28 +495,6 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
     }) : null)
 }
 
-// Inline renderer for `show_view` tool calls so display-only and active/settled cards render
-// through DS Bot's WidgetCell instead of raw JSON arguments, unless overridden by a slot.
-function ShowViewCard({ row, sessionId, roster, actions, useHeldCards }) {
-  const useReadHeld = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
-  const heldCards = useReadHeld(state => state?.[sessionId])
-  useEffect(() => {
-    if (!row.callId || typeof actions?.noteCards !== 'function') return undefined
-    actions.noteCards(sessionId, [row.callId], 1)
-    return () => actions.noteCards(sessionId, [row.callId], -1)
-  }, [sessionId, row.callId, actions])
-  return h(WidgetCell, {
-    sessionId,
-    callId: row.callId,
-    args: row.block?.args,
-    done: row.phase === 'result',
-    isError: row.block?.isError === true,
-    roster,
-    actions,
-    heldCards,
-  })
-}
-
 function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
   if (typeof useRoster === 'function' && typeof useTurnClock === 'function') {
     return h(FailureCell, {
@@ -417,11 +515,28 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
 /**
  * Renders the projected DM session transcript (earlier segments via EarlierParts,
  * time separators, user messages, settled card replies, thinking, Markdown replies,
- * tool call cards via `tool.call.toolview` / `WidgetCell` / `GenericToolCard`,
+ * tool call cards via `tool.call.toolview` / DS Bot `ToolCell` / `GenericToolCard`,
  * compaction checkpoints, Bot/schedule events, and failed turns).
  */
-export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi, useRoster, useTurnClock, useHeldCards, thinkingAt, hasMore = false, registry = defaultSlots }) {
+export function SessionTranscript({
+  log, sessionId, bot, roster, actions,
+  useUi, useRoster, useWork, useTurnClock, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
+  thinkingAt, hasMore = false, registry = defaultSlots,
+}) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
+  const safeRoster = useMemo(() => ({
+    bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
+  }), [roster])
+  const fallbackUseRoster = useCallback(selector => selector(safeRoster), [safeRoster])
+  const resolvedUseRoster = typeof useRoster === 'function' ? useRoster : fallbackUseRoster
+  const resolvedUseUi = typeof useUi === 'function' ? useUi : NO_OBJECT_HOOK
+  const resolvedUseWork = typeof useWork === 'function' ? useWork : NO_WORK_HOOK
+  const resolvedUseHeldCards = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
+  const resolvedUseBrowserHolds = typeof useBrowserHolds === 'function' ? useBrowserHolds : NO_OBJECT_HOOK
+  const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
+  const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
+  const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
   // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
   // soon as a Retry turn starts, even before the new turn emits any assistant text.
   useEffect(() => {
@@ -477,15 +592,39 @@ export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi,
     const pause = Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.time)) prevTime = row.time
 
+    const renderToolFallback = (ownerProps) => {
+      if (typeof isBotTool === 'function' && isBotTool(ownerProps.toolName)) {
+        if (ownerProps.toolName === 'show_view' && ownerProps.phase === 'preparing') {
+          return h(GenericToolCard, ownerProps)
+        }
+        return h(ToolCell, {
+          node: {
+            key: ownerProps.callId || row.key,
+            data: { root: { ...ownerProps.block, subCalls: [] } },
+            location: { turn: { turn: row.turn } },
+          },
+          sessionId,
+          useRoster: resolvedUseRoster,
+          useUi: resolvedUseUi,
+          useWork: resolvedUseWork,
+          useHeldCards: resolvedUseHeldCards,
+          useBrowserHolds: resolvedUseBrowserHolds,
+          useBrowserTabs: resolvedUseBrowserTabs,
+          useBrowserPages: resolvedUseBrowserPages,
+          useComputer: resolvedUseComputer,
+          actions,
+        })
+      }
+      return h(GenericToolCard, ownerProps)
+    }
+
     const renderTool = () => h(Fragment, null,
       showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
       h(ToolCallCard, {
         entry: row,
         cwd,
         registry,
-        fallback: row.toolName === 'show_view' && row.phase !== 'preparing'
-          ? () => h(ShowViewCard, { row, sessionId, roster, actions, useHeldCards })
-          : undefined,
+        fallback: renderToolFallback,
       }))
 
     const renderDefault = () => {

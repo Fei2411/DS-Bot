@@ -509,14 +509,23 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row, actions }) {
+function EarlierUser({ row, actions, renderUserAttachments }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
   const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
   const area = foldArea(body, code, codeHead, actions)
-  return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
-    control ? h('div', { className: 'bt-fold-body' }, area) : area,
-    control,
-    row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null),
+  const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
+  const attachments = hasRich ? renderUserAttachments(row) : null
+  const fileNames = !hasRich && Array.isArray(row.fileRefs) && row.fileRefs.length > 0
+    ? row.fileRefs.map(file => file.name).filter(Boolean).join(', ')
+    : ''
+  const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
+  return h('div', { className: 'bt-urow' },
+    attachments,
+    showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
+      control ? h('div', { className: 'bt-fold-body' }, area) : area,
+      control,
+      !hasRich && row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
+      fileNames ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, fileNames) : null) : null,
     row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
@@ -603,7 +612,7 @@ export function EarlierParts({ sessionId, roster, actions }) {
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete }) {
+export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id
   const rows = []
   for (const item of items) {
@@ -617,7 +626,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -630,10 +639,10 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 }
 
 // `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions })
+    case 'user': return h(EarlierUser, { key, row, actions, renderUserAttachments })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -1164,9 +1173,10 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'computer_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
+export const isBotTool = name => DRAWN.has(name) || isComputerCall(name)
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {

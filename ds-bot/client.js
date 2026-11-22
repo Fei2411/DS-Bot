@@ -1840,6 +1840,10 @@ var JA = {
   "This view is no longer open": "このビューはすでに閉じられています",
   "This is not a photo DS Bot can send": "これは DS Bot が送信できる画像ではありません",
   "A photo did not arrive. Send it again.": "画像が届きませんでした。もう一度送信してください。",
+  "File uploads are not available on this host": "このホストではファイルをアップロードできません",
+  "This is not a file DS Bot can send": "これは DS Bot が送信できるファイルではありません",
+  "This file is too large to send (max 16 MB)": "ファイルが大きすぎて送信できません（最大 16 MB）",
+  "A file did not arrive. Send it again.": "ファイルが届きませんでした。もう一度送信してください。",
   "Nothing to delete": "削除する対象がありません",
   "Bot browsers are off on this host": "このホストでは Bot ブラウザが無効になっています",
   "This Bot has no open browser": "この Bot には開いているブラウザがありません",
@@ -2139,6 +2143,29 @@ var JA = {
   "{count} earlier messages compacted": "以前のメッセージ {count} 件を圧縮しました",
   "Session unavailable": "セッションを利用できません",
   "Couldn’t load this conversation": "この会話を読み込めませんでした",
+  "Write": "書き込み",
+  "Read file": "ファイルを読む",
+  "Patch": "パッチ",
+  "Web search": "ウェブ検索",
+  "Web fetch": "ウェブ取得",
+  "Deliverables": "成果物",
+  "Working directory": "作業ディレクトリ",
+  "Background job": "バックグラウンドジョブ",
+  "Subagent": "サブエージェント",
+  "Run code": "コード実行",
+  "exit {code}": "終了コード {code}",
+  "signal {signal}": "シグナル {signal}",
+  "No matches": "一致なし",
+  "No files": "ファイルなし",
+  "{count} files": "{count} 件のファイル",
+  "{count} results": "{count} 件の結果",
+  "Truncated": "省略あり",
+  "Drop files to attach": "ファイルをドロップして添付",
+  "Stop generating": "生成を停止",
+  "Image": "画像",
+  "File too large (max {size})": "ファイルが大きすぎます（最大 {size}）",
+  "Lines {start}–{end} of {total}": "{start}–{end} 行 / 全 {total} 行",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "このビューを表示できませんでした。",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
@@ -4650,6 +4677,10 @@ var KO = {
   "This view is no longer open": "이 보기는 이미 닫혔습니다",
   "This is not a photo DS Bot can send": "DS Bot이 보낼 수 있는 사진이 아닙니다",
   "A photo did not arrive. Send it again.": "사진이 도착하지 않았습니다. 다시 보내 주세요.",
+  "File uploads are not available on this host": "이 호스트에서는 파일을 업로드할 수 없습니다",
+  "This is not a file DS Bot can send": "DS Bot이 보낼 수 있는 파일이 아닙니다",
+  "This file is too large to send (max 16 MB)": "파일이 너무 커서 보낼 수 없습니다 (최대 16 MB)",
+  "A file did not arrive. Send it again.": "파일이 도착하지 않았습니다. 다시 보내 주세요.",
   "Nothing to delete": "삭제할 내용이 없습니다",
   "Bot browsers are off on this host": "이 호스트에서 Bot 브라우저가 꺼져 있습니다",
   "This Bot has no open browser": "이 Bot에 열려 있는 브라우저가 없습니다",
@@ -4950,6 +4981,29 @@ var KO = {
   "{count} earlier messages compacted": "이전 메시지 {count}개가 압축되었습니다",
   "Session unavailable": "세션을 사용할 수 없습니다",
   "Couldn’t load this conversation": "이 대화를 불러올 수 없습니다",
+  "Write": "쓰기",
+  "Read file": "파일 읽기",
+  "Patch": "패치",
+  "Web search": "웹 검색",
+  "Web fetch": "웹 가져오기",
+  "Deliverables": "결과물",
+  "Working directory": "작업 디렉터리",
+  "Background job": "백그라운드 작업",
+  "Subagent": "서브에이전트",
+  "Run code": "코드 실행",
+  "exit {code}": "종료 코드 {code}",
+  "signal {signal}": "시그널 {signal}",
+  "No matches": "일치 없음",
+  "No files": "파일 없음",
+  "{count} files": "파일 {count}개",
+  "{count} results": "결과 {count}개",
+  "Truncated": "일부 생략",
+  "Drop files to attach": "파일을 놓아 첨부",
+  "Stop generating": "생성 중지",
+  "Image": "이미지",
+  "File too large (max {size})": "파일이 너무 큽니다 (최대 {size})",
+  "Lines {start}–{end} of {total}": "{start}–{end}행 / 총 {total}행",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "이 보기를 표시할 수 없습니다.",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
@@ -7462,6 +7516,10 @@ var ES = {
   "This view is no longer open": "Esta vista ya no está abierta",
   "This is not a photo DS Bot can send": "Esta no es una foto que DS Bot pueda enviar",
   "A photo did not arrive. Send it again.": "No llegó una foto. Envíala de nuevo.",
+  "File uploads are not available on this host": "La subida de archivos no está disponible en este host",
+  "This is not a file DS Bot can send": "Este no es un archivo que DS Bot pueda enviar",
+  "This file is too large to send (max 16 MB)": "Este archivo es demasiado grande para enviarlo (máx. 16 MB)",
+  "A file did not arrive. Send it again.": "No llegó un archivo. Envíalo de nuevo.",
   "Nothing to delete": "Nada que eliminar",
   "Bot browsers are off on this host": "Los navegadores de los Bots están desactivados en este host",
   "This Bot has no open browser": "Este Bot no tiene ningún navegador abierto",
@@ -7762,6 +7820,29 @@ var ES = {
   "{count} earlier messages compacted": "{count} mensajes anteriores compactados",
   "Session unavailable": "Sesión no disponible",
   "Couldn’t load this conversation": "No se pudo cargar esta conversación",
+  "Write": "Escribir",
+  "Read file": "Leer archivo",
+  "Patch": "Parche",
+  "Web search": "Búsqueda web",
+  "Web fetch": "Obtener web",
+  "Deliverables": "Entregables",
+  "Working directory": "Directorio de trabajo",
+  "Background job": "Tarea en segundo plano",
+  "Subagent": "Subagente",
+  "Run code": "Ejecutar código",
+  "exit {code}": "salida {code}",
+  "signal {signal}": "señal {signal}",
+  "No matches": "Sin coincidencias",
+  "No files": "Sin archivos",
+  "{count} files": "{count} archivos",
+  "{count} results": "{count} resultados",
+  "Truncated": "Truncado",
+  "Drop files to attach": "Suelta archivos para adjuntar",
+  "Stop generating": "Detener generación",
+  "Image": "Imagen",
+  "File too large (max {size})": "Archivo demasiado grande (máx. {size})",
+  "Lines {start}–{end} of {total}": "Líneas {start}–{end} de {total}",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "No se pudo mostrar esta vista.",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",
@@ -10231,6 +10312,10 @@ var FR = {
   "This view is no longer open": "Cette vue n’est plus ouverte",
   "This is not a photo DS Bot can send": "Ce n’est pas une photo que DS Bot peut envoyer",
   "A photo did not arrive. Send it again.": "Une photo n’est pas arrivée. Envoyez-la de nouveau.",
+  "File uploads are not available on this host": "L’envoi de fichiers n’est pas disponible sur cet hôte",
+  "This is not a file DS Bot can send": "Ce n’est pas un fichier que DS Bot peut envoyer",
+  "This file is too large to send (max 16 MB)": "Ce fichier est trop volumineux pour être envoyé (max. 16 Mo)",
+  "A file did not arrive. Send it again.": "Un fichier n’est pas arrivé. Envoyez-le de nouveau.",
   "Nothing to delete": "Rien à supprimer",
   "Bot browsers are off on this host": "Les navigateurs des Bots sont désactivés sur cet hôte",
   "This Bot has no open browser": "Ce Bot n’a aucun navigateur ouvert",
@@ -10530,6 +10615,29 @@ var FR = {
   "{count} earlier messages compacted": "{count} messages précédents compactés",
   "Session unavailable": "Session indisponible",
   "Couldn’t load this conversation": "Impossible de charger cette conversation",
+  "Write": "Écrire",
+  "Read file": "Lire le fichier",
+  "Patch": "Patch",
+  "Web search": "Recherche web",
+  "Web fetch": "Récupération web",
+  "Deliverables": "Livrables",
+  "Working directory": "Répertoire de travail",
+  "Background job": "Tâche d’arrière-plan",
+  "Subagent": "Sous-agent",
+  "Run code": "Exécuter le code",
+  "exit {code}": "code {code}",
+  "signal {signal}": "signal {signal}",
+  "No matches": "Aucune correspondance",
+  "No files": "Aucun fichier",
+  "{count} files": "{count} fichiers",
+  "{count} results": "{count} résultats",
+  "Truncated": "Tronqué",
+  "Drop files to attach": "Déposez les fichiers pour les joindre",
+  "Stop generating": "Arrêter la génération",
+  "Image": "Image",
+  "File too large (max {size})": "Fichier trop volumineux (max. {size})",
+  "Lines {start}–{end} of {total}": "Lignes {start}–{end} sur {total}",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "Cette vue n'a pas pu être affichée.",
   "Chat background": "Fond de la discussion",
   "While this chat is open, its background takes the place of the team background.": "Tant que cette discussion est ouverte, son fond remplace celui de l'équipe.",
@@ -13041,6 +13149,10 @@ var DE = {
   "This view is no longer open": "Diese Ansicht ist nicht mehr geöffnet",
   "This is not a photo DS Bot can send": "Dies ist kein Foto, das DS Bot senden kann",
   "A photo did not arrive. Send it again.": "Ein Foto ist nicht angekommen. Sende es erneut.",
+  "File uploads are not available on this host": "Datei-Uploads sind auf diesem Host nicht verfügbar",
+  "This is not a file DS Bot can send": "Dies ist keine Datei, die DS Bot senden kann",
+  "This file is too large to send (max 16 MB)": "Diese Datei ist zum Senden zu groß (max. 16 MB)",
+  "A file did not arrive. Send it again.": "Eine Datei ist nicht angekommen. Sende sie erneut.",
   "Nothing to delete": "Nichts zu löschen",
   "Bot browsers are off on this host": "Bot-Browser sind auf diesem Host deaktiviert",
   "This Bot has no open browser": "Dieser Bot hat keinen geöffneten Browser",
@@ -13341,6 +13453,29 @@ var DE = {
   "{count} earlier messages compacted": "{count} frühere Nachrichten komprimiert",
   "Session unavailable": "Sitzung nicht verfügbar",
   "Couldn’t load this conversation": "Diese Unterhaltung konnte nicht geladen werden",
+  "Write": "Schreiben",
+  "Read file": "Datei lesen",
+  "Patch": "Patch",
+  "Web search": "Websuche",
+  "Web fetch": "Webabruf",
+  "Deliverables": "Ergebnisse",
+  "Working directory": "Arbeitsverzeichnis",
+  "Background job": "Hintergrundaufgabe",
+  "Subagent": "Subagent",
+  "Run code": "Code ausführen",
+  "exit {code}": "Exit {code}",
+  "signal {signal}": "Signal {signal}",
+  "No matches": "Keine Treffer",
+  "No files": "Keine Dateien",
+  "{count} files": "{count} Dateien",
+  "{count} results": "{count} Ergebnisse",
+  "Truncated": "Gekürzt",
+  "Drop files to attach": "Dateien zum Anhängen ablegen",
+  "Stop generating": "Generierung stoppen",
+  "Image": "Bild",
+  "File too large (max {size})": "Datei zu groß (max. {size})",
+  "Lines {start}–{end} of {total}": "Zeilen {start}–{end} von {total}",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "Diese Ansicht konnte nicht angezeigt werden.",
   "Chat background": "Chat-Hintergrund",
   "While this chat is open, its background takes the place of the team background.": "Solange dieser Chat offen ist, ersetzt sein Hintergrund den des Teams.",
@@ -15969,6 +16104,29 @@ var ZH = {
   "{count} earlier messages compacted": "已压缩 {count} 条较早消息",
   "Session unavailable": "会话不可用",
   "Couldn’t load this conversation": "无法加载这段对话",
+  "Write": "写入",
+  "Read file": "读取文件",
+  "Patch": "补丁",
+  "Web search": "网页搜索",
+  "Web fetch": "读取网页",
+  "Deliverables": "交付文件",
+  "Working directory": "工作目录",
+  "Background job": "后台任务",
+  "Subagent": "子代理",
+  "Run code": "运行代码",
+  "exit {code}": "退出码 {code}",
+  "signal {signal}": "信号 {signal}",
+  "No matches": "无匹配",
+  "No files": "无文件",
+  "{count} files": "{count} 个文件",
+  "{count} results": "{count} 条结果",
+  "Truncated": "已截断",
+  "Drop files to attach": "松开以添加附件",
+  "Stop generating": "停止生成",
+  "Image": "图片",
+  "File too large (max {size})": "文件过大（最大 {size}）",
+  "Lines {start}–{end} of {total}": "第 {start}–{end} 行，共 {total} 行",
+  "{done} / {total}": "{done} / {total}",
   "This view could not be shown.": "这个视图无法显示。",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
@@ -16143,6 +16301,10 @@ var HOST_ZH = {
   "This view is no longer open": "这个视图已经关闭了",
   "This is not a photo DS Bot can send": "这不是 DS Bot 能发送的照片",
   "A photo did not arrive. Send it again.": "有张照片没传到，请重新发送。",
+  "File uploads are not available on this host": "当前宿主不支持上传文件",
+  "This is not a file DS Bot can send": "这不是 DS Bot 能发送的文件",
+  "This file is too large to send (max 16 MB)": "文件太大，无法发送（最大 16 MB）",
+  "A file did not arrive. Send it again.": "有个文件没传到，请重新发送。",
   "Nothing to delete": "没有要删除的内容",
   "Bot browsers are off on this host": "这台主机关闭了 Bot 浏览器",
   "This Bot has no open browser": "这个 Bot 没有打开的浏览器",
@@ -16992,7 +17154,15 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     roomTodoCheck: (roomId, id, done) => after(call2("room-todo", { roomId, id, done })),
     roomTodoRemove: (roomId, id) => after(call2("room-todo", { roomId, id, action: "remove" })),
     roomTodoClear: (roomId) => after(call2("room-todo", { roomId, action: "clear" })),
-    send: (sessionId, text) => after(call2("send", { sessionId: partFor(sessionId), text })),
+    send: (sessionId, text, options = {}) => after(call2("send", {
+      sessionId: partFor(sessionId),
+      text,
+      ...options.images?.length ? { images: options.images } : {},
+      ...options.files?.length ? { files: options.files } : {}
+    })),
+    stageImage: (mediaType, data, name) => call2("stage-image", { mediaType, data, ...name ? { name } : {} }),
+    stageFile: (name, data, mediaType) => call2("stage-file", { name, data, ...mediaType ? { mediaType } : {} }),
+    stopChat: (botId) => after(call2("stop-chat", { botId })),
     answerQuestion: (sessionId, questionId, answer) => after(call2("answer-question", { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: (sessionId) => after(call2("dismiss-question", { sessionId })),
     answerView: (sessionId, viewId, action, values) => after(call2("view-reply", { sessionId: partFor(sessionId), viewId, action, values })),
@@ -20921,6 +21091,9 @@ function PeopleIcon() {
 function ArrowUpIcon() {
   return (0, import_react3.createElement)("svg", { width: 16, height: 16, viewBox: "0 0 20 20", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M10 16V4M5 9l5-5 5 5", stroke: "currentColor", strokeWidth: 1.8, fill: "none", strokeLinecap: "round", strokeLinejoin: "round" }));
 }
+function StopIcon() {
+  return (0, import_react3.createElement)("svg", { width: 14, height: 14, viewBox: "0 0 20 20", fill: "currentColor", "aria-hidden": true }, (0, import_react3.createElement)("rect", { x: 5, y: 5, width: 10, height: 10, rx: 2 }));
+}
 function MicIcon({ size = 16 }) {
   return (0, import_react3.createElement)(
     "svg",
@@ -21002,6 +21175,10 @@ function PinMarkIcon() {
 var UnreadIcon = lineIcon(["M10 3.5a4.5 4.5 0 0 0-4.5 4.5v3L4 13.5h12L14.5 11V8", "M8.3 16a1.8 1.8 0 0 0 3.4 0", "M15.5 3.2a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z"]);
 var PencilIcon = lineIcon(["M9 4H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3", "M14.3 3.7a1.6 1.6 0 0 1 2.3 2.3L10.5 12l-3 .8.8-3z"]);
 var DiffIcon = lineIcon(["M5.5 3.5h5l4 4v9h-9z", "M10.5 3.5V8h4", "M7.5 11h5", "M7.5 13.5h3"]);
+var FileIcon = lineIcon(["M5.5 3.5h5.5l3.5 3.5v9.5h-9z", "M11 3.5V7h3.5"]);
+var ImageIcon = lineIcon(["M3.5 4.5h13A1.5 1.5 0 0 1 18 6v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14V6a1.5 1.5 0 0 1 1.5-1.5z", "M6.5 8.2a1.1 1.1 0 1 0 0 .01", "M3 14l4.2-4.2 3.2 3.2 2.4-2.2 4.2 3.2"]);
+var ListCheckIcon = lineIcon(["M4 6l1.5 1.5L8 5", "M10.5 6.25h5.5", "M4 10.5l1.5 1.5L8 9.5", "M10.5 10.75h5.5", "M4.5 15h1.5", "M10.5 15h5.5"]);
+var CodeIcon = lineIcon(["M7 6.5L3.5 10 7 13.5", "M13 6.5L16.5 10 13 13.5", "M11.2 4.5l-2.4 11"]);
 var InfoIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z", "M10 9.25v4", "M10 6.6h.01"]);
 var StarLineIcon = lineIcon(["M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z"]);
 var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z", "M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13"]);
@@ -32707,20 +32884,26 @@ var scrollParent = (node) => {
   }
   return null;
 };
-function EarlierUser({ row, actions }) {
+function EarlierUser({ row, actions, renderUserAttachments }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
   const body = row.text && shown !== "" ? (0, import_react35.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels(), variant: "compact" }) : null;
   const area = foldArea(body, code, codeHead, actions);
+  const hasRich = typeof renderUserAttachments === "function" && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0);
+  const attachments = hasRich ? renderUserAttachments(row) : null;
+  const fileNames = !hasRich && Array.isArray(row.fileRefs) && row.fileRefs.length > 0 ? row.fileRefs.map((file) => file.name).filter(Boolean).join(", ") : "";
+  const showBubble = Boolean(body || code !== void 0 || !hasRich && (row.images || fileNames));
   return (0, import_react35.createElement)(
     "div",
     { className: "bt-urow" },
-    (0, import_react35.createElement)(
+    attachments,
+    showBubble ? (0, import_react35.createElement)(
       "div",
       { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body || code !== void 0 ? "" : void 0 },
       control ? (0, import_react35.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
-      row.images ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
-    ),
+      !hasRich && row.images ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null,
+      fileNames ? (0, import_react35.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, fileNames) : null
+    ) : null,
     row.via ? (0, import_react35.createElement)("div", { className: "bt-utime" }, (0, import_react35.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
 }
@@ -32801,7 +32984,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     (0, import_react35.createElement)(PartLine, { time: view.startedAt })
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -32814,7 +32997,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
   let before;
   return rows2.flatMap((row, index) => {
     const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];
@@ -32824,12 +33007,12 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
     return pause ? [(0, import_react35.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
 }
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
   switch (row.kind) {
     case "divider":
       return (0, import_react35.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react35.createElement)(EarlierUser, { key, row, actions });
+      return (0, import_react35.createElement)(EarlierUser, { key, row, actions, renderUserAttachments });
     case "answer":
       return (0, import_react35.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -33375,8 +33558,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   );
 }
 var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "computer_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
 var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
+var isBotTool = (name) => DRAWN.has(name) || isComputerCall(name);
 function callTree(root) {
   const calls = [];
   const seen = /* @__PURE__ */ new Set();
@@ -50138,12 +50322,12 @@ var GlobeIcon2 = icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 
 var BackIcon = icon(["M12.5 4.5L7 10l5.5 5.5"]);
 var ForwardIcon = icon(["M7.5 4.5L13 10l-5.5 5.5"]);
 var ReloadIcon = icon(["M15.5 10a5.5 5.5 0 1 1-1.6-3.9", "M15.5 3.5v3.5H12"]);
-var StopIcon = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
+var StopIcon2 = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
 var CloseIcon3 = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
 var PlusTabIcon = icon(["M10 5v10M5 10h10"]);
 var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
 var ImportIcon = icon(["M10 3.5v8.5", "M6 8.5l4 4 4-4", "M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14"]);
-var FileIcon = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
+var FileIcon2 = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
 var WindowIcon = icon(["M4 5h12v9.5H4z", "M4 7.5h12"]);
 var PasteIcon = icon(["M7.5 4.5h5v2h-5z", "M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1"]);
 function siteMatchesHost(site, host) {
@@ -50774,7 +50958,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
-      }, (0, import_react78.createElement)(page.loading ? StopIcon : ReloadIcon)),
+      }, (0, import_react78.createElement)(page.loading ? StopIcon2 : ReloadIcon)),
       (0, import_react78.createElement)(
         "form",
         { className: "bt-browser-address", onSubmit: go, "data-editing": editing || void 0 },
@@ -50929,7 +51113,7 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
     (0, import_react78.createElement)(
       "button",
       { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onFile },
-      (0, import_react78.createElement)(FileIcon, { className: "bt-import-item-icon" }),
+      (0, import_react78.createElement)(FileIcon2, { className: "bt-import-item-icon" }),
       (0, import_react78.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
       (0, import_react78.createElement)("span", { className: "bt-import-item-sub" }, t("cookies.txt, JSON, storageState"))
     ),

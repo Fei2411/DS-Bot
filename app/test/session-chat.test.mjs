@@ -20,7 +20,21 @@ const stubs = {
     export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
+    export const Elapsed = () => null
     export const workPhrase = () => ''
+    export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua', 'computer_handoff'].includes(name)
+    export const ToolCell = ({ node, sessionId, useHeldCards }) => {
+      const root = node?.data?.root
+      const heldCards = useHeldCards?.(state => state?.[sessionId])
+      const name = root?.name || root?.call?.name
+      if (name === 'show_view') {
+        return {
+          type: 'widget-cell',
+          props: { callId: root.callId, title: root.args?.text?.('title'), done: root.kind === 'tool-result', isError: root.isError === true, heldCards, children: ['widget:' + (root.args?.text?.('title') ?? root.callId)] },
+        }
+      }
+      return { type: 'bot-tool-cell', props: { toolName: name, callId: root?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+    }
   `,
   'widget-cell.js': `
     export const WidgetCell = ({ callId, args, done, isError, heldCards }) => ({
@@ -32,10 +46,12 @@ const stubs = {
       type: 'answered-reply',
       props: { data: node?.data, children: ['answered:' + (node?.data?.questions?.[0]?.question ?? node?.data?.views?.[0]?.title ?? 'ok')] },
     })
+    export const ViewCard = () => null
   `,
-  'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
+  'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': `
+    export const MarkdownText = ({ text }) => ({ type: 'markdown', props: { text, children: [text] } })
     export const writeClipboard = async () => true
     export const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
     export const fileSizeText = bytes => (Number.isFinite(bytes) ? bytes + ' B' : '')
@@ -70,6 +86,10 @@ const { outputFiles } = await build({
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'session-chat-stub' }
+      })
+      bundler.onResolve({ filter: /^\.\/(cells|widget-cell|model-menu|api)\.js$/ }, (args) => {
+        if (!args.resolveDir.replace(/\\/g, '/').endsWith('/ds-bot/src/client')) return null
+        return { path: args.path.slice(2), namespace: 'session-chat-stub' }
       })
       bundler.onLoad({ filter: /.*/, namespace: 'session-chat-stub' }, args => ({ contents: stubs[args.path], loader: 'js' }))
     },
@@ -115,6 +135,8 @@ const react = {
   useCallback: fn => fn,
   useId: () => slot(() => ({ id: 'id' })).id,
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
+  createContext: value => ({ _default: value, Provider: ({ children }) => children }),
+  useContext: ctx => ctx?._default,
 }
 
 function createFetchControl() {
@@ -178,13 +200,14 @@ function createFetchControl() {
 
 const fetchCtrl = createFetchControl()
 const recordedTimers = []
+const portalTargets = []
 const module = { exports: {} }
 const sandbox = {
   module, exports: module.exports,
   __testCall: async () => ({ records: [], hasMore: false }),
   require: (name) => {
     if (name === 'react') return react
-    if (name === 'react-dom') return { createPortal: node => node }
+    if (name === 'react-dom') return { createPortal: (node, target) => { portalTargets.push(target); return node } }
     throw new Error(`no platform module ${name}`)
   },
   AbortController, TextDecoder, URLSearchParams,
@@ -203,7 +226,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  Chat, createTeam,
+  SessionTranscript, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -615,7 +638,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
   const heldState = { 'session-main': { 'view:v1': 1 } }
   const roster = {
     ready: true,
-    readOnly: true,
+    readOnly: 'The Bot team is open in another dsh',
     prefs: { enterToSend: true, thinking: true },
     bots: [{ id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] }],
     byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] } },
@@ -677,7 +700,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     assert.ok(turnTimes.some(([, turn, key]) => turn === 1 && key === 'first'))
     assert.ok(turnTimes.some(([, turn, key]) => turn === 2 && key === 'end'))
 
-    // Read-only window: feed `revision` event triggers reopen() of api/bot/session.
+    // Read-only window: composer is locked AND feed `revision` event triggers reopen() of api/bot/session.
+    assert.equal(all(tree, n => n.type === 'textarea')[0].props.disabled, true, 'read-only window disables composer')
     for (const listener of listeners) listener('revision', {})
     await tick()
     await tick()
@@ -713,7 +737,9 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     await tick()
     assert.deepEqual(plain(pageCalls[0]), ['session-page', { sessionId: 'session-main', beforeSeq: 45, maxMessages: 40 }])
 
-    // Send "继续" twice -> both stay pending; a gap-reopen user/message must NOT clear pending early.
+    // Unlock read-only mode (null), then send "继续" twice -> both stay pending; a gap-reopen user/message must NOT clear pending early.
+    roster.readOnly = null
+    inst.render()
     const sendText = async (value) => {
       const ta = all(inst.render(), n => n.type === 'textarea')[0]
       ta.props.onChange({ target: { value } })
@@ -723,7 +749,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     }
     const pendingCount = () => {
       const pendingRows = all(inst.render(), n => n.type === 'div' && n.props?.className === 'dsb-pending')
-      return pendingRows[0] ? all(pendingRows[0], n => n.type === 'chat-rows')[0].props.items.length : 0
+      return pendingRows[0] ? all(pendingRows[0], n => n.type === 'div' && n.props?.className === 'bt-umsg').length : 0
     }
     await sendText('继续')
     await sendText('继续')
@@ -804,4 +830,195 @@ test('createTeam wires heldCards store so WidgetDock noteHeldCard updates cleanl
   assert.deepEqual(plain(probeMount.render().props.held), { s1: { '["view","v1"]': 1 } })
   team.actions.noteHeldCard('s1', 'view', 'v1', -1)
   assert.deepEqual(plain(probeMount.render().props.held), { s1: {} })
+  assert.equal(typeof team.hooks.useComputer, 'function')
+  assert.equal(typeof team.hooks.useBrowserHolds, 'function')
+  assert.equal(typeof team.actions.stopChat, 'function')
+  assert.equal(typeof team.actions.stageFile, 'function')
+  assert.equal(typeof team.actions.stageImage, 'function')
+})
+
+test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via ToolCell and loads user image thumbnails', async () => {
+  const imageCalls = []
+  sandbox.__testCall = async (endpoint, payload) => {
+    if (endpoint === 'image') {
+      imageCalls.push(payload)
+      return { mime: 'image/png', data: 'iVBORw0KGgo=' }
+    }
+    return {}
+  }
+  const log = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 5,
+    hasMore: false,
+    records: [
+      {
+        type: 'event',
+        event: {
+          seq: 1,
+          time: 1000,
+          type: 'user/message',
+          data: {
+            source: { kind: 'user' },
+            content: [
+              { type: 'image', attachment: { attachmentId: 'att-img-1', name: 'chart.png', width: 100, height: 80 } },
+              { type: 'text', text: 'check this chart' },
+            ],
+          },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 2,
+          time: 1010,
+          type: 'tool/call',
+          data: { turn: 1, callId: 'ptc-1', name: 'run_code', arguments: '{"code":"ask_user(...)"}' },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 3,
+          time: 1015,
+          type: 'tool/ptc-dispatch-start',
+          data: { turn: 1, subCallId: 'sub-ask-1', parentCallId: 'ptc-1', rootCallId: 'ptc-1', name: 'ask_user', arguments: '{"question":"Pick one"}' },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 4,
+          time: 1020,
+          type: 'tool/ptc-dispatch',
+          data: { turn: 1, subCallId: 'sub-ask-1', parentCallId: 'ptc-1', rootCallId: 'ptc-1', name: 'ask_user', isError: false, content: [] },
+        },
+      },
+      {
+        type: 'event',
+        event: {
+          seq: 5,
+          time: 1030,
+          type: 'tool/result',
+          data: { turn: 1, message: { toolCallId: 'ptc-1', isError: false, content: [{ type: 'text', text: 'done' }] } },
+        },
+      },
+    ],
+  }).log
+  const roster = {
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue' }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue' } },
+    rooms: [],
+    roomsById: {},
+    prefs: {},
+    exchangeTurns: {},
+  }
+  const inst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot: roster.byId.b1,
+    roster,
+    actions: { openSession() {}, noteTurnTime() {} },
+  })
+  try {
+    inst.render()
+    await tick()
+    const tree = inst.render()
+    assert.deepEqual(plain(imageCalls), [{ sessionId: 'b1', attachmentId: 'att-img-1', preview: true }])
+    const imgs = all(tree, n => n.type === 'img' && n.props?.className === 'dsb-uimg')
+    assert.equal(imgs.length, 1)
+    assert.equal(imgs[0].props.src, 'data:image/png;base64,iVBORw0KGgo=')
+    const botCells = all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user')
+    assert.equal(botCells.length, 1)
+
+    // Lightbox opens via createPortal(..., document.body), stops Escape propagation, and closes cleanly.
+    portalTargets.length = 0
+    let escapeHandler = null
+    sandbox.window.addEventListener = (ev, fn, opts) => { if (ev === 'keydown' && (opts === true || opts?.capture)) escapeHandler = fn }
+    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown' && fn === escapeHandler) escapeHandler = null }
+    const imgBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-uimg-btn')[0]
+    imgBtn.props.onClick()
+    await tick()
+    const openTree = inst.render()
+    assert.equal(all(openTree, n => n.props?.className === 'dsb-lightbox').length, 1)
+    assert.equal(portalTargets.includes(sandbox.document.body), true, 'Lightbox must portal to document.body')
+    assert.equal(typeof escapeHandler, 'function', 'Lightbox listens for Escape in capture phase')
+    let stopped = false
+    escapeHandler({ key: 'Escape', stopPropagation() { stopped = true } })
+    assert.equal(stopped, true)
+    assert.equal(all(inst.render(), n => n.props?.className === 'dsb-lightbox').length, 0)
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
+    sandbox.window.addEventListener = () => {}
+    sandbox.window.removeEventListener = () => {}
+  }
+})
+
+test('createTeam pull() syncs browserHolds, computerLive, and readOnly transitions across unchanged-revision polls', async () => {
+  const store = new Map()
+  sandbox.localStorage = {
+    getItem: key => store.get(key) ?? null,
+    setItem: (key, val) => { store.set(key, String(val)) },
+    removeItem: key => { store.delete(key) },
+  }
+  let pollStep = 0
+  let intervalFn = null
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
+  sandbox.clearInterval = () => {}
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'state') {
+      pollStep += 1
+      if (pollStep === 1) {
+        return {
+          revision: 1,
+          liveKey: 'lk-1',
+          bots: [],
+          rooms: [],
+          readOnly: 'Opened in another dsh',
+          browserHolds: { b1: { by: 'bot', callId: 'c1', reason: 'login' } },
+          computerLive: { active: true },
+        }
+      }
+      // Same revision, unchanged: true -> readOnly clears to null without bumping revision!
+      return {
+        revision: 1,
+        unchanged: true,
+        liveKey: 'lk-2',
+        readOnly: null,
+        browserHolds: {},
+        computerLive: { active: false },
+      }
+    }
+    return {}
+  }
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    const Probe = () => {
+      const holds = team.hooks.useBrowserHolds(s => s)
+      const comp = team.hooks.useComputer(s => s)
+      const ro = team.hooks.useRoster(s => s.readOnly)
+      return react.createElement('div', { holds, comp, ro })
+    }
+    const probe = mount(Probe, {})
+    let rendered = probe.render()
+    assert.deepEqual(plain(rendered.props.holds), { b1: { by: 'bot', callId: 'c1', reason: 'login' } })
+    assert.deepEqual(plain(rendered.props.comp), { active: true })
+    assert.equal(rendered.props.ro, 'Opened in another dsh')
+
+    // Trigger next catch-up poll with unchanged: true -> readOnly must transition to null live.
+    intervalFn()
+    await tick()
+    await tick()
+    rendered = probe.render()
+    assert.equal(rendered.props.ro, null)
+    assert.deepEqual(plain(rendered.props.holds), {})
+  } finally {
+    stop()
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
 })

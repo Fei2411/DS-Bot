@@ -122,7 +122,14 @@ export function roomItems(events, rowsOf = () => []) {
       if (source?.kind === 'user') {
         const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
         const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
+        const fileBlocks = content.filter(block => block?.type === 'file' && block.attachment !== undefined)
+        const fileRefs = fileBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, name: block.attachment.name, bytes: block.attachment.bytes }))
+        items.push({
+          id: `${seq}`, kind: 'user', text: textOf(content),
+          ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}),
+          ...(fileBlocks.length > 0 ? { fileRefs } : {}),
+          time: event.time ?? null,
+        })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -324,7 +331,7 @@ export function install(rt) {
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
     for (const item of items) {
-      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
     }
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
@@ -381,6 +388,15 @@ export function install(rt) {
     return { mime: 'image/jpeg', data: small.toString('base64'), preview: true }
   }
 
+  const throughSeqOf = async (targetId) => {
+    const live = ctx.sessions?.get?.(targetId)
+    const rawLive = live?.seq
+    if (typeof rawLive === 'number' && Number.isSafeInteger(rawLive) && rawLive >= 0) return rawLive - 1
+    const agent = await rt.resolveAgent(targetId).catch(() => undefined)
+    const rawSeq = agent?.session?.seq
+    return typeof rawSeq === 'number' && Number.isSafeInteger(rawSeq) && rawSeq >= 0 ? rawSeq - 1 : undefined
+  }
+
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
@@ -394,10 +410,13 @@ export function install(rt) {
       ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
     ])]
     for (const targetId of sessions) {
+      const throughSeq = await throughSeqOf(targetId)
+      if (throughSeq !== undefined && throughSeq < 0) continue
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId: targetId },
+          ...(throughSeq !== undefined ? { throughSeq } : {}),
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
@@ -511,10 +530,13 @@ export function install(rt) {
       return attachmentChunk(attachments, locator.ref, offset)
     }
     for (const targetId of sessions) {
+      const throughSeq = await throughSeqOf(targetId)
+      if (throughSeq !== undefined && throughSeq < 0) continue
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId: targetId },
+          ...(throughSeq !== undefined ? { throughSeq } : {}),
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
