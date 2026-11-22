@@ -170,12 +170,12 @@ test('a multiline Telegram group mention answers a token form without losing fie
   const viewId = rt.state.views.a.id
   const card = await until(() => api.calls.find(call => call.method === 'sendMessage' && /Card V\d+/.test(call.params.text)))
   const code = /Card (V\d+)/.exec(card.params.text)[1]
-  api.updates.push(message(101, `@fakebot  \t ${code}\n1: Alice\n2: first line\nsecond line`))
+  api.updates.push(message(101, `@fakebot  \t ${code}\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
   await until(() => followups.length === 1)
   assert.equal(rt.state.views.a, undefined)
   assert.equal(prompts.length, 1, 'the answer is consumed rather than relayed as ordinary chat')
   assert.deepEqual(JSON.parse(followups[0].content[0].text).answers[0], {
-    id: viewId, action: 'details', values: { fields: { name: 'Alice', notes: 'first line\nsecond line' } },
+    id: viewId, action: 'details', values: { fields: { name: 'Alice  Smith\tJr', notes: 'first  line\n  second\tline @fakebot\nlast\t ' } },
   })
 })
 

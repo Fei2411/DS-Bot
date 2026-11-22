@@ -92,7 +92,9 @@ export default {
 
     const strip = (text) => {
       if (selfName === '') return text
-      return text.replaceAll(selfName, ' ').replace(/[ \t]+/g, ' ').trim()
+      const body = text.trimStart()
+      const mention = /^(@\w+)(?=\s|$)/.exec(body)
+      return mention?.[1] === selfName ? body.slice(selfName.length).trimStart() : text
     }
 
     const fetchMedia = async (item, kind) => {
