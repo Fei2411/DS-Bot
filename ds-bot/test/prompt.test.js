@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { manualDirectory } from '../src/host/manual-skills.js'
 import { install } from '../src/host/prompt.js'
 import { fakeContext } from './fake-ctx.js'
+import { install as installBuiltinPacks, BUILTIN_PACKS } from '../src/host/builtin-packs.js'
 
 function start() {
   const ctx = fakeContext()
@@ -71,4 +72,38 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.match(prompt('room'), /end your turn with an empty reply/)
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
+})
+
+test('ordinary Bot prompts never direct calls to team-admin tools', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['worker', 'group-worker']) {
+    for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(!prompt(id).includes(name), name)
+    assert.match(prompt(id), /update_bot changes your own settings/)
+    assert.match(prompt(id), /change the group with update_group/)
+  }
+  for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(prompt('main').includes(name), name)
+})
+
+test('role-dependent prompt guidance stays frozen until the next turn in both directions', (t) => {
+  const ctx = fakeContext()
+  t.after(() => ctx.dispose())
+  let main = false
+  const rt = { ctx, selfOf: id => id, botOf: () => ({ name: 'Writer' }), roomOf: () => undefined, isMain: () => main, isBotSession: () => true }
+  installBuiltinPacks(rt)
+  install(rt)
+  const prompt = () => ctx.sections.get('bot-identity').text({ agent: { id: 'worker' } })
+  const emit = type => ctx.listeners.get('session/event')[0]({ id: 'worker' }, { type })
+  for (const initial of [false, true]) {
+    main = initial
+    emit('turn/start')
+    const before = prompt()
+    main = !initial
+    assert.equal(prompt(), before)
+    emit('turn/end')
+    emit('turn/start')
+    assert.notEqual(prompt(), before)
+    assert.equal(prompt().includes('create_bot'), !initial)
+    emit('turn/end')
+  }
 })

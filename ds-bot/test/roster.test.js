@@ -195,6 +195,22 @@ for (const kind of ['main', 'copy', 'made by a Main Bot', 'made by the user']) {
   })
 }
 
+test('a greeting whose model wait fails still goes out, with no unhandled rejection', async (t) => {
+  const { call, stop, sent, warnings } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  await call('state', {})
+  rt.waitForModel = async () => { throw new Error('providers unreadable') }
+  const bot = (await call('create-bot', { name: 'Writer' })).value
+  await until(() => warnings.some(line => line.includes('model for Writer not ready')))
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
+  await settle()
+  assert.deepEqual(unhandled, [])
+})
+
 test('a first message from the user is helped with, not replaced by an opening question', async (t) => {
   const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
   t.after(stop)

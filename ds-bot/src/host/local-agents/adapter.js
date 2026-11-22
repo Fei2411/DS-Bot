@@ -211,7 +211,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.push = (event) => {
       this.observe(live, event)
-      if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity')) return
+      if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
       clearTimeout(live.idle)
       live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
       live.idle.unref?.()
@@ -332,6 +332,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
+    live.stopped = true
     live.queue.length = 0
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
@@ -648,6 +649,10 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, input, signal, effort) {
+    if (live.stopped) {
+      this.discardTurnOutput(live)
+      live.stopped = false
+    }
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
     // The turn an engine names is the one this stream reads: a finished turn's late
@@ -656,7 +661,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     try {
       const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
       return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
@@ -740,9 +745,13 @@ export class LocalAgentAdapter extends LlmAdapter {
     const onAbort = () => abortReject(options.signal?.reason ?? new Error('aborted'))
     if (options.signal?.aborted) onAbort()
     else options.signal?.addEventListener('abort', onAbort)
+    const report = payload => this.deps.rt?.noteLocalAgentEvent?.(live.sessionId, payload)
     try {
     for (;;) {
-      const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
+      const next = this.take(live)
+      const event = await Promise.race([next.event, abortPromise])
+        .catch(error => ({ type: 'abort', error }))
+        .finally(() => next.drop())
       if (event.type === 'abort') {
         this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
@@ -752,6 +761,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (event.type !== 'permission' && event.type !== 'call' && event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
       switch (event.type) {
         case 'text': {
+          report(event)
           if (textIndex === -1) {
             if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
             yield { type: 'block-start', index: index++, blockType: 'text' }
@@ -763,6 +773,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'thought':
         case 'activity': {
+          report(event)
           // An activity line stands on its own line of the reasoning, which is
           // how the chat tells it from the thought around it.
           const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
@@ -775,6 +786,9 @@ export class LocalAgentAdapter extends LlmAdapter {
           yield { type: 'reasoning-delta', index: thinkIndex, text }
           break
         }
+        case 'status':
+          report(event)
+          break
         case 'usage': yield addUsage(event.usage); break
         case 'call': {
           yield* closeBlocks()
@@ -831,6 +845,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
     } finally {
+      report({ type: 'idle' })
       options.signal?.removeEventListener('abort', onAbort)
     }
   }

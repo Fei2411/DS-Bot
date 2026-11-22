@@ -168,7 +168,7 @@ export function install(rt) {
       if (index !== chatIndex) return
       let keep = mark ? mark.keep === 1 : false
       let turn = mark?.turn ?? -1
-      const seal = part.endedAt !== undefined && Date.now() - part.endedAt > SEAL_AFTER_MS
+      const seal = part.endedAt !== undefined && Date.now() - part.endedAt > SEAL_AFTER_MS && rt.isRetiring?.(part.sessionId) !== true
       index.db.exec('BEGIN')
       try {
         let last = through

@@ -77,10 +77,13 @@ export const chatRoom = {
 // shell sidebar's collapsed track width, and its collapsed flag. A resize or a
 // sidebar slide does not always come with a window event, so the track width
 // comes off a ResizeObserver and the flag off a MutationObserver.
+const COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]'
+
 export function installFrameWatch(frame) {
   let collapsedWidth = collapsedTrackWidth()
   let raf = 0
-  const watched = new WeakSet()
+  const watched = new Set()
+  let added = false
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
   const read = () => {
     // While the shell slides its sidebar (data-animating on the frame) the
@@ -97,9 +100,17 @@ export function installFrameWatch(frame) {
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next
     })
   }
+  // Scanning a long chat's DOM for the columns costs more than the read, so the
+  // scan runs only while a column is missing, one we watch was replaced, or a
+  // mutation added a column (a second pane next to the two we watch).
   const measure = () => {
-    for (const selector of ['[class*="_sidebarCol"]', '[class*="_centerCol"]']) {
-      for (const column of document.querySelectorAll(selector)) {
+    let scan = added || watched.size < 2
+    added = false
+    for (const column of watched) {
+      if (!column.isConnected) { watched.delete(column); observer?.unobserve(column); scan = true }
+    }
+    if (scan) {
+      for (const column of document.querySelectorAll(COLUMNS)) {
         if (!watched.has(column)) { watched.add(column); observer?.observe(column) }
       }
     }
@@ -108,12 +119,18 @@ export function installFrameWatch(frame) {
   const schedule = () => {
     if (raf === 0) raf = requestAnimationFrame(() => { raf = 0; measure() })
   }
-  const relevant = (records) => records.some((record) => {
-    if (record.type === 'attributes') return true
-    const target = record.target
-    if (target instanceof Element && target.closest('[data-chat-flow],[data-composer-card]')) return false
-    return true
-  })
+  const addsColumn = (record) => [...record.addedNodes].some(node => node instanceof Element && (node.matches(COLUMNS) || node.querySelector(COLUMNS) !== null))
+  const relevant = (records) => {
+    let hit = false
+    for (const record of records) {
+      if (record.type === 'attributes') { hit = true; continue }
+      const target = record.target
+      if (target instanceof Element && target.closest('[data-chat-flow],[data-composer-card]')) continue
+      hit = true
+      if (!added && addsColumn(record)) added = true
+    }
+    return hit
+  }
   measure()
   const mutations = new MutationObserver((records) => { if (relevant(records)) schedule() })
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sidebar-collapsed', 'data-animating'] })

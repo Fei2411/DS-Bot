@@ -13,7 +13,7 @@ export const SERVICES_CSS = `
 .bt-svc-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3);corner-shape:round}
 .bt-svc-state[data-state=ready] .bt-svc-dot{background:var(--bt-green)}
 .bt-svc-state[data-state=missing] .bt-svc-dot{background:var(--bt-danger)}
-.bt-svc-line{padding:0 12px 10px}
+.bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal}
 .bt-svc-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3);overflow-wrap:anywhere}
 .bt-svc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -94,7 +94,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
           : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
   return h('div', { className: 'bt-svc' },
     h('style', { 'data-ds-bot': 'deepseek-services' }, SERVICES_CSS),
-    h(Section, { key: 'key', title: t('DeepSeek API') },
+    h(Section, { key: 'key', title: t('DeepSeek API'), tour: 'svc-key' },
       h(Row, { label: t('API key') },
         h('div', { className: 'bt-svc-actions' },
           h(Pill, { state: key.configured ? 'ready' : 'missing', text: key.configured ? t('Key set') : t('Needs an API key') }),
@@ -104,9 +104,9 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
       // Plugins → Web search turns on the new API for search and fetch.
       h(Row, { label: t('DeepSeek Web Search API'), hint: t('Find it in Plugins → Web search.') },
         pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null),
-      h('div', { className: 'bt-svc-line' },
-        h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : busy ? t('Saving…') : ''))),
-    h(Section, { key: 'ocr', title: t('Image and document reading') },
+      saved || busy ? h('div', { className: 'bt-svc-line' },
+        h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : t('Saving…'))) : null),
+    h(Section, { key: 'ocr', title: t('Image and document reading'), tour: 'svc-ocr' },
       h(Row, {
         label: t('Use DeepSeek to read images and documents'),
         hint: t('Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.'),
@@ -115,7 +115,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
         onChange: on => save({ ocr: on }),
       })),
       h(StateLine, { view: ocrView })),
-    h(Section, { key: 'tts', title: t('Text to speech') },
+    h(Section, { key: 'tts', title: t('Text to speech'), tour: 'svc-tts' },
       h(Row, { label: t('Read replies aloud') },
         h(Choice, {
           label: t('Read replies aloud'), value: prefs.tts, disabled: busy || !ready, Segmented,

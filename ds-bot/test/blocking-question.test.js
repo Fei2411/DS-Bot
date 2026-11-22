@@ -292,8 +292,10 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   // Session and a plain Agent get neither while DS Bot has mounted no provider.
   assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'chief', 'room-writer', 'room-writer'])
   // Resolving the same Agent again adds no listener.
+  const before = scopedListeners.length
   await rt.resolveAgent('chief')
-  assert.equal(scopedListeners.length, 4)
+  assert.equal(scopedListeners.length, before)
+  assert.equal(scopedListeners.filter(record => record.event === 'system-prompt/assemble').length, 4)
   const filtered = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],

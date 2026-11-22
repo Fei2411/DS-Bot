@@ -1,12 +1,12 @@
 # DS Bot mobile
 
-The DS Bot app for iOS and Android. It controls the Bot team that runs on your computer; nothing runs on the phone. The design is in [docs/plans/2026-10-24-mobile-app.md](../docs/plans/2026-10-24-mobile-app.md).
+The DS Bot app for iOS and Android, also exportable as a browser app. It controls the Bot team that runs on your computer; model execution and Bot tools stay on that host. The client UI and encrypted-link endpoint run on the phone or browser. The design is in [docs/plans/2026-10-24-mobile-app.md](../docs/plans/2026-10-24-mobile-app.md).
 
 Pair the app with your computer by scanning the QR code in DS Bot's Settings → Phone. The encrypted link to the computer is in [../link](../link); run `npm ci` there too before you build.
 
 ## Run
 
-Needs Node 22 or later. iOS needs Xcode on macOS; Android needs the Android SDK and an emulator or a device. Expo Go is not supported, because the app will use native modules.
+Use Node 24 (as in CI). iOS needs Xcode on macOS; Android needs the Android SDK and an emulator or a device. Expo Go is not supported, because the app uses native modules.
 
 ```sh
 npm ci
@@ -32,4 +32,4 @@ npx expo run:android --device <emulator>                    # native build when 
   With the Apple account variables set, `npm run ios:archive` archives and exports
   `ios/build/export/DSBot.ipa`; `sh scripts/ios-archive.sh --upload` also sends it to
   TestFlight. `mobile-ios` in `.github/workflows/test.yml` builds the iOS project for the
-  simulator on every change, unsigned.
+  simulator for changes to `mobile/` or `ds-bot/package.json`, and for full workflow runs (workflow changes, main, scheduled or manual runs), unsigned.

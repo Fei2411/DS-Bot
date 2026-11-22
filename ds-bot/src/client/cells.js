@@ -33,6 +33,8 @@ export { clockLabel }
 // Chat cells
 
 
+const useNullUi = () => null
+
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
@@ -47,7 +49,8 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     actions.openSession(target)
   }
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
-  const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
+  const useReadUi = useUi ?? useNullUi
+  const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const last = index === cleaned.length - 1
@@ -152,7 +155,7 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [copied, setCopied] = useState(false)
   const tools = useRef(null)
   const pop = useRef(null)
-  const tick = useViewport()
+  const tick = useViewport(panel !== null)
   const close = () => setPanel(null)
   useDismiss(panel !== null, close, [tools, pop])
   const open = (kind, event) => { if (panel?.kind === kind) { close(); return } setPanel({ kind, node: event.currentTarget }) }
@@ -713,8 +716,8 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A part opens with its handoff package, so the earlier parts go right above it.
       if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
-      // Background task handoff notices are model-only context injected before the user's message.
-      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff') return null
+      // Background task handoff notices and computer handback notices are model-only context.
+      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff' || source.role === 'handback') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
       // A profile notice is the user's edit landing in the Bot's chat, not a peer
@@ -777,8 +780,27 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   }
 }
 
-function NewDivider() {
-  return h('div', { className: 'bt-new-sep', role: 'separator', 'aria-label': t('New messages') }, h('span', null, t('New')))
+// The header's new-message pills look for the divider every frame; a query for it
+// walks the whole transcript whenever there is none, so the dividers register here.
+const newDividers = new Set()
+
+export function newDividerIn(scroller) {
+  let first = null
+  for (const node of newDividers) {
+    if (!scroller.contains(node)) continue
+    if (first === null || first.compareDocumentPosition(node) & first.DOCUMENT_POSITION_PRECEDING) first = node
+  }
+  return first
+}
+
+export function NewDivider() {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const node = ref.current
+    newDividers.add(node)
+    return () => { newDividers.delete(node) }
+  }, [])
+  return h('div', { ref, className: 'bt-new-sep', role: 'separator', 'aria-label': t('New messages') }, h('span', null, t('New')))
 }
 
 export function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi, useTurnClock, actions }) {

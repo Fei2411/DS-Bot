@@ -265,12 +265,13 @@ function dialog({ page = 'general', id = null, sections, items = [], actions = {
 }
 const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node => node.type === 'button').map(textOf)
 
-test('one Settings: DS Bot\'s pages, then DSH\'s, then Feedback and About; no Harness settings', () => {
+test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-5), ['Account', 'Plugins', 'Agent presets', 'Feedback', 'About DS Bot'])
+  assert.deepEqual(labels.slice(-4), ['Account', 'Plugins', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
+  assert.equal(labels[0], 'Overview')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
@@ -282,9 +283,9 @@ test('a DSH page opens in the dialog and draws that section', () => {
   assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
 })
 
-test('a DSH page that left the ledger falls back to General', () => {
+test('a DSH page that left the ledger falls back to Overview', () => {
   const { tree, drawn } = dialog({ page: 'dsh', id: 'gone' })
-  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'General')
+  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'Overview')
   assert.ok(!drawn.some(([name]) => name === 'settings.section'))
 })
 
@@ -299,21 +300,26 @@ test('DSH\'s Models page is Models → Advanced settings, with a way back', () =
   assert.equal(providersOf(dialog({ page: 'models', sections: [] }).tree).props.advanced, null)
 })
 
-test('DSH\'s General rows join General: the look under Appearance, the rest under More', () => {
+test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
   const items = [{ id: 'permission', order: -20 }, { id: 'language', order: 0 }, { id: 'appearance', order: 10 }, { id: 'font-size', order: 11 }, { id: 'developer-tools', order: 15 }]
-  const [general] = walk(dialog({ items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const sections = general.type(general.props).filter(Boolean)
+  const [appearance] = walk(dialog({ page: 'appearance', items }).tree, node => typeof node.type === 'function' && node.type.name === 'AppearancePage')
+  const lookSections = appearance.type(appearance.props).filter(Boolean)
   const only = node => walk(node, item => item.type === 'slot').map(item => item.props.only)
-  assert.deepEqual(only(sections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
-  assert.deepEqual(only(sections.find(node => node.props.key === 'more')), ['permission', 'language', 'developer-tools'])
+  assert.deepEqual(only(lookSections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
+
+  const [general] = walk(dialog({ page: 'general', items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
+  const generalSections = general.type({ ...general.props, openAdvanced: true }).filter(Boolean)
+  assert.deepEqual(only(generalSections.find(node => node.props.key === 'basics')), ['language'])
+  assert.deepEqual(only(generalSections.find(node => node.props.key === 'more')), ['permission', 'developer-tools'])
 })
 
 test('DS Bot draws known General selectors, while unrelated DSH rows keep their public slots', () => {
   const ids = ['language', 'transcript-view', 'link-opening', 'composer-enter', 'performance-usage', 'permission']
   const { tree, drawn } = dialog({ items: [...ids, 'another-plugin'].map(id => ({ id })), preferences: {} })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const sections = general.type(general.props)
-  assert.deepEqual(walk(sections, node => typeof node.type === 'function' && node.type.name === 'SettingsPreferences').map(node => node.props.id), ids)
+  const sections = general.type({ ...general.props, openAdvanced: true })
+  const drawnIds = walk(sections, node => typeof node.type === 'function' && node.type.name === 'SettingsPreferences').map(node => node.props.id)
+  assert.deepEqual([...drawnIds].sort(), [...ids].sort())
   assert.ok(drawn.some(([name, only]) => name === 'settings.general.item' && only === 'another-plugin'))
   assert.ok(!drawn.some(([name, only]) => name === 'settings.general.item' && ids.includes(only)))
 })
@@ -322,14 +328,14 @@ test('header actions from DSH and plugins sit beside the title', () => {
   assert.ok(dialog().drawn.some(([name]) => name === 'settings.action'))
 })
 
-test('General settings keeps the Classic Agent mode switch', () => {
+test('General settings keeps the Classic Agent mode switch under Advanced', () => {
   const calls = []
   const tree = SettingsDialog({
     page: 'general', id: null, roster, useUpdate: pick => pick({}),
     actions: { closeSettings() {}, openSettings() {}, setSurface: mode => calls.push(mode) },
   })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const [row] = walk(general.type(general.props), node => node.props?.label === 'Classic Agent mode')
+  const [row] = walk(general.type({ ...general.props, openAdvanced: true }), node => node.props?.label === 'Classic Agent mode')
   assert.ok(row !== undefined)
   const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
   button.props.onClick()

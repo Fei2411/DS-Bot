@@ -69,7 +69,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       granted ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(Promise.resolve(actions.computerPermission(key)).then(refresh)) }, t('Grant')))
   }
   return [
-    h(Section, { key: 'switch' },
+    h(Section, { key: 'switch', tour: 'comp-switch' },
       h(Row, { label: t('Let Bots use the computer') },
         Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, onChange: on => run(actions.computerSetEnabled(on)) }))),
     computer.enabled ? h(Section, { key: 'provider', title: t('Computer provider') },
@@ -78,8 +78,8 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
       provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
       computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
-    h(Section, { key: 'bots', title: t('Bots') },
-      computer.enabled && !providerWorks(provider) ? h('p', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.')) : null,
+    h(Section, { key: 'bots', title: t('Bots'), tour: 'comp-bots' },
+      computer.enabled && !providerWorks(provider) ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.'))) : null,
       roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },
         h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
   ]

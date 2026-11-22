@@ -1,5 +1,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
+import { PlusIcon } from './icons.js'
+import { Segmented } from './motion.js'
 import { dateLocale, t } from './i18n.js'
 
 const ACTIONS = [['post', 'Post'], ['upload', 'Upload'], ['download', 'Download'], ['delete', 'Delete']]
@@ -31,6 +33,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   const [site, setSite] = useState('')
   const [kinds, setKinds] = useState(['post'])
   const [duration, setDuration] = useState('hour')
+  const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const selectedBot = bots.find(bot => bot.id === botId)
 
@@ -45,6 +48,13 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     const next = (bot.browserGrants ?? []).filter((grant, position) => position !== index && !expired(grant))
     void run(actions.updateBot(bot.id, { browserGrants: next.length ? next : null }))
   }
+  const resetForm = () => {
+    setBotId(bots[0]?.id ?? '')
+    setSite('')
+    setKinds(['post'])
+    setDuration('hour')
+    setAdding(false)
+  }
   const add = event => {
     event.preventDefault()
     if (!selectedBot || kinds.length === 0 || busy) return
@@ -58,15 +68,20 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     } else if (duration === 'week') until = now + 7 * 24 * 60 * 60 * 1000
     const grant = { site: siteValue(site), kinds: [...kinds], ...(until !== undefined ? { until } : {}) }
     setBusy(true)
-    void run(actions.updateBot(selectedBot.id, {
-      browserGrants: [...(selectedBot.browserGrants ?? []).filter(grant => !expired(grant)), grant],
-    })).finally(() => setBusy(false))
+    void Promise.resolve(run(actions.updateBot(selectedBot.id, {
+      browserGrants: [...(selectedBot.browserGrants ?? []).filter(entry => !expired(entry)), grant],
+    }))).then((ok) => {
+      if (ok !== false) resetForm()
+    }, () => {}).finally(() => setBusy(false))
   }
   const toggleKind = (kind, checked) => {
     setKinds(current => checked
       ? (current.includes(kind) ? current : [...current, kind])
       : current.filter(value => value !== kind))
   }
+
+  const addBtn = adding || bots.length === 0 ? null
+    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, { title: t('Browser access') },
@@ -76,26 +91,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         hint: t('In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.'),
       }),
       h('p', { className: 'bt-browser-note' }, t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
-    h(Section, { title: t('Allowed actions') },
-      h('p', { className: 'bt-browser-note' }, t('These grants apply only after an interactive browser plugin is enabled.')),
-      grants.length === 0
-        ? h(Row, { label: t('Nothing allowed yet.') })
-        : grants.map(({ bot, grant, index, expired }) => h('div', {
-          key: `${bot.id}:${index}`,
-          className: `bt-browser-grant${expired ? ' bt-browser-grant-expired' : ''}`,
-        },
-        h('div', { className: 'bt-browser-grant-who' },
-          h(BotAvatar, { bot, size: 28 }),
-          h('span', null, bot.name)),
-        h('div', { className: 'bt-browser-grant-meta' },
-          h('span', { className: 'bt-browser-grant-site' }, grant.site === '*' ? t('All sites') : grant.site),
-          h('div', { className: 'bt-browser-grant-kinds' }, grantKinds(grant).map(label => h('span', { key: label, className: 'bt-chip' }, label))),
-          h('span', { className: 'bt-set-hint' }, grantTime(grant))),
-        h('button', {
-          type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => remove(bot, index),
-          'aria-label': t('Remove grant'),
-        }, t('Remove grant'))))),
-    h(Section, { title: t('Allow an action') },
+    adding ? h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },
           h('select', { className: 'bt-select', value: botId, onChange: event => setBotId(event.target.value), disabled: bots.length === 0 },
@@ -118,18 +114,37 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
               }),
               t(label))))),
         h(Row, { label: t('Duration') },
-          h('div', { className: 'bt-browser-duration', role: 'group', 'aria-label': t('Duration') },
+          h(Segmented, { label: t('Duration'), value: duration, className: 'bt-browser-seg' },
             DURATIONS.map(([key, label]) => h('button', {
               key,
               type: 'button',
-              className: 'bt-browser-duration-choice',
               'aria-pressed': duration === key,
               onClick: () => setDuration(key),
             }, t(label))))),
         h('div', { className: 'bt-browser-form-foot' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: resetForm }, t('Cancel')),
           h('button', {
             type: 'submit',
             className: 'bt-send bt-soft-sm',
             disabled: busy || !selectedBot || kinds.length === 0,
-          }, busy ? t('Saving…') : t('Add'))))))
+          }, busy ? t('Saving…') : t('Add'))))) : null,
+    h(Section, { title: t('Allowed actions'), action: addBtn },
+      h('p', { className: 'bt-browser-note' }, t('These grants apply only after an interactive browser plugin is enabled.')),
+      grants.length === 0
+        ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Nothing allowed yet.')))
+        : grants.map(({ bot, grant, index, expired }) => h('div', {
+          key: `${bot.id}:${index}`,
+          className: `bt-browser-grant${expired ? ' bt-browser-grant-expired' : ''}`,
+        },
+        h('div', { className: 'bt-browser-grant-who' },
+          h(BotAvatar, { bot, size: 28 }),
+          h('span', null, bot.name)),
+        h('div', { className: 'bt-browser-grant-meta' },
+          h('span', { className: 'bt-browser-grant-site' }, grant.site === '*' ? t('All sites') : grant.site),
+          h('div', { className: 'bt-browser-grant-kinds' }, grantKinds(grant).map(label => h('span', { key: label, className: 'bt-chip' }, label))),
+          h('span', { className: 'bt-set-hint' }, grantTime(grant))),
+        h('button', {
+          type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => remove(bot, index),
+          'aria-label': t('Remove grant'),
+        }, t('Remove grant'))))))
 }

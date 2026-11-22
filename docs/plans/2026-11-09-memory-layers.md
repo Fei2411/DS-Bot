@@ -2,7 +2,7 @@
 
 - 日期：2026-11-09
 - 相关：#797（群记忆很快满）、#925（上限写死）、#453 和 #214（已开着的会话看不到新记忆）、#1185（群整理跳过滚出日志的行）
-- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`group-log.js`
+- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`ledger.js`、`groups.js`
 
 ## 为什么
 
@@ -64,3 +64,5 @@
 - 一条记忆放错了级别，用户在记忆面板把它移到团队、别的 Bot 或群。条目带着 id、有效期和固定状态走；进团队时放主题 `shared`，要不要常驻另外选。先写新位置再删旧位置，中断时最多两处都有，不会丢。只有面板能移动，模型没有这个工具。
 
 ## 变更
+
+- 2026-11-22：群持久日志的代码入口改为现行账本与群引擎，对照 dev 代码校正。

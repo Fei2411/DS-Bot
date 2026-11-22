@@ -585,7 +585,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   }
 }
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// Longer than the host's idle wait, with time for a round trip before the
+// Desktop update inspection deadline. Older hosts may still hold polls longer.
+const POLL_TIMEOUT_MS = 8_000
 
 /**
  * Answers `read_browser` for this window: a long poll (`browser-wait`) reports which Bots
@@ -597,6 +599,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1000 }) {
   let stopped = false
   let poll
+  let stopBackoff
   let reported = ''
   // The host hands a request out again until the result lands; the job is cached
   // the moment it starts, so a resend during a slow read shares it, and a resend
@@ -622,21 +625,35 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
   const loop = async () => {
     let failures = 0
     while (!stopped) {
-      poll = new AbortController()
+      const current = poll = new AbortController()
       const open = browsers.openPages()
       reported = JSON.stringify(open)
+      let expired = false
+      const timeout = setTimeout(() => {
+        expired = true
+        current.abort()
+      }, POLL_TIMEOUT_MS)
       try {
-        const response = await post('browser-wait', { clientId, open }, poll.signal)
+        const response = await post('browser-wait', { clientId, open }, current.signal)
         browsers.setHolds?.(response?.holds)
         failures = 0
         const requests = Array.isArray(response) ? response : response?.requests
         for (const request of Array.isArray(requests) ? requests : []) void answer(request)
-      } catch {
+        continue
+      } catch (error) {
         if (stopped) return
-        if (poll.signal.aborted) continue
+        // Page changes can re-poll at once. A lock refusal or a timed-out
+        // request should still back off even if the signal was aborted.
+        if (current.signal.aborted && !expired && error?.code !== 'HTTP_503') continue
         failures += 1
-        await sleep(Math.min(30_000, retryMs * 2 ** Math.min(failures, 5)))
+      } finally {
+        clearTimeout(timeout)
       }
+      await new Promise(resolve => {
+        const timer = setTimeout(resolve, Math.min(30_000, retryMs * 2 ** Math.min(failures, 5)))
+        stopBackoff = () => { clearTimeout(timer); resolve() }
+      })
+      stopBackoff = undefined
     }
   }
   const offPages = browsers.pages.subscribe(() => {
@@ -647,5 +664,6 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
     stopped = true
     offPages()
     poll?.abort()
+    stopBackoff?.()
   }
 }

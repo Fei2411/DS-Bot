@@ -34,11 +34,13 @@ export function userDshHome(env = process.env) {
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 
-/** Every Session the team names: each Bot's and group's parts, the group conversations and each group's own Session. */
+/** Every Session the team names: each Bot's chat and tasks' parts, the group conversations and each group's own Session. */
 export function sessionIdsOf(team) {
   const ids = segments => segments.map(part => part?.sessionId)
   return [...new Set([
-    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? [])]),
+    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? []),
+      ...(Array.isArray(bot.tasks) ? bot.tasks : []).flatMap(task => [task?.sessionId, ...ids(Array.isArray(task?.segments) ? task.segments : [])]),
+    ]),
     // A group keeps the earlier parts per member: { [botId]: segments }. The group's own
     // Session, the one it relays in, has the group's id.
     ...Object.values(team.rooms ?? {}).flatMap(room => [room.id, ...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),
@@ -107,13 +109,36 @@ function pidAlive(pid) {
 }
 
 // sessions/<group>/<id>/: the group is the folder the Session works in.
-function sessionDirs(from, ids) {
+export function sessionDirs(from, ids) {
   const root = join(from, 'sessions')
   const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  let candidates
+  const always = new Set()
+  if (process.platform !== 'win32' && ids.length >= 32 && ids.length * groups.length >= 512) {
+    candidates = new Map()
+    for (const group of groups) {
+      let names
+      try {
+        names = readdirSync(join(root, group))
+      } catch {
+        always.add(group)
+        continue
+      }
+      for (const name of names) {
+        // Native lookup can fold non-ASCII names differently on each filesystem.
+        if (/[^\x00-\x7f]/u.test(name)) always.add(group)
+        const key = name.toLowerCase()
+        if (!candidates.has(key)) candidates.set(key, new Set())
+        candidates.get(key).add(group)
+      }
+    }
+  }
   const found = []
   const missing = []
   for (const id of ids) {
-    const group = groups.find(name => existsSync(join(root, name, id)))
+    const indexed = candidates !== undefined && id !== '' && id !== '.' && id !== '..' && !/[^\x01-\x7f]|[/\\]/u.test(id)
+    const matches = indexed ? candidates.get(id.toLowerCase()) : undefined
+    const group = groups.find(name => (!indexed || always.has(name) || matches?.has(name)) && existsSync(join(root, name, id)))
     if (group === undefined) missing.push(id)
     else found.push({ id, group })
   }

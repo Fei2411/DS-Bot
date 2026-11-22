@@ -101,16 +101,23 @@ export class CodexEngine {
         const item = params?.item ?? {}
         if (thread === undefined) break
         // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
-        if (item.type === 'contextCompaction') {
+        if (item.type === 'contextCompaction' || item.type === 'context_compaction') {
           if (method === 'item/started') this.activateTurn(thread, params?.turnId)
           thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
+          break
         }
         // Every event names its turn, so the adapter can tell a finished turn's
         // leftovers from the turn it reads now (#1513).
         const turnId = params?.turnId
-        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '', turnId })
-        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '', turnId })
-        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId })
+        if (item.type === 'agentMessage' || item.type === 'agent_message') {
+          if ((item.text ?? '') !== '') thread.push({ type: 'text', text: item.text, turnId })
+        } else if (item.type === 'reasoning') {
+          const thought = (item.content ?? []).join('') || item.text || ''
+          if (thought !== '') thread.push({ type: 'thought', text: thought, turnId })
+        } else if (method === 'item/started' && item.type !== undefined && !NON_ACTIVITY_ITEMS.has(item.type)) {
+          const team = item.type === 'mcpToolCall' && (item.server === MCP_SERVER || item.serverName === MCP_SERVER)
+          thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId, ...(team ? { team: true } : {}) })
+        }
         break
       }
       case 'turn/completed': {
@@ -341,8 +348,29 @@ function codexInput(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
+const NON_ACTIVITY_ITEMS = new Set(['userMessage', 'user_message', 'developerMessage', 'developer_message', 'contextCompaction', 'context_compaction'])
+
+export function unwrapShellCommand(raw) {
+  if (Array.isArray(raw)) {
+    if (raw.length >= 3 && /(?:^|\/)(?:ba|z|da|k)?sh$/.test(String(raw[0])) && /^-[a-z]*c$/i.test(String(raw[1]))) {
+      return String(raw[2])
+    }
+    return raw.join(' ')
+  }
+  const text = String(raw ?? '').trim()
+  const match = /^(?:\/\S+\/)?(?:ba|z|da|k)?sh\s+-[a-z]*c\s+([\s\S]+)$/i.exec(text)
+  if (!match) return text
+  const body = match[1].trim()
+  if ((body.startsWith('"') && body.endsWith('"')) || (body.startsWith("'") && body.endsWith("'"))) {
+    const quote = body[0]
+    const inner = body.slice(1, -1)
+    return quote === '"' ? inner.replace(/\\(["\\$`])/g, '$1') : inner.replace(/'\\''/g, "'")
+  }
+  return body
+}
+
 const activityOf = item => {
-  const kind = item.type === 'commandExecution' ? (item.command ?? 'command')
+  const kind = item.type === 'commandExecution' ? unwrapShellCommand(item.command ?? 'command')
     : item.type === 'fileChange' ? 'edit'
       : item.type === 'mcpToolCall' ? (item.tool ?? 'tool')
         : (item.title ?? item.type)

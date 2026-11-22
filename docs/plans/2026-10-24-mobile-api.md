@@ -68,13 +68,15 @@
   - `done`：成员做完了派给它的活。
   - `question`、`view`：Bot 的私聊里有提问卡、视图卡在等用户。
   - `approval`：Bot 在等用户批准（在群里时带群）。
-- 每条：`{ seq, kind, botId, name, roomId?, title?, sessionId?, text, time }`。`name` 是 Bot 现在的名字，`title` 是群名，`text` 最多 300 字、压成一行。
+- 每条：`{ seq, kind, botId, name, roomId?, title?, sessionId?, text, time }`。`name` 是 Bot 现在的名字，`title` 是群名，`text` 压成一行；超过 300 个 UTF-16 码元时保留前 300 个并加 `…`，不是总长最多 300 字。
 - `notices`：`{ boot?, since? }` → `{ boot, seq, reset, notices }`。`boot` 不一致（重启过）或者 `since` 之后的提醒已经被挤掉时，`reset` 为真，客户端重读团队。内存里最多留 200 条。
 - 提醒只说「有事」，不记已读。已读和通知怎么弹由客户端决定。
 
 ### 直播（feed）
 
+- HTTP SSE 每条连接最多保持 6 秒后正常结束，客户端重连从 `hello` 补齐，以便桌面更新锁及时排空请求；Remote 订阅不受此时限影响。
 - `hello` 多带 `api`、`boot`、`seq`，重连后客户端先用 `notices` 补上。
+- HTTP 连接和 Remote 订阅的 `hello` 后重放进行中回复的 `stream` start 与已累积文本；客户端在 `hello` 清空旧预览，再由重放重建。
 - 新事件 `notice`：一条提醒，内容同上。
 - 新事件 `room`：`{ roomId }`，群里有了新的一行、一轮开始或结束，150 毫秒内的合并成一条。客户端重新读这个群的第一页。
 - `dsBot/feed` 流每次订阅先送一条 `hello`，随后转发所有实时事件；插件卸载重载或单条订阅积压满 512 条未消费事件时当即结束订阅（不排空旧积压），由客户端重连后用 `hello` 与 `notices` 补齐。
@@ -101,11 +103,8 @@
 ## 已知限制
 
 - 若远程中继（如 `ds-harness-remote`）维护自身的 Remote 接口允许列表，需该中继允许列表包含 `dsBot/call` 与 `dsBot/feed` 后才能通过中继使用；SSH 隧道、局域网直连和本机不受此限制。
-- 旧群（PTC 预设下建的）一轮跑在 `run_code` 里，`room-chat` 认不出这种轮次的发言。
+- `room-chat` 直接从 DS Bot 消息账本读取发言（不再依赖工具调用结果拆解）；旧 PTC 群的轮次同样由 DS Bot 在后台运行。
 - 提醒不落盘：DSH 重启前没送到的提醒就丢了，客户端只能重读团队。
-
-## 变更
-
 
 ## File download chunks
 
@@ -119,3 +118,7 @@ New clients request one chunk at a time. Android and iOS write each chunk throug
 Expo file handle before requesting the next; the browser collects Blob parts. There
 is no total-file limit for chunk clients. Older clients that omit `offset` retain
 the existing whole-file response and its 16 MiB compatibility limit.
+
+## 变更
+
+- 2026-11-22：明确提醒摘要按 JavaScript 字符串长度截取并另加省略号，标记已解决的旧 PTC 群轮次识别限制，对照 dev 代码校正。

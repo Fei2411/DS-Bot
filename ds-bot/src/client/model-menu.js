@@ -7,6 +7,7 @@ import { KeyIcon, MaskedInput } from './secret-card.js'
 import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
+import { registerPopupOwner } from './popup-ownership.js'
 
 const MENU_EXIT_MS = 120
 
@@ -215,7 +216,7 @@ export function EffortBar({ reasoning, current, onPick }) {
         h('span', { className: 'bt-effort-val' }, active.label),
         picked !== undefined || !hasDefault
           ? h('button', {
-              type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'), title: t('Default'),
+              type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'),
               disabled: picked === undefined, onClick: () => commit(undefined),
             }, h(ResetIcon))
           : null)),
@@ -237,7 +238,6 @@ export function EffortBar({ reasoning, current, onPick }) {
         className: 'bt-effort-dot',
         'data-filled': dotRatio <= ratio + 0.001 || undefined,
         style: { '--bt-dot-p': dotRatio },
-        title: stop.label,
         'aria-hidden': true,
       })
     }),
@@ -287,7 +287,7 @@ export function ModelGroupList({ groups, current, currentId, defaultModel, onPic
           },
           h(Caret), h('span', { className: 'bt-menu-label' }, provider)),
       open ? list.map(model => h('button', {
-        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
+        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, 'aria-description': model.ref,
         onClick: () => onPick(model.ref),
       },
       h('span', { className: 'bt-menu-label' }, nameOf(model)),
@@ -333,12 +333,13 @@ export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, he
 
 // A menu that opens under its trigger, or above when the window has no room below. A
 // click outside, Escape, or a scroll outside it closes it.
-export function useAnchoredMenu() {
+export function useAnchoredMenu(minWidth = 240) {
   const [anchor, setAnchor] = useState(null)
   const [place, setPlace] = useState(null)
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
   const button = useRef(null)
   const menu = useRef(null)
+  useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
   const tick = useViewport()
   const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {
@@ -367,13 +368,13 @@ export function useAnchoredMenu() {
   useLayoutEffect(() => {
     if (anchor === null || !button.current) return
     const rect = button.current.getBoundingClientRect()
-    const width = Math.max(240, rect.width)
+    const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16)
     const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
     const below = viewBottom() - rect.bottom
     setPlace(below >= 260 || below >= rect.top
       ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': 'top right' }
       : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
-  }, [anchor, tick])
+  }, [anchor, tick, minWidth])
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
@@ -434,10 +435,11 @@ export function useAgentModels(actions) {
 }
 
 // What the model picker reads from the Bot and the roster; the popup and the inline form share it.
-function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts }) {
+function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel }) {
   const [reading, readModels] = useAgentModels(actions)
-  const shown = modelOf(bot, roster)
-  const current = bot.model ?? bot.appliedModel
+  const inherited = !bot.model && !bot.appliedModel && (roster.models ?? []).some(model => model.ref === fallbackModel && !model.needsKey && !isLocalRoute(model.ref))
+  const current = bot.model ?? bot.appliedModel ?? (inherited ? fallbackModel : undefined)
+  const shown = modelOf({ ...bot, model: current }, roster)
   const local = isLocalRoute(current)
   const served = servedOf(roster, current)
   const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
@@ -453,7 +455,7 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const [query, setQuery] = useState('')
   const models = modelsFor(roster.models, current)
   return {
-    bot, roster, shown, current, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
+    bot, roster, shown, current, inherited, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
     manage: local ? undefined : manageModels(actions),
     hasEfforts: withEfforts && effortStops(reasoning).length > 0,
     // DSH settings can change the list at any time, so opening asks again.
@@ -472,19 +474,21 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   }
 }
 
-// The trigger shows the model name over its provider.
 const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { shown, models, withEfforts, effortLabel } = picker
+  const { shown, models, withEfforts, effortLabel, inherited } = picker
   return h('button', {
     ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
     'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
     'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick,
+    'data-empty': !shown || undefined,
   },
   h('span', { className: 'bt-model-copy' },
+    h(wide ? 'span' : Fragment, wide ? { className: 'bt-model-label' } : null,
     h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
     shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
       ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
       : t('{provider} · not available', { provider: shown.provider })) : null),
+    inherited ? h('span', { className: 'bt-model-default' }, t('Default')) : null),
   h(Caret))
 }
 
@@ -494,15 +498,14 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
 // up, the last) menuitemradio, matching how the trigger behaves. Escape is left to
 // bubble so the menu's window handler closes it from the input too.
 const modelSearch = ({ models, query, setQuery }, menu) => {
-  const field = useRef(null)
   return models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
     h('input', {
-      ref: field, type: 'search', className: 'bt-input bt-model-search-input',
+      type: 'search', className: 'bt-input bt-model-search-input',
       placeholder: t('Search models…'), 'aria-label': t('Search models'),
       value: query, autoFocus: true, autoComplete: 'off', spellCheck: false,
       onChange: event => setQuery(event.target.value),
       onKeyDown: event => {
-        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) stepMenuFocus(menu.current, event, field.current)
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) stepMenuFocus(menu.current, event, event.currentTarget)
       },
     })) : null
 }
@@ -526,10 +529,21 @@ export function ModelMenu(props) {
 }
 
 // A Thinking section at the foot of the menu lists the levels of the shown model when it has them.
-function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
-  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts })
+function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true, fallbackModel }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240)
+  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel })
   const { manage, hasEfforts } = picker
+  const hasModels = picker.models.length > 0
+  useLayoutEffect(() => {
+    if (!wide || typeof ResizeObserver !== 'function') return
+    const provider = button.current?.querySelector('.bt-model-provider')
+    if (!provider) return
+    const update = () => provider.toggleAttribute('data-squeezed', provider.clientWidth < Math.min(48, provider.scrollWidth))
+    const observer = new ResizeObserver(update)
+    observer.observe(provider)
+    update()
+    return () => observer.disconnect()
+  }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels])
   const toggle = () => {
     if (isOpen) { close(); return }
     picker.opened()
@@ -541,7 +555,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   }
   return h(Fragment, null,
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
-    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
+    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, 'data-wide': wide || undefined, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
       modelSearch(picker, menu),
       modelScroll(picker, pick),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
@@ -692,11 +706,16 @@ export function DeepSeekSignIn({ useUi, actions }) {
   return h(SignInHost, { key: open, entry, actions })
 }
 
+function makeSourceHook(source) {
+  return function useBoundSource(selector) {
+    return useSyncExternalStore(source.subscribe, () => selector(source.getSnapshot()))
+  }
+}
+
 function SignInHost({ entry, actions }) {
   const [ops] = useState(() => entry.inject?.() ?? {})
   const close = () => actions.closeSignIn()
-  const useHook = source => selector => useSyncExternalStore(source.subscribe, () => selector(source.getSnapshot()))
-  const [hooks] = useState(() => ({ useAccount: useHook(ops.hooks.account), useTheme: useHook(ops.hooks.theme) }))
+  const [hooks] = useState(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }))
   return h(entry.component, {
     ...ops,
     ...hooks,
@@ -711,8 +730,23 @@ export const MODEL_CSS = `
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
-.bt-model-trigger[data-wide]{display:flex;width:100%;min-height:48px;padding:7px 12px;justify-content:space-between;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line)}
-.bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-hover)}
+.bt-model-trigger[data-wide]{display:flex;flex:0 1 auto;width:auto;min-width:min(200px,100%);max-width:min(340px,100%);height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+.bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
+.bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}
+.bt-model-trigger[data-wide] .bt-model-name{font-weight:450}
+.bt-model-trigger[data-wide] .bt-model-provider{flex-shrink:2}
+.bt-model-label{display:contents}
+@media (min-width:641px){
+  .bt-model-trigger[data-wide] .bt-model-label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+  .bt-model-trigger[data-wide] .bt-model-name{flex-shrink:0;max-width:100%}
+  .bt-model-trigger[data-wide] .bt-model-provider[data-squeezed]{visibility:hidden}
+}
+.bt-model-trigger[data-wide][data-empty] .bt-model-name{color:var(--bt-ink-3)}
+.bt-model-trigger[data-wide] .bt-model-caret{background:var(--bt-select-arrow) center/12px 12px no-repeat}
+.bt-model-trigger[data-wide] .bt-model-caret path{display:none}
+.bt-model-default,.bt-model-menu[data-wide] .bt-menu-hint{flex:none;background:var(--bt-tag-bg);color:var(--bt-tag-ink);font-size:10.5px;line-height:14px;border-radius:4px;padding:1px 5px}
+.bt-model-menu[data-wide] .bt-model-search-input:focus-visible{outline:none;border-color:transparent;box-shadow:0 0 0 1px color-mix(in srgb,var(--bt-accent) 40%,transparent)}
 .bt-model-copy{display:flex;flex-direction:column;min-width:0}
 .bt-model-name{font-size:13px;line-height:18px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-model-provider{font-size:11px;line-height:14px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

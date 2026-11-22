@@ -185,7 +185,7 @@ function PermissionPreference({ preferences }) {
         : new Promise((resolve, reject) => { setAcknowledged(false); setConfirmation({ value: next, resolve, reject }) }),
     }),
     failed ? h('div', { className: 'bt-set-note', role: 'alert' }, tr('unavailable'), ' ',
-      h('button', { type: 'button', className: 'bt-soft-sm', onClick: () => setAttempt(value => value + 1) }, t('Try again'))) : null,
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAttempt(value => value + 1) }, t('Try again'))) : null,
     h(RiskConfirmation, {
       open: confirmation !== null, title: tr('confirm.title'), description: tr('confirm.description'),
       acknowledgeLabel: tr('confirm.acknowledge'), cancelLabel: tr('confirm.cancel'), closeLabel: tr('close'), confirmLabel: tr('confirm.enable'),

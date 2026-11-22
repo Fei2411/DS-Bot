@@ -54,25 +54,34 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
     const followups = []
     const injected = []
     const cancelled = []
+    const session = {
+      id,
+      header: { cwd: workDir },
+      events,
+      _appending: false,
+      requestHeader: () => undefined,
+      snapshotEvents: () => [...events],
+    }
     const inbox = {
       nextStep: [],
       nextTurn: [],
+      locate(msgId) {
+        for (const [target, list] of [['next-turn', this.nextTurn], ['next-step', this.nextStep]]) {
+          const index = list.findIndex(item => item?.id === msgId)
+          if (index !== -1) return { target, index }
+        }
+        return undefined
+      },
       prepend(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).unshift(msg) },
       append(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).push(msg) },
       remove(msgId) {
+        if (session._appending) throw new Error('session append cannot reenter while another append is being published')
         for (const list of [this.nextStep, this.nextTurn]) {
           const at = list.findIndex(item => item?.id === msgId)
           if (at !== -1) { list.splice(at, 1); return true }
         }
         return false
       },
-    }
-    const session = {
-      id,
-      header: { cwd: workDir },
-      events,
-      requestHeader: () => undefined,
-      snapshotEvents: () => [...events],
     }
     const agent = {
       id,
@@ -158,8 +167,20 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
     const agent = agentMap.get(sessionId) ?? makeAgent(sessionId)
     const event = { type, seq: agent.session.events.length + 1, data }
     agent.session.events.push(event)
-    for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) await listener(agent.session, event)
+    agent.session._appending = true
+    try {
+      for (const listener of ctx.listeners.get('session/event') ?? []) {
+        if (listener.length >= 2) await listener(agent.session, event)
+      }
+    } finally {
+      agent.session._appending = false
+    }
+    if (type === 'agent/inbox/spliced') {
+      for (const message of data.inserted ?? []) {
+        for (const listener of ctx.listeners.get('agent/inbox/inserted') ?? []) {
+          listener({ agent, message })
+        }
+      }
     }
     await new Promise(r => setTimeout(r, 0))
   }
@@ -350,6 +371,7 @@ test('rapid double Desktop messages share one handoff and post-commit race settl
   await env.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Finished mid-fork.' }] } })
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await waitFor(() => env.rt.botOf('a').sessionId === 'fork-1'
     && env.agentMap.get('fork-1')?.followups.filter(m => m.source?.kind === 'user').length === 2
@@ -440,6 +462,7 @@ test('P0 #4: sendUser initiating handoff drains concurrent Desktop spliced messa
   await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [desktopMsg] })
   assert.equal(dmA.inbox.nextStep.length, 0, 'Desktop message must be pulled from busy inbox')
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await sendPromise
   await waitFor(() => env.agentMap.get('fork-1')?.followups.some(m => m.content?.[0]?.text === 'From desktop concurrently'))
@@ -462,9 +485,17 @@ test('P0 #5: failed pre-commit fork restores pulled message with wakeup=true wit
   dmA.send = (msg, target, wakeup) => {
     sendCalls.push({ msg, target, wakeup })
     dmA.inbox.append(target, msg)
-    // Simulate DSH emitting agent/inbox/spliced synchronously on send() — must NOT infinite-loop!
-    for (const listener of env.ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener(dmA.session, { type: 'agent/inbox/spliced', data: { target, inserted: [msg] } })
+    // Simulate DSH emitting session/event then agent/inbox/inserted synchronously on send() — must NOT infinite-loop!
+    dmA.session._appending = true
+    try {
+      for (const listener of env.ctx.listeners.get('session/event') ?? []) {
+        if (listener.length >= 2) listener(dmA.session, { type: 'agent/inbox/spliced', data: { target, inserted: [msg] } })
+      }
+    } finally {
+      dmA.session._appending = false
+    }
+    for (const listener of env.ctx.listeners.get('agent/inbox/inserted') ?? []) {
+      listener({ agent: dmA, message: msg })
     }
   }
 
@@ -593,6 +624,7 @@ test('post-fork race inspects turn/end error reason and skips still-running noti
   dmA.status = 'idle'
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'RATE_LIMIT', message: '429 busy' } } })
 
+  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
   await p
   await waitFor(() => env.rt.botOf('a').tasks[0]?.status === 'failed')
@@ -752,7 +784,7 @@ test('plugin reload (adoptLiveWork) on running bot-handoff task restores routing
   assert.equal(env.rt.state.works[task.exchangeId], undefined, 'work must be closed after adopted reply delivery')
 })
 
-test('fg-handoff snapshots inheritedSegments so foreground rollover or startOpenPart never shifts task anchors', async (t) => {
+test('fg-handoff snapshots inheritedSegments so foreground rollover never shifts task anchors', async (t) => {
   const env = await startEnv({
     team: makeTeam({
       bots: {

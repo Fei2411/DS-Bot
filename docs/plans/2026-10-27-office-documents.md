@@ -23,14 +23,14 @@ Bot 要能直接处理 .docx/.pptx/.xlsx：打开看结构、检查包健康、�
 打进 npm 包的单文件 CLI，依赖 Node 内建加打包进去的 XML 解析库，所有运行面通用（桌面应用、DSH Desktop、DSH Web）。退出码：0 成功、1 仍有 finding、2 用法或失败；`--json` 时输出 `{"ok":true,"data":…}` / `{"ok":false,"error":{…}}`（finding 在 `data.findings` 里，ok 仍为 true）。编辑默认另存（`-o`），`--in-place` 才原地写。
 
 - `unpack`/`pack`：把包解成可读 XML（`pack` 还原排版空白并跑 `check --against`）
-- `check [--against] [--fix]`：只查会让 Office 拒开或弹修复的问题——XML 良构、内容类型完整、内部关系可达、r:id 引用存在、pptx 形状/幻灯片 id、docx docPr/paraId、`xml:space`、批注 id 一致。`--against` 只看新引入的问题；`--fix` 修安全的几类
+- `check [--against <原文件>] [--fix (-o <输出>|--in-place)]`：只查会让 Office 拒开或弹修复的问题——XML 良构、内容类型完整、内部关系可达、r:id 引用存在、pptx 形状/幻灯片 id、docx docPr/paraId、`xml:space`、批注 id 一致。`--against` 只看新引入的问题；`--fix` 修安全的几类，必须明确输出或原地写入
 - `docx read [--changes]`：正文块按 `p1…`/`t1…` 编号，页眉页脚、脚注尾注、批注及其锚点；修订默认按接受显示，`--changes` 用 `{+插入 (作者)+}` 这类内联标记
 - `docx fields`：简单/复杂域的指令与当前结果
 - `docx edit --ops`：原子批量 ops——跨 run `replace`（保留起始 run 格式、不进删除文本、正则带 `$1`）、`set_cell`、`set_field`、`insert`、`delete`、`comment`、`accept_changes`/`reject_changes`
 - `pptx inventory`：页面尺寸、主题字体、每页每个形状（id/名/类/占位符/英寸盒——含组的坐标变换和布局/母版占位符继承）/逐段文本与 run 字体字号/图片媒体
-- `pptx layout [--autofit]`：文本框相交、跑出页面的 finding；`--autofit` 写 `a:normAutofit`；盒内溢出要渲染才能看到
+- `pptx layout [--autofit (-o <输出>|--in-place)]`：文本框相交、跑出页面的 finding；`--autofit` 写 `a:normAutofit`，必须明确输出或原地写入；盒内溢出要渲染才能看到
 - `pptx slides --order`：按现位置重排，重复位置=复制（slide+rels+备注页+图表+内嵌工作簿），略过的=删除，再跑 clean
-- `pptx clean [--dry-run]`：不在 sldIdLst 的页、不可达部件、悬空关系/Override、无引用媒体（docx/xlsx 通用）
+- `pptx clean [-o <输出>|--in-place] [--dry-run]`：不在 sldIdLst 的页、不可达部件、悬空关系/Override、无引用媒体（docx/xlsx 通用）；实际清理必须明确输出或原地写入
 - `xlsx inventory` / `xlsx read --sheet [--range]`：工作表状态/维度/单元格与公式计数/合并/表/图、定义名、错误单元格与其公式、无缓存值提示；网格化读出缓存值、公式、ISO 日期
 - `sheet`：渲染页拼成标页码的 contact sheet（纯 JS PNG 编解码）
 
@@ -58,3 +58,7 @@ DSH 的六个格式/操作技能（office-docx/pptx/xlsx、office-render、offic
 ## 升 DSH 版本时
 
 换锁文件版本：从对应 DSH tag 取 `scripts/primary-runtime/lock.json` 覆盖 `app/scripts/primary-runtime.lock.json`，跑 `npm run runtime` 重建 payload，`npm run check-packed` 复验。同时对照新版 `assets/office/SKILL.md` 复核我们的 office 路由。
+
+## 变更
+
+- 2026-11-22：补齐修复、自动适配和清理命令必须指定的输出或原地写入参数，对照 dev 代码校正。

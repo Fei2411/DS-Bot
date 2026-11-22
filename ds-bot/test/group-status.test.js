@@ -6,7 +6,8 @@ import { test } from 'node:test'
 import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
-import { ROOM_REPLY_TIMEOUT_MS } from '../src/host/constants.js'
+import { ROOM_REPLY_TIMEOUT_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { AcpEngine } from '../src/host/local-agents/acp.js'
 
 let rt
 
@@ -313,4 +314,195 @@ test('an approval asked inside a PTC program shows what that call does', async (
   const [approval] = value.work.approvals
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.tool, 'pwsh')
+})
+
+
+test('a local CLI member streams live work, keeps the round alive, frees it after the grace and counts its tools', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  // A thought without a tool still refreshes the round's reply timeout.
+  t.mock.timers.tick(ROOM_REPLY_TIMEOUT_MS - 1000)
+  host.rt.noteLocalAgentEvent('gb', { type: 'thought', text: 'Inspecting the schema first.' })
+  t.mock.timers.tick(ROOM_REPLY_TIMEOUT_MS - 1000)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // A bridged team call is dispatched by DSH and must not start the CLI work grace.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ mcp__dsbot__list_bots', team: true })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // A read shows up as searching; a later shell action shows as working.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ Read src/schema.js' })
+  let state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'searching')
+  assert.deepEqual([state.work.bots.b.roomId, state.work.bots.b.tool, state.work.bots.b.note], ['r1', 'read', 'Read src/schema.js'])
+  assert.deepEqual(state.work.rooms.r1.map(item => [item.botId, item.tool, item.note]), [['b', 'read', 'Read src/schema.js']])
+
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS - 1)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ Run `npm test`' })
+  state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'working')
+  assert.deepEqual([state.work.bots.b.tool, state.work.bots.b.note], ['cli', 'Run npm test'])
+  assert.equal(host.rt.liveOf('gb').toolCount, 2)
+
+  t.mock.timers.tick(1)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+
+  // Suspending or finishing the CLI stream clears its action, while toolCount keeps
+  // the work it ran.
+  host.rt.noteLocalAgentEvent('gb', { type: 'idle' })
+  state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'thinking')
+  assert.equal(state.work.bots.b.tool, undefined)
+
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'I checked src/schema.js.' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  // A turn that actually ran tools is not retried as a promise with no work.
+  assert.equal(host.agentOf('gb').calls.length, 1)
+  assert.equal(text(host.agentOf('r1').calls[0]), '[Group post from Writer]\nI checked src/schema.js.')
+})
+
+test('an unmarked DS Bot MCP call from a local CLI is team work and starts no grace', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  // No team marker: the leading tool name still shows this is DS Bot's own MCP server,
+  // which DSH dispatches and counts, so it must not start the CLI work grace.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ mcp__dsbot__list_bots' })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+})
+
+test('a dsbot/ path inside a local CLI command is the CLI\'s own work', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  // A command that only mentions a local `dsbot/` path is the CLI's own work: it
+  // counts, shows what the member does, and starts the grace.
+  host.rt.noteLocalAgentEvent('gb', { type: 'activity', text: '▸ ls /home/user/dsbot/work' })
+  const state = (await host.call('state', {})).value
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/user/dsbot/work'])
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+})
+
+test('recorded Devin ACP team MCP sequence stays team work and starts no grace; non-team MCP counts', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  const engine = new AcpEngine('local-devin-cli', { name: 'Devin' }, { findExecutable: () => undefined })
+  const session = engine.sessionFor('gb')
+  session.acpSessionId = 'acp-1'
+  session.push = event => host.rt.noteLocalAgentEvent('gb', event)
+
+  // Recorded Devin ACP shape: server identity arrives in _meta['cognition.ai/toolName']
+  // before session/request_permission carries cognition.ai/permissionRule.
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_call_tool:0#1',
+      title: 'Calling message_bot from dsbot',
+      rawInput: { to: 'River', message: 'ping' },
+      _meta: { 'cognition.ai/toolName': 'mcp__dsbot__message_bot', 'cognition.ai/eventType': 'mcp_tool_call' },
+    },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // A non-team MCP server in the same Devin shape still counts as CLI work and starts grace.
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_call_tool:0#2',
+      title: 'Calling message_bot from github',
+      rawInput: { to: 'River', message: 'ping' },
+      _meta: { 'cognition.ai/toolName': 'mcp__github__message_bot', 'cognition.ai/eventType': 'mcp_tool_call' },
+    },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.equal(host.rt.liveOf('gb').localDoing?.note, 'Calling message_bot from github')
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
+})
+
+test('recorded Cursor ACP anonymous MCP placeholder defers counting until provider arrives', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+
+  const engine = new AcpEngine('local-cursor-cli', { name: 'Cursor' }, { findExecutable: () => undefined })
+  const session = engine.sessionFor('gb')
+  session.acpSessionId = 'acp-1'
+  session.push = event => host.rt.noteLocalAgentEvent('gb', event)
+
+  // Recorded Cursor ACP team MCP sequence: placeholder opens empty, then names dsbot.
+  const teamCallId = 'call-1\nfc_1_0'
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call', toolCallId: teamCallId, title: 'MCP: tool', kind: 'other', status: 'pending', rawInput: {} },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: teamCallId, title: 'dsbot: message_bot', rawInput: { providerIdentifier: 'dsbot', toolName: 'message_bot', args: { to: 'River', message: 'ping' } } },
+  })
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: teamCallId, status: 'in_progress' },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  assert.equal(host.rt.liveOf('gb').localDoing, undefined)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => true)
+  assert.equal(result(), undefined)
+
+  // Recorded Cursor ACP non-team MCP sequence: placeholder stays uncounted until github arrives.
+  const otherCallId = 'call-2\nfc_2_0'
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call', toolCallId: otherCallId, title: 'MCP: tool', kind: 'other', status: 'pending', rawInput: {} },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount ?? 0, 0)
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: otherCallId, title: 'github: message_bot', rawInput: { providerIdentifier: 'github', toolName: 'message_bot', args: { to: 'River', message: 'ping' } } },
+  })
+  engine.onNotice('session/update', {
+    sessionId: 'acp-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: otherCallId, status: 'in_progress' },
+  })
+  assert.equal(host.rt.liveOf('gb').toolCount, 1)
+  assert.equal(host.rt.liveOf('gb').localDoing?.note, 'github: message_bot')
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
 })

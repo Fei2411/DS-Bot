@@ -259,7 +259,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
-    h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(BotCapabilitiesCard, { bot, roster, actions, run, Card }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),

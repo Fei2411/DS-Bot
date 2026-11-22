@@ -142,7 +142,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
           // Store the opening promise before resolving roots so concurrent calls share the launch.
           const opening = Promise.resolve().then(async () => {
             const roots = downloadRoots ? await downloadRoots(botId) : undefined
-            return openSession({
+            const opened = await openSession({
               botId,
               profileRoot,
               downloadDir: roots === undefined
@@ -158,6 +158,11 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
               onHold: hold => onHold?.(botId, hold),
               uploadRoots: uploadRoots ? () => uploadRoots(botId) : undefined,
             })
+            opened.signal?.throwIfAborted()
+            opened.signal?.addEventListener('abort', () => {
+              if (sessions.get(botId) === opening) sessions.delete(botId)
+            }, { once: true })
+            return opened
           })
           sessions.set(botId, opening)
           opening.catch(() => {

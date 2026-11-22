@@ -858,6 +858,19 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
 })
 
+test('a computer handback trigger draws nothing instead of a Bot relay event', () => {
+  const out = expand(TriggerCell({
+    node: { key: 'node', data: { source: { kind: 'bot', role: 'handback' }, turn: 3, content: text$('The user handed the computer back. Look at the app again before you go on.') }, location: { turn: { turn: 3 } } },
+    sessionId: chief.id,
+    useRoster: select => select(team()),
+    useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}),
+    useUi: select => select({ visits: {} }),
+    actions: { openExchange: () => { throw new Error('must not open an exchange') } },
+  }))
+  assert.ok(emptied(out))
+})
+
 // #212: the chat hands a trigger its event (seq, content, source) but no turn, so every post
 // in a group chat shared one reaction entry: a reaction on one showed on all of them.
 test('a reaction on a group post stays on that post, also after it draws again', () => {
