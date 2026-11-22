@@ -21,6 +21,39 @@ const fixture = await build({
       import { createElement as h, useRef, useState } from 'react'
       import { createRoot } from 'react-dom/client'
       import { SettingsTour } from './src/client/settings-tour.js'
+      import { ModelMenu } from './src/client/model-menu.js'
+      import { FolderMenu } from './src/client/folder-menu.js'
+      function PopupFixture() {
+        const dialogRef = useRef(null)
+        const [tour, setTour] = useState(null)
+        const [prefs, setPrefs] = useState({ enterToSend: true })
+        const [writes, setWrites] = useState([])
+        const [workspace, setWorkspace] = useState('/alpha')
+        const actions = {
+          setPrefs: async patch => { setPrefs(value => ({ ...value, ...patch })); setWrites(value => [...value, patch]) },
+          folders: async () => ({ team: workspace, folders: [{ path: '/alpha', title: 'Alpha workspace' }, { path: '/beta', title: 'Beta workspace' }] }),
+          setTeamWorkspace: async path => { setWorkspace(path); setWrites(value => [...value, { workspace: path }]); return { team: path } },
+        }
+        const roster = { defaultModel: 'official/alpha', models: [
+          { ref: 'official/alpha', provider: 'official', providerName: 'Mock', name: 'Alpha' },
+          { ref: 'official/beta', provider: 'official', providerName: 'Mock', name: 'Beta' },
+        ] }
+        const run = task => Promise.resolve(task)
+        return h('div', { className: 'bt-settings-layer' },
+          h('div', { className: 'bt-settings', ref: dialogRef },
+            h('main', { className: 'bt-settings-main' },
+              h('button', { onClick: () => setTour({ mode: 'general', nonce: 1 }) }, 'Open General guide'),
+              h('div', { className: 'bt-set-row', 'data-tour': 'default-model' },
+                h(ModelMenu, { bot: { id: 'new-bots', name: 'New Bots', model: prefs.defaultBotModel }, roster, actions, run, wide: true, withEfforts: false, fallbackModel: roster.defaultModel,
+                  onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })) })),
+              h('div', { className: 'bt-set-row', 'data-tour': 'locations' },
+                h(FolderMenu, { value: workspace, team: true, wide: true, actions, run, onPick: path => run(actions.setTeamWorkspace(path)) })),
+              h('button', { id: 'enter-sends', role: 'switch', 'aria-checked': prefs.enterToSend, onClick: () => run(actions.setPrefs({ enterToSend: !prefs.enterToSend })) }, 'Enter sends message'),
+              h('output', { id: 'prefs' }, JSON.stringify(prefs)),
+              h('output', { id: 'writes' }, JSON.stringify(writes)),
+              h('output', { id: 'workspace' }, workspace)),
+            h(SettingsTour, { tour, currentPage: 'general', dialogRef, onNavigate: () => {}, onDismiss: () => setTour(null) })))
+      }
       function Fixture() {
         const dialogRef = useRef(null)
         const [tour, setTour] = useState(null)
@@ -59,7 +92,7 @@ const fixture = await build({
               h('output', { id: 'clicks' }, clicks)),
             h(SettingsTour, { tour, currentPage: page, dialogRef, hasProviders: false, onNavigate: setPage, onDismiss: () => setTour(null) })))
       }
-      createRoot(document.getElementById('root')).render(h(Fixture))
+      createRoot(document.getElementById('root')).render(h(document.getElementById('root').dataset.fixture === 'popups' ? PopupFixture : Fixture))
     `,
   },
   bundle: true, format: 'iife', platform: 'browser', write: false, logLevel: 'silent',
@@ -73,6 +106,64 @@ async function launchBrowser() {
     return chromium.launch({ channel: 'chrome', headless: true }).catch(() => { throw error })
   }
 }
+
+test('Settings guide allows saving through owned model and workspace popups', async (t) => {
+  const browser = await launchBrowser()
+  try {
+    for (const width of [1280, 390]) {
+      for (const method of ['mouse', 'keyboard']) {
+        await t.test(`${width} ${method}`, async () => {
+          const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 860 } })
+          try {
+            await page.setContent(`<style>${botOwnCss(SHELL_CSS)} *{animation:none!important;transition:none!important}</style><div id="root" data-fixture="popups"></div>`)
+            await page.addScriptTag({ content: fixture.outputFiles[0].text })
+            await page.getByRole('button', { name: 'Open General guide', exact: true }).click()
+            await page.locator('.bt-tour-layer[data-tour-step="default-model"] .bt-tour-spot').waitFor()
+            const open = async target => {
+              const trigger = page.locator(`[data-tour="${target}"] .bt-model-trigger`)
+              if (method === 'mouse') await trigger.click()
+              else { await trigger.focus(); await page.keyboard.press('Enter') }
+              assert.equal(await page.locator('#enter-sends').evaluate(element => Boolean(element.closest('[inert]'))), true)
+            }
+            const choose = async (name, target) => {
+              const option = page.getByRole('menuitemradio', { name, exact: true, includeHidden: true })
+              await option.waitFor()
+              assert.equal(await option.evaluate(element => Boolean(element.closest('[inert]'))), false, 'owned popup must not be inert')
+              if (method === 'mouse') await option.click({ timeout: 2500 })
+              else {
+                let reached = false
+                for (let i = 0; i < 24; i += 1) {
+                  await page.keyboard.press('Tab')
+                  const focus = await page.evaluate(target => {
+                    const element = document.activeElement
+                    return { text: element.textContent, allowed: Boolean(element.closest(`[data-tour="${target}"]`) || element.closest('.bt-tour-card') || element.closest('[role="menu"]')), dimmed: element.id === 'enter-sends' }
+                  }, target)
+                  if (focus.dimmed) await page.keyboard.press('Space')
+                  assert.equal(focus.allowed, true, 'Tab must not reach dimmed controls while a popup is open')
+                  if (await option.evaluate(element => document.activeElement === element)) { reached = true; break }
+                }
+                assert.equal(reached, true, 'owned popup option must be reachable by Tab')
+                await page.keyboard.press('Enter')
+              }
+            }
+            await open('default-model')
+            if (method === 'keyboard') assert.equal(await page.getByRole('searchbox', { name: 'Search models', exact: true }).evaluate(element => document.activeElement === element), true, 'portal autofocus must be preserved')
+            await choose('Beta', 'default-model')
+            assert.equal(JSON.parse(await page.locator('#prefs').textContent()).defaultBotModel, 'official/beta')
+            assert.deepEqual(JSON.parse(await page.locator('#writes').textContent()), [{ defaultBotModel: 'official/beta' }])
+            await page.getByRole('button', { name: 'Next', exact: true }).click()
+            await page.locator('.bt-tour-layer[data-tour-step="locations"] .bt-tour-spot').waitFor()
+            await open('locations')
+            await choose(/^Beta workspace/, 'locations')
+            assert.equal(await page.locator('#workspace').textContent(), '/beta')
+            assert.deepEqual(JSON.parse(await page.locator('#writes').textContent()), [{ defaultBotModel: 'official/beta' }, { workspace: '/beta' }])
+            assert.equal(JSON.parse(await page.locator('#prefs').textContent()).enterToSend, true)
+          } finally { await page.close() }
+        })
+      }
+    }
+  } finally { await browser.close() }
+})
 
 test('Settings guide lets the spotlight receive clicks while blocking dimmed controls', async (t) => {
   const browser = await launchBrowser()

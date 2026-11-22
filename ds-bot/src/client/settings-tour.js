@@ -6,6 +6,7 @@ import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, u
 import { useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
+import { ownedPopups } from './popup-ownership.js'
 
 export const TOUR_SEEN_KEY = 'ds-bot:settings-tour-v1'
 
@@ -295,16 +296,19 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     const layer = layerRef.current
     if (!doc?.body || !card || !layer) return undefined
     const inert = new Map()
-    let target = null
+    let interactive = [card]
+    let disposed = false
     const restore = () => {
       for (const [element, previous] of inert) element.inert = previous
       inert.clear()
     }
-    const allowed = element => card.contains(element) || Boolean(target?.contains(element))
+    const allowed = element => interactive.some(root => root.contains(element))
     const sync = () => {
       restore()
-      target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
-      const roots = [layer, target].filter(Boolean)
+      const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
+      interactive = [target, card].filter(Boolean)
+      interactive.push(...ownedPopups(interactive))
+      const roots = [layer, ...interactive]
       const isolate = element => {
         if (roots.includes(element)) return
         if (roots.some(root => element.contains(root))) {
@@ -317,13 +321,15 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
       isolate(doc.body)
       if (!allowed(doc.activeElement)) card.focus({ preventScroll: true })
     }
-    const onFocus = event => {
-      if (!allowed(event.target)) card.focus({ preventScroll: true })
+    const onFocus = () => {
+      // React autofocus runs before the enclosing portal's ref has been attached.
+      queueMicrotask(() => { if (!disposed) sync() })
     }
     const onTab = event => {
       if (event.key !== 'Tab') return
+      sync()
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
-      const controls = [target, card].filter(Boolean).flatMap(root => [root, ...root.querySelectorAll(selector)])
+      const controls = interactive.flatMap(root => [root, ...root.querySelectorAll(selector)])
         .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === 'visible')
       event.preventDefault()
       event.stopPropagation()
@@ -337,6 +343,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     doc.addEventListener('focusin', onFocus, true)
     doc.addEventListener('keydown', onTab, true)
     return () => {
+      disposed = true
       observer.disconnect()
       doc.removeEventListener('focusin', onFocus, true)
       doc.removeEventListener('keydown', onTab, true)

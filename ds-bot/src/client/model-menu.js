@@ -7,6 +7,7 @@ import { KeyIcon, MaskedInput } from './secret-card.js'
 import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
+import { registerPopupOwner } from './popup-ownership.js'
 
 const MENU_EXIT_MS = 120
 
@@ -338,6 +339,7 @@ export function useAnchoredMenu(minWidth = 240) {
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
   const button = useRef(null)
   const menu = useRef(null)
+  useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
   const tick = useViewport()
   const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {

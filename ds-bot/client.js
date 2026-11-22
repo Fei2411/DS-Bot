@@ -25198,6 +25198,25 @@ var SECRET_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-secret-glide{transition:none}.bt-secret-check,.bt-secret-done,.bt-secret-ok,.bt-secret-edit{animation:none}}
 `;
 
+// src/client/popup-ownership.js
+var owners = /* @__PURE__ */ new Map();
+function registerPopupOwner(owner, popup) {
+  owners.set(popup, owner);
+  return () => {
+    owners.delete(popup);
+  };
+}
+function ownedPopups(roots) {
+  const allowed2 = [...roots];
+  for (let index = 0; index < allowed2.length; index += 1) {
+    for (const [popup, owner] of owners) {
+      const element = popup.current;
+      if (element?.isConnected && allowed2[index].contains(owner.current) && !allowed2.some((root) => root.contains(element))) allowed2.push(element);
+    }
+  }
+  return allowed2.slice(roots.length);
+}
+
 // src/client/model-menu.js
 var import_react20 = require("react");
 var import_react_dom = require("react-dom");
@@ -25531,6 +25550,7 @@ function useAnchoredMenu(minWidth = 240) {
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS);
   const button = (0, import_react20.useRef)(null);
   const menu = (0, import_react20.useRef)(null);
+  (0, import_react20.useLayoutEffect)(() => registerPopupOwner(button, menu), [button, menu]);
   const tick = useViewport();
   const close = () => {
     setAnchor(null);
@@ -35700,7 +35720,7 @@ function UsagePage({ roster, actions, focusId }) {
   if (face) {
     const kinds = ranked(part.kinds);
     const usedModels = ranked(part.models);
-    const owners = ranked(part.owners);
+    const owners2 = ranked(part.owners);
     body = [
       (0, import_react42.createElement)(Profile, { key: "profile", face, range, share: all.total.total > 0 ? whole / all.total.total : 0 }),
       (0, import_react42.createElement)(
@@ -35711,7 +35731,7 @@ function UsagePage({ roster, actions, focusId }) {
         (0, import_react42.createElement)(
           "div",
           { key: "pair", className: "bt-us-pair" },
-          ownerAt >= 0 ? (0, import_react42.createElement)(ListCard, { title: t("Models"), count: usedModels.length, index: 2 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing) : (0, import_react42.createElement)(ListCard, { title: t("Who used it"), count: owners.length, index: 2 }, owners.length > 0 ? owners.map((entry, index) => ownerRow(entry, index)) : nothing),
+          ownerAt >= 0 ? (0, import_react42.createElement)(ListCard, { title: t("Models"), count: usedModels.length, index: 2 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing) : (0, import_react42.createElement)(ListCard, { title: t("Who used it"), count: owners2.length, index: 2 }, owners2.length > 0 ? owners2.map((entry, index) => ownerRow(entry, index)) : nothing),
           (0, import_react42.createElement)(
             ListCard,
             { title: t("What for"), index: 3 },
@@ -35722,9 +35742,9 @@ function UsagePage({ roster, actions, focusId }) {
       )
     ];
   } else {
-    const owners = ranked(all.owners);
-    const bots = owners.filter(([at]) => isBot(at));
-    const rest = owners.filter(([at]) => !isBot(at));
+    const owners2 = ranked(all.owners);
+    const bots = owners2.filter(([at]) => isBot(at));
+    const rest = owners2.filter(([at]) => !isBot(at));
     const usedModels = ranked(all.models);
     body = [
       (0, import_react42.createElement)(
@@ -35738,7 +35758,7 @@ function UsagePage({ roster, actions, focusId }) {
           (0, import_react42.createElement)(
             ListCard,
             { title: t("Bots"), count: bots.length, index: 2 },
-            owners.length > 0 ? null : nothing,
+            owners2.length > 0 ? null : nothing,
             bots.map((entry, index) => ownerRow(entry, index)),
             bots.length > 0 && rest.length > 0 ? (0, import_react42.createElement)("div", { className: "bt-us-split", role: "separator" }) : null,
             rest.map((entry, index) => ownerRow(entry, bots.length + index))
@@ -40734,16 +40754,19 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     const layer = layerRef.current;
     if (!doc?.body || !card || !layer) return void 0;
     const inert = /* @__PURE__ */ new Map();
-    let target = null;
+    let interactive = [card];
+    let disposed = false;
     const restore = () => {
       for (const [element, previous] of inert) element.inert = previous;
       inert.clear();
     };
-    const allowed2 = (element) => card.contains(element) || Boolean(target?.contains(element));
+    const allowed2 = (element) => interactive.some((root) => root.contains(element));
     const sync = () => {
       restore();
-      target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null;
-      const roots = [layer, target].filter(Boolean);
+      const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null;
+      interactive = [target, card].filter(Boolean);
+      interactive.push(...ownedPopups(interactive));
+      const roots = [layer, ...interactive];
       const isolate = (element) => {
         if (roots.includes(element)) return;
         if (roots.some((root) => element.contains(root))) {
@@ -40756,13 +40779,16 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       isolate(doc.body);
       if (!allowed2(doc.activeElement)) card.focus({ preventScroll: true });
     };
-    const onFocus = (event) => {
-      if (!allowed2(event.target)) card.focus({ preventScroll: true });
+    const onFocus = () => {
+      queueMicrotask(() => {
+        if (!disposed) sync();
+      });
     };
     const onTab = (event) => {
       if (event.key !== "Tab") return;
+      sync();
       const selector = "button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]";
-      const controls = [target, card].filter(Boolean).flatMap((root) => [root, ...root.querySelectorAll(selector)]).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === "visible");
+      const controls = interactive.flatMap((root) => [root, ...root.querySelectorAll(selector)]).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === "visible");
       event.preventDefault();
       event.stopPropagation();
       const current2 = controls.indexOf(doc.activeElement);
@@ -40775,6 +40801,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     doc.addEventListener("focusin", onFocus, true);
     doc.addEventListener("keydown", onTab, true);
     return () => {
+      disposed = true;
       observer.disconnect();
       doc.removeEventListener("focusin", onFocus, true);
       doc.removeEventListener("keydown", onTab, true);
