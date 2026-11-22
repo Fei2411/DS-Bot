@@ -312,6 +312,8 @@ export function install(rt) {
   // Host-owned API credential/audit files are always off-limits to every Bot, even in teams
   // with no private Bots.
   const apiProtectedFiles = async () => (await Promise.all([
+    join(rt.home, 'api-'),
+    join(rt.home, 'api-endpoint.json'),
     join(rt.home, 'api-tokens.json'),
     join(rt.home, 'mcp.json'),
     join(rt.home, 'api-audit.jsonl'),
@@ -330,22 +332,22 @@ export function install(rt) {
       const base = folder()
       const keys = await spellings(base === undefined ? path : resolve(base, path))
       const protectedPaths = await apiProtectedFiles()
-      if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(`${file}.`)))) throw closedApi()
+      if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
-      if (pattern.includes('api-tokens') || pattern.includes('api-audit')) throw closedApi()
+      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
       const base = folder()
       const keys = await spellings(base === undefined ? where : resolve(base, where))
       const protectedPaths = await apiProtectedFiles()
-      if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(`${file}.`)))) throw closedApi()
+      if (keys.some(key => protectedPaths.some(file => within(file, key) || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
     if (SHELL_TOOLS.includes(name)) {
       const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (flat.includes('api-tokens.json') || flat.includes('api-audit.jsonl')) throw closedApi()
+      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
       const protectedPaths = await apiProtectedFiles()
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()

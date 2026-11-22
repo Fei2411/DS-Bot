@@ -7,6 +7,23 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { discoverEndpoint } from '../bin/ds-bot-cli.mjs'
+
+test('endpoint discovery refuses non-loopback URLs before credentials are sent', t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-discovery-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  for (const baseUrl of ['http://127.attacker.example', 'http://127.0.0.1.evil.com', 'http://localhost.evil', 'https://localhost', 'http://127.1', 'http://user@localhost', 'invalid']) {
+    writeFileSync(join(home, 'api-endpoint.json'), JSON.stringify({ baseUrl }))
+    assert.throws(() => discoverEndpoint({ home }), /endpoint/i)
+    assert.throws(() => discoverEndpoint({ endpoint: baseUrl }), /endpoint/i)
+  }
+  for (const baseUrl of ['http://127.0.0.1:17830', 'http://localhost:17830', 'http://[::1]:17830']) {
+    writeFileSync(join(home, 'api-endpoint.json'), JSON.stringify({ baseUrl }))
+    assert.equal(discoverEndpoint({ home }).baseUrl, baseUrl)
+  }
+  writeFileSync(join(home, 'api-endpoint.json'), JSON.stringify({ baseUrl: 'http://localhost', mcpUrl: 'http://evil.example/mcp' }))
+  assert.throws(() => discoverEndpoint({ home }), /endpoint/i)
+})
 
 const CLI_PATH = fileURLToPath(new URL('../bin/ds-bot-cli.mjs', import.meta.url))
 

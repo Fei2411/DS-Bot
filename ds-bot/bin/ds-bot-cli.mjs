@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { isLoopbackHost } from '../src/host/api/auth.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DOCTOR_BIN = join(HERE, 'ds-bot-doctor.mjs')
@@ -34,9 +35,18 @@ function desktopDataDir() {
 }
 
 export function discoverEndpoint({ endpoint, home } = {}) {
+  const checked = value => {
+    let url
+    try { url = new URL(value) } catch { throw new Error('Invalid API endpoint URL') }
+    const authority = /^http:\/\/([^/\\?#]+)/i.exec(value)?.[1]
+    if (url.protocol !== 'http:' || !authority || !isLoopbackHost(authority) || url.username || url.password) {
+      throw new Error('API endpoint must use HTTP on a loopback host')
+    }
+    return value.replace(/\/+$/, '')
+  }
   const explicit = endpoint || process.env.DS_BOT_API_ENDPOINT?.trim()
   if (explicit) {
-    const baseUrl = explicit.replace(/\/+$/, '')
+    const baseUrl = checked(explicit)
     return { baseUrl, mcpUrl: `${baseUrl}/mcp` }
   }
   const roots = []
@@ -54,13 +64,11 @@ export function discoverEndpoint({ endpoint, home } = {}) {
   for (const dir of roots) {
     const file = join(dir, 'api-endpoint.json')
     if (!existsSync(file)) continue
-    try {
-      const parsed = JSON.parse(readFileSync(file, 'utf8'))
-      if (typeof parsed?.baseUrl === 'string' && parsed.baseUrl.startsWith('http')) {
-        const baseUrl = parsed.baseUrl.replace(/\/+$/, '')
-        return { baseUrl, mcpUrl: parsed.mcpUrl || `${baseUrl}/mcp`, file }
-      }
-    } catch { /* skip broken */ }
+    let parsed
+    try { parsed = JSON.parse(readFileSync(file, 'utf8')) } catch { continue }
+    const baseUrl = checked(parsed?.baseUrl)
+    const mcpUrl = parsed.mcpUrl ? checked(parsed.mcpUrl) : `${baseUrl}/mcp`
+    return { baseUrl, mcpUrl, file }
   }
   return null
 }

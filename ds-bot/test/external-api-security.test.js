@@ -221,6 +221,22 @@ test('private Bot hard isolation, dynamic privacy flip revocation, and privacy.j
   delete rt.state.bots.bp
   rt.state.bots.b2.private = false
   const execHook = ctx.listeners.get('tools/execute')[0]
+  for (const file of ['api-endpoint.json', 'api-config.json', 'api-runs.json', 'api-future.json', 'mcp.json']) {
+    for (const name of ['read', 'write']) {
+      await assert.rejects(() => execHook({
+        name, agent: { id: 'b1', session: { id: 'b1', header: { cwd: home } } },
+        arguments: { file_path: join(home, file) },
+      }, () => assert.fail('protected operation ran')), /API token/i)
+    }
+  }
+  for (const name of ['glob', 'grep']) {
+    for (const path of [home, join(home, '..'), join(home, 'api-endpoint.json')]) {
+      await assert.rejects(() => execHook({
+        name, agent: { id: 'b1', session: { id: 'b1', header: { cwd: home } } },
+        arguments: { path, pattern: '*' },
+      }, () => assert.fail('protected search ran')), /API token/i)
+    }
+  }
   await assert.rejects(
     () => execHook({
       name: 'read',
