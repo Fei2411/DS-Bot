@@ -169,6 +169,10 @@ function clusterSeats(count, frame) {
 }
 
 export function RoomAvatar({ room, roster, size = 36 }) {
+  const [broken, setBroken] = useState('')
+  const image = room.avatar?.image
+  if (image && image !== broken) return h('span', { className: 'bt-mark', style: { width: size, height: size }, 'aria-hidden': true },
+    h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const members = room.members.map(id => roster.byId[id]).filter(Boolean)
   // A group with one Bot left shows the user beside it.
   const people = members.length === 1 ? [members[0], null] : members

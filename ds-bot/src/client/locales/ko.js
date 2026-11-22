@@ -623,6 +623,7 @@ export const KO = {
   'Browse files': '파일 찾아보기',
   'Remove photo': '사진 제거',
   'Edit Bot avatar': 'Bot 아바타 편집',
+  'Edit group avatar': '그룹 아바타 편집',
   Name: '이름',
   Instructions: '지침',
   'What this Bot is responsible for…': '이 Bot이 담당하는 역할…',

@@ -586,6 +586,7 @@ const ZH = {
   'Browse files': '选择文件',
   'Remove photo': '移除照片',
   'Edit Bot avatar': '编辑 Bot 形象',
+  'Edit group avatar': '编辑群聊头像',
   Name: '名字',
   Instructions: '说明',
   'What this Bot is responsible for…': '这个 Bot 负责什么…',

@@ -606,6 +606,7 @@ export const FR = {
   "Browse files": "Parcourir les fichiers",
   "Remove photo": "Supprimer la photo",
   "Edit Bot avatar": "Modifier l’avatar du Bot",
+  "Edit group avatar": "Modifier l’avatar du groupe",
   "Name": "Nom",
   "Instructions": "Instructions",
   "What this Bot is responsible for…": "Ce dont ce Bot est responsable…",
