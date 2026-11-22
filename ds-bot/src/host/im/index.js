@@ -1093,7 +1093,7 @@ export function install(rt) {
   const newestOpenCard = (conn, chatKey) => {
     const data = runtimes.get(conn.id)?.data
     if (data === undefined) return undefined
-    for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
+    for (const cardKey of Object.keys(data.cards).reverse()) {
       if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
       const entry = openCard(conn, chatKey, cardKey)?.entry
       if (entry?.numbered !== true) continue
