@@ -392,6 +392,22 @@ test('a key lifts the key failures of the providers that read it, a sign-in the 
   assert.equal(still().length, Object.keys(blocked).length)
 })
 
+test('a Bot saved with a null block is skipped when a fix lifts the others', () => {
+  const { rt } = turnsHost()
+  rt.state.bots = {
+    empty: { id: 'empty', name: 'empty', blocked: null },
+    official: { id: 'official', name: 'official', blocked: { code: 'AUTH', provider: 'deepseek-official', at: 1 } },
+  }
+  const released = []
+  rt.releaseKickoff = async (bot) => { released.push(bot.id); return false }
+  rt.keyRefs = () => new Map([['deepseek-official', 'DEEPSEEK_API_KEY']])
+  for (const fix of [{ keyed: new Set(['deepseek-official']) }, { signedIn: true }, { ref: 'DEEPSEEK_API_KEY' }]) {
+    assert.doesNotThrow(() => rt.unblockBots(fix))
+  }
+  assert.deepEqual(released, ['official'])
+  assert.equal(rt.state.bots.official.blocked, undefined)
+})
+
 test('Retry adds no turn while a greeting is on its way or a turn runs in the Bot\'s chat', async () => {
   const { rt, emit, delivered } = turnsHost()
   rt.chatOf = id => id
