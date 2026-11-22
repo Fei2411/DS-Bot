@@ -310,7 +310,7 @@ test('issue report redaction preserves the destination of a failed rename', asyn
   assert.ok(args.view.children[1].text.includes(expected.join('\n')))
 })
 
-test('show_view permits display and choice views but not typed forms in IM-origin groups', async (t) => {
+test('show_view permits display, choice and typed views in IM-origin groups', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
@@ -324,10 +324,11 @@ test('show_view permits display and choice views but not typed forms in IM-origi
   assert.equal(interactiveGroup.concluded, true)
   assert.ok(rt.state.views['writer-group'])
   const typedGroup = await show('writer-group', { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } })
-  assert.match(typedGroup.text, /Use ask_user for a choice/)
+  assert.match(typedGroup.text, /user's answer arrives/)
+  assert.equal(typedGroup.concluded, true)
   const multiGroup = await show('writer-group', { title: 'Several', view: { ...CHOICES, multi: true } })
-  assert.match(multiGroup.text, /multiple selections cannot be answered in an IM group/)
-  assert.equal(multiGroup.concluded, false)
+  assert.match(multiGroup.text, /user's answer arrives/)
+  assert.equal(multiGroup.concluded, true)
   delete rt.state.views['writer-group']
   const displayGroup = await show('writer-group', { title: 'Meter', view: METER })
   assert.equal(displayGroup.text, 'The view is on screen.')
