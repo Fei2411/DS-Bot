@@ -51,7 +51,7 @@ async function fixture(t, { app = true, previous, status = { state: 'connected',
     if (method === 'chatgpt:status' || method === 'chatgpt:cancel') return status
     if (method === 'chatgpt:sign-in') return status = { state: 'connected', account: { email: 'person@example.test' } }
     if (method === 'chatgpt:sign-out') return status = { state: 'signed-out', account: status.account, remoteRevocationConfirmed: false }
-    if (method === 'chatgpt:route') return { baseURL: 'http://127.0.0.1:12345/v1', secret: 'synthetic-relay-secret' }
+    if (method === 'chatgpt:route') return { baseURL: 'http://127.0.0.1:12345/v1', secret: 'fake-relay-key' }
     if (method === 'chatgpt:models') { if (modelError) throw new Error('Models unavailable'); return models }
     throw new Error('Unexpected request')
   }
@@ -83,17 +83,17 @@ test('startup creates a distinct plan route with local credentials, models and p
     baseURL: 'http://127.0.0.1:12345/v1', apiKeyEnv: 'OPENAI_CHATGPT_API_KEY',
     models: [{ id: 'model-z', name: 'Z' }], compat: { supportsDeveloperRole: true },
   })
-  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'synthetic-relay-secret')
+  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'fake-relay-key')
   assert.deepEqual(f.routes.openai, { apiKeyEnv: 'OPENAI_API_KEY', models: [{ id: 'api-model' }], compat: { supportsDeveloperRole: false } })
   const row = (await f.rt.providersView()).providers.find(item => item.id === 'openai-chatgpt')
   assert.equal(row.auth, 'chatgpt')
   assert.equal(row.key.writable, false)
   assert.equal(row.removable, false)
-  assert.ok(!JSON.stringify(await f.post('providers')).includes('synthetic-relay-secret'))
+  assert.ok(!JSON.stringify(await f.post('providers')).includes('fake-relay-key'))
   assert.ok((await f.post('provider-key', { provider: 'openai-chatgpt', value: 'manual' })).error.message.includes('ChatGPT sign-in'))
   assert.ok((await f.post('provider-key', { provider: 'openai-chatgpt', value: null })).error.message.includes('ChatGPT sign-in'))
   assert.ok((await f.post('provider-remove', { provider: 'openai-chatgpt' })).error.message.includes('ChatGPT sign-out'))
-  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'synthetic-relay-secret')
+  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'fake-relay-key')
 })
 
 test('sign-in consent, status, cancel, models refresh and sign-out are routed through IPC', async t => {
@@ -109,14 +109,14 @@ test('sign-in consent, status, cancel, models refresh and sign-out are routed th
   assert.equal(signedOut.value.remoteRevocationConfirmed, false)
   assert.equal(signedOut.value.state, 'signed-out')
   assert.equal(f.routes['openai-chatgpt'].models[0].id, 'model-a')
-  assert.ok(!JSON.stringify(signedOut).includes('synthetic-relay-secret'))
+  assert.ok(!JSON.stringify(signedOut).includes('fake-relay-key'))
 })
 
 test('each launch updates the secret and relay endpoint even when model discovery fails', async t => {
   const f = await fixture(t, { previous: { models: [{ id: 'old-model' }], baseURL: 'http://127.0.0.1:1/v1', api: 'openai-responses' }, modelError: true })
   await f.start()
   assert.equal(f.routes['openai-chatgpt'].baseURL, 'http://127.0.0.1:12345/v1')
-  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'synthetic-relay-secret')
+  assert.equal(f.keys.OPENAI_CHATGPT_API_KEY, 'fake-relay-key')
   assert.equal(f.routes['openai-chatgpt'].models[0].id, 'old-model')
   assert.equal((await f.post('chatgpt-models')).ok, false)
 })
