@@ -343,20 +343,24 @@ export function install(rt) {
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
   let waitingForSchedules
+  // A part waiting to be retired may still run a turn, so it is not complete yet.
+  const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
   // How long retirement waits for DSH's schedule service, so no part is archived with
   // its reminders still on it.
   const scheduleDeadline = Date.now() + 10_000
   const retireParts = () => {
-    if (retiring !== undefined || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
+    if (stopped || retiring !== undefined || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
     retiring = (async () => {
       // The schedule service attaches after the store loads.
       await new Promise(resolve => setImmediate(resolve))
+      if (stopped) return
       if (rt.schedulesPending?.() === true && Date.now() < scheduleDeadline) {
         waitingForSchedules ??= setTimeout(() => { waitingForSchedules = undefined; void retireParts() }, scheduleDeadline - Date.now())
         waitingForSchedules.unref?.()
         return
       }
       for (const entry of [...state.retiredParts]) {
+        if (stopped) return
         const sessionId = sessionIdOf(entry?.sessionId)
         try {
           if (sessionId !== undefined) {
@@ -555,6 +559,7 @@ export function install(rt) {
 
   ctx.effect(() => () => {
     stopped = true
+    clearTimeout(waitingForSchedules)
     return writing.finally(() => lock.release())
   }, 'ds-bot: state lock')
 
@@ -733,7 +738,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
