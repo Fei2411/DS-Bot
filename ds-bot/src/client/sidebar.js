@@ -92,15 +92,19 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const workApproval = useApproval(
+  const fgApproval = useApproval(
     useWork,
     useComputer,
-    entry => entry.roomId === undefined && entry.botId === id && entry.answerable !== false,
+    entry => entry.roomId === undefined && entry.botId === id && entry.taskId === undefined && entry.answerable !== false,
     ask => ask.roomId === undefined && ask.botId === id,
   )
+  const bgApproval = useWork
+    ? useWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
+    : false
   const pending = botPendingOf(roster, bot)
-  const blockingApproval = workApproval || pending.cardApproval
-  const approval = blockingApproval || pending.learning
+  const blockingApproval = fgApproval || pending.cardApproval
+  const nonBlockingApproval = bgApproval || pending.learning
+  const approval = blockingApproval || nonBlockingApproval
   const alert = approval || pending.question
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
@@ -109,12 +113,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   // Group approvals live on the group's row and header island, not on the Bot's
   // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
-  // 'alert' activity comes from a group or unanswerable approval and is stripped.
+  // 'alert' activity comes from a group, background-task, or unanswerable approval
+  // and is stripped while the foreground turn runs.
   const blockingAlert = blockingApproval || pending.question
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   const state = botState(running || away, dmDoing, alert)
   const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
-  const learningWaitLine = pending.learning ? t('Waiting for your approval') : null
+  const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
   // A Bot running in its own chat previews what it is doing, like a group's row.
   const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
@@ -129,11 +134,11 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const pinned = bot.pinned === true && !tile
   const taskCounts = taskCountsOf({ bot })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
-  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || learningWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || deferredWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-      'data-bot-id': id, title: waitLine || learningWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
+      'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
@@ -154,7 +159,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     waitLine ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, waitLine)
       : runningLine ? h('span', { className: 'bt-row-preview' }, runningLine)
         : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
-          : learningWaitLine ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, learningWaitLine)
+          : deferredWaitLine ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, deferredWaitLine)
             : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
               : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && alert && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
@@ -360,9 +365,12 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     map.get(id)?.running === true ? 1 : 0,
     map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
   ])))
+  const shownEntries = useMemo(() => entries.filter(entry => (
+    !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
+  )), [entries, activeEntry, roster])
   const workBits = useWork ? useWork(work => {
-    const botIds = new Set(entries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    const roomIds = new Set(entries.filter(e => e.kind === 'room').map(e => e.item.id))
+    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
     const approval = (work.approvals ?? []).some(a => a.answerable !== false && ((a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId)))
     const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
@@ -370,13 +378,13 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
   }) : '0|0'
   const hasComputerAsk = useComputer ? useComputer(comp => {
-    const botIds = new Set(entries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    const roomIds = new Set(entries.filter(e => e.kind === 'room').map(e => e.item.id))
+    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
     return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
   }) : false
   const parsedStatuses = JSON.parse(statusBits)
   const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
-  const hasPendingCard = entries.some((entry) => {
+  const hasPendingCard = shownEntries.some((entry) => {
     if (entry.kind !== 'bot') return false
     const pending = botPendingOf(roster, entry.item)
     return pending.learning || pending.cardApproval || pending.question

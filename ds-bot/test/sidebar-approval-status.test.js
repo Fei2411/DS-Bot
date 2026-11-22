@@ -286,4 +286,40 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
   })
   const [railDot] = walk(railTree, node => classes(node).includes('bt-dot-wait'))
   assert.ok(railDot !== undefined)
+
+  // An inactive hidden Bot with a pending card does not trigger an alert on its collapsed section.
+  const hiddenOnly = renderSidebar({
+    bots: [
+      { id: 'hidden-bot', name: 'Hidden', sectionId: 'sec-1', hidden: true, createdAt: 1 },
+      { id: 'visible-bot', name: 'Visible', sectionId: 'sec-1', createdAt: 2 },
+    ],
+    sections,
+    rosterExtra: { learning: { 'hidden-bot': [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+  })
+  assert.equal(walk(hiddenOnly, node => classes(node).includes('bt-sec-status')).length, 0)
+})
+
+test('a background task approval does not mask a foreground question, and still shows approval when idle', () => {
+  const ops = {
+    id: 'ops', name: 'Ops', createdAt: 1,
+    tasks: [{ id: 't1', status: 'waiting_approval', title: 'Deploy' }],
+  }
+  const withQuestion = renderSidebar({
+    bots: [ops],
+    rosterExtra: { questions: { ops: { id: 'q1', question: 'Which env?' } } },
+    activity: { ops: 'alert' },
+    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
+  })
+  const [qRow] = walk(withQuestion, node => node.props?.['data-bot-id'] === 'ops')
+  assert.equal(textOf(walk(qRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
+  assert.match(qRow.props['aria-label'], /Waiting for your answer/)
+
+  const idleBg = renderSidebar({
+    bots: [ops],
+    activity: { ops: 'alert' },
+    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
+  })
+  const [idleRow] = walk(idleBg, node => node.props?.['data-bot-id'] === 'ops')
+  assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)
+  assert.equal(textOf(walk(idleRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
 })
