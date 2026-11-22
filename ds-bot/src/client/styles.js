@@ -735,6 +735,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
+.bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:none;display:flex;align-items:center;gap:8px}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
@@ -1610,17 +1611,6 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
-.bt-agent-sessions-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-agent-sessions-new{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:2px 6px;border-radius:6px;font-size:12px;color:var(--bt-ink-2);cursor:pointer}
-.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-agent-sessions-new svg{width:12px;height:12px}
-.bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
-.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
-.bt-agent-session:first-child{border-top:0}
-.bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
-.bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
-.bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3)}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
 .bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}

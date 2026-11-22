@@ -70,7 +70,7 @@ export function install(rt) {
     // The Bot's own chat may have background parts or active own-chat tasks: a stricter
     // preset must reach those live Sessions too, or the user would think it applied.
     // Group tasks follow their group's permission below (inheriting bot.permission if unset).
-    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId), ...activeTasksOf(bot).filter(task => task.roomId === undefined).map(task => task.sessionId)]
+    const own = () => [rt.chatOf(bot.id), ...activeTasksOf(bot).filter(task => task.roomId === undefined).map(task => task.sessionId)]
       .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groupSessions = () => [
       ...rt.groupSessionsOf(bot.id),
