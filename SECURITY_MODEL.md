@@ -22,11 +22,12 @@ Trust boundaries:
 
 ## Components
 
-- **host** — plugin server side: `ds-bot/index.js`, `ds-bot/src/host/` (roster, tools, turns/delivery, groups, goals, parts, memory, schedules, permissions, privacy, folders, connectors, providers).
+- **host** — plugin server side: `ds-bot/index.js`, `ds-bot/src/host/` (roster, tools, turns/delivery, background tasks, groups/ledger, goals, parts, memory, schedules, permissions, privacy, folders, capabilities/packs, connectors, providers, local-agents, computer, im, phone/mobile, mcp-server).
 - **secrets** — `ds-bot/src/host/secrets.js` (`bot/secrets.json` mode 600, optional passphrase encryption at rest in `secrets-crypto.js`, `$DSH_SECRET_<NAME>`, redactor) and API keys/providers (`providers.js`, `models.js`).
-- **client** — browser UI: `ds-bot/src/client/` (incl. widget-html, read-page, connectors UI) and generated `ds-bot/client.js`.
-- **browser** — Bot browser bridge and browser plugins: `ds-bot/src/host/browser.js`, `browser-plugins.js`, `src/host/browser/`, `browser-plugins/`.
-- **desktop-app** — Electron app: `app/src/` (main, start-window, preload, IPC, cookie import, updates, import from `~/.dsh`, move-data). `app/engine/` is not installed in the current app.
+- **client** — browser UI: `ds-bot/src/client/` (incl. settings console, widget-html, read-page, connectors UI) and generated `ds-bot/client.js`.
+- **browser & computer** — Bot browser bridge and browser plugins (`ds-bot/src/host/browser.js`, `browser-plugins.js`, `src/host/browser/`, `browser-plugins/`) and computer-use mediation (`ds-bot/src/host/computer/`).
+- **remote & im** — encrypted phone/browser link (`link/`, `mobile/`, `ds-bot/src/host/phone.js`, `mobile.js`), IM bridges (`ds-bot/src/host/im/`), and local MCP server (`ds-bot/src/host/mcp-server.js`).
+- **desktop-app** — Electron app: `app/src/` (main, start-window, preload, IPC, cookie import, updates, import from `~/.dsh`, move-data).
 - **web-search** — `ds-bot/web-search.js`.
 - **docker** — `docker/Dockerfile`, `entrypoint.sh`, `docker.patch.yml`, `docker-compose.yml`.
 
