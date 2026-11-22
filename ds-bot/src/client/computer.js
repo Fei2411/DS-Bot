@@ -79,7 +79,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
       computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
     h(Section, { key: 'bots', title: t('Bots') },
-      computer.enabled && !providerWorks(provider) ? h('p', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.')) : null,
+      computer.enabled && !providerWorks(provider) ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.'))) : null,
       roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },
         h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
   ]

@@ -17972,7 +17972,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent;box-shadow:none}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
-.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
+.bt-settings-icon{display:inline-flex;flex:none;width:15px;height:15px;align-items:center;justify-content:center;transition:color .14s ease}
 /* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
 .bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
 /* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
@@ -17999,12 +17999,12 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
-.bt-settings-item>svg{flex:none;transition:color .14s ease}
+.bt-settings-item>svg{flex:none;width:15px;height:15px;transition:color .14s ease}
 /* Usage while another page is open: out of the flow, so it keeps its layout, and not
    rendered. */
 .bt-settings-usage[data-off]{position:absolute;top:0;left:198px;width:calc(var(--bt-set-w) - 198px);height:100%;box-sizing:border-box;content-visibility:hidden;pointer-events:none}
 .bt-settings-main{flex:none;display:flex;flex-direction:column;min-width:0;width:calc(var(--bt-set-w) - 198px);height:var(--bt-set-h)}
-.bt-settings-head{display:flex;align-items:center;gap:8px;padding:20px 56px 8px 28px}
+.bt-settings-head{display:flex;align-items:center;gap:8px;min-height:32px;padding:16px 64px 8px 28px}
 .bt-settings-head h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.01em;animation:bt-veil-in .2s ease-out}
 .bt-settings-head>.bt-icon-btn{animation:bt-back-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 @keyframes bt-back-in{from{translate:6px 0;scale:.8}}
@@ -18019,19 +18019,18 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-page-up{from{transform:translateY(10px)}}
 @keyframes bt-page-in{from{transform:translateX(18px)}}
 @keyframes bt-page-out{from{transform:translateX(-18px)}}
-.bt-settings-close{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.bt-settings-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-form{display:flex;flex-direction:column;gap:18px}
 .bt-set-section{display:flex;flex-direction:column;gap:8px}
 .bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink);margin:0;padding:0 4px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:22px}
 .bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column}
-.bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
 button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink-2)}
-.bt-set-card>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
+.bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -18096,7 +18095,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 /* Settings → Phone. */
 .bt-phone{display:flex;flex-direction:column;gap:22px}
 .bt-phone-server{gap:8px}
-.bt-set-card>.bt-phone-server{border-top:0;padding-top:2px}
+.bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}
 .bt-phone-server .bt-input{flex:1;min-width:0}
 .bt-phone-warn .bt-set-hint{color:var(--bt-danger)}
 .bt-phone-error{padding:0 4px}
@@ -18534,8 +18533,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-nav>.bt-thumb{left:0;right:auto;top:8px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
+  .bt-settings-close{top:9px;right:10px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
-  .bt-settings-head{padding:14px 52px 4px 16px}
+  .bt-settings-head{padding:14px 16px 4px 16px}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
@@ -19357,7 +19357,7 @@ function SidebarIcon() {
 function PeopleIcon() {
   return (0, import_react3.createElement)(
     "svg",
-    { width: 14, height: 14, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", "aria-hidden": true },
+    { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", "aria-hidden": true },
     (0, import_react3.createElement)("circle", { cx: 7.5, cy: 7, r: 3 }),
     (0, import_react3.createElement)("path", { d: "M2 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5" }),
     (0, import_react3.createElement)("path", { d: "M13 4.3a3 3 0 0 1 0 5.4M15 12.4c1.6.6 2.6 2 3 4.1" })
@@ -19470,7 +19470,11 @@ var GoalIcon = lineIcon(["M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9", "M9 8a3 3 0 1 0 0 6
 var ChatsIcon = lineIcon(["M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z", "M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13"]);
 var ImIcon = lineIcon(["M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z", "M8 15.8h4", "M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z"]);
 var QueueIcon = lineIcon(["M4 6h12", "M4 10h12", "M4 14h8", "M14 12.5l2 1.5-2 1.5"]);
-var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon };
+var LayersIcon = lineIcon(["M10 3.5L3 7.25 10 11l7-3.75z", "M3 10.5L10 14.25l7-3.75", "M3 13.75L10 17.5l7-3.75"]);
+var BlocksIcon = lineIcon(["M3.5 3.5h5v5h-5z", "M3.5 11.5h5v5h-5z", "M11.5 11.5h5v5h-5z", "M14 3.5l2.5 2.5L14 8.5 11.5 6z"]);
+var SendIcon = lineIcon(["M16.8 3.5L9.5 10.8", "M16.8 3.5l-4.6 13-2.7-5.7-5.7-2.7z"]);
+var PuzzleIcon = lineIcon(["M8 3.5a1.5 1.5 0 0 1 3 0v1.25h3.5a1 1 0 0 1 1 1v3.5h1.25a1.5 1.5 0 0 1 0 3H15.5v3.25a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1H8z"]);
+var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: SendIcon, usage: GaugeIcon };
 
 // src/client/agent-logos.js
 var AGENT_LOGOS = {
@@ -21015,7 +21019,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
     (0, import_react12.createElement)(
       Section2,
       { key: "bots", title: t("Bots") },
-      computer.enabled && !providerWorks(provider) ? (0, import_react12.createElement)("p", { className: "bt-set-hint" }, t("Bots get no computer tools until the provider is ready.")) : null,
+      computer.enabled && !providerWorks(provider) ? (0, import_react12.createElement)("div", { className: "bt-set-row" }, (0, import_react12.createElement)("span", { className: "bt-set-hint" }, t("Bots get no computer tools until the provider is ready."))) : null,
       roster.bots.map((bot) => (0, import_react12.createElement)(
         Row4,
         { key: bot.id, label: bot.name },
@@ -24201,8 +24205,8 @@ var NONE = {};
 var KeyIcon = () => (0, import_react19.createElement)(
   "svg",
   { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-  (0, import_react19.createElement)("path", { d: "M7 9.5a3.5 3.5 0 1 1 0 .01z" }),
-  (0, import_react19.createElement)("path", { d: "M10.4 10.6L17 10.6M14.5 10.6v2.4M16.6 10.6v1.8" })
+  (0, import_react19.createElement)("circle", { cx: 6.75, cy: 10, r: 3.25 }),
+  (0, import_react19.createElement)("path", { d: "M10 10h7M14.25 10v2.5M16.75 10v1.8" })
 );
 var LockIcon = () => (0, import_react19.createElement)(
   "svg",
@@ -24580,7 +24584,6 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
     (0, import_react19.createElement)(MaskedInput, { value, onChange, label, autoFocus })
   );
   const row = (children) => (0, import_react19.createElement)("div", { className: "bt-secret-row-actions" }, children);
-  const hint = (key) => (0, import_react19.createElement)("div", { className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, t(key)));
   if (locked) {
     const reason = store?.reason;
     const why = reason === "passphrase-source" ? t("The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.") : reason === "wrong-passphrase" ? t("The passphrase in the environment or the passphrase file did not unlock the secrets.") : t("No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.");
@@ -24602,46 +24605,62 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
     );
   }
   if (mode === "encrypted") {
+    const desc2 = t("Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.");
     return (0, import_react19.createElement)(
       Section2,
       { title: t("Encryption at rest") },
-      hint("Keys are stored encrypted. They stay decrypted in memory while DS Bot runs."),
-      form === "decrypt" ? (0, import_react19.createElement)(
+      form === "decrypt" ? [
+        (0, import_react19.createElement)("div", { key: "hint", className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc2)),
+        (0, import_react19.createElement)(
+          "div",
+          { key: "form", className: "bt-set-row bt-bs-stack" },
+          field(t("Passphrase"), passphrase, setPassphrase, true),
+          row([
+            (0, import_react19.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
+            (0, import_react19.createElement)("button", { key: "off", type: "button", className: "bt-soft bt-soft-sm", disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t("Turn off encryption"))
+          ])
+        )
+      ] : (0, import_react19.createElement)(
         "div",
-        { className: "bt-set-row bt-bs-stack" },
-        field(t("Passphrase"), passphrase, setPassphrase, true),
-        row([
-          (0, import_react19.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
-          (0, import_react19.createElement)("button", { key: "off", type: "button", className: "bt-soft bt-soft-sm", disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t("Turn off encryption"))
-        ])
-      ) : (0, import_react19.createElement)(
-        "div",
-        { className: "bt-actions" },
-        (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
-          setForm("decrypt");
-          setPassphrase("");
-        } }, t("Turn off encryption"))
+        { className: "bt-set-row" },
+        (0, import_react19.createElement)("span", { className: "bt-set-copy" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc2)),
+        (0, import_react19.createElement)(
+          "span",
+          { className: "bt-set-control" },
+          (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+            setForm("decrypt");
+            setPassphrase("");
+          } }, t("Turn off encryption"))
+        )
       )
     );
   }
+  const desc = t("Keys are stored in a file only this user can read, but the values are not encrypted.");
   return (0, import_react19.createElement)(
     Section2,
     { title: t("Encryption at rest") },
-    hint("Keys are stored in a file only this user can read, but the values are not encrypted."),
-    form === "encrypt" ? (0, import_react19.createElement)(
+    form === "encrypt" ? [
+      (0, import_react19.createElement)("div", { key: "hint", className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc)),
+      (0, import_react19.createElement)(
+        "div",
+        { key: "form", className: "bt-set-row bt-bs-stack" },
+        field(t("Passphrase (at least 8 characters)"), passphrase, setPassphrase, true),
+        field(t("Repeat the passphrase"), confirm, setConfirm),
+        confirm !== "" && confirm !== passphrase ? (0, import_react19.createElement)("div", { className: "bt-set-hint" }, t("The passphrases do not match.")) : null,
+        row([
+          (0, import_react19.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
+          (0, import_react19.createElement)("button", { key: "on", type: "button", className: "bt-send bt-soft-sm", disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t("Turn on encryption"))
+        ])
+      )
+    ] : (0, import_react19.createElement)(
       "div",
-      { className: "bt-set-row bt-bs-stack" },
-      field(t("Passphrase (at least 8 characters)"), passphrase, setPassphrase, true),
-      field(t("Repeat the passphrase"), confirm, setConfirm),
-      confirm !== "" && confirm !== passphrase ? (0, import_react19.createElement)("div", { className: "bt-set-hint" }, t("The passphrases do not match.")) : null,
-      row([
-        (0, import_react19.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
-        (0, import_react19.createElement)("button", { key: "on", type: "button", className: "bt-send bt-soft-sm", disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t("Turn on encryption"))
-      ])
-    ) : (0, import_react19.createElement)(
-      "div",
-      { className: "bt-actions" },
-      (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setForm("encrypt") }, t("Encrypt keys at rest"))
+      { className: "bt-set-row" },
+      (0, import_react19.createElement)("span", { className: "bt-set-copy" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc)),
+      (0, import_react19.createElement)(
+        "span",
+        { className: "bt-set-control" },
+        (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setForm("encrypt") }, t("Encrypt keys at rest"))
+      )
     )
   );
 }
@@ -37530,7 +37549,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       { label: t("Show a QR code"), hint: online ? t("Your phone scans it once. After that it connects by itself.") : t("Turn on phone access first") },
       (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || !online, onClick: () => void run2(actions.phonePair()) }, t("Show"))
     )),
-    (0, import_react44.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react44.createElement)(Row4, { label: t("No phones yet") }) : phone.phones.map((entry) => (0, import_react44.createElement)(Row4, {
+    (0, import_react44.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react44.createElement)("div", { className: "bt-set-row" }, (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("No phones yet"))) : phone.phones.map((entry) => (0, import_react44.createElement)(Row4, {
       key: entry.id,
       label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
       hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
@@ -37583,15 +37602,16 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
     }));
   };
   const copy2 = () => {
-    const task = navigator.clipboard?.writeText(token.value);
-    if (task === void 0) return setError(t("Clipboard is not available"));
-    void run2(task.then(() => setCopied(true)));
+    void run2((0, import_dsh_client_ui_primitives.writeClipboard)(token.value).then((ok) => {
+      if (!ok) throw new Error(t("Clipboard is not available"));
+      setCopied(true);
+    }));
   };
   const names = (client) => [...client.bots.map((id) => bots.find((bot) => bot.id === id)?.name), ...client.rooms.map((id) => rooms.find((room2) => room2.id === id)?.name)].filter(Boolean);
   return (0, import_react45.createElement)(
     "div",
     { className: "bt-mcp" },
-    error ? (0, import_react45.createElement)("p", { className: "bt-set-hint bt-phone-warn", role: "alert" }, error) : null,
+    error ? (0, import_react45.createElement)("p", { className: "bt-set-hint bt-danger", role: "alert" }, error) : null,
     (0, import_react45.createElement)(
       Section2,
       { title: t("Connection") },
@@ -37627,7 +37647,7 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
         (0, import_react45.createElement)("span", { className: "bt-set-hint" }, t("Clients that start a command use: {command}", { command: `DSBOT_MCP_TOKEN=… npx -p ds-bot ds-bot-mcp --url ${mcp.url}` }))
       ) : null
     ),
-    (0, import_react45.createElement)(Section2, { title: t("Clients") }, mcp.clients.length === 0 ? (0, import_react45.createElement)(Row4, { label: t("No clients yet") }) : mcp.clients.map((client) => (0, import_react45.createElement)(
+    (0, import_react45.createElement)(Section2, { title: t("Clients") }, mcp.clients.length === 0 ? (0, import_react45.createElement)("div", { className: "bt-set-row" }, (0, import_react45.createElement)("span", { className: "bt-set-hint" }, t("No clients yet"))) : mcp.clients.map((client) => (0, import_react45.createElement)(
       "div",
       { key: client.id, className: "bt-mcp-client" },
       (0, import_react45.createElement)(Row4, {
@@ -38196,7 +38216,7 @@ var SERVICES_CSS = `
 .bt-svc-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3);corner-shape:round}
 .bt-svc-state[data-state=ready] .bt-svc-dot{background:var(--bt-green)}
 .bt-svc-state[data-state=missing] .bt-svc-dot{background:var(--bt-danger)}
-.bt-svc-line{padding:0 12px 10px}
+.bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal}
 .bt-svc-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3);overflow-wrap:anywhere}
 .bt-svc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -38308,11 +38328,11 @@ function ServicesForm({
         { label: t("DeepSeek Web Search API"), hint: t("Find it in Plugins → Web search.") },
         pluginsAvailable ? (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Open Plugins")) : null
       ),
-      (0, import_react47.createElement)(
+      saved || busy ? (0, import_react47.createElement)(
         "div",
         { className: "bt-svc-line" },
-        (0, import_react47.createElement)("span", { className: "bt-svc-note", role: "status" }, saved ? t("Saved.") : busy ? t("Saving…") : "")
-      )
+        (0, import_react47.createElement)("span", { className: "bt-svc-note", role: "status" }, saved ? t("Saved.") : t("Saving…"))
+      ) : null
     ),
     (0, import_react47.createElement)(
       Section2,
@@ -38542,7 +38562,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
       Section2,
       { title: t("Allowed actions") },
       (0, import_react48.createElement)("p", { className: "bt-browser-note" }, t("These grants apply only after an interactive browser plugin is enabled.")),
-      grants.length === 0 ? (0, import_react48.createElement)(Row4, { label: t("Nothing allowed yet.") }) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react48.createElement)(
+      grants.length === 0 ? (0, import_react48.createElement)("div", { className: "bt-set-row" }, (0, import_react48.createElement)("span", { className: "bt-set-hint" }, t("Nothing allowed yet."))) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react48.createElement)(
         "div",
         {
           key: `${bot.id}:${index}`,
@@ -39648,7 +39668,7 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
       (0, import_react52.createElement)(
         "div",
         { className: "bt-set-card" },
-        view.detected.length === 0 ? (0, import_react52.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
+        view.detected.length === 0 ? (0, import_react52.createElement)("div", { className: "bt-set-row" }, (0, import_react52.createElement)("span", { className: "bt-set-hint" }, t("No agent CLIs found"))) : null,
         view.detected.map((agent) => (0, import_react52.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 }))
       )
     ),
@@ -40121,7 +40141,7 @@ function PermissionPreference({ preferences }) {
       { className: "bt-set-note", role: "alert" },
       tr("unavailable"),
       " ",
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
+      (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
     ) : null,
     (0, import_react54.createElement)(import_dsh_client_ui_primitives.RiskConfirmation, {
       open: confirmation !== null,
@@ -40187,7 +40207,7 @@ var SETTINGS_PAGES = [["general", "General"], ["models", "Models"], ["local-agen
 var LAST_PAGES = /* @__PURE__ */ new Set(["feedback", "about"]);
 var MERGED_SECTIONS = /* @__PURE__ */ new Set(["general", "models"]);
 var LOOK_ITEMS = ["appearance", "font-size"];
-var DSH_ICONS = { account: import_dsh_client_ui_primitives.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives.IconArchiveOutlineMedium };
+var DSH_ICONS = { account: import_dsh_client_ui_primitives.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives.IconAgentPresetOutlineMedium, plugins: PuzzleIcon, "archived-sessions": import_dsh_client_ui_primitives.IconArchiveOutlineMedium };
 var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !MERGED_SECTIONS.has(row.id));
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
 var dshItem = (dsh, id) => (0, import_react55.createElement)(
@@ -40195,7 +40215,7 @@ var dshItem = (dsh, id) => (0, import_react55.createElement)(
   { key: id, className: "bt-dsh-item", "data-item": id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react55.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
 );
-var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: PlugIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": LayersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var MEMORY_SIZES = [
   { scope: "group", label: "Group memory size", size: 12e3 },
   { scope: "bot", label: "Bot memory size", size: 8e3 },

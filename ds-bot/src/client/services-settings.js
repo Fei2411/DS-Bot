@@ -13,7 +13,7 @@ export const SERVICES_CSS = `
 .bt-svc-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3);corner-shape:round}
 .bt-svc-state[data-state=ready] .bt-svc-dot{background:var(--bt-green)}
 .bt-svc-state[data-state=missing] .bt-svc-dot{background:var(--bt-danger)}
-.bt-svc-line{padding:0 12px 10px}
+.bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal}
 .bt-svc-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3);overflow-wrap:anywhere}
 .bt-svc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -104,8 +104,8 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
       // Plugins → Web search turns on the new API for search and fetch.
       h(Row, { label: t('DeepSeek Web Search API'), hint: t('Find it in Plugins → Web search.') },
         pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null),
-      h('div', { className: 'bt-svc-line' },
-        h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : busy ? t('Saving…') : ''))),
+      saved || busy ? h('div', { className: 'bt-svc-line' },
+        h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : t('Saving…'))) : null),
     h(Section, { key: 'ocr', title: t('Image and document reading') },
       h(Row, {
         label: t('Use DeepSeek to read images and documents'),

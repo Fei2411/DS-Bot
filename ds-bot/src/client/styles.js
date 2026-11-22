@@ -600,7 +600,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent;box-shadow:none}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
-.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
+.bt-settings-icon{display:inline-flex;flex:none;width:15px;height:15px;align-items:center;justify-content:center;transition:color .14s ease}
 /* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
 .bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
 /* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
@@ -627,12 +627,12 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
-.bt-settings-item>svg{flex:none;transition:color .14s ease}
+.bt-settings-item>svg{flex:none;width:15px;height:15px;transition:color .14s ease}
 /* Usage while another page is open: out of the flow, so it keeps its layout, and not
    rendered. */
 .bt-settings-usage[data-off]{position:absolute;top:0;left:198px;width:calc(var(--bt-set-w) - 198px);height:100%;box-sizing:border-box;content-visibility:hidden;pointer-events:none}
 .bt-settings-main{flex:none;display:flex;flex-direction:column;min-width:0;width:calc(var(--bt-set-w) - 198px);height:var(--bt-set-h)}
-.bt-settings-head{display:flex;align-items:center;gap:8px;padding:20px 56px 8px 28px}
+.bt-settings-head{display:flex;align-items:center;gap:8px;min-height:32px;padding:16px 64px 8px 28px}
 .bt-settings-head h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.01em;animation:bt-veil-in .2s ease-out}
 .bt-settings-head>.bt-icon-btn{animation:bt-back-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 @keyframes bt-back-in{from{translate:6px 0;scale:.8}}
@@ -647,19 +647,18 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-page-up{from{transform:translateY(10px)}}
 @keyframes bt-page-in{from{transform:translateX(18px)}}
 @keyframes bt-page-out{from{transform:translateX(-18px)}}
-.bt-settings-close{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.bt-settings-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-form{display:flex;flex-direction:column;gap:18px}
 .bt-set-section{display:flex;flex-direction:column;gap:8px}
 .bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink);margin:0;padding:0 4px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:22px}
 .bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column}
-.bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
 button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink-2)}
-.bt-set-card>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
+.bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -724,7 +723,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 /* Settings → Phone. */
 .bt-phone{display:flex;flex-direction:column;gap:22px}
 .bt-phone-server{gap:8px}
-.bt-set-card>.bt-phone-server{border-top:0;padding-top:2px}
+.bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}
 .bt-phone-server .bt-input{flex:1;min-width:0}
 .bt-phone-warn .bt-set-hint{color:var(--bt-danger)}
 .bt-phone-error{padding:0 4px}
@@ -1162,8 +1161,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-nav>.bt-thumb{left:0;right:auto;top:8px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
+  .bt-settings-close{top:9px;right:10px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
-  .bt-settings-head{padding:14px 52px 4px 16px}
+  .bt-settings-head{padding:14px 16px 4px 16px}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
