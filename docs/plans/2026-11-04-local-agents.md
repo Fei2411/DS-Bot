@@ -33,8 +33,8 @@ and model changes all work the same way.
 - A route's models are what its CLI reports, plus a "CLI default" entry.
 - Every DS Bot Session maps to one CLI session. A Bot's own chat and each of
   its group sessions are separate CLI sessions, so no content crosses between
-  them. Switching to an earlier part resumes its mapped CLI session; a part
-  that belongs to another run mode moves on first (see Run mode).
+  them. Like any other Bot, an abot has one continuous conversation — no
+  session list or manual session switching.
 - The CLI gets only new input since the last handed message: the user, other
   Bots, and tool results for calls it made. On a new or lost CLI session, the
   DS Bot system prompt plus a bounded recent window of the history is sent as
@@ -59,7 +59,7 @@ and model changes all work the same way.
   allow-once option; anything else denies it. It fails closed: only an explicit
   allow option counts. The Bot's permission preset maps to the closest mode the
   agent advertises.
-- Starting a new session or changing the work folder starts a fresh part as
+- Changing the work folder starts a fresh part automatically as
   for any Bot: the old CLI session writes the handoff note (see Context). A
   run-mode change starts fresh parts with the deterministic handoff — the last
   messages word for word, a list of earlier message anchors, and a line to use
@@ -77,9 +77,9 @@ and model changes all work the same way.
   per agent, and the custom agents with add, edit, and remove. A custom agent
   has a name, a command, and arguments; the command must be a bare name, an
   absolute path, or `~/…`, and no shell is used.
-- Each engine has an original badge shown small beside the Bot's name in the
-  sidebar, the chat header, and its details. A new abot's avatar defaults to
-  its badge; the user can still pick a character.
+- Each built-in engine uses its own product logo, with a glyph fallback, shown
+  small beside the Bot's name in the sidebar, the chat header, and its details.
+  A new abot's avatar defaults to its badge; the user can still pick a character.
 
 ## Context (decided 2026-11-14, #1593)
 
@@ -201,3 +201,7 @@ handling, so they do not mix in one model list.
 - The sign-in state comes from each CLI's own status command or credential
   file. A CLI that has neither, or whose check does not answer in time, shows
   unknown; unknown does not stop the user from picking it.
+
+## Changes
+
+- 2026-11-22: Correct the engine badge description to product logos with fallback glyphs (#1009), corrected against the dev code.

@@ -34,6 +34,19 @@ test('every window reaches the host model providers, and key changes read the te
   assert.equal(pulls(), 4)
 })
 
+test('capability choices send the channel mode and refresh the roster after saving', async () => {
+  const { actions, sent, pulls } = bench()
+  await actions.setBotCapability('chief', 'echo', true)
+  await actions.setBotCapability('chief', 'echo', true, 'catalog')
+  await actions.setBotCapability('chief', 'echo', false)
+  assert.deepEqual(sent, [
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: true, mode: 'always' }],
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: true, mode: 'catalog' }],
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: false, mode: 'always' }],
+  ])
+  assert.equal(pulls(), 3)
+})
+
 test('Retry after a failed turn asks the host to resume the Bot, with nothing but its id', async () => {
   const { actions, sent, pulls } = bench()
   await actions.resume('chief')

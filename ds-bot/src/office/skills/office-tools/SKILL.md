@@ -12,14 +12,14 @@ Every command accepts `--json` and prints `{"ok":true,"data":…}` for a run tha
 ## Commands
 
 - `unpack <file> <dir>` / `pack <dir> <file>` — extract a package to readable XML and repack it. `pack --against <original>` also runs `check` against the original.
-- `check <file|dir> [--against <original>] [--fix]` — only defects that make Office refuse a file or show a repair prompt. `--against` reports just the issues the original lacks. `--fix` repairs what is safe (xml:space, duplicate ids, content-type rows, dangling relationships).
+- `check <file|dir> [--against <original>] [--fix (-o out|--in-place)]` — only defects that make Office refuse a file or show a repair prompt. `--against` reports just the issues the original lacks. `--fix` repairs what is safe (xml:space, duplicate ids, content-type rows, dangling relationships).
 - `docx read <file> [--changes]` — body blocks as `p1…`, `t1…` in reading order, with paragraph style, tables as cell rows (merges noted), headers/footers, footnotes/endnotes, comments and the paragraph each anchors to. Text shows tracked changes accepted; `--changes` marks them inline (`{+inserted (Ana)+}`, `{-deleted (Ana)-}`, moves, format changes, deleted paragraph marks).
 - `docx fields <file>` — simple and complex fields with instruction and current result.
 - `docx edit <file> (-o out|--in-place) --ops <json|@file>` — one batch of ops, all-or-nothing, ids from `docx read` of the same file: `replace` (cross-run text/regex, keeps formatting), `set_cell`, `set_field`, `insert`, `delete`, `comment`, `accept_changes`, `reject_changes`.
 - `pptx inventory <file> [--slides N…]` — slide size, theme fonts, and every shape per slide: id, name, kind, placeholder, resolved box in inches (group transforms applied, layout/master placeholder inherited), text with run fonts and sizes, picture media.
-- `pptx layout <file> [--autofit]` — overlapping text boxes and shapes off the slide, from the same resolved boxes. `--autofit` sets `a:normAutofit` on the shapes found. Overflow inside a box still needs a render.
+- `pptx layout <file> [--slides N…] [--autofit (-o out|--in-place)]` — overlapping text boxes and shapes off the slide, from the same resolved boxes. `--autofit` sets `a:normAutofit` on the shapes found. Overflow inside a box still needs a render.
 - `pptx slides <file> -o|--in-place --order 3,1,1,5` — reorder by current positions; a repeated position duplicates the slide (notes, charts and embedded workbooks copied); positions left out are removed.
-- `pptx clean <file|dir> [--dry-run]` — drop slides not in the list, unreachable parts, dangling relationships/Overrides, unreferenced media (also works on docx/xlsx).
+- `pptx clean <file|dir> [-o out|--in-place] [--dry-run]` — remove slide parts absent from the presentation's slide list, unreachable parts, dangling relationships/Overrides and unreferenced media (also works on docx/xlsx). Without `--dry-run`, choose an output or `--in-place`.
 - `xlsx inventory <file>` — sheets (state, dimension, cell/formula counts, merges, tables, charts), defined names, every error cell with its formula, and a note when formulas have no cached value.
 - `xlsx read <file> --sheet <name> [--range A1:H40]` — a grid of cached values with formulas shown; dates as ISO.
 - `sheet <png…|dir> -o <contact.png> [--cols 4] [--width 320]` — one contact sheet of rendered pages, labelled with page numbers.

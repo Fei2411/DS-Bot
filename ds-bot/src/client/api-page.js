@@ -203,6 +203,7 @@ export function ApiPage({ roster, actions, Section, Row }) {
     h(Section, { title: t('Local API server') },
       h(Row, {
         label: t('Enable local API server'),
+        tour: 'api-switch',
         hint: statusHint(api),
         className: api.status === 'error' ? 'bt-phone-warn' : '',
       },
@@ -234,7 +235,7 @@ export function ApiPage({ roster, actions, Section, Row }) {
           h('label', { className: 'bt-api-field bt-api-port' },
             h('span', null, t('Port')),
             h('input', {
-              className: 'bt-input',
+              className: 'bt-input bt-set-number',
               type: 'number',
               min: 0,
               max: 65535,
@@ -278,6 +279,7 @@ export function ApiPage({ roster, actions, Section, Row }) {
 
     h(Section, {
       title: t('Access tokens'),
+      tour: 'api-add',
       action: !creating && !readOnly
         ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setCreating(true) }, t('New token'))
         : null,

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
-import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
@@ -982,6 +982,8 @@ test('a running turn of a local-agent part is not checked before its steps', asy
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     isLocalAgentRoute: route => route.startsWith('local-acp-'),
     localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
@@ -1001,9 +1003,9 @@ test('a running turn of a local-agent part is not checked before its steps', asy
   assert.equal(result, 'next-called')
 })
 
-// A manual new part gives the deterministic handoff: verbatim tail + anchors +
-// the read_own_chat line, with no model call.
-test('a fresh part carries the deterministic handoff', async () => {
+// A run-mode change on a local agent gives the deterministic handoff: verbatim tail +
+// anchors + the read_own_chat line, with no model call.
+test('a run-mode change on a local agent carries the deterministic handoff', async () => {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { archiveSession: async () => {}, unarchiveSession: async () => {} }
   ctx.sessions = { flush: async () => {} }
@@ -1028,6 +1030,8 @@ test('a fresh part carries the deterministic handoff', async () => {
     sessionOfRoom: () => undefined,
     isBotSession: id => ['s1', 's2'].includes(id),
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -1053,7 +1057,7 @@ test('a fresh part carries the deterministic handoff', async () => {
     noteText: () => '',
     followFolder: async () => {},
     heldBack: () => [],
-    resolveAgent: async id => ({ id, session: { id, deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
+    resolveAgent: async id => ({ id, session: { id, requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }), deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
     createSession: async () => 's2',
     desiredModel: async bot => bot.model,
     desiredEffort: async () => undefined,
@@ -1074,15 +1078,16 @@ test('a fresh part carries the deterministic handoff', async () => {
     llmRequests: new Map(),
   }
   partsInstall(rt)
-  assert.equal(typeof rt.newPart, 'function')
-  await rt.newPart('s1')
+  assert.equal(rt.newPart, undefined)
+  assert.equal(rt.switchPart, undefined)
+  await rt.followEngine('b1')
   // The switch runs as a job; the Bot lands on s2 with s1 kept as an earlier part.
   for (let i = 0; i < 50 && bot.sessionId !== 's2'; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(bot.sessionId, 's2', rt.warnings.join(' | '))
   assert.equal(bot.segments.length, 1)
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
-  assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+  assert.match(text, /run mode|previous part|read_own_chat/i)
 })
 
 test('an open-ended request outlives the default deadline', async () => {
@@ -2276,4 +2281,84 @@ test('ACP errors with numeric, empty or object codes keep their message and get 
     collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
     err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
   )
+})
+
+
+test('stream reports live thoughts, tool activities and end-of-stream idle to the turn tracker', async (t) => {
+  const seen = []
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'inspect files')])))
+  assert.equal(out.finish.kind, 'stop')
+  assert.deepEqual(seen, [
+    ['s1', 'thought', 'thought about: The conversation so far (oldest first):\n', false],
+    ['s1', 'activity', '▸ Read src/a.js', false],
+    ['s1', 'activity', '▸ Run `npm test`', false],
+    ['s1', 'text', 'ok: The conversation so far (oldest first):\n\nUser: inspect files', false],
+    ['s1', 'idle', null, false],
+  ])
+  // A request DS Bot makes for itself never reports live turn activity.
+  seen.length = 0
+  assert.equal(await adapter.compact('s1'), 'done')
+  assert.deepEqual(seen, [])
+})
+
+test('stream reports idle in finally when a consumer terminates the generator early', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null]) },
+  })
+  t.after(() => adapter.dispose())
+  const gen = adapter.stream(options('s1', [user('m1', 'inspect files')]))
+  for await (const chunk of gen) {
+    if (chunk.type === 'reasoning-delta' && chunk.text.includes('Read src/a.js')) break
+  }
+  assert.equal(seen.some(([, type, text]) => type === 'activity' && text === '▸ Read src/a.js'), true)
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null])
+})
+
+test('Devin and Cursor recorded ACP team-MCP streams emit only team-marked activities', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const devin = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(devin.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s1', 'activity', '▸ Calling message_bot from dsbot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null, false])
+
+  seen.length = 0
+  const cursor = await collect(adapter.stream(options('s2', [user('m1', 'team-permission')])))
+  assert.equal(cursor.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s2', 'activity', '▸ dsbot: message_bot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s2', 'idle', null, false])
+})
+
+test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', () => {
+  assert.equal(unwrapShellCommand('/bin/zsh -lc pwd'), 'pwd')
+  assert.equal(unwrapShellCommand('/bin/zsh -lc "python3 -c \'print(\\"hi\\")\'"'), 'python3 -c \'print("hi")\'')
+  assert.equal(unwrapShellCommand(['/bin/bash', '-lc', 'git status -sb']), 'git status -sb')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 't1'
+  const pushed = []
+  thread.push = event => pushed.push(event)
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'userMessage', text: 'hi' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'developerMessage', text: 'sys' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: '' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'commandExecution', command: '/bin/zsh -lc pwd' } })
+  engine.onNotice('item/completed', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: 'done' } })
+  assert.deepEqual(pushed, [
+    { type: 'activity', text: '▸ pwd', turnId: 'u1' },
+    { type: 'text', text: 'done', turnId: 'u1' },
+  ])
 })

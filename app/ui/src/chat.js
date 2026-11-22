@@ -7,7 +7,6 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowUpIcon } from '../../../ds-bot/src/client/icons.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { PendingQuestion } from '../../../ds-bot/src/client/questions.js'
-import { ReadOnlyDock } from '../../../ds-bot/src/client/read-only-dock.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -315,11 +314,6 @@ export function Chat({ sessionId, team }) {
   const follow = useRef(true)
   const question = roster.questions?.[sessionId]
   const running = hooks.useSessionStatus(map => map.get(sessionId)?.running === true)
-  // A part the user opened while its turn runs takes no input until that turn ends or
-  // the user stops it: the same lock and the same dock the plugin puts in DSH.
-  const readOnlyPart = hooks.useUi(state => state.readOnlyPart ?? null)
-  const partRunning = hooks.useRoster(state => state.partsRunning?.[sessionId] === true)
-  const readOnly = readOnlyPart !== null && readOnlyPart === sessionId && partRunning
 
   useLayoutEffect(() => {
     const node = scroller.current
@@ -351,10 +345,9 @@ export function Chat({ sessionId, team }) {
           question ? h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
     h('div', { className: 'dsb-composer-root' },
       h(ModelChoiceDock, { sessionId, useRoster: hooks.useRoster, actions }),
-      h(ReadOnlyDock, { sessionId, useUi: hooks.useUi, useRoster: hooks.useRoster, actions }),
       h(Composer, {
         sessionId,
-        disabled: waiting || readOnly,
+        disabled: waiting,
         placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
         onSend: text => send(text, actions, sessionId),
         actions,

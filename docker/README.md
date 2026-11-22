@@ -141,8 +141,8 @@ layer, applied after the profile's own — with an `llm-pi-ai` provider and an
           - id: my-model
             contextWindow: 131072
             maxTokens: 8192
-# New Bots made from the Create Bot form start on DSH's default model;
-# point it at the relay too, or they start on deepseek-official without a key.
+# Without a usable team default, Create Bot falls back to DSH's default model
+# (then the first usable model). Point the default at the relay too.
 - id: agent-default-model
   config:
     provider: relay
