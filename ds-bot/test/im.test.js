@@ -1179,6 +1179,39 @@ test('answering persisted member cards restores the room origin after a restart'
   }
 })
 
+test('text-only and legacy view deliveries do not hide an older numbered question', async (t) => {
+  for (const legacy of [false, true]) {
+    let s = await start({ platform: 'dingtalk' })
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    await dm(s, 'u1', 'choose')
+    s.imTurn('a')
+    s.rt.state.questions.a = { id: 'older-question', question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }
+    await s.rt.save()
+    await s.flush()
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Newer view', view: legacy
+      ? { type: 'confirm', id: 'go' }
+      : { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }, { agent: { id: 'a' } })
+    const viewId = s.rt.state.views.a.id
+    await s.flush()
+    if (legacy) {
+      await s.close()
+      const path = join(s.home, 'im', `${one.id}.json`)
+      const data = JSON.parse(readFileSync(path, 'utf8'))
+      delete data.cards[`v:${viewId}`][0].numbered
+      data.cards[`v:${viewId}`][0].text = '[View card] Legacy confirmation'
+      writeFileSync(path, JSON.stringify(data))
+      s = await start({ platform: 'dingtalk', home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    await dm(s, 'u1', '2')
+    assert.equal(s.rt.state.questions.a, undefined)
+    assert.equal(s.rt.state.views.a.id, viewId)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /Which route/)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /B/)
+  }
+})
+
 test('own-chat view answers are refused after the delivering chat is rebound or unbound', async (t) => {
   for (const target of [{ botId: 'b' }, null]) {
     for (const buttons of [true, false]) {

@@ -1096,6 +1096,7 @@ export function install(rt) {
     for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
       if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:') && !cardKey.startsWith('v:')) continue
       const entry = openCard(conn, chatKey, cardKey)?.entry
+      if (entry?.numbered !== true) continue
       if (entry !== undefined) return { cardKey, entry }
     }
     return undefined
@@ -1247,7 +1248,7 @@ export function install(rt) {
     approval: (id) => [{ data: `a:${id}:allow`, label: text('allow') }, { data: `a:${id}:reject`, label: text('reject') }],
   }
 
-  const sendCard = async (conn, cardKey, targets, body, buttons) => {
+  const sendCard = async (conn, cardKey, targets, body, buttons, numbered = false) => {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
     const entries = data.cards[cardKey] ??= []
@@ -1255,7 +1256,7 @@ export function install(rt) {
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
-    for (const { chatKey } of pending) entries.push({ chatKey, binding: bindingOf(conn, chatKey), messageId: undefined, text: body })
+    for (const { chatKey } of pending) entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: body })
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
       enqueueAfterStage(conn, chatKey, {
@@ -1285,7 +1286,7 @@ export function install(rt) {
         const origin = cardOrigin(sessionId, question)
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons, true)
       }
       // Approvals: one card per open approval id, resent to chats whose earlier send dropped.
       for (const entry of rt.approvalsView?.() ?? []) {
@@ -1298,7 +1299,7 @@ export function install(rt) {
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
-        await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons)
+        await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons, true)
       }
       // Secret requests: text only — the key is typed on the computer or phone.
       for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
@@ -1326,7 +1327,7 @@ export function install(rt) {
         const picks = choices.length === 0 ? '' : `\n${choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')}\n(${text('numbers')})`
         const buttons = imPlatform(conn.platform)?.buttons === true && choices.length > 0
           ? choices.map((choice, index) => ({ data: `v:${view.id}:${index}`, label: choice.label })) : undefined
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons, choices.length > 0)
       }
     }
   }
@@ -1962,7 +1963,7 @@ export function install(rt) {
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
-        await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons)
+        await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons, true)
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
