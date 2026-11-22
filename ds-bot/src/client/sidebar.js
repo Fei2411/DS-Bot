@@ -41,11 +41,18 @@ const nameIfCut = (event) => {
   else row.removeAttribute('title')
 }
 
+const useFalse = () => false
+const useEmptyArrayJson = () => '[]'
+const useNullJson = () => 'null'
+const useEmptySectionWork = () => '0|0'
+
 // Whether an approval waits for the user: for a Bot, in its own chat; for a group,
 // from any of its members in that group (both DSH tool approvals and computer-use asks).
 const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
-  const tool = useWork ? useWork(work => (work.approvals ?? []).some(matchApproval)) : false
-  const app = useComputer ? useComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk)) : false
+  const useReadWork = useWork ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const tool = useReadWork(work => (work.approvals ?? []).some(matchApproval))
+  const app = useReadComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk))
   return tool || app
 }
 
@@ -69,7 +76,8 @@ export function botPendingOf(roster, bot) {
 // changes: the groups one Bot works in, or the members at work in one group.
 // Picked as text, so a row redraws only when what it shows changes.
 const useGroupWork = (useWork, pick) => {
-  const raw = useWork ? useWork(work => JSON.stringify(pick(work.rooms ?? {}))) : '[]'
+  const useReadWork = useWork ?? useEmptyArrayJson
+  const raw = useReadWork(work => JSON.stringify(pick(work.rooms ?? {})))
   return useMemo(() => JSON.parse(raw), [raw])
 }
 const doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching })
@@ -98,9 +106,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     entry => entry.roomId === undefined && entry.botId === id && entry.taskId === undefined && entry.answerable !== false,
     ask => ask.roomId === undefined && ask.botId === id,
   )
-  const bgApproval = useWork
-    ? useWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-    : false
+  const useReadBgWork = useWork ?? useFalse
+  const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
   const pending = botPendingOf(roster, bot)
   const blockingApproval = fgApproval || pending.cardApproval
   const nonBlockingApproval = bgApproval || pending.learning
@@ -123,7 +130,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   // A Bot running in its own chat previews what it is doing, like a group's row.
   const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
-  const waitsRaw = useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null'
+  const useReadWaits = useWork ?? useNullJson
+  const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
   if (bot.hidden && !active && !main) return null
@@ -368,7 +376,8 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
   )), [entries, activeEntry, roster])
-  const workBits = useWork ? useWork(work => {
+  const useReadSectionWork = useWork ?? useEmptySectionWork
+  const workBits = useReadSectionWork(work => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
     const approval = (work.approvals ?? []).some(a => a.answerable !== false && ((a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId)))
@@ -376,12 +385,13 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
     ))
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
-  }) : '0|0'
-  const hasComputerAsk = useComputer ? useComputer(comp => {
+  })
+  const useReadSectionComputer = useComputer ?? useFalse
+  const hasComputerAsk = useReadSectionComputer(comp => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
     return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
-  }) : false
+  })
   const parsedStatuses = JSON.parse(statusBits)
   const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
   const hasPendingCard = shownEntries.some((entry) => {
