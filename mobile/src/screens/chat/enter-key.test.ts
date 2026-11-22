@@ -9,11 +9,11 @@ import { enterHandler as nativeEnter, submitProps as nativeProps } from './compo
 import { enterHandler as webEnter, submitProps as webProps } from './composer.enter.web.ts'
 
 test('a phone with no choice of its own follows the computer', () => {
-  assert.equal(enterMode(undefined, undefined), 'follow')
-  assert.equal(enterMode({}, undefined), 'follow')
-  assert.equal(enterMode({ enterToSend: 'follow' }, undefined), 'follow')
-  assert.equal(enterMode({ enterToSend: 'send' }, undefined), 'send')
-  assert.equal(enterMode({ enterToSend: 'newline' }, undefined), 'newline')
+  assert.equal(enterMode(undefined), 'follow')
+  assert.equal(enterMode({}), 'follow')
+  assert.equal(enterMode({ enterToSend: 'follow' }), 'follow')
+  assert.equal(enterMode({ enterToSend: 'send' }), 'send')
+  assert.equal(enterMode({ enterToSend: 'newline' }), 'newline')
 })
 
 test('following the computer keeps its default of sending, and its off switch', () => {
@@ -28,9 +28,9 @@ test('the phone keeps its own answer when it has one', () => {
   assert.equal(sendsOnEnter('newline', { enterToSend: true }), false)
 })
 
-test('the native build names both props so Android drops IME_FLAG_NO_ENTER_ACTION', () => {
+test('the native build names the props both ways, so switching clears the last one', () => {
   assert.deepEqual(nativeProps(true), { returnKeyType: 'send', submitBehavior: 'submit' })
-  assert.deepEqual(nativeProps(false), {})
+  assert.deepEqual(nativeProps(false), { returnKeyType: 'default', submitBehavior: 'newline' })
 })
 
 test('the native build leaves Enter to the platform, never to a key handler', () => {
@@ -62,13 +62,14 @@ test('the browser build handles Enter itself, since react-native-web ignores sub
 
 test('the composer takes its Enter behavior from the stored mode and the computer', () => {
   const composer = readFileSync(new URL('./composer.tsx', import.meta.url), 'utf8')
+  assert.match(composer, /from '\.\/composer\.enter'\n/, 'the import omits the extension so Metro picks the platform copy')
   assert.match(composer, /submitProps\(sends\)/)
   assert.match(composer, /enterHandler\(sends, send\)/)
-  assert.match(composer, /onSubmitEditing=\{send\}/)
+  assert.match(composer, /onSubmitEditing=\{sends \? send : undefined\}/, 'newline mode cannot submit')
   const chat = readFileSync(new URL('../Chat.tsx', import.meta.url), 'utf8')
-  assert.match(chat, /enterMode\(prefs, team\?\.prefs\)/)
+  assert.match(chat, /enterMode\(prefs\)/)
   assert.match(chat, /sendsOnEnter\(mode, team\?\.prefs\)/)
   assert.match(chat, /onPrefsChange\(read\)/)
   const settings = readFileSync(new URL('../Settings.tsx', import.meta.url), 'utf8')
-  assert.match(settings, /enterMode\(prefs, team\?\.prefs\)/)
+  assert.match(settings, /enterMode\(prefs\)/)
 })

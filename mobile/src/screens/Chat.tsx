@@ -137,7 +137,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     read()
     return onPrefsChange(read)
   }, [])
-  const mode = enterMode(prefs, team?.prefs)
+  const mode = enterMode(prefs)
   const sends = sendsOnEnter(mode, team?.prefs)
   const cached = pages.get(chatKey)
   const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({

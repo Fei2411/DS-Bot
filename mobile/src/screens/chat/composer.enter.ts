@@ -3,7 +3,11 @@
 // instead of a plain newline; iOS reads the same prop. react-native-web ignores it,
 // so the web build handles Enter itself (composer.enter.web.ts) and never needs a
 // key handler here.
-export const submitProps = (sends: boolean): { returnKeyType?: 'send'; submitBehavior?: 'submit' } =>
-  sends ? { returnKeyType: 'send', submitBehavior: 'submit' } : {}
+//
+// Naming the props in both directions matters: switching the setting while the
+// composer is mounted has to clear what the last value set, which a bare `{}` for
+// newline mode would leave in place.
+export const submitProps = (sends: boolean): { returnKeyType: 'send' | 'default'; submitBehavior: 'submit' | 'newline' } =>
+  sends ? { returnKeyType: 'send', submitBehavior: 'submit' } : { returnKeyType: 'default', submitBehavior: 'newline' }
 
 export const enterHandler = (_sends: boolean, _send: () => void): undefined => undefined

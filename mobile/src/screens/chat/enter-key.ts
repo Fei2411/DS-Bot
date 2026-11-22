@@ -3,7 +3,7 @@
 // phone's own answer and ignore the computer.
 export type EnterMode = 'follow' | 'send' | 'newline'
 
-export const enterMode = (phonePrefs: Record<string, string> | undefined, computerPrefs: Record<string, unknown> | undefined): EnterMode => {
+export const enterMode = (phonePrefs: Record<string, string> | undefined): EnterMode => {
   const stored = phonePrefs?.enterToSend
   if (stored === 'send' || stored === 'newline') return stored
   return 'follow'
