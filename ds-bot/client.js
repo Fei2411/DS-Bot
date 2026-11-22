@@ -27133,6 +27133,34 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
   );
 }
 function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
+  const pending = (0, import_react24.useRef)(/* @__PURE__ */ new Map());
+  const [, redraw] = (0, import_react24.useState)(0);
+  const refresh = () => redraw((value) => value + 1);
+  const choose = (name, mode, value) => {
+    let entry = pending.current.get(name);
+    if ((entry?.desired ?? mode) === value) return;
+    if (entry) {
+      entry.desired = value;
+      refresh();
+      return;
+    }
+    entry = { desired: value, saved: mode };
+    pending.current.set(name, entry);
+    refresh();
+    const save = async () => {
+      try {
+        while (entry.desired !== entry.saved) {
+          const next = entry.desired;
+          await actions.setBotCapability(bot.id, name, next !== "off", next === "catalog" ? "catalog" : "always");
+          entry.saved = next;
+        }
+      } finally {
+        pending.current.delete(name);
+        refresh();
+      }
+    };
+    void run2(save());
+  };
   const items = [...roster.capabilities ?? []].sort((a, b) => Number(b.kind === "pack") - Number(a.kind === "pack") || a.name.localeCompare(b.name));
   const attached = new Set(bot.capabilities ?? []);
   const catalog = new Set(bot.packs ?? []);
@@ -27143,7 +27171,8 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
     { title: t("Capabilities") },
     (0, import_react24.createElement)("div", { className: "bt-set-row" }, (0, import_react24.createElement)("span", { className: "bt-set-hint" }, t("Items in catalog load only when the Bot calls use_pack."))),
     items.map((item) => {
-      const mode = attached.has(item.name) ? "always" : catalog.has(item.name) ? "catalog" : "off";
+      const saved = attached.has(item.name) ? "always" : catalog.has(item.name) ? "catalog" : "off";
+      const mode = pending.current.get(item.name)?.desired ?? saved;
       const hint = mode === "always" ? statusText(statuses[item.name]) : void 0;
       return (0, import_react24.createElement)(
         "div",
@@ -27158,9 +27187,7 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
           key: value,
           type: "button",
           "aria-pressed": mode === value,
-          onClick: () => {
-            if (mode !== value) void run2(actions.setBotCapability(bot.id, item.name, value !== "off", value === "catalog" ? "catalog" : "always"));
-          }
+          onClick: () => choose(item.name, saved, value)
         }, t(label))))
       );
     })

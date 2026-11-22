@@ -40,17 +40,122 @@ test('each capability kind renders Always on, In catalog and Off from the saved 
   }
 })
 
-test('a capability choice changes only that Bot and item, and reselecting the current mode does nothing', () => {
+test('a capability choice changes only that Bot and item, and reselecting the current mode does nothing', async () => {
   const calls = []
+  const pending = []
   const tree = render({ capabilities: ['echo'], packs: ['guide'] }, {
     actions: { setBotCapability: (...args) => calls.push(args) },
+    run: promise => { pending.push(promise); return promise },
   })
   const group = groups(tree).find(node => node.props.label === 'echo')
   for (const button of group.props.children) button.props.onClick()
+  await Promise.all(pending)
   assert.deepEqual(calls, [['writer', 'echo', true, 'catalog'], ['writer', 'echo', false, 'always']])
   const off = groups(render({}, { actions: { setBotCapability: (...args) => calls.push(args) } })).find(node => node.props.label === 'echo')
   off.props.children[0].props.onClick()
   assert.deepEqual(calls.at(-1), ['writer', 'echo', true, 'always'])
+})
+
+function deferredRow(initial = {}) {
+  const refs = []
+  const calls = []
+  const saves = []
+  const errors = []
+  let bot = initial
+  const tree = () => {
+    const original = react.useRef
+    let slot = 0
+    react.useRef = value => { const index = slot++; return refs[index] ??= { current: value } }
+    try {
+      return render(bot, {
+        actions: { setBotCapability: (id, name, attached, mode) => {
+          calls.push([id, name, attached, mode])
+          const gate = Promise.withResolvers()
+          saves.push(gate)
+          return gate.promise.then(() => {
+            bot = {
+              ...bot,
+              capabilities: [...(bot.capabilities ?? []).filter(value => value !== name), ...(attached && mode === 'always' ? [name] : [])],
+              packs: [...(bot.packs ?? []).filter(value => value !== name), ...(attached && mode === 'catalog' ? [name] : [])],
+            }
+          })
+        } },
+        run: promise => promise.catch(error => errors.push(error)),
+      })
+    } finally { react.useRef = original }
+  }
+  const group = (name = 'echo') => groups(tree()).find(node => node.props.label === name)
+  return {
+    calls, errors,
+    mode: name => group(name).props.value,
+    click: (label, name) => group(name).props.children.find(button => textOf(button) === label).props.onClick(),
+    settle: async (index, error) => {
+      if (error) saves[index].reject(error)
+      else saves[index].resolve()
+      await new Promise(resolve => setImmediate(resolve))
+    },
+  }
+}
+
+test('Off → Always on → Off queues detachment while the first save and refresh are pending', async () => {
+  const row = deferredRow()
+  row.click('Always on')
+  assert.equal(row.mode(), 'always')
+  row.click('Off')
+  assert.equal(row.mode(), 'off')
+  assert.deepEqual(row.calls, [['writer', 'echo', true, 'always']])
+  await row.settle(0)
+  assert.deepEqual(row.calls, [['writer', 'echo', true, 'always'], ['writer', 'echo', false, 'always']])
+  assert.equal(row.mode(), 'off')
+  await row.settle(1)
+  assert.equal(row.mode(), 'off')
+})
+
+test('Always on → In catalog → Off sends only the latest queued choice', async () => {
+  const row = deferredRow({ capabilities: ['echo'] })
+  row.click('In catalog')
+  assert.equal(row.mode(), 'catalog')
+  row.click('Always on')
+  row.click('Off')
+  assert.equal(row.mode(), 'off')
+  assert.equal(row.calls.length, 1)
+  await row.settle(0)
+  assert.deepEqual(row.calls, [['writer', 'echo', true, 'catalog'], ['writer', 'echo', false, 'always']])
+  await row.settle(1)
+  assert.equal(row.mode(), 'off')
+})
+
+test('returning to the in-flight choice avoids a redundant queued save', async () => {
+  const row = deferredRow()
+  row.click('Always on')
+  row.click('In catalog')
+  row.click('Always on')
+  await row.settle(0)
+  assert.equal(row.mode(), 'always')
+  assert.equal(row.calls.length, 1)
+})
+
+test('a queued save failure restores the latest roster state and reports the error', async () => {
+  const row = deferredRow()
+  row.click('Always on')
+  row.click('Off')
+  await row.settle(0)
+  const failure = new Error('Read-only team')
+  await row.settle(1, failure)
+  assert.equal(row.mode(), 'always')
+  assert.deepEqual(row.errors, [failure])
+  assert.equal(row.calls.length, 2)
+})
+
+test('an initial save failure discards the queued choice and restores the roster', async () => {
+  const row = deferredRow()
+  row.click('Always on')
+  row.click('In catalog')
+  const failure = new Error('Read-only team')
+  await row.settle(0, failure)
+  assert.equal(row.mode(), 'off')
+  assert.deepEqual(row.errors, [failure])
+  assert.equal(row.calls.length, 1)
 })
 
 test('empty libraries omit the card, and old Bot data without packs still renders', () => {

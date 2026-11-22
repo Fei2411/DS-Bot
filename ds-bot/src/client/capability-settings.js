@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { PlusIcon } from './icons.js'
 import { t } from './i18n.js'
 import { Segmented } from './motion.js'
@@ -156,6 +156,34 @@ export function CapabilitiesPage({ roster, actions, run }) {
 }
 
 export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
+  const pending = useRef(new Map())
+  const [, redraw] = useState(0)
+  const refresh = () => redraw(value => value + 1)
+  const choose = (name, mode, value) => {
+    let entry = pending.current.get(name)
+    if ((entry?.desired ?? mode) === value) return
+    if (entry) {
+      entry.desired = value
+      refresh()
+      return
+    }
+    entry = { desired: value, saved: mode }
+    pending.current.set(name, entry)
+    refresh()
+    const save = async () => {
+      try {
+        while (entry.desired !== entry.saved) {
+          const next = entry.desired
+          await actions.setBotCapability(bot.id, name, next !== 'off', next === 'catalog' ? 'catalog' : 'always')
+          entry.saved = next
+        }
+      } finally {
+        pending.current.delete(name)
+        refresh()
+      }
+    }
+    void run(save())
+  }
   const items = [...(roster.capabilities ?? [])].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
   const attached = new Set(bot.capabilities ?? [])
   const catalog = new Set(bot.packs ?? [])
@@ -164,7 +192,8 @@ export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
   return h(Card, { title: t('Capabilities') },
     h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Items in catalog load only when the Bot calls use_pack.'))),
     items.map(item => {
-      const mode = attached.has(item.name) ? 'always' : catalog.has(item.name) ? 'catalog' : 'off'
+      const saved = attached.has(item.name) ? 'always' : catalog.has(item.name) ? 'catalog' : 'off'
+      const mode = pending.current.get(item.name)?.desired ?? saved
       const hint = mode === 'always' ? statusText(statuses[item.name]) : undefined
       return h('div', { key: item.name, className: 'bt-set-row bt-bs-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
@@ -172,7 +201,7 @@ export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
           hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
         h(Segmented, { label: item.name, value: mode }, [['always', 'Always on'], ['catalog', 'In catalog'], ['off', 'Off']].map(([value, label]) => h('button', {
           key: value, type: 'button', 'aria-pressed': mode === value,
-          onClick: () => { if (mode !== value) void run(actions.setBotCapability(bot.id, item.name, value !== 'off', value === 'catalog' ? 'catalog' : 'always')) },
+          onClick: () => choose(item.name, saved, value),
         }, t(label)))))
     }))
 }
