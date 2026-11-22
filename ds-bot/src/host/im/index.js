@@ -1086,9 +1086,14 @@ export function install(rt) {
     if (!/^V[1-9]\d*$/.test(code)) return false
     const data = runtimes.get(conn.id)?.data
     const binding = bindingOf(conn, chat.key)
-    if (data === undefined || binding === undefined) return false
-    const held = Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key && entry.binding === binding))
+    if (data === undefined) return false
+    const held = Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key))
     if (held === undefined) return false
+    const delivery = held[1].find(entry => entry.code === code && entry.chatKey === chat.key)
+    if (binding === undefined || delivery.binding !== binding) {
+      await sendCardReply(conn, chat, 'This card is no longer answerable in this chat.')
+      return true
+    }
     const found = viewById(held[0].slice(2))
     if (found === undefined || openCard(conn, chat.key, held[0]) === undefined
       || found.view.issueDraft !== undefined || !canAnswerCard(found.sessionId, found.view, conn, chat)) {
