@@ -80,9 +80,12 @@ const TEAM = () => ({
   revision: 0,
 })
 
-async function start({ platform = 'telegram', adapter, seed, services = {} } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
+async function start({ platform = 'telegram', adapter, seed, home, services = {} } = {}) {
+  if (home === undefined) {
+    home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
+    seed ??= TEAM()
+  }
+  if (seed !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext({ services })
   const prompts = []
   const agents = new Map()
@@ -118,9 +121,12 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
   }
   const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? [])
     .map(listener => listener(request, next)))
-  const stop = async () => {
+  const close = async () => {
     adapters[platform] = real
     await ctx.dispose()
+  }
+  const stop = async () => {
+    await close()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   const flush = async () => { await delay(10) }
@@ -131,7 +137,7 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
     emitEvent(sessionId, 'turn/start', { turn: prompts.length })
     emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
   }
-  return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, stop, flush, platform }
+  return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, close, stop, flush, platform }
 }
 
 const FIELDS = { telegram: { token: 'tok-1234' }, dingtalk: { clientId: 'cli-1', clientSecret: 'sec-1234' } }
@@ -992,6 +998,432 @@ test('reply origin: an IM turn answers its own chat, and only that chat', async 
   assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
 })
 
+test('member cards follow only the originating IM group and answers return through the room', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  const firstHandlers = s.fake.handlers
+  one.chats.g1 = { kind: 'group', title: 'G1', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', title: 'G2', target: { roomId: 'r1' }, at: 1 }
+  const other = await add(s)
+  const secondHandlers = s.fake.handlers
+  const two = s.rt.state.im.connections[other.id]
+  two.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  two.chats.g3 = { kind: 'group', title: 'G3', target: { roomId: 'r1' }, at: 1 }
+  const room = s.rt.roomOf('r1')
+  room.sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, {
+    agent: { id: 'member-b' }, concludeTurn() {},
+  })
+  const args = { question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }
+  assert.equal(await ask(args), 'Question cards only work in your own chat. In a group, ask in your message instead.')
+  await firstHandlers.onMessage({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, text: 'ask the group', mentioned: true })
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  assert.match(await ask({ ...args, allowCustom: true }), /Group question cards accept listed choices only/)
+  assert.equal(s.rt.state.questions['member-b'], undefined)
+  assert.match(await ask(args), /card is on screen/)
+  const question = s.rt.state.questions['member-b']
+  await s.flush()
+  assert.match(room.log.at(-1).text, /Asked: Which route\?\n1\. A\n2\. B/)
+  const cards = s.fake.sent.filter(job => job.buttons?.some(button => button.data.startsWith('q:')))
+  assert.equal(cards.length, 1)
+  assert.equal(cards[0].chat.key, 'g1')
+  assert.equal(s.fake.sent.filter(job => job.chat.key === 'g1' && job.text.includes('Which route?')).length, 1)
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  await secondHandlers.onAction({ chat: { key: 'g3', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.ok(s.rt.state.questions['member-b'])
+  await firstHandlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.ok(s.rt.state.questions['member-b'])
+  await firstHandlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.equal(s.rt.state.questions['member-b'], undefined)
+  const answer = s.agentOf('member-b').lastFollowup
+  assert.match(answer.source.rpcId, /^im:/)
+  s.emitEvent('member-b', 'turn/start', { turn: 2 })
+  s.emitEvent('member-b', 'user/message', answer)
+  s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Using route A.' }] } })
+  s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+  await s.flush()
+  const post = s.agentOf('r1').lastFollowup
+  assert.equal(post.source.role, 'post')
+  assert.match(post.content[0].text, /Using route A/)
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', post)
+  const relay = s.rt.teamTools.find(tool => tool.name === 'group_relay')
+  await relay.execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'late-answer', signal: new AbortController().signal })
+  await s.flush()
+  assert.ok(room.log.some(line => line.text?.includes('Using route A.')))
+  assert.ok(s.fake.sent.some(job => job.chat.key === 'g1' && job.text.includes('Using route A.')))
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  const followed = s.agentOf('member-b').followed
+  await firstHandlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
+  assert.equal(s.agentOf('member-b').followed, followed)
+})
+
+test('IM view buttons and numbered replies answer the asking member, not other chats', async (t) => {
+  for (const buttons of [true, false]) {
+    const s = await start({ platform: buttons ? 'telegram' : 'dingtalk', adapter: fakeAdapter({ buttons }) })
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    const room = s.rt.roomOf('r1')
+    room.sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'confirm the plan')
+    s.imTurn('r1')
+    s.fake.sent.length = 0
+    let concluded = false
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Proceed?', view: { type: 'confirm', id: 'proceed' } }, { agent: { id: 'member-b' }, concludeTurn() { concluded = true } })
+    assert.equal(concluded, true)
+    const view = s.rt.state.views['member-b']
+    await s.flush()
+    assert.equal(s.fake.sent.length, 1)
+    assert.equal(s.fake.sent[0].chat.key, 'g1')
+    assert.match(s.fake.sent[0].text, /1\. Confirm\n2\. Cancel/)
+    assert.equal(s.fake.sent[0].buttons?.[0].data, buttons ? `v:${view.id}:0` : undefined)
+    assert.ok(room.log.some(line => line.viewId === view.id))
+    await s.fake.handlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    assert.ok(s.rt.state.views['member-b'])
+    if (buttons) {
+      await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    } else {
+      await gm(s, 'u1', '1', { mentioned: false })
+      assert.ok(s.rt.state.views['member-b'])
+      await gm(s, 'u1', '1')
+    }
+    assert.equal(s.rt.state.views['member-b'], undefined)
+    const answer = s.agentOf('member-b').lastFollowup
+    assert.match(answer.source.rpcId, /^im:/)
+    assert.deepEqual(JSON.parse(answer.content[0].text).answers, [{ id: view.id, action: 'proceed', values: { confirmed: true } }])
+    assert.equal(s.rt.roomHasImOrigin('r1'), true)
+    const followed = s.agentOf('member-b').followed
+    await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+    assert.equal(s.agentOf('member-b').followed, followed)
+  }
+})
+
+test('a later IM round cannot read or answer another chat\'s pending member cards', async (t) => {
+  for (const kind of ['question', 'view']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    s.rt.roomOf('r1').sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'private choice')
+    s.imTurn('r1')
+    await s.rt.teamTools.find(tool => tool.name === (kind === 'question' ? 'ask_user' : 'show_view')).execute(kind === 'question'
+      ? { question: 'Private route?', options: [{ label: 'A' }] }
+      : { title: 'Private route?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'member-b' } })
+    const store = kind === 'question' ? s.rt.state.questions : s.rt.state.views
+    const card = store['member-b']
+    assert.equal(card.imOrigin.chatKey, 'g1')
+    await s.flush()
+    s.fake.sent.length = 0
+    await gm(s, 'u1', 'new round', { chat: { key: 'g2', kind: 'group' } })
+    s.imTurn('r1')
+    await s.rt.save()
+    await s.flush()
+    assert.ok(!s.fake.sent.some(job => job.chat.key === 'g2' && job.text.includes('Private route?')))
+    await s.fake.handlers.onAction({ chat: { key: 'g2', kind: 'group' }, sender: { id: 'u1' }, data: `${kind === 'question' ? 'q' : 'v'}:${card.id}:0` })
+    assert.equal(store['member-b'].id, card.id)
+    assert.equal(s.agentOf('member-b').followed ?? 0, 0)
+  }
+})
+
+test('answering persisted member cards restores the room origin after a restart', async (t) => {
+  for (const kind of ['question', 'view']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    const room = s.rt.roomOf('r1')
+    room.sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'choose')
+    s.imTurn('r1')
+    await s.rt.teamTools.find(tool => tool.name === (kind === 'question' ? 'ask_user' : 'show_view')).execute(kind === 'question'
+      ? { question: 'Choose?', options: [{ label: 'A' }] }
+      : { title: 'Choose?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'member-b' } })
+    const card = (kind === 'question' ? s.rt.state.questions : s.rt.state.views)['member-b']
+    await s.flush()
+    s.rt.clearImOrigin('r1')
+    s.rt.clearImOrigin('member-b')
+    assert.equal(s.rt.roomHasImOrigin('r1'), false)
+    await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `${kind === 'question' ? 'q' : 'v'}:${card.id}:0` })
+    const answer = s.agentOf('member-b').lastFollowup
+    s.emitEvent('member-b', 'turn/start', { turn: 2 })
+    s.emitEvent('member-b', 'user/message', answer)
+    assert.equal(s.rt.roomHasImOrigin('r1'), true)
+    s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Resumed after restart.' }] } })
+    s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+    await s.flush()
+    const post = s.agentOf('r1').lastFollowup
+    s.fake.sent.length = 0
+    s.emitEvent('r1', 'turn/start', { turn: 2 })
+    s.emitEvent('r1', 'user/message', post)
+    await s.rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'restart-answer', signal: new AbortController().signal })
+    await s.flush()
+    assert.ok(room.log.some(line => line.text?.includes('Resumed after restart.')))
+    assert.ok(s.fake.sent.some(job => job.text.includes('Resumed after restart.')))
+    assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  }
+})
+
+test('legacy own-chat question deliveries accept existing answers after restart without turn origins', async (t) => {
+  for (const buttons of [true, false]) {
+    let s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    one.chats.other = { kind: 'direct', target: { botId: 'a' }, at: 1 }
+    await s.rt.save()
+    await dm(s, 'u1', 'choose')
+    s.imTurn('a')
+    await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Pre-upgrade route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'a' }, concludeTurn() {} })
+    const question = s.rt.state.questions.a
+    assert.equal(question.imOrigin, undefined)
+    await s.flush()
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    delete data.cards[`q:${question.id}`][0].binding
+    delete data.cards[`q:${question.id}`][0].numbered
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ platform: buttons ? 'telegram' : 'dingtalk', home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    s.rt.clearImOrigin('a')
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => job.text.includes('Pre-upgrade route?')).length, 0)
+    const answer = chatKey => buttons
+      ? s.fake.handlers.onAction({ chat: { key: chatKey, kind: 'direct' }, sender: { id: 'u1' }, data: `q:${question.id}:1` })
+      : s.fake.handlers.onMessage({ chat: { key: chatKey, kind: 'direct' }, sender: { id: 'u1' }, text: '2' })
+    await answer('other')
+    assert.equal(s.rt.state.questions.a.id, question.id)
+    assert.equal(s.agentOf('a').followed ?? 0, 0)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'b' } })
+    await answer('dm-u1')
+    assert.equal(s.rt.state.questions.a.id, question.id)
+    assert.equal(s.agentOf('a').followed ?? 0, 0)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'a' } })
+    await answer('dm-u1')
+    assert.equal(s.rt.state.questions.a, undefined)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /Pre-upgrade route/)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /B/)
+  }
+})
+
+test('legacy question deliveries are resent with bindings and still accept buttons and numbers', async (t) => {
+  for (const missingBinding of [true, false]) {
+    for (const buttons of [true, false]) {
+      let s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+      t.after(() => s.stop())
+      const { one } = await pairedConn(s)
+      one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+      s.rt.roomOf('r1').sessions = { b: 'member-b' }
+      s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+      await s.rt.save()
+      await gm(s, 'u1', 'choose')
+      s.imTurn('r1')
+      await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Legacy route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' }, concludeTurn() {} })
+      const questionId = s.rt.state.questions['member-b'].id
+      await s.flush()
+      await s.close()
+      const path = join(s.home, 'im', `${one.id}.json`)
+      const data = JSON.parse(readFileSync(path, 'utf8'))
+      const delivery = data.cards[`q:${questionId}`][0]
+      delete delivery.numbered
+      if (missingBinding) delete delivery.binding
+      writeFileSync(path, JSON.stringify(data))
+      s = await start({ platform: buttons ? 'telegram' : 'dingtalk', home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+      await s.flush()
+      assert.equal(s.fake.sent.filter(job => job.text.includes('Legacy route?')).length, missingBinding ? 1 : 0)
+      if (buttons) {
+        await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${questionId}:1` })
+      } else {
+        await gm(s, 'u1', '2')
+      }
+      assert.equal(s.rt.state.questions['member-b'], undefined)
+      assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /Legacy route/)
+      assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /B/)
+    }
+  }
+})
+
+test('text-only and legacy view deliveries do not hide an older numbered question', async (t) => {
+  for (const legacy of [false, true]) {
+    let s = await start({ platform: 'dingtalk' })
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    await dm(s, 'u1', 'choose')
+    s.imTurn('a')
+    s.rt.state.questions.a = { id: 'older-question', question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }
+    await s.rt.save()
+    await s.flush()
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Newer view', view: legacy
+      ? { type: 'confirm', id: 'go' }
+      : { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }, { agent: { id: 'a' } })
+    const viewId = s.rt.state.views.a.id
+    await s.flush()
+    if (legacy) {
+      await s.close()
+      const path = join(s.home, 'im', `${one.id}.json`)
+      const data = JSON.parse(readFileSync(path, 'utf8'))
+      delete data.cards[`v:${viewId}`][0].numbered
+      data.cards[`v:${viewId}`][0].text = '[View card] Legacy confirmation'
+      writeFileSync(path, JSON.stringify(data))
+      s = await start({ platform: 'dingtalk', home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    await dm(s, 'u1', '2')
+    assert.equal(s.rt.state.questions.a, undefined)
+    assert.equal(s.rt.state.views.a.id, viewId)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /Which route/)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /B/)
+  }
+})
+
+test('own-chat view answers are refused after the delivering chat is rebound or unbound', async (t) => {
+  for (const target of [{ botId: 'b' }, null]) {
+    for (const buttons of [true, false]) {
+      const s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+      t.after(s.stop)
+      const { one } = await pairedConn(s)
+      one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+      await s.rt.save()
+      await gm(s, 'u1', 'confirm')
+      s.imTurn('a')
+      await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Proceed?', view: { type: 'confirm', id: 'go' } }, { agent: { id: 'a' } })
+      const view = s.rt.state.views.a
+      await s.flush()
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target })
+      if (buttons) {
+        await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `v:${view.id}:0` })
+      } else {
+        await gm(s, 'u1', '1')
+      }
+      assert.equal(s.rt.state.views.a.id, view.id)
+      assert.equal(s.agentOf('a').followed ?? 0, 0)
+    }
+  }
+})
+
+test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'pick a route')
+  s.imTurn('a')
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Route', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
+  const view = s.rt.state.views.a
+  await s.flush()
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
+  assert.equal(s.rt.state.views.a, undefined)
+  assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Multi route', view: { type: 'options', id: 'routes', multi: true, options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
+  await s.flush()
+  const multiCard = s.fake.sent.find(job => job.text.includes('Multi route'))
+  assert.ok(multiCard)
+  assert.equal(multiCard.buttons, undefined)
+  const pending = s.rt.state.views.a
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${pending.id}:0` })
+  assert.equal(s.rt.state.views.a.id, pending.id)
+})
+
+test('a member question preserves its unshown lead-in in the room and originating IM group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  const room = s.rt.roomOf('r1')
+  room.sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  await gm(s, 'u1', 'choose a route')
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  s.emitEvent('member-b', 'turn/start', { turn: 1 })
+  s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Both routes are safe; A is shorter.' }] } })
+  await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' }, concludeTurn() {} })
+  s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+  await s.flush()
+  const post = s.agentOf('r1').lastFollowup
+  assert.equal(post.source.progress, true)
+  assert.match(post.content[0].text, /Both routes are safe; A is shorter\./)
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', post)
+  await s.rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'question-lead-in', signal: new AbortController().signal })
+  await s.flush()
+  assert.equal(room.log.filter(line => line.text?.includes('Both routes are safe; A is shorter.')).length, 1)
+  assert.equal(s.fake.sent.filter(job => job.text.includes('Both routes are safe; A is shorter.')).length, 1)
+  assert.equal(s.fake.sent.filter(job => job.text.includes('Which route?')).length, 1)
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  assert.ok(s.rt.state.questions['member-b'])
+})
+
+test('IM group display views are sent as room lines and unowned completions withhold member cards', async (t) => {
+  for (const kind of ['tool-jobs', 'subagent-settled']) {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    s.rt.roomOf('r1').sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'show progress')
+    s.imTurn('r1')
+    s.fake.sent.length = 0
+    const show = args => s.rt.teamTools.find(tool => tool.name === 'show_view').execute(args, { agent: { id: 'member-b' } })
+    assert.equal(await show({ title: 'Progress', view: { type: 'metric', label: 'Done', value: '70%' } }), 'The view is on screen.')
+    await s.flush()
+    assert.ok(s.fake.sent.some(job => job.text.includes('70%')))
+    assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+    assert.match(await show({ title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }), /Use ask_user for a choice/)
+    s.fake.sent.length = 0
+    const imOrigin = s.rt.captureImOrigin('r1')
+    s.emitEvent('member-b', 'user/message', { source: { kind }, content: [{ type: 'text', text: 'old result' }] })
+    assert.equal(s.rt.roomHasImOrigin('r1'), false)
+    const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, { agent: { id: 'member-b' } })
+    assert.match(await ask({ question: 'Private?', options: [{ label: 'A' }] }), /Question cards only work in your own chat/)
+    s.rt.state.questions['member-b'] = { id: `private-${kind}`, question: 'Private?', options: [{ label: 'A' }], imOrigin }
+    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'confirm', id: 'private' }, imOrigin }
+    await s.rt.save()
+    await s.flush()
+    assert.deepEqual(s.fake.sent, [])
+  }
+})
+
+test('numbered group answers keep the mention gate and resume the asking member', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ buttons: false }) })
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  s.rt.roomOf('r1').sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  await gm(s, 'u1', 'ask')
+  s.imTurn('r1')
+  await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' } })
+  await s.flush()
+  await gm(s, 'u1', '2', { mentioned: false })
+  assert.ok(s.rt.state.questions['member-b'])
+  await gm(s, 'u1', '2')
+  assert.equal(s.rt.state.questions['member-b'], undefined)
+  assert.match(s.agentOf('member-b').lastFollowup.content[0].text, /B/)
+  assert.equal(s.rt.roomHasImOrigin('r1'), true)
+})
+
 test('reply origin: a background job from one IM turn must not be reported to the next chat', async (t) => {
   const jobsCtx = new Context()
   const agents = new Map()
@@ -1295,6 +1727,78 @@ test('reply origin: an IM message this process never registered sends nothing', 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+test('WeChat replies to queued prompts admitted after restart without reopening consumed requests', async (t) => {
+  const seed = TEAM()
+  seed.im = { connections: { im_wx: {
+    id: 'im_wx', platform: 'weixin', botId: 'a', enabled: true, secrets: {},
+    paired: [{ id: 'u1', at: 1 }], chats: { u1: { kind: 'direct', at: 1 } },
+  } } }
+  const opts = { platform: 'weixin' }
+  const first = await start({ ...opts, seed })
+  let current = first
+  t.after(() => current.stop())
+  await first.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  const inbound = (s, text) => s.fake.handlers.onMessage({
+    chat: { key: 'u1', kind: 'direct' }, sender: { id: 'u1' }, text,
+  })
+  const admit = (s, prompt, sessionId = 'a') =>
+    s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: prompt.requestId }, content: prompt.content })
+  const reply = (s, text, sessionId = 'a') =>
+    s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text }] } })
+  await inbound(first, 'finished before restart')
+  const finished = first.prompts.at(-1)
+  first.imTurn()
+  first.emitEvent('a', 'turn/end', {})
+  await inbound(first, 'queued for after restart')
+  const queued = first.prompts.at(-1)
+  await inbound(first, 'also queued')
+  const secondQueued = first.prompts.at(-1)
+  await inbound(first, 'queued before re-pairing')
+  const lastQueued = first.prompts.at(-1)
+  // Take the committed state before shutdown: no shutdown-only flush may be needed
+  // for DSH's already-accepted queue to retain its reply route.
+  const snapshot = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  await first.close()
+
+  const restarted = current = await start({ ...opts, home: first.home, seed: snapshot })
+  await restarted.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, finished)
+  reply(restarted, 'duplicate must not claim a turn')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent, [])
+
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, queued, 'b')
+  reply(restarted, 'not the bound Bot', 'b')
+  restarted.emitEvent('a', 'user/message', { source: { kind: 'memory-review' } })
+  admit(restarted, queued)
+  admit(restarted, finished)
+  reply(restarted, 'reply after restart')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent.map(entry => [entry.chat.key, entry.text]), [['u1', 'reply after restart']])
+
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, secondQueued)
+  restarted.emitEvent('a', 'user/message', { source: { kind: 'tool-jobs', form: 'notice' } })
+  reply(restarted, 'background result must stay private')
+  await restarted.flush()
+  assert.equal(restarted.fake.sent.length, 1)
+
+  await restarted.rt.imEndpoint('im-unpair', { id: 'im_wx', senderId: 'u1' })
+  await inbound(restarted, 'pair again')
+  await restarted.rt.imEndpoint('im-pair', { id: 'im_wx', senderId: 'u1', allow: true })
+  restarted.fake.sent.length = 0
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, lastQueued)
+  reply(restarted, 'previous pairing must not be restored')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent, [])
 })
 
 for (const group of [false, true]) {

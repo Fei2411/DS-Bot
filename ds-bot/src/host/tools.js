@@ -12,6 +12,8 @@ import { unquote } from './text.js'
 import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
+import { viewCardText } from './parts.js'
+import { imViewChoices } from './im/view-choices.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
@@ -905,7 +907,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'ask_user',
-    description: 'Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user\'s next message.',
+    description: 'Show the user a short multiple-choice question card in the chat (in your own chat, the user can also type their own answer). Group cards accept listed choices only; do not set allowCustom in a group. Calling it ends your turn; the chosen answer arrives later as the user\'s next message.',
     parameters: {
       question: { type: 'string', required: true, description: 'One short question' },
       options: {
@@ -930,8 +932,10 @@ export function install(rt) {
       await rt.load()
       const id = exec.agent?.id
       if (rt.taskOwners?.has(id)) return 'Background tasks cannot show question cards directly. Put the question in your reply so it goes back to your own chat, where you can ask the user and start a follow-up task if needed.'
-      if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
+      const owner = rt.groupOwners.get(id)
+      if (owner !== undefined && !rt.roomHasImOrigin?.(owner.roomId)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
+      if (owner !== undefined && args.allowCustom === true) return 'Group question cards accept listed choices only. Call ask_user with allowCustom: false, or ask for free text in your message instead.'
+      if (owner === undefined && !rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const options = (Array.isArray(args.options) ? args.options : [])
         .map(option => (typeof option === 'string' ? { label: option } : option ?? {}))
         .map(option => ({
@@ -949,7 +953,11 @@ export function install(rt) {
         options,
         multiSelect: args.multiSelect === true,
         ...(args.allowCustom === true ? { allowCustom: true } : {}),
+        ...(owner === undefined ? {} : { imOrigin: rt.captureImOrigin?.(rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId) }),
         askedAt: Date.now(),
+      }
+      if (owner !== undefined) {
+        rt.logRoom(rt.roomOf(owner.roomId), { who: rt.botOf(owner.botId).name, botId: owner.botId, questionId: state.questions[id].id, text: `Asked: ${state.questions[id].question}\n${options.map((option, index) => `${index + 1}. ${option.label}`).join('\n')}` })
       }
       await rt.save()
       rt.cardShown?.(id, 'question', state.questions[id].question)
@@ -972,25 +980,38 @@ export function install(rt) {
       await rt.load()
       const id = exec.agent?.id
       if (rt.taskOwners?.has(id)) return 'Background tasks cannot show view cards directly. Report the data or question back to your own chat, where you can show a view to the user.'
-      if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
+      const owner = rt.groupOwners.get(id)
+      if (owner !== undefined && !rt.roomHasImOrigin?.(owner.roomId)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
+      if (owner === undefined && !rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const checked = checkShownView(args.title, args.view)
       if (checked.error !== undefined) return checked.error
       const title = checked.title
       const view = checked.view
+      if (owner !== undefined && args.report_issue !== undefined) return 'Issue reports only work in your own chat.'
+      if (owner !== undefined && checked.interactive && imViewChoices(view).length === 0) return 'Views with typed inputs or multiple selections cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const issueDraft = args.report_issue === undefined ? undefined : rt.claimIssueDraft?.(id, args.report_issue, checked)
       if (args.report_issue !== undefined && issueDraft === undefined) return 'This draft changed or expired. Call prepare_ds_bot_issue again and use its exact arguments.'
       const awaitReply = args.await_reply ?? checked.interactive
-      if (!awaitReply) return 'The view is on screen.'
+      if (!awaitReply) {
+        if (owner !== undefined) {
+          rt.logRoom(rt.roomOf(owner.roomId), { who: rt.botOf(owner.botId).name, botId: owner.botId, text: viewCardText({ title, view }) || title })
+          await rt.save()
+        }
+        return 'The view is on screen.'
+      }
       state.views[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
         title,
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),
+        ...(owner === undefined ? {} : { imOrigin: rt.captureImOrigin?.(rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId) }),
         askedAt: Date.now(),
+      }
+      if (owner !== undefined) {
+        rt.logRoom(rt.roomOf(owner.roomId), { who: rt.botOf(owner.botId).name, botId: owner.botId, viewId: state.views[id].id, text: viewCardText({ title, view }) || title })
       }
       await rt.save()
       rt.cardShown?.(id, 'view', title)

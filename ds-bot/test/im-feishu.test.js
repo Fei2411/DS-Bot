@@ -4,11 +4,8 @@ import { test } from 'node:test'
 import feishu, { decodeFrame, encodeFrame } from '../src/host/im/platforms/feishu.js'
 import { fakeWsServer } from './fake-ws.js'
 
-// A fake Feishu that answers only the calls the real service answers, with the
-// real shapes: the tenant token is a string, /callback/ws/endpoint needs the
-// Bearer token and the uppercase AppID/AppSecret body, and anything else is a
-// 404. A regression to the old path, a token object or lowercase fields fails
-// here instead of passing against a permissive mock.
+// Discovery uses the app credentials in the SDK's request shape. OpenAPI
+// calls still require the tenant token, not the tenantToken() result object.
 async function fakeFeishu() {
   const calls = []
   const frames = []
@@ -20,8 +17,8 @@ async function fakeFeishu() {
   let failResources = false
   // The resource endpoint sends the file itself, not a JSON envelope.
   const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
-  const json = (res, body) => {
-    res.writeHead(200, { 'content-type': 'application/json' })
+  const json = (res, body, { status = 200, headers } = {}) => {
+    res.writeHead(status, { 'content-type': 'application/json', ...headers })
     res.end(JSON.stringify(body))
   }
   // A tenant token also dies when its two hours are up, like the real one.
@@ -32,9 +29,9 @@ async function fakeFeishu() {
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
       const params = JSON.parse(body || '{}')
-      calls.push({ method: req.method, path: req.url, params, auth: req.headers.authorization })
+      calls.push({ method: req.method, path: req.url, params, auth: req.headers.authorization, locale: req.headers.locale, userAgent: req.headers['user-agent'] })
       const override = replies[req.url]
-      if (override !== undefined) { json(res, override.result); return }
+      if (override !== undefined) { json(res, override.result, override); return }
       if (req.url === '/open-apis/auth/v3/tenant_access_token/internal') {
         if (params.app_id !== 'cli_a1' || params.app_secret !== 'sec') { json(res, { code: 10003, msg: 'invalid param' }); return }
         const token = `fs-tok-${tokens.length + 1}`
@@ -49,10 +46,13 @@ async function fakeFeishu() {
         return
       }
       if (req.method === 'POST' && req.url === '/callback/ws/endpoint') {
-        if (!authorized(req)) { refused(res); return }
         const uppercase = params.AppID === 'cli_a1' && params.AppSecret === 'sec'
           && params.appId === undefined && params.appSecret === undefined
-        if (!uppercase) { json(res, { code: 10003, msg: 'invalid param' }); return }
+        if (!uppercase || req.headers.authorization !== undefined
+          || req.headers.locale !== 'zh' || req.headers['user-agent'] !== 'DS-Bot') {
+          json(res, { code: 10003, msg: 'invalid discovery request' })
+          return
+        }
         json(res, { code: 0, msg: 'success', data: { URL: wss.url, ClientConfig: { PingInterval: 90, ReconnectInterval: 90 } } })
         return
       }
@@ -154,28 +154,60 @@ test('check asks for a tenant token and names the bot with it', async () => {
   await fake.close()
 })
 
-test('the fake refuses the old path, an object token and lowercase fields', async (t) => {
+for (const [path, status, secretField] of [
+  ['/open-apis/auth/v3/tenant_access_token/internal', 307, 'app_secret'],
+  ['/callback/ws/endpoint', 308, 'AppSecret'],
+]) {
+  test(`Feishu does not forward app credentials on HTTP ${status} from ${path}`, async (t) => {
+    const fake = await fakeFeishu()
+    t.after(() => fake.close())
+    let forwarded = 0
+    const otherOrigin = createServer((req, res) => {
+      forwarded += 1
+      req.resume()
+      res.end('{}')
+    })
+    await new Promise(resolve => otherOrigin.listen(0, '127.0.0.1', resolve))
+    t.after(() => { otherOrigin.closeAllConnections(); otherOrigin.close() })
+    fake.replies[path] = {
+      status,
+      headers: { location: `http://127.0.0.1:${otherOrigin.address().port}/redirected` },
+      result: { msg: 'Untrusted redirect response' },
+    }
+    const redirectError = 'Feishu/Lark returned an unexpected redirect; app credentials were not forwarded.'
+    if (path === '/callback/ws/endpoint') {
+      const statuses = []
+      const handle = feishu.connect(FIELDS, env(fake), { onStatus: next => statuses.push(next), onMessage() {}, onAction() {} })
+      t.after(() => handle.stop())
+      const failure = await until(() => statuses.find(next => next.state === 'error'))
+      assert.equal(forwarded, 0)
+      assert.deepEqual(failure, { state: 'error', error: redirectError })
+      assert.deepEqual(statuses.map(next => next.state), ['connecting', 'error'])
+    } else {
+      await assert.rejects(feishu.check(FIELDS, env(fake)), { message: redirectError, status, permanent: true })
+      assert.equal(forwarded, 0)
+    }
+    const request = fake.calls.find(call => call.path === path)
+    assert.equal(request.params[secretField], FIELDS.appSecret)
+  })
+}
+
+test('the fake refuses the old path, lowercase discovery fields and an object OpenAPI token', async (t) => {
   const fake = await fakeFeishu()
   t.after(() => fake.close())
-  const answer = await fetch(`${fake.api}/open-apis/auth/v3/tenant_access_token/internal`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ app_id: 'cli_a1', app_secret: 'sec' }),
-  })
-  const { tenant_access_token: token } = await answer.json()
-  const post = async (path, body, auth) => {
+  const post = async (path, body) => {
     const response = await fetch(`${fake.api}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(auth === undefined ? {} : { authorization: auth }) },
+      headers: { 'content-type': 'application/json', locale: 'zh', 'user-agent': 'DS-Bot' },
       body: JSON.stringify(body),
     })
     return { response, body: await response.json().catch(() => undefined) }
   }
-  const oldPath = await post('/open-apis/bot/v2/endpoint', { AppID: 'cli_a1', AppSecret: 'sec' }, `Bearer ${token}`)
+  const oldPath = await post('/open-apis/bot/v2/endpoint', { AppID: 'cli_a1', AppSecret: 'sec' })
   assert.equal(oldPath.response.status, 404)
-  const objectToken = await post('/callback/ws/endpoint', { AppID: 'cli_a1', AppSecret: 'sec' }, 'Bearer [object Object]')
-  assert.equal(objectToken.body.code, 99991668)
-  const lowercase = await post('/callback/ws/endpoint', { appId: 'cli_a1', appSecret: 'sec' }, `Bearer ${token}`)
+  const objectToken = await fetch(`${fake.api}/open-apis/bot/v3/info`, { headers: { authorization: 'Bearer [object Object]' } })
+  assert.equal((await objectToken.json()).code, 99991668)
+  const lowercase = await post('/callback/ws/endpoint', { appId: 'cli_a1', appSecret: 'sec' })
   assert.equal(lowercase.body.code, 10003)
 })
 
@@ -186,7 +218,9 @@ test('a ping gets a pong, a p2p is direct, a group counts only with a mention, d
   t.after(() => { handle.stop(); fake.close() })
   const ws = await until(() => fake.sockets[0])
   const endpoint = await until(() => fake.calls.find(call => call.path === '/callback/ws/endpoint'))
-  assert.equal(endpoint.auth, `Bearer ${fake.tokens[0]}`)
+  assert.equal(endpoint.auth, undefined)
+  assert.equal(endpoint.locale, 'zh')
+  assert.equal(endpoint.userAgent, 'DS-Bot')
   assert.deepEqual(endpoint.params, { AppID: 'cli_a1', AppSecret: 'sec' })
   // The ping sent on connect gets a pong back.
   await until(() => fake.frames.some(({ frame }) => frame.method === 0 && frame.headers.some(h => h.key === 'type' && h.value === 'pong')))
@@ -305,21 +339,26 @@ test('send drops blank lines at the start and end of the text', async (t) => {
   assert.equal(JSON.parse(posts[0].params.content).text, 'first\n\nsecond')
 })
 
-test('a dropped socket reconnects through a fresh endpoint and a renewed token', async (t) => {
+test('a dropped socket rediscovers the endpoint while OpenAPI calls still renew expired tokens', async (t) => {
   const fake = await fakeFeishu()
   const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
   t.after(() => { handle.stop(); fake.close() })
   const ws = await until(() => fake.sockets[0])
   await until(() => fake.calls.filter(call => call.path === '/callback/ws/endpoint').length === 1)
-  // Move the clock past the token's expiry, so the next handshake has to renew it.
+  // Only the next OpenAPI request needs to renew the expired token.
   const realNow = Date.now
   Date.now = () => realNow() + 7_300_000
   t.after(() => { Date.now = realNow })
   ws.close()
   const endpoint = await until(() => fake.calls.filter(call => call.path === '/callback/ws/endpoint')[1], 160)
   assert.ok(endpoint, 'handshake after the reconnect')
+  assert.equal(endpoint.auth, undefined)
+  assert.equal(fake.tokens.length, 1)
+  await until(() => fake.sockets[1])
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: 'hello' })
+  const post = fake.calls.find(call => call.method === 'POST' && call.path.startsWith('/open-apis/im/v1/messages?'))
   assert.equal(fake.tokens.length, 2)
-  assert.equal(endpoint.auth, `Bearer ${fake.tokens[1]}`)
+  assert.equal(post.auth, `Bearer ${fake.tokens[1]}`)
 })
 
 test('a refused handshake reports the code and the message', async (t) => {
