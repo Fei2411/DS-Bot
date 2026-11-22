@@ -133,6 +133,10 @@ A DeepSeek API key can add independent image and document reading, DeepSeek text
 
 Bots can create, check and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel (`.xlsx`) documents directly, and render pages to images to check layout. The desktop app includes the full runtime out of the box; DSH Web does not bundle this runtime, so it can only check and edit existing documents, while creating files from scratch and rendering pages require the desktop app or DSH Desktop.
 
+### Local API & MCP
+
+Turn on the local API server in **Settings → API** (off by default, bound to `127.0.0.1:17830`) to let external coding agents, scripts and local services call your Bots and groups with scoped, revocable Bearer tokens. The same local gateway serves versioned `/v1/*` REST + SSE endpoints, Streamable HTTP MCP (`/mcp`), an optional OpenAI-compatible adapter (`/compat/openai/v1/*`), and the `ds-bot` CLI (`ds-bot mcp` stdio bridge, `ds-bot send`, `ds-bot event`). Private Bots stay excluded unless explicitly confirmed per token.
+
 ### Usage
 
 In **Settings** → **Usage**, you can see token usage by time, by bot and by model.

@@ -149,9 +149,25 @@ function CopyButton({ text }) {
 
 const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeString(dateLocale(), { hour: 'numeric', minute: '2-digit' }) : undefined)
 
-// A message that came in over IM names its platform: "via Telegram" by the time.
-export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
-export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+// A message that came in over IM or the local API names its source: "via Telegram" or "via API · <Token>".
+export const viaOf = (source, roster) => {
+  const rpcId = source?.rpcId
+  if (typeof rpcId !== 'string') return undefined
+  if (rpcId.startsWith('im:')) return rpcId.split(':')[1]
+  if (rpcId.startsWith('api:')) {
+    const keyId = rpcId.split(':')[1]
+    const tokenName = roster?.api?.tokens?.find(item => item.keyId === keyId)?.name
+    return tokenName ? `api:${tokenName}` : 'api'
+  }
+  return undefined
+}
+export const ViaTag = ({ via }) => {
+  if (via === 'api') return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: 'API' }))
+  if (typeof via === 'string' && via.startsWith('api:')) {
+    return h('span', { className: 'bt-uvia' }, t('via API · {name}', { name: via.slice(4) }))
+  }
+  return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+}
 
 // Before DSH 0.2.1-alpha.3: DS Bot draws the attachments, the text and the other blocks.
 function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
@@ -196,7 +212,8 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const text = prepared?.text ?? contentParts(data.content).text
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? roster.imVia?.[sessionId]?.[data.seq]
+  const apiName = roster.apiVia?.[sessionId]?.[data.seq]
+  const via = (apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq]
   const { shown, folded, control } = useFold(text, { markdown: false })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.

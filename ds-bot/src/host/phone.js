@@ -18,6 +18,7 @@ export { BROWSER_ALLOWED }
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
   if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
+  if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }

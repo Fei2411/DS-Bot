@@ -133,6 +133,10 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 bot 可以直接创建、检查和修改 Word（`.docx`）、PowerPoint（`.pptx`）和 Excel（`.xlsx`）文档，还能把页面渲染成图片来检查排版。桌面应用已经自带完整的运行环境，开箱即用；dsh Web 没有打包这套环境，只能检查和修改已有文档，从零建文件和渲染页面需要用桌面应用或 dsh Desktop。
 
+### 本地 API 与 MCP
+
+在 **设置 → API** 中开启本地 API 服务（默认关闭，仅监听 `127.0.0.1:17830`），外部编码 Agent、脚本与本地服务即可使用按能力域与目标范围授权的可撤销 Bearer Token 调用你的 Bot 和群聊。同一本地网关同时提供版本化 `/v1/*` REST + SSE、MCP Streamable HTTP（`/mcp`）、可单独开关的 OpenAI 兼容层（`/compat/openai/v1/*`）以及薄层命令行（`ds-bot mcp` stdio 桥、`ds-bot send`、`ds-bot event`）。隐私 Bot 默认彻底隔离，仅在显式二次确认后才对指定令牌开放。
+
 ### 用量
 
 在 设置 → 用量 里，可以按时间、按 bot、按模型查看 Token 用量。

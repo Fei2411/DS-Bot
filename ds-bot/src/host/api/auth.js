@@ -1,0 +1,620 @@
+// External API configuration, token store, scope/target authorization, rate limits,
+// DNS-rebinding guards, and metadata-only audit log.
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { isIP } from 'node:net'
+import { join } from 'node:path'
+
+export const DEFAULT_HOST = '127.0.0.1'
+export const DEFAULT_PORT = 17830
+export const TOKEN_PREFIX = 'dsb_live_'
+export const ALL_SCOPES = ['read', 'message', 'event:ingest', 'memory:write', 'approval', 'team:manage']
+export const DEFAULT_SCOPES = ['read', 'message']
+export const HIGH_RISK_SCOPES = new Set(['approval', 'team:manage'])
+
+const CONFIG_FILE = 'api-config.json'
+const TOKENS_FILE = 'api-tokens.json'
+const AUDIT_FILE = 'api-audit.jsonl'
+const LAST_USED_THROTTLE_MS = 60_000
+const AUDIT_MAX_ENTRIES = 5_000
+const AUDIT_ROTATE_CHECK_EVERY = 200
+const TOKEN_NAME_MAX = 80
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
+const QUERY_SECRET_RE = /[?&](?:token|api_key|apikey|access_token|auth|bearer|key)=/i
+
+const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
+
+function readJson(path, fallback) {
+  try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return fallback }
+}
+
+function writeJsonAtomic(path, data) {
+  mkdirSync(join(path, '..'), { recursive: true })
+  const temp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`
+  writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  try { chmodSync(temp, 0o600) } catch { /* windows */ }
+  renameSync(temp, path)
+}
+
+function hashSha256(salt, secret) {
+  return createHash('sha256').update(`${salt}:${secret}`).digest('hex')
+}
+
+function hashScrypt(salt, secret) {
+  return scryptSync(secret, salt, 32, { N: 16384, r: 8, p: 1 }).toString('hex')
+}
+
+function verifySecret(entry, secret) {
+  if (typeof entry?.salt !== 'string' || typeof entry?.hash !== 'string') return false
+  const digest = entry.hashAlgo === 'scrypt' ? hashScrypt(entry.salt, secret) : hashSha256(entry.salt, secret)
+  const actual = Buffer.from(digest, 'hex')
+  const expected = Buffer.from(entry.hash, 'hex')
+  return actual.length > 0 && actual.length === expected.length && timingSafeEqual(actual, expected)
+}
+
+export function isLoopbackHost(host) {
+  const clean = String(host ?? '').trim().toLowerCase()
+  return LOOPBACK_HOSTS.has(clean) || clean.startsWith('127.')
+}
+
+export function normalizeConfig(raw) {
+  const host = typeof raw?.host === 'string' && raw.host.trim() !== '' ? raw.host.trim() : DEFAULT_HOST
+  const port = Number.isInteger(raw?.port) && raw.port >= 0 && raw.port <= 65535 ? raw.port : DEFAULT_PORT
+  return {
+    enabled: raw?.enabled === true,
+    host,
+    port,
+    openaiCompat: raw?.openaiCompat !== false,
+  }
+}
+
+function normalizeScopeName(scope) {
+  const value = String(scope ?? '').trim()
+  // Interop with event-driven branch's push gateway scope alias.
+  if (value === 'events:write') return 'event:ingest'
+  return value
+}
+
+function normalizeTokenScopes(raw) {
+  if (!Array.isArray(raw)) return []
+  const list = []
+  for (const item of raw) {
+    const scope = normalizeScopeName(item)
+    if (scope === '*') {
+      for (const known of ALL_SCOPES) if (!list.includes(known)) list.push(known)
+      continue
+    }
+    if (ALL_SCOPES.includes(scope) && !list.includes(scope)) list.push(scope)
+  }
+  return list
+}
+
+function uniqueIds(list) {
+  if (!Array.isArray(list)) return []
+  return [...new Set(list.map(item => String(item ?? '').trim()).filter(Boolean))]
+}
+
+export function createApiAuth(rt) {
+  const configPath = join(rt.home, CONFIG_FILE)
+  const tokensPath = join(rt.home, TOKENS_FILE)
+  const auditPath = join(rt.home, AUDIT_FILE)
+
+  let config = normalizeConfig(readJson(configPath, {}))
+  let tokens = []
+  let auditWrites = 0
+  // Sliding 60-second request timestamps per token keyId for optional per-minute limits.
+  const rateWindows = new Map()
+  // Active concurrent run counter per token keyId.
+  const activeRuns = new Map()
+
+  const writes = () => rt.readOnly?.() === undefined
+
+  const reloadConfig = () => {
+    config = normalizeConfig(readJson(configPath, {}))
+    return config
+  }
+
+  const saveConfig = () => {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    writeJsonAtomic(configPath, config)
+  }
+
+  const reloadTokens = () => {
+    const raw = readJson(tokensPath, [])
+    tokens = Array.isArray(raw) ? raw.filter(item => item && typeof item === 'object' && typeof item.keyId === 'string') : []
+    return tokens
+  }
+
+  const saveTokens = () => {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    writeJsonAtomic(tokensPath, tokens)
+  }
+
+  reloadTokens()
+
+  function getConfig() {
+    if (!writes()) reloadConfig()
+    return { ...config }
+  }
+
+  function updateConfig(patch = {}) {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    const next = { ...config }
+    if (patch.enabled !== undefined) next.enabled = patch.enabled === true
+    if (patch.openaiCompat !== undefined) next.openaiCompat = patch.openaiCompat === true
+    if (patch.port !== undefined) {
+      const port = Number(patch.port)
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw invalid('Port must be a whole number from 0 to 65535')
+      next.port = port
+    }
+    if (patch.host !== undefined) {
+      const host = String(patch.host ?? '').trim()
+      if (host === '') {
+        next.host = DEFAULT_HOST
+      } else {
+        if (host !== 'localhost' && isIP(host) === 0) {
+          throw invalid('Host must be 127.0.0.1, localhost, or a valid IP address')
+        }
+        if (!isLoopbackHost(host) && patch.confirmLan !== true) {
+          throw invalid('Binding outside 127.0.0.1 exposes the API to other devices on the network and requires explicit confirmation')
+        }
+        next.host = host
+      }
+    }
+    config = next
+    saveConfig()
+    return { ...config }
+  }
+
+  function validateTargets(rt_, { targetScope, botIds, roomIds, privateBotIds, confirmPrivate }) {
+    const scope = targetScope === 'all_public' ? 'all_public' : 'selected'
+    const cleanBots = uniqueIds(botIds)
+    const cleanRooms = uniqueIds(roomIds)
+    const cleanPrivate = uniqueIds(privateBotIds)
+    // Any private Bot passed in botIds must be explicitly listed in privateBotIds with confirmation.
+    const hiddenInBots = cleanBots.filter(id => rt_.botOf(id)?.private === true)
+    if (hiddenInBots.length > 0 && confirmPrivate !== true) {
+      throw invalid('Authorizing a private Bot requires explicit confirmation')
+    }
+    if (cleanPrivate.length > 0 && confirmPrivate !== true) {
+      throw invalid('Authorizing a private Bot requires explicit confirmation')
+    }
+    const finalPrivate = [...new Set([...cleanPrivate, ...hiddenInBots])].filter(id => rt_.botOf(id)?.private === true)
+    const finalPublicBots = cleanBots.filter(id => rt_.botOf(id)?.private !== true)
+    return { targetScope: scope, botIds: finalPublicBots, roomIds: cleanRooms, privateBotIds: finalPrivate }
+  }
+
+  function sanitizeLimit(value, { name, min = 1, max = 10_000 }) {
+    if (value === undefined || value === null || value === '') return null
+    const num = Number(value)
+    if (!Number.isInteger(num) || num < min || num > max) throw invalid(`${name} must be a whole number from ${min} to ${max}`)
+    return num
+  }
+
+  function createToken(input = {}) {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    const name = String(input.name ?? '').trim().slice(0, TOKEN_NAME_MAX)
+    if (name === '') throw invalid('Give the token a name')
+    const scopes = normalizeTokenScopes(input.scopes ?? DEFAULT_SCOPES)
+    if (scopes.length === 0) throw invalid('Select at least one scope')
+    if (scopes.some(scope => HIGH_RISK_SCOPES.has(scope)) && input.confirmHighRisk !== true) {
+      throw invalid('High-risk scopes (approval, team:manage) require explicit confirmation')
+    }
+    const targets = validateTargets(rt, {
+      targetScope: input.targetScope,
+      botIds: input.botIds,
+      roomIds: input.roomIds,
+      privateBotIds: input.privateBotIds,
+      confirmPrivate: input.confirmPrivate === true,
+    })
+    let expiresAt = null
+    if (input.expiresAt !== undefined && input.expiresAt !== null && input.expiresAt !== '') {
+      const ts = typeof input.expiresAt === 'number' ? input.expiresAt : Date.parse(String(input.expiresAt))
+      if (!Number.isFinite(ts) || ts <= Date.now()) throw invalid('Expiration time must be in the future')
+      expiresAt = Math.floor(ts)
+    }
+    const maxConcurrentRuns = sanitizeLimit(input.maxConcurrentRuns, { name: 'Max concurrent runs', min: 1, max: 500 })
+    const rateLimitPerMin = sanitizeLimit(input.rateLimitPerMin, { name: 'Rate limit per minute', min: 1, max: 10_000 })
+
+    const keyId = randomBytes(4).toString('hex')
+    // 256-bit random secret encoded as URL-safe base64.
+    const secret = randomBytes(32).toString('base64url')
+    const salt = randomBytes(16).toString('hex')
+    const now = Date.now()
+    const entry = {
+      keyId,
+      name,
+      prefix: `${TOKEN_PREFIX}${keyId}`,
+      hashAlgo: 'scrypt',
+      salt,
+      hash: hashScrypt(salt, secret),
+      scopes,
+      targetScope: targets.targetScope,
+      botIds: targets.botIds,
+      roomIds: targets.roomIds,
+      privateBotIds: targets.privateBotIds,
+      createdAt: now,
+      expiresAt,
+      lastUsedAt: null,
+      paused: false,
+      revoked: false,
+      maxConcurrentRuns,
+      rateLimitPerMin,
+    }
+    reloadTokens()
+    tokens.push(entry)
+    saveTokens()
+    return {
+      token: `${TOKEN_PREFIX}${keyId}_${secret}`,
+      meta: publicTokenMeta(entry),
+    }
+  }
+
+  function updateToken(keyId, patch = {}) {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    reloadTokens()
+    const entry = tokens.find(item => item.keyId === String(keyId ?? '') && item.revoked !== true)
+    if (entry === undefined) throw Object.assign(new Error('Unknown token'), { code: 'bot/not-found' })
+    if (patch.name !== undefined) {
+      const name = String(patch.name ?? '').trim().slice(0, TOKEN_NAME_MAX)
+      if (name === '') throw invalid('Give the token a name')
+      entry.name = name
+    }
+    if (patch.paused !== undefined) entry.paused = patch.paused === true
+    if (patch.scopes !== undefined) {
+      const scopes = normalizeTokenScopes(patch.scopes)
+      if (scopes.length === 0) throw invalid('Select at least one scope')
+      const addedHighRisk = scopes.some(scope => HIGH_RISK_SCOPES.has(scope) && !(entry.scopes ?? []).includes(scope))
+      if (addedHighRisk && patch.confirmHighRisk !== true) {
+        throw invalid('High-risk scopes (approval, team:manage) require explicit confirmation')
+      }
+      entry.scopes = scopes
+    }
+    if (patch.targetScope !== undefined || patch.botIds !== undefined || patch.roomIds !== undefined || patch.privateBotIds !== undefined) {
+      const existingPrivate = new Set(entry.privateBotIds ?? [])
+      const requestedPrivate = uniqueIds(patch.privateBotIds ?? entry.privateBotIds)
+      const addedPrivate = requestedPrivate.some(id => !existingPrivate.has(id))
+      const targets = validateTargets(rt, {
+        targetScope: patch.targetScope ?? entry.targetScope,
+        botIds: patch.botIds ?? entry.botIds,
+        roomIds: patch.roomIds ?? entry.roomIds,
+        privateBotIds: requestedPrivate,
+        confirmPrivate: patch.confirmPrivate === true || !addedPrivate,
+      })
+      entry.targetScope = targets.targetScope
+      entry.botIds = targets.botIds
+      entry.roomIds = targets.roomIds
+      entry.privateBotIds = targets.privateBotIds
+    }
+    if (patch.maxConcurrentRuns !== undefined) {
+      entry.maxConcurrentRuns = sanitizeLimit(patch.maxConcurrentRuns, { name: 'Max concurrent runs', min: 1, max: 500 })
+    }
+    if (patch.rateLimitPerMin !== undefined) {
+      entry.rateLimitPerMin = sanitizeLimit(patch.rateLimitPerMin, { name: 'Rate limit per minute', min: 1, max: 10_000 })
+    }
+    saveTokens()
+    return publicTokenMeta(entry)
+  }
+
+  function revokeToken(keyId) {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    reloadTokens()
+    const entry = tokens.find(item => item.keyId === String(keyId ?? ''))
+    if (entry === undefined) throw Object.assign(new Error('Unknown token'), { code: 'bot/not-found' })
+    entry.revoked = true
+    entry.revokedAt = Date.now()
+    saveTokens()
+    rateWindows.delete(entry.keyId)
+    return true
+  }
+
+  function publicTokenMeta(entry) {
+    return {
+      keyId: entry.keyId,
+      name: entry.name,
+      prefix: entry.prefix ?? `${TOKEN_PREFIX}${entry.keyId}`,
+      scopes: normalizeTokenScopes(entry.scopes),
+      targetScope: entry.targetScope === 'all_public' ? 'all_public' : 'selected',
+      botIds: Array.isArray(entry.botIds) ? entry.botIds : [],
+      roomIds: Array.isArray(entry.roomIds) ? entry.roomIds : [],
+      privateBotIds: Array.isArray(entry.privateBotIds) ? entry.privateBotIds : [],
+      createdAt: entry.createdAt ?? 0,
+      expiresAt: entry.expiresAt ?? null,
+      lastUsedAt: entry.lastUsedAt ?? null,
+      paused: entry.paused === true,
+      revoked: entry.revoked === true,
+      maxConcurrentRuns: entry.maxConcurrentRuns ?? null,
+      rateLimitPerMin: entry.rateLimitPerMin ?? null,
+    }
+  }
+
+  function listTokens({ includeRevoked = false } = {}) {
+    reloadTokens()
+    return tokens
+      .filter(entry => includeRevoked || entry.revoked !== true)
+      .map(publicTokenMeta)
+  }
+
+  function tokenById(keyId) {
+    reloadTokens()
+    const entry = tokens.find(item => item.keyId === keyId && item.revoked !== true)
+    return entry ? publicTokenMeta(entry) : undefined
+  }
+
+  // DNS rebinding & cross-site browser protection: refuse requests carrying a web Origin
+  // header, and when bound to loopback require Host to name a loopback address.
+  function checkRequestOrigin(req) {
+    if (req.headers.origin !== undefined && String(req.headers.origin).trim() !== '') {
+      return { ok: false, status: 403, code: 'api/origin-forbidden', message: 'Cross-origin browser requests are not allowed' }
+    }
+    if (isLoopbackHost(config.host)) {
+      const hostHeader = String(req.headers.host ?? '').trim().toLowerCase()
+      if (hostHeader !== '') {
+        let hostname = hostHeader
+        if (hostHeader.startsWith('[')) {
+          const end = hostHeader.indexOf(']')
+          hostname = end > 0 ? hostHeader.slice(1, end) : hostHeader
+        } else {
+          const colon = hostHeader.indexOf(':')
+          hostname = colon >= 0 ? hostHeader.slice(0, colon) : hostHeader
+        }
+        if (!isLoopbackHost(hostname)) {
+          return { ok: false, status: 403, code: 'api/host-forbidden', message: 'Invalid Host header for local API' }
+        }
+      }
+    }
+    return { ok: true }
+  }
+
+  function authenticate(req) {
+    const originCheck = checkRequestOrigin(req)
+    if (!originCheck.ok) return originCheck
+
+    const reqUrl = String(req.url ?? '')
+    if (QUERY_SECRET_RE.test(reqUrl)) {
+      return { ok: false, status: 401, code: 'api/token-in-query', message: 'Send the API token in the Authorization header, never in URL query parameters' }
+    }
+
+    const raw = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : ''
+    if (!raw.startsWith('Bearer ')) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Missing Bearer token' }
+    }
+    const presented = raw.slice('Bearer '.length).trim()
+    if (!presented.startsWith(TOKEN_PREFIX)) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+    }
+    const rest = presented.slice(TOKEN_PREFIX.length)
+    const sep = rest.indexOf('_')
+    if (sep <= 0) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+    }
+    const keyId = rest.slice(0, sep)
+    const secret = rest.slice(sep + 1)
+    if (secret === '') {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+    }
+
+    reloadTokens()
+    const entry = tokens.find(item => item.keyId === keyId && item.revoked !== true)
+    if (entry === undefined || !verifySecret(entry, secret)) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+    }
+    if (entry.paused === true) {
+      return { ok: false, status: 403, code: 'api/token-paused', message: 'This API token is paused' }
+    }
+    if (typeof entry.expiresAt === 'number' && Date.now() >= entry.expiresAt) {
+      return { ok: false, status: 401, code: 'api/token-expired', message: 'This API token has expired' }
+    }
+
+    const now = Date.now()
+    if (!entry.lastUsedAt || now - entry.lastUsedAt >= LAST_USED_THROTTLE_MS) {
+      entry.lastUsedAt = now
+      try { if (writes()) saveTokens() } catch { /* best-effort */ }
+    }
+    return { ok: true, token: buildPrincipal(entry) }
+  }
+
+  // Builds a live authorization principal that always re-checks current Bot privacy on rt.state.
+  function buildPrincipal(entry) {
+    const scopes = new Set(normalizeTokenScopes(entry.scopes))
+    // Compatibility with event-driven branch's `allowedTargets` array.
+    const legacyTargets = Array.isArray(entry.allowedTargets) && entry.allowedTargets.length > 0 ? entry.allowedTargets : null
+    const targetScope = entry.targetScope === 'all_public'
+      ? 'all_public'
+      : (entry.targetScope === undefined && legacyTargets === null && !Array.isArray(entry.botIds) && !Array.isArray(entry.roomIds))
+        ? 'all_public'
+        : 'selected'
+    const botIds = new Set(Array.isArray(entry.botIds) ? entry.botIds : [])
+    const roomIds = new Set(Array.isArray(entry.roomIds) ? entry.roomIds : [])
+    const privateBotIds = new Set(Array.isArray(entry.privateBotIds) ? entry.privateBotIds : [])
+    if (legacyTargets !== null) {
+      for (const item of legacyTargets) {
+        if (item.startsWith('bot:')) botIds.add(item.slice(4))
+        else if (item.startsWith('room:')) roomIds.add(item.slice(5))
+        else { botIds.add(item); roomIds.add(item) }
+      }
+    }
+
+    const hasScope = scope => scopes.has(normalizeScopeName(scope))
+
+    const canAccessBot = (botId) => {
+      const bot = rt.botOf(botId)
+      if (bot === undefined) return false
+      // Hard privacy rule: turning a public Bot private immediately revokes every token
+      // that did not explicitly confirm that Bot in `privateBotIds`.
+      if (bot.private === true) return privateBotIds.has(bot.id)
+      if (targetScope === 'all_public') return true
+      return botIds.has(bot.id)
+    }
+
+    const canAccessRoom = (roomId) => {
+      const room = rt.roomOf(roomId)
+      if (room === undefined) return false
+      if (targetScope === 'all_public') return true
+      return roomIds.has(room.id)
+    }
+
+    // Checks target authorization and returns HTTP status + error code on denial.
+    // Private Bots always return 404 when unauthorized so their existence is never leaked.
+    const assertBotAccess = (botId) => {
+      const bot = rt.botOf(botId)
+      if (bot === undefined) return { ok: false, status: 404, code: 'bot/not-found', message: 'Bot not found' }
+      if (canAccessBot(bot.id)) return { ok: true, bot }
+      if (bot.private === true) return { ok: false, status: 404, code: 'bot/not-found', message: 'Bot not found' }
+      return { ok: false, status: 403, code: 'api/target-forbidden', message: 'Token is not authorized for this Bot' }
+    }
+
+    const assertRoomAccess = (roomId) => {
+      const room = rt.roomOf(roomId)
+      if (room === undefined) return { ok: false, status: 404, code: 'room/not-found', message: 'Group not found' }
+      if (canAccessRoom(room.id)) return { ok: true, room }
+      return { ok: false, status: 403, code: 'api/target-forbidden', message: 'Token is not authorized for this group' }
+    }
+
+    return {
+      keyId: entry.keyId,
+      name: entry.name,
+      scopes: [...scopes],
+      targetScope,
+      maxConcurrentRuns: entry.maxConcurrentRuns ?? null,
+      rateLimitPerMin: entry.rateLimitPerMin ?? null,
+      hasScope,
+      canAccessBot,
+      canAccessRoom,
+      assertBotAccess,
+      assertRoomAccess,
+    }
+  }
+
+  function checkRateLimit(principal) {
+    const limit = principal.rateLimitPerMin
+    if (!Number.isInteger(limit) || limit <= 0) return { ok: true }
+    const now = Date.now()
+    const cutoff = now - 60_000
+    let stamps = rateWindows.get(principal.keyId)
+    if (stamps === undefined) {
+      stamps = []
+      rateWindows.set(principal.keyId, stamps)
+    }
+    while (stamps.length > 0 && stamps[0] <= cutoff) stamps.shift()
+    if (stamps.length >= limit) {
+      const retryAfterMs = Math.max(250, stamps[0] + 60_000 - now)
+      return {
+        ok: false,
+        status: 429,
+        code: 'api/rate-limited',
+        message: `Rate limit exceeded (${limit} requests/min)`,
+        details: { retryAfterMs, limit },
+      }
+    }
+    stamps.push(now)
+    return { ok: true }
+  }
+
+  function acquireRunSlot(principal) {
+    const limit = principal.maxConcurrentRuns
+    const current = activeRuns.get(principal.keyId) ?? 0
+    if (Number.isInteger(limit) && limit > 0 && current >= limit) {
+      return {
+        ok: false,
+        status: 429,
+        code: 'api/concurrency-limited',
+        message: `Concurrent run limit reached (${limit})`,
+        details: { retryAfterMs: 1_000, limit, active: current },
+      }
+    }
+    activeRuns.set(principal.keyId, current + 1)
+    let released = false
+    return {
+      ok: true,
+      release: () => {
+        if (released) return
+        released = true
+        const left = (activeRuns.get(principal.keyId) ?? 1) - 1
+        if (left <= 0) activeRuns.delete(principal.keyId)
+        else activeRuns.set(principal.keyId, left)
+      },
+    }
+  }
+
+  // Metadata-only audit log: never writes token secrets, request bodies, or replies.
+  function recordAudit(entry) {
+    if (!writes()) return
+    const record = {
+      time: Date.now(),
+      tokenId: entry.tokenId ?? null,
+      tokenName: entry.tokenName ?? null,
+      method: String(entry.method ?? ''),
+      path: String(entry.path ?? '').split('?')[0],
+      ...(entry.action ? { action: String(entry.action).slice(0, 120) } : {}),
+      ...(entry.targetKind ? { targetKind: entry.targetKind } : {}),
+      ...(entry.targetId ? { targetId: entry.targetId } : {}),
+      ...(entry.targetName ? { targetName: String(entry.targetName).slice(0, 80) } : {}),
+      status: Number(entry.status ?? 0),
+      ...(entry.runId ? { runId: entry.runId } : {}),
+      durationMs: Math.max(0, Math.round(Number(entry.durationMs ?? 0))),
+    }
+    try {
+      mkdirSync(rt.home, { recursive: true })
+      appendFileSync(auditPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 })
+      auditWrites += 1
+      if (auditWrites % AUDIT_ROTATE_CHECK_EVERY === 0) rotateAudit()
+    } catch { /* best-effort */ }
+  }
+
+  function rotateAudit() {
+    try {
+      if (!existsSync(auditPath)) return
+      const lines = readFileSync(auditPath, 'utf8').split('\n').filter(Boolean)
+      if (lines.length <= AUDIT_MAX_ENTRIES) return
+      const kept = lines.slice(-AUDIT_MAX_ENTRIES)
+      const temp = `${auditPath}.${process.pid}.tmp`
+      writeFileSync(temp, `${kept.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 })
+      try { chmodSync(temp, 0o600) } catch {}
+      renameSync(temp, auditPath)
+    } catch { /* best-effort */ }
+  }
+
+  function readAudit({ limit = 100, offset = 0 } = {}) {
+    try {
+      if (!existsSync(auditPath)) return { entries: [], total: 0 }
+      const lines = readFileSync(auditPath, 'utf8').split('\n').filter(Boolean)
+      const total = lines.length
+      const cap = Math.max(1, Math.min(500, Number(limit) || 100))
+      const skip = Math.max(0, Number(offset) || 0)
+      const end = Math.max(0, total - skip)
+      const start = Math.max(0, end - cap)
+      const entries = []
+      for (let i = end - 1; i >= start; i -= 1) {
+        try { entries.push(JSON.parse(lines[i])) } catch {}
+      }
+      return { entries, total }
+    } catch {
+      return { entries: [], total: 0 }
+    }
+  }
+
+  function clearAudit() {
+    if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
+    try { unlinkSync(auditPath) } catch {}
+    return true
+  }
+
+  return {
+    getConfig,
+    reloadConfig,
+    updateConfig,
+    createToken,
+    updateToken,
+    revokeToken,
+    listTokens,
+    tokenById,
+    authenticate,
+    checkRateLimit,
+    acquireRunSlot,
+    recordAudit,
+    readAudit,
+    clearAudit,
+    paths: { configPath, tokensPath, auditPath },
+  }
+}

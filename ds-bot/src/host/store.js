@@ -295,6 +295,7 @@ export function install(rt) {
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
+    rt.onApiStoreSync?.()
   }
   const syncReadOnly = () => {
     if (storeReady && adopting === undefined && (stuck !== undefined || holder !== undefined) && stamp() !== seen) {

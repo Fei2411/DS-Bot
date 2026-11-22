@@ -197,6 +197,8 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError(undefined, 'connector-add'), { code: 'bot/refused', message: 'This device is not paired', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'unknown' }, 'connector-add'), { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'phone-pair'), { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'api-set'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
@@ -209,7 +211,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
 
-  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !BROWSER_ALLOWED.has(endpoint))
+  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !endpoint.startsWith('api-') && !BROWSER_ALLOWED.has(endpoint))
   deniedEndpoints.push('future-unlisted-endpoint')
   for (const kind of ['browser', 'phone']) {
     const view = await rt.phoneEndpoint('phone-pair', {})
