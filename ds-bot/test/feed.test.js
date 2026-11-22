@@ -104,6 +104,40 @@ test('an already disconnected HTTP feed closes without waiting for its lifetime'
   assert.equal(await next(), undefined)
 })
 
+for (const scenario of ['chunk', 'start', 'end']) {
+  test(`HTTP feed replays in-flight replies after a ${scenario} in the reconnect gap`, async (t) => {
+    const { ctx, call, stop, routes } = start()
+    t.after(stop)
+    await call('state')
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
+    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'gap', ...frame } })
+    const first = await connect()
+    assert.equal((await first()).event, 'hello')
+    if (scenario !== 'start') {
+      emit({ type: 'start', turn: 8 })
+      assert.equal((await first()).data.phase, 'start')
+      emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Before' } })
+      assert.equal((await first()).data.text, 'Before')
+    }
+    t.mock.timers.tick(6_000)
+    assert.equal(await first(), undefined)
+    if (scenario === 'start') emit({ type: 'start', turn: 8 })
+    emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'Gap' } })
+    if (scenario === 'end') emit({ type: 'end', outcome: { kind: 'abandoned' } })
+    const next = await connect()
+    assert.equal((await next()).event, 'hello')
+    if (scenario !== 'end') {
+      const target = { botId: 'm1', sessionId: 'm1c', attemptId: 'gap' }
+      assert.deepEqual(await next(), { event: 'stream', data: { ...target, phase: 'start' } })
+      assert.deepEqual(await next(), { event: 'stream', data: { ...target, text: scenario === 'chunk' ? 'BeforeGap' : 'Gap' } })
+    }
+    t.mock.timers.tick(6_000)
+    assert.equal(await next(), undefined)
+  })
+}
+
 for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq: 101 }, { kind: 'committed', eventType: 'assistant/attempt', seq: 101 }, { kind: 'abandoned' }]) {
   test(`streaming survives HTTP feed rotation and cleans up ${outcome.eventType ?? outcome.kind} attempts`, async (t) => {
     const { ctx, call, stop, routes } = start()
@@ -124,6 +158,8 @@ for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq:
     assert.equal(await first(), undefined)
     const second = await connect()
     assert.equal((await second()).event, 'hello')
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, phase: 'start' } })
+    assert.deepEqual(await second(), { event: 'stream', data: { ...target, text: 'Before' } })
     emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'After' } })
     assert.deepEqual(await second(), { event: 'stream', data: { ...target, text: 'After' } })
     emit({ type: 'end', outcome })

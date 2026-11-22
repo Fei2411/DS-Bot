@@ -166,6 +166,20 @@ function mountUseTeamLink(options: {
   }
 }
 
+test('useTeamLink forwards hello and replay events to chat feed listeners in order', async (t) => {
+  const link = mountUseTeamLink({ onStateCall: async () => ({ revision: 1, bots: [], rooms: [] }) as TeamState })
+  t.after(link.cleanup)
+  link.render()
+  await new Promise(resolve => setImmediate(resolve))
+  const events: string[] = []
+  const off = link.render().onFeed((event: string) => events.push(event))
+  t.after(off)
+  link.emit('hello', { revision: 1 })
+  link.emit('stream', { phase: 'start', sessionId: 's1', attemptId: 'a1' })
+  link.emit('stream', { text: 'Replay', sessionId: 's1', attemptId: 'a1' })
+  assert.deepEqual(events, ['hello', 'stream', 'stream'])
+})
+
 test('useTeamLink continues polling after a transient state error and reconciles settled pending items', async (t) => {
   const scheduled: { ms: number; run: () => void }[] = []
   const origSetTimeout = globalThis.setTimeout

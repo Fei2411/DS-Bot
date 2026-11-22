@@ -763,6 +763,7 @@ function Streaming({ sessionId, p, flat, maxWidth, inRoom }: { sessionId: string
     if (onFeed === undefined) return
     const attempts = new Map<string, string>()
     return onFeed((event, data) => {
+      if (event === 'hello') { attempts.clear(); setText(''); return }
       if (event !== 'stream' || data?.sessionId !== sessionId) return
       if (data.phase === 'start') attempts.set(data.attemptId, '')
       else if (typeof data.text === 'string') attempts.set(data.attemptId, (attempts.get(data.attemptId) ?? '') + data.text)
