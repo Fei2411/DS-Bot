@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -241,9 +242,9 @@ test('SettingsDialog consolidates nav into 9 groups and preserves all legacy sub
       }))
     }
 
-    const guideTree = renderPage('guide')
-    const navButtons = findAll(findAll(guideTree, n => n.type === 'nav')[0], n => n.type === 'button')
-    assert.deepEqual(navButtons.map(textOf), ['Guide', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Usage', 'About DS Bot'])
+    const generalTree = renderPage('general')
+    const navButtons = findAll(findAll(generalTree, n => n.type === 'nav')[0], n => n.type === 'button')
+    assert.deepEqual(navButtons.map(textOf), ['General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Usage', 'About DS Bot'])
 
     const routes = [
       ['models', 'Models', 'Providers'],
@@ -295,7 +296,7 @@ test('Settings search filters bilingual keywords, clears on Escape without closi
 
     let closed = 0
     const opened = []
-    let currentPage = 'guide'
+    let currentPage = 'general'
     const actions = {
       openSettings: (page, id) => { opened.push([page, id ?? null]); currentPage = page },
       closeSettings: () => { closed += 1 },
@@ -350,6 +351,7 @@ test('Settings search filters bilingual keywords, clears on Escape without closi
     assert.ok(memHit)
     memHit.props.onClick()
     assert.deepEqual(opened, [['general', null]])
+    draw()
     tree = draw()
     let collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
     assert.equal(collapseBtn.props['aria-expanded'], true, 'jumping to Memory via search must auto-expand Advanced')
@@ -371,48 +373,111 @@ test('Settings search filters bilingual keywords, clears on Escape without closi
   })
 })
 
-test('GuidePage shows setup banner only when no usable model exists and switches themes inline', async () => {
-  const code = await loadBundle("export { GuidePage } from './src/client/guide-page.js'")
-  await withGlobals(async () => {
+test('SettingsTour auto-runs once on first open, catches Escape before Settings, and replays from About and per-section header', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'; export { TOUR_SEEN_KEY, placeCard, stepsForTour } from './src/client/settings-tour.js'")
+  await withGlobals(async (listeners) => {
+    const store = new Map()
+    globalThis.window.localStorage = {
+      getItem: key => (store.has(key) ? store.get(key) : null),
+      setItem: (key, val) => { store.set(key, String(val)) },
+    }
     const harness = makeStatefulReact()
     const mod = { exports: {} }
     new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
-      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : harness.React
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
     ))
-    const { GuidePage } = mod.exports
+    const { SettingsDialog, TOUR_SEEN_KEY, placeCard, stepsForTour } = mod.exports
 
+    let closed = 0
     const opened = []
-    const saved = []
+    let currentPage = 'general'
     const actions = {
-      openSettings: (page, id) => opened.push([page, id ?? null]),
-      providers: () => Promise.resolve({ available: true, providers: [] }),
-      setPrefs: patch => { saved.push(patch); return Promise.resolve() },
+      openSettings: (page, id) => { opened.push([page, id ?? null]); currentPage = page },
+      closeSettings: () => { closed += 1 },
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      deepseekServices: () => Promise.resolve(null),
+      folders: () => Promise.resolve({ team: '/work' }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+      repoStars: () => Promise.resolve(null),
+      setPrefs: () => Promise.resolve(),
     }
-
-    // No usable model → banner appears with Set up button.
-    const emptyTree = harness.render(harness.React.createElement(GuidePage, {
-      roster: { ...baseRoster, models: [{ ref: 'deepseek/chat', name: 'Chat', needsKey: true }] },
-      actions,
-      run: p => p,
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+      page: currentPage, id: null, roster: baseRoster, actions, useUpdate: sel => sel({}),
     }))
-    const banner = findAll(emptyTree, n => n.props?.className === 'bt-guide-banner')[0]
-    assert.ok(banner, 'setup banner should show when no usable model exists')
-    const setUpBtn = findAll(banner, n => n.type === 'button')[0]
-    setUpBtn.props.onClick()
-    assert.deepEqual(opened, [['models', null]])
 
-    // Usable model present → no banner; inline theme pills apply immediately.
+    // First open: full walkthrough starts automatically on General.
+    let tree = draw()
+    let tourLayer = findAll(tree, n => n.props?.className === 'bt-tour-layer')[0]
+    assert.ok(tourLayer, 'full walkthrough should auto-start on first open')
+    assert.equal(tourLayer.props['data-tour-mode'], 'full')
+    assert.equal(tourLayer.props['data-tour-step'], 'search')
+
+    // Next advances step and navigates to Models.
+    const nextBtn = () => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-send bt-soft-sm')[0]
+    nextBtn().props.onClick()
+    tree = draw()
+    assert.equal(currentPage, 'models')
+    tree = draw()
+    tourLayer = findAll(tree, n => n.props?.className === 'bt-tour-layer')[0]
+    assert.equal(tourLayer.props['data-tour-step'], 'provider-list')
+
+    // Pressing Escape dismisses the walkthrough (priority 1) WITHOUT closing Settings and marks seen.
+    for (const fn of [...listeners]) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    assert.equal(closed, 0, 'Escape while tour is active must not close Settings')
+    assert.equal(store.get(TOUR_SEEN_KEY), '1', 'dismissing full tour persists seen flag')
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0)
+
+    // Re-mounting Settings on General does NOT auto-start a second time.
     harness.unmount()
-    const readyTree = harness.render(harness.React.createElement(GuidePage, {
-      roster: baseRoster,
-      actions,
-      run: p => p,
-    }))
-    assert.equal(findAll(readyTree, n => n.props?.className === 'bt-guide-banner').length, 0)
-    const paperPill = findAll(readyTree, n => n.type === 'button' && n.props?.className === 'bt-guide-theme-pill' && textOf(n).includes('Paper'))[0]
-    assert.ok(paperPill)
-    paperPill.props.onClick()
-    assert.deepEqual(saved, [{ theme: 'paper' }])
+    currentPage = 'general'
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0)
+
+    // Per-section header Guide button launches that section's focused walkthrough.
+    const headerGuide = findAll(tree, n => n.type === 'button' && typeof n.props?.className === 'string' && n.props.className.includes('bt-tour-trigger'))[0]
+    assert.ok(headerGuide, 'General page should have header Guide button')
+    headerGuide.props.onClick()
+    tree = draw()
+    tourLayer = findAll(tree, n => n.props?.className === 'bt-tour-layer')[0]
+    assert.ok(tourLayer)
+    assert.equal(tourLayer.props['data-tour-mode'], 'general')
+    assert.equal(tourLayer.props['data-tour-step'], 'default-model')
+
+    // About page exposes Settings guide replay row that starts the full walkthrough again.
+    harness.unmount()
+    currentPage = 'about'
+    tree = draw()
+    const aboutStart = findAll(tree, n => n.type === 'button' && textOf(n).includes('Start'))[0]
+    assert.ok(aboutStart, 'About page should have Start button for Settings guide')
+    aboutStart.props.onClick()
+    tree = draw()
+    assert.equal(currentPage, 'general')
+    tree = draw()
+    tourLayer = findAll(tree, n => n.props?.className === 'bt-tour-layer')[0]
+    assert.ok(tourLayer)
+    assert.equal(tourLayer.props['data-tour-mode'], 'full')
+
+    // Smart card placement keeps popover inside dialog bounds on desktop and mobile.
+    const railPos = placeCard({ left: 10, top: 16, width: 192, height: 32, dialogW: 1100, dialogH: 780 }, 304, 140)
+    assert.ok(railPos.left > 202, 'left-rail target places card to the right')
+    const belowPos = placeCard({ left: 240, top: 80, width: 500, height: 100, dialogW: 1100, dialogH: 780 }, 304, 140)
+    assert.ok(belowPos.top >= 190, 'upper content target places card below')
+    const abovePos = placeCard({ left: 240, top: 600, width: 500, height: 120, dialogW: 1100, dialogH: 780 }, 304, 140)
+    assert.ok(abovePos.top <= 450, 'bottom content target places card above')
+    const mobilePos = placeCard({ left: 16, top: 120, width: 340, height: 80, dialogW: 390, dialogH: 844 }, 304, 140)
+    assert.equal(mobilePos.bottom, 12, 'mobile target near top docks card at bottom')
+
+    // Every data-tour target referenced by settings-tour.js exists in client source.
+    const clientDir = join(repoRoot, 'ds-bot/src/client')
+    const allClientSource = readdirSync(clientDir).filter(f => f.endsWith('.js') && f !== 'settings-tour.js').map(f => readFileSync(join(clientDir, f), 'utf8')).join('\n')
+    const modes = ['full', 'general', 'appearance', 'models', 'bot-models', 'local-agents', 'deepseek-services', 'bots', 'groups', 'schedules', 'connectors', 'im', 'phone', 'mcp', 'computer', 'browser', 'capabilities', 'secrets', 'usage']
+    for (const mode of modes) {
+      for (const step of stepsForTour(mode, { hasProviders: true, hasAdvancedModels: true })) {
+        const present = allClientSource.includes(`'${step.target}'`) || allClientSource.includes(`"${step.target}"`)
+        assert.ok(present, `tour target "${step.target}" (${mode}) must exist in client source`)
+      }
+    }
     harness.unmount()
   })
 })

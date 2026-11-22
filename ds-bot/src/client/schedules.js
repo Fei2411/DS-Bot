@@ -241,7 +241,7 @@ export function SchedulesPage({ roster, actions, start }) {
     ...roster.rooms.map(room => [room.id, h(RoomAvatar, { room, roster, size: 18 }), room.name, view.tasks.filter(task => task.botId === undefined && task.roomId === room.id)]),
   ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner))
   const addBar = adding ? null : h('div', { className: 'bt-actions' },
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
     owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('schedules') }, t('Show all')) : null)
   return [
     adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,

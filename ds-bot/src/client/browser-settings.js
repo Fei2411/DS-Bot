@@ -74,7 +74,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   }
 
   const addBtn = adding || bots.length === 0 ? null
-    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
+    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, { title: t('Browser access') },

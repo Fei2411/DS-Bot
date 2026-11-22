@@ -21,7 +21,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, 'side') }))
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-  const openSettings = (page = 'guide', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },

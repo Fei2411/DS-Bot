@@ -47,7 +47,7 @@ test('openModels opens DS Bot settings on the Models page and closes the menus',
   assert.deepEqual(ui.getSnapshot().settings, { page: 'models', id: null })
   assert.equal(ui.getSnapshot().menu, null)
   actions.openSettings()
-  assert.deepEqual(ui.getSnapshot().settings, { page: 'guide', id: null })
+  assert.deepEqual(ui.getSnapshot().settings, { page: 'general', id: null })
 })
 
 test('the details status line asks the host for one Bot\'s current part', async () => {

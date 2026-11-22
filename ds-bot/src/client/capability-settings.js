@@ -140,7 +140,7 @@ export function CapabilitiesPage({ roster, actions, run }) {
   return h('section', { className: 'bt-set-section' },
     h('div', { className: 'bt-la-sec-head' },
       h('h3', null, t('Shared capabilities')),
-      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: startNew }, h(PlusIcon), t('Add capability'))),
+      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'cap-add', onClick: startNew }, h(PlusIcon), t('Add capability'))),
     draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     h('div', { className: 'bt-set-card bt-connectors-card' },
       items.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No capabilities saved')))
