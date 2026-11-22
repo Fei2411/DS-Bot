@@ -2328,7 +2328,7 @@ export function install(rt) {
       throw Object.assign(new Error('Background tasks are read-only and cannot be deleted'), { code: 'bot/invalid' })
     }
     if (currentSession(bot) === partId) {
-      throw Object.assign(new Error('The conversation you are reading cannot be deleted; start a new session and delete it here'), { code: 'bot/invalid' })
+      throw Object.assign(new Error('The conversation you are reading cannot be deleted'), { code: 'bot/invalid' })
     }
     if (rt.isRetiring?.(partId) === true) {
       throw Object.assign(new Error('This conversation is still being retired; delete it once its tasks have moved'), { code: 'bot/busy' })

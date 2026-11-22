@@ -446,6 +446,42 @@ test('user takeover while opening closes the session once it resolves', async ()
   await cleanup?.()
 })
 
+test('a hold left by a deleted part keeps the browser open through the subscriber', async () => {
+  const tools = new Map()
+  let cleanup
+  let publishHold
+  let closeCalls = 0
+  let resolveClosed
+  const closed = new Promise(resolve => { resolveClosed = resolve })
+  mountBrowserPlugin({
+    on() {},
+    effect(create) { cleanup = create() },
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }, {
+    toolDefs: [{ name: 'browser_open', needsBrowser: true, execute: () => 'opened' }],
+    defineTool: value => value,
+    keyOf: async () => 'b3',
+    profileRoot: '/profiles',
+    headless: true,
+    subscribeHolds: listener => {
+      publishHold = listener
+      return () => {}
+    },
+    openSession: async () => ({ close: async () => { closeCalls += 1; resolveClosed() } }),
+  })
+
+  assert.equal(await tools.get('browser_open').execute({}, { agent: { id: 'b3' } }), 'opened')
+  // `deletePart` leaves an ordinary user hold, plus `detached: true`: the page stays
+  // with the user, and the subscriber must not close their window.
+  publishHold('b3', { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.', detached: true })
+  assert.equal(closeCalls, 0)
+  // `browser-stop` raises the same hold without the flag and still closes it.
+  publishHold('b3', { by: 'user', reason: 'stopped' })
+  await closed
+  assert.equal(closeCalls, 1)
+  await cleanup?.()
+})
+
 test('user takeover refuses a browser call before opening or connecting', async () => {
   const tools = new Map()
   let openCalls = 0
