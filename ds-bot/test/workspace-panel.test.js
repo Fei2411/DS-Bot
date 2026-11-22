@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -164,12 +164,12 @@ test('resolveWorkspaceRoot resolves rolled-over Bot segments, live working_direc
 
   // Rolled-over segment (`seg-2 !== b1`) without live session must open `bot.workDir`, not team workspace.
   const rolled = await rt.workspaceEndpoint('list', { sessionId: 'seg-2', path: '' })
-  assert.equal(rolled.root, realpathSync(botDir))
+  assert.equal(rolled.root, await rt.real(botDir))
   assert.ok(rolled.entries.some(e => e.name === 'bot.txt'))
 
   // Live session moved via `working_directory` into `frontend/` must prefer live cwd over `bot.workDir`.
   const live = await rt.workspaceEndpoint('list', { sessionId: 'seg-live', path: '' })
-  assert.equal(live.root, realpathSync(subDir))
+  assert.equal(live.root, await rt.real(subDir))
   assert.ok(live.entries.some(e => e.name === 'sub.txt'))
 
   // A session pointing into protected DSH data must be refused.

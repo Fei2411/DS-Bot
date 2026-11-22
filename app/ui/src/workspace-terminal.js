@@ -379,7 +379,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
                     void sendInput('\x03')
                     return
                   }
-                  if (event.key.toLowerCase() === 'd' && active.pty) {
+                  if (event.key.toLowerCase() === 'd') {
                     event.preventDefault()
                     void sendInput('\x04')
                     return
