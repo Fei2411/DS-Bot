@@ -54,25 +54,34 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
     const followups = []
     const injected = []
     const cancelled = []
+    const session = {
+      id,
+      header: { cwd: workDir },
+      events,
+      _appending: false,
+      requestHeader: () => undefined,
+      snapshotEvents: () => [...events],
+    }
     const inbox = {
       nextStep: [],
       nextTurn: [],
+      locate(msgId) {
+        for (const [target, list] of [['next-turn', this.nextTurn], ['next-step', this.nextStep]]) {
+          const index = list.findIndex(item => item?.id === msgId)
+          if (index !== -1) return { target, index }
+        }
+        return undefined
+      },
       prepend(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).unshift(msg) },
       append(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).push(msg) },
       remove(msgId) {
+        if (session._appending) throw new Error('session append cannot reenter while another append is being published')
         for (const list of [this.nextStep, this.nextTurn]) {
           const at = list.findIndex(item => item?.id === msgId)
           if (at !== -1) { list.splice(at, 1); return true }
         }
         return false
       },
-    }
-    const session = {
-      id,
-      header: { cwd: workDir },
-      events,
-      requestHeader: () => undefined,
-      snapshotEvents: () => [...events],
     }
     const agent = {
       id,
@@ -158,8 +167,20 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
     const agent = agentMap.get(sessionId) ?? makeAgent(sessionId)
     const event = { type, seq: agent.session.events.length + 1, data }
     agent.session.events.push(event)
-    for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) await listener(agent.session, event)
+    agent.session._appending = true
+    try {
+      for (const listener of ctx.listeners.get('session/event') ?? []) {
+        if (listener.length >= 2) await listener(agent.session, event)
+      }
+    } finally {
+      agent.session._appending = false
+    }
+    if (type === 'agent/inbox/spliced') {
+      for (const message of data.inserted ?? []) {
+        for (const listener of ctx.listeners.get('agent/inbox/inserted') ?? []) {
+          listener({ agent, message })
+        }
+      }
     }
     await new Promise(r => setTimeout(r, 0))
   }
@@ -462,9 +483,17 @@ test('P0 #5: failed pre-commit fork restores pulled message with wakeup=true wit
   dmA.send = (msg, target, wakeup) => {
     sendCalls.push({ msg, target, wakeup })
     dmA.inbox.append(target, msg)
-    // Simulate DSH emitting agent/inbox/spliced synchronously on send() — must NOT infinite-loop!
-    for (const listener of env.ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener(dmA.session, { type: 'agent/inbox/spliced', data: { target, inserted: [msg] } })
+    // Simulate DSH emitting session/event then agent/inbox/inserted synchronously on send() — must NOT infinite-loop!
+    dmA.session._appending = true
+    try {
+      for (const listener of env.ctx.listeners.get('session/event') ?? []) {
+        if (listener.length >= 2) listener(dmA.session, { type: 'agent/inbox/spliced', data: { target, inserted: [msg] } })
+      }
+    } finally {
+      dmA.session._appending = false
+    }
+    for (const listener of env.ctx.listeners.get('agent/inbox/inserted') ?? []) {
+      listener({ agent: dmA, message: msg })
     }
   }
 

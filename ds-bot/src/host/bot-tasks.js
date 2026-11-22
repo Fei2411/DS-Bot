@@ -36,9 +36,10 @@ export function install(rt) {
   const reportsDir = join(rt.home, 'task-reports')
   const settling = new Set()
   const delivering = new Set()
-  // Message IDs currently being restored to an old foreground Agent after a failed
-  // pre-commit handoff, so `interceptForegroundUserMessage` never re-intercepts them.
-  const restoringIds = new Set()
+  // Message IDs currently being restored to an old foreground Agent (pre-commit failure)
+  // or forwarded onto a newly forked foreground Agent, so `interceptForegroundUserMessage`
+  // never re-intercepts its own writes (including when `backgroundAfterSec === 0`).
+  const skipInterceptIds = new Set()
   // In-flight foreground-to-background handoffs per Bot:
   // botId -> { oldSid, committed, newSid, promise, messages }.
   const handoffing = new Map()
@@ -672,13 +673,13 @@ export function install(rt) {
   const restorePulledMessages = (items) => {
     for (const item of items) {
       const key = item.msg?.id
-      if (key !== undefined) restoringIds.add(key)
+      if (key !== undefined) skipInterceptIds.add(key)
       try {
         if (typeof item.oldAgent?.send === 'function') item.oldAgent.send(item.msg, item.target, true)
         else item.oldAgent?.followup?.(item.msg)
       } catch {}
       finally {
-        if (key !== undefined) restoringIds.delete(key)
+        if (key !== undefined) skipInterceptIds.delete(key)
       }
     }
   }
@@ -695,7 +696,13 @@ export function install(rt) {
         const freshAgent = await rt.resolveAgent(targetSid)
         while (nextIndex < items.length) {
           const item = items[nextIndex]
-          freshAgent.followup(createUserMessage({ content: item.msg.content, source: item.msg.source }))
+          const forwarded = createUserMessage({ content: item.msg.content, source: item.msg.source })
+          skipInterceptIds.add(forwarded.id)
+          try {
+            freshAgent.followup(forwarded)
+          } finally {
+            skipInterceptIds.delete(forwarded.id)
+          }
           nextIndex += 1
         }
         await ctx.sessions.flush(freshAgent.session)
@@ -913,27 +920,30 @@ export function install(rt) {
   }
 
   // Intercepts Desktop/Web user messages sent to a busy foreground Bot (or landing on a
-  // just-moved background task during the UI polling gap): pulls them synchronously out
-  // of the target inbox, moves the busy foreground into `bot.tasks[]` when needed, and
-  // forwards the messages to the Bot's active foreground Session.
-  const interceptForegroundUserMessage = (session, event) => {
-    const id = session?.id
-    if (id === undefined) return
-    const inserted = (event.data?.inserted ?? []).filter(msg => msg?.source?.kind === 'user' && !restoringIds.has(msg.id))
-    if (inserted.length === 0) return
-    const target = event.data?.target === 'next-step' ? 'next-step' : 'next-turn'
+  // just-moved background task during the UI polling gap). Runs on `agent/inbox/inserted`
+  // — after `Session.append()` releases its reentrancy guard and before `wakeDriver()` or
+  // the next step claims the inbox — so `inbox.remove()` succeeds synchronously without
+  // reentering `Session.append()`.
+  const interceptForegroundUserMessage = (agent, msg) => {
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || msg?.source?.kind !== 'user' || skipInterceptIds.has(msg.id)) return
+    const target = agent.inbox?.locate?.(msg.id)?.target
+      ?? (agent.inbox?.nextStep?.some(item => item?.id === msg.id) ? 'next-step' : 'next-turn')
+    const clearSteeredAt = () => {
+      const liveEntry = rt.live.get(id)
+      if (liveEntry !== undefined && !(agent.inbox?.nextStep ?? []).some(item => item?.source?.kind === 'user')) {
+        liveEntry.steeredAt = undefined
+      }
+    }
 
     // Case 1: Post-handoff polling gap — a Desktop/Web composer still pointing at the
     // old sessionId after `bot.sessionId` moved on. Redirect user messages to foreground.
     const taskOwner = rt.taskOwners?.get(id)
     if (taskOwner !== undefined) {
-      const taskAgent = ctx.get('agents')?.get(id)
-      if (taskAgent?.inbox?.remove === undefined) return
-      const pulled = []
-      for (const msg of inserted) {
-        if (taskAgent.inbox.remove(msg.id)) pulled.push({ msg, target, oldAgent: taskAgent })
-      }
-      if (pulled.length === 0) return
+      if (agent?.inbox?.remove === undefined) return
+      if (!agent.inbox.remove(msg.id)) return
+      clearSteeredAt()
+      const pulled = [{ msg, target, oldAgent: agent }]
       void (async () => {
         if (taskOwner.roomId !== undefined) {
           const room = rt.roomOf(taskOwner.roomId)
@@ -957,30 +967,29 @@ export function install(rt) {
       return
     }
 
-    // Case 2: Busy foreground — pull user messages synchronously and move the busy
+    // Case 2: Busy foreground — pull user message synchronously and move the busy
     // turn intact into `bot.tasks[]`.
     const botId = rt.chatOwners.get(id)
     const bot = botId === undefined ? undefined : rt.botOf(botId)
     if (!shouldMoveForeground(bot, id)) return
-    const oldAgent = ctx.get('agents')?.get(id)
-    if (oldAgent?.inbox?.remove === undefined) return
-    const pulled = []
-    for (const msg of inserted) {
-      if (oldAgent.inbox.remove(msg.id)) pulled.push({ msg, target, oldAgent })
-    }
-    if (pulled.length === 0) return
+    if (agent?.inbox?.remove === undefined) return
+    if (!agent.inbox.remove(msg.id)) return
+    clearSteeredAt()
+    const pulled = [{ msg, target, oldAgent: agent }]
 
     void handoffForeground(bot, id, pulled).catch((error) => {
       rt.warn('ds-bot: foreground handoff for %s failed; restored input: %s', bot.name, error)
     })
   }
 
-  // Strict turn/end state machine guard + Desktop/Web foreground busy auto-handoff.
+  // Desktop/Web foreground busy auto-handoff runs on `agent/inbox/inserted` (outside
+  // `Session.append()`), avoiding DSH's reentrancy guard on `session/event`.
+  ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+    interceptForegroundUserMessage(agent, message)
+  })
+
+  // Strict turn/end state machine guard.
   ctx.on('session/event', (session, event) => {
-    if (event?.type === 'agent/inbox/spliced') {
-      interceptForegroundUserMessage(session, event)
-      return
-    }
     if (event?.type !== 'turn/end') return
     const id = session?.id
     const found = taskBySession(id)

@@ -115,11 +115,11 @@ export function install(rt) {
 
   // A user steer into a private chat must cut a running model call. The check runs
   // off the event that queued it, never inside the append that emitted the event.
-  const maybeCut = (id) => {
+  const maybeCut = (id, checkedHandoff = false) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
     if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
-    if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) return
+    if (rt.taskOwners?.has(id) || (!checkedHandoff && rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id))) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
     const track = stateOf(id)
     if (track.phase !== 'model' || track.cutting) return
@@ -137,7 +137,7 @@ export function install(rt) {
       agent.inbox.prepend('next-turn', last)
     }
   }
-  const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
+  const scheduleCut = (id, checkedHandoff = false) => { queueMicrotask(() => maybeCut(id, checkedHandoff)) }
 
   // Renders one jobs.read() result the way tool-jobs' renderModelDelta does:
   // stdout and unlabeled chunks joined, then a [stderr] section, then a
@@ -580,7 +580,7 @@ export function install(rt) {
         if (isUserSteer(event)) {
           if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) break
           wake(track.steerWaiters, true)
-          scheduleCut(id)
+          scheduleCut(id, true)
         }
         break
     }
