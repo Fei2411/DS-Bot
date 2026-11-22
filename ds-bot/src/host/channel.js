@@ -148,13 +148,6 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    // Which Bot's current chat part has a turn right now: the session list offers no
-    // new session while it runs.
-    partsRunning: Object.fromEntries(Object.values(state.bots)
-      .map(bot => rt.chatOf(bot.id))
-      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
-      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
-      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),

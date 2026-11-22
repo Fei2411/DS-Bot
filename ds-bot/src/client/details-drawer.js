@@ -239,14 +239,14 @@ function GroupOverview({ room, roster, actions, usage, useWork, useComputer, ope
 // Every Bot's chat has parts, whether it answers with a DS Bot model or a local CLI.
 // Each row names when it started and how it was last titled. A Bot has one
 // conversation at a time, so no new one starts while its turn runs.
-function BotSessions({ bot, part, run, useSessions, actions, running }) {
+function AgentSessions({ bot, part, run, useSessions, actions, running }) {
   const ids = [part, ...(bot.parts ?? []).filter(id => id !== part).slice().reverse()]
   const rows = useSessions(list => ids.map(id => list.byId?.[id]), rowsEqual)
   const total = ids.length
   return h('div', { className: 'bt-drawer-model' },
     h('div', { className: 'bt-agent-sessions-head' },
       h('div', { className: 'bt-section-title' }, t('Sessions')),
-      h(NewPartMenu, { botId: bot.id, busy: running?.[part] === true, actions, run })),
+      h(NewPartMenu, { botId: bot.id, busy: running, actions, run })),
     h('div', { className: 'bt-agent-sessions' },
       ids.map((id, index) => {
         const row = rows[index]
@@ -400,7 +400,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
-        h(BotSessions, { key: 'sessions', bot, part, run, useSessions, actions, running: roster.partsRunning }),
+        h(AgentSessions, { key: 'sessions', bot, part, run, useSessions, actions, running }),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },
