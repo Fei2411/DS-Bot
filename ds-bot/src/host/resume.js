@@ -34,7 +34,7 @@ export function turnsOf(events) {
   let current
   for (const event of events) {
     if (event.type === 'turn/start') {
-      current = { turn: event.data?.turn, took: [], texts: [], reason: undefined }
+      current = { turn: event.data?.turn, took: [], messages: {}, texts: [], reason: undefined, end: undefined }
       turns.push(current)
       continue
     }
@@ -45,7 +45,24 @@ export function turnsOf(events) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
-      if (source?.exchangeId !== undefined) current.took.push(source)
+      if (source?.exchangeId !== undefined) {
+        current.took.push(source)
+        // What the message held, for handing it back when its turn completed and no
+        // deferred delivery made it: text, and the attachments it carried.
+        current.messages[source.exchangeId] = { content: event.data?.content }
+      }
+      // A turn resumed across a part switch carries steered requests in source.joined
+      // ({ info, text }[]) instead of separate user/message events.
+      if (Array.isArray(source?.joined)) {
+        for (const item of source.joined) {
+          const info = item?.info
+          if (info?.exchangeId === undefined) continue
+          current.took.push(info)
+          if (current.messages[info.exchangeId] === undefined) {
+            current.messages[info.exchangeId] = { text: typeof item.text === 'string' ? item.text : '' }
+          }
+        }
+      }
       continue
     }
     if (event.type === 'assistant/message') {
@@ -53,7 +70,10 @@ export function turnsOf(events) {
       if (text !== '') current.texts.push(text)
       continue
     }
-    if (event.type === 'turn/end') current.reason = event.data?.reason
+    if (event.type === 'turn/end') {
+      current.reason = event.data?.reason
+      current.end = event.seq
+    }
   }
   return turns
 }
@@ -77,7 +97,7 @@ export function turnOf(events, exchangeId) {
     while (steerCut(found) && next < turns.length) {
       const follow = turns[next]
       const kept = finished(found)
-      found = { ...follow, took: [...found.took, ...follow.took], texts: [...kept, ...follow.texts], stepFrom: kept.length + (follow.stepFrom ?? follow.texts.length) }
+      found = { ...follow, took: [...found.took, ...follow.took], messages: { ...found.messages, ...follow.messages }, texts: [...kept, ...follow.texts], stepFrom: kept.length + (follow.stepFrom ?? follow.texts.length) }
       next += 1
     }
     return steerCut(found) ? { ...found, texts: finished(found), reason: undefined } : found
@@ -168,21 +188,45 @@ export function install(rt) {
   }
 
   const deliver = rt.deliver
+  // Deliveries on their way right now, by Session and exchangeId. A deferred delivery is
+  // one request handed back for a turn of its own; the normal path and a restart
+  // recovery can both reach it, and the later caller waits for the one already going.
+  // A failed delivery leaves the note (the next start sends it again) but not this
+  // entry, so a retry in this run really sends it.
+  const sending = new Map()
   rt.deliver = async (args) => {
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
-    // Noted before it is sent: a turn may take it up before the send returns. Notes
-    // are kept whole; nothing waits out a delivery silently.
-    queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }] }
-    persist()
-    try {
-      return await deliver(noted)
-    } catch (error) {
-      // A delivery that never reached the inbox stays noted: the next start sends
-      // it again. One whose Bot is gone is dropped, since it can never be sent.
-      if (rt.botOf(noted.toId) === undefined) forgetQueued(noted.exchangeId)
-      throw error
+    const repeat = noted.deferred === true && noted.resent !== true
+    const key = `${sessionId}\u0000${noted.exchangeId}`
+    if (repeat) {
+      const running = sending.get(key)
+      if (running !== undefined) return running
     }
+    // Noted before it is sent: a turn may take it up before the send returns. Notes
+    // are kept whole; nothing waits out a delivery silently. A retry replaces its own
+    // note instead of stacking a second one.
+    const waiting = queued[sessionId] ?? []
+    const at = waiting.findIndex(item => item.args?.exchangeId === noted.exchangeId)
+    const note = { at: Date.now(), args: noted }
+    queued = { ...queued, [sessionId]: at === -1 ? [...waiting, note] : waiting.with(at, note) }
+    persist()
+    const run = (async () => {
+      try {
+        return await deliver(noted)
+      } catch (error) {
+        // A delivery that never reached the inbox stays noted: the next start sends
+        // it again. One whose Bot is gone is dropped, since it can never be sent.
+        if (rt.botOf(noted.toId) === undefined) forgetQueued(noted.exchangeId)
+        throw error
+      }
+    })()
+    if (repeat) {
+      sending.set(key, run)
+      const done = () => { if (sending.get(key) === run) sending.delete(key) }
+      run.then(done, done)
+    }
+    return run
   }
 
   // What a Session was sent and no turn has read yet.
@@ -471,39 +515,135 @@ export function install(rt) {
       }
       return
     }
-    if (primarySettled) return
-    // A turn cut off at the output limit is not a finish: the answer says so, and the
-    // diagnostics record it, with the route the Session's log holds for it.
-    const cutOff = reason?.kind === 'max-tokens'
-    const withoutText = cutOff && turn.texts.length === 0
-    if (cutOff) {
-      rt.noteCutOffTurn?.(sessionId, { withoutText })
-      const context = events.findLast(event => event?.type === 'request/context')?.data
-      const ref = context?.provider && context?.model ? `${context.provider}/${context.model}` : undefined
-      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      rt.noteFailure?.({
-        level: 'warn',
-        source: 'turn',
-        code: 'MAX_TOKENS',
-        text: `${withoutText
-          ? 'the turn was cut off at the output limit before it wrote anything'
-          : 'the turn was cut off at the output limit, so its answer is not complete'}${ref ? ` (${ref})` : ''}`,
-        bot: name,
-        where: room === undefined ? 'own chat' : `group "${room.name}"`,
-        sessionId,
-      })
+    if (!primarySettled) {
+      // A turn cut off at the output limit is not a finish: the answer says so, and the
+      // diagnostics record it, with the route the Session's log holds for it.
+      const cutOff = reason?.kind === 'max-tokens'
+      const withoutText = cutOff && turn.texts.length === 0
+      if (cutOff) {
+        rt.noteCutOffTurn?.(sessionId, { withoutText })
+        const context = events.findLast(event => event?.type === 'request/context')?.data
+        const ref = context?.provider && context?.model ? `${context.provider}/${context.model}` : undefined
+        const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+        rt.noteFailure?.({
+          level: 'warn',
+          source: 'turn',
+          code: 'MAX_TOKENS',
+          text: `${withoutText
+            ? 'the turn was cut off at the output limit before it wrote anything'
+            : 'the turn was cut off at the output limit, so its answer is not complete'}${ref ? ` (${ref})` : ''}`,
+          bot: name,
+          where: room === undefined ? 'own chat' : `group "${room.name}"`,
+          sessionId,
+        })
+      }
+      const answer = cutOff ? cutOffText(said) : said
+      // The turn ended with what it said: the answer goes up the way a finished turn's
+      // does, with the results that came back for it and the text it held. A work that
+      // still waits for what it handed on keeps its part until that comes back.
+      if (rt.waitsWork(workId)) rt.holdWork(workId, answer)
+      else {
+        const text = rt.answerText(workId, answer, name)
+        const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
+        answerSender(rt, sessionId, primaryAsker, text, long)
+      }
     }
-    const answer = cutOff ? cutOffText(said) : said
-    // The turn ended with what it said: the answer goes up the way a finished turn's
-    // does, with the results that came back for it and the text it held. A work that
-    // still waits for what it handed on keeps its part until that comes back.
-    if (rt.waitsWork(workId)) {
-      rt.holdWork(workId, answer)
-      return
+    // A request that steered into this turn is answered in a turn of its own; a crash
+    // after the completed turn/end but before that delivery left it open.
+    await recoverJoinedRequests(sessionId, record, turn, events, name)
+  }
+
+  // Requests the turn read as steering are handed back to the Bot in a turn of their
+  // own when the turn ends. A crash between a successful turn/end reaching disk and
+  // that delivery leaves them open, and the caller or parent waits forever. The durable
+  // log still holds them, so each is delivered again in the same conversation — with
+  // the attachments and the work it came with — unless it was already handed back, taken
+  // up, or answered before the crash.
+  async function recoverJoinedRequests(sessionId, record, turn, events, name) {
+    const bot = rt.botOf(record.botId)
+    if (bot === undefined) return
+    const seen = new Set([rt.workOf?.(record.trigger), record.trigger?.exchangeId])
+    for (const source of turn.took) {
+      if (source?.kind !== SOURCE_KIND) continue
+      if (source.role !== 'request' && source.role !== 'stopped') continue
+      if (source.audience === 'user') continue
+      const exchangeId = source.exchangeId
+      if (typeof exchangeId !== 'string' || exchangeId === '' || seen.has(exchangeId)) continue
+      seen.add(exchangeId)
+      // A request whose work is gone was closed, or answered, in another run.
+      if (source.role === 'request' && !rt.ownsWork(record.botId, exchangeId)) continue
+      const sender = source.senderSessionId
+      if (sender === undefined || rt.botOf(sender) === undefined) continue
+      // Handed back after this turn ended: it is already in the Session's log, and the
+      // restart resend or its own inbox moves it; an earlier or later turn took it up.
+      if (turn.end !== undefined && events.some(event => event.seq !== undefined && event.seq > turn.end
+        && event.type === 'user/message'
+        && (event.data?.source?.exchangeId === exchangeId
+          || event.data?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId)))) continue
+      if (rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId)) continue
+      // The reply went out in another run: the work closes with what it said, and the
+      // Bot is not asked again.
+      if (source.role === 'request') {
+        const asker = rt.workAsker(exchangeId)
+        if (asker !== undefined) {
+          const { back, where } = whereFor(asker)
+          const answered = await alreadyAnswered(record.botId, sender, where, back, asker.senderRoomId, exchangeId)
+          if (answered.answered) {
+            rt.closeWork?.(exchangeId, name, answered.text || rt.answerText(exchangeId, '', name))
+            continue
+          }
+        }
+      }
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      const saved = turn.messages?.[exchangeId]
+      const content = Array.isArray(saved?.content) ? saved.content : []
+      const text = typeof saved?.text === 'string'
+        ? saved.text
+        : textOf(content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+      const images = content.filter(block => block?.type === 'image' && block.attachment !== undefined).map(block => block.attachment)
+      const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+      // The checks above awaited, so the normal path may have committed this exchange,
+      // started a live turn for it, or closed its work in the meantime. Check once more
+      // with nothing awaited between here and the delivery: a queued note, an inbox
+      // entry, or a live turn holding the same exchange means it was already handed back,
+      // and a closed work has nothing left to answer.
+      const liveEntry = rt.live?.get(sessionId)
+      const liveHeld = [
+        liveEntry?.info,
+        liveEntry?.pending,
+        liveEntry?.carry?.info,
+        ...(liveEntry?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.pending?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.carry?.joined ?? []).map(joined => joined?.info),
+      ]
+      const alreadyHandedBack = rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId) === true
+        || [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
+          .some(message => message?.source?.exchangeId === exchangeId
+            || message?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId))
+        || liveHeld.some(item => item?.exchangeId === exchangeId)
+      const workOpen = source.role !== 'request'
+        || (rt.ownsWork(record.botId, exchangeId) && rt.workAsker(exchangeId) !== undefined)
+      if (alreadyHandedBack || !workOpen) continue
+      try {
+        await rt.deliver({
+          fromId: sender,
+          toId: record.botId,
+          sessionId,
+          text,
+          role: source.role,
+          exchangeId,
+          deferred: true,
+          ...(source.senderPart ? { fromPart: source.senderPart } : {}),
+          ...(source.senderRoomId ? { fromRoomId: source.senderRoomId } : {}),
+          ...(source.roomId ? { roomId: source.roomId } : {}),
+          ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
+        })
+      } catch (error) {
+        rt.warn('ds-bot: handing a steered request back to %s failed: %s', name, error)
+      }
     }
-    const text = rt.answerText(workId, answer, name)
-    const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
-    answerSender(rt, sessionId, primaryAsker, text, long)
   }
 
   // Checks whether the work or reply-expecting trigger a stale inflight turn names has
