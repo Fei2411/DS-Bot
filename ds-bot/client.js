@@ -40365,6 +40365,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2 }) {
     roster,
     actions,
     run: run2,
+    wide: true,
     withEfforts: false,
     onPick: apply2
   });
