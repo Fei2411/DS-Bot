@@ -2,7 +2,7 @@
 // Highlights actual controls inside `.bt-settings` (`[data-tour="..."]`) and gives one
 // concise action cue telling the user where to click. Runs once automatically on first
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
@@ -264,10 +264,62 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   // Priority 1 catches Escape before SettingsDialog closes.
   useEscape(dismiss, active, { priority: 1 })
 
-  // Move keyboard focus into the walkthrough card so Tab/Enter cannot activate dimmed controls behind it.
-  useEffect(() => {
-    if (active) cardRef.current?.focus?.({ preventScroll: true })
-  }, [active, tourKey])
+  useLayoutEffect(() => {
+    if (!active) return undefined
+    const dialog = dialogRef?.current ?? layerRef.current?.closest?.('.bt-settings')
+    const doc = dialog?.ownerDocument
+    const card = cardRef.current
+    const layer = layerRef.current
+    if (!doc?.body || !card || !layer) return undefined
+    const inert = new Map()
+    let target = null
+    const restore = () => {
+      for (const [element, previous] of inert) element.inert = previous
+      inert.clear()
+    }
+    const allowed = element => card.contains(element) || Boolean(target?.contains(element))
+    const sync = () => {
+      restore()
+      target = !step.page || step.page === currentPage ? findTourTarget(dialog, step.target) : null
+      const roots = [layer, target].filter(Boolean)
+      const isolate = element => {
+        if (roots.includes(element)) return
+        if (roots.some(root => element.contains(root))) {
+          for (const child of element.children) isolate(child)
+        } else {
+          inert.set(element, element.inert)
+          element.inert = true
+        }
+      }
+      isolate(doc.body)
+      if (!allowed(doc.activeElement)) card.focus({ preventScroll: true })
+    }
+    const onFocus = event => {
+      if (!allowed(event.target)) card.focus({ preventScroll: true })
+    }
+    const onTab = event => {
+      if (event.key !== 'Tab') return
+      const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
+      const controls = [target, card].filter(Boolean).flatMap(root => [root, ...root.querySelectorAll(selector)])
+        .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === 'visible')
+      event.preventDefault()
+      event.stopPropagation()
+      const current = controls.indexOf(doc.activeElement)
+      const nextIndex = current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length
+      ;(controls[nextIndex] ?? card).focus({ preventScroll: true })
+    }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(doc.body, { childList: true, subtree: true })
+    doc.addEventListener('focusin', onFocus, true)
+    doc.addEventListener('keydown', onTab, true)
+    return () => {
+      observer.disconnect()
+      doc.removeEventListener('focusin', onFocus, true)
+      doc.removeEventListener('keydown', onTab, true)
+      restore()
+    }
+  }, [active, tourKey, step, currentPage, dialogRef])
 
   useEffect(() => {
     if (!active || typeof window === 'undefined') return undefined
