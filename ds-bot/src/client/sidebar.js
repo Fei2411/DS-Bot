@@ -82,7 +82,9 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined)
+
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -101,27 +103,32 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const bgApproval = useWork
     ? useWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
     : false
+  const browserHandoff = useBrowserHolds ? useBrowserHolds(map => map?.[id]?.callId !== undefined) : false
+  const computerHandoff = useComputer ? useComputer(comp => isComputerHandoff(comp?.holds?.[id])) : false
+  const handoff = browserHandoff || computerHandoff
   const pending = botPendingOf(roster, bot)
   const blockingApproval = fgApproval || pending.cardApproval
   const nonBlockingApproval = bgApproval || pending.learning
   const approval = blockingApproval || nonBlockingApproval
-  const alert = approval || pending.question
+  const alert = approval || pending.question || handoff
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
   // Group approvals live on the group's row and header island, not on the Bot's
-  // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
+  // own DM avatar (#1623). Blocking DM approvals/questions/handoffs override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
-  const blockingAlert = blockingApproval || pending.question
+  const blockingAlert = blockingApproval || pending.question || handoff
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   const state = botState(running || away, dmDoing, alert)
-  const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
+  const waitLine = blockingApproval ? t('Waiting for your approval')
+    : pending.question ? t('Waiting for your answer')
+      : handoff ? t('Waiting for you') : null
   const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
+  const runningLine = running && !blockingAlert && (dmDoing || doing === 'alert') ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const waitsRaw = useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null'
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
@@ -141,6 +148,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
+    alert && !active && state !== 'alert' ? h('span', { className: 'bt-dot bt-dot-wait', 'aria-hidden': true }) : null,
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
     h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })))
@@ -323,7 +331,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
 }
 
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, useBrowserHolds, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -346,11 +354,12 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     }
     return list
   }, [visibleEntries, roster.byId])
-  const sessionIds = useMemo(() => entries.flatMap(entry => (
+  const entrySessionIds = entry => (
     entry.kind === 'bot' ? [currentPart(entry.item)]
       : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
         : entry.item.sessions ?? []
-  )), [entries])
+  )
+  const sessionIds = useMemo(() => entries.flatMap(entrySessionIds), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -360,14 +369,15 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           : (entry.item.sessions ?? []).includes(activeSession)
     ))
   }, [entries, activeSession])
-  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
+  const shownEntries = useMemo(() => entries.filter(entry => (
+    !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
+  )), [entries, activeEntry, roster])
+  const shownSessionIds = useMemo(() => shownEntries.flatMap(entrySessionIds), [shownEntries])
+  const statusBits = useSessionStatus(map => JSON.stringify(shownSessionIds.map(id => [
     id,
     map.get(id)?.running === true ? 1 : 0,
     map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
   ])))
-  const shownEntries = useMemo(() => entries.filter(entry => (
-    !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
-  )), [entries, activeEntry, roster])
   const workBits = useWork ? useWork(work => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
@@ -377,10 +387,21 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     ))
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
   }) : '0|0'
-  const hasComputerAsk = useComputer ? useComputer(comp => {
+  const hasComputerAlert = useComputer ? useComputer((comp) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
+    if (Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))) return true
+    for (const botId of botIds) {
+      if (isComputerHandoff(comp?.holds?.[botId])) return true
+    }
+    return false
+  }) : false
+  const hasBrowserHandoff = useBrowserHolds ? useBrowserHolds((map) => {
+    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    for (const botId of botIds) {
+      if (map?.[botId]?.callId !== undefined) return true
+    }
+    return false
   }) : false
   const parsedStatuses = JSON.parse(statusBits)
   const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
@@ -389,10 +410,10 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     const pending = botPendingOf(roster, entry.item)
     return pending.learning || pending.cardApproval || pending.question
   })
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
+  const hasAlert = hasPendingCard || hasApproval || hasComputerAlert || hasBrowserHandoff
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
   const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
-    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+    || shownEntries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
@@ -824,7 +845,7 @@ export function TeamSidebar(props) {
     openAgentSession: id => navigate(actions.openAgentSession, id),
     newAgentSession: id => navigate(actions.newAgentSession, id),
   }
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, useBrowserHolds: props.useBrowserHolds, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return

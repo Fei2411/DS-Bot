@@ -17525,7 +17525,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
-.bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
+.bt-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -32421,7 +32421,8 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
+var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.callId !== void 0);
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
@@ -32438,20 +32439,23 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     (ask) => ask.roomId === void 0 && ask.botId === id
   );
   const bgApproval = useWork ? useWork((work) => (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === id && entry.taskId !== void 0 && entry.answerable !== false)) : false;
+  const browserHandoff = useBrowserHolds ? useBrowserHolds((map) => map?.[id]?.callId !== void 0) : false;
+  const computerHandoff = useComputer ? useComputer((comp) => isComputerHandoff(comp?.holds?.[id])) : false;
+  const handoff = browserHandoff || computerHandoff;
   const pending = botPendingOf(roster, bot);
   const blockingApproval = fgApproval || pending.cardApproval;
   const nonBlockingApproval = bgApproval || pending.learning;
   const approval = blockingApproval || nonBlockingApproval;
-  const alert = approval || pending.question;
+  const alert = approval || pending.question || handoff;
   const doing = useActivity((map) => map[id]);
   const groups = useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) }))));
   const away = !running && groups.length > 0;
-  const blockingAlert = blockingApproval || pending.question;
+  const blockingAlert = blockingApproval || pending.question || handoff;
   const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
   const state = botState(running || away, dmDoing, alert);
-  const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : null;
+  const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : handoff ? t("Waiting for you") : null;
   const deferredWaitLine = nonBlockingApproval ? t("Waiting for your approval") : null;
-  const runningLine = running && doing && doing !== "alert" ? doingLine(doing) : null;
+  const runningLine = running && !blockingAlert && (dmDoing || doing === "alert") ? doingLine(dmDoing ?? "working") : null;
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   const waitsRaw = useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null";
   const waits = (0, import_react37.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
@@ -32482,6 +32486,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         onContextMenu
       },
       (0, import_react37.createElement)(BotAvatar, { bot, size: 60, state, main: true }),
+      alert && !active && state !== "alert" ? (0, import_react37.createElement)("span", { className: "bt-dot bt-dot-wait", "aria-hidden": true }) : null,
       (0, import_react37.createElement)("span", { className: "bt-tile-name" }, bot.name),
       bot.role ? (0, import_react37.createElement)("span", { className: "bt-chip" }, bot.role) : null,
       (0, import_react37.createElement)(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })
@@ -32714,7 +32719,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
   return entry.kind === "bot" ? (0, import_react37.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : entry.kind === "room" ? (0, import_react37.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : (0, import_react37.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart });
 }
 function SectionBlock({ section, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps;
+  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, useBrowserHolds, wide } = rowProps;
   const input = (0, import_react37.useRef)(null);
   (0, import_react37.useLayoutEffect)(() => {
     if (!renaming) return;
@@ -32743,18 +32748,20 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     }
     return list;
   }, [visibleEntries, roster.byId]);
-  const sessionIds = (0, import_react37.useMemo)(() => entries2.flatMap((entry) => entry.kind === "bot" ? [currentPart(entry.item)] : entry.kind === "room" ? [entry.item.sessionId ?? entry.item.id] : entry.item.sessions ?? []), [entries2]);
+  const entrySessionIds = (entry) => entry.kind === "bot" ? [currentPart(entry.item)] : entry.kind === "room" ? [entry.item.sessionId ?? entry.item.id] : entry.item.sessions ?? [];
+  const sessionIds = (0, import_react37.useMemo)(() => entries2.flatMap(entrySessionIds), [entries2]);
   const activeSession = useSessions((list) => sessionIds.find((id) => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? "");
   const activeEntry = (0, import_react37.useMemo)(() => {
     if (activeSession === "") return void 0;
     return entries2.find((entry) => entry.kind === "bot" ? currentPart(entry.item) === activeSession : entry.kind === "room" ? (entry.item.sessionId ?? entry.item.id) === activeSession : (entry.item.sessions ?? []).includes(activeSession));
   }, [entries2, activeSession]);
-  const statusBits = useSessionStatus((map) => JSON.stringify(sessionIds.map((id) => [
+  const shownEntries = (0, import_react37.useMemo)(() => entries2.filter((entry) => !entry.item.hidden || entry === activeEntry || entry.kind === "bot" && isMainOf(roster, entry.item.id)), [entries2, activeEntry, roster]);
+  const shownSessionIds = (0, import_react37.useMemo)(() => shownEntries.flatMap(entrySessionIds), [shownEntries]);
+  const statusBits = useSessionStatus((map) => JSON.stringify(shownSessionIds.map((id) => [
     id,
     map.get(id)?.running === true ? 1 : 0,
     map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== void 0 ? 1 : 0
   ])));
-  const shownEntries = (0, import_react37.useMemo)(() => entries2.filter((entry) => !entry.item.hidden || entry === activeEntry || entry.kind === "bot" && isMainOf(roster, entry.item.id)), [entries2, activeEntry, roster]);
   const workBits = useWork ? useWork((work) => {
     const botIds = new Set(shownEntries.filter((e) => e.kind === "bot").map((e) => e.item.id));
     const roomIds = new Set(shownEntries.filter((e) => e.kind === "room").map((e) => e.item.id));
@@ -32762,10 +32769,21 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => roomIds.has(rId) && list.some((e) => e.botId !== void 0) || list.some((e) => botIds.has(e.botId)));
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`;
   }) : "0|0";
-  const hasComputerAsk = useComputer ? useComputer((comp) => {
+  const hasComputerAlert = useComputer ? useComputer((comp) => {
     const botIds = new Set(shownEntries.filter((e) => e.kind === "bot").map((e) => e.item.id));
     const roomIds = new Set(shownEntries.filter((e) => e.kind === "room").map((e) => e.item.id));
-    return Object.values(comp?.asks ?? {}).some((ask) => ask.roomId === void 0 && botIds.has(ask.botId) || roomIds.has(ask.roomId));
+    if (Object.values(comp?.asks ?? {}).some((ask) => ask.roomId === void 0 && botIds.has(ask.botId) || roomIds.has(ask.roomId))) return true;
+    for (const botId of botIds) {
+      if (isComputerHandoff(comp?.holds?.[botId])) return true;
+    }
+    return false;
+  }) : false;
+  const hasBrowserHandoff = useBrowserHolds ? useBrowserHolds((map) => {
+    const botIds = new Set(shownEntries.filter((e) => e.kind === "bot").map((e) => e.item.id));
+    for (const botId of botIds) {
+      if (map?.[botId]?.callId !== void 0) return true;
+    }
+    return false;
   }) : false;
   const parsedStatuses = JSON.parse(statusBits);
   const [hasApproval, hasRoomWork] = workBits.split("|").map((v) => v === "1");
@@ -32774,9 +32792,9 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     const pending = botPendingOf(roster, entry.item);
     return pending.learning || pending.cardApproval || pending.question;
   });
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAsk;
+  const hasAlert = hasPendingCard || hasApproval || hasComputerAlert || hasBrowserHandoff;
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run2]) => run2 === 1);
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
+  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || shownEntries.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
   const statusKind = hasAlert ? "alert" : hasWorking ? "working" : hasUnread ? "unread" : null;
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch((error) => actions.reportError(error, "section"));
@@ -33240,7 +33258,7 @@ function TeamSidebar(props) {
     openAgentSession: (id) => navigate(actions.openAgentSession, id),
     newAgentSession: (id) => navigate(actions.newAgentSession, id)
   };
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, useBrowserHolds: props.useBrowserHolds, wide: wideContent };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
