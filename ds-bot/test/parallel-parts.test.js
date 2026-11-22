@@ -274,7 +274,7 @@ test('a retired parallel part waits for a schedule service that attaches late', 
     list: async () => [],
   }
   let attach
-  const { registry } = await team(t, [], LEGACY, undefined, {
+  const { registry, rt } = await team(t, [], LEGACY, undefined, {
     before: (inner, ctx) => {
       ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
       const archive = inner.archiveSession.bind(inner)
@@ -283,9 +283,28 @@ test('a retired parallel part waits for a schedule service that attaches late', 
   })
   await new Promise(resolve => setTimeout(resolve, 50))
   assert.deepEqual(order, [])
+  assert.equal(rt.isRetiring('w3'), true)
   attach({ schedule, effect: () => {} })
   await until(() => [...registry.archivedSessionIds].includes('w3'))
   assert.deepEqual(order, [['move', 's1', 'w2'], ['archive', 'w3']])
+  await until(() => rt.isRetiring('w3') === false)
+})
+
+// A plugin that stops while it waits for the schedule service leaves the part listed
+// for the next start instead of archiving it with its reminders.
+test('a retired parallel part is left for the next start when the plugin stops first', async (t) => {
+  let attach
+  const { registry, home, stop } = await team(t, [], LEGACY, undefined, {
+    before: (inner, ctx) => {
+      ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
+    },
+  })
+  await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  await stop()
+  attach?.({ schedule: { catalog: async () => [], edit: async () => ({}), list: async () => [] }, effect: () => {} })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).retiredParts.map(entry => entry.sessionId), ['w3'])
 })
 
 // Parts opened while the Bot was busy can predate its earlier parts: the fold keeps
