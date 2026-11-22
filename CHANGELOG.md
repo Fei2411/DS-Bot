@@ -10,8 +10,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - **Settings redesign**: Settings is grouped into eight sections (General, Appearance, Models, Team, Connect, Tools, Usage, About DS Bot) with sub-tabs and a search bar, a new Appearance page with theme previews, and a step-by-step Settings guide that runs once on first open and can be replayed from each section or from About DS Bot. Existing deep links into Settings keep working. ([#2006](https://github.com/Fei2411/DS-Bot/pull/2006))
 - **IM group cards**: when an IM chat starts a group turn, Bots' question cards, views, forms and multi-select cards show in that IM group. Forms and multi-select cards are answered with `!card <code> …`, and unknown or stale card replies are refused instead of being forwarded. ([#1118](https://github.com/Fei2411/DS-Bot/issues/1118), [#2014](https://github.com/Fei2411/DS-Bot/pull/2014), [#2018](https://github.com/Fei2411/DS-Bot/pull/2018), [#2031](https://github.com/Fei2411/DS-Bot/pull/2031))
-- **Feature packs**: Bots can keep MCP servers and skills in a feature-pack catalog and load them only when a task needs them (`use_pack`, `drop_pack`). ([#2019](https://github.com/Fei2411/DS-Bot/pull/2019))
-- **Blank new session**: a Bot's **New session** asks whether to start blank or continue with a handoff; a blank session replaces the idle conversation like a handoff does, without the handoff note. (reported by @DandiCloud; [#1792](https://github.com/Fei2411/DS-Bot/issues/1792), [#1996](https://github.com/Fei2411/DS-Bot/pull/1996), [#2039](https://github.com/Fei2411/DS-Bot/pull/2039))
+- **Feature packs**: Bots can keep MCP servers and skills in a feature-pack catalog and load them only when a task needs them (`use_pack`, `drop_pack`). In Bot settings, each capability is set to Always on, In catalog (loaded on demand) or Off. ([#2019](https://github.com/Fei2411/DS-Bot/pull/2019), [#2035](https://github.com/Fei2411/DS-Bot/pull/2035))
 - **Sidebar status**: Bot, group and collapsed section rows show pending approvals and questions. ([#2021](https://github.com/Fei2411/DS-Bot/pull/2021))
 
 ### Changed
@@ -21,7 +20,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Removed
 
-- **Parallel sessions of one Bot**: a Bot has one conversation at a time again; **New session** is not offered while the Bot works, and sessions opened in parallel by v0.3.8 or v0.3.9 become earlier sessions of that Bot after the upgrade. Parallel work goes to another Bot or to the Bot's background tasks. ([#1501](https://github.com/Fei2411/DS-Bot/issues/1501), [#2039](https://github.com/Fei2411/DS-Bot/pull/2039), reverts [#1548](https://github.com/Fei2411/DS-Bot/pull/1548))
+- **Parallel sessions and session switching**: every Bot, local CLI agents included, keeps one continuous conversation again, and its context rolls over to a new session on its own. The Bot's session list, session switching and the **New session** button are gone; sessions opened in parallel by v0.3.8 or v0.3.9 become earlier sessions of that Bot after the upgrade. Parallel work goes to another Bot or to the Bot's background tasks. ([#1501](https://github.com/Fei2411/DS-Bot/issues/1501), [#2039](https://github.com/Fei2411/DS-Bot/pull/2039), [#2042](https://github.com/Fei2411/DS-Bot/pull/2042), reverts [#1548](https://github.com/Fei2411/DS-Bot/pull/1548))
 
 ### Fixed
 
@@ -38,7 +37,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - **Deleted Sessions**: a DSH Agent Session deleted by another plugin no longer leaves a dead row in the sidebar, and archiving an already-gone Session works. (reported by @xzjncu; [#1773](https://github.com/Fei2411/DS-Bot/issues/1773), [#1999](https://github.com/Fei2411/DS-Bot/pull/1999))
 - **New Bot greeting**: a failed greeting for a new Bot no longer stops the whole team. ([#1961](https://github.com/Fei2411/DS-Bot/issues/1961), [#1979](https://github.com/Fei2411/DS-Bot/pull/1979))
 - **Antigravity models**: a Bot on the Antigravity plugin's `antigravity/*` models keeps its model across restarts instead of moving to the local Antigravity CLI route. (reported by @Pegasus02; [#2020](https://github.com/Fei2411/DS-Bot/issues/2020), [#2022](https://github.com/Fei2411/DS-Bot/pull/2022))
-- **Messages to a busy Bot**: a message sent from the desktop or web composer while a Bot is busy moves the running work to a background task instead of staying unread. ([#2025](https://github.com/Fei2411/DS-Bot/pull/2025))
+- **Messages to a busy Bot**: a message sent from the desktop or web composer while a Bot is busy moves the running work to a background task instead of staying unread, and a message saved this way before a restart is delivered once the handoff finishes. ([#2025](https://github.com/Fei2411/DS-Bot/pull/2025), [#2041](https://github.com/Fei2411/DS-Bot/pull/2041))
 
 ## [0.3.9] - 2026-11-21
 
