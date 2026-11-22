@@ -258,10 +258,14 @@ export function Chat({ sessionId, team, registry }) {
 
   const [pending, setPending] = useState([])
   const sendGen = useRef(0)
+  const scroller = useRef(null)
+  const follow = useRef(true)
   const keep = useRef(null)
 
   useEffect(() => {
     sendGen.current += 1
+    keep.current = null
+    follow.current = true
     setPending([])
   }, [activeSessionId])
 
@@ -305,8 +309,6 @@ export function Chat({ sessionId, team, registry }) {
     return () => { document.body?.removeAttribute?.('data-bt-room') }
   }, [isRoom])
 
-  const scroller = useRef(null)
-  const follow = useRef(true)
   const question = roster.questions?.[activeSessionId] ?? roster.questions?.[sessionId]
   const running = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
 
@@ -365,13 +367,13 @@ export function Chat({ sessionId, team, registry }) {
         h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
           isRoom
             ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
-            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, thinkingAt: dmChat.thinkingAt, hasMore: dmChat.hasMore, registry }),
+            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, useHeldCards: hooks.useHeldCards, thinkingAt: dmChat.thinkingAt, hasMore: dmChat.hasMore, registry }),
           pending.length ? h('div', { className: 'dsb-pending' }, h(ChatRows, { items: pending, sessionId: activeSessionId, roster, actions })) : null,
           // The Bot views' activity row (from the header pill) draws itself in here.
           h('div', { 'data-chat-running': '' }),
           question ? h(PendingQuestion, { key: JSON.stringify([activeSessionId, question.id]), sessionId: activeSessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
     h('div', { className: 'dsb-composer-root' },
-      !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards: hooks.useCards, actions }) : null,
+      !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards: hooks.useCards, useHeldCards: hooks.useHeldCards, actions }) : null,
       h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
       h(Composer, {
         sessionId: activeSessionId,

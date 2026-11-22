@@ -20,13 +20,14 @@ const stubs = {
     export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
+    export const workPhrase = () => ''
   `,
   'widget-cell.js': `
-    export const WidgetCell = ({ callId, args, done, isError }) => ({
+    export const WidgetCell = ({ callId, args, done, isError, heldCards }) => ({
       type: 'widget-cell',
-      props: { callId, title: args?.text?.('title'), done, isError, children: ['widget:' + (args?.text?.('title') ?? callId)] },
+      props: { callId, title: args?.text?.('title'), done, isError, heldCards, children: ['widget:' + (args?.text?.('title') ?? callId)] },
     })
-    export const WidgetDock = ({ sessionId }) => ({ type: 'widget-dock', props: { sessionId, children: [] } })
+    export const WidgetDock = ({ sessionId, useHeldCards }) => ({ type: 'widget-dock', props: { sessionId, hasHeldHook: typeof useHeldCards === 'function', children: [] } })
     export const AnsweredReply = ({ node }) => ({
       type: 'answered-reply',
       props: { data: node?.data, children: ['answered:' + (node?.data?.questions?.[0]?.question ?? node?.data?.views?.[0]?.title ?? 'ok')] },
@@ -51,6 +52,7 @@ const entryCode = `
   export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
   export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
+  export { createTeam } from './ui/src/team.js'
 `
 const { outputFiles } = await build({
   stdin: {
@@ -201,7 +203,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  Chat,
+  Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -608,14 +610,15 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     return fixture.page
   }
 
-  // Simulate an existing saved reaction keyed by legacy `${sessionId}:${time}` (frame 23 time = 1795239010163).
+  // `bot.parts` holds ONLY earlier segments (host/channel.js), not current `bot.sessionId`.
   const uiState = { reactions: { 'session-main:1795239010163': { 0: ['👍'] } } }
+  const heldState = { 'session-main': { 'view:v1': 1 } }
   const roster = {
     ready: true,
     readOnly: true,
     prefs: { enterToSend: true, thinking: true },
-    bots: [{ id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0', 'session-main'] }],
-    byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0', 'session-main'] } },
+    bots: [{ id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] }],
+    byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] } },
     rooms: [],
     roomsById: {},
     questions: {},
@@ -639,6 +642,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
       useRoster: select => select(roster),
       useUi: select => select(uiState),
       useCards: select => select({}),
+      useHeldCards: select => select(heldState),
       useTurnClock: select => select({}),
       useSessionStatus: select => select(new Map()),
     },
@@ -647,7 +651,10 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
 
   const inst = mount(Chat, { sessionId: 'session-main', team })
   try {
-    inst.render()
+    // Before opening snapshot arrives (`log.header === null`), EarlierParts must NOT mount prematurely.
+    const initialTree = inst.render()
+    assert.equal(all(initialTree, n => n.type === 'earlier-parts').length, 0, 'EarlierParts must wait for opening snapshot')
+    assert.equal(all(initialTree, n => n.type === 'widget-dock' && n.props.hasHeldHook).length, 1, 'WidgetDock must receive useHeldCards')
     await tick()
     assert.equal(fetchCtrl.calls.length, 1)
 
@@ -661,8 +668,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     assert.match(rendered, /目标、约束、下一步/)
     assert.match(rendered, /建议分三步走/)
     assert.match(rendered, /list_bots/)
-    // Because bot has earlier segments (`parts.length > 1`) and `hasMore` is false, EarlierParts mounts.
-    assert.ok(all(tree, n => n.type === 'earlier-parts').length === 1, 'EarlierParts must mount for multi-part Bots')
+    // Once snapshot landed with `hasMore: false` and `bot.parts` has 1 earlier segment, EarlierParts mounts.
+    assert.equal(all(tree, n => n.type === 'earlier-parts').length, 1, 'EarlierParts must mount when bot.parts.length === 1')
     // Legacy saved reaction key `${sessionId}:${time}` is preserved on Turn 1's Bubbles.
     const bubbles = all(tree, n => n.type === 'bubbles')
     assert.equal(bubbles[0].props.msgKey, 'session-main:1795239010163')
@@ -695,7 +702,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     await tick()
     await tick()
     tree = inst.render()
-    assert.ok(all(tree, n => n.type === 'widget-cell' && n.props.title === 'Compare').length === 1, 'show_view renders via WidgetCell')
+    assert.ok(all(tree, n => n.type === 'widget-cell' && n.props.title === 'Compare' && n.props.heldCards?.['view:v1'] === 1).length === 1, 'show_view renders via WidgetCell with heldCards')
     assert.ok(all(tree, n => n.type === 'answered-reply').length === 1, 'user-question-reply renders via AnsweredReply')
 
     // Click "Load earlier" -> calls `session-page` with beforeSeq: 45.
@@ -774,4 +781,27 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     inst.unmount()
     fetchCtrl.reset()
   }
+})
+
+test('createTeam wires heldCards store so WidgetDock noteHeldCard updates cleanly without throwing', () => {
+  const store = new Map()
+  sandbox.localStorage = {
+    getItem: key => store.get(key) ?? null,
+    setItem: (key, val) => { store.set(key, String(val)) },
+    removeItem: key => { store.delete(key) },
+  }
+  const team = createTeam()
+  assert.equal(typeof team.hooks.useHeldCards, 'function')
+  assert.equal(typeof team.actions.noteHeldCard, 'function')
+
+  // Focus/pointer interaction on WidgetDock calls noteHeldCard(+1) and release calls (-1).
+  team.actions.noteHeldCard('s1', 'view', 'v1', 1)
+  const Probe = () => {
+    const held = team.hooks.useHeldCards(state => state)
+    return react.createElement('div', { held }, JSON.stringify(held))
+  }
+  const probeMount = mount(Probe, {})
+  assert.deepEqual(plain(probeMount.render().props.held), { s1: { '["view","v1"]': 1 } })
+  team.actions.noteHeldCard('s1', 'view', 'v1', -1)
+  assert.deepEqual(plain(probeMount.render().props.held), { s1: {} })
 })

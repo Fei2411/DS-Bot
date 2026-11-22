@@ -341,7 +341,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'step/end') {
       const turn = item.data?.turn ?? currentTurn
       const step = item.data?.step ?? currentStep
-      settleOpenCalls({ turn, step, time: item.time, dropPreparing: false })
+      settleOpenCalls({ turn, step, time: item.time, dropPreparing: true })
       continue
     }
 

@@ -61,6 +61,7 @@ export function createTeam() {
   const memoryNews = createSource({})
   const live = createSource({})
   const cards = createSource({})
+  const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
   const browserPages = createSource({})
@@ -150,7 +151,7 @@ export function createTeam() {
   }
 
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, turnClock }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     openSession: (id) => {
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
@@ -273,6 +274,7 @@ export function createTeam() {
     useMemoryNews: use(memoryNews),
     useLive: use(live),
     useCards: use(cards),
+    useHeldCards: use(heldCards),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
     useRegistry: use(registry),

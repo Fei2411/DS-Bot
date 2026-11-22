@@ -27,6 +27,7 @@ import { ToolCallCard } from './tool-card.js'
 const PAGE_SIZE = 40
 const SEPARATOR_GAP_MS = 30 * 60 * 1000
 const NO_UI_HOOK = () => false
+const NO_HELD_CARDS_HOOK = () => undefined
 
 const userTextOf = event => contentParts(event?.data?.content).text
 
@@ -376,7 +377,9 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
 
 // Inline renderer for `show_view` tool calls so display-only and active/settled cards render
 // through DS Bot's WidgetCell instead of raw JSON arguments, unless overridden by a slot.
-function ShowViewCard({ row, sessionId, roster, actions }) {
+function ShowViewCard({ row, sessionId, roster, actions, useHeldCards }) {
+  const useReadHeld = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
+  const heldCards = useReadHeld(state => state?.[sessionId])
   useEffect(() => {
     if (!row.callId || typeof actions?.noteCards !== 'function') return undefined
     actions.noteCards(sessionId, [row.callId], 1)
@@ -390,6 +393,7 @@ function ShowViewCard({ row, sessionId, roster, actions }) {
     isError: row.block?.isError === true,
     roster,
     actions,
+    heldCards,
   })
 }
 
@@ -416,7 +420,7 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
  * tool call cards via `tool.call.toolview` / `WidgetCell` / `GenericToolCard`,
  * compaction checkpoints, Bot/schedule events, and failed turns).
  */
-export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi, useRoster, useTurnClock, thinkingAt, hasMore = false, registry = defaultSlots }) {
+export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi, useRoster, useTurnClock, useHeldCards, thinkingAt, hasMore = false, registry = defaultSlots }) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
   // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
   // soon as a Retry turn starts, even before the new turn emits any assistant text.
@@ -441,7 +445,10 @@ export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi,
   const flat = layoutOf(roster.prefs) === 'flat'
   const canLoadEarlierParts = typeof actions?.earlier === 'function'
   const hasPartStart = rows.some(row => row.kind === 'part-start')
-  const showTopEarlierParts = !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 1
+  // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
+  // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
+  // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
+  const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
   const seenTurnSpeaker = new Set()
   let prevTime
 
@@ -477,7 +484,7 @@ export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi,
         cwd,
         registry,
         fallback: row.toolName === 'show_view' && row.phase !== 'preparing'
-          ? () => h(ShowViewCard, { row, sessionId, roster, actions })
+          ? () => h(ShowViewCard, { row, sessionId, roster, actions, useHeldCards })
           : undefined,
       }))
 
