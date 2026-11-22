@@ -197,11 +197,12 @@ export function install(rt) {
     if (!['always', 'catalog'].includes(mode)) throw new Error('Capability mode must be always or catalog.')
     bot.capabilities ??= []
     bot.packs ??= []
+    const wasEmpty = bot.capabilities.length === 0
     bot.capabilities = bot.capabilities.filter(entry => entry !== name)
     bot.packs = bot.packs.filter(entry => entry !== name)
     if (attached) bot[mode === 'catalog' ? 'packs' : 'capabilities'].push(name)
     await rt.save()
-    if (bot.capabilities.length > 0) {
+    if (wasEmpty && bot.capabilities.length > 0) {
       await trackBotAgents(bot)
       void scheduleReconcile()
     }

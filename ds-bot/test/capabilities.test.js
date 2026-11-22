@@ -262,6 +262,35 @@ test('removed catalog entries and library items stay mounted until turn end', as
   assert.equal(skills.get('chief').size, 0)
 })
 
+test('only the first always-on attachment resolves Bot sessions, never catalog edits', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, mounts, skills } = env
+  const resolved = []
+  const agents = new Map()
+  rt.resolveAgent = async id => {
+    resolved.push(id)
+    if (!agents.has(id)) agents.set(id, testAgent(id, mounts, skills))
+    return agents.get(id)
+  }
+  for (const name of ['first', 'second', 'catalog']) await rt.capabilitySave({ name, kind: 'skill', content: name }, { ui: true })
+  const editCatalog = async () => {
+    await rt.changeCapabilityAttachment('attach', { name: 'catalog', mode: 'catalog' }, 'chief')
+    await rt.changeCapabilityAttachment('detach', { name: 'catalog' }, 'chief')
+    await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'catalog', attached: true, mode: 'catalog' })
+    await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'catalog', attached: false })
+    await rt.reconcileCapabilities()
+    assert.deepEqual(resolved, [])
+  }
+  await editCatalog()
+  await rt.changeCapabilityAttachment('attach', { name: 'first' }, 'chief')
+  assert.deepEqual(resolved.sort(), ['chief', 'room-chief'])
+  resolved.length = 0
+  await rt.changeCapabilityAttachment('attach', { name: 'second' }, 'chief')
+  assert.deepEqual(resolved, [])
+  await editCatalog()
+})
+
 test('reusing a pack preserves removed members until the turn boundary', async t => {
   const env = await setup()
   t.after(() => env.dispose())
