@@ -139,6 +139,46 @@ test('saves that joined a failed write get one more write', async (t) => {
   }
 })
 
+test('a joined required save that failed is not retried onto an adopted file', async (t) => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+      if (writes.length === 2) {
+        // The team file is replaced and its lock removed while this write fails.
+        fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+        fs.rmSync(join(home, 'state.lock'))
+        throw Object.assign(new Error('disk error'), { code: 'EIO' })
+      }
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    rt.state.prefs.marker = 'queued'
+    const queued = rt.save()
+    rt.state.prefs.marker = 'mine'
+    const joined = rt.save({ required: true })
+    release()
+    await first
+    await assert.rejects(queued, /disk error/)
+    // Its change is not in the adopted state, so the required save must fail.
+    await assert.rejects(joined, /disk error/)
+    await rt.save()
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
+  } finally {
+    restore()
+  }
+})
+
 test('model selection witnesses survive a saved store reload', async (t) => {
   const first = runtime(t)
   await first.rt.load()

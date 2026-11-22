@@ -590,14 +590,18 @@ export function install(rt) {
     // A save made while another waits in the queue joins it: that write takes its
     // snapshot when it runs, so it already holds this caller's change.
     const joined = queued !== undefined
+    const epoch = lockEpoch
     queued ??= queueWrite()
     const settle = skipped => {
       if (skipped !== undefined && required) throw new Error(`This host cannot save the Bot team: ${skipped}`)
     }
     // A caller that joined would have had a write of its own, so a shared write
-    // that failed (e.g. a rename blocked on Windows) gets one more try for it.
+    // that failed (e.g. a rename blocked on Windows) gets one more try for it. Not
+    // once an adopt replaced or is about to replace the state: that state lacks the
+    // caller's change, and writing it must not settle a required save.
+    const replaced = () => adopting !== undefined || lockEpoch !== epoch
     return queued.then(settle, error => {
-      if (!joined || error?.code === 'ELOCKLOST' || stopped || !writable()) throw error
+      if (!joined || error?.code === 'ELOCKLOST' || stopped || replaced() || !writable() || replaced()) throw error
       queued ??= queueWrite()
       return queued.then(settle)
     })
