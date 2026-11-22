@@ -74,12 +74,25 @@ test('failed HTTP authentication returns Retry-After after ten attempts', async 
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.load()
   const view = await rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await rt.apiEndpoint('api-token-create', { name: 'Auth limit', scopes: ['read'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}` }
+  for (let i = 0; i < 12; i += 1) {
+    for (const rejectedHeaders of [{}, { ...headers, Origin: 'https://attacker.example' }, { ...headers, Host: '127.attacker.example' }]) {
+      const response = await fetch(`${view.baseUrl}/v1/health`, { headers: rejectedHeaders })
+      assert.ok([401, 403].includes(response.status))
+      await response.text()
+    }
+  }
+  const valid = await fetch(`${view.baseUrl}/v1/health`, { headers })
+  assert.equal(valid.status, 200)
+  await valid.text()
+  const wrong = { Authorization: `Bearer ${token.slice(0, token.lastIndexOf('_') + 1)}wrong` }
   for (let i = 0; i < 10; i += 1) {
-    const response = await fetch(`${view.baseUrl}/v1/health`)
+    const response = await fetch(`${view.baseUrl}/v1/health`, { headers: wrong })
     assert.equal(response.status, 401)
     await response.text()
   }
-  const response = await fetch(`${view.baseUrl}/v1/health`)
+  const response = await fetch(`${view.baseUrl}/v1/health`, { headers: wrong })
   assert.equal(response.status, 429)
   assert.ok(Number(response.headers.get('retry-after')) > 0)
   await response.text()
