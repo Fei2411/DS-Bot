@@ -101,7 +101,7 @@
 ## 已知限制
 
 - 若远程中继（如 `ds-harness-remote`）维护自身的 Remote 接口允许列表，需该中继允许列表包含 `dsBot/call` 与 `dsBot/feed` 后才能通过中继使用；SSH 隧道、局域网直连和本机不受此限制。
-- （已作废：旧 PTC 群的轮次也已改由 DS Bot 在后台运行，`run_code` 包装立即返回。）`room-chat` 从 DS Bot 消息账本读取发言，不再靠识别 PTC 调用结果。
+- `room-chat` 直接从 DS Bot 消息账本读取发言（不再依赖工具调用结果拆解）；旧 PTC 群的轮次同样由 DS Bot 在后台运行。
 - 提醒不落盘：DSH 重启前没送到的提醒就丢了，客户端只能重读团队。
 
 ## File download chunks

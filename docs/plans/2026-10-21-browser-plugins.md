@@ -36,7 +36,7 @@ Bot 是长期身份。登录应该跟着 Bot 走，而不是跟着某一段对�
 - 不在 Bot 之间同步 cookie。
 - 不把 Chrome DevTools MCP 做成可选后端。它留在调研里，不进这三个插件。
 - 不在这台没有 ego lite 的环境里假装测过 ego。
-- 默认不打开任何一个插件，所以现有的只读行为不变。（已作废：三个后端已进入代码，不再是「选定之前不合进 dev」的待合并方案。）启用由 DSH profile 的 `bot.config.browserPlugin` 控制，修改后重启 DS Bot。
+- 默认不启用交互式浏览器插件，保留只读 `read_browser` 行为；需在 DSH profile 的 `bot.config.browserPlugin` 中显式配置 `refs`、`script` 或 `task` 并重启 DS Bot 生效。
 
 ## 已知限制
 

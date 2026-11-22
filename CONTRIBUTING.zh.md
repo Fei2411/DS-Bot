@@ -60,7 +60,7 @@
 
 1. 向 `dev` 提 Pull Request，按模板填写。用 `Fixes #<号>` 关联 Issue；修 bug 的 PR 一定要写明修的是哪个 bug。从 fork 提 Pull Request 时，请保持勾选 **Allow edits from maintainers**，方便维护者在合并前解决冲突或做小调整。
 2. 在模板的 **Changelog** 一栏写一句用户能看到的变化，没有就写「无」。不要改 `CHANGELOG.md`：维护者发版时根据这些句子统一写。
-3. CI 通过后，自己用 **Create a merge commit** 合并，然后删除分支。不强制审查；想让人看一眼，在 Pull Request 里 @ 队友。
+3. CI 通过且独立审查通过（带有 `review/approved` 标签）后，用 **Create a merge commit** 合并到 `dev`，然后删除分支。
 4. 合进 `dev` 的修复不会关闭对应的 Issue：`Fixes #<号>` 只在合入默认分支时生效。Issue 会一直开着，直到发版，意思是「已在 `dev` 修复，尚未发版」。
 
 一个 Pull Request 只对应一个 Issue。大改动拆成多个 Pull Request。
@@ -72,7 +72,7 @@
 
 ### 发版（维护者）
 
-1. 向 `dev` 提一个 Pull Request：修改 `ds-bot/package.json` 里的版本号，根据已合并 Pull Request 的 Changelog 句子写 `CHANGELOG.md` 的这一版。
+1. 向 `dev` 提一个 Pull Request：同步更新 `ds-bot/package.json`、`app/package.json` 和 `README.md` / `README.zh.md` 的版本号，根据已合并 Pull Request 的 Changelog 句子写 `CHANGELOG.md` 的这一版。
 2. 提一个从 `dev` 到 `main` 的 Pull Request，标题为 `release: vX.Y.Z`。在描述里列出这一版所有的 `Fixes #<号>`，合并时这些 Issue 会一起关闭。
 3. 合并前在 Windows 真机上做一遍[发版前真机检查](docs/dev/release-checklist.md)，改动涉及 macOS 时在 macOS 上也做一遍，结果贴在这个 PR 里。用 merge commit 合并，在 `main` 上发布 GitHub Release `vX.Y.Z`，发布时不勾「Set as the latest release」：安装包、`SHA256SUMS.txt` 和下载表都传完后，工作流会自己把它标为最新。Release 工作流会检查 tag 与版本号一致、且在 `main` 上，跑完检查后把包发到 npm（预发布版本发到 npm 的 `next` 标签）。不要手动 `npm publish`。
 4. 热修：从 `main` 切 `fix/hot-<短名>`，向 `main` 提 Pull Request，发一个补丁版本，再把 `main` 合回 `dev`。
@@ -116,13 +116,16 @@ git -C deepseek-harness checkout dsh-v0.2.2-rc.1
 
 | 路径 | 内容 |
 |---|---|
-| `ds-bot/index.js`、`ds-bot/src/host/` | 服务端：Bot 名册与存储、工具、回合与投递、群聊、对话分段与搜索索引、图片、Bot 浏览器桥接、`api/bot` 通道 |
-| `ds-bot/src/client/` | 浏览器端：侧栏、聊天、面板与对话框、主题、角色、Bot 浏览器面板 |
-| `ds-bot/client.js` | 由 `scripts/build-client.mjs` 从 `src/client/` 生成。它被提交进仓库，这样用 Git 安装时不需要构建 |
-| `ds-bot/web-search.js` | `auto` 网页搜索提供方。不依赖 Bot 团队代码 |
+| `ds-bot/index.js`、`ds-bot/src/host/` | 服务端：Bot 名册与存储、工具、回合与投递、后台任务、群聊与账本、记忆、能力与功能包、连接器、IM、手机与 MCP 网关、`api/bot` 通道 |
+| `ds-bot/src/client/` | 浏览器端：侧栏、聊天、设置总控台、面板与对话框、主题、8 语种文案、角色、Bot 浏览器面板 |
+| `ds-bot/client.js` | 由 `scripts/build-client.mjs` 从 `src/client/` 生成。提交进仓库，这样用 Git 安装时不需要构建 |
+| `ds-bot/web-search.js` | `auto` 网页搜索提供方，不依赖 Bot 团队代码 |
 | `ds-bot/cordis.patch.yml` | 插件带的 profile patch |
-| `ds-bot/test/` | 单元测试和测试数据 |
-| `ds-bot/dev/` | 单元测试用的 DSH 包（`harness/`）、模拟模型、测试台、冒烟测试、角色生成器、Linux 上的 Desktop 脚本，以及两个用真实模型的工具：上下文管家评测和日志转发 |
+| `ds-bot/test/`、`ds-bot/dev/` | 单元测试、浏览器测试、模拟模型、测试台、冒烟测试、角色生成器与评测工具 |
+| `app/` | 独立桌面应用（Electron 主进程、启动窗口、导入与搬迁、自动更新、安装包构建） |
+| `mobile/`、`link/` | 手机 App（Expo React Native + 浏览器远程导出）与端到端加密中转协议 |
+| `browser-plugins/`、`docker/` | 可选交互式浏览器插件（`refs` / `script` / `task`）与 Docker 部署配置 |
+| `docs/` | [文档导航](docs/README.md)、愿景、UI 标准、已定设计与发版真机检查 |
 
 ## 测试改动
 
@@ -181,7 +184,7 @@ dev/bench.sh dev 3081 8771 reset    # 模拟模型 + DSH Web；数据在 ../.dsh
 
 ## 报告问题
 
-最简单的方式是在 DS Bot 里：打开 **设置 → 反馈**，写下发生了什么，选 **在 GitHub 上报告**。它会新开一个 Issue，DS Bot 和 DSH 版本、系统、模型和最近的错误都已填好。**复制** 会把同样的内容放进剪贴板，**下载** 会保存完整的错误日志（`<DSH_HOME>/bot/logs/diagnostics.jsonl`）。
+最简单的方式是在 DS Bot 里：打开 **设置 → 关于 DS Bot → 反馈**，写下发生了什么，选 **在 GitHub 上报告**。它会新开一个 Issue，DS Bot 和 DSH 版本、系统、模型和最近的错误都已填好。**复制** 会把同样的内容放进剪贴板，**下载** 会保存完整的错误日志（`<DSH_HOME>/bot/logs/diagnostics.jsonl`）。
 
 手动开 Issue 时，请写上：
 
