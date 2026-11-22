@@ -52,7 +52,7 @@ The easiest way to set up other bots and group chats is to just talk to your Mai
 **Settings** opens on an **Overview** console showing items that need attention, your team, recent usage, and quick cards for every area. Press `⌘K` / `Ctrl+K` (or use the top search bar) to jump straight to any setting, bot, group chat, or model. Domains scroll as one page with top anchors:
 
 - **General** & **Appearance** (live preview, 8 UI languages, themes, layout and motion)
-- **Models**: Providers · Bot models · Local agents · DeepSeek services
+- **Models**: Providers · Local agents · Bot models · DeepSeek services
 - **Team**: Bots · Group chats · Scheduled tasks
 - **Connect**: Connectors · IM · Phone · MCP access
 - **Tools**: Computer use · Browser · Capabilities · Secrets

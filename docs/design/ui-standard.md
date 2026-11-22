@@ -7,7 +7,7 @@
 - **等级**：「必须」不能违反；「应该」默认照做，有理由可以例外并在代码注释说明；「可以」是推荐做法。
 - **标杆界面**：顶部胶囊（灵动岛）与设置页用量视图。新表面的变形与动效手感以这两处为准。
 - **自动化检查**：`npm test` 会校验 `src/client/` 中的颜色变量（`--bt-*`）、圆角档位和弹簧常量，历史豁免记录在 `ds-bot/test/style-debt.json`（只减不增；清掉一处后运行 `node scripts/style-debt.mjs --write` 更新）。`npm run lint` 在 `src/client/**/*.js` 强制执行 `react/rules-of-hooks` 规则，防止浮层与设置页出现 Hook 顺序崩溃。
-- **浮层隔离**：全局弹层与设置对话框由可复位的 `OverlayBoundary` 隔离，单个浮层异常不会拖垮主聊天页。
+- **浮层隔离**：全局弹层与设置对话框由可复位的 `OverlayBoundary` 包裹，捕获异常后安全关闭出问题的浮层并弹出 toast，在下次打开或目标切换时复位，避免拖垮主聊天页。
 - **原创与多语言**：只用原创图形与自绘图标；界面源文案写英文，多语言翻译在 `i18n.js` 与 `locales/`（共 8 种语言：英、简中、繁中、日、韩、西、法、德）。
 
 ## 1. 设计原则
@@ -213,7 +213,7 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
   - **安静**：仅状态动作。
   - **正常（默认）**：加悬停抚摸、点击转圈与眼睛跟随指针。
   - **活泼**：加空闲小动作（9 秒一轮，错开）与等你回答持续轻跳。
-- **全局界面动效三档**（**设置 → 外观**，`effectsOf()`）：**完整**（`full`）、**精简**（`reduced`）、**关闭**（`off`）；`off` 等同于触发系统 `prefers-reduced-motion: reduce`。
+- **全局界面动效三档**（**设置 → 外观**，`effectsOf()`）：**标准**（`full`）、**精简**（`reduced`）、**无**（`off`）；`off` 等同于触发系统 `prefers-reduced-motion: reduce`。
 
 ## 9. 动效
 
@@ -244,7 +244,7 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
 ### 9.4 性能与减少动态效果
 
 - 逐帧动画仅动合成属性（`transform`、`translate`、`scale`、`rotate`、`opacity`）。
-- 无限循环动画（头像状态、扫光文字）统一由 `motion-clock.js` 以 30fps 驱动；页面隐藏、窗口 30 秒无操作或元素离开视口时自动暂停，恢复可见或交互时继续。
+- 无限循环动画（头像状态、扫光文字等）由 `motion-rest.js`（`installMotionRest`）通过 `document.getAnimations()` 与 `IntersectionObserver` 统一管理：页面隐藏、窗口 30 秒无输入或元素离开视口时自动暂停，恢复可见或有交互时继续。
 - 避免给大面积整页加模糊，避免在流式渲染路径引入重排选择器（如大范围 `:has()`）。
 - JS 动画启动前必须检查 `reducedMotion()` / `reducedEffects()`。
 

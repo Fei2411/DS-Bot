@@ -17,14 +17,14 @@ Trust boundaries:
 2. Ordinary Bot -> Main Bot rights (create/change/stop Bots, groups, folders), enforced in `ds-bot/src/host/tools.js` via `rt.isMain`.
 3. Model/tool output -> outbound model requests (secret redaction in `ds-bot/src/host/secrets.js`).
 4. Browser renderer -> host: `POST /api/bot` channel (`ds-bot/src/host/channel.js`, `ROUTE` in `constants.js`) and Electron IPC (`app/src/main.mjs`, `preload.cjs`).
-5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-html.js`, `sandbox="allow-scripts"` iframe without same-origin).
+5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-cell.js`, `sandbox="allow-scripts"` iframe without same-origin).
 6. Bot browser pages -> app (`app/src/bot-browser.mjs`, `bot-views.mjs`: sandboxed, contextIsolation, own partition).
 
 ## Components
 
 - **host** — plugin server side: `ds-bot/index.js`, `ds-bot/src/host/` (roster, tools, turns/delivery, background tasks, groups/ledger, goals, parts, memory, schedules, permissions, privacy, folders, capabilities/packs, connectors, providers, local-agents, computer, im, phone/mobile, mcp-server).
 - **secrets** — `ds-bot/src/host/secrets.js` (`bot/secrets.json` mode 600, optional passphrase encryption at rest in `secrets-crypto.js`, `$DSH_SECRET_<NAME>`, redactor) and API keys/providers (`providers.js`, `models.js`).
-- **client** — browser UI: `ds-bot/src/client/` (incl. settings console, widget-html, read-page, connectors UI) and generated `ds-bot/client.js`.
+- **client** — browser UI: `ds-bot/src/client/` (incl. settings console, widget-cell, read-page, connectors UI) and generated `ds-bot/client.js`.
 - **browser & computer** — Bot browser bridge and browser plugins (`ds-bot/src/host/browser.js`, `browser-plugins.js`, `src/host/browser/`, `browser-plugins/`) and computer-use mediation (`ds-bot/src/host/computer/`).
 - **remote & im** — encrypted phone/browser link (`link/`, `mobile/`, `ds-bot/src/host/phone.js`, `mobile.js`), IM bridges (`ds-bot/src/host/im/`), and local MCP server (`ds-bot/src/host/mcp-server.js`).
 - **desktop-app** — Electron app: `app/src/` (main, start-window, preload, IPC, cookie import, updates, import from `~/.dsh`, move-data).

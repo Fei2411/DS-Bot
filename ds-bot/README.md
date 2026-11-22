@@ -275,7 +275,7 @@ dev/check.sh                             # all checks (see below)
 |---|---|
 | `index.js` | Host entry: installs the `src/host/` modules in order |
 | `src/host/` | Host modules: roster and store (`roster`, `store`, `home-lock`), tools (`tools`), turns and delivery (`turns`, `delivery`, `handoffs`, `bot-tasks`), group chats (`groups`, `ledger`, `goals`, `tasks`), conversation parts and search (`parts`, `steward`, `chat-index`), memory and learning (`memory*`, `learning`), capabilities and packs (`capabilities`, `builtin-packs`), connectors and secrets (`connectors/`, `secrets*`), local agents (`local-agents/`), browser and computer use (`browser*`, `computer/`), IM/phone/MCP bridges (`im/`, `phone`, `mobile`, `remote`, `mcp-server`), DeepSeek services (`deepseek-services`), and the `POST api/bot` + `GET api/bot/feed` routes (`channel`, `feed`) |
-| `src/client/` | Browser source: sidebar and sections, chat header/island, transcript cells, Settings console (`settings*`), panels and dialogs, themes and motion clock, 8-language `i18n`, characters, Bot browser panel |
+| `src/client/` | Browser source: sidebar and sections, chat header/island, transcript cells, Settings console (`settings*`), panels and dialogs, themes and `motion-rest`, 8-language `i18n`, characters, Bot browser panel |
 | `client.js` | Built from `src/client/` by `scripts/build-client.mjs` (esbuild); committed |
 | `web-search.js` | The `auto` search provider; independent of the team code |
 | `test/` | Unit tests and fixtures |
