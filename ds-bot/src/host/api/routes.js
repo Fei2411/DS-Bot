@@ -145,7 +145,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
   const { ctx, state } = rt
   const uploadsDir = join(rt.home, 'api-uploads')
   const uploads = new Map() // uploadId -> { id, path, name, mime, size, tokenId, createdAt }
-  const dedupeEvents = new Map() // `${source}\0${eventId}` -> ledgerEventId
+  const dedupeEvents = new Map()
   const globalBuffer = [] // { id, event, data, targetKind, targetId }
   let globalSeq = 0
   const globalSubscribers = new Set()
@@ -672,7 +672,11 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       }
 
       // Standalone ledger persistence (exact compatible schema with v0.4.0 event ledger).
-      const dedupeKey = eventId !== '' ? `${source}\0${eventId}` : ''
+      const now = Date.now()
+      const book = privateBotId
+        ? `events-priv-${privateBotId}-${monthKey(now)}`
+        : `events-${monthKey(now)}`
+      const dedupeKey = eventId !== '' ? JSON.stringify([principal.keyId, book, target?.kind ?? null, target?.id ?? null, source, eventId]) : ''
       if (dedupeKey !== '' && dedupeEvents.has(dedupeKey)) {
         return {
           ledgerEventId: dedupeEvents.get(dedupeKey),
@@ -681,10 +685,6 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
         }
       }
 
-      const now = Date.now()
-      const book = privateBotId
-        ? `events-priv-${privateBotId}-${monthKey(now)}`
-        : `events-${monthKey(now)}`
       if (dedupeKey !== '') {
         const prior = rt.ledger.records(book).find(r => r?.recordKind === 'event' && r.dedupeKey === dedupeKey)
         if (prior !== undefined) {
