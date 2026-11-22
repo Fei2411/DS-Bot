@@ -296,15 +296,16 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     if (!doc?.body || !card || !layer) return undefined
     const inert = new Map()
     let target = null
+    const openPortals = () => (target ? [...doc.body.children].filter(element => element.matches?.('.bt-menu:not([data-leaving])')) : [])
     const restore = () => {
       for (const [element, previous] of inert) element.inert = previous
       inert.clear()
     }
-    const allowed = element => card.contains(element) || Boolean(target?.contains(element))
+    const allowed = element => card.contains(element) || Boolean(target?.contains(element)) || openPortals().some(portal => portal.contains(element))
     const sync = () => {
       restore()
       target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
-      const roots = [layer, target].filter(Boolean)
+      const roots = [layer, target, ...openPortals()].filter(Boolean)
       const isolate = element => {
         if (roots.includes(element)) return
         if (roots.some(root => element.contains(root))) {
@@ -323,7 +324,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     const onTab = event => {
       if (event.key !== 'Tab') return
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
-      const controls = [target, card].filter(Boolean).flatMap(root => [root, ...root.querySelectorAll(selector)])
+      const controls = [target, ...openPortals(), card].filter(Boolean).flatMap(root => [root, ...root.querySelectorAll(selector)])
         .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === 'visible')
       event.preventDefault()
       event.stopPropagation()
@@ -333,7 +334,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     sync()
     const observer = new MutationObserver(sync)
-    observer.observe(doc.body, { childList: true, subtree: true })
+    observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-leaving'] })
     doc.addEventListener('focusin', onFocus, true)
     doc.addEventListener('keydown', onTab, true)
     return () => {
@@ -347,7 +348,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   useEffect(() => {
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
-      if (isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
       const tag = event.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }

@@ -832,13 +832,15 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
     assert.equal(findAll(tree, n => n.type === 'form').length, 1)
     assert.ok(findAll(tree, n => n.props?.className?.includes('bt-seg')).length >= 1, 'Duration should use Segmented')
 
-    // Editing site, actions, and duration then clicking Cancel must discard the draft on reopen.
+    // Editing bot, site, actions, and duration then clicking Cancel must discard the draft on reopen.
+    findAll(tree, n => n.type === 'select')[0].props.onChange({ target: { value: 'writer' } })
     findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.onChange({ target: { value: 'example.com' } })
     const checkboxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
     checkboxes[1].props.onChange({ target: { checked: true } })
     const permBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0]
     permBtn.props.onClick()
     tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'select')[0].props.value, 'writer')
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, 'example.com')
     assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0].props['aria-pressed'], true)
 
@@ -848,6 +850,7 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
 
     toggleBtn().props.onClick()
     tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'select')[0].props.value, 'chief')
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, '')
     const resetBoxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
     assert.deepEqual(resetBoxes.map(b => b.props.checked), [true, false, false, false])

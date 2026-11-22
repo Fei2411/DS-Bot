@@ -49,6 +49,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     void run(actions.updateBot(bot.id, { browserGrants: next.length ? next : null }))
   }
   const resetForm = () => {
+    setBotId(bots[0]?.id ?? '')
     setSite('')
     setKinds(['post'])
     setDuration('hour')

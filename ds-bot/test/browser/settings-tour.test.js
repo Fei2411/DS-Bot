@@ -19,6 +19,7 @@ const fixture = await build({
     resolveDir,
     contents: `
       import { createElement as h, useRef, useState } from 'react'
+      import { createPortal } from 'react-dom'
       import { createRoot } from 'react-dom/client'
       import { SettingsTour } from './src/client/settings-tour.js'
       function Fixture() {
@@ -29,6 +30,8 @@ const fixture = await build({
         const [page, setPage] = useState('general')
         const [enterSends, setEnterSends] = useState(true)
         const [saves, setSaves] = useState(0)
+        const [menuOpen, setMenuOpen] = useState(false)
+        const [pickedModel, setPickedModel] = useState('')
         const trimmed = query.trim().toLowerCase()
         const pickIm = () => { setQuery(''); setTour(null); setPage('im') }
         return h('div', { className: 'bt-settings-layer' },
@@ -53,11 +56,18 @@ const fixture = await build({
               h('button', { id: 'enter-sends', role: 'switch', 'aria-checked': enterSends, onClick: () => { setEnterSends(value => !value); setSaves(value => value + 1) } }, 'Enter sends message'),
               h('output', { id: 'preference' }, String(enterSends)),
               h('output', { id: 'saves' }, saves),
-              h('div', { 'data-tour': 'bm-bar' }, h('button', { id: 'model-target' }, 'Highlighted model control')),
+              h('div', { 'data-tour': 'bm-bar' },
+                h('button', { id: 'model-target', onClick: () => setMenuOpen(open => !open) }, 'Highlighted model control'),
+                h('output', { id: 'picked-model' }, pickedModel)),
               h('div', { id: 'already-inert', inert: true }, h('button', null, 'Unavailable')),
               h('button', { id: 'dimmed', style: { marginTop: 350 }, onClick: () => setClicks(n => n + 1) }, 'Dimmed control'),
               h('output', { id: 'clicks' }, clicks)),
-            h(SettingsTour, { tour, currentPage: page, dialogRef, hasProviders: false, onNavigate: setPage, onDismiss: () => setTour(null) })))
+            h(SettingsTour, { tour, currentPage: page, dialogRef, hasProviders: false, onNavigate: setPage, onDismiss: () => setTour(null) })),
+          menuOpen ? createPortal(
+            h('div', { id: 'portal-menu', className: 'bt-menu bt-model-menu', role: 'menu', style: { top: 120, left: 240 } },
+              h('input', { id: 'portal-search', type: 'search', 'aria-label': 'Search models', autoFocus: true }),
+              h('button', { id: 'portal-pick', type: 'button', role: 'menuitemradio', onClick: () => { setPickedModel('DeepSeek Pro'); setMenuOpen(false) } }, 'DeepSeek Pro')),
+            document.body) : null)
       }
       createRoot(document.getElementById('root')).render(h(Fixture))
     `,
@@ -190,6 +200,62 @@ test('Settings guide allows clicking search hits, avoids snap-back, and replays 
           await hit.click({ timeout: 2500 })
           await page.locator('.bt-tour-layer').waitFor({ state: 'detached' })
           assert.equal(await page.locator('#current-page').textContent(), 'im')
+        } finally { await page.close() }
+      })
+    }
+  } finally { await browser.close() }
+})
+
+test('Settings guide keeps portaled .bt-menu controls interactive while dimmed controls stay inert', async (t) => {
+  const browser = await launchBrowser()
+  try {
+    for (const viewport of [{ width: 1280, height: 860 }, { width: 390, height: 844 }]) {
+      await t.test(`${viewport.width}x${viewport.height}`, async () => {
+        const page = await browser.newPage({ viewport })
+        try {
+          await page.setContent(`<style>${botOwnCss(SHELL_CSS)} *{animation:none!important;transition:none!important}</style><div id="root"></div>`)
+          await page.addScriptTag({ content: fixture.outputFiles[0].text })
+          await page.getByRole('button', { name: 'Open guide', exact: true }).click()
+          await page.locator('.bt-tour-layer[data-tour-step="search"] .bt-tour-spot').waitFor()
+          await page.getByRole('button', { name: 'Next', exact: true }).click()
+          await page.locator('.bt-tour-layer[data-tour-step="bm-bar"] .bt-tour-spot').waitFor()
+
+          // Click the highlighted trigger to portal a .bt-menu into document.body.
+          await page.locator('#model-target').click({ timeout: 2500 })
+          await page.locator('#portal-menu').waitFor()
+          assert.equal(await page.locator('#portal-menu').evaluate(element => element.closest('[inert]')), null, 'portaled .bt-menu must not be inert')
+          assert.notEqual(await page.locator('#enter-sends').evaluate(element => element.closest('[inert]')), null, 'dimmed switch must stay inert')
+          assert.notEqual(await page.locator('#dimmed').evaluate(element => element.closest('[inert]')), null, 'dimmed control must stay inert')
+
+          // Auto-focused search inside the portaled menu keeps focus and accepts input.
+          assert.equal(await page.locator('#portal-search').evaluate(element => document.activeElement === element), true)
+          await page.locator('#portal-search').fill('pro')
+          assert.equal(await page.locator('#portal-search').inputValue(), 'pro')
+
+          // Tab cycles through spotlight, portaled menu, and guide card without leaking to dimmed controls.
+          const visited = new Set()
+          const leaks = []
+          for (let i = 0; i < 12; i += 1) {
+            await page.keyboard.press('Tab')
+            const focus = await page.evaluate(() => {
+              const element = document.activeElement
+              return {
+                name: element.id || element.textContent,
+                allowed: Boolean(element.closest('[data-tour="bm-bar"]') || element.closest('#portal-menu') || element.closest('.bt-tour-card')),
+              }
+            })
+            visited.add(focus.name)
+            if (!focus.allowed) leaks.push(focus.name)
+          }
+          assert.deepEqual(leaks, [], 'Tab must stay inside spotlight, portaled menu, and guide card')
+          assert.ok(visited.has('portal-search') && visited.has('portal-pick'), 'portaled menu controls must be keyboard reachable')
+          assert.ok(visited.has('model-target'), 'spotlight control must stay keyboard reachable')
+
+          // Clicking a portaled menu option succeeds while the guide is still open.
+          await page.locator('#portal-pick').click({ timeout: 2500 })
+          await page.locator('#portal-menu').waitFor({ state: 'detached' })
+          assert.equal(await page.locator('#picked-model').textContent(), 'DeepSeek Pro')
+          assert.notEqual(await page.locator('#enter-sends').evaluate(element => element.closest('[inert]')), null, 'dimmed switch stays inert after closing portaled menu')
         } finally { await page.close() }
       })
     }
