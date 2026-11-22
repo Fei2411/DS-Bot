@@ -348,3 +348,30 @@ test('a withdrawn parallel part opened again before it is retired stays the Bot 
   assert.equal(archived.includes('w2'), true)
   await until(() => saved(home).retiredParts === undefined && saved(home).bots.w1.sessionId === 'w3')
 })
+
+// A reopen refused because a turn started meanwhile leaves the part to be retired.
+test('a withdrawn parallel part whose reopen is refused is still retired', async (t) => {
+  let failing = true
+  const { call, rt, registry } = await team(t, [], LEGACY, undefined, {
+    before: (registry) => {
+      const archive = registry.archiveSession.bind(registry)
+      registry.archiveSession = async (id, options) => {
+        if (failing) throw new Error('busy disk')
+        return archive(id, options)
+      }
+    },
+  })
+  await call('state')
+  await rt.retireParts()
+  failing = false
+  const keep = rt.keepRetiredPart
+  rt.keepRetiredPart = async (id) => {
+    const relist = await keep(id)
+    rt.live.set('w2', { turn: {} })
+    return relist
+  }
+  await assert.rejects(rt.switchPart('w1', 'w3'), { code: 'bot/busy' })
+  rt.live.delete('w2')
+  assert.equal(rt.chatOf('w1'), 'w2')
+  await until(() => [...registry.archivedSessionIds].includes('w3') && !rt.isRetiring('w3'))
+})

@@ -352,12 +352,17 @@ export function install(rt) {
   }
   // The user opens a withdrawn part again: it becomes the Bot's one chat, so it keeps
   // its turn and its reminders. Resolves once a retirement already under way is done,
-  // so the part is not archived after it has been reopened.
+  // so the part is not archived after it has been reopened, with a function that lists
+  // the part again for a reopen that fails.
   const keepRetiredPart = async (sessionId) => {
-    if (!isRetiring(sessionId)) return false
-    dropRetired(entry => entry?.sessionId === sessionId)
+    if (!isRetiring(sessionId)) return undefined
+    const kept = state.retiredParts.filter(entry => entry?.sessionId === sessionId)
+    dropRetired(entry => kept.includes(entry))
     await retiring?.catch(() => {})
-    return true
+    return () => {
+      (state.retiredParts ??= []).push(...kept)
+      void retireParts()
+    }
   }
   // How long retirement waits for DSH's schedule service, so no part is archived with
   // its reminders still on it.
