@@ -1179,6 +1179,48 @@ test('answering persisted member cards restores the room origin after a restart'
   }
 })
 
+test('legacy own-chat question deliveries accept existing answers after restart without turn origins', async (t) => {
+  for (const buttons of [true, false]) {
+    let s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    one.chats.other = { kind: 'direct', target: { botId: 'a' }, at: 1 }
+    await s.rt.save()
+    await dm(s, 'u1', 'choose')
+    s.imTurn('a')
+    await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Pre-upgrade route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'a' }, concludeTurn() {} })
+    const question = s.rt.state.questions.a
+    assert.equal(question.imOrigin, undefined)
+    await s.flush()
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    delete data.cards[`q:${question.id}`][0].binding
+    delete data.cards[`q:${question.id}`][0].numbered
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ platform: buttons ? 'telegram' : 'dingtalk', home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    s.rt.clearImOrigin('a')
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => job.text.includes('Pre-upgrade route?')).length, 0)
+    const answer = chatKey => buttons
+      ? s.fake.handlers.onAction({ chat: { key: chatKey, kind: 'direct' }, sender: { id: 'u1' }, data: `q:${question.id}:1` })
+      : s.fake.handlers.onMessage({ chat: { key: chatKey, kind: 'direct' }, sender: { id: 'u1' }, text: '2' })
+    await answer('other')
+    assert.equal(s.rt.state.questions.a.id, question.id)
+    assert.equal(s.agentOf('a').followed ?? 0, 0)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'b' } })
+    await answer('dm-u1')
+    assert.equal(s.rt.state.questions.a.id, question.id)
+    assert.equal(s.agentOf('a').followed ?? 0, 0)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'a' } })
+    await answer('dm-u1')
+    assert.equal(s.rt.state.questions.a, undefined)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /Pre-upgrade route/)
+    assert.match(s.agentOf('a').lastFollowup.content[0].text, /B/)
+  }
+})
+
 test('legacy question deliveries are resent with bindings and still accept buttons and numbers', async (t) => {
   for (const missingBinding of [true, false]) {
     for (const buttons of [true, false]) {

@@ -682,13 +682,13 @@ export function install(rt) {
   rt.roomHasImOrigin = roomId => originOf(rt.roomOf(roomId)?.sessionId ?? roomId) !== undefined
   const cardOrigin = (sessionId, card) => {
     const owner = rt.groupOwners.get(sessionId)
-    if (owner === undefined) return originOf(sessionId)
+    if (owner === undefined) return card.imOrigin === undefined ? originOf(sessionId) : originFromSaved(card.imOrigin)
     const roomSid = rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId
     if (mixed.has(roomSid)) return undefined
     return originFromSaved(card.imOrigin)
   }
   const canAnswerCard = (sessionId, card, conn, chat) => {
-    if (!rt.groupOwners.has(sessionId)) return true
+    if (!rt.groupOwners.has(sessionId) && card.imOrigin === undefined) return true
     const origin = cardOrigin(sessionId, card)
     return origin !== undefined && origin.conn.id === conn.id && origin.chatKey === chat.key
   }
@@ -993,9 +993,11 @@ export function install(rt) {
   // One card this chat was sent and has not answered yet. A button names its own
   // card, so it must never fall through to a newer card of the same kind.
   const openCard = (conn, chatKey, cardKey) => {
+    const binding = bindingOf(conn, chatKey)
+    if (binding === undefined) return undefined
     const entries = runtimes.get(conn.id)?.data?.cards[cardKey]
     const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined
-      && item.binding !== undefined && item.binding === bindingOf(conn, chatKey))
+      && (item.binding ?? legacyCardBinding(cardKey)) === binding)
     return entry === undefined ? undefined : { cardKey, entry }
   }
   const questionById = (id) => {
@@ -1009,6 +1011,17 @@ export function install(rt) {
       if (view.id === id) return { sessionId, view }
     }
     return undefined
+  }
+  const legacyCardBinding = cardKey => {
+    const id = cardKey.slice(2)
+    const found = cardKey.startsWith('q:') ? questionById(id)
+      : cardKey.startsWith('v:') ? viewById(id)
+        : rt.approvalsView?.().find(entry => entry.id === id)
+    const card = found?.question ?? found?.view ?? found
+    const sessionId = found?.sessionId
+    if (card === undefined || card.imOrigin !== undefined || card.roomId !== undefined || rt.groupOwners.has(sessionId)) return undefined
+    const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
+    return botId === undefined ? undefined : `bot:${botId}`
   }
   const answerViewCard = async (conn, chat, cardKey, index, senderId) => {
     if (openCard(conn, chat.key, cardKey) === undefined) return false
