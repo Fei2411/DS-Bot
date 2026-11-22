@@ -16,16 +16,17 @@ export const viewBottom = () => (window.visualViewport ? window.visualViewport.h
 
 // Re-renders whenever the visual viewport moves or resizes (keyboard opens, the
 // URL bar collapses), so anchored layers can re-read their anchor's rect.
-export function useViewport() {
+// `enabled` false listens to nothing, for a layer that is not open.
+export function useViewport(enabled = true) {
   const [tick, setTick] = useState(0)
   useEffect(() => {
     const viewport = window.visualViewport
-    if (!viewport) return undefined
+    if (!enabled || !viewport) return undefined
     const bump = () => setTick(value => value + 1)
     viewport.addEventListener('resize', bump)
     viewport.addEventListener('scroll', bump)
     return () => { viewport.removeEventListener('resize', bump); viewport.removeEventListener('scroll', bump) }
-  }, [])
+  }, [enabled])
   return tick
 }
 
