@@ -309,7 +309,7 @@ function SecretStoreCard({ store, actions, run, Section }) {
       : reason === 'wrong-passphrase'
         ? t('The passphrase in the environment or the passphrase file did not unlock the secrets.')
         : t('No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.')
-    return h(Section, { title: t('Encryption at rest') },
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       h('div', { className: 'bt-set-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, t('Secrets are locked')),
@@ -319,7 +319,7 @@ function SecretStoreCard({ store, actions, run, Section }) {
   }
   if (mode === 'encrypted') {
     const desc = t('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.')
-    return h(Section, { title: t('Encryption at rest') },
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       form === 'decrypt'
         ? [
             h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
@@ -336,7 +336,7 @@ function SecretStoreCard({ store, actions, run, Section }) {
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption')))))
   }
   const desc = t('Keys are stored in a file only this user can read, but the values are not encrypted.')
-  return h(Section, { title: t('Encryption at rest') },
+  return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
     form === 'encrypt'
       ? [
           h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
@@ -359,7 +359,7 @@ export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
     h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
     h('p', { key: 'about', className: 'bt-secret-about' },

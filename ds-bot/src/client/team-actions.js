@@ -160,6 +160,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteRoom: id => after(call('delete-room', { id })),
     openMenu: (menu) => { ui.set(state => ({ ...state, menu, palette: null })) },
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
+    closeNewChat: () => { ui.set(state => (state.newChat || state.newChatSection ? { ...state, newChat: null, newChatSection: null } : state)) },
+    closeExchange: () => { ui.set(state => (state.exchange ? { ...state, exchange: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
     // The avatar library: photos the user imported once, kept by the host.
@@ -218,8 +220,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
+    // The endpoint's own options: `roomId` for a member's group conversation, and
+    // `blank` or `handoff` for a Bot's own chat (neither keeps the older behavior).
+    newPart: (botId, { roomId, blank = false, handoff = false } = {}) => after(call('bot-new-part', {
+      botId,
+      ...(roomId !== undefined ? { roomId } : {}),
+      ...(blank ? { blank: true } : {}),
+      ...(handoff ? { handoff: true } : {}),
+    })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: (botId, roomId) => after(call('bot-new-part', roomId === undefined ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
       return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
