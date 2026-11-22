@@ -61,6 +61,7 @@ export function install(rt) {
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
+  const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
   const view = () => ({
     revision: state.revision,
     workspaceId: state.workspaceId ?? null,
@@ -105,8 +106,8 @@ export function install(rt) {
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
     exchangeTurns: state.exchangeTurns,
-    questions: state.questions,
-    views: state.views ?? {},
+    questions: publicCards(state.questions),
+    views: publicCards(state.views),
     closedCards: state.closedCards ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
