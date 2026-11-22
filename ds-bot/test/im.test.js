@@ -80,9 +80,12 @@ const TEAM = () => ({
   revision: 0,
 })
 
-async function start({ platform = 'telegram', adapter, seed, services = {} } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
+async function start({ platform = 'telegram', adapter, seed, home, services = {} } = {}) {
+  if (home === undefined) {
+    home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
+    seed ??= TEAM()
+  }
+  if (seed !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext({ services })
   const prompts = []
   const agents = new Map()
@@ -118,9 +121,12 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
   }
   const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? [])
     .map(listener => listener(request, next)))
-  const stop = async () => {
+  const close = async () => {
     adapters[platform] = real
     await ctx.dispose()
+  }
+  const stop = async () => {
+    await close()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   const flush = async () => { await delay(10) }
@@ -131,7 +137,7 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
     emitEvent(sessionId, 'turn/start', { turn: prompts.length })
     emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
   }
-  return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, stop, flush, platform }
+  return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, close, stop, flush, platform }
 }
 
 const FIELDS = { telegram: { token: 'tok-1234' }, dingtalk: { clientId: 'cli-1', clientSecret: 'sec-1234' } }
@@ -1295,6 +1301,78 @@ test('reply origin: an IM message this process never registered sends nothing', 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+test('WeChat replies to queued prompts admitted after restart without reopening consumed requests', async (t) => {
+  const seed = TEAM()
+  seed.im = { connections: { im_wx: {
+    id: 'im_wx', platform: 'weixin', botId: 'a', enabled: true, secrets: {},
+    paired: [{ id: 'u1', at: 1 }], chats: { u1: { kind: 'direct', at: 1 } },
+  } } }
+  const opts = { platform: 'weixin' }
+  const first = await start({ ...opts, seed })
+  let current = first
+  t.after(() => current.stop())
+  await first.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  const inbound = (s, text) => s.fake.handlers.onMessage({
+    chat: { key: 'u1', kind: 'direct' }, sender: { id: 'u1' }, text,
+  })
+  const admit = (s, prompt, sessionId = 'a') =>
+    s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: prompt.requestId }, content: prompt.content })
+  const reply = (s, text, sessionId = 'a') =>
+    s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text }] } })
+  await inbound(first, 'finished before restart')
+  const finished = first.prompts.at(-1)
+  first.imTurn()
+  first.emitEvent('a', 'turn/end', {})
+  await inbound(first, 'queued for after restart')
+  const queued = first.prompts.at(-1)
+  await inbound(first, 'also queued')
+  const secondQueued = first.prompts.at(-1)
+  await inbound(first, 'queued before re-pairing')
+  const lastQueued = first.prompts.at(-1)
+  // Take the committed state before shutdown: no shutdown-only flush may be needed
+  // for DSH's already-accepted queue to retain its reply route.
+  const snapshot = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  await first.close()
+
+  const restarted = current = await start({ ...opts, home: first.home, seed: snapshot })
+  await restarted.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, finished)
+  reply(restarted, 'duplicate must not claim a turn')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent, [])
+
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, queued, 'b')
+  reply(restarted, 'not the bound Bot', 'b')
+  restarted.emitEvent('a', 'user/message', { source: { kind: 'memory-review' } })
+  admit(restarted, queued)
+  admit(restarted, finished)
+  reply(restarted, 'reply after restart')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent.map(entry => [entry.chat.key, entry.text]), [['u1', 'reply after restart']])
+
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, secondQueued)
+  restarted.emitEvent('a', 'user/message', { source: { kind: 'tool-jobs', form: 'notice' } })
+  reply(restarted, 'background result must stay private')
+  await restarted.flush()
+  assert.equal(restarted.fake.sent.length, 1)
+
+  await restarted.rt.imEndpoint('im-unpair', { id: 'im_wx', senderId: 'u1' })
+  await inbound(restarted, 'pair again')
+  await restarted.rt.imEndpoint('im-pair', { id: 'im_wx', senderId: 'u1', allow: true })
+  restarted.fake.sent.length = 0
+  restarted.emitEvent('a', 'turn/end', {})
+  restarted.emitEvent('a', 'turn/start', {})
+  admit(restarted, lastQueued)
+  reply(restarted, 'previous pairing must not be restored')
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent, [])
 })
 
 for (const group of [false, true]) {

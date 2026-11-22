@@ -50,6 +50,7 @@ function mount(Component, firstProps) {
         self.cursor = 0
         self.effects = []
         try { self.tree = Component(self.props) } finally { instance = null }
+        assert.equal(self.cursor, self.hookCount ??= self.cursor, 'hook count changed between renders')
         for (const effect of self.effects) effect()
       } while (self.again)
       self.busy = false
@@ -65,6 +66,7 @@ function mount(Component, firstProps) {
 const listeners = []
 const sandbox = {
   window: {
+    innerWidth: 1024, innerHeight: 768,
     addEventListener: (name, fn, capture) => listeners.push({ name, fn, capture }),
     removeEventListener: (name, fn) => { const at = listeners.findIndex(entry => entry.name === name && entry.fn === fn); if (at >= 0) listeners.splice(at, 1) },
     matchMedia: () => ({ matches: false }),
@@ -84,7 +86,7 @@ const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
   ...sandbox,
   module, exports: module.exports,
-  require: name => (name === 'react' ? react : {}),
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
 })
 const { ModelMenu, EffortBar } = module.exports
 
@@ -322,4 +324,32 @@ test('a menu that is not inline stays a popup with no slider under its trigger',
   assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-inline').length, 0)
   assert.equal(nodes(popup.tree, node => node.type === EffortBar).length, 0)
   assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-trigger').length, 1)
+})
+
+test('the popup can open before models load, then focus a model row from search', () => {
+  listeners.length = 0
+  let refreshed = 0
+  const { type, props } = ModelMenu({
+    bot: { id: 'new-bots', name: 'New Bots' }, roster: { models: [] }, withEfforts: false,
+    actions: { refreshModels: () => { refreshed += 1 } },
+  })
+  const popup = mount(type, props)
+  const trigger = popup.tree.children[0]
+  trigger.props.ref.current = { getBoundingClientRect: () => ({ top: 60, bottom: 92, right: 300, width: 160 }) }
+  trigger.props.onClick()
+  assert.equal(refreshed, 1)
+  const menu = () => nodes(popup.tree, node => node.props.role === 'menu')[0]
+  const search = () => nodes(menu(), node => node.props.type === 'search')[0]
+  assert.ok(menu())
+  assert.equal(search(), undefined)
+
+  popup.rerender({ ...props, roster: { models: [{ ref: 'official/flash', provider: 'official', name: 'DeepSeek Flash' }] } })
+  assert.equal(search().props.autoFocus, true)
+  const field = {}
+  const row = { focus: () => { sandbox.document.activeElement = row } }
+  menu().props.ref.current = { querySelectorAll: () => [row] }
+  sandbox.document.activeElement = field
+  search().props.onKeyDown({ ...keydown('ArrowDown'), currentTarget: field })
+  assert.equal(sandbox.document.activeElement, row)
+  sandbox.document.activeElement = null
 })

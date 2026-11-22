@@ -25255,12 +25255,10 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
   );
 };
 var modelSearch = ({ models, query, setQuery }, menu) => {
-  const field = (0, import_react20.useRef)(null);
   return models.length > 0 ? (0, import_react20.createElement)(
     "div",
     { className: "bt-model-search", role: "presentation" },
     (0, import_react20.createElement)("input", {
-      ref: field,
       type: "search",
       className: "bt-input bt-model-search-input",
       placeholder: t("Search models…"),
@@ -25271,7 +25269,7 @@ var modelSearch = ({ models, query, setQuery }, menu) => {
       spellCheck: false,
       onChange: (event) => setQuery(event.target.value),
       onKeyDown: (event) => {
-        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) stepMenuFocus(menu.current, event, field.current);
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) stepMenuFocus(menu.current, event, event.currentTarget);
       }
     })
   ) : null;
