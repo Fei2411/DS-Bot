@@ -59,7 +59,6 @@ export function install(rt) {
   const mounts = new Map()
   // One reconcile chain per Agent: a slow MCP server holds up only its own Agent.
   const chains = new WeakMap()
-  const removalChains = new WeakMap()
   const queued = new WeakSet()
   const sessionStatuses = new Map()
   const loaded = new Map()
@@ -315,6 +314,10 @@ export function install(rt) {
     return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId), headers: resolveValues(item.headers, botId), failOnStartupError: true }
   }
   const disposeMount = async mount => {
+    if (mount) {
+      mount.active = false
+      for (const unregister of mount.registrations) unregister()
+    }
     if (mount?.fiber) await Promise.resolve().then(() => mount.fiber.dispose()).catch(() => {})
   }
   const mountOne = async (agent, bot, agentMounts, name) => {
@@ -341,22 +344,44 @@ export function install(rt) {
     const key = `${name}:${createHash('sha256').update(JSON.stringify(config)).digest('hex')}`
     if (agentMounts.get(name)?.key === key) return
     await drop()
+    if (stopped || agents.get(sessionId)?.deref() !== agent || !desiredFor(agent, botOfSession(sessionId)).has(name)) return
     statusSet(bot.id, name, sessionId, { state: 'connecting' })
-    let mounted
+    const mounted = { key, active: true, registrations: new Set() }
+    agentMounts.set(name, mounted)
     try {
+      const register = create => {
+        if (!mounted.active) return () => {}
+        const unregister = create()
+        const remove = () => {
+          mounted.registrations.delete(remove)
+          return unregister()
+        }
+        mounted.registrations.add(remove)
+        return remove
+      }
       const plugin = item.kind === 'skill'
         ? {
           name: `ds-bot-capability-skill-${name}`,
           inject: ['skills'],
           apply(c) {
-            c.effect(() => c.skills.register({ name: config.name, description: config.description, source: 'runtime', content: config.content }))
+            c.effect(() => register(() => c.skills.register({ name: config.name, description: config.description, source: 'runtime', content: config.content })))
           },
         }
         : await loadMcpPlugin()
-      if (stopped || agents.get(sessionId)?.deref() !== agent || !desiredFor(agent, botOfSession(sessionId)).has(name)) return
-      const fiber = item.kind === 'skill' ? agent.ctx.plugin(plugin) : agent.ctx.plugin(plugin, config)
-      mounted = { key, fiber }
-      agentMounts.set(name, mounted)
+      if (stopped || agents.get(sessionId)?.deref() !== agent || agentMounts.get(name) !== mounted) return
+      if (!desiredFor(agent, botOfSession(sessionId)).has(name)) {
+        await drop()
+        return
+      }
+      let mountContext = agent.ctx
+      if (item.kind === 'mcp') {
+        const tools = agent.ctx.tools
+        const scopedTools = Object.create(tools ?? null)
+        scopedTools.register = (...args) => register(() => tools.register(...args))
+        mountContext = agent.ctx.extend({ tools: scopedTools })
+      }
+      const fiber = item.kind === 'skill' ? mountContext.plugin(plugin) : mountContext.plugin(plugin, config)
+      mounted.fiber = fiber
       await fiber.await()
       if (stopped || agents.get(sessionId)?.deref() !== agent || agentMounts.get(name) !== mounted) return
       statusSet(bot.id, name, sessionId, { state: 'ready' })
@@ -364,7 +389,7 @@ export function install(rt) {
       const schemas = agent.ctx.tools?.schemas?.(agent)
       if (item.kind === 'mcp' && Array.isArray(schemas)) toolCounts.set(name, schemas.filter(tool => tool.name.startsWith(`mcp__${name}__`)).length)
     } catch (error) {
-      if (mounted && agentMounts.get(name) !== mounted) return
+      if (agentMounts.get(name) !== mounted) return
       await drop()
       const message = rt.redactSecrets([error, error?.cause].filter(Boolean).map(part => String(part?.message ?? part)).join(': ') || 'Connection failed').slice(0, 300)
       statusSet(bot.id, name, sessionId, { state: 'error', error: message })
@@ -390,29 +415,23 @@ export function install(rt) {
     return desired
   }
   const pruneAgent = agent => {
-    const run = (removalChains.get(agent) ?? Promise.resolve()).then(async () => {
-      const sessionId = agent.session.id
-      if (stopped || agents.get(sessionId)?.deref() !== agent) return
-      const bot = botOfSession(sessionId)
-      const desired = desiredFor(agent, bot)
-      if (bot) {
-        for (const name of sessionStatuses.get(bot.id)?.keys() ?? []) {
-          if (!desired.has(name)) clearStatus(bot.id, name, sessionId)
-        }
-      } else {
-        clearSession(sessionId)
+    const sessionId = agent.session.id
+    if (stopped || agents.get(sessionId)?.deref() !== agent) return
+    const bot = botOfSession(sessionId)
+    const desired = desiredFor(agent, bot)
+    if (bot) {
+      for (const name of sessionStatuses.get(bot.id)?.keys() ?? []) {
+        if (!desired.has(name)) clearStatus(bot.id, name, sessionId)
       }
-      const drops = []
-      const agentMounts = mounts.get(agent)
-      for (const [name, mount] of agentMounts ?? []) {
-        if (desired.has(name)) continue
-        agentMounts.delete(name)
-        drops.push(disposeMount(mount))
-      }
-      await Promise.all(drops)
-    })
-    removalChains.set(agent, run)
-    return run
+    } else {
+      clearSession(sessionId)
+    }
+    const agentMounts = mounts.get(agent)
+    for (const [name, mount] of agentMounts ?? []) {
+      if (desired.has(name)) continue
+      agentMounts.delete(name)
+      void disposeMount(mount)
+    }
   }
   const reconcileAgent = async (agent, bot) => {
     await pruneAgent(agent)

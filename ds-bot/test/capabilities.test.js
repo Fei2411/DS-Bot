@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { createRuntime } from '../index.js'
 import { expandCapabilityNames, validateCapabilityName } from '../src/host/capabilities.js'
 import { fakeContext } from './fake-ctx.js'
@@ -37,6 +41,7 @@ function testAgent(id, mounts, skillsBySession, { awaitMount = async () => {} } 
   const skills = new Map()
   skillsBySession.set(id, skills)
   const agentCtx = {
+    extend(meta) { return Object.assign(Object.create(this), meta) },
     effect(execute) {
       const dispose = execute()
       if (typeof dispose === 'function') disposers.push(dispose)
@@ -296,6 +301,93 @@ test('a pending MCP startup does not block another pack removal before the next 
       const catalog = ctx.sections.get('feature-packs').text({ agent })
       assert.match(catalog, /- slow: Echo service\n/, 'removed startup must not publish a late ready tool count')
     })
+  }
+})
+
+test('queued turns exclude consecutive dropped packs while the first disposal is stalled', async t => {
+  const root = new Context()
+  const cleanup = Promise.withResolvers()
+  const disposing = Promise.withResolvers()
+  let cleanupFinished = false
+  let registerLate
+  const env = await setup({ beforeLoad: ({ mcpPlugin }) => {
+    mcpPlugin.inject = ['tools']
+    mcpPlugin.apply = (c, config) => c.effect(() => {
+      const definition = {
+        name: `mcp__${config.serverName}__ping`, description: 'Ping', parameters: {},
+        output: { schema: { type: 'string' }, render: () => [] }, execute: async () => 'pong',
+      }
+      const unregister = c.tools.register(definition)
+      if (config.serverName === 'slow') registerLate = () => c.tools.register(definition)
+      return async () => {
+        if (config.serverName === 'slow') {
+          disposing.resolve()
+          await cleanup.promise
+          cleanupFinished = true
+        }
+        unregister()
+      }
+    })
+  } })
+  const { rt, ctx } = env
+  t.after(async () => {
+    cleanup.resolve()
+    await rt.reconcileCapabilities()
+    await env.dispose()
+    await root.fiber.dispose()
+  })
+  await mountAgentLoopTestDependencies(root)
+  const seen = []
+  let agent
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream(options) {
+      seen.push((options.tools ?? []).map(tool => tool.name).filter(name => name.startsWith('mcp__') && name !== 'mcp__anchor__ping'))
+      if (seen.length === 1) {
+        await rt.dropPack('chief', 'slow')
+        for (const text of ['second', 'third']) agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }))
+      } else if (seen.length === 2) {
+        await rt.dropPack('chief', 'guide')
+      }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['packs-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  root.on('session/event', (session, event) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) if (listener.length >= 2) void listener(session, event)
+  })
+  agent = await root.agentLoop.create(SessionId('chief'), { provider: 'packs-test', model: 'test' })
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  for (const name of ['slow', 'guide']) {
+    await rt.capabilitySave(mcp(name), { ui: true })
+    await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+    assert.equal(await rt.usePack('chief', name), `${name}: ready`)
+  }
+  await rt.capabilitySave(mcp('anchor'), { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'anchor' }, 'chief')
+  await rt.reconcileCapabilities()
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'first' }] }))
+  await agent.whenIdle()
+  await disposing.promise
+  assert.equal(seen.length, 3)
+  assert.deepEqual(seen[0].sort(), ['mcp__guide__ping', 'mcp__slow__ping'])
+  assert.deepEqual(seen[1], ['mcp__guide__ping'])
+  assert.deepEqual(seen[2], [], 'the third turn must not advertise either dropped pack')
+  assert.equal(cleanupFinished, false)
+  registerLate()
+  assert.deepEqual(root.tools.schemas(agent).map(tool => tool.name).filter(name => name.startsWith('mcp__')), ['mcp__anchor__ping'])
+  rt.capabilityEnsureTimeoutMs = 5
+  let timer
+  try {
+    const prepared = await Promise.race([
+      rt.ensureCapabilities('chief').then(() => true),
+      new Promise(resolve => { timer = setTimeout(resolve, 100, false) }),
+    ])
+    assert.equal(prepared, true, 'turn preparation must not wait for transport cleanup')
+  } finally {
+    clearTimeout(timer)
   }
 })
 
