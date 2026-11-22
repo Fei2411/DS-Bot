@@ -20,37 +20,46 @@ export function listedOpener({ list, open, refresh, current, begin, done, fail, 
     if (listed()) { open(target); return }
     const from = current?.()
     begin?.(target)
-    let waiting = true
-    let failed = false
+    let state = 'waiting'
     let timer
     let off = () => {}
-    const stop = () => {
-      off()
+    const clearTimer = () => {
       if (timer !== undefined) { clear(timer); timer = undefined }
     }
-    // Every wait ends once: opened, failed, or taken over by a newer navigation. A
-    // failed wait leaves the caller's card up until the next navigation lifts it.
-    const end = (asFailure) => {
-      if (!waiting) return false
-      waiting = false
-      stop()
-      if (asFailure) { failed = true; fail?.(target) } else done?.(target)
+    const unsubscribe = () => {
+      const fn = off
+      off = () => {}
+      fn()
+    }
+    // Every wait settles once: opened, dismissed by another navigation (through here or
+    // via the native shell), or taken over by a newer wait. Entering the failed state stops
+    // the deadline timer but keeps observing `list` so external navigation lifts the cover
+    // and a Session that arrives late still opens.
+    const settle = () => {
+      if (state === 'settled') return false
+      state = 'settled'
+      clearTimer()
+      unsubscribe()
+      done?.(target)
       return true
     }
-    drop = () => {
-      if (waiting) end(false)
-      else if (failed) { failed = false; done?.(target) }
+    const failWait = () => {
+      if (state !== 'waiting') return false
+      state = 'failed'
+      clearTimer()
+      fail?.(target)
+      return true
     }
+    drop = () => { settle() }
     off = list.subscribe(() => {
-      if (current?.() !== from) { end(false); return }
+      if (current?.() !== from) { settle(); return }
       if (!listed()) return
-      end(false)
-      open(target)
+      if (settle()) open(target)
     })
-    if (gone?.(target) === true) { end(true); return }
+    if (gone?.(target) === true) { failWait(); return }
     timer = schedule(() => {
-      if (!waiting || listed()) return
-      end(true)
+      if (state !== 'waiting' || listed()) return
+      failWait()
     }, waitMs)
     refresh?.()
   }

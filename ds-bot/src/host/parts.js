@@ -2193,7 +2193,7 @@ export function install(rt) {
       // so a fresh part takes its place directly and the Bot runs again.
       if (!sessionGone(error) || place.roomId !== undefined) throw error
       const bot = rt.botOf(place.botId)
-      if (bot === undefined) throw error
+      if (bot === undefined || sessionId !== rt.chatOf(bot.id)) throw error
       await openPartNow(bot, undefined)
       return true
     }
@@ -2212,28 +2212,49 @@ export function install(rt) {
   // The part the user leaves stays live: no handoff note, no archive, no stop of its
   // turn. It keeps its own earlier parts with it (threads.js). `agent` is undefined
   // when the part it replaces is gone from the Session library: there is no earlier
-  // Session to read a route from, and no running turn to hand on.
+  // Session to keep live, read a route from, or hand a running turn on from, so the
+  // lost id is retired in place instead of joining `openParts`.
   async function openPartNow(bot, agent) {
+    const lostId = agent === undefined ? rt.chatOf(bot.id) : undefined
     const dir = rt.workDirOf({ botId: bot.id })
     const freshId = await rt.createSession(bot.name, { dir })
     const picked = await freshRoute(bot, agent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
     await rt.applyPermission(bot, freshId, undefined)
       .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
+    if (rt.botOf(bot.id) !== bot || (lostId !== undefined && rt.chatOf(bot.id) !== lostId)) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
       return
     }
-    startOpenPart(bot, freshId)
-    rt.chatOwners.set(freshId, bot.id)
-    await rt.save()
+    if (lostId !== undefined) {
+      bot.sessionId = freshId
+      if (bot.sessionMissing === lostId) delete bot.sessionMissing
+      rt.chatOwners.delete(lostId)
+      rt.chatOwners.set(freshId, bot.id)
+      if (state.questions?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
+        delete state.questions[lostId]
+      }
+      if (state.views?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.views[lostId], 'dismissed')
+        delete state.views[lostId]
+      }
+      rt.renewMemory?.(lostId)
+      await rt.closeLocalAgentSession?.(lostId)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', lostId, error))
+      await rt.save()
+      await rt.moveSchedules?.(lostId, freshId)
+        .catch(error => rt.warn('ds-bot: schedules for %s not moved to %s: %s', lostId, freshId, error))
+    } else {
+      startOpenPart(bot, freshId)
+      rt.chatOwners.set(freshId, bot.id)
+      await rt.save()
+    }
     // A model the user picked while this part was being made went to the parts that were
     // registered then, and the sync recorded it as applied; this part was not one of them
     // yet, so the route picked at the top may be the old one. Read it again now that the
     // part is the Bot's, as the switch does.
-    if (agent === undefined) return
-    const now = await freshRoute(bot, agent.session)
+    const now = await freshRoute(bot, agent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
@@ -2382,11 +2403,45 @@ export function install(rt) {
     if (isTaskSession(bot, partId) || threadOfPart(bot, partId)?.thread === 'task') {
       throw Object.assign(new Error('Background tasks are read-only and cannot replace the current chat'), { code: 'bot/invalid' })
     }
+    if (bot.sessionMissing !== undefined && bot.sessionMissing === partId) {
+      throw Object.assign(new Error('This session is no longer available'), { code: 'bot/not-found' })
+    }
     const current = rt.chatOf(botId)
     if (partId === current) return false
     // A part opened while the Bot was busy is live. Making it current swaps the two
     // threads; both stay live and neither is archived or stopped.
     if (isOpenPart(bot, partId)) {
+      if (typeof ctx.sessionController?.resolveAgent === 'function') {
+        try {
+          await rt.resolveAgent(partId)
+        } catch (error) {
+          if (sessionGone(error)) throw Object.assign(new Error('This session is no longer available'), { code: 'bot/not-found' })
+          throw error
+        }
+      }
+      if (bot.sessionMissing !== undefined && bot.sessionMissing === current) {
+        const at = (bot.openParts ?? []).findIndex(part => part?.sessionId === partId)
+        const [target] = bot.openParts.splice(at, 1)
+        bot.sessionId = target.sessionId
+        bot.segments = target.segments ?? []
+        delete bot.sessionMissing
+        rt.chatOwners.delete(current)
+        if (state.questions?.[current] !== undefined) {
+          rt.closeCard?.(current, state.questions[current], 'dismissed')
+          delete state.questions[current]
+        }
+        if (state.views?.[current] !== undefined) {
+          rt.closeCard?.(current, state.views[current], 'dismissed')
+          delete state.views[current]
+        }
+        rt.renewMemory?.(current)
+        await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+        await rt.applyPermission(bot, partId, undefined).catch(() => {})
+        await rt.save()
+        await rt.moveSchedules?.(current, partId)
+          .catch(error => rt.warn('ds-bot: schedules for %s not moved to %s: %s', current, partId, error))
+        return true
+      }
       focusOpenPart(bot, partId)
       await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
       await rt.applyPermission(bot, partId, undefined).catch(() => {})
@@ -2401,16 +2456,18 @@ export function install(rt) {
     // DSH turns away every step of an archived Session and every task aimed at it, so
     // the part leaves the archive before it becomes current.
     await ctx.workspaceRegistry.unarchiveSession(partId)
+    const retiringMissing = bot.sessionMissing !== undefined && bot.sessionMissing === current
     segments.splice(at, 1)
-    segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
+    if (!retiringMissing) segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
+    if (retiringMissing) delete bot.sessionMissing
     rt.chatOwners.delete(current)
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)
-    rt.pastOwners.set(current, { botId })
+    if (!retiringMissing) rt.pastOwners.set(current, { botId })
     // Marked as a switch until its tasks sit on the opened part and it is archived, so
     // the restart pass (handOnHeld) finishes a move that fails here.
-    state.switching[current] = { botId }
+    if (!retiringMissing) state.switching[current] = { botId }
     if (state.questions[current] !== undefined) {
       rt.closeCard(current, state.questions[current], 'dismissed')
       delete state.questions[current]
@@ -2419,6 +2476,7 @@ export function install(rt) {
       rt.closeCard(current, state.views[current], 'dismissed')
       delete state.views[current]
     }
+    if (retiringMissing) rt.renewMemory?.(current)
     await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     const room = undefined
     await rt.applyPermission(bot, partId, room).catch(() => {})
@@ -2426,9 +2484,11 @@ export function install(rt) {
     // The stop that archiving runs removes the tasks still on the part, so they move first.
     try {
       await rt.moveSchedules?.(current, partId)
-      await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
-      delete state.switching[current]
-      await rt.save()
+      if (!retiringMissing) {
+        await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
+        delete state.switching[current]
+        await rt.save()
+      }
     } catch (error) {
       rt.warn('ds-bot: earlier part %s not archived: %s', current, error)
     }

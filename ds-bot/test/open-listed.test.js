@@ -157,3 +157,49 @@ test('a newer navigation lifts the failure card', () => {
   assert.deepEqual(finished, ['bot-2'])
   assert.deepEqual(opened, ['bot-1'])
 })
+
+test('external shell navigation lifts a failed card and unsubscribes', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, failed, finished, lastTimer } = rig(list, { gone: target => target === 'bot-gone' })
+
+  // Timeout failure: unrelated list updates keep the card, external mainView change lifts it.
+  show('bot-2')
+  lastTimer().fn()
+  assert.deepEqual(failed, ['bot-2'])
+  assert.deepEqual(finished, [])
+  list.set('bot-3')
+  assert.deepEqual(finished, [])
+  list.setMain('bot-3')
+  assert.deepEqual(finished, ['bot-2'])
+  assert.deepEqual(opened, [])
+  // Once dismissed, a late arrival must neither open nor call done again.
+  list.set('bot-2')
+  assert.deepEqual(opened, [])
+  assert.deepEqual(finished, ['bot-2'])
+
+  // Immediate gone failure also keeps observing external mainView navigation.
+  show('bot-gone')
+  assert.deepEqual(failed, ['bot-2', 'bot-gone'])
+  list.setMain('bot-1')
+  assert.deepEqual(finished, ['bot-2', 'bot-gone'])
+  list.set('bot-gone')
+  assert.deepEqual(opened, [])
+  assert.deepEqual(finished, ['bot-2', 'bot-gone'])
+})
+
+test('a Session that arrives late after failure lifts the card and opens once', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, failed, finished, lastTimer } = rig(list)
+  show('bot-2')
+  lastTimer().fn()
+  assert.deepEqual(failed, ['bot-2'])
+  assert.deepEqual(finished, [])
+  list.set('bot-2')
+  assert.deepEqual(finished, ['bot-2'])
+  assert.deepEqual(opened, ['bot-2'])
+  list.set('bot-3')
+  assert.deepEqual(finished, ['bot-2'])
+  assert.deepEqual(opened, ['bot-2'])
+})

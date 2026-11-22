@@ -29,12 +29,18 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set() } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   // A lock another dsh holds, written before this host loads the team.
   if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const services = {}
+  if (listed !== undefined) {
+    services.sessionQuery = {
+      listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+    }
+  }
+  if (schedules !== undefined) services.schedule = schedules
   const ctx = fakeContext({ services })
   const records = new Set()
   if (keys !== undefined) Object.assign(services, keyed(ctx, new Set(keys), records))
@@ -1475,9 +1481,15 @@ test('a Session gone from the library is marked once, and a new session can repl
     prefs: {},
     revision: 0,
   }
+  const movedSchedules = []
+  const schedules = {
+    catalog: async () => [{ id: 'sch-1', status: 'active', target: { kind: 'session', sessionId: 'gone-session' } }],
+    edit: async (req) => { movedSchedules.push(req) },
+  }
   const { call, stop, selected, attempts } = start(team, {
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     lost: new Set(['gone-session']),
+    schedules,
   })
   t.after(stop)
 
@@ -1491,15 +1503,141 @@ test('a Session gone from the library is marked once, and a new session can repl
   assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
   assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
 
-  // "New session" has no agent to switch from here; a fresh part takes the Bot's place.
+  // "New session" retires the missing Session cleanly instead of pushing it to openParts,
+  // clears sessionMissing, and retargets surviving schedules to the fresh Session.
   assert.equal((await call('bot-new-part', { botId: 'chief' })).ok, true)
   chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
   assert.notEqual(chief.sessionId, 'gone-session')
+  assert.equal(chief.sessionMissing, undefined)
+  assert.deepEqual(chief.openParts ?? [], [])
+  assert.equal(rt.chatOwners.has('gone-session'), false)
+  assert.deepEqual(movedSchedules, [{ id: 'sch-1', action: 'update', patch: { target: { kind: 'session', sessionId: chief.sessionId } } }])
   const fresh = selected.filter(entry => entry.sessionId === chief.sessionId)
   assert.equal(fresh.length, 1)
   assert.equal(fresh[0].model, 'deepseek-v4-flash')
 
-  // The replaced part is still known to be gone, so later syncs do not ask it either.
+  // The replaced part is retired, so later syncs do not ask it either.
   assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
   assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+})
+
+test('switchPart refuses to swap back to a missing Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'live-session',
+        openParts: [{ sessionId: 'gone-open', segments: [], startedAt: 2 }],
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop } = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-open']),
+  })
+  t.after(stop)
+
+  const res = await call('bot-open-part', { botId: 'chief', sessionId: 'gone-open' })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'bot/not-found')
+  assert.match(res.error.message, /no longer available/i)
+  await assert.rejects(rt.switchPart('chief', 'gone-open'), { code: 'bot/not-found' })
+  const chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionId, 'live-session')
+})
+
+test('concurrent model edit during missing-Session recovery is re-applied to the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, ctx, selected } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+
+  let releaseCreate
+  let createStarted
+  const waitingCreate = new Promise(resolve => { createStarted = resolve })
+  const origCreate = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => {
+    const created = await origCreate(...args)
+    createStarted()
+    await new Promise(resolve => { releaseCreate = resolve })
+    return created
+  }
+
+  const recovering = call('bot-new-part', { botId: 'chief' })
+  await waitingCreate
+  // User switches the Bot's model while recovery is awaiting session creation.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  releaseCreate()
+  assert.equal((await recovering).ok, true)
+
+  const chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  const freshSelections = selected.filter(entry => entry.sessionId === chief.sessionId)
+  assert.equal(freshSelections.at(-1)?.model, 'deepseek-v4-pro')
+})
+
+test('restoring a missing Session heals sessionMissing and re-applies the Bot model', async (t) => {
+  const lost = new Set(['restored-session'])
+  const listed = new Set()
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'restored-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const first = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost,
+    listed,
+  })
+  t.after(first.stop)
+
+  // Model change while Session is missing marks sessionMissing without lying that the new model applied.
+  assert.equal((await first.call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  let chief = (await first.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'restored-session')
+  const savedAfterMiss = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  assert.equal(savedAfterMiss.bots.chief.appliedModel, 'deepseek/deepseek-v4-flash')
+
+  // Simulate restart after the Session is restored into the library, even if appliedModel already matched.
+  const restoredTeam = {
+    ...savedAfterMiss,
+    bots: {
+      chief: {
+        ...savedAfterMiss.bots.chief,
+        appliedModel: 'deepseek/deepseek-v4-pro',
+      },
+    },
+  }
+  const restored = start(restoredTeam, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['restored-session']),
+  })
+  t.after(restored.stop)
+
+  await restored.call('state', {})
+  await until(() => restored.selected.some(entry => entry.sessionId === 'restored-session' && entry.model === 'deepseek-v4-pro'))
+  chief = (await restored.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, undefined)
 })

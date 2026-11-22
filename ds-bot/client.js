@@ -50066,51 +50066,55 @@ function listedOpener({ list, open, refresh, current: current2, begin, done, fai
     }
     const from = current2?.();
     begin?.(target);
-    let waiting = true;
-    let failed = false;
+    let state = "waiting";
     let timer;
     let off = () => {
     };
-    const stop = () => {
-      off();
+    const clearTimer = () => {
       if (timer !== void 0) {
         clear(timer);
         timer = void 0;
       }
     };
-    const end = (asFailure) => {
-      if (!waiting) return false;
-      waiting = false;
-      stop();
-      if (asFailure) {
-        failed = true;
-        fail2?.(target);
-      } else done?.(target);
+    const unsubscribe = () => {
+      const fn = off;
+      off = () => {
+      };
+      fn();
+    };
+    const settle = () => {
+      if (state === "settled") return false;
+      state = "settled";
+      clearTimer();
+      unsubscribe();
+      done?.(target);
+      return true;
+    };
+    const failWait = () => {
+      if (state !== "waiting") return false;
+      state = "failed";
+      clearTimer();
+      fail2?.(target);
       return true;
     };
     drop = () => {
-      if (waiting) end(false);
-      else if (failed) {
-        failed = false;
-        done?.(target);
-      }
+      settle();
     };
     off = list.subscribe(() => {
       if (current2?.() !== from) {
-        end(false);
+        settle();
         return;
       }
       if (!listed()) return;
-      end(false);
-      open(target);
+      if (settle()) open(target);
     });
     if (gone?.(target) === true) {
-      end(true);
+      failWait();
       return;
     }
     timer = schedule(() => {
-      if (!waiting || listed()) return;
-      end(true);
+      if (state !== "waiting" || listed()) return;
+      failWait();
     }, waitMs);
     refresh?.();
   };

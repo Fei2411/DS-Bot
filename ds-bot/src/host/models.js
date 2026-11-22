@@ -487,18 +487,23 @@ export function install(rt) {
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change.
+    let currentMissed = false
     if (ownChanged) for (const sessionId of ownChatSessions(bot)) {
       // A Session the library no longer holds cannot take a model, and retrying it
       // would repeat the same not-found on every sync. The Bot keeps the marker so the
       // client can offer a new Session, and a fresh part that replaces the lost one
       // takes the model as usual.
-      if (bot.sessionMissing === sessionId || goneParts.has(sessionId)) continue
+      if (bot.sessionMissing === sessionId || goneParts.has(sessionId)) {
+        if (sessionId === rt.chatOf(bot.id)) currentMissed = true
+        continue
+      }
       try {
         await selectSessionModel(sessionId, route, { force })
       } catch (error) {
         if (!sessionGone(error)) throw error
         if (sessionId === rt.chatOf(bot.id)) {
           bot.sessionMissing = sessionId
+          currentMissed = true
           rt.warn('ds-bot: the Session of %s is gone; a new session can replace it: %s', bot.name, sessionId)
           await rt.save().catch(() => {})
         } else {
@@ -514,10 +519,12 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }
     if (llm() === undefined || !ownChanged) return ref
-    bot.appliedModel = ref
-    if (effort === undefined) delete bot.appliedEffort
-    else bot.appliedEffort = effort
-    await rt.save()
+    if (!currentMissed) {
+      bot.appliedModel = ref
+      if (effort === undefined) delete bot.appliedEffort
+      else bot.appliedEffort = effort
+      await rt.save()
+    }
     if (syncGroups) await syncBotRooms(bot.id)
     return ref
   }
@@ -610,7 +617,8 @@ export function install(rt) {
   // Session that is still gone keeps its marker, so it is not tried on every sync.
   async function healMissingSessions() {
     const lost = Object.values(state.bots ?? {}).filter(bot => bot.sessionMissing !== undefined)
-    if (lost.length === 0) return
+    const healed = new Set()
+    if (lost.length === 0) return healed
     const records = await listedSessions().catch(() => undefined)
     let changed = false
     for (const bot of lost) {
@@ -618,13 +626,15 @@ export function install(rt) {
       if (owned && !(records?.has(bot.sessionMissing) ?? false)) continue
       delete bot.sessionMissing
       changed = true
+      if (owned) healed.add(bot.id)
     }
     if (changed) await rt.save().catch(() => {})
+    return healed
   }
   async function syncAll() {
-    await healMissingSessions().catch(() => {})
+    const healed = await healMissingSessions().catch(() => new Set())
     for (const bot of Object.values(state.bots)) {
-      await applyModel(bot, { syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+      await applyModel(bot, { force: healed.has(bot.id), syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }
     await syncRooms()
   }
