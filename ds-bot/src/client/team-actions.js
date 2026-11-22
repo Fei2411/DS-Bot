@@ -313,7 +313,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     apiTokenCreate: payload => after(call('api-token-create', payload)),
     apiTokenUpdate: (keyId, patch) => after(call('api-token-update', { keyId, ...patch })),
     apiTokenRevoke: keyId => after(call('api-token-revoke', { keyId })),
-    apiAudit: (options = {}) => call('api-audit', options),
+    apiAudit: (options = {}) => after(call('api-audit', options)),
     apiAuditClear: () => call('api-audit-clear', {}),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),

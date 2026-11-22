@@ -16421,7 +16421,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     apiTokenCreate: (payload) => after(call2("api-token-create", payload)),
     apiTokenUpdate: (keyId, patch) => after(call2("api-token-update", { keyId, ...patch })),
     apiTokenRevoke: (keyId) => after(call2("api-token-revoke", { keyId })),
-    apiAudit: (options = {}) => call2("api-audit", options),
+    apiAudit: (options = {}) => after(call2("api-audit", options)),
     apiAuditClear: () => call2("api-audit-clear", {}),
     imAdd: (payload) => after(call2("im-add", payload)),
     imUpdate: (id, patch) => after(call2("im-update", { id, ...patch })),
