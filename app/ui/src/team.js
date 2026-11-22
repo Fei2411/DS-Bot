@@ -130,7 +130,15 @@ export function createTeam() {
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    roster.set(indexRoster(value))
+    const indexed = indexRoster(value)
+    roster.set(indexed)
+    // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
+    const open = shown.getSnapshot()
+    if (open) {
+      const target = indexed.byId[open] ?? indexed.roomsById[open]
+      const nextPart = target ? currentPart(target) : open
+      if (nextPart && nextPart !== open) show(nextPart)
+    }
   }
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   const partFor = (id) => {

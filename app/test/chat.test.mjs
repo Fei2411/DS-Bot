@@ -9,10 +9,12 @@ import { build } from 'esbuild'
 // Enter sends; off, the field's own newline stands and the send button submits.
 // Parts of the page outside the composer are stubbed: this checks the wiring
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
+const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => texts.join(" ")\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\n',
-  'model-menu.js': 'export const ModelChoiceDock = () => null\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\n',
+  'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
+  'primitives.js': 'export const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
 }
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../ui/src/chat.js', import.meta.url))],
@@ -21,7 +23,11 @@ const { outputFiles } = await build({
   plugins: [{
     name: 'app-chat-stubs',
     setup(bundler) {
-      bundler.onResolve({ filter: /src\/client\/(cells|model-menu|api)\.js$/ }, args => ({ path: args.path.split('/').pop(), namespace: 'app-chat-stub' }))
+      bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
+      bundler.onResolve({ filter: /(src\/client\/(cells|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
+        const name = args.path.split('/').pop()
+        return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'app-chat-stub' }
+      })
       bundler.onLoad({ filter: /.*/, namespace: 'app-chat-stub' }, args => ({ contents: stubs[args.path], loader: 'js' }))
     },
   }],
@@ -44,7 +50,12 @@ const field = {
   focus() {}, closest: () => null, contains: () => false,
   addEventListener() {}, removeEventListener() {}, abort() {},
 }
+class TestComponent {
+  constructor(props) { this.props = props; this.state = {} }
+  setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state, this.props) : next) } }
+}
 const react = {
+  Component: TestComponent,
   Fragment: 'fragment',
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
   useState: (initial) => {
@@ -60,6 +71,50 @@ const react = {
 }
 const module = { exports: {} }
 const defaultCall = async () => ({ sessionId: 'b1', items: [], cursor: null })
+// Controllable SSE stream for `openSessionFollow` (`/api/bot/session?...`).
+function createSseControl() {
+  const streams = new Map()
+  const encoder = new TextEncoder()
+  const fetch = async (url, { signal } = {}) => {
+    const parsed = new URL(url, 'http://localhost')
+    const id = parsed.searchParams.get('id') ?? ''
+    const queue = []
+    let waiter = null
+    let closed = false
+    const finish = () => {
+      if (closed) return
+      closed = true
+      if (waiter) { const w = waiter; waiter = null; w({ value: undefined, done: true }) }
+    }
+    signal?.addEventListener?.('abort', finish)
+    const entry = {
+      url,
+      push(event, data) {
+        if (closed) return
+        const chunk = encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+        if (waiter) { const w = waiter; waiter = null; w({ value: chunk, done: false }) }
+        else queue.push(chunk)
+      },
+      close: finish,
+    }
+    streams.set(id, entry)
+    return {
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: () => {
+            if (queue.length > 0) return Promise.resolve({ value: queue.shift(), done: false })
+            if (closed) return Promise.resolve({ value: undefined, done: true })
+            return new Promise((resolve) => { waiter = resolve })
+          },
+          cancel: () => { finish(); return Promise.resolve() },
+        }),
+      },
+    }
+  }
+  return { fetch, get: id => streams.get(id), clear: () => { for (const s of streams.values()) s.close(); streams.clear() } }
+}
+const sse = createSseControl()
 const sandbox = {
   module, exports: module.exports,
   __testCall: defaultCall,
@@ -68,12 +123,13 @@ const sandbox = {
     if (name === 'react-dom') return { createPortal: node => node }
     throw new Error(`no platform module ${name}`)
   },
+  AbortController, TextDecoder, URLSearchParams, console,
   window: { addEventListener() {}, removeEventListener() {}, innerHeight: 800 },
-  document: { querySelector: () => null, body: {}, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
+  document: { querySelector: () => null, body: { toggleAttribute() {}, removeAttribute() {} }, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
   setTimeout: () => 0, clearTimeout() {},
   requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
-  fetch: () => { throw new Error('no fetch in test') },
+  fetch: (...args) => sse.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
 const { Chat } = module.exports
@@ -84,7 +140,13 @@ const { Chat } = module.exports
 const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
   if (!node || typeof node !== 'object') return node
-  if (typeof node.type === 'function') return expand(node.type(node.props))
+  if (typeof node.type === 'function') {
+    if (node.type.prototype instanceof TestComponent) {
+      const comp = new node.type(node.props)
+      return expand(comp.render())
+    }
+    return expand(node.type(node.props))
+  }
   return { ...node, props: { ...node.props, children: node.props.children.map(expand) } }
 }
 const mount = (props) => {
@@ -141,13 +203,21 @@ const view = (prefs, ready = true, question, { ui = {} } = {}) => {
     hooks: {
       useRoster: select => select(roster),
       useUi: select => select(ui),
+      useTurnClock: select => select({}),
       useSessionStatus: select => select(new Map()),
     },
     chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, answered, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
+  return {
+    sent,
+    answered,
+    emit: (event, data) => { for (const listener of listeners) listener(event, data) },
+    pushFrame: (frame, id = 'b1') => sse.get(id)?.push('frame', frame),
+    tree: () => instance.render(),
+    unmount: () => instance.unmount(),
+  }
 }
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {
@@ -217,17 +287,27 @@ test('Shift+Enter and IME confirmation keep their default behavior', async () =>
 
 
 test('a parallel part cannot write or clear the viewed part stream', async () => {
-  const { emit, tree } = view({})
-  await tick()
-  const text = node => JSON.stringify(node)
-  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', phase: 'start' })
-  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', text: 'foreground reply' })
-  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', phase: 'start' })
-  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', text: 'background reply' })
-  assert.match(text(tree()), /foreground reply/)
-  assert.doesNotMatch(text(tree()), /background reply/)
-  emit('message', { botId: 'b1', sessionId: 'background', item: { kind: 'bot', text: 'done', time: 100 } })
-  assert.match(text(tree()), /foreground reply/)
+  const { emit, pushFrame, tree, unmount } = view({})
+  try {
+    await tick()
+    const text = node => JSON.stringify(node)
+    pushFrame({ type: 'snapshot', header: { id: 'b1', cwd: '/tmp' }, cursor: 0, records: [], hasMore: false })
+    pushFrame({ type: 'event', event: { type: 'turn/start', seq: 1, time: 100, data: { turn: 1 } } })
+    pushFrame({ type: 'assistant-stream', frame: { type: 'start', attemptId: 'front', revision: 1, turn: 1, step: 1, startedAfterSeq: 1 } })
+    pushFrame({ type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'front', revision: 2, index: 0, time: 110, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+    pushFrame({ type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'front', revision: 3, index: 1, time: 111, chunk: { type: 'text-delta', index: 0, text: 'foreground reply' } } })
+    await tick()
+    await tick()
+    // Background part activity on the team feed cannot inject or clear the viewed session's stream.
+    emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', phase: 'start' })
+    emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', text: 'background reply' })
+    assert.match(text(tree()), /foreground reply/)
+    assert.doesNotMatch(text(tree()), /background reply/)
+    emit('message', { botId: 'b1', sessionId: 'background', item: { kind: 'bot', text: 'done', time: 100 } })
+    assert.match(text(tree()), /foreground reply/)
+  } finally {
+    unmount()
+  }
 })
 
 function mountRoom(callImpl) {

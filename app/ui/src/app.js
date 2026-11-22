@@ -6,7 +6,7 @@ import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BrandMark, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
-import { allThemes, effectsOf, themeCss, themesOf } from '../../../ds-bot/src/client/themes.js'
+import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
 import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { readAppearance } from '../../../ds-bot/src/shared/appearance.js'
@@ -35,7 +35,16 @@ function useTheme(prefs, chat, actions) {
     if (prefs?.motion) document.body.dataset.btMotion = prefs.motion
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
-    return () => { delete document.body.dataset.btEffects; style.remove() }
+    document.body.dataset.btLayout = layoutOf(prefs)
+    document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
+    document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
+    return () => {
+      delete document.body.dataset.btEffects
+      delete document.body.dataset.btLayout
+      document.body.style.removeProperty('--bt-msg-w')
+      document.body.style.removeProperty('--bt-flat-w')
+      style.remove()
+    }
   }, [prefs, chat?.background, safe, loaded])
   const mode = readAppearance(prefs?.appearance).mode
   useEffect(() => paintMode(mode), [mode])

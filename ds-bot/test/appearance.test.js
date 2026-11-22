@@ -208,6 +208,7 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   const css = appearanceCss({ appearance, theme, pictureUrl: () => 'blob:picture', fonts: true })
   assert.match(css, /--bt-r:0\.5/)
   assert.match(css, /--bt-fs:1\.142/)
+  assert.match(css, /--dsh-content-font-size:16px/)
   assert.match(css, /font-family:"Inter",-apple-system/)
   assert.match(css, /html body \.bt-row\{min-height:44px/)
   assert.match(css, /url\("blob:picture"\) center\/cover no-repeat/)

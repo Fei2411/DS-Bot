@@ -1,12 +1,15 @@
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
-import { Bubbles, ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
+import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowUpIcon } from '../../../ds-bot/src/client/icons.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { PendingQuestion } from '../../../ds-bot/src/client/questions.js'
+import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
+import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { SessionTranscript, useSessionFollow } from './session-chat.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -77,21 +80,18 @@ export function mergeLatestPage(currentItems, currentCursor, nextItems, nextCurs
 
 const userItemKey = item => (item.id !== undefined ? `id:${item.id}` : `t:${item.time ?? ''}:${item.text}`)
 
-// A Bot's own chat or a group chat: pages from `chat` / `room-chat`, new entries and
-// the reply being written from the feed. Entries that arrive while the first page loads wait for it.
-function useChat(botId, roomId, part, feed) {
-  const active = botId !== undefined || roomId !== undefined
+// Group chat: pages from `room-chat`, refreshed when the live feed announces room activity.
+function useRoomChat(roomId, part, feed, keep, onUserMatch) {
+  const active = roomId !== undefined
   const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
-  const [stream, setStream] = useState(null)
-  const [pending, setPending] = useState([])
   const ready = useRef(false)
-  const early = useRef([])
   const busy = useRef(false)
   const reloadQueued = useRef(false)
   const gen = useRef(0)
   const hasLoaded = useRef(false)
   const knownUserIds = useRef(new Set())
-  const keep = useRef(null)
+  const onUserMatchRef = useRef(onUserMatch)
+  onUserMatchRef.current = onUserMatch
 
   const load = useCallback(async (cursor, scroller, refresh = false) => {
     if (!active) return
@@ -104,55 +104,33 @@ function useChat(botId, roomId, part, feed) {
     if (cursor === undefined && !refresh) ready.current = false
     if (!refresh) setView(current => ({ ...current, loading: true, failed: false }))
     try {
-      const page = roomId !== undefined
-        ? await call('room-chat', { roomId, ...(cursor ? { cursor } : {}) })
-        : await call('chat', { botId, ...(cursor ? { cursor } : {}) })
+      const page = await call('room-chat', { roomId, ...(cursor ? { cursor } : {}) })
       if (gen.current !== myGen) return
-      const pageItems = roomId !== undefined ? adaptRoomItems(page.items) : (Array.isArray(page.items) ? page.items : [])
+      const pageItems = adaptRoomItems(page.items)
       const pageSessionId = page.sessionId ?? part
       if (cursor === undefined) {
-        const later = roomId !== undefined
-          ? []
-          : early.current.filter(entry => entry.sessionId === pageSessionId && !pageItems.some(item => sameItem(item, entry.item)))
-        early.current = []
         ready.current = true
-        const mergedItems = [...pageItems, ...later.map(entry => entry.item)]
         setView((current) => {
           if (refresh && current.sessionId === pageSessionId && current.items.length > 0) {
-            const merged = mergeLatestPage(current.items, current.cursor, mergedItems, page.cursor)
+            const merged = mergeLatestPage(current.items, current.cursor, pageItems, page.cursor)
             return { ...current, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
           }
-          return { sessionId: pageSessionId, items: mergedItems, cursor: page.cursor, loading: false, failed: false }
+          return { sessionId: pageSessionId, items: pageItems, cursor: page.cursor, loading: false, failed: false }
         })
-        if (roomId !== undefined) {
-          const initial = !hasLoaded.current
-          hasLoaded.current = true
-          const freshUsers = []
-          for (const item of pageItems) {
-            if (item.kind !== 'user') continue
-            const key = userItemKey(item)
-            if (knownUserIds.current.has(key)) continue
-            knownUserIds.current.add(key)
-            freshUsers.push(item)
-          }
-          if (freshUsers.length > 0) {
-            setPending((list) => {
-              if (list.length === 0) return list
-              const next = list.slice()
-              for (const item of freshUsers) {
-                const at = next.findIndex(entry => entry.text === item.text
-                  && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
-                if (at >= 0) next.splice(at, 1)
-              }
-              return next.length === list.length ? list : next
-            })
-          }
+        const initial = !hasLoaded.current
+        hasLoaded.current = true
+        const freshUsers = []
+        for (const item of pageItems) {
+          if (item.kind !== 'user') continue
+          const key = userItemKey(item)
+          if (knownUserIds.current.has(key)) continue
+          knownUserIds.current.add(key)
+          freshUsers.push(item)
         }
+        if (freshUsers.length > 0) onUserMatchRef.current?.(freshUsers, initial)
       } else {
-        if (roomId !== undefined) {
-          for (const item of pageItems) {
-            if (item.kind === 'user') knownUserIds.current.add(userItemKey(item))
-          }
+        for (const item of pageItems) {
+          if (item.kind === 'user') knownUserIds.current.add(userItemKey(item))
         }
         // Content added above the viewport would push the view down; keep its distance from the end.
         if (scroller) keep.current = scroller.scrollHeight - scroller.scrollTop
@@ -171,21 +149,17 @@ function useChat(botId, roomId, part, feed) {
         }
       }
     }
-  }, [active, botId, roomId, part])
+  }, [active, roomId, part, keep])
   const loadRef = useRef(load)
   loadRef.current = load
 
-  // A new part starts the chat over.
   useEffect(() => {
     const myGen = ++gen.current
     busy.current = false
     reloadQueued.current = false
     ready.current = false
     hasLoaded.current = false
-    early.current = []
     knownUserIds.current.clear()
-    setPending([])
-    setStream(null)
     setView({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
     if (active) void loadRef.current(undefined)
     return () => {
@@ -193,47 +167,17 @@ function useChat(botId, roomId, part, feed) {
       busy.current = false
       reloadQueued.current = false
     }
-  }, [active, botId, roomId, part])
+  }, [active, roomId, part])
 
-  useEffect(() => feed.on((event, data) => {
-    // The feed came back after a break: entries may have been missed.
-    if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
-    if (roomId !== undefined) {
+  useEffect(() => {
+    if (!active || !feed) return undefined
+    return feed.on((event, data) => {
+      if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
       if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
-      return
-    }
-    if (botId === undefined || data?.botId !== botId || data.sessionId !== part) return
-    if (event === 'message') {
-      if (!ready.current) { early.current.push(data); return }
-      setView(current => (data.sessionId !== current.sessionId || current.items.some(item => sameItem(item, data.item)) ? current : { ...current, items: [...current.items, data.item] }))
-      if (data.item.kind === 'user') {
-        setPending((list) => {
-          const at = list.findIndex(entry => entry.text === data.item.text)
-          return at < 0 ? list : [...list.slice(0, at), ...list.slice(at + 1)]
-        })
-      }
-      if (data.item.kind === 'bot') setStream(null)
-    } else if (event === 'stream') {
-      if (data.phase === 'start') setStream({ attemptId: data.attemptId, text: '' })
-      else if (data.phase === 'end') setStream(current => (current?.attemptId === data.attemptId ? null : current))
-      else setStream(current => (current?.attemptId === data.attemptId ? { ...current, text: current.text + data.text } : current))
-    }
-  }), [feed, botId, roomId, part])
+    })
+  }, [active, feed, roomId])
 
-  // Shown at once: the message can come back on the feed before the request returns.
-  const send = async (text, actions, sessionId) => {
-    const myGen = gen.current
-    const entry = { kind: 'user', text, time: Date.now() }
-    setPending(list => [...list, entry])
-    actions.noteSent(sessionId)
-    try {
-      await actions.send(sessionId, text)
-    } catch (error) {
-      if (gen.current === myGen) setPending(list => list.filter(item => item !== entry))
-      throw error
-    }
-  }
-  return { view, stream, pending, load, send, keep }
+  return { view, load }
 }
 
 // What the Bot views' voice button asks of a composer (DSH's composer in the plugin):
@@ -299,57 +243,139 @@ function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, us
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
-export function Chat({ sessionId, team }) {
+// DM current segments follow DSH's session log via `api/bot/session` + `session-log.js`;
+// group chats continue to read `room-chat`.
+export function Chat({ sessionId, team, registry }) {
   const { actions, hooks, chat: feed } = team
   const roster = hooks.useRoster(value => value)
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
+  const isRoom = room !== undefined
+  // Always follow the Bot's current segment (parts may roll over mid-conversation).
+  const activeSessionId = isRoom ? sessionId : (bot ? currentPart(bot) : sessionId)
   const name = bot?.name ?? room?.name ?? ''
-  const { view, stream, pending, load, send, keep } = useChat(bot?.id, room?.id, sessionId, feed)
+
+  const [pending, setPending] = useState([])
+  const sendGen = useRef(0)
+  const keep = useRef(null)
+
   useEffect(() => {
-    document.body?.toggleAttribute?.('data-bt-room', room !== undefined)
+    sendGen.current += 1
+    setPending([])
+  }, [activeSessionId])
+
+  const clearPendingUsers = useCallback((freshUsers, initial) => {
+    setPending((list) => {
+      if (list.length === 0) return list
+      const next = list.slice()
+      for (const item of freshUsers) {
+        const at = next.findIndex(entry => entry.text === item.text
+          && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
+        if (at >= 0) next.splice(at, 1)
+      }
+      return next.length === list.length ? list : next
+    })
+  }, [])
+
+  const onSessionUser = useCallback((text, time, initial) => {
+    clearPendingUsers([{ text, time }], initial)
+  }, [clearPendingUsers])
+
+  const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
+  const dmChat = useSessionFollow({
+    sessionId: activeSessionId,
+    enabled: !isRoom && Boolean(activeSessionId),
+    feed,
+    readOnly: Boolean(roster.readOnly),
+    onUserMessage: onSessionUser,
+    keep,
+  })
+
+  // While a DM reply streams text through `api/bot/session`, mark it live so the activity row yields.
+  const dmWritingText = !isRoom && writingBlocks(dmChat.log).some(block => block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '')
+  useEffect(() => {
+    if (isRoom || !activeSessionId || typeof actions.noteLive !== 'function') return undefined
+    actions.noteLive(activeSessionId, 'session-reply', dmWritingText ? { text: true } : null)
+    return () => actions.noteLive(activeSessionId, 'session-reply', null)
+  }, [isRoom, activeSessionId, dmWritingText, actions])
+
+  useEffect(() => {
+    document.body?.toggleAttribute?.('data-bt-room', isRoom)
     return () => { document.body?.removeAttribute?.('data-bt-room') }
-  }, [room !== undefined])
+  }, [isRoom])
+
   const scroller = useRef(null)
   const follow = useRef(true)
-  const question = roster.questions?.[sessionId]
-  const running = hooks.useSessionStatus(map => map.get(sessionId)?.running === true)
+  const question = roster.questions?.[activeSessionId] ?? roster.questions?.[sessionId]
+  const running = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
 
+  const contentRevision = isRoom ? roomChat.view.items : dmChat.log.revision
   useLayoutEffect(() => {
     const node = scroller.current
+    if (!node) return
     if (keep.current !== null) {
       node.scrollTop = node.scrollHeight - keep.current
       keep.current = null
     } else if (follow.current) node.scrollTop = node.scrollHeight
-  }, [view.items, stream, pending, running, question])
+  }, [contentRevision, pending, running, question])
 
   const onScroll = () => {
     const node = scroller.current
+    if (!node) return
     follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
   }
-  const earlier = view.loading && view.sessionId !== null ? h(Shimmer, null, t('Loading earlier messages…'))
-    : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor ?? undefined, scroller.current) }, t('Couldn’t load earlier messages · Retry'))
-      : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor, scroller.current) }, t('Load earlier')) : null
+
+  // Shown at once: the message can arrive on the follow/feed before the request returns.
+  const send = async (text) => {
+    const myGen = sendGen.current
+    const entry = { kind: 'user', text, time: Date.now() }
+    setPending(list => [...list, entry])
+    actions.noteSent(activeSessionId)
+    try {
+      await actions.send(activeSessionId, text)
+    } catch (error) {
+      if (sendGen.current === myGen) setPending(list => list.filter(item => item !== entry))
+      throw error
+    }
+  }
+
+  const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
+  const earlier = isRoom
+    ? (roomChat.view.loading && roomChat.view.sessionId !== null ? h(Shimmer, null, t('Loading earlier messages…'))
+      : roomChat.view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => roomChat.load(roomChat.view.cursor ?? undefined, scroller.current) }, t('Couldn’t load earlier messages · Retry'))
+        : roomChat.view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => roomChat.load(roomChat.view.cursor, scroller.current) }, t('Load earlier')) : null)
+    : (dmChat.paging ? h(Shimmer, null, t('Loading earlier messages…'))
+      : dmChat.pageFailed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => dmChat.loadEarlier(scroller.current) }, t('Couldn’t load earlier messages · Retry'))
+        : dmChat.hasMore ? h('button', { type: 'button', className: 'bt-soft', onClick: () => dmChat.loadEarlier(scroller.current) }, t('Load earlier')) : null)
+
+  const sessionNotice = !isRoom && (dmChat.terminalError || dmChat.failed)
+    ? h('div', { className: 'dsb-session-error', role: 'alert' },
+      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load earlier messages · Retry')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
+    : null
+
   const waiting = bot?.waiting === true
 
   return h('div', { className: 'dsb-chat' },
     h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', onScroll },
       h('div', { className: 'dsb-column' },
         earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
-        h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': view.loading },
-          h(ChatRows, { items: view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true }),
-          pending.length ? h('div', { className: 'dsb-pending' }, h(ChatRows, { items: pending, sessionId, roster, actions })) : null,
-          stream?.text ? h(Bubbles, { texts: [stream.text], roster, selfId: bot?.id, actions, streaming: true, sessionId }) : null,
+        sessionNotice,
+        h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+          isRoom
+            ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
+            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, thinkingAt: dmChat.thinkingAt, registry }),
+          pending.length ? h('div', { className: 'dsb-pending' }, h(ChatRows, { items: pending, sessionId: activeSessionId, roster, actions })) : null,
           // The Bot views' activity row (from the header pill) draws itself in here.
           h('div', { 'data-chat-running': '' }),
-          question ? h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
+          question ? h(PendingQuestion, { key: JSON.stringify([activeSessionId, question.id]), sessionId: activeSessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
     h('div', { className: 'dsb-composer-root' },
-      h(ModelChoiceDock, { sessionId, useRoster: hooks.useRoster, actions }),
+      h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
       h(Composer, {
-        sessionId,
+        sessionId: activeSessionId,
         disabled: waiting,
         placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
-        onSend: text => send(text, actions, sessionId),
+        onSend: send,
         actions,
         useUi: hooks.useUi,
         useRoster: hooks.useRoster,

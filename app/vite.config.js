@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 const primitives = fileURLToPath(new URL('./ui/src/primitives.js', import.meta.url))
+const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 
 // The plugin's Bot views take DSH's interface primitives from one module; the window does
 // not load DSH's interface, so its own module stands in for that one.
@@ -9,7 +10,11 @@ const ownPrimitives = {
   name: 'ds-bot-primitives',
   enforce: 'pre',
   resolveId(source, importer) {
-    return source === './dsh-primitives.js' && importer?.replaceAll('\\', '/').includes('/ds-bot/src/client/') ? primitives : null
+    const norm = source.replaceAll('\\', '/')
+    if ((norm === './dsh-primitives.js' && importer?.replaceAll('\\', '/').includes('/ds-bot/src/client/'))
+      || norm.endsWith('/ds-bot/src/client/dsh-primitives.js')) return primitives
+    if (source === '@deepseek-ai/dsh-llm/assistant-stream') return assistantStream
+    return null
   },
 }
 

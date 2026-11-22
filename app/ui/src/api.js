@@ -1,6 +1,9 @@
 // The window talks only to ds-bot's own channel in the engine: POST api/bot for reads and
-// actions (the Bot views' own `call`), and the live feed api/bot/feed for what changes.
+// actions (the Bot views' own `call`), api/bot/feed for team changes, and api/bot/session
+// for a Session's follow stream (host/session-follow.js).
 const RETRY_MS = [500, 1000, 2000, 5000]
+// A Session that is gone, refused, or malformed stops the follow loop instead of retrying forever.
+const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid'])
 
 function parseEvent(block) {
   let event = 'message'
@@ -11,6 +14,26 @@ function parseEvent(block) {
   }
   if (data.length === 0) return undefined
   try { return { event, data: JSON.parse(data.join('\n')) } } catch { return undefined }
+}
+
+async function readEventStream(body, onParsed) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer = (buffer + decoder.decode(value, { stream: true })).replaceAll('\r\n', '\n')
+      for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
+        const parsed = parseEvent(buffer.slice(0, end))
+        buffer = buffer.slice(end + 2)
+        if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) return
+      }
+    }
+  } finally {
+    try { reader.releaseLock() } catch { /* already released */ }
+  }
 }
 
 // Read over fetch: EventSource does not load from the window's own scheme. After a
@@ -25,19 +48,7 @@ export function openFeed(onEvent) {
         const response = await fetch('api/bot/feed', { signal: controller.signal, cache: 'no-store' })
         if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
         failures = 0
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        for (;;) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
-            const parsed = parseEvent(buffer.slice(0, end))
-            buffer = buffer.slice(end + 2)
-            if (parsed !== undefined) onEvent(parsed.event, parsed.data)
-          }
-        }
+        await readEventStream(response.body, (event, data) => { onEvent(event, data) })
       } catch {
         // The engine restarted or the window is going away; the loop decides.
       }
@@ -51,5 +62,118 @@ export function openFeed(onEvent) {
   return () => {
     stopped = true
     controller?.abort()
+  }
+}
+
+/**
+ * Follow one DSH Session through `GET api/bot/session` (SSE).
+ * Reconnects with backoff on transient drops, stops on terminal errors (`bot/not-found`,
+ * `bot/refused`, `bot/invalid`), and supports an immediate `reopen()` when the window sees
+ * a frame gap or a read-only refresh signal.
+ * @param {{ sessionId: string, parent?: string, mode?: string, max?: number }} request
+ * @param {(event: 'frame' | 'error' | 'end' | 'lost', data: any) => void} onEvent
+ * @returns {{ close: () => void, reopen: () => void }}
+ */
+export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
+  const params = new URLSearchParams({ id: sessionId })
+  if (parent) params.set('parent', parent)
+  if (mode) params.set('mode', mode)
+  if (max !== undefined) params.set('max', String(max))
+  const url = `api/bot/session?${params.toString()}`
+
+  let stopped = false
+  let terminal = false
+  let reopenNow = false
+  let running = false
+  let controller = null
+  let wakeTimer = 0
+  let wakeResolve = null
+
+  const wake = () => {
+    if (wakeTimer) { clearTimeout(wakeTimer); wakeTimer = 0 }
+    if (wakeResolve) { const done = wakeResolve; wakeResolve = null; done() }
+  }
+
+  const sleep = ms => new Promise((resolve) => {
+    wakeResolve = resolve
+    wakeTimer = setTimeout(() => { wakeTimer = 0; wakeResolve = null; resolve() }, ms)
+  })
+
+  const run = async () => {
+    if (running) return
+    running = true
+    try {
+      for (let failures = 0; !stopped && !terminal;) {
+        reopenNow = false
+        controller = new AbortController()
+        const myController = controller
+        let sawFrame = false
+        try {
+          const response = await fetch(url, { signal: myController.signal, cache: 'no-store' })
+          if (!response.ok) {
+            let body = null
+            try { body = await response.json() } catch { /* plain status */ }
+            const code = body?.error?.code ?? (response.status === 400 ? 'bot/invalid' : 'bot/error')
+            const message = body?.error?.message ?? `HTTP ${response.status}`
+            if (TERMINAL_SESSION_ERRORS.has(code) || response.status === 400) {
+              terminal = true
+              onEvent('error', { code, message })
+              return
+            }
+            throw new Error(message)
+          }
+          if (response.body === null) throw new Error('Empty response body')
+          failures = 0
+          await readEventStream(response.body, (event, data) => {
+            if (stopped || myController.signal.aborted) return false
+            if (event === 'frame') {
+              sawFrame = true
+              onEvent('frame', data)
+              return !reopenNow
+            }
+            if (event === 'error') {
+              if (TERMINAL_SESSION_ERRORS.has(data?.code)) terminal = true
+              onEvent('error', data ?? { code: 'bot/error', message: 'Session follow failed' })
+              if (terminal) { myController.abort(); return false }
+              return true
+            }
+            if (event === 'end') {
+              onEvent('end', data ?? {})
+              return false
+            }
+            return true
+          })
+        } catch {
+          // Transient abort, network drop, or host restart; loop decides whether to reopen.
+        }
+        if (stopped || terminal) return
+        if (reopenNow) {
+          failures = 0
+          continue
+        }
+        if (!sawFrame) onEvent('lost', {})
+        await sleep(RETRY_MS[Math.min(failures, RETRY_MS.length - 1)])
+        if (!reopenNow) failures += 1
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  void run()
+  return {
+    close() {
+      stopped = true
+      controller?.abort()
+      wake()
+    },
+    reopen() {
+      if (stopped) return
+      terminal = false
+      reopenNow = true
+      controller?.abort()
+      wake()
+      if (!running) void run()
+    },
   }
 }

@@ -812,7 +812,9 @@ test('room-chat adapter renders distinct group members and round events in ChatR
     UserMessageContent: () => null,
   }
   new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
-    id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives
+      : id === '@deepseek-ai/dsh-llm/assistant-stream' ? { assembleAssistantStream: () => ({ push() {}, blocks: () => [] }) }
+        : id === 'react-dom' ? { createPortal: el => el } : harness.React
   ))
   const { ChatRows, adaptRoomItems } = mod.exports
 
