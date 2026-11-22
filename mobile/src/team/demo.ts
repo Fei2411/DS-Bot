@@ -327,5 +327,5 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     }
   }, [data])
 
-  return { team: stateRef.current, online: true, error: null, call }
+  return { team: { ...stateRef.current }, online: true, error: null, call }
 }
