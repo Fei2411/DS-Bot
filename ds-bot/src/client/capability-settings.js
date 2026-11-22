@@ -196,13 +196,14 @@ export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
     items.map(item => {
       const saved = savedMode(item.name)
       const mode = modeOf(item.name)
-      const sources = mode === 'off' ? items.filter(pack => pack.kind === 'pack' && pack.items?.includes(item.name) && modeOf(pack.name) !== 'off') : []
+      const sources = mode !== 'always' ? items.filter(pack => pack.kind === 'pack' && pack.items?.includes(item.name)
+        && (modeOf(pack.name) === 'always' || (mode === 'off' && modeOf(pack.name) === 'catalog'))) : []
       const needsApproval = (mode !== 'off' || sources.length > 0) && item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
       const hint = mode === 'always' && !needsApproval ? statusText(statuses[item.name]) : undefined
       return h('div', { key: item.name, className: 'bt-set-row bt-bs-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, item.name),
-          sources.map(pack => h('span', { key: pack.name, className: 'bt-set-hint bt-capability-hint' }, t('Off'), ' · ',
+          sources.map(pack => h('span', { key: pack.name, className: 'bt-set-hint bt-capability-hint' }, mode === 'off' ? `${t('Off')} · ` : null,
             modeOf(pack.name) === 'always' ? t('Always on via {name}', { name: pack.name }) : t('In catalog via {name}', { name: pack.name }))),
           needsApproval ? h('span', { className: 'bt-set-hint bt-capability-hint' }, t('Needs approval'), ' · ', t('Allow it in Shared capabilities.')) : null,
           hint ? h('span', { className: 'bt-set-hint' }, hint) : null),

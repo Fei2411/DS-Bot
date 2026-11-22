@@ -27194,7 +27194,7 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
     items.map((item) => {
       const saved = savedMode(item.name);
       const mode = modeOf(item.name);
-      const sources = mode === "off" ? items.filter((pack) => pack.kind === "pack" && pack.items?.includes(item.name) && modeOf(pack.name) !== "off") : [];
+      const sources = mode !== "always" ? items.filter((pack) => pack.kind === "pack" && pack.items?.includes(item.name) && (modeOf(pack.name) === "always" || mode === "off" && modeOf(pack.name) === "catalog")) : [];
       const needsApproval = (mode !== "off" || sources.length > 0) && item.kind === "mcp" && item.transport === "stdio" && !item.approved;
       const hint = mode === "always" && !needsApproval ? statusText(statuses[item.name]) : void 0;
       return (0, import_react24.createElement)(
@@ -27207,8 +27207,7 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3 }) {
           sources.map((pack) => (0, import_react24.createElement)(
             "span",
             { key: pack.name, className: "bt-set-hint bt-capability-hint" },
-            t("Off"),
-            " · ",
+            mode === "off" ? `${t("Off")} · ` : null,
             modeOf(pack.name) === "always" ? t("Always on via {name}", { name: pack.name }) : t("In catalog via {name}", { name: pack.name })
           )),
           needsApproval ? (0, import_react24.createElement)("span", { className: "bt-set-hint bt-capability-hint" }, t("Needs approval"), " · ", t("Allow it in Shared capabilities.")) : null,

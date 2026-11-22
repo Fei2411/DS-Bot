@@ -196,7 +196,28 @@ test('inactive packs and direct attachments do not show inherited Off hints', ()
   const extra = { roster: { capabilities: library } }
   assert.ok(!textOf(render({}, extra)).includes('via research-tools'))
   assert.ok(!textOf(render({ capabilities: ['echo', 'research-tools'] }, extra)).includes('via research-tools'))
-  assert.ok(!textOf(render({ capabilities: ['research-tools'], packs: ['echo'] }, extra)).includes('via research-tools'))
+  const catalog = render({ capabilities: ['research-tools'], packs: ['echo'] }, extra)
+  assert.ok(textOf(catalog).includes('Always on via research-tools'))
+  assert.ok(!textOf(catalog).includes('Off · Always on via research-tools'))
+  assert.equal(groups(catalog).find(node => node.props.label === 'echo').props.value, 'catalog')
+  assert.ok(!textOf(render({ packs: ['research-tools', 'echo'] }, extra)).includes('via research-tools'))
+})
+
+test('Off → In catalog keeps an Always-on pack source before and after saving', async () => {
+  const library = [
+    { name: 'writing-guide', kind: 'skill' },
+    { name: 'research-tools', kind: 'pack', items: ['writing-guide'] },
+  ]
+  const row = deferredRow({ capabilities: ['research-tools'] }, library)
+  assert.ok(row.text().includes('Off · Always on via research-tools'))
+  row.click('In catalog', 'writing-guide')
+  assert.equal(row.mode('writing-guide'), 'catalog')
+  assert.ok(row.text().includes('Always on via research-tools'))
+  assert.ok(!row.text().includes('Off · Always on via research-tools'))
+  await row.settle(0)
+  assert.equal(row.mode('writing-guide'), 'catalog')
+  assert.ok(row.text().includes('Always on via research-tools'))
+  assert.deepEqual(row.calls, [['writer', 'writing-guide', true, 'catalog']])
 })
 
 test('inherited sources follow pending pack choices immediately and restore on failure', async () => {
