@@ -1883,6 +1883,7 @@ const ZH = {
   "Conversation compacted": "对话已压缩",
   "{count} earlier messages compacted": "已压缩 {count} 条较早消息",
   "Session unavailable": "会话不可用",
+  "Couldn’t load this conversation": "无法加载这段对话",
   "This view could not be shown.": "这个视图无法显示。",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",

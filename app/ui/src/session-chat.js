@@ -1,10 +1,13 @@
 // DM current-segment chat over `api/bot/session` (host/session-follow.js) and
 // `ds-bot/src/client/session-log.js`: follows DSH frames directly, pages earlier
-// messages via `session-page`, and renders user messages, Markdown replies, thinking,
-// tool calls (via `tool.call.toolview` -> GenericToolCard), compaction markers, and events.
+// messages via `session-page`, bridges earlier segments via `EarlierParts`, and renders
+// user messages, settled card replies, Markdown replies, thinking, tool calls
+// (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
+// compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
-import { Bubbles, ThinkingRow } from '../../../ds-bot/src/client/cells.js'
+import { Bubbles, EarlierParts, PartLine, ThinkingRow } from '../../../ds-bot/src/client/cells.js'
+import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
 import { CheckIcon, ChevronRightIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
@@ -15,14 +18,15 @@ import { clockLabel, messageClock } from '../../../ds-bot/src/client/text.js'
 import { layoutOf, thinkingShown } from '../../../ds-bot/src/client/themes.js'
 import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.js'
 import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
+import { AnsweredReply, WidgetCell } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
-import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { buildSessionRows } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { ToolCallCard } from './tool-card.js'
 
 const PAGE_SIZE = 40
 const SEPARATOR_GAP_MS = 30 * 60 * 1000
+const NO_UI_HOOK = () => false
 
 const userTextOf = event => contentParts(event?.data?.content).text
 
@@ -34,6 +38,28 @@ function collectUserEvents(events) {
   return out
 }
 
+// Recover reasoning start time from an activeAttempt's compact stream on reconnect,
+// falling back to `now` when live chunks arrive without a prior baseline timestamp.
+function reasoningStartFrom(log, existing, now) {
+  const writing = log.writing
+  if (!writing) return Object.keys(existing).length === 0 ? existing : {}
+  const attemptId = writing.attemptId ?? 'live'
+  if (attemptId in existing) return existing
+  for (const record of Array.isArray(writing.base) ? writing.base : []) {
+    if (record?.type === 'reasoning-chunks' && Number.isFinite(record.time0)) {
+      return { ...existing, [attemptId]: record.time0 }
+    }
+    if (record?.type === 'chunk' && record.chunk?.type === 'block-start' && record.chunk?.blockType === 'reasoning' && Number.isFinite(record.time)) {
+      return { ...existing, [attemptId]: record.time }
+    }
+  }
+  const blocks = writingBlocks(log)
+  if (blocks.some(block => block?.type === 'reasoning' && typeof block.text === 'string' && block.text.trim() !== '')) {
+    return { ...existing, [attemptId]: now }
+  }
+  return existing
+}
+
 /**
  * Follows one Bot's current Session via `api/bot/session` and pages older records
  * via `session-page`, keeping `SessionLog` in sync across reconnects and read-only updates.
@@ -41,6 +67,7 @@ function collectUserEvents(events) {
 export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMessage, keep, openFollow = openSessionFollow }) {
   const [state, setState] = useState(() => ({
     log: emptyLog(),
+    thinkingAt: {},
     loading: enabled,
     paging: false,
     failed: false,
@@ -53,7 +80,6 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
-  const thinkingAtRef = useRef(new Map())
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
   const openFollowRef = useRef(openFollow)
@@ -64,34 +90,18 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     pagingRef.current = false
     openedRef.current = false
     seenUserSeqsRef.current = new Set()
-    thinkingAtRef.current = new Map()
     const fresh = emptyLog()
     logRef.current = fresh
-    setState({ log: fresh, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
+    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
     if (!enabled || !sessionId) return undefined
-
-    const recordThinkingStart = (log) => {
-      const writing = log.writing
-      if (!writing) {
-        thinkingAtRef.current.clear()
-        return
-      }
-      const attemptId = writing.attemptId ?? 'live'
-      if (thinkingAtRef.current.has(attemptId)) return
-      const blocks = writingBlocks(log)
-      if (blocks.some(block => block?.type === 'reasoning' && typeof block.text === 'string' && block.text.trim() !== '')) {
-        thinkingAtRef.current.set(attemptId, Date.now())
-      }
-    }
 
     const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
         const next = applyFrame(logRef.current, data)
         logRef.current = next.log
-        recordThinkingStart(next.log)
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
-        // matching historical duplicates.
+        // matching historical duplicates or dropping messages on a gap-reopen frame.
         if (data?.type === 'snapshot') {
           const initial = !openedRef.current
           openedRef.current = true
@@ -101,13 +111,21 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
             seenUserSeqsRef.current.add(userEv.seq)
             onUserRef.current?.(userTextOf(userEv), userEv.time, initial)
           }
-        } else if (data?.type === 'event' && data.event?.type === 'user/message' && data.event.data?.source?.kind === 'user') {
+        } else if (!next.reopen && data?.type === 'event' && data.event?.type === 'user/message' && data.event.data?.source?.kind === 'user') {
           if (!seenUserSeqsRef.current.has(data.event.seq)) {
             seenUserSeqsRef.current.add(data.event.seq)
             onUserRef.current?.(userTextOf(data.event), data.event.time, false)
           }
         }
-        setState(current => ({ ...current, log: next.log, loading: false, failed: false, terminalError: null }))
+        const now = Date.now()
+        setState(current => ({
+          ...current,
+          log: next.log,
+          thinkingAt: reasoningStartFrom(next.log, current.thinkingAt, now),
+          loading: false,
+          failed: false,
+          terminalError: null,
+        }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
         const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid'
@@ -148,12 +166,15 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     try {
       const page = await call('session-page', { sessionId, beforeSeq, maxMessages: PAGE_SIZE })
       if (genRef.current !== myGen) return
-      for (const userEv of collectUserEvents(page?.records?.map(record => record.event))) {
-        seenUserSeqsRef.current.add(userEv.seq)
-      }
-      if (scroller && keep) keep.current = scroller.scrollHeight - scroller.scrollTop
       const next = addPage(logRef.current, page)
-      logRef.current = next
+      if (next !== logRef.current) {
+        for (const userEv of collectUserEvents(page?.records?.map(record => record.event))) {
+          seenUserSeqsRef.current.add(userEv.seq)
+        }
+        // Only anchor scroll when the page actually prepended onto the active log.
+        if (scroller && keep) keep.current = scroller.scrollHeight - scroller.scrollTop
+        logRef.current = next
+      }
       setState(current => ({ ...current, log: next, paging: false, pageFailed: false }))
     } catch {
       if (genRef.current !== myGen) return
@@ -176,7 +197,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     pageFailed: state.pageFailed,
     terminalError: state.terminalError,
     hasMore: pageBefore(state.log) !== undefined,
-    thinkingAt: thinkingAtRef.current,
+    thinkingAt: state.thinkingAt,
     loadEarlier,
     retry,
   }
@@ -228,6 +249,8 @@ function UserRow({ row, sessionId, roster, actions }) {
     window.addEventListener('touchstart', onDown)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
   }, [toolsOpen])
+  const hasAttachments = Array.isArray(row.attachments) && row.attachments.length > 0
+  if (row.text === '' && !hasAttachments) return null
   const tapTools = (event) => {
     if (!noHover() || (event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]'))) return
     setToolsOpen(value => !value)
@@ -237,14 +260,16 @@ function UserRow({ row, sessionId, roster, actions }) {
     ? h('button', { key: index, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
       h(BotMark, { bot: part.bot, size: 16 }), part.label)
     : h(Fragment, { key: index }, part.text)))
-  const sentAt = Number.isFinite(row.time) ? messageClock(row.time) : undefined
+  const hasTime = Number.isFinite(row.time)
+  const sentAt = hasTime ? messageClock(row.time) : undefined
+  const timeTitle = hasTime ? clockLabel(row.time) : undefined
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       h(UserAttachments, { attachments: row.attachments }),
-      row.text !== '' ? h('div', { className: 'bt-ubody', title: clockLabel(row.time), 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
+      row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control) : null,
-      (sentAt || row.via) ? h('div', { className: 'bt-utime', title: clockLabel(row.time) },
+      (sentAt || row.via) ? h('div', { className: 'bt-utime', title: timeTitle },
         row.via ? h(ViaTag, { via: row.via }) : null,
         sentAt) : null),
     row.text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyTextButton, { text: row.text })))
@@ -309,11 +334,19 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
   const showThinking = thinkingShown(roster.prefs)
   const selfId = bot?.id ?? sessionId
   const flat = layoutOf(roster.prefs) === 'flat'
+  // Preserve reactions saved under legacy `ChatRows` keys (`${sessionId}:${time}`) while
+  // using DSH-aligned `${sessionId}:${turn}:${seq}` for newly added reactions.
+  const legacyKey = Number.isFinite(row.time) ? `${sessionId}:${row.time}` : undefined
+  const primaryKey = `${sessionId}:${row.turn ?? ''}:${row.seq ?? ''}`
+  const useReadUi = typeof useUi === 'function' ? useUi : NO_UI_HOOK
+  const hasLegacyReaction = useReadUi(state => Boolean(legacyKey && state?.reactions?.[legacyKey]))
+  const msgKey = row.streaming ? undefined : (hasLegacyReaction ? legacyKey : primaryKey)
+
   const hasThinking = showThinking && row.reasoning !== ''
   const hasActivity = row.activity.length > 0
   const hasTexts = row.texts.length > 0
   if (!hasThinking && !hasActivity && !hasTexts) return null
-  const liveAt = row.thinkingLive ? thinkingAt?.get?.(row.attemptId ?? 'live') : undefined
+  const liveAt = row.thinkingLive ? thinkingAt?.[row.attemptId ?? 'live'] : undefined
   return h(Fragment, null,
     showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
     hasActivity ? h('div', { className: 'bt-agent-activity' }, row.activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
@@ -322,7 +355,7 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
     hasThinking ? h(ThinkingRow, {
       text: row.reasoning,
       live: row.thinkingLive,
-      viewKey: `${sessionId}:${row.turn ?? row.seq ?? row.attemptId ?? 'live'}`,
+      viewKey: `${sessionId}:${row.turn ?? 't'}:${row.step ?? row.seq ?? row.attemptId ?? 'live'}`,
       textInteractionSource: !row.streaming,
       ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
     }) : null,
@@ -333,12 +366,31 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
       actions,
       streaming: row.streaming,
       sessionId,
-      msgKey: row.streaming ? undefined : `${sessionId}:${row.turn ?? ''}:${row.seq ?? ''}`,
+      msgKey,
       useUi,
       fold: FOLD_HUGE,
       time: flat || row.streaming ? undefined : row.time,
       textInteractionSource: !row.streaming,
     }) : null)
+}
+
+// Inline renderer for `show_view` tool calls so display-only and active/settled cards render
+// through DS Bot's WidgetCell instead of raw JSON arguments, unless overridden by a slot.
+function ShowViewCard({ row, sessionId, roster, actions }) {
+  useEffect(() => {
+    if (!row.callId || typeof actions?.noteCards !== 'function') return undefined
+    actions.noteCards(sessionId, [row.callId], 1)
+    return () => actions.noteCards(sessionId, [row.callId], -1)
+  }, [sessionId, row.callId, actions])
+  return h(WidgetCell, {
+    sessionId,
+    callId: row.callId,
+    args: row.block?.args,
+    done: row.phase === 'result',
+    isError: row.block?.isError === true,
+    roster,
+    actions,
+  })
 }
 
 function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
@@ -353,36 +405,52 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
   }
   const code = row.error?.code ?? ''
   const text = failureText(code, { name: bot?.name ?? t('This Bot'), provider: t('The model service') })
-  return h('div', { className: 'bt-fail', 'data-settled': '', role: 'status', title: row.error?.message || code || undefined },
+  const title = code === 'AUTH' ? code : (row.error?.message || code || undefined)
+  return h('div', { className: 'bt-fail', 'data-settled': '', role: 'status', title },
     h('div', { className: 'bt-fail-head' }, h('span', { className: 'bt-fail-dot', 'aria-hidden': true }), h('span', { className: 'bt-fail-text' }, text)))
 }
 
 /**
- * Renders the projected DM session transcript (time separators, user messages,
- * thinking, Markdown replies, tool call cards via `tool.call.toolview`, compaction
- * checkpoints, Bot/schedule events, and turn errors).
+ * Renders the projected DM session transcript (earlier segments via EarlierParts,
+ * time separators, user messages, settled card replies, thinking, Markdown replies,
+ * tool call cards via `tool.call.toolview` / `WidgetCell` / `GenericToolCard`,
+ * compaction checkpoints, Bot/schedule events, and failed turns).
  */
-export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi, useRoster, useTurnClock, thinkingAt, registry = defaultSlots }) {
+export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi, useRoster, useTurnClock, thinkingAt, hasMore = false, registry = defaultSlots }) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
+  // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
+  // soon as a Retry turn starts, even before the new turn emits any assistant text.
   useEffect(() => {
     if (typeof actions?.noteTurnTime !== 'function') return
+    for (const event of Array.isArray(log?.events) ? log.events : []) {
+      const turn = event?.data?.turn
+      if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
+      if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
+      else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
+    }
     for (const row of rows) {
       if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
         actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
       }
     }
-  }, [rows, sessionId, actions])
+  }, [log?.events, rows, sessionId, actions])
+
   const selfId = bot?.id ?? sessionId
   const cwd = log?.header?.cwd
   const showThinking = thinkingShown(roster.prefs)
   const flat = layoutOf(roster.prefs) === 'flat'
+  const canLoadEarlierParts = typeof actions?.earlier === 'function'
+  const hasPartStart = rows.some(row => row.kind === 'part-start')
+  const showTopEarlierParts = !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 1
   const seenTurnSpeaker = new Set()
   let prevTime
 
-  return rows.flatMap((row) => {
+  const projected = rows.flatMap((row) => {
     if (row.kind === 'part-start') {
       prevTime = undefined
-      return [h('div', { key: row.key, className: 'bt-part-line', role: 'separator' })]
+      return [canLoadEarlierParts
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions })
+        : h(PartLine, { key: row.key, time: row.time })]
     }
 
     // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
@@ -402,13 +470,23 @@ export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi,
     const pause = Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.time)) prevTime = row.time
 
+    const renderTool = () => h(Fragment, null,
+      showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
+      h(ToolCallCard, {
+        entry: row,
+        cwd,
+        registry,
+        fallback: row.toolName === 'show_view' && row.phase !== 'preparing'
+          ? () => h(ShowViewCard, { row, sessionId, roster, actions })
+          : undefined,
+      }))
+
     const renderDefault = () => {
       switch (row.kind) {
         case 'user': return h(UserRow, { row, sessionId, roster, actions })
+        case 'answer': return h(AnsweredReply, { node: { data: row.data } })
         case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt })
-        case 'tool': return h(Fragment, null,
-          showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
-          h(ToolCallCard, { entry: row, cwd, registry }))
+        case 'tool': return renderTool()
         case 'compaction': return h(CompactionRow, { row })
         case 'event': return h(SessionEventRow, { row, selfId, roster, actions })
         case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions })
@@ -430,4 +508,8 @@ export function SessionTranscript({ log, sessionId, bot, roster, actions, useUi,
       ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
       : [node]
   })
+
+  return showTopEarlierParts
+    ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions }), ...projected]
+    : projected
 }

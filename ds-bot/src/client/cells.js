@@ -498,7 +498,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
     panel === undefined ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openMemory(panel) }, t('Manage')))
 }
 
-function PartLine({ time }) {
+export function PartLine({ time }) {
   return h('div', { className: 'bt-part-line', role: 'separator' }, Number.isFinite(time) ? h('span', null, dayLabel(time)) : null)
 }
 
@@ -523,7 +523,7 @@ function EarlierUser({ row, actions }) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-function EarlierParts({ sessionId, roster, actions }) {
+export function EarlierParts({ sessionId, roster, actions }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)

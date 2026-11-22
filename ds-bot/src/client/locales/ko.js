@@ -2056,6 +2056,7 @@ export const KO = {
   "Conversation compacted": "대화가 압축되었습니다",
   "{count} earlier messages compacted": "이전 메시지 {count}개가 압축되었습니다",
   "Session unavailable": "세션을 사용할 수 없습니다",
+  "Couldn’t load this conversation": "이 대화를 불러올 수 없습니다",
   "This view could not be shown.": "이 보기를 표시할 수 없습니다.",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",

@@ -94,6 +94,8 @@ export function App() {
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
   }
+  // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
+  const chatKey = chat?.id ?? shown
   return h('div', { className: 'dsb-frame', 'data-rail': wide ? undefined : '', 'data-drawer-open': drawerOpen ? '' : undefined },
     drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
     h('aside', { className: 'dsb-side' },
@@ -110,9 +112,9 @@ export function App() {
         type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
         onClick: () => setDrawerOpen(open => !open),
       }, h(SidebarIcon)),
-      shown ? h(Fragment, { key: shown },
+      shown ? h(Fragment, { key: chatKey },
         h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
-        h(Chat, { key: shown, sessionId: shown, team })) : null),
+        h(Chat, { key: chatKey, sessionId: shown, team })) : null),
     h(Contain, { onError: closeOverlays }, h(Overlays, views)),
     h(ErrorToast, views))
 }

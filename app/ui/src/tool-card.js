@@ -1,18 +1,21 @@
 // Tool call presentation for the desktop window's own interface:
-// dispatches every atomic call through the DSH-compatible `tool.call.toolview` slot keyed
-// by wire tool name, falling back to `GenericToolCard` (name, summary, status, arguments,
-// and foldable result).
+// dispatches every atomic call (and nested PTC sub-call) through the DSH-compatible
+// `tool.call.toolview` slot keyed by wire tool name, falling back to `GenericToolCard`
+// (name, summary, status, arguments, and foldable result).
 import { createElement as h, useCallback, useMemo, useState } from 'react'
+import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { CheckIcon, ChevronRightIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { elapsedLabel } from '../../../ds-bot/src/client/text.js'
-import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SlotOutlet, TOOL_VIEW_SLOT, slots as defaultSlots } from './slots.js'
 
 const SUMMARY_KEYS = ['description', 'file_path', 'path', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'bot', 'group', 'name', 'title']
 const SUMMARY_MAX = 96
 const FOLD_LINES = 12
 const FOLD_CHARS = 1200
+
+const NOOP_OPEN_FILE = () => {}
+const NOOP_LOAD_IMAGE = () => Promise.resolve(undefined)
 
 function compactLine(value) {
   const flat = String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -22,27 +25,29 @@ function compactLine(value) {
 export function argSummary(args) {
   if (!args) return ''
   for (const key of SUMMARY_KEYS) {
-    const value = args.text?.(key)
+    const value = args.textPrefix?.(key, SUMMARY_MAX + 1) ?? args.text?.(key)
     if (value && value.trim() !== '') return compactLine(value)
   }
-  const parsed = args.parsed?.()
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    for (const value of Object.values(parsed)) {
-      if (typeof value === 'string' && value.trim() !== '') return compactLine(value)
-    }
+  const keys = typeof args.keys === 'function' ? args.keys() : []
+  for (const key of keys) {
+    const value = args.textPrefix?.(key, SUMMARY_MAX + 1) ?? args.text?.(key)
+    if (typeof value === 'string' && value.trim() !== '') return compactLine(value)
   }
   return ''
 }
 
 export function formatArgs(block) {
-  const raw = block?.call?.argsRaw ?? block?.argsRaw ?? block?.args?.raw ?? ''
+  const raw = block?.call?.argsRaw ?? block?.argsRaw ?? ''
   if (typeof raw !== 'string' || raw.trim() === '') return ''
-  const parsed = block?.args?.parsed?.()
-  if (parsed !== null && parsed !== undefined && typeof parsed === 'object') {
-    if (!Array.isArray(parsed) && Object.keys(parsed).length === 0) return ''
-    try { return JSON.stringify(parsed, null, 2) } catch { /* fall back to raw */ }
-  }
-  return raw.trim()
+  const trimmed = raw.trim()
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed !== null && typeof parsed === 'object') {
+      if (!Array.isArray(parsed) && Object.keys(parsed).length === 0) return ''
+      return JSON.stringify(parsed, null, 2)
+    }
+  } catch { /* streaming or malformed JSON: show raw text */ }
+  return trimmed === '{}' ? '' : trimmed
 }
 
 export function formatResult(block) {
@@ -133,8 +138,6 @@ export function GenericToolCard({ callId, toolName, phase, block, useDisclosure 
     'data-phase': phase,
     'data-error': isError || undefined,
     'data-open': disclosure.expanded || undefined,
-    'data-chat-anchor-key': `call:${callId}`,
-    'data-chat-call-id': callId,
   },
   h('button', {
     type: 'button',
@@ -156,34 +159,64 @@ export function GenericToolCard({ callId, toolName, phase, block, useDisclosure 
     resultText !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: resultText, error: isError }) : null) : null)
 }
 
-/**
- * Renders one tool call entry and any nested PTC sub-calls, dispatching each atomic call
- * through `tool.call.toolview` before falling back to `GenericToolCard`.
- */
-export function ToolCallCard({ entry, cwd, openFile, loadImage, registry = defaultSlots }) {
-  const { callId, toolName, phase, block } = entry
+function phaseOf(block, fallback) {
+  if (block?.kind === 'tool-result') return 'result'
+  if (block?.phase === 'preparing' || block?.phase === 'start' || block?.phase === 'result') return block.phase
+  return fallback ?? 'start'
+}
+
+function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback }) {
+  const callId = block?.callId ?? ''
+  const toolName = block?.name || block?.call?.name || ''
+  const phase = phaseOf(block)
   const ownerProps = {
     useDisclosure: useToolDisclosure,
     callId,
     toolName,
     cwd,
-    openFile: openFile ?? (() => {}),
-    loadImage: loadImage ?? (() => Promise.resolve(undefined)),
+    openFile: openFile ?? NOOP_OPEN_FILE,
+    loadImage: loadImage ?? NOOP_LOAD_IMAGE,
     phase,
     block,
   }
   const subCalls = Array.isArray(block?.subCalls) ? block.subCalls : []
-  const card = h(SlotOutlet, {
-    registry,
-    name: TOOL_VIEW_SLOT,
-    slotKey: toolName || undefined,
-    resetKey: `${callId}:${phase}`,
-    props: ownerProps,
-    fallback: () => h(GenericToolCard, ownerProps),
-  })
-  if (subCalls.length === 0) return card
-  return h('div', { className: 'dsb-tool-tree' },
+  const renderFallback = () => (typeof fallback === 'function' ? fallback(ownerProps) : h(GenericToolCard, ownerProps))
+  // Orphan tool/result with no toolName bypasses slot lookup so it never matches an unkeyed slot.
+  const card = toolName === ''
+    ? renderFallback()
+    : h(SlotOutlet, {
+      registry,
+      name: TOOL_VIEW_SLOT,
+      slotKey: toolName,
+      resetKey: `${callId}:${phase}`,
+      props: ownerProps,
+      fallback: renderFallback,
+    })
+  const anchor = {
+    className: subCalls.length > 0 ? 'dsb-tool-tree' : 'dsb-tool-wrap',
+    'data-chat-anchor-key': callId ? `call:${callId}` : undefined,
+    'data-chat-call-id': callId || undefined,
+  }
+  if (subCalls.length === 0) return h('div', anchor, card)
+  return h('div', anchor,
     card,
     h('div', { className: 'dsb-tool-children' },
-      subCalls.map(child => h(ToolCallCard, { key: child.key, entry: child, cwd, openFile, loadImage, registry }))))
+      subCalls.map((child, index) => h(ToolCallBranch, {
+        key: child?.callId ? `call:${child.callId}` : `sub:${index}`,
+        block: child,
+        cwd,
+        openFile,
+        loadImage,
+        registry,
+      }))))
+}
+
+/**
+ * Renders one tool call entry (or raw ToolCallBlock) and any nested PTC sub-calls,
+ * dispatching each atomic call through `tool.call.toolview` before falling back to `GenericToolCard`.
+ */
+export function ToolCallCard({ entry, block, cwd, openFile, loadImage, registry = defaultSlots, fallback }) {
+  const target = block ?? entry?.block
+  if (!target) return null
+  return h(ToolCallBranch, { block: target, cwd, openFile, loadImage, registry, fallback })
 }

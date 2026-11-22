@@ -8,6 +8,9 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 export const TOOL_VIEW_SLOT = 'tool.call.toolview'
 export const CHAT_NODE_SLOT = 'conversation.chat.node'
 
+const isReactComponent = value => typeof value === 'function'
+  || (typeof value === 'object' && value !== null && '$$typeof' in value)
+
 export function createSlotRegistry() {
   const bySlot = new Map()
   const listeners = new Map()
@@ -30,7 +33,7 @@ export function createSlotRegistry() {
 
   return {
     register({ name, key, priority = 0 }, component) {
-      if (typeof name !== 'string' || name === '' || typeof component !== 'function') {
+      if (typeof name !== 'string' || name === '' || !isReactComponent(component)) {
         throw new TypeError('Slot registration requires a slot name and component')
       }
       const entry = { key, priority, order: ++seq, component }

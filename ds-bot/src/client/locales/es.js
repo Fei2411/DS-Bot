@@ -2056,6 +2056,7 @@ export const ES = {
   "Conversation compacted": "Conversación compactada",
   "{count} earlier messages compacted": "{count} mensajes anteriores compactados",
   "Session unavailable": "Sesión no disponible",
+  "Couldn’t load this conversation": "No se pudo cargar esta conversación",
   "This view could not be shown.": "No se pudo mostrar esta vista.",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",

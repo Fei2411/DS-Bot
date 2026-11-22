@@ -2021,6 +2021,7 @@ export const JA = {
   "Conversation compacted": "会話を圧縮しました",
   "{count} earlier messages compacted": "以前のメッセージ {count} 件を圧縮しました",
   "Session unavailable": "セッションを利用できません",
+  "Couldn’t load this conversation": "この会話を読み込めませんでした",
   "This view could not be shown.": "このビューを表示できませんでした。",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",

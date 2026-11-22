@@ -1,12 +1,16 @@
 // Projects a SessionLog (ds-bot/src/client/session-log.js) into ordered display rows
-// for a Bot's own chat (current segment): user messages, assistant replies with thinking
-// and local-agent activity, paired tool calls (preparing -> start -> result, plus nested
-// sub-calls), compaction checkpoints, Bot/schedule events, and failed turns.
+// for a Bot's own chat (current segment): user messages, settled card replies, assistant
+// replies with thinking and local-agent activity, paired native & PTC tool calls
+// (preparing -> start -> result, keeping DSH's ToolCallBlock & PartialArguments contracts),
+// compaction checkpoints, Bot/schedule events, and failed turns.
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { transcriptOf, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { contentText, isHiddenTurn, reminderPrompts, stripToolCallTags } from '../../../ds-bot/src/client/text.js'
 import { contentParts, viaOf } from '../../../ds-bot/src/client/user-message.js'
 
 const ACTIVITY_PREFIX = '▸ '
+const HIDDEN_BOT_ROLES = new Set(['kickoff', 'room', 'goal', 'task-handoff', 'handback', 'secret'])
+const INTERRUPTED_ERROR = Object.freeze({ name: 'Interrupted', code: 'interrupted' })
 
 // Strips a leading `<signature>...</signature>` reasoning prefix meant for the model,
 // matching ds-bot/src/client/turn-reasoning.js.
@@ -52,35 +56,50 @@ export function streamReasoningMs(stream) {
   return first === undefined ? undefined : Math.max(0, last - first)
 }
 
-// Lazy argument reader matching DSH's ToolArgs contract (`text(key)` / `value(key)` / `raw`).
-export function makeToolArgs(raw) {
-  const rawStr = typeof raw === 'string' ? raw : (raw === undefined || raw === null ? '' : JSON.stringify(raw))
-  let parsed
-  let didParse = false
-  const parse = () => {
-    if (!didParse) {
-      didParse = true
-      if (rawStr.trim() === '') { parsed = null; return parsed }
-      try { parsed = JSON.parse(rawStr) } catch { parsed = null }
-    }
-    return parsed
-  }
-  const object = () => {
-    const value = parse()
-    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null
-  }
-  return {
-    raw: rawStr,
-    parsed: parse,
-    text: (key) => {
-      const value = object()?.[key]
-      return typeof value === 'string' ? value : undefined
-    },
-    value: key => object()?.[key],
-  }
+function stringifyArgs(raw) {
+  if (typeof raw === 'string') return raw
+  if (raw === undefined || raw === null) return ''
+  try { return JSON.stringify(raw) } catch { return '' }
 }
 
-const HIDDEN_BOT_ROLES = new Set(['kickoff', 'room', 'goal', 'task-handoff', 'handback', 'secret'])
+/**
+ * Builds a DSH `PartialArguments` view from streamed text, sealed text, or a parsed object.
+ * @param {unknown} raw
+ * @param {{ sealed?: boolean }} [options]
+ * @returns {PartialArguments}
+ */
+export function makeToolArgs(raw, { sealed = true } = {}) {
+  if (raw instanceof PartialArguments) return raw
+  if (raw === undefined || raw === null || raw === '') return PartialArguments.EMPTY
+  if (typeof raw === 'string') {
+    if (sealed) return PartialArguments.fromText(raw)
+    const view = new PartialArguments()
+    view.append(raw)
+    return view
+  }
+  return PartialArguments.fromObject(raw)
+}
+
+function parseQuestionReply(rawText) {
+  let parsed = null
+  try { parsed = JSON.parse(rawText) } catch { return null }
+  if (!parsed || typeof parsed !== 'object') return null
+  if (parsed.kind === 'answer_to_pending_handoff' && typeof parsed.reason === 'string') {
+    return { text: rawText }
+  }
+  if (parsed.kind === 'answer_to_pending_view' && Array.isArray(parsed.views) && parsed.views.length > 0) {
+    return { text: rawText, views: parsed.views, answers: Array.isArray(parsed.answers) ? parsed.answers : [] }
+  }
+  const questions = Array.isArray(parsed.questions)
+    ? parsed.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string')
+    : []
+  if (questions.length > 0) {
+    const answers = (Array.isArray(parsed.answers) ? parsed.answers : [])
+      .filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
+    return { text: rawText, questions, answers }
+  }
+  return null
+}
 
 function classifyUserMessage(event, { turn, roster, sessionId }) {
   const data = event.data ?? {}
@@ -104,20 +123,34 @@ function classifyUserMessage(event, { turn, roster, sessionId }) {
       source,
     }
   }
+  if (source.kind === 'user-question-reply') {
+    const raw = contentText(content)
+    const replyData = raw ? parseQuestionReply(raw) : null
+    if (!replyData) return null
+    return {
+      kind: 'answer',
+      key: `answer:${event.seq}`,
+      seq: event.seq,
+      time: event.time,
+      turn,
+      data: replyData,
+    }
+  }
   if (source.kind === 'bot') {
-    if (source.handoff === true) return { kind: 'part-start', key: `part:${event.seq}`, seq: event.seq, time: event.time }
+    if (source.handoff === true) return { kind: 'part-start', key: `part:${event.seq}`, seq: event.seq, time: event.time, turn }
     if (HIDDEN_BOT_ROLES.has(source.role) || source.deferred === true) return null
-    if (source.role === 'update') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, eventKind: 'update' }
-    if (source.role === 'resume' || source.resumed === true) return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, eventKind: 'resume' }
-    if (source.role === 'retry' || source.retried === true) return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, eventKind: 'retry' }
-    if (source.role === 'continue') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, eventKind: 'continue' }
-    if (source.role === 'report') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, eventKind: 'report', roomId: source.roomId }
+    if (source.role === 'update') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'update' }
+    if (source.role === 'resume' || source.resumed === true) return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'resume' }
+    if (source.role === 'retry' || source.retried === true) return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'retry' }
+    if (source.role === 'continue') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'continue' }
+    if (source.role === 'report') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'report', roomId: source.roomId }
     if (source.role === 'request' || source.role === 'reply' || source.role === 'stopped') {
       return {
         kind: 'event',
         key: `ev:${event.seq}`,
         seq: event.seq,
         time: event.time,
+        turn,
         eventKind: source.role,
         botId: source.senderSessionId ?? null,
         name: source.senderName ?? null,
@@ -132,12 +165,13 @@ function classifyUserMessage(event, { turn, roster, sessionId }) {
       key: `ev:${event.seq}`,
       seq: event.seq,
       time: event.time,
+      turn,
       eventKind: 'schedule',
       text: prompts.join(' · ').slice(0, 80),
     }
   }
   // System injections (agent-instructions, runtime-context, skill-catalog, time-context,
-  // goal, user-question-reply) never render as user bubbles.
+  // goal) never render as user bubbles.
   return null
 }
 
@@ -153,6 +187,32 @@ function turnEndFailure(reason) {
   return undefined
 }
 
+function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, error }) {
+  const name = prev.name ?? ''
+  const argsRaw = prev.argsRaw ?? ''
+  return {
+    kind: 'tool-result',
+    phase: 'result',
+    seq,
+    time,
+    turn: turn ?? prev.turn,
+    step: step ?? prev.step,
+    callId: prev.callId,
+    ...(prev.parentCallId ? { parentCallId: prev.parentCallId } : {}),
+    ...(prev.rootCallId ? { rootCallId: prev.rootCallId } : {}),
+    name,
+    argsRaw,
+    args: prev.args ?? PartialArguments.EMPTY,
+    call: name !== '' || argsRaw !== '' ? { name, argsRaw } : null,
+    callTime: prev.time ?? null,
+    content,
+    isError,
+    ...(meta !== undefined ? { meta } : {}),
+    ...(error !== undefined ? { error } : {}),
+    subCalls: prev.subCalls ?? [],
+  }
+}
+
 /**
  * Converts a SessionLog into ordered display rows for a DM chat.
  * @param {import('../../../ds-bot/src/client/session-log.js').SessionLog} log
@@ -162,9 +222,94 @@ function turnEndFailure(reason) {
 export function buildSessionRows(log, { roster, sessionId } = {}) {
   const items = transcriptOf(log)
   const rows = []
+  // Maps every callId / subCallId to its handle so upgrades (preparing -> start -> result)
+  // and PTC nested dispatches update the exact ToolCallBlock in place without wrapper drift.
   const callsById = new Map()
   let currentTurn
+  let currentStep
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
+
+  const addTopTool = (block, { seq, time, turn, step }) => {
+    const row = {
+      kind: 'tool',
+      key: `call:${block.callId}`,
+      seq,
+      time,
+      turn,
+      step,
+      callId: block.callId,
+      toolName: block.name,
+      phase: block.phase,
+      block,
+    }
+    rows.push(row)
+    const handle = {
+      row,
+      block,
+      phase: block.phase,
+      turn,
+      step,
+      update(nextBlock) {
+        this.block = nextBlock
+        this.phase = nextBlock.phase
+        row.block = nextBlock
+        row.phase = nextBlock.phase
+        row.toolName = nextBlock.name
+        if (nextBlock.seq !== undefined && row.seq === null) row.seq = nextBlock.seq
+        if (Number.isFinite(nextBlock.time) && !Number.isFinite(row.time)) row.time = nextBlock.time
+      },
+    }
+    callsById.set(block.callId, handle)
+    return handle
+  }
+
+  const addChildTool = (parentHandle, block, { turn, step }) => {
+    const list = parentHandle.block.subCalls
+    const index = list.length
+    list.push(block)
+    const handle = {
+      row: null,
+      parent: parentHandle,
+      block,
+      phase: block.phase,
+      turn,
+      step,
+      update(nextBlock) {
+        this.block = nextBlock
+        this.phase = nextBlock.phase
+        parentHandle.block.subCalls[index] = nextBlock
+      },
+    }
+    callsById.set(block.callId, handle)
+    return handle
+  }
+
+  const settleOpenCalls = ({ turn, step, time, dropPreparing }) => {
+    const droppedRows = new Set()
+    for (const [callId, handle] of callsById) {
+      if (turn !== undefined && handle.turn !== turn) continue
+      if (step !== undefined && handle.step !== step) continue
+      if (handle.phase === 'start') {
+        handle.update(toResultBlock(handle.block, {
+          seq: handle.block.seq,
+          time: time ?? handle.block.time ?? null,
+          turn: handle.turn,
+          step: handle.step,
+          content: [],
+          isError: true,
+          error: INTERRUPTED_ERROR,
+        }))
+      } else if (dropPreparing && handle.phase === 'preparing') {
+        if (handle.row !== null) droppedRows.add(handle.row)
+        callsById.delete(callId)
+      }
+    }
+    if (droppedRows.size > 0) {
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        if (droppedRows.has(rows[i])) rows.splice(i, 1)
+      }
+    }
+  }
 
   for (const item of items) {
     if (item.kind === 'compaction') {
@@ -183,11 +328,26 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
 
     if (item.type === 'turn/start') {
       if (Number.isInteger(item.data?.turn)) currentTurn = item.data.turn
+      currentStep = undefined
+      continue
+    }
+
+    if (item.type === 'step/start') {
+      if (Number.isInteger(item.data?.turn)) currentTurn = item.data.turn
+      if (Number.isInteger(item.data?.step)) currentStep = item.data.step
+      continue
+    }
+
+    if (item.type === 'step/end') {
+      const turn = item.data?.turn ?? currentTurn
+      const step = item.data?.step ?? currentStep
+      settleOpenCalls({ turn, step, time: item.time, dropPreparing: false })
       continue
     }
 
     if (item.type === 'turn/end') {
       const turn = item.data?.turn ?? currentTurn
+      settleOpenCalls({ turn, step: undefined, time: item.time, dropPreparing: true })
       const failure = turnEndFailure(item.data?.reason)
       if (!hidden(turn) && failure !== undefined) {
         rows.push({
@@ -199,6 +359,8 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
           error: failure,
         })
       }
+      currentTurn = undefined
+      currentStep = undefined
       continue
     }
 
@@ -210,6 +372,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
 
     if (item.type === 'assistant/message') {
       const turn = item.data?.turn ?? currentTurn
+      const step = item.data?.step ?? currentStep
       if (hidden(turn)) continue
       const content = Array.isArray(item.data?.message?.content) ? item.data.message.content : []
       const { reasoning, activity } = splitReasoning(content)
@@ -225,7 +388,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
           seq: item.seq,
           time: item.time,
           turn,
-          step: item.data?.step,
+          step,
           reasoning,
           reasoningMs,
           activity,
@@ -234,107 +397,189 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
           thinkingLive: false,
         })
       }
+      // Keep tool-call blocks committed on assistant/message in `preparing` until `tool/call`
+      // arrives so cards never unmount and flicker between assistant/message and tool/call.
+      let callIdx = 0
+      for (const block of content) {
+        if (block?.type !== 'tool-call') continue
+        const callId = block.id || `msg-${item.seq}-${callIdx}`
+        callIdx += 1
+        if (callsById.has(callId)) continue
+        const name = typeof block.name === 'string' ? block.name : ''
+        const argsRaw = stringifyArgs(block.arguments)
+        addTopTool({
+          phase: 'preparing',
+          seq: item.seq,
+          time: item.time,
+          turn,
+          step,
+          callId,
+          name,
+          argsRaw,
+          args: makeToolArgs(block.arguments, { sealed: true }),
+          subCalls: [],
+        }, { seq: item.seq, time: item.time, turn, step })
+      }
       continue
     }
 
-    if (item.type === 'tool/call' || item.type === 'tool/ptc-dispatch-start') {
+    if (item.type === 'tool/call') {
       const turn = item.data?.turn ?? currentTurn
+      const step = item.data?.step ?? currentStep
       if (hidden(turn)) continue
       const callId = item.data?.callId ?? `call-${item.seq}`
       const name = typeof item.data?.name === 'string' ? item.data.name : ''
-      const argsRaw = typeof item.data?.arguments === 'string'
-        ? item.data.arguments
-        : (item.data?.arguments === undefined ? '' : JSON.stringify(item.data.arguments))
-      const parentCallId = item.data?.parentCallId
+      const argsRaw = stringifyArgs(item.data?.arguments)
+      const existing = callsById.get(callId)
       const block = {
         phase: 'start',
         seq: item.seq,
         time: item.time,
+        turn,
+        step,
         callId,
-        ...(parentCallId ? { parentCallId } : {}),
         name,
         argsRaw,
-        args: makeToolArgs(argsRaw),
-        subCalls: [],
+        args: makeToolArgs(item.data?.arguments, { sealed: true }),
+        subCalls: existing?.block?.subCalls ?? [],
       }
-      const entry = {
-        kind: 'tool',
-        key: `call:${callId}`,
-        seq: item.seq,
-        time: item.time,
-        turn,
-        step: item.data?.step,
-        callId,
-        toolName: name,
-        phase: 'start',
-        block,
-      }
-      callsById.set(callId, entry)
-      if (parentCallId && callsById.has(parentCallId)) {
-        callsById.get(parentCallId).block.subCalls.push(entry)
+      if (existing !== undefined) {
+        existing.turn = turn
+        existing.step = step
+        existing.update(block)
       } else {
-        rows.push(entry)
+        addTopTool(block, { seq: item.seq, time: item.time, turn, step })
       }
       continue
     }
 
-    if (item.type === 'tool/result' || item.type === 'tool/ptc-dispatch-end') {
+    if (item.type === 'tool/result') {
       const turn = item.data?.turn ?? currentTurn
+      const step = item.data?.step ?? currentStep
       if (hidden(turn)) continue
       const message = item.data?.message ?? item.data ?? {}
-      const callId = message.toolCallId ?? item.data?.callId ?? `result-${item.seq}`
+      const callId = message.source?.callId ?? message.toolCallId ?? item.data?.callId ?? `result-${item.seq}`
       const content = Array.isArray(message.content) ? message.content : []
       const isError = message.isError === true
+      const meta = item.data?.meta
       const error = message.error ?? item.data?.error
       const existing = callsById.get(callId)
       if (existing !== undefined) {
-        existing.phase = 'result'
-        existing.block = {
-          kind: 'tool-result',
-          seq: item.seq,
-          time: item.time,
-          callId,
-          ...(existing.block.parentCallId ? { parentCallId: existing.block.parentCallId } : {}),
-          name: existing.block.name,
-          args: existing.block.args,
-          call: { name: existing.block.name, argsRaw: existing.block.argsRaw },
-          callTime: existing.block.time ?? null,
-          content,
-          isError,
-          ...(error ? { error } : {}),
-          subCalls: existing.block.subCalls,
-        }
+        existing.update(toResultBlock(existing.block, { seq: item.seq, time: item.time, turn, step, content, isError, meta, error }))
       } else {
-        // The paired tool/call fell before the loaded window: still show the settled result
-        // under its callId (matching DSH's ToolResultNode contract).
-        const block = {
+        // The paired tool/call fell before the loaded window: show the settled result under its
+        // callId with call: null (matching DSH's ToolResultNode contract).
+        addTopTool({
           kind: 'tool-result',
+          phase: 'result',
           seq: item.seq,
           time: item.time,
+          turn,
+          step,
           callId,
           name: '',
-          args: makeToolArgs(''),
+          argsRaw: '',
+          args: PartialArguments.EMPTY,
           call: null,
           callTime: null,
           content,
           isError,
-          ...(error ? { error } : {}),
+          ...(meta !== undefined ? { meta } : {}),
+          ...(error !== undefined ? { error } : {}),
           subCalls: [],
-        }
-        const entry = {
-          kind: 'tool',
-          key: `call:${callId}`,
+        }, { seq: item.seq, time: item.time, turn, step })
+      }
+      continue
+    }
+
+    if (item.type === 'tool/ptc-dispatch-start') {
+      const turn = currentTurn
+      const step = currentStep
+      if (hidden(turn)) continue
+      const data = item.data ?? {}
+      const subCallId = data.subCallId ?? `ptc-${item.seq}`
+      const parentCallId = data.parentCallId ?? data.rootCallId
+      const rootCallId = data.rootCallId
+      const name = typeof data.name === 'string' ? data.name : ''
+      const argsRaw = stringifyArgs(data.arguments)
+      const parentHandle = parentCallId ? callsById.get(parentCallId) : undefined
+      const effectiveTurn = parentHandle?.turn ?? turn
+      const effectiveStep = parentHandle?.step ?? step
+      if (hidden(effectiveTurn)) continue
+      const block = {
+        phase: 'start',
+        seq: item.seq,
+        time: item.time,
+        turn: effectiveTurn,
+        step: effectiveStep,
+        callId: subCallId,
+        ...(parentCallId ? { parentCallId } : {}),
+        ...(rootCallId ? { rootCallId } : {}),
+        name,
+        argsRaw,
+        args: makeToolArgs(data.arguments, { sealed: true }),
+        subCalls: [],
+      }
+      const existing = callsById.get(subCallId)
+      if (existing !== undefined) existing.update(block)
+      else if (parentHandle !== undefined) addChildTool(parentHandle, block, { turn: effectiveTurn, step: effectiveStep })
+      else addTopTool(block, { seq: item.seq, time: item.time, turn: effectiveTurn, step: effectiveStep })
+      continue
+    }
+
+    if (item.type === 'tool/ptc-dispatch') {
+      const data = item.data ?? {}
+      const subCallId = data.subCallId ?? `ptc-result-${item.seq}`
+      const parentCallId = data.parentCallId ?? data.rootCallId
+      const rootCallId = data.rootCallId
+      const parentHandle = parentCallId ? callsById.get(parentCallId) : undefined
+      const existing = callsById.get(subCallId)
+      const effectiveTurn = existing?.turn ?? parentHandle?.turn ?? currentTurn
+      const effectiveStep = existing?.step ?? parentHandle?.step ?? currentStep
+      if (hidden(effectiveTurn)) continue
+      const name = typeof data.name === 'string' ? data.name : (existing?.block?.name ?? '')
+      const argsRaw = data.arguments !== undefined ? stringifyArgs(data.arguments) : (existing?.block?.argsRaw ?? '')
+      const content = Array.isArray(data.content) ? data.content : []
+      const isError = data.isError === true
+      const meta = data.meta
+      const error = data.error
+      if (existing !== undefined) {
+        existing.update(toResultBlock(existing.block, {
           seq: item.seq,
           time: item.time,
-          turn,
-          step: item.data?.step,
-          callId,
-          toolName: '',
+          turn: effectiveTurn,
+          step: effectiveStep,
+          content,
+          isError,
+          meta,
+          error,
+        }))
+      } else {
+        // The matching `tool/ptc-dispatch-start` fell before the loaded window: `tool/ptc-dispatch`
+        // still carries parentCallId, name, and arguments, so attach cleanly to the parent call.
+        const block = {
+          kind: 'tool-result',
           phase: 'result',
-          block,
+          seq: item.seq,
+          time: item.time,
+          turn: effectiveTurn,
+          step: effectiveStep,
+          callId: subCallId,
+          ...(parentCallId ? { parentCallId } : {}),
+          ...(rootCallId ? { rootCallId } : {}),
+          name,
+          argsRaw,
+          args: makeToolArgs(data.arguments, { sealed: true }),
+          call: name !== '' || argsRaw !== '' ? { name, argsRaw } : null,
+          callTime: null,
+          content,
+          isError,
+          ...(meta !== undefined ? { meta } : {}),
+          ...(error !== undefined ? { error } : {}),
+          subCalls: [],
         }
-        callsById.set(callId, entry)
-        rows.push(entry)
+        if (parentHandle !== undefined) addChildTool(parentHandle, block, { turn: effectiveTurn, step: effectiveStep })
+        else addTopTool(block, { seq: item.seq, time: item.time, turn: effectiveTurn, step: effectiveStep })
       }
     }
   }
@@ -343,6 +588,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
   // committed assistant/message for that (turn, step) has landed, so nothing duplicates.
   const writing = writingBlocks(log)
   const writingTurn = log.writing?.turn
+  const writingStep = log.writing?.step
   if (writing.length > 0 && !hidden(writingTurn)) {
     const attemptId = log.writing?.attemptId ?? 'live'
     const { reasoning, activity } = splitReasoning(writing)
@@ -357,7 +603,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
         seq: null,
         time: null,
         turn: writingTurn,
-        step: log.writing?.step,
+        step: writingStep,
         attemptId,
         reasoning,
         reasoningMs: undefined,
@@ -374,28 +620,17 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
       toolIdx += 1
       if (callsById.has(callId)) continue
       const name = typeof block.name === 'string' ? block.name : ''
-      const argsRaw = typeof block.arguments === 'string'
-        ? block.arguments
-        : (block.arguments === undefined ? '' : JSON.stringify(block.arguments))
-      rows.push({
-        kind: 'tool',
-        key: `call:${callId}`,
-        seq: null,
-        time: null,
-        turn: writingTurn,
-        step: log.writing?.step,
-        callId,
-        toolName: name,
+      const argsRaw = stringifyArgs(block.arguments)
+      addTopTool({
         phase: 'preparing',
-        block: {
-          phase: 'preparing',
-          callId,
-          name,
-          argsRaw,
-          args: makeToolArgs(argsRaw),
-          subCalls: [],
-        },
-      })
+        turn: writingTurn,
+        step: writingStep,
+        callId,
+        name,
+        argsRaw,
+        args: makeToolArgs(block.arguments, { sealed: false }),
+        subCalls: [],
+      }, { seq: null, time: null, turn: writingTurn, step: writingStep })
     }
   }
 

@@ -11,12 +11,26 @@ const fixture = JSON.parse(readFileSync(
 ))
 
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
+const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
 const stubs = {
   'cells.js': `
-    export const Bubbles = ({ texts, streaming }) => ({ type: 'bubbles', props: { texts, streaming, children: texts } })
-    export const ThinkingRow = ({ text, live, ms }) => ({ type: 'thinking', props: { text, live, ms, children: [text] } })
+    export const Bubbles = ({ texts, streaming, msgKey }) => ({ type: 'bubbles', props: { texts, streaming, msgKey, children: texts } })
+    export const ThinkingRow = ({ text, live, ms, viewKey }) => ({ type: 'thinking', props: { text, live, ms, viewKey, children: [text] } })
+    export const EarlierParts = ({ sessionId }) => ({ type: 'earlier-parts', props: { sessionId, children: ['earlier-parts:' + sessionId] } })
+    export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
+  `,
+  'widget-cell.js': `
+    export const WidgetCell = ({ callId, args, done, isError }) => ({
+      type: 'widget-cell',
+      props: { callId, title: args?.text?.('title'), done, isError, children: ['widget:' + (args?.text?.('title') ?? callId)] },
+    })
+    export const WidgetDock = ({ sessionId }) => ({ type: 'widget-dock', props: { sessionId, children: [] } })
+    export const AnsweredReply = ({ node }) => ({
+      type: 'answered-reply',
+      props: { data: node?.data, children: ['answered:' + (node?.data?.questions?.[0]?.question ?? node?.data?.views?.[0]?.title ?? 'ok')] },
+    })
   `,
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
@@ -28,13 +42,13 @@ const stubs = {
 }
 
 // Bundle all DM session modules together so we test the real client code (including real
-// `session-log.js` + `@deepseek-ai/dsh-llm/assistant-stream`) under a deterministic harness.
+// `session-log.js`, `@deepseek-ai/dsh-llm/assistant-stream`, and `@deepseek-ai/dsh-util-values`).
 const entryCode = `
   export { applyFrame, addPage, emptyLog, transcriptOf, writingBlocks } from '../ds-bot/src/client/session-log.js'
   export { openSessionFollow } from './ui/src/api.js'
-  export { createSlotRegistry, SlotOutlet, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
+  export { createSlotRegistry, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
   export { buildSessionRows, makeToolArgs, splitReasoning, streamReasoningMs } from './ui/src/session-transcript.js'
-  export { ToolCallCard, GenericToolCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
+  export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
   export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
 `
@@ -50,7 +64,8 @@ const { outputFiles } = await build({
     name: 'session-chat-stubs',
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
-      bundler.onResolve({ filter: /(src\/client\/(cells|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
+      bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'session-chat-stub' }
       })
@@ -60,7 +75,7 @@ const { outputFiles } = await build({
 })
 
 // Lightweight React stand-in supporting per-component-path hook slots (like Fiber),
-// class error boundaries, and subscriptions.
+// class error boundaries, React.memo objects, and subscriptions.
 let current
 const slot = (make) => {
   const bucket = current.fiber
@@ -82,9 +97,11 @@ class TestComponent {
   constructor(props) { this.props = props; this.state = {} }
   setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state, this.props) : next) } }
 }
+const MEMO_TYPE = Symbol.for('react.memo')
 const react = {
   Component: TestComponent,
   Fragment: 'fragment',
+  memo: fn => ({ $$typeof: MEMO_TYPE, type: fn }),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
   useState: (initial) => {
     const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))
@@ -115,6 +132,7 @@ function createFetchControl() {
     const queue = []
     let waiter = null
     let closed = false
+    let cancelled = false
     const finish = () => {
       if (closed) return
       closed = true
@@ -124,6 +142,7 @@ function createFetchControl() {
     const entry = {
       url,
       aborted: () => Boolean(opts.signal?.aborted),
+      cancelled: () => cancelled,
       pushRaw(raw) {
         if (closed) return
         const chunk = encoder.encode(raw)
@@ -143,7 +162,7 @@ function createFetchControl() {
             if (closed) return Promise.resolve({ value: undefined, done: true })
             return new Promise((resolve) => { waiter = resolve })
           },
-          cancel: () => { finish(); return Promise.resolve() },
+          cancel: () => { cancelled = true; finish(); return Promise.resolve() },
         }),
       },
     }
@@ -156,6 +175,7 @@ function createFetchControl() {
 }
 
 const fetchCtrl = createFetchControl()
+const recordedTimers = []
 const module = { exports: {} }
 const sandbox = {
   module, exports: module.exports,
@@ -170,7 +190,8 @@ const sandbox = {
   window: { addEventListener() {}, removeEventListener() {}, innerHeight: 800 },
   document: { querySelector: () => null, body: { toggleAttribute() {}, removeAttribute() {} }, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
-  setTimeout, clearTimeout,
+  setTimeout: (fn, ms, ...args) => { recordedTimers.push(ms); return setTimeout(fn, ms, ...args) },
+  clearTimeout,
   requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
   fetch: (...args) => fetchCtrl.fetch(...args),
 }
@@ -179,41 +200,44 @@ const {
   applyFrame, addPage, emptyLog,
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
-  buildSessionRows, clipLongText, ToolCallCard,
+  buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
   Chat,
 } = module.exports
+
+const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
 
 const expand = (node, path = 'root') => {
   if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
   if (!node || typeof node !== 'object') return node
-  if (typeof node.type === 'function') {
-    const id = `${path}/${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+  const fn = resolveType(node.type)
+  if (typeof fn === 'function') {
+    const id = `${path}/${fn.name || 'fn'}:${node.props?.key ?? ''}`
     let bucket = current.fibers.get(id)
     if (!bucket) { bucket = { slots: [], index: 0 }; current.fibers.set(id, bucket) }
     bucket.index = 0
     const prev = current.fiber
     current.fiber = bucket
     try {
-      if (node.type.prototype instanceof TestComponent) {
-        const cell = slot(() => ({ inst: new node.type(node.props) }))
+      if (fn.prototype instanceof TestComponent) {
+        const cell = slot(() => ({ inst: new fn(node.props) }))
         const inst = cell.inst
-        if (typeof node.type.getDerivedStateFromProps === 'function') {
-          const patch = node.type.getDerivedStateFromProps(node.props, inst.state)
+        if (typeof fn.getDerivedStateFromProps === 'function') {
+          const patch = fn.getDerivedStateFromProps(node.props, inst.state)
           if (patch) inst.state = { ...inst.state, ...patch }
         }
         inst.props = node.props
         try {
           return expand(inst.render(), id)
         } catch (error) {
-          if (typeof node.type.getDerivedStateFromError === 'function') {
-            inst.state = { ...inst.state, ...node.type.getDerivedStateFromError(error) }
+          if (typeof fn.getDerivedStateFromError === 'function') {
+            inst.state = { ...inst.state, ...fn.getDerivedStateFromError(error) }
             inst.componentDidCatch?.(error)
             return expand(inst.render(), id)
           }
           throw error
         }
       }
-      return expand(node.type(node.props), id)
+      return expand(fn(node.props), id)
     } finally {
       current.fiber = prev
     }
@@ -255,7 +279,7 @@ const textOf = (node) => {
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const plain = value => JSON.parse(JSON.stringify(value))
 
-test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, tool lifecycle, and replies cleanly', () => {
+test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, flicker-free tool lifecycle, and replies cleanly', () => {
   let log = emptyLog()
   const snapshots = {}
   for (let i = 0; i < fixture.live.length; i += 1) {
@@ -264,7 +288,7 @@ test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, to
     const res = applyFrame(log, entry.data)
     assert.equal(res.reopen, false, `frame ${i} should not gap-reopen`)
     log = res.log
-    if (i === 16 || i === 19 || i === 23 || i === 36 || i === 42 || i === 43 || i === 56) {
+    if (i === 16 || i === 19 || i === 23 || i === 36 || i === 40 || i === 41 || i === 42 || i === 43 || i === 56) {
       snapshots[i] = buildSessionRows(log, { sessionId: 'session-main' })
     }
   }
@@ -289,21 +313,22 @@ test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, to
   assert.match(snapshots[23][1].reasoning, /目标、约束、下一步/)
   assert.match(snapshots[23][1].texts[0], /建议分三步走/)
 
-  // Frame 36: streaming tool-call preparing block with stable call key.
-  const prepTool = snapshots[36].find(r => r.kind === 'tool')
-  assert.ok(prepTool)
-  assert.equal(prepTool.key, 'call:call-2-0')
-  assert.equal(prepTool.toolName, 'list_bots')
-  assert.equal(prepTool.phase, 'preparing')
-  assert.equal(prepTool.block.args.raw, '{}')
+  // Frames 36 -> 40 -> 41 -> 42 -> 43: tool call stays mounted under `call:call-2-0`
+  // across the committed `assistant/message` (frame 40) and stream end (frame 41) gap
+  // with zero unmount flicker before `tool/call` (frame 42) and `tool/result` (frame 43).
+  for (const frameIndex of [36, 40, 41]) {
+    const tools = snapshots[frameIndex].filter(r => r.kind === 'tool')
+    assert.equal(tools.length, 1, `frame ${frameIndex} must keep tool card mounted`)
+    assert.equal(tools[0].key, 'call:call-2-0')
+    assert.equal(tools[0].toolName, 'list_bots')
+    assert.equal(tools[0].phase, 'preparing')
+  }
 
-  // Frame 42: committed tool/call transitions the same key to `start` (no duplicate row).
   const startTools = snapshots[42].filter(r => r.kind === 'tool')
   assert.equal(startTools.length, 1)
   assert.equal(startTools[0].key, 'call:call-2-0')
   assert.equal(startTools[0].phase, 'start')
 
-  // Frame 43: tool/result pairs in place under the same key with call metadata + content.
   const doneTools = snapshots[43].filter(r => r.kind === 'tool')
   assert.equal(doneTools.length, 1)
   assert.equal(doneTools[0].key, 'call:call-2-0')
@@ -319,8 +344,7 @@ test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, to
   assert.equal(snapshots[56][2].text, '看看团队')
   assert.match(snapshots[56][4].texts[0], /Chief/)
 
-  // Reconnect + page pagination from the real recorded fixture merges seqs 10..16 (all system
-  // injections + request metadata) without leaking any system prompt into visible chat rows.
+  // Reconnect + page pagination merges seqs 10..16 without leaking system prompts.
   let reconnected = emptyLog()
   for (const entry of fixture.reconnect) reconnected = applyFrame(reconnected, entry.data).log
   const beforeRows = buildSessionRows(reconnected)
@@ -331,7 +355,14 @@ test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, to
   assert.deepEqual(plain(afterRows.map(r => r.key)), plain(beforeRows.map(r => r.key)))
 })
 
-test('buildSessionRows handles compaction, hidden exchange turns, orphan tool results, PTC sub-calls, and turn-end failures', () => {
+test('buildSessionRows obeys real DSH PTC contract, settles interrupted calls, and projects compaction + card answers', () => {
+  const answerPayload = JSON.stringify({
+    kind: 'answer_to_pending_question',
+    tool: 'ask_user',
+    callId: 'ask-1',
+    questions: [{ id: 'q1', question: 'Pick one?', options: [{ label: 'Alpha' }], multiSelect: false }],
+    answers: [{ id: 'q1', selected: ['Alpha'] }],
+  })
   const snapshot = {
     type: 'snapshot',
     header: { id: 's1', cwd: '/repo' },
@@ -344,44 +375,76 @@ test('buildSessionRows handles compaction, hidden exchange turns, orphan tool re
       { type: 'event', event: { type: 'turn/start', seq: 2, time: 2000, data: { turn: 2 } } },
       { type: 'event', event: { type: 'assistant/message', seq: 3, time: 2001, data: { turn: 2, step: 1, message: { content: [{ type: 'text', text: 'internal reply' }] } } } },
       { type: 'event', event: { type: 'turn/end', seq: 4, time: 2002, data: { turn: 2, reason: { kind: 'error', error: { code: 'RATE_LIMIT' } } } } },
-      // Turn 3: orphan tool result + parent tool call with nested PTC sub-call + interrupted turn.
+      // Turn 3: real DSH PTC contract (`tool/call` root + `tool/ptc-dispatch-start` & `tool/ptc-dispatch`
+      // keyed by `subCallId`), plus truncated-start `tool/ptc-dispatch`, orphan `tool/result`,
+      // an interrupted in-flight `tool/call`, and an undispatched `preparing` tool call.
       { type: 'event', event: { type: 'turn/start', seq: 5, time: 3000, data: { turn: 3 } } },
-      { type: 'event', event: { type: 'tool/result', seq: 6, time: 3005, data: { turn: 3, message: { toolCallId: 'orphan-1', content: [{ type: 'text', text: 'stale output' }], isError: true, error: { code: 'TIMEOUT' } } } } },
-      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 7, time: 3010, data: { turn: 3, callId: 'ptc-1', name: 'run_script', arguments: '{"cmd":"ls"}' } } },
-      { type: 'event', event: { type: 'tool/call', seq: 8, time: 3011, data: { turn: 3, callId: 'sub-1', parentCallId: 'ptc-1', name: 'read_file', arguments: '{"path":"a.txt"}' } } },
-      { type: 'event', event: { type: 'tool/result', seq: 9, time: 3012, data: { turn: 3, message: { toolCallId: 'sub-1', content: [{ type: 'text', text: 'hello' }], isError: false } } } },
-      { type: 'event', event: { type: 'tool/ptc-dispatch-end', seq: 10, time: 3020, data: { turn: 3, message: { toolCallId: 'ptc-1', content: [{ type: 'text', text: 'done' }], isError: false } } } },
-      { type: 'event', event: { type: 'turn/end', seq: 11, time: 3025, data: { turn: 3, reason: { kind: 'interrupted' } } } },
+      { type: 'event', event: { type: 'step/start', seq: 6, time: 3001, data: { turn: 3, step: 1 } } },
+      { type: 'event', event: { type: 'user/message', seq: 7, time: 3002, data: { source: { kind: 'user-question-reply', callId: 'ask-1', outcome: 'answered' }, content: [{ type: 'text', text: answerPayload }] } } },
+      { type: 'event', event: { type: 'tool/result', seq: 8, time: 3005, data: { turn: 3, step: 1, meta: { lines: 2 }, message: { source: { kind: 'tool', callId: 'orphan-1' }, toolCallId: 'orphan-1', content: [{ type: 'text', text: 'stale output' }], isError: true, error: { code: 'TIMEOUT' } } } } },
+      { type: 'event', event: { type: 'tool/call', seq: 9, time: 3010, data: { turn: 3, step: 1, callId: 'root-1', name: 'run_code', arguments: '{"code":"list()"}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 10, time: 3011, data: { rootCallId: 'root-1', parentCallId: 'root-1', subCallId: 'root-1:ptc:0', name: 'read_file', arguments: { path: 'a.txt' } } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 11, time: 3012, data: { rootCallId: 'root-1', parentCallId: 'root-1', subCallId: 'root-1:ptc:0', name: 'read_file', arguments: { path: 'a.txt' }, content: [{ type: 'text', text: 'hello' }], isError: false, meta: { bytes: 5 } } } },
+      // Truncated-start PTC dispatch still attaches to parent with name & arguments preserved.
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 12, time: 3013, data: { rootCallId: 'root-1', parentCallId: 'root-1', subCallId: 'root-1:ptc:1', name: 'grep', arguments: { pattern: 'foo' }, content: [{ type: 'text', text: 'match' }], isError: false, meta: { count: 1 } } } },
+      { type: 'event', event: { type: 'tool/result', seq: 13, time: 3020, data: { turn: 3, step: 1, meta: { exitCode: 0 }, message: { source: { kind: 'tool', callId: 'root-1' }, toolCallId: 'root-1', content: [{ type: 'text', text: 'done' }], isError: false } } } },
+      // Open tool/call + undispatched preparing call when turn is interrupted.
+      { type: 'event', event: { type: 'assistant/message', seq: 14, time: 3021, data: { turn: 3, step: 1, message: { content: [{ type: 'tool-call', id: 'never-ran', name: 'bash', arguments: '{"cmd":"sleep 9"}' }] } } } },
+      { type: 'event', event: { type: 'tool/call', seq: 15, time: 3022, data: { turn: 3, step: 1, callId: 'stuck-1', name: 'bash', arguments: '{"cmd":"tail"}' } } },
+      { type: 'event', event: { type: 'turn/end', seq: 16, time: 3025, data: { turn: 3, reason: { kind: 'interrupted' } } } },
       // Turn 4: signed-out hook abort.
-      { type: 'event', event: { type: 'turn/start', seq: 12, time: 4000, data: { turn: 4 } } },
-      { type: 'event', event: { type: 'turn/end', seq: 13, time: 4005, data: { turn: 4, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'deepseek-account/signed-out' } } } } },
+      { type: 'event', event: { type: 'turn/start', seq: 17, time: 4000, data: { turn: 4 } } },
+      { type: 'event', event: { type: 'turn/end', seq: 18, time: 4005, data: { turn: 4, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'deepseek-account/signed-out' } } } } },
     ],
   }
   const { log } = applyFrame(emptyLog(), snapshot)
   const rows = buildSessionRows(log, { roster: { exchangeTurns: { s1: [2] } }, sessionId: 's1' })
 
-  assert.deepEqual(plain(rows.map(r => r.kind)), ['compaction', 'tool', 'tool', 'turn-error', 'turn-error'])
+  // Undispatched `never-ran` preparing call was removed on turn/end; `stuck-1` settled as Interrupted.
+  assert.deepEqual(plain(rows.map(r => r.kind)), ['compaction', 'answer', 'tool', 'tool', 'tool', 'turn-error', 'turn-error'])
   assert.equal(rows[0].shadowedItemCount, 4)
   assert.equal(rows[0].summary, 'Earlier summary')
+  assert.equal(rows[1].data.questions[0].question, 'Pick one?')
 
-  // Orphan tool result keeps call: null and error flag.
-  assert.equal(rows[1].callId, 'orphan-1')
-  assert.equal(rows[1].block.call, null)
-  assert.equal(rows[1].block.isError, true)
+  // Orphan tool result keeps call: null, meta, and error flag.
+  assert.equal(rows[2].callId, 'orphan-1')
+  assert.equal(rows[2].block.call, null)
+  assert.equal(rows[2].block.isError, true)
+  assert.deepEqual(plain(rows[2].block.meta), { lines: 2 })
 
-  // Parent PTC call carries nested sub-call in subCalls instead of duplicating at top level.
-  assert.equal(rows[2].callId, 'ptc-1')
-  assert.equal(rows[2].phase, 'result')
-  assert.equal(rows[2].block.subCalls.length, 1)
-  assert.equal(rows[2].block.subCalls[0].callId, 'sub-1')
-  assert.equal(rows[2].block.subCalls[0].phase, 'result')
+  // Root PTC call holds pure ToolCallBlock[] directly in `block.subCalls` (both normal and truncated-start).
+  const root = rows[3]
+  assert.equal(root.callId, 'root-1')
+  assert.equal(root.phase, 'result')
+  assert.deepEqual(plain(root.block.meta), { exitCode: 0 })
+  assert.equal(root.block.subCalls.length, 2)
+  assert.equal(root.block.subCalls[0].kind, 'tool-result')
+  assert.equal(root.block.subCalls[0].callId, 'root-1:ptc:0')
+  assert.equal(root.block.subCalls[0].name, 'read_file')
+  assert.equal(root.block.subCalls[0].callTime, 3011)
+  assert.equal(root.block.subCalls[0].args.text('path'), 'a.txt')
+  assert.deepEqual(plain(root.block.subCalls[0].meta), { bytes: 5 })
+  assert.equal(root.block.subCalls[1].callId, 'root-1:ptc:1')
+  assert.equal(root.block.subCalls[1].name, 'grep')
+  assert.equal(root.block.subCalls[1].callTime, null)
+  assert.equal(root.block.subCalls[1].args.text('pattern'), 'foo')
+  assert.deepEqual(plain(root.block.subCalls[1].meta), { count: 1 })
 
-  // Interrupted & signed-out turn endings produce standard failure codes.
-  assert.equal(rows[3].error.code, 'INTERRUPTED')
-  assert.equal(rows[4].error.code, 'ACCOUNT_SIGNED_OUT')
+  // Interrupted open `tool/call` settled to error instead of remaining Running forever.
+  assert.equal(rows[4].callId, 'stuck-1')
+  assert.equal(rows[4].phase, 'result')
+  assert.equal(rows[4].block.isError, true)
+  assert.equal(rows[4].block.error.code, 'interrupted')
+
+  assert.equal(rows[5].error.code, 'INTERRUPTED')
+  assert.equal(rows[6].error.code, 'ACCOUNT_SIGNED_OUT')
 })
 
-test('tool.call.toolview slot overrides matching tool with DSH contract, isolates throws with Retry, and folds long output', () => {
+test('slots support React.memo, orphan tools skip unkeyed slots, streaming PartialArguments summarizes incomplete JSON, and errors isolate with Retry', () => {
+  // Streaming partial JSON still produces a summary via real PartialArguments.
+  const partialArgs = makeToolArgs('{"command":"git status --sh', { sealed: false })
+  assert.equal(argSummary(partialArgs), 'git status --sh')
+
   // Long result folding (>12 lines).
   const manyLines = Array.from({ length: 20 }, (_, i) => `line-${i + 1}`).join('\n')
   const clipped = clipLongText(manyLines)
@@ -392,27 +455,36 @@ test('tool.call.toolview slot overrides matching tool with DSH contract, isolate
   const registry = createSlotRegistry()
   const received = []
   let shouldThrow = false
-  registry.register({ name: TOOL_VIEW_SLOT, key: 'list_bots' }, (props) => {
+  // Register an unkeyed slot AND a React.memo keyed slot.
+  registry.register({ name: TOOL_VIEW_SLOT }, () => react.createElement('div', null, 'UNKEYED_SHOULD_NOT_HIT_ORPHAN'))
+  const MemoListView = react.memo((props) => {
     if (shouldThrow) throw new Error('plugin boom')
     const disc = props.useDisclosure()
     received.push({ callId: props.callId, toolName: props.toolName, cwd: props.cwd, phase: props.phase, keys: Object.keys(disc).sort() })
     return react.createElement('div', { className: 'custom-slot' }, `custom:${props.toolName}:${disc.expanded}`)
   })
+  registry.register({ name: TOOL_VIEW_SLOT, key: 'list_bots' }, MemoListView)
 
   const listEntry = {
     key: 'call:c1', callId: 'c1', toolName: 'list_bots', phase: 'result',
-    block: { kind: 'tool-result', callId: 'c1', name: 'list_bots', call: { name: 'list_bots', argsRaw: '{}' }, callTime: 1000, time: 2500, content: [{ type: 'text', text: 'ok' }], isError: false, subCalls: [] },
+    block: { kind: 'tool-result', phase: 'result', callId: 'c1', name: 'list_bots', args: makeToolArgs('{}'), call: { name: 'list_bots', argsRaw: '{}' }, callTime: 1000, time: 2500, content: [{ type: 'text', text: 'ok' }], isError: false, subCalls: [] },
+  }
+  const orphanEntry = {
+    key: 'call:o1', callId: 'o1', toolName: '', phase: 'result',
+    block: { kind: 'tool-result', phase: 'result', callId: 'o1', name: '', args: makeToolArgs(''), call: null, callTime: null, time: 2500, content: [{ type: 'text', text: 'orphan result' }], isError: false, subCalls: [] },
   }
   const otherEntry = {
     key: 'call:c2', callId: 'c2', toolName: 'bash', phase: 'result',
-    block: { kind: 'tool-result', callId: 'c2', name: 'bash', args: { raw: '{"cmd":"echo hi"}', text: k => (k === 'cmd' ? 'echo hi' : undefined), parsed: () => ({ cmd: 'echo hi' }) }, call: { name: 'bash', argsRaw: '{"cmd":"echo hi"}' }, callTime: 1000, time: 3000, content: [{ type: 'text', text: manyLines }], isError: false, subCalls: [] },
+    block: { kind: 'tool-result', phase: 'result', callId: 'c2', name: 'bash', args: makeToolArgs('{"cmd":"echo hi"}'), call: { name: 'bash', argsRaw: '{"cmd":"echo hi"}' }, callTime: 1000, time: 3000, content: [{ type: 'text', text: manyLines }], isError: false, subCalls: [] },
   }
 
-  // Custom slot receives DSH ToolCallOwnerProps + UseDisclosure ({ expanded, setExpanded, toggle }).
+  // Memoized custom slot receives DSH ToolCallOwnerProps + outer anchor wrapper.
   const customMount = mount(ToolCallCard, { entry: listEntry, cwd: '/repo', registry })
   const customTree = customMount.render()
   assert.match(textOf(customTree), /custom:list_bots:false/)
-  assert.deepEqual(received[0], { callId: 'c1', toolName: 'list_bots', cwd: '/repo', phase: 'result', keys: ['expanded', 'setExpanded', 'toggle'] })
+  assert.equal(customTree.props['data-chat-anchor-key'], 'call:c1')
+  assert.equal(customTree.props['data-chat-call-id'], 'c1')
+  assert.deepEqual(plain(received[0]), { callId: 'c1', toolName: 'list_bots', cwd: '/repo', phase: 'result', keys: ['expanded', 'setExpanded', 'toggle'] })
 
   // Throwing slot is isolated by SlotErrorBoundary and recovers on Retry.
   shouldThrow = true
@@ -424,13 +496,18 @@ test('tool.call.toolview slot overrides matching tool with DSH contract, isolate
   retryBtn.props.onClick()
   assert.match(textOf(customMount.render()), /custom:list_bots:false/)
 
+  // Orphan tool/result with empty toolName never matches an unkeyed slot registration.
+  const orphanMount = mount(ToolCallCard, { entry: orphanEntry, cwd: '/repo', registry })
+  const orphanTree = orphanMount.render()
+  assert.doesNotMatch(textOf(orphanTree), /UNKEYED_SHOULD_NOT_HIT_ORPHAN/)
+  assert.match(textOf(orphanTree), /Tool call · o1/)
+
   // Unregistered tool falls back to GenericToolCard with expand + long-result fold toggle.
   const genericMount = mount(ToolCallCard, { entry: otherEntry, cwd: '/repo', registry })
   let tree = genericMount.render()
   assert.match(textOf(tree), /bash/)
   assert.match(textOf(tree), /echo hi/)
   assert.match(textOf(tree), /2s/)
-  // Click header to expand arguments + result.
   const head = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0]
   head.props.onClick()
   tree = genericMount.render()
@@ -444,73 +521,114 @@ test('tool.call.toolview slot overrides matching tool with DSH contract, isolate
   assert.match(textOf(tree), /line-20/)
 })
 
-test('openSessionFollow handles split CRLF frames, immediate reopen(), and stops retrying on terminal errors', async () => {
+test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff on SSE errors, and reopen() inside terminal error callback', async () => {
   fetchCtrl.reset()
+  recordedTimers.length = 0
   const events = []
-  const handle = openSessionFollow({ sessionId: 'b1', max: 20 }, (event, data) => events.push([event, data]))
+  let reopenedOnTerminal = false
+  let handle
+  handle = openSessionFollow({ sessionId: 'b1', max: 20 }, (event, data) => {
+    events.push([event, data])
+    // Verify reopen() called synchronously inside a terminal HTTP error callback is NOT swallowed.
+    if (event === 'error' && data?.code === 'bot/not-found' && !reopenedOnTerminal) {
+      reopenedOnTerminal = true
+      handle.reopen()
+    }
+  })
   try {
     await tick()
     assert.equal(fetchCtrl.calls.length, 1)
     assert.match(fetchCtrl.calls[0].url, /^api\/bot\/session\?id=b1&max=20$/)
 
-    // Deliver one SSE frame split across two chunks with CRLF endings.
+    // Deliver split CRLF frame, then `event: end` -> cancels underlying reader.
     fetchCtrl.latest().pushRaw('event: frame\r\ndata: {"type":"snap')
     await tick()
     fetchCtrl.latest().pushRaw('shot","cursor":1,"records":[]}\r\n\r\n')
     await tick()
     await tick()
-    assert.equal(events.length, 1)
     assert.equal(events[0][0], 'frame')
     assert.equal(events[0][1].type, 'snapshot')
 
-    // reopen() aborts the active stream and immediately opens a new connection.
+    // Non-terminal SSE error followed by stream close must NOT reset backoff to 500ms on next drop.
     const firstStream = fetchCtrl.latest()
+    firstStream.push('end', {})
+    await tick()
+    await tick()
+    assert.equal(firstStream.cancelled(), true, 'early return on end must cancel reader')
+
+    // Immediate reopen() moves to attempt 2.
     handle.reopen()
     await tick()
     await tick()
-    assert.equal(firstStream.aborted(), true)
     assert.equal(fetchCtrl.calls.length, 2)
 
-    // Terminal error (`bot/not-found`) notifies caller and stops reconnecting.
-    fetchCtrl.latest().push('error', { code: 'bot/not-found', message: 'gone' })
+    // Attempt 2: HTTP 200 SSE returns non-terminal `bot/internal` error without any `frame`, then closes -> backoff 500ms.
+    recordedTimers.length = 0
+    fetchCtrl.latest().push('error', { code: 'bot/internal', message: 'boom' })
     fetchCtrl.latest().close()
     await tick()
     await tick()
+    assert.equal(recordedTimers[0], 500)
+
+    // Wait for backoff to trigger attempt 3 -> another `bot/internal` without frame must back off to 1000ms (not reset to 500ms!).
+    await new Promise(resolve => setTimeout(resolve, 540))
+    assert.equal(fetchCtrl.calls.length, 3)
+    fetchCtrl.latest().push('error', { code: 'bot/internal', message: 'boom again' })
+    fetchCtrl.latest().close()
+    await tick()
+    await tick()
+    assert.equal(recordedTimers[1], 1000, 'non-terminal SSE error must keep escalating backoff')
+
+    // Next attempt returns HTTP 400 / terminal bot/not-found; callback calls reopen() synchronously once,
+    // which must trigger attempt 5 instead of being swallowed, then attempt 5 stops terminally.
+    let terminalCount = 0
+    fetchCtrl.setImpl(async () => {
+      terminalCount += 1
+      return { ok: false, status: 404, json: async () => ({ error: { code: 'bot/not-found', message: 'gone' } }) }
+    })
+    handle.reopen()
+    await tick()
+    await tick()
     await new Promise(resolve => setTimeout(resolve, 40))
-    assert.ok(events.some(([ev, d]) => ev === 'error' && d?.code === 'bot/not-found'))
-    assert.equal(fetchCtrl.calls.length, 2, 'must not reconnect after terminal bot/not-found error')
+    assert.equal(terminalCount, 2, 'reopen() inside terminal error callback must restart once, then stay stopped')
   } finally {
     handle.close()
     fetchCtrl.reset()
   }
 })
 
-test('Chat DM renders real recorded session, supports Load earlier, read-only feed reopen, live note, and repeated pending dedup', async () => {
+test('Chat DM renders real recorded session, show_view via WidgetCell, legacy reactions, EarlierParts across rollover, pagination, and pending dedup', async () => {
   fetchCtrl.reset()
   const listeners = new Set()
   const liveNotes = []
+  const turnTimes = []
   const pageCalls = []
   sandbox.__testCall = async (name, body) => {
     pageCalls.push([name, body])
     return fixture.page
   }
 
-  let roster = {
+  // Simulate an existing saved reaction keyed by legacy `${sessionId}:${time}` (frame 23 time = 1795239010163).
+  const uiState = { reactions: { 'session-main:1795239010163': { 0: ['👍'] } } }
+  const roster = {
     ready: true,
     readOnly: true,
     prefs: { enterToSend: true, thinking: true },
-    bots: [{ id: 'session-main', name: 'Chief', color: 'blue' }],
-    byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue' } },
+    bots: [{ id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0', 'session-main'] }],
+    byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0', 'session-main'] } },
     rooms: [],
     roomsById: {},
     questions: {},
+    views: {},
     exchangeTurns: {},
   }
   const team = {
     actions: {
       noteSent() {},
       noteLive: (sid, key, value) => liveNotes.push([sid, key, value]),
-      noteTurnTime() {},
+      noteCards() {},
+      noteTurnTime: (sid, turn, key, time) => turnTimes.push([sid, turn, key, time]),
+      earlier: async () => ({ items: [], cursor: null }),
       send: async () => {},
       speech: () => undefined,
       openVoice() {},
@@ -519,7 +637,8 @@ test('Chat DM renders real recorded session, supports Load earlier, read-only fe
     },
     hooks: {
       useRoster: select => select(roster),
-      useUi: select => select({}),
+      useUi: select => select(uiState),
+      useCards: select => select({}),
       useTurnClock: select => select({}),
       useSessionStatus: select => select(new Map()),
     },
@@ -542,6 +661,14 @@ test('Chat DM renders real recorded session, supports Load earlier, read-only fe
     assert.match(rendered, /目标、约束、下一步/)
     assert.match(rendered, /建议分三步走/)
     assert.match(rendered, /list_bots/)
+    // Because bot has earlier segments (`parts.length > 1`) and `hasMore` is false, EarlierParts mounts.
+    assert.ok(all(tree, n => n.type === 'earlier-parts').length === 1, 'EarlierParts must mount for multi-part Bots')
+    // Legacy saved reaction key `${sessionId}:${time}` is preserved on Turn 1's Bubbles.
+    const bubbles = all(tree, n => n.type === 'bubbles')
+    assert.equal(bubbles[0].props.msgKey, 'session-main:1795239010163')
+    // Turn timestamps were synced from `log.events` (`turn/start` & `turn/end`).
+    assert.ok(turnTimes.some(([, turn, key]) => turn === 1 && key === 'first'))
+    assert.ok(turnTimes.some(([, turn, key]) => turn === 2 && key === 'end'))
 
     // Read-only window: feed `revision` event triggers reopen() of api/bot/session.
     for (const listener of listeners) listener('revision', {})
@@ -549,22 +676,29 @@ test('Chat DM renders real recorded session, supports Load earlier, read-only fe
     await tick()
     assert.equal(fetchCtrl.calls.length, 2)
 
-    // Snapshot with a gap past seq 34 (so join resets to the new tail window with `hasMore: true`)
-    // and an existing historical "继续" message at seq 45.
+    // Snapshot with a gap past seq 34 (`hasMore: true`), historical "继续", a display-only `show_view`,
+    // and a settled `user-question-reply`.
+    const viewArgs = JSON.stringify({ title: 'Compare', view: { type: 'text', text: 'A vs B' } })
+    const qReply = JSON.stringify({ kind: 'answer_to_pending_question', tool: 'ask_user', callId: 'a1', questions: [{ id: 'q1', question: 'Ready?', options: [{ label: 'Yes' }] }], answers: [{ id: 'q1', selected: ['Yes'] }] })
     fetchCtrl.latest().push('frame', {
       type: 'snapshot',
       header: { id: 'session-main', cwd: '/bench/bot/workspace' },
-      cursor: 45,
+      cursor: 48,
       hasMore: true,
       records: [
         { type: 'event', event: { type: 'user/message', seq: 45, time: 1000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } } },
+        { type: 'event', event: { type: 'tool/call', seq: 46, time: 1010, data: { turn: 4, step: 1, callId: 'v1', name: 'show_view', arguments: viewArgs } } },
+        { type: 'event', event: { type: 'tool/result', seq: 47, time: 1011, data: { turn: 4, step: 1, message: { toolCallId: 'v1', content: [{ type: 'text', text: 'shown' }], isError: false } } } },
+        { type: 'event', event: { type: 'user/message', seq: 48, time: 1020, data: { source: { kind: 'user-question-reply', callId: 'a1', outcome: 'answered' }, content: [{ type: 'text', text: qReply }] } } },
       ],
     })
     await tick()
     await tick()
     tree = inst.render()
+    assert.ok(all(tree, n => n.type === 'widget-cell' && n.props.title === 'Compare').length === 1, 'show_view renders via WidgetCell')
+    assert.ok(all(tree, n => n.type === 'answered-reply').length === 1, 'user-question-reply renders via AnsweredReply')
 
-    // Click "Load earlier" -> calls `session-page` with beforeSeq: 45 and merges older page.
+    // Click "Load earlier" -> calls `session-page` with beforeSeq: 45.
     const earlierBtn = all(tree, n => n.type === 'button' && n.props?.className === 'bt-soft')[0]
     assert.ok(earlierBtn, 'Load earlier button should appear when hasMore is true')
     earlierBtn.props.onClick()
@@ -572,7 +706,7 @@ test('Chat DM renders real recorded session, supports Load earlier, read-only fe
     await tick()
     assert.deepEqual(plain(pageCalls[0]), ['session-page', { sessionId: 'session-main', beforeSeq: 45, maxMessages: 40 }])
 
-    // Send "继续" twice -> both stay pending even though seq 45 already had "继续".
+    // Send "继续" twice -> both stay pending; a gap-reopen user/message must NOT clear pending early.
     const sendText = async (value) => {
       const ta = all(inst.render(), n => n.type === 'textarea')[0]
       ta.props.onChange({ target: { value } })
@@ -588,33 +722,50 @@ test('Chat DM renders real recorded session, supports Load earlier, read-only fe
     await sendText('继续')
     assert.equal(pendingCount(), 2)
 
-    // First new user/message clears exactly ONE pending entry.
+    // Out-of-order seq 99 (gap!) triggers reopen without prematurely clearing pending bubbles.
     fetchCtrl.latest().push('frame', {
       type: 'event',
-      event: { type: 'user/message', seq: 46, time: 5000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } },
+      event: { type: 'user/message', seq: 99, time: 5000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } },
+    })
+    await tick()
+    await tick()
+    assert.equal(pendingCount(), 2, 'gap-reopen user/message must not clear optimistic pending bubble')
+
+    // Reopen snapshot delivers seq 48 cleanly, then contiguous 49 & 50 clear one-for-one.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot',
+      header: { id: 'session-main', cwd: '/bench/bot/workspace' },
+      cursor: 48,
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 45, time: 1000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } } },
+      ],
+    })
+    fetchCtrl.latest().push('frame', {
+      type: 'event',
+      event: { type: 'user/message', seq: 49, time: 5000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } },
     })
     await tick()
     await tick()
     assert.equal(pendingCount(), 1)
 
-    // Second new user/message clears the remaining pending entry.
     fetchCtrl.latest().push('frame', {
       type: 'event',
-      event: { type: 'user/message', seq: 47, time: 6000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } },
+      event: { type: 'user/message', seq: 50, time: 6000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } },
     })
     await tick()
     await tick()
     assert.equal(pendingCount(), 0)
 
     // Streaming text marks session-reply live, then clears on commit.
-    fetchCtrl.latest().push('frame', { type: 'assistant-stream', frame: { type: 'start', attemptId: 'a9', revision: 1, turn: 5, step: 1, startedAfterSeq: 47 } })
+    fetchCtrl.latest().push('frame', { type: 'assistant-stream', frame: { type: 'start', attemptId: 'a9', revision: 1, turn: 5, step: 1, startedAfterSeq: 50 } })
     fetchCtrl.latest().push('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a9', revision: 2, index: 0, time: 6010, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
     fetchCtrl.latest().push('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a9', revision: 3, index: 1, time: 6011, chunk: { type: 'text-delta', index: 0, text: 'streaming now' } } })
     await tick()
     await tick()
     inst.render()
     assert.ok(liveNotes.some(([, key, val]) => key === 'session-reply' && val?.text === true))
-    fetchCtrl.latest().push('frame', { type: 'event', event: { type: 'assistant/message', seq: 48, time: 6020, data: { turn: 5, step: 1, message: { content: [{ type: 'text', text: 'streaming now' }] } } } })
+    fetchCtrl.latest().push('frame', { type: 'event', event: { type: 'assistant/message', seq: 51, time: 6020, data: { turn: 5, step: 1, message: { content: [{ type: 'text', text: 'streaming now' }] } } } })
     await tick()
     await tick()
     inst.render()

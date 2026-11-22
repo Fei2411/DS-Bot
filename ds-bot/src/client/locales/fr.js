@@ -2021,6 +2021,7 @@ export const FR = {
   "Conversation compacted": "Conversation compactée",
   "{count} earlier messages compacted": "{count} messages précédents compactés",
   "Session unavailable": "Session indisponible",
+  "Couldn’t load this conversation": "Impossible de charger cette conversation",
   "This view could not be shown.": "Cette vue n'a pas pu être affichée.",
   "Chat background": "Fond de la discussion",
   "While this chat is open, its background takes the place of the team background.": "Tant que cette discussion est ouverte, son fond remplace celui de l'équipe.",

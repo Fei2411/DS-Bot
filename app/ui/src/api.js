@@ -28,7 +28,10 @@ async function readEventStream(body, onParsed) {
       for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
         const parsed = parseEvent(buffer.slice(0, end))
         buffer = buffer.slice(end + 2)
-        if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) return
+        if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) {
+          await reader.cancel().catch(() => {})
+          return
+        }
       }
     }
   } finally {
@@ -118,16 +121,17 @@ export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
             if (TERMINAL_SESSION_ERRORS.has(code) || response.status === 400) {
               terminal = true
               onEvent('error', { code, message })
-              return
+              if (terminal) break
+              continue
             }
             throw new Error(message)
           }
           if (response.body === null) throw new Error('Empty response body')
-          failures = 0
           await readEventStream(response.body, (event, data) => {
             if (stopped || myController.signal.aborted) return false
             if (event === 'frame') {
               sawFrame = true
+              failures = 0
               onEvent('frame', data)
               return !reopenNow
             }
@@ -146,7 +150,7 @@ export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
         } catch {
           // Transient abort, network drop, or host restart; loop decides whether to reopen.
         }
-        if (stopped || terminal) return
+        if (stopped || terminal) break
         if (reopenNow) {
           failures = 0
           continue
@@ -157,6 +161,7 @@ export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
       }
     } finally {
       running = false
+      if (reopenNow && !stopped && !terminal) void run()
     }
   }
 

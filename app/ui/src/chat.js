@@ -9,6 +9,7 @@ import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { PendingQuestion } from '../../../ds-bot/src/client/questions.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { SessionTranscript, useSessionFollow } from './session-chat.js'
 
 // The chat follows its end while the user is this close to it.
@@ -350,7 +351,7 @@ export function Chat({ sessionId, team, registry }) {
 
   const sessionNotice = !isRoom && (dmChat.terminalError || dmChat.failed)
     ? h('div', { className: 'dsb-session-error', role: 'alert' },
-      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load earlier messages · Retry')),
+      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 
@@ -364,12 +365,13 @@ export function Chat({ sessionId, team, registry }) {
         h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
           isRoom
             ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true })
-            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, thinkingAt: dmChat.thinkingAt, registry }),
+            : h(SessionTranscript, { log: dmChat.log, sessionId: activeSessionId, bot, roster, actions, useUi: hooks.useUi, useRoster: hooks.useRoster, useTurnClock: hooks.useTurnClock, thinkingAt: dmChat.thinkingAt, hasMore: dmChat.hasMore, registry }),
           pending.length ? h('div', { className: 'dsb-pending' }, h(ChatRows, { items: pending, sessionId: activeSessionId, roster, actions })) : null,
           // The Bot views' activity row (from the header pill) draws itself in here.
           h('div', { 'data-chat-running': '' }),
           question ? h(PendingQuestion, { key: JSON.stringify([activeSessionId, question.id]), sessionId: activeSessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
     h('div', { className: 'dsb-composer-root' },
+      !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards: hooks.useCards, actions }) : null,
       h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
       h(Composer, {
         sessionId: activeSessionId,
