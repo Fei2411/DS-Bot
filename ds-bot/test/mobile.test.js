@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
-import { STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES } from '../src/host/constants.js'
+import { STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES, STAGED_FILES_PER_SEND } from '../src/host/constants.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
@@ -137,7 +137,9 @@ const relayCall = (seq, callId) => ({ seq, time: seq, type: 'tool/call', data: {
 const relayResult = (seq, callId, result) => ({ seq, time: seq, type: 'tool/result', data: { message: { role: 'tool', toolCallId: callId, content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify({ replies: result, passed: [] }) }] } } })
 
 test('hello names the API version both sides speak, the capabilities and the notice cursor', async (t) => {
-  const { call, stop } = start()
+  const { call, services, stop } = start()
+  // File sending is advertised only when the host can actually upload.
+  services.fileUploads = { uploadStream: async () => ({ receiptId: 'r' }) }
   t.after(stop)
   const hello = (await call('hello', { client: { name: 'dsh-go', version: '1.0.0' }, api: [1] })).value
   assert.equal(hello.api, API_VERSION)
@@ -435,9 +437,10 @@ test('a text-only send resolves the bot ref and honours a foreground handoff', a
   await stop()
 })
 
-test('a file upload and its prompt share the handoff session, so the receipt is not dropped', async () => {
+test('a file upload and its prompt share the stable session without a foreground handoff', async () => {
   const { call, rt, sent, services, stop } = start()
   const uploaded = []
+  let handoffs = 0
   services.fileUploads = {
     uploadStream: async ({ sessionId, name }) => {
       uploaded.push(sessionId)
@@ -445,20 +448,21 @@ test('a file upload and its prompt share the handoff session, so the receipt is 
     },
   }
   const { chief } = await team(call)
-  const oldSid = rt.chatOf(chief)
-  const newSid = 'handoff-session'
-  rt.chatOwners.set(oldSid, chief)
-  // The Bot is busy in an older part, so a fresh message forks a new foreground part.
+  const stableSid = rt.chatOf(chief)
+  rt.chatOwners.set(stableSid, chief)
+  // A text-only send would fork a fresh foreground part here. A file send must NOT:
+  // the host keys upload receipts by the exact Session (a WeakMap), so forking after
+  // upload would drop the file, and forking before upload with a failing upload would
+  // leave an empty forked session. Both the upload and the prompt stay on one session.
   rt.shouldMoveForeground = () => true
-  rt.handoffForeground = async () => newSid
+  rt.handoffForeground = async () => { handoffs += 1; return 'handoff-session' }
   const id = (await call('stage-file', { name: 'plan.pdf', data: Buffer.from('pdf').toString('base64') })).value.id
   const before = sent.length
   assert.equal((await call('send', { sessionId: chief, text: 'see attached', files: [id] })).value, true)
-  // Both the upload and the prompt must name the SAME (new) session; resolving the
-  // destination twice used to bind the receipt to the old session and drop the file.
-  assert.deepEqual(uploaded, [newSid])
+  assert.deepEqual(uploaded, [stableSid])
   const prompt = sent.slice(before).find(entry => entry.prompt !== undefined)
-  assert.equal(prompt.sessionId, newSid)
+  assert.equal(prompt.sessionId, stableSid)
+  assert.equal(handoffs, 0, 'file sends must not trigger a foreground handoff')
   await stop()
 })
 
@@ -476,6 +480,96 @@ test('staging files is bounded so a paired phone cannot exhaust host memory', as
   assert.equal(accepted, Math.floor(STAGED_FILES_MAX_BYTES / STAGED_FILE_MAX_BYTES))
   assert.equal(refused.code, 'bot/invalid')
   assert.equal(refused.message, 'Too many files waiting to send')
+  await stop()
+})
+
+test('stage-file reduces a phone-supplied name to one safe path segment', async () => {
+  const { call, services, stop } = start()
+  const names = []
+  services.fileUploads = { uploadStream: async ({ name }) => { names.push(name); return { receiptId: 'r' } } }
+  const { chief } = await team(call)
+  const data = Buffer.from('x').toString('base64')
+  const first = (await call('stage-file', { name: '../../etc/passwd', data })).value.id
+  await call('send', { sessionId: chief, text: '', files: [first] })
+  assert.deepEqual(names, ['passwd'], 'path separators and dot segments are stripped')
+  const second = (await call('stage-file', { name: 'a\x00b\u0001c.md', data })).value.id
+  await call('send', { sessionId: chief, text: '', files: [second] })
+  assert.equal(names[1], 'abc.md', 'NUL and control characters are stripped')
+  await stop()
+})
+
+test('stage-file rejects base64 that is invalid before decoding', async () => {
+  const { call, stop } = start()
+  await team(call)
+  // 'YQ' passes the character regex but has a length that is not a multiple of 4.
+  assert.deepEqual(await call('stage-file', { name: 'x.txt', data: 'YQ' }), { ok: false, error: { code: 'bot/invalid', message: 'This file is too big', details: {} } })
+  await stop()
+})
+
+test('send de-duplicates file ids and caps how many files ride in one message', async () => {
+  const { call, services, stop } = start()
+  let uploads = 0
+  services.fileUploads = { uploadStream: async () => { uploads += 1; return { receiptId: `r${uploads}` } } }
+  const { chief } = await team(call)
+  const data = Buffer.from('x').toString('base64')
+  const id = (await call('stage-file', { name: 'x.txt', data })).value.id
+  await call('send', { sessionId: chief, text: 'hi', files: [id, id, id] })
+  assert.equal(uploads, 1, 'a repeated id uploads once')
+  const ids = []
+  for (let i = 0; i < STAGED_FILES_PER_SEND + 1; i += 1) ids.push((await call('stage-file', { name: `f${i}.txt`, data })).value.id)
+  const tooMany = await call('send', { sessionId: chief, text: 'hi', files: ids })
+  assert.equal(tooMany.error.code, 'bot/invalid')
+  assert.equal(tooMany.error.message, 'Too many files in one message')
+  await stop()
+})
+
+test('a failed upload restores staged files so the send can be retried', async () => {
+  const { call, services, stop } = start()
+  let attempts = 0
+  services.fileUploads = {
+    uploadStream: async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('network')
+      return { receiptId: 'ok' }
+    },
+  }
+  const { chief } = await team(call)
+  const id = (await call('stage-file', { name: 'x.txt', data: Buffer.from('x').toString('base64') })).value.id
+  try { await call('send', { sessionId: chief, text: '', files: [id] }) } catch { /* transport turns a throw into an error response */ }
+  const again = await call('send', { sessionId: chief, text: '', files: [id] })
+  assert.equal(again.ok, true, 'the staged file was restored after the failure')
+  await stop()
+})
+
+test('hello hides send-files and fileMaxBytes when the host cannot upload', async () => {
+  const { call, stop } = start()
+  const hello = (await call('hello', {})).value
+  assert.equal(hello.capabilities.includes('send-files'), false)
+  assert.equal(Object.hasOwn(hello, 'fileMaxBytes'), false)
+  await stop()
+})
+
+test('roomItems exposes file metadata on user messages', () => {
+  const events = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [
+      { type: 'text', text: 'attach' },
+      { type: 'file', attachment: { attachmentId: 'a1', name: 'doc.pdf', size: 42 } },
+    ] } },
+  ]
+  const { items } = roomItems(events)
+  assert.deepEqual(items[0].files, [{ attachmentId: 'a1', name: 'doc.pdf', bytes: 42 }])
+})
+
+test('chat items carry file metadata for a user message', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('doc'), name: 'doc.pdf' })
+  history[sessionId] = [{ seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'attach' }, { type: 'file', attachment: ref }] } }]
+  const item = (await call('chat', { botId: chief })).value.items.find(i => i.kind === 'user')
+  assert.equal(item.files[0].attachmentId, ref.attachmentId)
+  assert.equal(item.files[0].name, 'doc.pdf')
+  assert.equal(item.files[0].bytes, 3)
   await stop()
 })
 

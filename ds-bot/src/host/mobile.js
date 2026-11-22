@@ -269,15 +269,21 @@ export function install(rt) {
     const offered = Array.isArray(body.api) ? body.api.filter(Number.isInteger) : [API_VERSION]
     const common = offered.filter(version => version >= API_MIN && version <= API_VERSION)
     const rpc = rt.remoteRpc?.()
+    // Advertise file sending only when the host can actually upload files, keeping
+    // the capability and the size hint in lockstep so a client never starts a send
+    // the host would refuse (e.g. a browser remote over a host without the service).
+    const canUpload = typeof ctx.get?.('fileUploads')?.uploadStream === 'function'
+    const capabilities = canUpload ? CAPABILITIES : CAPABILITIES.filter(cap => cap !== 'send-files')
     return {
       api: common.length > 0 ? Math.max(...common) : null,
       apiMin: API_MIN,
       apiMax: API_VERSION,
       plugin: { name: PKG.name, version: PKG.version },
       // A client must check a file's size against this BEFORE base64-encoding an RPC:
-      // the encrypted link drops whole messages over ~3 MiB of raw payload.
-      fileMaxBytes: STAGED_FILE_MAX_BYTES,
-      capabilities: rpc ? [...CAPABILITIES, 'rpc'] : CAPABILITIES,
+      // the encrypted link drops whole messages over ~3 MiB of raw payload. Present
+      // only together with the `send-files` capability.
+      ...(canUpload ? { fileMaxBytes: STAGED_FILE_MAX_BYTES } : {}),
+      capabilities: rpc ? [...capabilities, 'rpc'] : capabilities,
       boot,
       seq,
       revision: state.revision,

@@ -26,6 +26,9 @@ export const ROUTE = '/api/bot'
 // bytes too, so a paired phone cannot exhaust host memory without sending a message.
 export const STAGED_FILE_MAX_BYTES = 2 * 1024 * 1024
 export const STAGED_FILES_MAX_BYTES = 16 * 1024 * 1024
+// A single message may carry only a handful of files; a paired client must not be
+// able to enqueue an unbounded number of uploads in one `send`.
+export const STAGED_FILES_PER_SEND = 10
 export const MAX_EXCHANGES = 600
 // state.json is written whole on every save, so a long message between Bots or a long
 // group line keeps only its start there. The rest stays where it already is (a message

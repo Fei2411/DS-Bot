@@ -7,10 +7,17 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
-import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE, STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES } from './constants.js'
+import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE, STAGED_FILE_MAX_BYTES, STAGED_FILES_MAX_BYTES, STAGED_FILES_PER_SEND } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+// A phone-supplied display name is untrusted. Reduce it to one safe path segment so it
+// cannot smuggle a directory, `..`, NUL, or a control character into the storage layer.
+function cleanFileName(value) {
+  if (typeof value !== 'string') return ''
+  const base = value.split(/[\\/]/).pop() ?? ''
+  return base.replace(/\.\./g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim()
+}
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -710,10 +717,15 @@ export function install(rt) {
         // A file for the next `send`, one per call: a phone's link carries a few MB per
         // message, so files travel one by one and the message names them.
         case 'stage-file': {
-          const name = typeof body.name === 'string' ? body.name.trim() : ''
+          // Reduce the phone-supplied name to one safe path segment before it reaches
+          // the storage layer: no directories, `..`, NUL, or control characters.
+          const name = cleanFileName(body.name)
           const data = typeof body.data === 'string' ? body.data : ''
           if (name === '' || name.length > 255) return fail('No file name', 'bot/invalid')
           if (data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a file DS Bot can send', 'bot/invalid')
+          // Reject oversized base64 BEFORE decoding so a peer cannot force a large
+          // allocation. Valid base64 length is a multiple of 4 and at most ceil(max/3)*4.
+          if (data.length % 4 !== 0 || data.length > Math.ceil(STAGED_FILE_MAX_BYTES / 3) * 4) return fail('This file is too big', 'bot/invalid')
           let bytes
           try {
             bytes = Buffer.from(data, 'base64')
@@ -735,39 +747,54 @@ export function install(rt) {
         case 'send': {
           const text = String(body.text ?? '').trim()
           const imageIds = Array.isArray(body.images) ? body.images.map(String) : []
-          const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
+          // De-duplicate: a repeated id must not upload the same staged file twice.
+          const fileIds = Array.isArray(body.files) ? [...new Set(body.files.map(String))] : []
           if ((text === '' && imageIds.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          if (fileIds.length > STAGED_FILES_PER_SEND) return fail('Too many files in one message', 'bot/invalid')
           const images = imageIds.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
           const files = fileIds.map(id => stagedFiles.get(id))
           if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
+          // Claim the staged files BEFORE the first await so two concurrent `send`s
+          // cannot upload the same id. On any failure we put the entries back.
+          for (const id of fileIds) stagedFiles.delete(id)
+          const restoreFiles = () => {
+            for (let i = 0; i < fileIds.length; i += 1) stagedFiles.set(fileIds[i], files[i])
+          }
           // The upload service is only needed when a file actually rides along; a
           // text- or photo-only message must work on a host with no such service.
           let uploads
           if (files.length > 0) {
             uploads = ctx.get?.('fileUploads')
-            if (typeof uploads?.uploadStream !== 'function') return fail('Files cannot be sent on this computer', 'bot/refused')
+            if (typeof uploads?.uploadStream !== 'function') {
+              restoreFiles()
+              return fail('Files cannot be sent on this computer', 'bot/refused')
+            }
           }
-          await rt.load()
-          // Resolve the destination ONCE (including a foreground handoff). The upload
-          // receipt and the prompt must name the same Session, or DSH drops the file.
-          // Only pre-resolve when a file rides along: with no file, leave the override
-          // undefined so sendUser resolves the ref normally (bot/group lookup,
-          // current-part routing, foreground handoff). Passing the raw ref as an
-          // override skipped all of that and queued the prompt on the wrong Session.
-          const sessionId = files.length > 0 ? await resolveSendSession(body.sessionId) : undefined
-          const content = [
-            ...(text === '' ? [] : [{ type: 'text', text }]),
-            ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
-          ]
-          for (const file of files) {
-            const data = (async function* () { yield file.buffer })()
-            const value = await uploads.uploadStream({ sessionId, data, name: file.name })
-            content.push({ type: 'file', receiptId: value.receiptId })
+          try {
+            await rt.load()
+            // File upload receipts are keyed by the exact Session object in DSH (a
+            // WeakMap), so the upload and the prompt MUST target one stable Session.
+            // A foreground handoff here would either rebind the receipt (dropping the
+            // file) or, if upload failed after handoff, leave an empty forked session.
+            // Therefore file sends use the stable target (no handoff). Text/photo-only
+            // sends leave the override undefined and let sendUser resolve normally.
+            const sessionId = files.length > 0 ? resolveStableSession(body.sessionId) : undefined
+            const content = [
+              ...(text === '' ? [] : [{ type: 'text', text }]),
+              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+            ]
+            for (const file of files) {
+              const data = (async function* () { yield file.buffer })()
+              const value = await uploads.uploadStream({ sessionId, data, name: file.name })
+              content.push({ type: 'file', receiptId: value.receiptId })
+            }
+            await rt.sendUser({ sessionId: body.sessionId, content, resolvedSessionId: sessionId })
+          } catch (error) {
+            restoreFiles()
+            throw error
           }
-          await rt.sendUser({ sessionId: body.sessionId, content, resolvedSessionId: sessionId })
           for (const id of imageIds) staged.delete(id)
-          for (const id of fileIds) stagedFiles.delete(id)
           return ok(true)
         }
         case 'btw-delete': {
@@ -976,23 +1003,28 @@ export function install(rt) {
     }
     return undefined
   }
-  // Resolve the Session a message actually lands on: a Bot's own chat, a group's
-  // current part, or the part that raised the thread — including a foreground
-  // handoff when a Bot is busy in an older part. Both `sendUser` and the file
-  // upload path need this ONCE so a receipt is bound to the very Session that
-  // receives the prompt. Resolving twice (as an earlier version did) bound the
-  // upload to the pre-handoff Session and silently dropped the file.
-  async function resolveSendSession(ref) {
+  // Resolve the stable Session a ref points at: a Bot's own chat, a group's
+  // current part, or the part that raised the thread. No foreground handoff —
+  // this is safe to call synchronously and is used by the file-send path, whose
+  // upload receipt is bound to the exact Session object (DSH keys staged files
+  // by Session in a WeakMap) and therefore must not change after upload.
+  function resolveStableSession(ref) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
-    let sessionId = ownThreadTarget(ref, past)
+    return ownThreadTarget(ref, past)
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
+  }
+  // Resolve the Session an ordinary message lands on, including a foreground
+  // handoff when a Bot is busy in an older part. Text/photo sends go through
+  // here; file sends deliberately use resolveStableSession instead (see below).
+  async function resolveSendSession(ref) {
+    const sessionId = resolveStableSession(ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.shouldMoveForeground?.(bot, sessionId)) {
-        sessionId = await rt.handoffForeground(bot, sessionId)
+        return await rt.handoffForeground(bot, sessionId)
       }
     }
     return sessionId
