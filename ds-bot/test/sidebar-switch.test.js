@@ -849,6 +849,47 @@ test('installFrameWatch tracks data-sidebar-collapsed on DSH Desktop ancestor fr
   })
 })
 
+test('installFrameWatch rescans the columns only when one it watches was replaced', async () => {
+  await withDom('<!doctype html><body><div class="frame"><div class="x_sidebarCol"></div><div class="x_centerCol"><div class="other"></div></div></div></body>', async ({ document }) => {
+    sandbox.Element = document.defaultView.Element
+    const observed = new Set()
+    sandbox.ResizeObserver = class { observe(node) { observed.add(node) } unobserve(node) { observed.delete(node) } disconnect() { observed.clear() } }
+    const scans = []
+    const all = document.querySelectorAll.bind(document)
+    document.querySelectorAll = (selector) => { if (selector.includes('_sidebarCol')) scans.push(selector); return all(selector) }
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stop = installFrameWatch(frame)
+    const settle = () => new Promise(resolve => setTimeout(resolve, 30))
+    try {
+      assert.deepEqual([...observed], [document.querySelector('.x_sidebarCol'), document.querySelector('.x_centerCol')])
+      assert.equal(scans.length, 1)
+      document.querySelector('.other').append(document.createElement('span'))
+      await settle()
+      assert.equal(scans.length, 1, 'a mutation that leaves the columns in place does not rescan')
+      const old = document.querySelector('.x_sidebarCol')
+      const next = document.createElement('div')
+      next.className = 'x_sidebarCol'
+      old.replaceWith(next)
+      await settle()
+      assert.equal(scans.length, 2)
+      assert.equal(observed.has(old), false)
+      assert.equal(observed.has(next), true)
+      assert.equal(observed.size, 2)
+      const pane = document.createElement('div')
+      pane.className = 'x_centerCol'
+      document.querySelector('.frame').append(pane)
+      await settle()
+      assert.equal(scans.length, 3, 'a column added next to the watched ones is picked up')
+      assert.equal(observed.has(pane), true)
+      assert.equal(observed.size, 3)
+    } finally {
+      stop()
+      delete sandbox.ResizeObserver
+      delete sandbox.Element
+    }
+  })
+})
+
 test('TeamSidebar collapses DSH Desktop sidebar once without entering a 300ms toggle loop', async () => {
   await withDom('<!doctype html><body><div class="dshDesktopFrame"><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside><div class="dshDesktop_centerCol"></div></div></body>', async ({ document }) => {
     viewport.innerWidth = 1280

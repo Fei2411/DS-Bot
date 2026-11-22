@@ -10,7 +10,7 @@ export function ownedPopups(roots) {
   for (let index = 0; index < allowed.length; index += 1) {
     for (const [popup, owner] of owners) {
       const element = popup.current
-      if (element?.isConnected && allowed[index].contains(owner.current) && !allowed.some(root => root.contains(element))) allowed.push(element)
+      if (element?.isConnected && !element.hasAttribute('data-leaving') && allowed[index].contains(owner.current) && !allowed.some(root => root.contains(element))) allowed.push(element)
     }
   }
   return allowed.slice(roots.length)

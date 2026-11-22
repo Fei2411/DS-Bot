@@ -339,7 +339,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     sync()
     const observer = new MutationObserver(sync)
-    observer.observe(doc.body, { childList: true, subtree: true })
+    observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-leaving'] })
     doc.addEventListener('focusin', onFocus, true)
     doc.addEventListener('keydown', onTab, true)
     return () => {
@@ -354,7 +354,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   useEffect(() => {
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
-      if (isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
       const tag = event.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }

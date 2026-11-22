@@ -5,6 +5,7 @@ import { registerPopupOwner, ownedPopups } from '../src/client/popup-ownership.j
 function element(parent = null) {
   return {
     parent, isConnected: true,
+    hasAttribute(name) { return name === 'data-leaving' && this.leaving === true },
     contains(child) {
       for (let node = child; node; node = node.parent) if (node === this) return true
       return false
@@ -12,13 +13,14 @@ function element(parent = null) {
   }
 }
 
-test('popup ownership excludes unrelated, missing and disconnected popups', t => {
+test('popup ownership excludes unrelated, missing, disconnected and closing popups', t => {
   const target = element()
   const unrelated = element()
   t.after(registerPopupOwner({ current: unrelated }, { current: element() }))
   t.after(registerPopupOwner({ current: target }, { current: null }))
   t.after(registerPopupOwner({ current: null }, { current: element() }))
   t.after(registerPopupOwner({ current: target }, { current: { ...element(), isConnected: false } }))
+  t.after(registerPopupOwner({ current: target }, { current: { ...element(), leaving: true } }))
   assert.deepEqual([...ownedPopups([target])], [])
   assert.deepEqual([...ownedPopups([])], [])
 })
