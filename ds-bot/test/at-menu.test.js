@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { formatSessionReferenceMention, parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
-import { BOTS_SOURCE, atSources, chatRows, mentionRows, sessionMention } from '../src/client/at-menu.js'
+import { BOTS_SOURCE, CHATS_SOURCE, atSources, chatRows, mentionRows, sessionMention } from '../src/client/at-menu.js'
 import { indexRoster } from '../src/client/sources.js'
 
 const roster = indexRoster({
@@ -50,19 +50,30 @@ test('the chats are the other Bots\' current parts, then the latest Sessions out
   assert.deepEqual(chatRows(roster, list, 'new'), [])
 })
 
-test('the "@" menu holds the Bot group only, never the chats', async () => {
+test('the "@" menu holds the Bot group only, never chat rows', async () => {
   const sources = atSources({
     roster: { getSnapshot: () => roster },
     iconFor: () => 'session',
   })
-  assert.equal(sources.length, 1)
-  assert.deepEqual(sources.map(source => source.name), [BOTS_SOURCE])
+  const bots = sources.find(source => source.name === BOTS_SOURCE)
   // Referring to a chat is the reference palette's job, so a typed "@" never lists a
   // conversation and never offers two rows for the same Bot.
-  assert.equal(sources.some(source => source.name === 'ds-bot-chats'), false)
+  const chats = sources.find(source => source.name === CHATS_SOURCE)
+  assert.deepEqual(sources.map(source => source.name), [BOTS_SOURCE, CHATS_SOURCE])
+  assert.deepEqual(await chats.candidates({ sessionId: 'chief-2' }, { query: '' }), [])
+  assert.deepEqual(await chats.candidates({ sessionId: 'chief-2' }, { query: 'New work' }), [])
 
-  const mentions = await sources[0].candidates({ sessionId: 'room' }, { query: '' })
+  const mentions = await bots.candidates({ sessionId: 'room' }, { query: '' })
   assert.deepEqual(mentions.map(row => [row.name, row.description]), [['Chief', 'Lead'], ['King', undefined], ['Everyone', '2 members']])
-  assert.deepEqual(sources[0].onPick({ candidate: mentions[1] }), { text: '@King ' })
-  assert.deepEqual(await sources[0].candidates({ sessionId: 'plain' }, { query: '' }), [])
+  assert.deepEqual(bots.onPick({ candidate: mentions[1] }), { text: '@King ' })
+  assert.deepEqual(await bots.candidates({ sessionId: 'plain' }, { query: '' }), [])
+})
+
+test('a draft saved with a ds-bot-chats chip still serializes and sends', async () => {
+  const sources = atSources({ roster: { getSnapshot: () => roster }, iconFor: () => 'session' })
+  const chats = sources.find(source => source.name === CHATS_SOURCE)
+  // DSH restores a chip by its source name and refuses to send a draft whose source
+  // has no codec, so the old name stays registered even though it lists nothing.
+  assert.equal(await chats.codec.serialize('@[Old](dsh-session:e30)'), '@[Old](dsh-session:e30)')
+  assert.equal(chats.codec.clipboardText('@[Old](dsh-session:e30)'), '@[Old](dsh-session:e30)')
 })

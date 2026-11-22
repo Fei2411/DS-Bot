@@ -7,6 +7,9 @@ import { t } from './i18n.js'
 import { currentPart } from './text.js'
 
 export const BOTS_SOURCE = 'ds-bot'
+// The source name the chats were written under while they lived in the "@" menu.
+// Kept for drafts saved then; see atSources.
+export const CHATS_SOURCE = 'ds-bot-chats'
 // The words the group host reads as "everyone" (groups.js ROOM_ALL).
 const ROOM_ALL = ['all', 'everyone', '所有人', '全体']
 const OTHER_CHATS_MAX = 8
@@ -75,9 +78,14 @@ export function sessionMention(sessionId, label) {
   return `@[${label.replace(/[\\\]]/g, mark => `\\${mark}`)}](dsh-session:${payload})`
 }
 
-// The Bot group of the "@" menu only. `iconFor(row)` is the row's character mark.
+// The Bot group of the "@" menu. `iconFor(row)` is the row's character mark.
 // Chats are not a source here: "+ → Reference a chat" opens DS Bot's own picker,
 // so a typed "@" stays about the team and nothing else.
+//
+// `ds-bot-chats` stays registered with no rows and its original codec: DSH restores
+// a saved draft's chip by the source name it was written with, and refuses to send a
+// draft whose chip has no codec to serialize. Old drafts keep sending; new ones never
+// put a chat chip there in the first place.
 export function atSources({ roster, iconFor }) {
   const bots = {
     trigger: '@',
@@ -96,5 +104,14 @@ export function atSources({ roster, iconFor }) {
     },
     onPick: ({ candidate }) => (candidate.value ? { text: candidate.value } : undefined),
   }
-  return [bots]
+  const legacyChats = {
+    trigger: '@',
+    name: CHATS_SOURCE,
+    order: -10,
+    showGroupTitle: false,
+    // No rows: a typed "@" must not offer conversations.
+    async candidates() { return [] },
+    codec: { clipboardText: ref => ref, serialize: ref => Promise.resolve(ref) },
+  }
+  return [bots, legacyChats]
 }

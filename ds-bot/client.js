@@ -44784,6 +44784,7 @@ function watchAgentTerminals(slots, sessionId, onError) {
 
 // src/client/at-menu.js
 var BOTS_SOURCE = "ds-bot";
+var CHATS_SOURCE = "ds-bot-chats";
 var ROOM_ALL = ["all", "everyone", "所有人", "全体"];
 var OTHER_CHATS_MAX = 8;
 var MAX_CHATS_WITH_QUERY = 50;
@@ -44847,7 +44848,18 @@ function atSources({ roster, iconFor }) {
     },
     onPick: ({ candidate }) => candidate.value ? { text: candidate.value } : void 0
   };
-  return [bots];
+  const legacyChats = {
+    trigger: "@",
+    name: CHATS_SOURCE,
+    order: -10,
+    showGroupTitle: false,
+    // No rows: a typed "@" must not offer conversations.
+    async candidates() {
+      return [];
+    },
+    codec: { clipboardText: (ref) => ref, serialize: (ref) => Promise.resolve(ref) }
+  };
+  return [bots, legacyChats];
 }
 
 // src/client/enter-steer.js
@@ -45064,6 +45076,18 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useUi, act
   const menu = (0, import_react64.useRef)(null);
   const insertion = (0, import_react64.useRef)(void 0);
   const chatRef = useUi?.((state) => state.chatRef && state.chatRef.owner === sessionId ? state.chatRef : null);
+  const pickerOpen = useUi?.((state) => Boolean(state.palette && state.palette.mode === "reference" && state.palette.owner === sessionId));
+  const pickerWasOpen = (0, import_react64.useRef)(false);
+  (0, import_react64.useEffect)(() => {
+    const was = pickerWasOpen.current;
+    pickerWasOpen.current = pickerOpen === true;
+    if (!was || pickerOpen) return;
+    if (typeof document === "undefined") return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const box = button.current?.closest("[data-composer-card]")?.querySelector("[role=textbox][contenteditable=true]");
+    if (box instanceof HTMLElement) box.focus();
+  }, [pickerOpen]);
   (0, import_react64.useEffect)(() => {
     if (!chatRef || typeof inputActions?.insertText !== "function") return;
     actions.clearChatReference(chatRef.token);
@@ -46217,7 +46241,8 @@ function CommandPalette({ start, token, mode = "search", owner, roster, actions,
     id: row.sessionId,
     label: row.label,
     name: row.bot?.name,
-    role: row.bot?.role
+    role: row.bot?.role,
+    updatedAt: row.updatedAt
   }))) : "[]");
   const matchesName = (...fields) => wanted === "" || fields.some((field) => (field ?? "").toLowerCase().includes(wanted));
   const sections = [];
@@ -46226,7 +46251,9 @@ function CommandPalette({ start, token, mode = "search", owner, roster, actions,
       key: row.id,
       icon: (0, import_react68.createElement)(ChatsIcon),
       title: row.name ?? row.label,
-      subtitle: row.name ? row.role : void 0,
+      // A Bot row says what it is; a standalone chat says when it was last used, so
+      // two chats sharing a title are still two different rows.
+      subtitle: row.name ? row.role : row.updatedAt ? relativeShort(row.updatedAt) : void 0,
       run: () => actions.pickChatReference({ owner, target: row.id, label: row.label })
     }));
     if (chats.length) sections.push([t("Conversations"), chats]);

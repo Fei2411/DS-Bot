@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { chatRows } from './at-menu.js'
 import { isMainOf } from './sources.js'
-import { currentPart, stripHeader } from './text.js'
+import { currentPart, relativeShort, stripHeader } from './text.js'
 import { ChatsIcon, PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -57,9 +57,11 @@ export function CommandPalette({ start, token, mode = 'search', owner, roster, a
   })
   // The reference rows come from the same list the composer's picker would show, cut
   // to the fields a row draws: a serialized copy keeps the store snapshot stable.
+  // `updatedAt` rides along so two standalone chats with the same title can still be
+  // told apart by when they were last used.
   const chatList = useSessions(list => (reference
     ? JSON.stringify(chatRows(roster, list, owner, query).map(row => ({
-      id: row.sessionId, label: row.label, name: row.bot?.name, role: row.bot?.role,
+      id: row.sessionId, label: row.label, name: row.bot?.name, role: row.bot?.role, updatedAt: row.updatedAt,
     })))
     : '[]'))
   const matchesName = (...fields) => wanted === '' || fields.some(field => (field ?? '').toLowerCase().includes(wanted))
@@ -69,7 +71,9 @@ export function CommandPalette({ start, token, mode = 'search', owner, roster, a
       key: row.id,
       icon: h(ChatsIcon),
       title: row.name ?? row.label,
-      subtitle: row.name ? row.role : undefined,
+      // A Bot row says what it is; a standalone chat says when it was last used, so
+      // two chats sharing a title are still two different rows.
+      subtitle: row.name ? row.role : (row.updatedAt ? relativeShort(row.updatedAt) : undefined),
       run: () => actions.pickChatReference({ owner, target: row.id, label: row.label }),
     }))
     if (chats.length) sections.push([t('Conversations'), chats])

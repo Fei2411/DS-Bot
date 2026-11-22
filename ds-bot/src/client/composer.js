@@ -133,6 +133,21 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
   // A pick in the reference palette comes back here: the composing Session is the one
   // that holds the draft and the caret, so it does the insert.
   const chatRef = useUi?.(state => (state.chatRef && state.chatRef.owner === sessionId ? state.chatRef : null))
+  // The picker's search field takes focus; when it closes, the caret goes back to this
+  // draft, so typing after Escape (or right after a pick) still edits the message.
+  const pickerOpen = useUi?.(state => Boolean(state.palette && state.palette.mode === 'reference' && state.palette.owner === sessionId))
+  const pickerWasOpen = useRef(false)
+  useEffect(() => {
+    const was = pickerWasOpen.current
+    pickerWasOpen.current = pickerOpen === true
+    if (!was || pickerOpen) return
+    if (typeof document === 'undefined') return
+    // Focus already moved somewhere real (another chat, another field): leave it.
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const box = button.current?.closest('[data-composer-card]')?.querySelector('[role=textbox][contenteditable=true]')
+    if (box instanceof HTMLElement) box.focus()
+  }, [pickerOpen])
   useEffect(() => {
     if (!chatRef || typeof inputActions?.insertText !== 'function') return
     actions.clearChatReference(chatRef.token)
