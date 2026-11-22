@@ -18367,7 +18367,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-subnav{flex:none;padding:0 28px 12px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none}
 .bt-settings-subnav::-webkit-scrollbar{display:none}
 .bt-settings-tabs{flex:none}
-.bt-settings-tabs button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-settings-tabs button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;white-space:nowrap}
 .bt-tab-tag{font-size:10px;line-height:14px;padding:1px 5px}
 /* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
    An auto basis without shrinking keeps natural-height content inside its section. */
@@ -18423,9 +18423,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-tour-backdrop{position:absolute;inset:0;pointer-events:auto;background:transparent}
 .bt-tour-backdrop-dim{background:rgba(0,0,0,.36)}
 body[data-ds-dark-theme] .bt-tour-backdrop-dim{background:rgba(0,0,0,.56)}
-.bt-tour-spot{position:absolute;border-radius:12px;border:2px solid var(--bt-accent);box-shadow:0 0 0 9999px rgba(0,0,0,.38),0 0 0 4px color-mix(in srgb,var(--bt-accent) 20%,transparent);pointer-events:none;box-sizing:border-box;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")},${spring(SPRING_SHAPE, "width")},${spring(SPRING_SHAPE, "height")};animation:bt-veil-in .18s ease-out}
-body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 9999px rgba(0,0,0,.58),0 0 0 4px color-mix(in srgb,var(--bt-accent) 26%,transparent)}
-.bt-tour-card{position:absolute;width:304px;max-width:calc(100% - 24px);padding:14px 16px;border-radius:16px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")};animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .18s ease-out}
+.bt-tour-spot{position:absolute;border-radius:12px;border:2px solid var(--bt-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bt-accent) 22%,transparent),0 0 0 9999px rgba(0,0,0,.38);pointer-events:none;box-sizing:border-box;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")},${spring(SPRING_SHAPE, "width")},${spring(SPRING_SHAPE, "height")};animation:bt-veil-in .18s ease-out}
+body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,var(--bt-accent) 28%,transparent),0 0 0 9999px rgba(0,0,0,.58)}
+.bt-tour-card{position:absolute;width:304px;max-width:calc(100% - 24px);padding:14px 16px;border-radius:16px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;outline:none;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")};animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .18s ease-out}
 .bt-tour-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-tour-title{font-size:14px;line-height:20px;font-weight:600;color:var(--bt-ink)}
 .bt-tour-count{flex:none;font-size:11px;line-height:16px;font-weight:500;font-variant-numeric:tabular-nums;padding:1px 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2)}
@@ -18492,6 +18492,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-browser-form .bt-select{width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-browser-site{width:min(320px,100%);max-width:320px}
+.bt-browser-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+.bt-browser-seg::-webkit-scrollbar{display:none}
+.bt-browser-seg button{flex:none;padding:0 10px;white-space:nowrap}
 .bt-browser-form-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
@@ -18948,6 +18951,12 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
 :is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb,.bt-tour-spot,.bt-tour-card{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*,.bt-tour-spot,.bt-tour-card{animation:none}}
+/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
+.bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
+.bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+.bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+.bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
    or scroll instead of overflowing. These rules sit at the end of the sheet:
@@ -18971,7 +18980,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-subnav{padding:0 16px 8px}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip;padding:4px 16px calc(24px + env(safe-area-inset-bottom,0px))}
-  .bt-tour-card{width:auto;max-width:none}
+  .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
@@ -18984,12 +18993,6 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
-/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
-.bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-.bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
-.bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
-.bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
-.bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input,.bt-set-search-input{font-size:16px}
@@ -37934,6 +37937,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [server, setServer] = (0, import_react44.useState)(phone.server);
   const [editingServer, setEditingServer] = (0, import_react44.useState)(false);
   const [wantPair, setWantPair] = (0, import_react44.useState)(false);
+  const wantPairRef = (0, import_react44.useRef)(false);
   const [busy, setBusy] = (0, import_react44.useState)(false);
   const [error, setError] = (0, import_react44.useState)(null);
   const [copied, setCopied] = (0, import_react44.useState)(false);
@@ -37962,8 +37966,9 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   (0, import_react44.useEffect)(() => {
     const prev = prevState.current;
     prevState.current = { on: phone.on, status: phone.status, error: phone.error };
-    if (!wantPair) return;
+    if (!wantPair || !wantPairRef.current) return;
     if (phone.pairing) {
+      wantPairRef.current = false;
       setWantPair(false);
       return;
     }
@@ -37971,10 +37976,12 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     const newlyOffline = phone.status === "offline" && prev.status !== "offline";
     const turnedOff = !phone.on && prev.on;
     if (newlyFailed || newlyOffline || turnedOff) {
+      wantPairRef.current = false;
       setWantPair(false);
       return;
     }
     if (phone.on && phone.status === "online") {
+      wantPairRef.current = false;
       setWantPair(false);
       void run2(actions.phonePair());
     }
@@ -37991,10 +37998,14 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       void run2(actions.phonePair());
       return;
     }
+    wantPairRef.current = true;
     setWantPair(true);
     if (!phone.on) {
       void run2(actions.phoneSet({ on: true })).then((ok) => {
-        if (!ok) setWantPair(false);
+        if (!ok) {
+          wantPairRef.current = false;
+          setWantPair(false);
+        }
       });
     }
   };
@@ -38032,7 +38043,10 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
           label: t("Phone access"),
           disabled: busy,
           onChange: (on) => {
-            if (!on) setWantPair(false);
+            if (!on) {
+              wantPairRef.current = false;
+              setWantPair(false);
+            }
             void run2(actions.phoneSet({ on }));
           }
         })
@@ -38076,7 +38090,10 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { key: "qr", label: t("Show QR code") },
         wantPair ? [
           (0, import_react44.createElement)("span", { key: "wait", className: "bt-set-hint" }, t("Waiting for connection…")),
-          (0, import_react44.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: () => setWantPair(false) }, t("Cancel"))
+          (0, import_react44.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+            wantPairRef.current = false;
+            setWantPair(false);
+          } }, t("Cancel"))
         ] : (0, import_react44.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: busy, onClick: startPair }, online ? t("Show QR code") : t("Turn on & pair"))
       ),
       (0, import_react44.createElement)(
@@ -40571,13 +40588,25 @@ var GAP2 = 14;
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-function measureSpotlight(dialogEl, targetKey) {
+function sameSpot(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height && a.dialogW === b.dialogW && a.dialogH === b.dialogH;
+}
+function findTourTarget(dialogEl, targetKey) {
   if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== "function") return null;
   const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`);
   if (!el || typeof el.getBoundingClientRect !== "function") return null;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return el;
+}
+function measureSpotlight(dialogEl, targetKey) {
+  const el = findTourTarget(dialogEl, targetKey);
+  if (!el || typeof dialogEl.getBoundingClientRect !== "function") return null;
   const dialogRect = dialogEl.getBoundingClientRect();
   const rect = el.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0 || dialogRect.width <= 0 || dialogRect.height <= 0) return null;
+  if (dialogRect.width <= 0 || dialogRect.height <= 0) return null;
   let left = rect.left - dialogRect.left - PAD;
   let top = rect.top - dialogRect.top - PAD;
   let right = rect.right - dialogRect.left + PAD;
@@ -40608,8 +40637,7 @@ function measureSpotlight(dialogEl, targetKey) {
     width: Math.round(width),
     height: Math.round(height),
     dialogW: Math.round(dialogRect.width),
-    dialogH: Math.round(dialogRect.height),
-    el
+    dialogH: Math.round(dialogRect.height)
   };
 }
 function placeCard(spot, cardW, cardH) {
@@ -40668,9 +40696,14 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
   }, [active, tourKey]);
   useEscape(dismiss, active, { priority: 1 });
   (0, import_react54.useEffect)(() => {
+    if (active) cardRef.current?.focus?.({ preventScroll: true });
+  }, [active, tourKey]);
+  (0, import_react54.useEffect)(() => {
     if (!active || typeof window === "undefined") return void 0;
     const onKeyDown = (event) => {
-      if (isImeComposing(event)) return;
+      if (isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) return;
       if (event.key === "ArrowRight") {
         event.preventDefault();
         next();
@@ -40707,28 +40740,32 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       if (box && box.offsetWidth > 0 && box.offsetHeight > 0) {
         setCardSize((prev2) => prev2.width === box.offsetWidth && prev2.height === box.offsetHeight ? prev2 : { width: box.offsetWidth, height: box.offsetHeight });
       }
-      const measured = measureSpotlight(dialogEl, step.target);
-      if (measured && scrolledRef.current !== stepKey) {
+      const targetEl = findTourTarget(dialogEl, step.target);
+      if (targetEl && scrolledRef.current !== stepKey) {
         scrolledRef.current = stepKey;
-        measured.el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-        const afterScroll = measureSpotlight(dialogEl, step.target);
-        setSpot(afterScroll ?? measured);
-        return;
+        targetEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       }
-      setSpot(measured);
+      const measured = measureSpotlight(dialogEl, step.target);
+      setSpot((prev2) => sameSpot(prev2, measured) ? prev2 : measured);
     };
     const schedule = () => {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
       if (typeof requestAnimationFrame === "function") raf = requestAnimationFrame(sync);
       else sync();
     };
+    const onMutate = (records) => {
+      const layer = layerRef.current;
+      if (layer && Array.isArray(records) && records.every((record) => layer.contains?.(record.target))) return;
+      schedule();
+    };
     sync();
-    const settleTimer = setTimeout(sync, 260);
+    const settleTimer = setTimeout(sync, 580);
     window.addEventListener?.("resize", schedule);
     dialogEl.addEventListener?.("scroll", schedule, true);
+    dialogEl.addEventListener?.("animationend", schedule, true);
     let observer = null;
     if (typeof MutationObserver === "function") {
-      observer = new MutationObserver(schedule);
+      observer = new MutationObserver(onMutate);
       observer.observe(dialogEl, { childList: true, subtree: true, attributes: false });
     }
     return () => {
@@ -40736,11 +40773,15 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
       window.removeEventListener?.("resize", schedule);
       dialogEl.removeEventListener?.("scroll", schedule, true);
+      dialogEl.removeEventListener?.("animationend", schedule, true);
       observer?.disconnect();
     };
   }, [active, step, currentPage, dialogRef, tourKey, index]);
   if (!active || !step) return null;
-  const cardStyle = placeCard(spot, cardSize.width, cardSize.height) ?? { right: 20, bottom: 20 };
+  const activeSpot = step.page && step.page !== currentPage ? null : spot;
+  const narrowViewport = typeof window !== "undefined" && typeof window.innerWidth === "number" && window.innerWidth <= 640;
+  const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 };
+  const cardStyle = placeCard(activeSpot, cardSize.width, cardSize.height) ?? fallbackStyle;
   return (0, import_react54.createElement)(
     "div",
     {
@@ -40753,18 +40794,19 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       "data-tour-step": step.target
     },
     (0, import_react54.createElement)("div", {
-      className: spot ? "bt-tour-backdrop" : "bt-tour-backdrop bt-tour-backdrop-dim",
+      className: activeSpot ? "bt-tour-backdrop" : "bt-tour-backdrop bt-tour-backdrop-dim",
       onMouseDown: (event) => event.stopPropagation()
     }),
-    spot ? (0, import_react54.createElement)("div", {
+    activeSpot ? (0, import_react54.createElement)("div", {
       className: "bt-tour-spot",
       "aria-hidden": true,
-      style: { left: spot.left, top: spot.top, width: spot.width, height: spot.height }
+      style: { left: activeSpot.left, top: activeSpot.top, width: activeSpot.width, height: activeSpot.height }
     }) : null,
     (0, import_react54.createElement)(
       "div",
       {
         ref: cardRef,
+        tabIndex: -1,
         className: "bt-tour-card",
         style: cardStyle,
         onMouseDown: (event) => event.stopPropagation()

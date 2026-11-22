@@ -213,7 +213,7 @@ const withGlobals = async (fn) => {
   }
 }
 
-test('SettingsDialog consolidates nav into 9 groups and preserves all legacy sub-page deep links', async () => {
+test('SettingsDialog consolidates nav into 8 groups and preserves all legacy sub-page deep links', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
   await withGlobals(async () => {
     const harness = makeStatefulReact()
@@ -486,6 +486,91 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     assert.ok(stylesSrc.includes('.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:hidden}'))
     assert.ok(stylesSrc.includes('button.bt-select{display:inline-flex;align-items:center;'))
     harness.unmount()
+  })
+})
+
+test('SettingsTour scrolls off-screen targets into view before clipping, tracks async mounts, and guards Arrow keys', async () => {
+  const code = await loadBundle("export { SettingsTour, measureSpotlight } from './src/client/settings-tour.js'")
+  await withGlobals(async (listeners) => {
+    const observers = []
+    const prevMO = globalThis.MutationObserver
+    const prevRaf = globalThis.requestAnimationFrame
+    globalThis.MutationObserver = class {
+      constructor(cb) { this.cb = cb; observers.push(this) }
+      observe() {}
+      disconnect() {}
+    }
+    globalThis.requestAnimationFrame = fn => { fn(); return 1 }
+    globalThis.window.innerWidth = 390
+    try {
+      const harness = makeStatefulReact()
+      const mod = { exports: {} }
+      new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+        id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+      ))
+      const { SettingsTour, measureSpotlight } = mod.exports
+
+      // Simulate a scrolled-off-screen target inside .bt-settings-scroll (below bottom edge 780).
+      let targetTop = 920
+      let scrolledCalls = 0
+      let mounted = false
+      const scrollBox = { getBoundingClientRect: () => ({ left: 212, top: 80, right: 1100, bottom: 780, width: 888, height: 700 }) }
+      const targetEl = {
+        getBoundingClientRect: () => ({ left: 240, top: targetTop, right: 1060, bottom: targetTop + 90, width: 820, height: 90 }),
+        closest: sel => (sel === '.bt-settings-scroll' ? scrollBox : null),
+        scrollIntoView: () => { scrolledCalls += 1; targetTop = 520 },
+      }
+      const dialogEl = {
+        getBoundingClientRect: () => ({ left: 0, top: 0, right: 1100, bottom: 780, width: 1100, height: 780 }),
+        querySelector: sel => (mounted && sel === '[data-tour="default-model"]' ? targetEl : null),
+        addEventListener() {},
+        removeEventListener() {},
+      }
+      const dialogRef = { current: dialogEl }
+      const renderTour = () => harness.render(harness.React.createElement(SettingsTour, {
+        tour: { mode: 'general', nonce: 1 },
+        currentPage: 'general',
+        dialogRef,
+        hasProviders: true,
+        hasAdvancedModels: false,
+        onNavigate() {},
+        onDismiss() {},
+      }))
+
+      // First render while target is not yet mounted (async page) → mobile fallback stays bounded left & right.
+      let tree = renderTour()
+      const fallbackCard = findAll(tree, n => n.props?.className === 'bt-tour-card')[0]
+      assert.deepEqual(fallbackCard.props.style, { left: 12, right: 12, bottom: 12 })
+
+      // Target mounts off-screen → MutationObserver triggers sync → scrollIntoView runs BEFORE clipping → spotlight locks on.
+      mounted = true
+      assert.ok(observers.length >= 1)
+      observers[observers.length - 1].cb([{ target: dialogEl }])
+      tree = renderTour()
+      assert.equal(scrolledCalls, 1, 'off-screen target must be scrolled into view before clipping')
+      const spotNode = findAll(tree, n => n.props?.className === 'bt-tour-spot')[0]
+      assert.ok(spotNode, 'spotlight must appear after off-screen target scrolls into view')
+      assert.equal(spotNode.props.style.top, 514)
+
+      // Clip check: a tall target extending above scrollBox.top (80) clips at clipTop + 2 (82).
+      targetTop = 40
+      const clipped = measureSpotlight(dialogEl, 'default-model')
+      assert.equal(clipped.top, 82)
+
+      // ArrowRight with Ctrl/Meta or inside an INPUT must NOT advance step; plain ArrowRight DOES advance.
+      for (const fn of [...listeners]) fn({ key: 'ArrowRight', ctrlKey: true, preventDefault() {} })
+      for (const fn of [...listeners]) fn({ key: 'ArrowRight', target: { tagName: 'INPUT' }, preventDefault() {} })
+      tree = renderTour()
+      assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'default-model')
+
+      for (const fn of [...listeners]) fn({ key: 'ArrowRight', preventDefault() {} })
+      tree = renderTour()
+      assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'locations')
+      harness.unmount()
+    } finally {
+      globalThis.MutationObserver = prevMO
+      globalThis.requestAnimationFrame = prevRaf
+    }
   })
 })
 
