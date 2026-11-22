@@ -112,6 +112,23 @@ test('private text, group mention and photo become adapter messages', async () =
   } finally { api.close() }
 })
 
+test('trailing Telegram group mentions preserve numbered replies, card codes and stop commands', async (t) => {
+  const api = await fakeApi()
+  const messages = []
+  const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
+    onMessage: msg => messages.push(msg), onAction: () => {}, onStatus: () => {},
+  })
+  t.after(() => { handle.stop(); api.close() })
+  for (const [index, text] of ['1 3 @fakebot', 'V3 1 3 @fakebot', '/stop @fakebot'].entries()) {
+    api.updates.push({ update_id: index + 1, message: {
+      message_id: index + 1, chat: { id: -8, type: 'supergroup' }, from: { id: 9 }, text,
+    } })
+  }
+  await until(() => messages.length === 3)
+  assert.deepEqual(messages.map(msg => msg.text.trim()), ['1 3', 'V3 1 3', '/stop'])
+  assert.ok(messages.every(msg => msg.mentioned))
+})
+
 test('a multiline Telegram group mention answers a token form without losing field lines', async (t) => {
   const api = await fakeApi()
   const home = mkdtempSync(join(tmpdir(), 'dsb-tg-form-'))
@@ -170,13 +187,27 @@ test('a multiline Telegram group mention answers a token form without losing fie
   const viewId = rt.state.views.a.id
   const card = await until(() => api.calls.find(call => call.method === 'sendMessage' && /Card V\d+/.test(call.params.text)))
   const code = /Card (V\d+)/.exec(card.params.text)[1]
-  api.updates.push(message(101, `@fakebot  \t ${code}\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
+  api.updates.push(message(101, `${code} @fakebot\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
   await until(() => followups.length === 1)
   assert.equal(rt.state.views.a, undefined)
   assert.equal(prompts.length, 1, 'the answer is consumed rather than relayed as ordinary chat')
   assert.deepEqual(JSON.parse(followups[0].content[0].text).answers[0], {
     id: viewId, action: 'details', values: { fields: { name: 'Alice  Smith\tJr', notes: 'first  line\n  second\tline @fakebot\nlast\t ' } },
   })
+  await rt.teamTools.find(tool => tool.name === 'ask_user').execute({
+    question: 'Which letters?', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }], multiSelect: true,
+  }, { agent, concludeTurn() {} })
+  await until(() => api.calls.some(call => call.method === 'sendMessage' && call.params.text.includes('Which letters?')))
+  api.updates.push(message(102, '1 3 @fakebot'))
+  await until(() => followups.length === 2)
+  assert.equal(rt.state.questions.a, undefined)
+  assert.match(followups[1].content[0].text, /A/)
+  assert.match(followups[1].content[0].text, /C/)
+  let stopped = false
+  rt.stopChat = async botId => { assert.equal(botId, 'a'); stopped = true; return true }
+  api.updates.push(message(103, '/stop @fakebot'))
+  await until(() => stopped)
+  assert.equal(prompts.length, 1, 'trailing-mention answers and commands are not ordinary prompts')
 })
 
 test('callback_query answers the query and reports the action', async () => {
