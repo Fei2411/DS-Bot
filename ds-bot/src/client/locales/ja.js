@@ -326,6 +326,7 @@ export const JA = {
   "Session {number}": "セッション {number}",
   "Current session": "現在のセッション",
   "This page could not be shown.": "このページを表示できませんでした。",
+  "This view closed because of an error.": "エラーが発生したため、この画面を閉じました。",
   "Current": "現在",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "このキーは環境変数など DS Bot の外部で設定されているため、ここでは変更できません。",
   "and {count} more": "他 {count} 件",

@@ -690,11 +690,16 @@ export function DeepSeekSignIn({ useUi, actions }) {
   return h(SignInHost, { key: open, entry, actions })
 }
 
+function makeSourceHook(source) {
+  return function useBoundSource(selector) {
+    return useSyncExternalStore(source.subscribe, () => selector(source.getSnapshot()))
+  }
+}
+
 function SignInHost({ entry, actions }) {
   const [ops] = useState(() => entry.inject?.() ?? {})
   const close = () => actions.closeSignIn()
-  const useHook = source => selector => useSyncExternalStore(source.subscribe, () => selector(source.getSnapshot()))
-  const [hooks] = useState(() => ({ useAccount: useHook(ops.hooks.account), useTheme: useHook(ops.hooks.theme) }))
+  const [hooks] = useState(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }))
   return h(entry.component, {
     ...ops,
     ...hooks,

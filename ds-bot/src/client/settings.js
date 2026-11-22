@@ -30,6 +30,7 @@ import { BotModelsPage } from './bot-models-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
+import { noteClientError } from './diagnostics.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 
@@ -329,10 +330,12 @@ function GroupsPage({ roster, actions, run }) {
 // the window reloads. The page's key resets it; Usage stays mounted, so its
 // boundary resets when the shown page changes.
 class PageBoundary extends Component {
-  state = { failed: false }
+  state = { failed: false, reset: this.props.reset }
   static getDerivedStateFromError() { return { failed: true } }
-  componentDidUpdate(previous) { if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false }) }
-  componentDidCatch(error) { console.error('ds-bot: a settings page failed', error) }
+  static getDerivedStateFromProps(props, state) {
+    return props.reset === state.reset ? null : { failed: false, reset: props.reset }
+  }
+  componentDidCatch(error) { console.error('ds-bot: a settings page failed', error); noteClientError('settings-page', error) }
   render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
 }
 

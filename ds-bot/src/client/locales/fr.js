@@ -326,6 +326,7 @@ export const FR = {
   "Session {number}": "Session {number}",
   "Current session": "Session actuelle",
   "This page could not be shown.": "Cette page n’a pas pu être affichée.",
+  "This view closed because of an error.": "Cette vue a été fermée en raison d’une erreur.",
   "Current": "Actuel",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "Cette clé provient de l’extérieur de DS Bot (comme une variable d’environnement) et ne peut pas être modifiée ici.",
   "and {count} more": "et {count} de plus",
