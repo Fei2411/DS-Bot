@@ -14,9 +14,3 @@ export const sendsOnEnter = (mode: EnterMode, computerPrefs: Record<string, unkn
   if (mode === 'newline') return false
   return computerPrefs?.enterToSend !== false
 }
-
-// A multiline TextInput asks Android for IME_FLAG_NO_ENTER_ACTION, which makes the
-// IME draw the return key as a plain newline. Naming a submit behavior clears the
-// flag, so the keyboard can offer its own send key and its own long-press.
-export const enterKeyProps = (sends: boolean): { returnKeyType?: 'send'; submitBehavior?: 'submit' } =>
-  sends ? { returnKeyType: 'send', submitBehavior: 'submit' } : {}

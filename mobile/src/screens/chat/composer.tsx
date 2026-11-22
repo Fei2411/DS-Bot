@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
-import { enterKeyProps } from './enter-key.ts'
+import { enterHandler, submitProps } from './composer.enter.ts'
 
 // A photo ready to send: shown from `uri`, sent as base64 JPEG.
 export interface Photo { uri: string; mediaType: string; data: string }
@@ -89,7 +89,7 @@ export function Composer({ name, running, canStop, canAttach, sends, onSend, onS
             </Pressable>
           ) : null}
           <TextInput value={text} onChangeText={setText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
-            multiline {...enterKeyProps(sends)} onSubmitEditing={send}
+            multiline {...submitProps(sends)} onKeyPress={enterHandler(sends, send)} onSubmitEditing={send}
             style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
           {running && canStop && !ready
             ? <Pressable accessibilityRole="button" accessibilityLabel={t('Stop')} onPress={onStop} hitSlop={6}
