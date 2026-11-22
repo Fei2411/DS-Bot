@@ -1032,10 +1032,10 @@ export function install(rt) {
     const agent = await rt.resolveAgent(sessionId)
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: HANDBACK_TEXT }],
-      // The handback answers the handoff the Bot asked for. A `handoff` role would
-      // mark the turn as a hidden exchange, and the Bot's continuation after it would
-      // never show, so this stays a reply that the chat displays.
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'reply', senderName: 'DS Bot' },
+      // Dedicated non-relay role: DSH v4 requires a producer-owned source kind,
+      // while `handoff` would mark the turn as a hidden exchange and `reply`
+      // would render as a clickable Bot-to-Bot relay event.
+      source: { kind: SOURCE_KIND, role: 'handback' },
     }))
     await ctx.sessions.flush(agent.session)
     return true

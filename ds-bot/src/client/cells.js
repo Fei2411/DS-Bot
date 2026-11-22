@@ -713,8 +713,8 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A part opens with its handoff package, so the earlier parts go right above it.
       if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
-      // Background task handoff notices are model-only context injected before the user's message.
-      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff') return null
+      // Background task handoff notices and computer handback notices are model-only context.
+      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff' || source.role === 'handback') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
       // A profile notice is the user's edit landing in the Bot's chat, not a peer

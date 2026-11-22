@@ -634,7 +634,7 @@ test('takeover refuses the Bot and handback delivers a message with nothing the 
   assert.doesNotMatch(text, /typed|clicked|password/i)
 })
 
-test('handback writes a message a stored v4 session can reload', async (t) => {
+test('handback writes a non-relay source that v4 restore accepts and earlier parts ignore', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.load()
@@ -647,9 +647,9 @@ test('handback writes a message a stored v4 session can reload', async (t) => {
   await rt.computerEndpoint('handback', { botId: 'w1' })
   const message = followups.at(-1)
   // Every stored message needs a producer-owned source kind, or the whole session
-  // fails to load with a SessionFormatError.
-  assert.equal(message?.source?.kind, 'bot')
-  assert.equal(message?.source?.role, 'reply')
+  // fails to load with a SessionFormatError. Use a dedicated non-relay role so
+  // neither the chat nor earlier-part history renders a Bot-to-Bot relay line.
+  assert.deepEqual(message?.source, { kind: 'bot', role: 'handback' })
   const at = Date.now()
   const knownEventTypes = new Set(['turn/start', 'user/message'])
   const artifact = (data) => ({
@@ -663,6 +663,19 @@ test('handback writes a message a stored v4 session can reload', async (t) => {
   assert.doesNotThrow(() => restoreReleasedV4Artifact(artifact(message), knownEventTypes))
   const { source, ...withoutSource } = message
   assert.throws(() => restoreReleasedV4Artifact(artifact(withoutSource), knownEventTypes), /producer-owned source kind/)
+  // Earlier-part history (partHistory) ignores the handback notice and keeps the continuation reply.
+  const items = rt.displayItems('w1', [
+    { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+    { type: 'user/message', seq: 1, time: at, data: message },
+    { type: 'assistant/message', seq: 2, time: at + 1, data: { turn: 1, message: { content: [{ type: 'text', text: 'Continuing now.' }] } } },
+  ])
+  assert.deepEqual(items.map(item => [item.kind, item.text ?? item.role]), [['bot', 'Continuing now.']])
+  // A handback turn is not marked as a hidden Bot-to-Bot exchange turn.
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    await listener({ id: 'w1' }, { type: 'turn/start', time: at, data: { turn: 1 } })
+    await listener({ id: 'w1' }, { type: 'user/message', time: at, data: message })
+  }
+  assert.equal((rt.state.exchangeTurns?.w1 ?? []).includes(1), false)
 })
 
 test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/waiting', async (t) => {
