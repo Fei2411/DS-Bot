@@ -77,9 +77,9 @@ and model changes all work the same way.
   per agent, and the custom agents with add, edit, and remove. A custom agent
   has a name, a command, and arguments; the command must be a bare name, an
   absolute path, or `~/…`, and no shell is used.
-- Each engine has an original badge shown small beside the Bot's name in the
-  sidebar, the chat header, and its details. A new abot's avatar defaults to
-  its badge; the user can still pick a character.
+- Each built-in engine uses its own product logo, with a glyph fallback, shown
+  small beside the Bot's name in the sidebar, the chat header, and its details.
+  A new abot's avatar defaults to its badge; the user can still pick a character.
 
 ## Context (decided 2026-11-14, #1593)
 
@@ -201,3 +201,7 @@ handling, so they do not mix in one model list.
 - The sign-in state comes from each CLI's own status command or credential
   file. A CLI that has neither, or whose check does not answer in time, shows
   unknown; unknown does not stop the user from picking it.
+
+## Changes
+
+- 2026-11-22: Correct the engine badge description to product logos with fallback glyphs (#1009), corrected against the dev code.

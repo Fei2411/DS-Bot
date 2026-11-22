@@ -6,7 +6,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 
 ## Features
 
-- **Long-lived Bots**: each Bot is a dsh Session in the "DS Bot" workspace, with its own name, role, instructions and model.
+- **Long-lived Bots**: each Bot has its own saved profile (name, role, instructions, model, thinking level, folder and permissions). It works in dsh Sessions: its own chat, separate group and background-task Sessions, and fresh parts when needed. This is not a separate DSH installation profile.
 - **Working folders**: a Bot can work in a folder you choose instead of the team workspace, and a group chat can set one folder for all its members there. Pick it in the Bot's settings or details panel or in the group's settings, or ask a Bot (`update_bot`, `update_group`). After a change, the chat goes on in a fresh part that starts in the new folder. When a Bot sets a folder outside the team workspace, or adds a Bot to a group that works in one, it asks for your approval if those Bots can only write in their folder. Folders that hold dsh data (`$DSH_HOME`, the team's data) are refused. The team workspace itself moves in Settings > General > Locations; Bots and groups that work there go on in a fresh part in the new folder, and the old folder keeps its files.
 - **Permission presets**: each Bot runs with its own dsh permission preset (Read only, Workspace or Full access), set in its details panel. A group chat can run all its members with one preset there, in place of their own: turn on **Same for every member** under Permissions in the group's settings. Only you set permissions; Bots cannot change them.
 - **Bots work together**: `message_bot` sends a message to another Bot, `create_bot` and `update_bot` add and set up Bots (including a profile photo from a local image file or a data URL), and `ask_user` asks you a question without blocking the other Bots. `show_view` draws a card in a Bot's own chat — text, metrics, tables, charts, inputs with local formulas, progress, choices, confirmations, short forms and sandboxed HTML; an interactive card waits for your answer. `/side` (or **Side chat** in the panel's `···` menu) opens a side chat in the right panel that answers from a snapshot of the Bot's chat without running tools or interrupting its work. A Bot can also be marked **Private** in its settings: other Bots cannot read its working folder, memory or chat, and its outbound sharing needs your approval.
@@ -16,7 +16,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
   | Who | Can do |
   |---|---|
   | You | Everything |
-  | Main Bot (there can be more than one) | Manage every group; change and delete Bots |
+  | Main Bot (there can be more than one) | Create Bots, change other Bots and manage every group; only the user deletes Bots |
   | Group admin | Manage its own group only (name, notice, members, reply mode) |
   | Member | Speak in the group, `@` another member, and post into its groups from outside them |
 
@@ -91,6 +91,8 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
 The same card can carry DSH itself: a DS Bot release may name the DSH release it was verified against (`dsBot.verifiedDsh` in its `package.json`), and only that version is offered — running something newer is a downgrade offer too. A release that names no version offers no DSH update. A DSH installed from npm is swapped by `npm install -g @deepseek-ai/dsh@<version>`. DSH Desktop installs the newest release its own updater finds, so the card shows DSH there only when that release is the verified one, and **Open updates** opens the app's update panel. A release may raise the floor with `dsBot.minBot`: until the bot itself is that new, the DSH row waits.
 
 ## Models
+
+Model Bots use DSH's model service and agent loop. Local-agent Bots delegate model access, tools and context to an installed CLI. Auxiliary calls (memory review, handoffs, the context steward, image readings, side chats and `browser_task`) use the model service outside the agent loop. Web search/fetch and the independent DeepSeek services make direct service requests; not every request goes through DSH model routing.
 
 Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot's setup card) and stored through dsh's `llm-pi-ai` plugin in `cordis.patch.yml` and `.credentials.yaml`. Every Bot runs on one model of its own, from the models DSH serves. A new team's first Main Bot starts on a model card when more than one provider is ready or none is configured yet, and greets the user once a usable model is connected. **Settings → General → New Bots** can set a team default model for newly created Bots: the Create Bot form starts on that team default model when it is served and usable (otherwise the DSH default model, or the first usable model), and a Main Bot's `create_bot` without a named model uses the team default model before falling back to the creator's own model. The Bot's details panel and settings (or a Main Bot's `update_bot`) change a Bot's model; a Bot whose model is no longer served falls back to its last working model or shows the card again. A team saved by an older version keeps the model each Bot last ran on.
 
@@ -171,10 +173,10 @@ In dsh Desktop and the desktop app, each Bot has its own browser panel in the ri
   - It never reads the values of password, credit card (`autocomplete="cc-*"`) or one-time code fields.
   - Limits: 400,000 characters, 150,000 nodes, 5,000 rows per table, 3,000 links and controls, 1.5 seconds. A cut result says so.
   - It cannot read cross-origin iframes (one line with the address), closed shadow roots, canvas content (online editors, maps), or text in CSS `::before` / `::after`. On pages that render on demand, only the rendered part is read.
-  - Without a browser plugin, `read_browser` is read-only. When a browser plugin (`refs`, `script` or `task`; see [`browser-plugins/`](../browser-plugins/)) is enabled in **Settings → Browser**, Bots can open, inspect and interact with pages in their own profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
+  - Without a browser plugin, `read_browser` is read-only. Set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart (see [`browser-plugins/`](../browser-plugins/)); **Settings → Tools → Browser** explains setup and manages grants, but does not enable the plugin. Interactive plugins use each Bot's profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
 - **Addresses**: http and https only. localhost and LAN addresses are allowed; cloud metadata addresses (such as `169.254.x.x`) and dsh's own ports are not.
 - The browser panel and the details drawer share the right column; opening one closes the other. Switching chats switches the panel to that Bot. Deleting a Bot clears its browser and saved address.
-- **Cookie import (desktop app only)**: the import button in the browser bar previews the cookies of a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`) or of an installed Chromium/Firefox profile, then writes them into the Bot's partition. A source browser closes for a moment so its cookie store can be copied, and it reopens with its tabs. Sign-in that lives outside cookies (localStorage, passkeys) does not come along.
+- **Cookie import (desktop app only)**: the import button previews cookies from a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`, DevTools Copy as cURL or a URL-scoped Cookie header) or an installed Chromium/Firefox profile, then writes them into the Bot's partition. Playwright storageState and supported browser imports also carry localStorage; passkeys do not come along. Live remote debugging can import Windows v20 cookies without closing the browser; fallback copying can require closing and reopening it.
 
 dsh Web has no browser panel and no `read_browser` tool.
 
@@ -245,9 +247,10 @@ You need Node 24, pnpm and a deepseek-harness checkout with its dependencies ins
 ```sh
 npm ci                                   # the plugin's packages and esbuild, for the client build
 npm ci --prefix ../link                  # the phone link's packages, for link.js and its test
-npm run build                            # src/client → client.js
+npm run harness                          # DSH packages and oxlint for tests/lint
+npm run build                            # build client.js and link.js
 npm test                                 # unit tests
-npm run lint                             # oxlint from the dsh repository (.oxlintrc.json)
+npm run lint                             # oxlint from dev/harness or DSH_HARNESS (.oxlintrc.json)
 dev/bench.sh dev 3100 8800 start         # Web test bench: mock model + dsh Web, data in ../.dsh-test-dev
 dev/desktop-linux/desktop.sh dev start   # Desktop test bench: mock model + dsh Desktop in Xvfb
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3101 8801 reset && node dev/smoke.mjs smoke 3101

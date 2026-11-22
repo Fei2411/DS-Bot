@@ -3,7 +3,7 @@
 状态：第 10 节的第 1、2、3 步已实现；第 3 步只交付 `team-admin`。最初测量基于 `dev` @ `f09c081a`，第 3 步的重新测量见第 6 节。
 相关：`docs/plans/2026-10-10-bot-runtime.md`「能力」一节（本稿是它的延伸，不推翻它）；PR #1654、#1838、#1919。
 
-## 1. 现在每轮花多少 token
+## 1. 测量时每轮花多少 token（历史快照，非当前工具清单）
 
 用 `cl100k_base` 估算（DeepSeek 实际分词会有出入），按 DSH Web `standard` 预设、原生工具执行器重建了每一步请求里的定义部分。不含历史、记忆、项目说明、工具结果。
 
@@ -74,6 +74,10 @@
 
 ## 6. 内置工具组也做成包（第二阶段）
 
+当前只交付 `team-admin`。其他内置组和运维技能包仍未实现，不能当成当前包目录。
+
+（已作废：下表中 `capability-admin`、`schedule`、`mail`、`browser`、`computer`、`office` 和 `group-work` 的分包尚未实现；这些行仅保留为后续方案。）
+
 DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly`、连接器的 `maskConnectorTools`），所以内置工具可以分组，不改 DSH：
 
 | 内置包 | 工具 | 约 token | 默认 |
@@ -86,7 +90,7 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 | `group-work` | group_goal、group_task、group_todo、group_relay | ~1,300 | 群会话常驻，私聊清单 |
 
 - 核心工具（read/edit/bash/grep、message_bot、ask_user、bot_remember/recall、use_pack/drop_pack 等）永远常驻，不进包。
-- 内置组的「卸」也只在轮次边界、按会话做，同第 5 节。
+- （已作废：尚未实现内置组的会话装卸。）后续内置组的「卸」也只在轮次边界、按会话做，同第 5 节；当前 `team-admin` 仅按轮次角色控制。
 - 第一阶段只做团队库里的 MCP / 技能 / 能力包；第二阶段再分内置组。修正 Main 专用工具的范围后，本次普通 Bot 每步请求减少 744 个代理 token；schedule 和群工具分包的收益留待后续实现时测量。
 
 第 3 步已实现：`builtin-packs.js` 集中定义包内工具和角色默认档位，目前只定义 `team-admin`；其余工具组没有改动。沿用每个 Bot 的组装过滤，并通过 DSH 文档化的 `llm/stream` waterfall 过滤最终工具数组（DSH 0.2.2 在提示词组装之后加入工具）。普通 Bot 的私聊和群会话均不携带这 4 个 schema，Main Bot 保留它们；调用时的权限检查原样保留。原先「普通 Bot 本来就不能用这 7 个工具」的前提不成立：`update_bot` 允许每个 Bot 修改自己，`update_group` 允许群管理员修改自己的群，`list_bot_models` 为自行选择模型服务。因此包缩为真正只供 Main 调用的 4 个工具，另外 3 个对所有 Bot 保持可见，不回退自改设置和群管理能力。
@@ -97,7 +101,7 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 
 ## 7. 谁来组装
 
-- **用户**：后续设置页提供每项三档；本次只扩展 `bot-capability` 端点的 `mode` 参数，不改界面。说明复用 `description`。
+- **用户**：Bot 设置的能力卡片已提供「常驻 / 清单 / 关」三档，经 `bot-capability` 端点的 `mode` 参数保存。说明复用 `description`。
 - **Main Bot**：用现有 `attach_capability`（常驻），加一个参数 `mode: 'always' | 'catalog'` 给别的 Bot 配清单档。权限规则照旧（私有 Bot 不能被别人改）。
 - **Bot 自己**：任务中 `use_pack` / `drop_pack`；觉得某个包每次都要用，可以 `attach_capability` 自己设常驻（现有权限允许它给自己挂）。
 - 群聊：每个 Bot 在群里的会话独立装包，互不影响；群不另设包。
@@ -113,13 +117,13 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 | PR | 关系 | 建议 |
 |---|---|---|
 | [#1838](https://github.com/Fei2411/DS-Bot/pull/1838) 导入完整技能文件夹为能力（已 Approve） | 同一套能力库和 Bot 开关，导入的文件夹技能就是包里的一项 | not a prerequisite |
-| [#1654](https://github.com/Fei2411/DS-Bot/pull/1654) 内置运维 / 插件开发技能 | 加的是全局内置技能（`maintenance-skills.js`，和 office / goal-grill 同路），靠 `MAIN_RULES` 只给 Main Bot 指路；不是打包机制，代码不重叠 | 可以并进来：合入后这两个技能就是第一个内置包 `ds-bot-maintenance`（Main Bot 清单档），`MAIN_RULES` 里那几条指路改成清单里的一行。它的 `ds-bot-plugin-dev` 文档写了 `save_capability kind: 'pack'`，功能包落地时要同步改文档 |
+| [#1654](https://github.com/Fei2411/DS-Bot/pull/1654) 内置运维 / 插件开发技能 | （已作废：当前代码不含这些技能，以下为当时的协作方案。）提议加全局内置技能（`maintenance-skills.js`，和 office / goal-grill 同路），靠 `MAIN_RULES` 只给 Main Bot 指路；不是打包机制，代码不重叠 | 可以并进来：合入后这两个技能就是第一个内置包 `ds-bot-maintenance`（Main Bot 清单档），`MAIN_RULES` 里那几条指路改成清单里的一行。它的 `ds-bot-plugin-dev` 文档写了 `save_capability kind: 'pack'`，功能包落地时要同步改文档 |
 | [#1919](https://github.com/Fei2411/DS-Bot/pull/1919) MCP access（外部 agent 调 DS Bot） | 方向相反：DS Bot 当 MCP 服务端，不是给 Bot 挂 MCP；不重叠 | 无需协调。只是界面上「MCP access」和「Capabilities → MCP」名字接近，设置页文案要分清 |
 
 ## 10. 分步
 
-1. 三档存储 + 清单注入 + `use_pack` / `drop_pack`（只管团队库里的 MCP / 技能 / 包），测：挂载时机、轮末卸载、换段清空、审批和私有 Bot 规则；用 mock 模型 + usage 验缓存。
-2. 设置页三档开关（交给前端那边做）。
+1. 已实现：三档存储 + 清单注入 + `use_pack` / `drop_pack`（只管团队库里的 MCP / 技能 / 包），测：挂载时机、轮末卸载、换段清空、审批和私有 Bot 规则；用 mock 模型 + usage 验缓存。
+2. 已实现：Bot 设置页三档开关。
 3. 已实现：内置工具组分包，先做 `team-admin`（仅 4 个真正 Main 专用工具，普通 Bot 每步请求减少 744 个 cl100k 代理 token）；其他内置组后续再做，不依赖 #1654。
 4. #1654 的技能挪进内置包。
 
@@ -131,3 +135,8 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 ## 附：测量方法
 
 测量使用一次性脚本：用真实的 DSH 注册和 DS Bot `plainToolSchema()` 生成 schema，Playwright MCP 用其真实 `tools/list` 结果，`js-tiktoken` `cl100k_base` 计数。这是重建出来的请求组成，不是线上遥测。
+
+## 变更
+
+- 2026-11-22：同步已交付的存储、装卸包和三档界面（#2035），标出历史测量范围、未实现的内置组和运维技能包；保留后续设计但不作为当前工具目录，对照 dev 代码校正。
+- 2026-11-22：合并 #2043 后保留已交付的四工具 `team-admin` 与新测量，将未实现标记收窄到其他内置组及会话装卸，对照 dev 代码校正。

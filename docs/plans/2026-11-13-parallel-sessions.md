@@ -1,3 +1,5 @@
+> Status: obsolete — parallel or switchable live chats inside one Bot were removed; use other Bots or the Bot's background tasks instead (#2039).
+
 # Two sessions of one Bot running at once
 
 - Date: 2026-11-13
@@ -103,3 +105,7 @@ Bot's chat as one place follows the thread a part belongs to instead:
 - Group chats: membership and group sessions are untouched.
 - The phone app: it keeps showing the current part.
 - The Bot identity model: still one Bot, one identity, one memory.
+
+## Changes
+
+- 2026-11-22: Mark the removed parallel-session design as obsolete (#2039), corrected against the dev code.
