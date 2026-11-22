@@ -10,6 +10,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
+import { BUILTIN_PACKS } from '../src/host/builtin-packs.js'
 
 // tools.js keeps the DSH names a Bot Session never serves in one place; the
 // assemble must add none of them.
@@ -195,6 +196,79 @@ test('a Bot assembly can omit sections and tools', async (t) => {
   const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'list_bots' }] }))
   assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'list_bots' }] })
 })
+
+test('team-admin filtering preserves other tools and sessions, including empty requests', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const names = BUILTIN_PACKS['team-admin'].tools
+  assert.deepEqual(names, ['create_bot', 'stop_bot', 'create_group', 'delete_group'])
+  for (const id of ['a', 'b', 'plain']) {
+    const agent = host.agentOf(id)
+    let filter
+    agent.ctx.on = (name, listener) => { if (name === 'llm/stream') filter = listener; return () => {} }
+    await host.agentCreated(id)
+    if (id === 'plain') { assert.equal(filter, undefined); continue }
+    agent.ctx.llm = { stream: options => filter(options, () => options) }
+    const available = ['update_bot', 'update_group', 'list_bot_models', 'list_bots', 'save_capability', 'schedule_create', 'group_goal']
+    const options = { tools: [...names, ...available].map(name => ({ name })) }
+    const result = filter(options, () => options)
+    assert.deepEqual(result.tools.map(tool => tool.name), id === 'a' ? options.tools.map(tool => tool.name) : available)
+    for (const empty of [{}, { tools: [] }]) assert.equal(filter(empty, () => empty), empty)
+  }
+})
+
+for (const main of [false, true]) {
+  for (const group of [false, true]) {
+    test(`real DSH ${group ? 'group' : 'own-chat'} turn freezes team-admin during ${main ? 'demotion' : 'promotion'}`, async (t) => {
+      const team = structuredClone(TEAM)
+      team.rooms.r1.sessions = { a: 'ga', b: 'gb' }
+      const host = start(team)
+      t.after(host.stop)
+      await host.call('state', {})
+      const botId = main ? 'a' : 'b'
+      const id = group ? `g${botId}` : botId
+      const root = new Context()
+      t.after(() => root.fiber.dispose())
+      await mountAgentLoopTestDependencies(root)
+      const seen = []
+      class Adapter extends LlmAdapter {
+        async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+        async *stream(options) {
+          seen.push(options.tools.map(tool => tool.name))
+          if (seen.length === 1) {
+            yield { type: 'tool-call-delta', index: 0, id: 'flip', name: 'flip_role', argumentsDelta: '{}' }
+            yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'flip', name: 'flip_role', arguments: '{}' } }
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          } else yield { type: 'finish', reason: { kind: 'stop' } }
+        }
+      }
+      root.llm.registerAdapter(['role-test'], new Adapter())
+      await mountAgentLoopTestHarness(root)
+      root.on('session/event', host.ctx.listeners.get('session/event').find(listener => listener.name === 'freezeBuiltinPacks'))
+      const agent = await root.agentLoop.create(SessionId(id), { provider: 'role-test', model: 'test' })
+      await host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))({ agent })
+      const message = text => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
+      agent.ctx.tools.register({ name: 'flip_role', description: 'Change role', parameters: { type: 'object', properties: {} },
+        output: { schema: { type: 'string' }, render: () => [] },
+        execute() {
+          rt.state.mainBotIds = main ? ['b'] : ['a', 'b']
+          agent.followup(message('queued next turn'))
+          return 'changed'
+        },
+      })
+      agent.followup(message('first turn'))
+      await agent.whenIdle()
+      assert.equal(seen.length, 3)
+      for (const [index, tools] of seen.entries()) {
+        for (const name of BUILTIN_PACKS['team-admin'].tools) assert.equal(tools.includes(name), index < 2 ? main : !main, `${name} at request ${index}`)
+        for (const name of ['update_bot', 'update_group', 'list_bot_models']) assert.ok(tools.includes(name), `${name} stays available at request ${index}`)
+        assert.ok(tools.includes('list_bots'))
+        assert.ok(tools.includes('save_capability'))
+      }
+    })
+  }
+}
 
 test('team tools retry without a step, without registering successful tools twice', async (t) => {
   const host = start()

@@ -25,7 +25,6 @@ import { OPENING_CSS } from '../../../ds-bot/src/client/opening.js'
 import { PASTE_CSS } from '../../../ds-bot/src/client/paste-card.js'
 import { PROVIDERS_CSS } from '../../../ds-bot/src/client/providers-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
-import { READ_ONLY_CSS } from '../../../ds-bot/src/client/read-only-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
@@ -50,7 +49,7 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 for (const [tag, text] of [
   ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS],
-  ['conversation', CONVERSATION_CSS + READ_ONLY_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
+  ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + LEARNING_CSS],

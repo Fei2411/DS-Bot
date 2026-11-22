@@ -3,6 +3,13 @@ import { test } from 'node:test'
 import { EMPTY_ROSTER, indexRoster, isAgentSession } from '../src/client/sources.js'
 import { groupsFor } from '../src/client/surface.js'
 
+test('indexRoster preserves both capability tiers from the state response', () => {
+  const bot = { id: 'b', sessionId: 'b', capabilities: ['echo'], packs: ['guide'] }
+  const roster = indexRoster({ bots: [bot], rooms: [] })
+  assert.deepEqual(roster.byId.b.capabilities, ['echo'])
+  assert.deepEqual(roster.byId.b.packs, ['guide'])
+})
+
 const ROSTER_VALUE = {
   revision: 3,
   mainBotId: 'm1',

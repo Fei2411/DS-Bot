@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
-import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -37,7 +37,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path, cancelAckTimeoutMs })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
@@ -188,6 +188,157 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const engine = adapter.engine('local-acp-fake')
+  const prompt = engine.prompt.bind(engine)
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  engine.prompt = async (...args) => {
+    const result = prompt(...args)
+    // ensure() and the write happen before the test stops this turn.
+    await new Promise(resolve => setImmediate(resolve))
+    started()
+    return result
+  }
+  const stopped = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  await ready
+  control.abort()
+  assert.equal((await stopped).finish.kind, 'aborted')
+  const messages = [user('m1', 'hang')]
+  for (const text of ['second', 'third']) {
+    messages.push(user(text, text))
+    const out = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(out.text, `ok: ${text}`)
+    assert.equal(out.finish.kind, 'stop')
+  }
+})
+
+test('acp: a missing cancel acknowledgement cannot freeze subsequent turns', async (t) => {
+  for (const late of [false, true]) await t.test(late ? 'late reply is ignored' : 'no reply', async (t) => {
+    const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack', ...(late ? ['--late-cancel-reply'] : [])], cancelAckTimeoutMs: 20 })
+    t.after(() => adapter.dispose())
+    await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+    const engine = adapter.engine('local-acp-fake')
+    const peer = engine.peer
+    const control = new AbortController()
+    const stopped = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')], { signal: control.signal })))
+    // The fake CLI has received the hung prompt before Stop is pressed.
+    const request = peer.request.bind(peer)
+    let sent
+    const ready = new Promise(resolve => { sent = resolve })
+    peer.request = (...args) => {
+      const result = request(...args)
+      if (args[0] === 'session/prompt') sent()
+      return result
+    }
+    await ready
+    const oldId = peer.nextId
+    control.abort()
+    assert.equal((await stopped).finish.kind, 'aborted')
+    const messages = [user('m0', 'hello'), user('m1', 'hang'), user('m2', 'second')]
+    const next = await collect(adapter.stream(options('s1', messages, { signal: AbortSignal.timeout(1000) })))
+    assert.equal(next.finish.kind, 'stop')
+    assert.equal(next.text, 'ok: second')
+    assert.equal(peer.pending.has(oldId), false)
+    messages.push(user('m3', 'third'))
+    const third = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(third.text, 'ok: third')
+    assert.equal(third.finish.kind, 'stop')
+  })
+})
+
+test('acp: Stop interrupts a new prompt waiting for a missing cancel acknowledgement', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'], cancelAckTimeoutMs: 10_000 })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const session = adapter.live.get('s1').engineSession
+  const control = new AbortController()
+  const first = engine.prompt(session, [{ type: 'text', text: 'hang' }], { signal: control.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  const oldId = engine.peer.nextId
+  control.abort()
+  engine.cancel(session)
+  const nextControl = new AbortController()
+  const second = engine.prompt(session, [{ type: 'text', text: 'must not send' }], { signal: nextControl.signal })
+  const rejected = assert.rejects(second, { name: 'AbortError' })
+  await new Promise(resolve => setImmediate(resolve))
+  nextControl.abort()
+  await Promise.race([rejected, new Promise((_, reject) => setTimeout(() => reject(new Error('Stop did not release the waiting prompt')), 200))])
+  assert.equal(engine.peer.nextId, oldId)
+  await adapter.dispose()
+  await first
+})
+
+test('after Stop the next turn receives its first text or permission event', async (t) => {
+  for (const type of ['text', 'permission']) await t.test(type, async (t) => {
+    const adapter = makeAdapter()
+    t.after(() => adapter.dispose())
+    const live = await adapter.liveFor(options('s1', []), 'workspace-write')
+    live.engineSession = {}
+    live.engine.prompt = async () => {}
+    live.engine.cancel = () => {}
+    const control = new AbortController()
+    await adapter.startTurn(live, 'first', control.signal)
+    const first = collect(adapter.drain(live, { signal: control.signal }))
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    assert.equal((await first).finish.kind, 'aborted')
+    await adapter.startTurn(live, 'second')
+    live.push(type === 'text' ? { type, text: 'first reply' } : {
+      type, id: 'first-permission', action: 'Run a command', changes: false,
+      options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }], reply: () => {},
+    })
+    live.push({ type: 'done', reason: 'end_turn' })
+    const second = await collect(adapter.drain(live, {}))
+    if (type === 'text') assert.equal(second.text, 'first reply')
+    else {
+      assert.equal(second.finish.kind, 'tool-calls')
+      assert.equal(second.calls[0]?.id, 'first-permission')
+    }
+    assert.equal(live.waiters.length, 0)
+  })
+})
+
+test('acp: cancelled wire replies and notices are isolated until the next prompt', async (t) => {
+  for (const fails of [false, true]) await t.test(fails ? 'late error' : 'late success', async () => {
+    const engine = new AcpEngine('local-acp-fake', {}, {})
+    const sent = []
+    const peer = new JsonRpcPeer(message => sent.push(message))
+    engine.ensure = async () => peer
+    engine.peer = peer
+    const session = engine.sessionFor('s1')
+    session.acpSessionId = 'acp-1'
+    const events = []
+    session.push = event => events.push(event)
+    const notice = text => engine.onNotice('session/update', { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+    const control = new AbortController()
+    const first = engine.prompt(session, [{ type: 'text', text: 'first' }], { signal: control.signal }).catch(error => error)
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    engine.cancel(session)
+    const second = engine.prompt(session, [{ type: 'text', text: 'second' }])
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(sent.filter(message => message.method === 'session/prompt').length, 1)
+    notice('late output')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: sent[0].id, ...(fails ? { error: { code: -32603, message: 'cancelled' } } : { result: { stopReason: 'cancelled' } }) }))
+    await first
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(events, [])
+    const request = sent.filter(message => message.method === 'session/prompt').at(-1)
+    notice('second answer')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }))
+    await second
+    assert.deepEqual(events, [{ type: 'text', text: 'second answer' }, { type: 'done', reason: 'end_turn' }])
+    const count = sent.length
+    await assert.rejects(engine.prompt(session, [], { signal: control.signal }), { name: 'AbortError' })
+    assert.equal(sent.length, count)
+  })
 })
 
 test('env sanitization drops agent and key variables', () => {
@@ -831,6 +982,8 @@ test('a running turn of a local-agent part is not checked before its steps', asy
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     isLocalAgentRoute: route => route.startsWith('local-acp-'),
     localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
@@ -850,9 +1003,9 @@ test('a running turn of a local-agent part is not checked before its steps', asy
   assert.equal(result, 'next-called')
 })
 
-// A manual new part gives the deterministic handoff: verbatim tail + anchors +
-// the read_own_chat line, with no model call.
-test('a fresh part carries the deterministic handoff', async () => {
+// A run-mode change on a local agent gives the deterministic handoff: verbatim tail +
+// anchors + the read_own_chat line, with no model call.
+test('a run-mode change on a local agent carries the deterministic handoff', async () => {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { archiveSession: async () => {}, unarchiveSession: async () => {} }
   ctx.sessions = { flush: async () => {} }
@@ -877,6 +1030,8 @@ test('a fresh part carries the deterministic handoff', async () => {
     sessionOfRoom: () => undefined,
     isBotSession: id => ['s1', 's2'].includes(id),
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -902,7 +1057,7 @@ test('a fresh part carries the deterministic handoff', async () => {
     noteText: () => '',
     followFolder: async () => {},
     heldBack: () => [],
-    resolveAgent: async id => ({ id, session: { id, deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
+    resolveAgent: async id => ({ id, session: { id, requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }), deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
     createSession: async () => 's2',
     desiredModel: async bot => bot.model,
     desiredEffort: async () => undefined,
@@ -923,15 +1078,16 @@ test('a fresh part carries the deterministic handoff', async () => {
     llmRequests: new Map(),
   }
   partsInstall(rt)
-  assert.equal(typeof rt.newPart, 'function')
-  await rt.newPart('s1')
+  assert.equal(rt.newPart, undefined)
+  assert.equal(rt.switchPart, undefined)
+  await rt.followEngine('b1')
   // The switch runs as a job; the Bot lands on s2 with s1 kept as an earlier part.
   for (let i = 0; i < 50 && bot.sessionId !== 's2'; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(bot.sessionId, 's2', rt.warnings.join(' | '))
   assert.equal(bot.segments.length, 1)
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
-  assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+  assert.match(text, /run mode|previous part|read_own_chat/i)
 })
 
 test('an open-ended request outlives the default deadline', async () => {
@@ -943,6 +1099,22 @@ test('an open-ended request outlives the default deadline', async () => {
   assert.equal(await settled, 'timeout', 'a positive timeout still fires')
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
+})
+
+test('an aborted JSON-RPC request is removed and its late reply is ignored', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const control = new AbortController()
+  const first = peer.request('session/prompt', {}, { signal: control.signal, timeout: 0 })
+  control.abort()
+  await assert.rejects(first, { name: 'AbortError' })
+  assert.equal(peer.pending.size, 0)
+  const second = peer.request('session/prompt', {}, { timeout: 0 })
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'cancelled' } }))
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'late failure' } }))
+  assert.equal(peer.pending.size, 1)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { stopReason: 'end_turn' } }))
+  assert.deepEqual(await second, { stopReason: 'end_turn' })
+  assert.equal(peer.pending.size, 0)
 })
 
 // #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
@@ -2109,4 +2281,84 @@ test('ACP errors with numeric, empty or object codes keep their message and get 
     collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
     err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
   )
+})
+
+
+test('stream reports live thoughts, tool activities and end-of-stream idle to the turn tracker', async (t) => {
+  const seen = []
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'inspect files')])))
+  assert.equal(out.finish.kind, 'stop')
+  assert.deepEqual(seen, [
+    ['s1', 'thought', 'thought about: The conversation so far (oldest first):\n', false],
+    ['s1', 'activity', '▸ Read src/a.js', false],
+    ['s1', 'activity', '▸ Run `npm test`', false],
+    ['s1', 'text', 'ok: The conversation so far (oldest first):\n\nUser: inspect files', false],
+    ['s1', 'idle', null, false],
+  ])
+  // A request DS Bot makes for itself never reports live turn activity.
+  seen.length = 0
+  assert.equal(await adapter.compact('s1'), 'done')
+  assert.deepEqual(seen, [])
+})
+
+test('stream reports idle in finally when a consumer terminates the generator early', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null]) },
+  })
+  t.after(() => adapter.dispose())
+  const gen = adapter.stream(options('s1', [user('m1', 'inspect files')]))
+  for await (const chunk of gen) {
+    if (chunk.type === 'reasoning-delta' && chunk.text.includes('Read src/a.js')) break
+  }
+  assert.equal(seen.some(([, type, text]) => type === 'activity' && text === '▸ Read src/a.js'), true)
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null])
+})
+
+test('Devin and Cursor recorded ACP team-MCP streams emit only team-marked activities', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const devin = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(devin.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s1', 'activity', '▸ Calling message_bot from dsbot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null, false])
+
+  seen.length = 0
+  const cursor = await collect(adapter.stream(options('s2', [user('m1', 'team-permission')])))
+  assert.equal(cursor.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s2', 'activity', '▸ dsbot: message_bot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s2', 'idle', null, false])
+})
+
+test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', () => {
+  assert.equal(unwrapShellCommand('/bin/zsh -lc pwd'), 'pwd')
+  assert.equal(unwrapShellCommand('/bin/zsh -lc "python3 -c \'print(\\"hi\\")\'"'), 'python3 -c \'print("hi")\'')
+  assert.equal(unwrapShellCommand(['/bin/bash', '-lc', 'git status -sb']), 'git status -sb')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 't1'
+  const pushed = []
+  thread.push = event => pushed.push(event)
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'userMessage', text: 'hi' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'developerMessage', text: 'sys' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: '' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'commandExecution', command: '/bin/zsh -lc pwd' } })
+  engine.onNotice('item/completed', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: 'done' } })
+  assert.deepEqual(pushed, [
+    { type: 'activity', text: '▸ pwd', turnId: 'u1' },
+    { type: 'text', text: 'done', turnId: 'u1' },
+  ])
 })

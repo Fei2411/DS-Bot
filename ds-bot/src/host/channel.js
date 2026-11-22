@@ -61,6 +61,7 @@ export function install(rt) {
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
+  const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
   const view = () => ({
     revision: state.revision,
     workspaceId: state.workspaceId ?? null,
@@ -70,19 +71,11 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, tasks: _rawTasks, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, tasks: _rawTasks, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
-      // `openParts` are the parts opened while the Bot was busy: live, with their own
-      // earlier parts, and each one's run state read from the live turns.
-      const open = (openParts ?? []).map(part => ({
-        sessionId: part.sessionId,
-        startedAt: part.startedAt ?? 0,
-        parts: (part.segments ?? []).map(segment => segment.sessionId),
-      }))
       const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
       return {
         ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
-        ...(open.length > 0 ? { openParts: open } : {}),
         ...(botTasks.length > 0 ? { tasks: botTasks } : {}),
         ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
@@ -92,21 +85,17 @@ export function install(rt) {
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
     // ones; `parts` the members' hidden group Sessions and their earlier segments,
-    // for usage; `sessionMembers` the member ids that currently have a group Session.
+    // for usage.
     rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, parts: ownParts, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId), ...(ownParts ?? []).map(segment => segment.sessionId)]
-      const sessionMembers = (room.members ?? []).filter((id) => {
-        const sid = rt.own(sessions, id)
-        return typeof sid === 'string' && sid !== ''
-      })
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, sessionMembers, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
     }),
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
     exchangeTurns: state.exchangeTurns,
-    questions: state.questions,
-    views: state.views ?? {},
+    questions: publicCards(state.questions),
+    views: publicCards(state.views),
     closedCards: state.closedCards ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
@@ -155,13 +144,6 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    // Which of a Bot's own chat parts has a turn right now, current or background:
-    // the session list's Running mark reads this, not a guess from the transcript.
-    partsRunning: Object.fromEntries(Object.values(state.bots)
-      .flatMap(bot => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)])
-      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
-      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
-      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
@@ -698,35 +680,7 @@ export function install(rt) {
         case 'view-reply': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
-          const sessionId = ownThreadTarget(body.sessionId) ?? body.sessionId
-          const pending = rt.own(state.views, sessionId)
-          if (pending === undefined || pending.id !== body.viewId) return fail('This view is no longer open', 'bot/stale')
-          const checked = validateViewAnswer(pending.view, body.action, body.values)
-          if (checked.error !== undefined) return fail(checked.error, 'bot/invalid')
-          const reply = viewReply(pending, body.action, body.values)
-          if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
-          // Claim the view before queueing so a second answer is refused.
-          delete state.views[sessionId]
-          let consumed = false
-          let issueReportResult
-          try {
-            await rt.ensureCapabilities(sessionId)
-            const agent = await rt.resolveAgent(sessionId)
-            if (pending.issueDraft !== undefined && body.action === PUBLISH_ISSUE && checked.confirmed === true) {
-              // Persist the claim before sending a write that cannot be safely retried.
-              await rt.save({ required: true })
-              consumed = true
-              issueReportResult = await rt.settleIssueReport(sessionId, pending.issueDraft)
-              reply.text = JSON.stringify({ ...JSON.parse(reply.text), issueReportResult })
-            }
-            agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
-            await ctx.sessions.flush(agent.session)
-          } catch (error) {
-            if (!consumed) state.views[sessionId] ??= pending
-            throw error
-          }
-          await rt.save()
-          return ok(issueReportResult === undefined ? true : { issueReportResult })
+          return ok(await rt.answerView(body.sessionId, body.viewId, body.action, body.values))
         }
         // A photo for the next `send`, one per call: a phone's link carries a few MB per
         // message, so photos travel one by one and the message names them.
@@ -890,26 +844,6 @@ export function install(rt) {
         case 'local-agent-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
-        // "New session" and "open an earlier session" on an abot's chat: ordinary
-        // parts moves (parts.js), the same mechanism every Bot's chat uses.
-        case 'bot-new-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id)))
-          const room = rt.roomOf(String(body.roomId))
-          if (room === undefined) return fail('Unknown group chat', 'bot/not-found')
-          if (!room.members.includes(bot.id)) return fail('Not a member of that group', 'bot/invalid')
-          const member = rt.own(room.sessions, bot.id)
-          if (typeof member !== 'string' || member === '') return fail('This Bot has no session in this group yet', 'bot/invalid')
-          return ok(await rt.newPart(member))
-        }
-        case 'bot-open-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          return ok(await rt.switchPart(bot.id, String(body.sessionId ?? '')))
-        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
@@ -1029,7 +963,39 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { sendUser, answerQuestion })
+  async function answerView(sessionRef, viewId, action, values, requestId) {
+    const sessionId = ownThreadTarget(sessionRef) ?? sessionRef
+    const pending = rt.own(state.views, sessionId)
+    if (pending === undefined || pending.id !== viewId) throw Object.assign(new Error('This view is no longer open'), { code: 'bot/stale' })
+    const checked = validateViewAnswer(pending.view, action, values)
+    if (checked.error !== undefined) throw Object.assign(new Error(checked.error), { code: 'bot/invalid' })
+    const reply = viewReply(pending, action, values)
+    if (reply === undefined) throw Object.assign(new Error('Nothing to send'), { code: 'bot/invalid' })
+    // Claim the view before queueing so a second answer is refused.
+    delete state.views[sessionId]
+    let consumed = false
+    let issueReportResult
+    try {
+      await rt.ensureCapabilities(sessionId)
+      const agent = await rt.resolveAgent(sessionId)
+      if (pending.issueDraft !== undefined && action === PUBLISH_ISSUE && checked.confirmed === true) {
+        // Persist the claim before sending a write that cannot be safely retried.
+        await rt.save({ required: true })
+        consumed = true
+        issueReportResult = await rt.settleIssueReport(sessionId, pending.issueDraft)
+        reply.text = JSON.stringify({ ...JSON.parse(reply.text), issueReportResult })
+      }
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: { ...reply.source, ...(requestId === undefined ? {} : { rpcId: requestId }) } }))
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      if (!consumed) state.views[sessionId] ??= pending
+      throw error
+    }
+    await rt.save()
+    return issueReportResult === undefined ? true : { issueReportResult }
+  }
+
+  Object.assign(rt, { sendUser, answerQuestion, answerView })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({
