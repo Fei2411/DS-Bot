@@ -6,6 +6,7 @@ import * as diagnostics from './src/host/diagnostics.js'
 import * as store from './src/host/store.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
+import * as chatgpt from './src/host/chatgpt.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
 import * as steer from './src/host/steer.js'
@@ -94,7 +95,7 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of MODULES) module.install(rt)
+  for (const module of [...MODULES, chatgpt]) module.install(rt)
   rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.

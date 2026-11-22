@@ -35,6 +35,15 @@ const typed = (state, code) => error => {
   return true
 }
 
+test('state changes are published without credentials, including sign-in and sign-out', async t => {
+  const changes = []
+  const f = await fixture(t, { client: { onChange: status => changes.push(status) } })
+  await f.login()
+  await f.client.signOut()
+  assert.deepEqual(changes.map(status => status.state), ['signing-in', 'connected', 'signed-out'])
+  assert.doesNotMatch(JSON.stringify(changes), /synthetic-(access|refresh|code)|eyJ/u)
+})
+
 async function fixture(t, options = {}) {
   const userData = await fs.mkdtemp(join(tmpdir(), 'ds-bot-chatgpt-'))
   const forms = []

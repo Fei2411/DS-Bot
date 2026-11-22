@@ -21,11 +21,13 @@ export class ChatGPTSignInError extends Error {
 
 export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
   fetch: fetcher = globalThis.fetch, discoveryUrl = 'https://auth.openai.com/.well-known/openid-configuration',
-  endpoints = {}, now = Date.now, timeoutMs = 5 * 60_000,
+  endpoints = {}, now = Date.now, timeoutMs = 5 * 60_000, onChange = () => {},
 }) {
   const store = createChatGPTStore({ userData, safeStorage, fs, platform })
   let record
   let state = 'signed-out'
+  let publish = () => {}
+  const setState = next => { state = next; publish() }
   let refreshInFlight
   let activeSignIn
   let signingOut = false
@@ -36,7 +38,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     queue = result.catch(() => {})
     return result
   }
-  const fail = (next, code) => { state = next; return new ChatGPTSignInError(next, code) }
+  const fail = (next, code) => { setState(next); return new ChatGPTSignInError(next, code) }
   const supported = () => {
     if (!store.supported()) throw fail('unsupported', 'secure-storage-unavailable')
   }
@@ -69,6 +71,14 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     } } : {}),
     ...(record?.tokens ? { planUsage: record.tokens.scopes.includes(PLAN_SCOPE), expiresAt: record.tokens.expiresAt } : {}),
   })
+  let published
+  publish = () => {
+    const next = status()
+    const key = JSON.stringify(next)
+    if (key === published) return
+    published = key
+    try { onChange(next) } catch {}
+  }
   const endpoint = value => {
     try {
       const url = new URL(value)
@@ -153,7 +163,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     return exclusive(async () => {
       supported()
       if (state === 'temporarily-unavailable' && !record) throw fail(state, 'secure-storage-failed')
-      state = 'signing-in'
+      setState('signing-in')
       let server
       let removeAbort = () => {}
       try {
@@ -217,11 +227,11 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
         combined.throwIfAborted()
         await save({ ...record, clientId, issuer: config.issuer, subject: claims.sub,
           account: { ...(typeof claims.email === 'string' ? { email: claims.email } : {}), ...(typeof claims.name === 'string' ? { name: claims.name } : {}) }, tokens, needsSignIn: false })
-        state = connectionState()
+        setState(connectionState())
         return status()
       } catch (error) {
         if (combined.aborted) throw fail(connectionState(), 'sign-in-cancelled')
-        if (error instanceof ChatGPTSignInError) { state = error.state; throw error }
+        if (error instanceof ChatGPTSignInError) { setState(error.state); throw error }
         throw fail(connectionState(), 'sign-in-failed')
       } finally {
         removeAbort()
@@ -249,7 +259,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
       if (body?.id_token !== undefined) await validateIdentity(body.id_token, config, record.clientId)
       const tokens = tokenSet(body, record.tokens)
       await save({ ...record, tokens, needsSignIn: false })
-      state = connectionState()
+      setState(connectionState())
       return status()
     }).finally(() => { refreshInFlight = undefined })
     return refreshInFlight
@@ -281,7 +291,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
         }
       } catch {}
       await clearTokens(false)
-      state = 'signed-out'
+      setState('signed-out')
       return { ...status(), remoteRevocationConfirmed: revoked }
     }).finally(() => { signingOut = false })
   }
