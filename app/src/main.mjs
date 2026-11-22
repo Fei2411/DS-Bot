@@ -27,8 +27,11 @@ import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
+import { installSocketTosGuard } from './socket-tos-guard.mjs'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
+
+installSocketTosGuard()
 
 const { rm } = disk.promises
 

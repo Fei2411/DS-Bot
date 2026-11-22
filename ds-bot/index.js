@@ -2,6 +2,7 @@
 // Every Bot is one root Session; the roster, rooms, and the bot-to-bot exchange log live
 // in one JSON file under DSH_HOME so they survive restarts without new Session event types.
 import { join } from 'node:path'
+import { installSocketTosGuard } from './src/host/socket-tos-guard.js'
 import * as diagnostics from './src/host/diagnostics.js'
 import * as store from './src/host/store.js'
 import * as models from './src/host/models.js'
@@ -58,6 +59,8 @@ import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
+
+installSocketTosGuard()
 
 export { COLORS } from './src/host/constants.js'
 

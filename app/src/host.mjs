@@ -12,7 +12,10 @@ import { CHECK_PROFILE, INSTALL_ANCHOR, loadAppProfile, loadCheckProfile, PROFIL
 import { reconcileGoal } from './goal-patch.mjs'
 import { reconcileOfficeRuntime } from './office-patch.mjs'
 import { reconcileSearchSelector } from './search-patch.mjs'
+import { installSocketTosGuard } from './socket-tos-guard.mjs'
 import { unreadableSessions } from './session-check.mjs'
+
+installSocketTosGuard()
 
 const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
 
