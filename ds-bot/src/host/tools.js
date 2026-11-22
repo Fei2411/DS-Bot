@@ -14,6 +14,7 @@ import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
+import { install as installBuiltinPacks } from './builtin-packs.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -54,6 +55,7 @@ const WORKING_DIRECTORY_TOOL = 'working_directory'
 
 export function install(rt) {
   const { ctx, state } = rt
+  installBuiltinPacks(rt)
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
   const callerRoom = (exec) => {
@@ -195,7 +197,7 @@ export function install(rt) {
   // exactly as an "@Name" line would, and never reaches a Bot outside the group.
   const groupRefusal = (room, sender, target) => {
     if (room.members.includes(target.id)) return undefined
-    const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
+    const add = rt.isMain(sender.id) ? ', or add it yourself with update_group first' : ''
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
@@ -1188,14 +1190,21 @@ export function install(rt) {
   // after this one.
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
+    const filterTools = agent.ctx.on('llm/stream', function filterBuiltinTools(options, next) {
+      const hidden = rt.hiddenBuiltinTools(agent.session?.id)
+      if (!options.tools?.some(tool => hidden.has(tool.name))) return next()
+      return agent.ctx.llm.stream({ ...options, tools: options.tools.filter(tool => !hidden.has(tool.name)) })
+    })
+    if (typeof filterTools === 'function') held.disposers.push(filterTools)
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(agent.session?.id)])
       // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
       // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {},
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !hidden.has(tool.name)) } : {},
+        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name) && ![...hidden].some(name => section.name === `tool:${name}`)) } : {},
       }
     })
     held.filtered = true

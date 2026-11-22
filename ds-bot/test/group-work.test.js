@@ -257,6 +257,18 @@ test('message_bot from a group does not reach a Bot outside it', async (t) => {
   assert.deepEqual([host.agentOf('c').calls, host.agentOf('r1').calls], [[], []])
 })
 
+test('ordinary group admins are not directed to hidden team-admin tools', async (t) => {
+  const host = await start(t, { admin: 'b' })
+  const done = host.round('c1', host.say('Discuss the plan'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const message = host.begin('gb')
+  assert.match(text(message), /You are this group's admin/)
+  assert.match(text(message), /ask a Main Bot/)
+  assert.doesNotMatch(text(message), /update_group/)
+  host.finish('gb', 'Ready.')
+  await settle(() => done() !== undefined)
+})
+
 test('a Bot a post called by name gets no message_bot in that turn', async (t) => {
   const host = await start(t)
   host.emit('a', 'turn/start', { turn: 1 })

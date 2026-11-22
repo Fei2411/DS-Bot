@@ -183,10 +183,10 @@ const slotLabel = (slot, self) => {
   return slot.name
 }
 
-const adminNote = room => [
+const adminNote = (room, main) => [
   'You are this group\'s admin.',
   room.mode === 'admin' ? 'Plain messages come to you first: answer them, or call the members who should answer with @Name.' : '',
-  '"@all" calls every member. When the user asks, change the group with update_group.',
+  main ? '"@all" calls every member. When the user asks, change the group with update_group.' : '"@all" calls every member. When the user asks to change group settings, ask a Main Bot.',
   'When the user wants this group to reach a goal, set it with group_goal: align with the user first (goal-grill skill), then start it.',
 ].filter(Boolean).join(' ')
 
@@ -879,7 +879,7 @@ export function install(rt) {
     const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
     const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
-    if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
+    if (round.kickoff) return { text: [members, notice, leads ? adminNote(room, rt.isMain(member.id)) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
     const goal = rt.goalBlock?.(room, member, { nudge: round.goalNudge === true, resume: round.goalResume === true }) ?? ''
     // Members answering in this round are named with the round below.
     const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
@@ -889,7 +889,7 @@ export function install(rt) {
       members,
       notice,
       goal,
-      leads ? adminNote(room) : '',
+      leads ? adminNote(room, rt.isMain(member.id)) : '',
       earlier.length ? `Earlier in the group, before this round (context only):\n${transcript(earlier, memberText(room))}` : '',
       owed.length ? `Results of the work you asked for that the lines here leave out (oldest first):\n${owed.map(result => (result.line
         ? transcript([result.line], memberText(room))
