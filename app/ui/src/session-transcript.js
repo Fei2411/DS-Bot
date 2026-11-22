@@ -214,6 +214,38 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
 }
 
 /**
+ * Extracts DSH-compatible `{ turns: Map<number, { turn, start, end? }>, openTurn }` from
+ * `SessionLog.events` for `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`.
+ */
+export function extractTurnFacts(events) {
+  const turns = new Map()
+  let openTurn
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || typeof event !== 'object') continue
+    const turn = event.data?.turn
+    if (!Number.isInteger(turn)) continue
+    if (event.type === 'turn/start') {
+      const existing = turns.get(turn)
+      turns.set(turn, {
+        turn,
+        start: existing?.start ?? { seq: event.seq },
+        ...(existing?.end ? { end: existing.end } : {}),
+      })
+      if (!existing?.end) openTurn = turn
+    } else if (event.type === 'turn/end') {
+      const existing = turns.get(turn)
+      turns.set(turn, {
+        turn,
+        start: existing?.start ?? { seq: event.seq },
+        end: { seq: event.seq },
+      })
+      if (openTurn === turn) openTurn = undefined
+    }
+  }
+  return { turns, openTurn }
+}
+
+/**
  * Converts a SessionLog into ordered display rows for a DM chat.
  * @param {import('../../../ds-bot/src/client/session-log.js').SessionLog} log
  * @param {{ roster?: object, sessionId?: string }} [options]
@@ -225,6 +257,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
   // Maps every callId / subCallId to its handle so upgrades (preparing -> start -> result)
   // and PTC nested dispatches update the exact ToolCallBlock in place without wrapper drift.
   const callsById = new Map()
+  const turnStarts = new Map()
   let currentTurn
   let currentStep
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
@@ -327,7 +360,10 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     }
 
     if (item.type === 'turn/start') {
-      if (Number.isInteger(item.data?.turn)) currentTurn = item.data.turn
+      if (Number.isInteger(item.data?.turn)) {
+        currentTurn = item.data.turn
+        if (!turnStarts.has(currentTurn)) turnStarts.set(currentTurn, item.seq)
+      }
       currentStep = undefined
       continue
     }
@@ -359,8 +395,36 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
           error: failure,
         })
       }
+      if (!hidden(turn) && Number.isInteger(turn)) {
+        rows.push({
+          kind: 'turn-tail',
+          key: `turn-tail:${turn}`,
+          seq: item.seq,
+          time: null,
+          turn,
+          turnInfo: { turn, start: { seq: turnStarts.get(turn) ?? item.seq }, end: { seq: item.seq } },
+        })
+      }
       currentTurn = undefined
       currentStep = undefined
+      continue
+    }
+
+    if (item.type === 'deliverables/presented') {
+      const turn = item.data?.turn ?? currentTurn
+      const files = Array.isArray(item.data?.files)
+        ? item.data.files.filter(file => typeof file?.path === 'string' && file.path.trim() !== '')
+        : []
+      if (!hidden(turn) && files.length > 0) {
+        rows.push({
+          kind: 'deliverables',
+          key: `deliverables:${item.seq}`,
+          seq: item.seq,
+          time: item.time,
+          turn,
+          files,
+        })
+      }
       continue
     }
 

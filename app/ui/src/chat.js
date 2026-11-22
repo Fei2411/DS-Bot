@@ -1,22 +1,28 @@
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
+import { BtwDock } from '../../../ds-bot/src/client/btw.js'
 import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
 import { AppAccessDock, ComputerHandoffDock } from '../../../ds-bot/src/client/computer.js'
 import { ConnectorDock, MailDock } from '../../../ds-bot/src/client/connectors.js'
+import { chatOfSession, keepDraft, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
 import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
-import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
+import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowUpIcon, CloseIcon, FileIcon, StopIcon } from '../../../ds-bot/src/client/icons.js'
 import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
+import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
 import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
+import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
+import { ApprovalDock } from './approval-dock.js'
+import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
 
 // The chat follows its end while the user is this close to it.
@@ -263,21 +269,58 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   return { view, load }
 }
 
-// What the Bot views' voice button asks of a composer (DSH's composer in the plugin):
-// where the caret is, and text put in there.
-function useInput(field, setText) {
-  return useMemo(() => ({
-    captureInsertion: () => (field.current ? { start: field.current.selectionStart, end: field.current.selectionEnd } : null),
-    insertText: (value, at) => setText((current) => {
-      const start = Math.min(at?.start ?? current.length, current.length)
-      return current.slice(0, start) + value + current.slice(Math.max(start, at?.end ?? start))
-    }),
-  }), [field, setText])
+const EMPTY_SESSIONS = { ids: [], byId: {} }
+const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
+
+function readSavedDraftText(chatId) {
+  if (!chatId) return ''
+  try {
+    const map = JSON.parse(globalThis.localStorage?.getItem?.(STORAGE.drafts) ?? '{}')
+    const entry = map && typeof map === 'object' ? map[chatId] : null
+    return typeof entry?.text === 'string' ? entry.text : ''
+  } catch {
+    return ''
+  }
 }
 
-function ComposerAttachments({ items, onRemove }) {
+// What the Bot views' voice/quote/paste helpers ask of a composer:
+// where the caret is, text insertion at caret, and focusing the textarea.
+function useInput(field, textRef, setText, setCaret) {
+  return useMemo(() => ({
+    captureInsertion: () => (field.current ? { start: field.current.selectionStart, end: field.current.selectionEnd } : null),
+    insertText: (value, at) => {
+      const current = textRef.current ?? ''
+      const start = Math.min(at?.start ?? current.length, current.length)
+      const end = Math.max(start, Math.min(at?.end ?? start, current.length))
+      const nextText = current.slice(0, start) + value + current.slice(end)
+      const nextCaret = start + value.length
+      textRef.current = nextText
+      setText(nextText)
+      setCaret?.(nextCaret)
+      const restore = () => {
+        const node = field.current
+        if (!node) return
+        node.focus?.()
+        node.setSelectionRange?.(nextCaret, nextCaret)
+      }
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restore)
+      else restore()
+      return true
+    },
+  }), [field, textRef, setText, setCaret])
+}
+
+function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
   if (!items || items.length === 0) return null
   return h('div', { className: 'dsb-attach-rail' }, items.map((item) => {
+    if (item.pastedText) {
+      return h(PasteCard, {
+        key: item.id,
+        text: item.pastedText,
+        onPutBack: () => onPutBackPaste?.(item),
+        onRemove: () => onRemove(item.id),
+      })
+    }
     const meta = [fileExtension(item.name)?.toUpperCase().slice(0, 8), fileSizeText(item.size)].filter(Boolean).join(' · ')
     if (item.isImage && item.previewUrl) {
       return h('div', { key: item.id, className: 'dsb-attach-thumb', title: item.name },
@@ -305,18 +348,32 @@ function ComposerAttachments({ items, onRemove }) {
   }))
 }
 
-function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, useUi, useRoster }) {
-  const [text, setText] = useState('')
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, feed, useUi, useRoster, useSessions }) {
+  const roster = useRoster(value => value)
+  const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
+  const chatInfo = chatOfSession(roster, sessionId)
+  const chatId = chatInfo?.id ?? null
+  const [text, setText] = useState(() => readSavedDraftText(chatId))
+  const [caret, setCaret] = useState(0)
   const [attachments, setAttachments] = useState([])
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState(null)
+  const [menuIndex, setMenuIndex] = useState(0)
+  const [dismissedKey, setDismissedKey] = useState(null)
+  const [referenceTrigger, setReferenceTrigger] = useState(null)
   const field = useRef(null)
   const fileInput = useRef(null)
   const seqRef = useRef(0)
+  const hydratedChatRef = useRef(null)
+  const skipNextSaveRef = useRef(false)
   const ownedUrlsRef = useRef(undefined)
   if (ownedUrlsRef.current === undefined) ownedUrlsRef.current = new Set()
-  const inputActions = useInput(field, setText)
-  const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
+  const attachmentsRef = useRef(undefined)
+  attachmentsRef.current = attachments
+  const textRef = useRef(text)
+  textRef.current = text
+  const inputActions = useInput(field, textRef, setText, setCaret)
+  const enterToSend = sendsOnEnter(roster.prefs)
 
   useLayoutEffect(() => {
     const node = field.current
@@ -333,18 +390,14 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }
   }, [])
 
-  const attachmentsRef = useRef(undefined)
-  attachmentsRef.current = attachments
-
-  const addFiles = useCallback((fileList) => {
-    if (disabled) return
-    const list = Array.from(fileList ?? []).filter(Boolean)
-    if (list.length === 0) return
+  const buildAttachmentEntries = useCallback((rawList, extraMeta = null) => {
     const next = []
     let usedCost = (attachmentsRef.current ?? []).reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
     let oversized = false
     let overBudget = false
-    for (const file of list) {
+    for (const entry of rawList) {
+      const file = entry?.file ?? entry
+      if (!file) continue
       const size = Number.isFinite(file.size) ? file.size : 0
       if (size > MAX_ATTACHMENT_BYTES) {
         oversized = true
@@ -361,6 +414,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       const previewUrl = isImage && typeof URL?.createObjectURL === 'function' ? URL.createObjectURL(file) : null
       if (previewUrl) ownedUrlsRef.current.add(previewUrl)
       seqRef.current += 1
+      const pastedText = extraMeta?.pastedText ?? entry?.pastedText
       next.push({
         id: `att-${seqRef.current}`,
         file,
@@ -369,24 +423,131 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         mediaType,
         isImage,
         previewUrl,
+        ...(pastedText ? { pastedText } : {}),
       })
     }
+    return { next, oversized, overBudget }
+  }, [])
+
+  // Restore saved draft text and in-memory files once per chat when the roster knows chatId.
+  useEffect(() => {
+    if (!chatId || hydratedChatRef.current === chatId) return
+    const switching = hydratedChatRef.current !== null
+    hydratedChatRef.current = chatId
+    const savedText = readSavedDraftText(chatId)
+    if (switching) {
+      for (const item of attachmentsRef.current ?? []) {
+        if (item.previewUrl) {
+          ownedUrlsRef.current.delete(item.previewUrl)
+          revokeUrl(item.previewUrl)
+        }
+      }
+      attachmentsRef.current = []
+      textRef.current = savedText
+      skipNextSaveRef.current = true
+      setReferenceTrigger(null)
+      setDismissedKey(null)
+      setError(null)
+      setText(savedText)
+      setCaret(savedText.length)
+      const taken = takeDraft({ chatId, part: sessionId, text: savedText, attached: 0 })
+      const { next } = taken.files.length > 0 ? buildAttachmentEntries(taken.files) : { next: [] }
+      attachmentsRef.current = next
+      setAttachments(next)
+      return
+    }
+    if (savedText !== '' && textRef.current === '') {
+      skipNextSaveRef.current = true
+      textRef.current = savedText
+      setText(savedText)
+      setCaret(savedText.length)
+    }
+    const taken = takeDraft({ chatId, part: sessionId, text: textRef.current, attached: attachmentsRef.current.length })
+    if (taken.files.length > 0) {
+      const { next } = buildAttachmentEntries(taken.files)
+      if (next.length > 0) {
+        skipNextSaveRef.current = true
+        setAttachments(current => (current.length === 0 ? next : current))
+      }
+    }
+  }, [chatId, sessionId, buildAttachmentEntries])
+
+  // Keep unsent draft text (localStorage) & files (in-memory) synced across chat switches and rollovers.
+  useEffect(() => {
+    if (!chatId || hydratedChatRef.current !== chatId) return
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false
+      return
+    }
+    keepDraft({
+      chatId,
+      part: sessionId,
+      text,
+      files: attachments.map(item => ({
+        kind: item.isImage ? 'image' : 'file',
+        file: item.file,
+        ...(item.pastedText ? { pastedText: item.pastedText } : {}),
+      })),
+    })
+  }, [chatId, sessionId, text, attachments])
+
+  // Open the chat-reference `@` picker when "+ → Reference a chat" is clicked.
+  useEffect(() => {
+    if (!feed) return undefined
+    return feed.on((event, data) => {
+      if (event !== 'reference-chat' || data?.sessionId !== sessionId) return
+      const currentLen = textRef.current.length
+      const start = Math.max(0, Math.min(data.insertion?.start ?? currentLen, currentLen))
+      const end = Math.max(start, Math.min(data.insertion?.end ?? start, currentLen))
+      setReferenceTrigger({ start, end })
+      setDismissedKey(null)
+      setMenuIndex(0)
+      field.current?.focus?.()
+    })
+  }, [feed, sessionId])
+
+  const addFiles = useCallback((fileList, extraMeta = null) => {
+    if (disabled) return
+    const list = Array.from(fileList ?? []).filter(Boolean)
+    if (list.length === 0) return
+    const { next, oversized, overBudget } = buildAttachmentEntries(list, extraMeta)
     if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
     else if (overBudget) setError(t('File too large (max {size})', { size: '64 MB' }))
     else if (next.length > 0) setError(null)
     if (next.length > 0) setAttachments(current => [...current, ...next])
-  }, [disabled])
+  }, [disabled, buildAttachmentEntries])
 
   if (addFilesRef) addFilesRef.current = addFiles
 
   const removeAttachment = useCallback((id) => {
-    const target = attachmentsRef.current?.find(item => item.id === id)
+    const current = attachmentsRef.current ?? []
+    const target = current.find(item => item.id === id)
     if (target?.previewUrl) {
       ownedUrlsRef.current.delete(target.previewUrl)
       revokeUrl(target.previewUrl)
     }
-    setAttachments(current => current.filter(item => item.id !== id))
-  }, [])
+    const next = current.filter(item => item.id !== id)
+    attachmentsRef.current = next
+    if (chatId && hydratedChatRef.current === chatId) {
+      keepDraft({
+        chatId,
+        part: sessionId,
+        text: textRef.current,
+        files: next.map(item => ({
+          kind: item.isImage ? 'image' : 'file',
+          file: item.file,
+          ...(item.pastedText ? { pastedText: item.pastedText } : {}),
+        })),
+      })
+    }
+    setAttachments(next)
+  }, [chatId, sessionId])
+
+  const putBackPaste = useCallback((item) => {
+    if (!item?.pastedText) return
+    inputActions.insertText(item.pastedText, inputActions.captureInsertion())
+    removeAttachment(item.id)
+  }, [inputActions, removeAttachment])
 
   const onFilePick = (event) => {
     addFiles(event.target?.files)
@@ -396,10 +557,58 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const onPaste = (event) => {
     if (disabled) return
     const files = filesFromClipboard(event.clipboardData)
-    if (files.length === 0) return
-    addFiles(files)
+    if (files.length > 0) {
+      addFiles(files)
+      const plain = typeof event.clipboardData?.getData === 'function' ? event.clipboardData.getData('text/plain') : ''
+      if (!plain) event.preventDefault()
+      return
+    }
     const plain = typeof event.clipboardData?.getData === 'function' ? event.clipboardData.getData('text/plain') : ''
-    if (!plain) event.preventDefault()
+    const kept = foldPastedText(plain)
+    if (kept !== null && typeof File === 'function') {
+      event.preventDefault()
+      const file = new File([kept], pastedName(kept), { type: 'text/plain' })
+      addFiles([file], { pastedText: kept })
+    }
+  }
+
+  // Composer trigger menus: "+ → Reference a chat", "@mention", and "/command".
+  const rawTrigger = disabled ? null : (referenceTrigger
+    ? { kind: 'reference', start: referenceTrigger.start, end: referenceTrigger.end, query: '' }
+    : activeComposerTrigger(text, caret))
+  const triggerKey = rawTrigger ? `${rawTrigger.kind}:${rawTrigger.start}:${rawTrigger.query}` : null
+  const trigger = rawTrigger && dismissedKey !== triggerKey ? rawTrigger : null
+  const menuItems = useMemo(() => (trigger
+    ? buildComposerMenuItems({ mode: trigger.kind, query: trigger.query, roster, sessions, sessionId, actions })
+    : []), [trigger, roster, sessions, sessionId, actions])
+  const clampedMenuIndex = menuItems.length > 0 ? Math.max(0, Math.min(menuIndex, menuItems.length - 1)) : 0
+  useEffect(() => { setMenuIndex(0) }, [triggerKey])
+
+  const closeMenu = () => {
+    if (referenceTrigger) setReferenceTrigger(null)
+    else if (triggerKey) setDismissedKey(triggerKey)
+  }
+
+  const selectMenuItem = (item) => {
+    if (!item || !trigger) return
+    setReferenceTrigger(null)
+    setDismissedKey(null)
+    if (item.kind === 'insert') {
+      const { text: nextText, caret: nextCaret } = applyTriggerText(text, trigger, item.insertText)
+      setText(nextText)
+      setCaret(nextCaret)
+      const focusCaret = () => {
+        field.current?.focus?.()
+        field.current?.setSelectionRange?.(nextCaret, nextCaret)
+      }
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusCaret)
+      else focusCaret()
+      return
+    }
+    const { text: nextText, caret: nextCaret } = applyTriggerText(text, trigger, '')
+    setText(nextText)
+    setCaret(nextCaret)
+    item.run?.()
   }
 
   const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
@@ -408,8 +617,12 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     const items = attachments.slice()
     if ((value === '' && items.length === 0) || disabled) return
     setError(null)
+    setReferenceTrigger(null)
+    setDismissedKey(null)
     setText('')
+    setCaret(0)
     setAttachments([])
+    if (chatId) keepDraft({ chatId, part: sessionId, text: '', files: [] })
     try {
       await onSend(value, items)
       // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
@@ -436,8 +649,24 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }
   }
 
+  const syncCaret = (event) => {
+    const pos = event?.target?.selectionStart
+    if (typeof pos === 'number') setCaret(pos)
+  }
+
+  const menuLabel = trigger?.kind === 'command' ? t('Commands')
+    : trigger?.kind === 'reference' ? t('Reference a chat')
+      : t('Mention a Bot')
+
   return h('div', { className: 'dsb-composer-wrap' },
     error ? h('p', { className: 'dsb-composer-error', role: 'alert' }, error) : null,
+    menuItems.length > 0 ? h(ComposerMenu, {
+      items: menuItems,
+      activeIndex: clampedMenuIndex,
+      label: menuLabel,
+      onHover: setMenuIndex,
+      onSelect: selectMenuItem,
+    }) : null,
     h('div', {
       className: 'dsb-composer',
       'data-composer-card': '',
@@ -445,7 +674,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       'data-running': (running && typeof onStop === 'function') || undefined,
     },
     h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
-    h(ComposerAttachments, { items: attachments, onRemove: removeAttachment }),
+    h(ComposerAttachments, { items: attachments, onRemove: removeAttachment, onPutBackPaste: putBackPaste }),
     h('div', { className: 'dsb-composer-tools' }, h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
     h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
       h('textarea', {
@@ -456,10 +685,45 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         placeholder,
         'aria-label': placeholder,
         'data-composer-input': '',
-        onChange: event => setText(event.target.value),
+        onChange: (event) => {
+          setText(event.target.value)
+          setReferenceTrigger(null)
+          setDismissedKey(null)
+          const pos = event.target?.selectionStart
+          setCaret(typeof pos === 'number' ? pos : event.target.value.length)
+        },
+        onClick: syncCaret,
+        onKeyUp: syncCaret,
+        onSelect: syncCaret,
+        onBlur: () => { if (referenceTrigger) setReferenceTrigger(null) },
         onPaste,
         onKeyDown: (event) => {
-          if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+          if (menuItems.length > 0 && !isImeComposing(event)) {
+            if (event.key === 'ArrowDown') {
+              event.preventDefault()
+              setMenuIndex((clampedMenuIndex + 1) % menuItems.length)
+              return
+            }
+            if (event.key === 'ArrowUp') {
+              event.preventDefault()
+              setMenuIndex((clampedMenuIndex - 1 + menuItems.length) % menuItems.length)
+              return
+            }
+            if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+              event.preventDefault()
+              selectMenuItem(menuItems[clampedMenuIndex])
+              return
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              closeMenu()
+              return
+            }
+          }
+          const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+          const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
+          if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isImeComposing(event)) {
             event.preventDefault()
             void submit()
           }
@@ -789,6 +1053,8 @@ export function Chat({ sessionId, team, registry }) {
     !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
     !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom ? h(ApprovalDock, { botId: bot?.id, useWork, actions, readOnly }) : null,
+    !isRoom && typeof actions.turnFacts === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     !isRoom && typeof actions.turnFacts === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     h(Composer, {
       sessionId: activeSessionId,
@@ -799,7 +1065,9 @@ export function Chat({ sessionId, team, registry }) {
       onStop,
       addFilesRef,
       actions,
+      feed,
       useUi: hooks.useUi,
       useRoster: hooks.useRoster,
+      useSessions: hooks.useSessions,
     })))
 }

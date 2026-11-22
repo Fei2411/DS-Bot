@@ -7,11 +7,14 @@
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
+import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
 import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
 import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
+import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
 import { CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, FileIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
+import { LearningTurnTail } from '../../../ds-bot/src/client/learning-card.js'
 import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
 import { noHover } from '../../../ds-bot/src/client/motion.js'
 import { addPage, applyFrame, emptyLog, pageBefore, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
@@ -21,7 +24,7 @@ import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.
 import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
-import { buildSessionRows } from './session-transcript.js'
+import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
 
@@ -518,6 +521,31 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
  * tool call cards via `tool.call.toolview` / DS Bot `ToolCell` / `GenericToolCard`,
  * compaction checkpoints, Bot/schedule events, and failed turns).
  */
+function DeliverablesRow({ row, sessionId }) {
+  const files = Array.isArray(row.files) ? row.files : []
+  if (files.length === 0) return null
+  return h('div', { className: 'dsb-deliverables', role: 'region', 'aria-label': t('Delivered files') },
+    files.map((file, index) => {
+      const name = String(file.path ?? '').split(/[\\/]/).filter(Boolean).at(-1) || file.path
+      const actionUrl = sessionId && Number.isInteger(row.seq)
+        ? `present://file?sessionId=${encodeURIComponent(sessionId)}&seq=${row.seq}&index=${index}`
+        : ''
+      return h('div', { key: `${row.seq}:${index}:${file.path}`, className: 'dsb-deliverable' },
+        h('span', { className: 'dsb-deliverable-icon', 'aria-hidden': true }, h(FileIcon)),
+        h('span', { className: 'dsb-deliverable-text' },
+          h('span', { className: 'dsb-deliverable-name', title: file.path }, name),
+          file.description ? h('span', { className: 'dsb-deliverable-desc' }, file.description) : null),
+        actionUrl ? h(SaveFileAction, { actionUrl }) : null)
+    }))
+}
+
+function TurnTailRow({ row, sessionId, useRoster, actions }) {
+  if (typeof actions?.turnFacts !== 'function' || typeof actions?.watchTurns !== 'function') return null
+  return h(Fragment, null,
+    h(BtwTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }),
+    h(LearningTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }))
+}
+
 export function SessionTranscript({
   log, sessionId, bot, roster, actions,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
@@ -525,6 +553,7 @@ export function SessionTranscript({
   thinkingAt, hasMore = false, registry = defaultSlots,
 }) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
+  const turnFacts = useMemo(() => extractTurnFacts(log?.events), [log?.events])
   const safeRoster = useMemo(() => ({
     bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
   }), [roster])
@@ -537,6 +566,15 @@ export function SessionTranscript({
   const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
   const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
   const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
+  // Sync turn facts (`{ turns, openTurn }`) for BtwDock/BtwTurnTail/LearningDock/LearningTurnTail.
+  useEffect(() => {
+    if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
+    actions.noteTurnFacts(sessionId, turnFacts)
+    return undefined
+  }, [turnFacts, sessionId, actions])
+  useEffect(() => () => {
+    if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
+  }, [sessionId, actions])
   // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
   // soon as a Retry turn starts, even before the new turn emits any assistant text.
   useEffect(() => {
@@ -635,7 +673,9 @@ export function SessionTranscript({
         case 'tool': return renderTool()
         case 'compaction': return h(CompactionRow, { row })
         case 'event': return h(SessionEventRow, { row, selfId, roster, actions })
+        case 'deliverables': return h(DeliverablesRow, { row, sessionId })
         case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions })
+        case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions })
         default: return null
       }
     }

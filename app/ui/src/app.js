@@ -12,6 +12,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { readAppearance } from '../../../ds-bot/src/shared/appearance.js'
 import { paintMode } from './mode.js'
 import { Chat } from './chat.js'
+import { ShortcutsDialog, matchGlobalShortcut } from './shortcuts.js'
 import { createTeam } from './team.js'
 
 // The team's theme, accent and appearance. The window owns fonts, sizes and light or dark
@@ -77,9 +78,30 @@ export function App() {
   const views = { ...hooks, actions }
   const wide = hooks.useLayout(state => state.wide)
   const shown = hooks.useShown(id => id)
+  const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
+  const settingsOpen = hooks.useUi(state => Boolean(state.settings))
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => { setDrawerOpen(false) }, [shown])
   useEscape(() => setDrawerOpen(false), drawerOpen)
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const hit = matchGlobalShortcut(event, { settingsOpen })
+      if (!hit) return
+      event.preventDefault()
+      if (hit === 'palette') actions.openPalette()
+      else if (hit === 'settings') {
+        if (settingsOpen) actions.closeSettings()
+        else actions.openSettings()
+      } else if (hit === 'new-chat') actions.openNewChat('new')
+      else if (hit === 'sidebar') actions.toggleSidebar()
+      else if (hit === 'shortcuts') {
+        if (shortcutsOpen) actions.closeShortcuts()
+        else actions.openShortcuts()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [actions, settingsOpen, shortcutsOpen])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
@@ -91,6 +113,7 @@ export function App() {
     actions.closePanel()
     actions.closePalette()
     actions.closeVoice()
+    actions.closeShortcuts()
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
   }
@@ -116,5 +139,6 @@ export function App() {
         h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
         h(Chat, { key: chatKey, sessionId: shown, team })) : null),
     h(Contain, { onError: closeOverlays }, h(Overlays, views)),
+    h(ShortcutsDialog, { open: shortcutsOpen, onClose: actions.closeShortcuts }),
     h(ErrorToast, views))
 }
