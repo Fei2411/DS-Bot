@@ -2,6 +2,7 @@
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
+import { BotAvatar } from './mark.js'
 import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
@@ -22,7 +23,7 @@ const ENDPOINT_HINTS = {
 const SHOWN_MODELS = 8
 
 // A failure in the interface language; the dialog's error line shows it.
-const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
+export const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
 
 // A discovery result as a draft: what the endpoint returned is selected; entries the
 // endpoint no longer returns stay visible and selected, so a smaller upstream list never
@@ -134,16 +135,16 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
   useEffect(() => { void apply(actions.providers()) }, [])
   if (view === null) return null
   if (!view.available) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot set up model providers.'))
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'provider-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
   return [
-    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn },
+    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn, tour: 'provider-list' },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions, roster, revision: view.revision,
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
-    advanced ? h('div', { key: 'advanced', className: 'bt-set-card' },
+    advanced ? h('div', { key: 'advanced', className: 'bt-set-card', 'data-tour': 'provider-advanced' },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
         h('span', { className: 'bt-set-copy' }, h('span', null, t('Advanced settings'))), h(ChevronRightIcon))) : null,
   ]
@@ -239,7 +240,9 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       h('span', { className: 'bt-set-copy' },
         h('span', { className: 'bt-secret-title' }, provider.name, provider.name !== provider.id ? h('span', { className: 'bt-provider-id' }, provider.id) : null),
         h('span', { className: 'bt-set-hint', 'data-error': provider.error ? '' : undefined }, hint)),
-      state ? h('span', { className: 'bt-set-control' }, h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1])) : null),
+      h('span', { className: 'bt-set-control' },
+        h(UsedBy, { bots: usersOf(provider, roster) }),
+        state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null)),
     open ? h('div', { className: 'bt-secret-edit' },
       provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
       provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
@@ -294,7 +297,21 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
       }, confirmRemove && (switching.length > 0 || failed.length > 0) ? t('Save anyway') : t('Save'))))
 }
 
-function KeyEditor({ provider, apply, actions }) {
+// The Bots whose model this provider serves, a few faces deep.
+export const usersOf = (provider, roster) => {
+  const refs = new Set(provider.models.map(model => model.ref))
+  return (roster?.bots ?? []).filter(bot => refs.has(bot.model ?? bot.appliedModel))
+}
+export function UsedBy({ bots, size = 20, max = 4 }) {
+  if (bots.length === 0) return null
+  const names = bots.map(bot => bot.name).join(t(', '))
+  return h('span', { className: 'bt-used-by', role: 'img', 'aria-label': t('Used by {names}', { names }), title: names },
+    bots.slice(0, max).map(bot => h('span', { key: bot.id, className: 'bt-used-by-face' }, h(BotAvatar, { bot, size, badge: false, live: false }))),
+    bots.length > max ? h('span', { className: 'bt-used-by-more' }, `+${bots.length - max}`) : null)
+}
+
+// `compact`: the one-line form Overview shows, without the heading or the remove button.
+export function KeyEditor({ provider, apply, actions, compact = false }) {
   const [value, setValue] = useState('')
   const [saved, setSaved] = useState(false)
   const ready = value.trim() !== ''
@@ -304,6 +321,11 @@ function KeyEditor({ provider, apply, actions }) {
   }
   const edit = (next) => { setValue(next); setSaved(false) }
   const label = t('{provider} API key', { provider: provider.name })
+  if (compact) {
+    return h('div', { className: 'bt-secret-inline bt-key-compact' },
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label })),
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save')))
+  }
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, provider.key.configured ? t('Replace the API key') : t('API key')),
     h('div', { className: 'bt-secret-inline' },

@@ -4,6 +4,8 @@
 // background editor. The settings page hands in its own rows and controls.
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
+import { ArrowUpIcon, ChevronRightIcon, ClockIcon } from './icons.js'
+import { BotAvatar } from './mark.js'
 import { accentIn, BACKGROUND_STARTS, moveBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
 import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafeAppearance, pictureUrl, safeAppearance } from './appearance.js'
 import { call } from './api.js'
@@ -19,12 +21,25 @@ const MORE_LABELS = { sidebar: 'Sidebar', bubble: 'Bubble', card: 'Card', user: 
 const READ_ON = { text: 'bg', userText: 'user' }
 const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
 const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
+const MOTIONS = [['quiet', 'Quiet'], ['normal', 'Normal'], ['lively', 'Lively']]
 const MODES = [['light', 'Light mode'], ['dark', 'Dark mode'], ['system', 'System']]
 const DENSITY_LABELS = { compact: 'Compact', standard: 'Standard', roomy: 'Roomy' }
 const KINDS = [['none', 'None'], ['color', 'Color'], ['gradient', 'Gradient'], ['image', 'Picture']]
 const FITS = [['cover', 'Fill'], ['contain', 'Fit'], ['tile', 'Tile']]
 
 const isDark = () => typeof document?.body?.hasAttribute === 'function' && document.body.hasAttribute('data-ds-dark-theme')
+function useDarkMode() {
+  const [dark, setDark] = useState(isDark)
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.body || typeof MutationObserver !== 'function') return undefined
+    const sync = () => setDark(isDark())
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return dark
+}
 // A DSH row as settings.js draws it carries its id (`data-item`).
 const dshRowId = row => row?.props?.['data-item']
 const newThemeId = () => `my-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -101,21 +116,32 @@ function ColorInput({ label, value, save, hint, scope }) {
     h('input', { type: 'color', className: 'bt-look-well', value: shown, 'aria-label': label, onChange: event => pick(event.target.value) }))
 }
 
-// A small picture of the window: sidebar, the other side's bubble and yours, over the
-// background. It reads the same variables as the page, so it changes with every edit.
-function Preview({ background }) {
+// The look as it is now: the page's own colors, sizes, widths, real Bot avatars and
+// live background on a short exchange. Every control below saves at once, so the preview
+// reads the live theme and background.
+function LookPreview({ roster, prefs, background }) {
   const [, setLoaded] = useState(0)
   const paint = background === undefined ? undefined : backgroundPaint(background, id => pictureUrl(id, call, () => setLoaded(count => count + 1)))
-  return h('div', { className: 'bt-look-preview', 'aria-hidden': true, style: paint ? { background: `linear-gradient(var(--bt-wash),var(--bt-wash)),${paint}` } : undefined, 'data-bg': paint ? '' : undefined },
-    h('div', { className: 'bt-look-pside' }, h('i'), h('i'), h('i'), h('i')),
-    h('div', { className: 'bt-look-pmain' },
-      h('div', { className: 'bt-look-pbot' }, t('Here is the plan.')),
-      h('div', { className: 'bt-look-pyou' }, t('Looks good, go ahead.')),
-      h('div', { className: 'bt-look-pbot bt-look-pshort' }, t('On it.'))))
+  const bots = roster.bots ?? []
+  const main = roster.byId?.[roster.mainBotIds?.[0]] ?? bots[0]
+  const shown = [main, ...bots.filter(bot => bot !== main)].filter(Boolean).slice(0, 3)
+  const flat = layoutOf(prefs) === 'flat'
+  const width = widthOf(prefs)
+  return h('div', { className: 'bt-look', 'aria-hidden': true, 'data-flat': flat || undefined, 'data-bg': paint ? '' : undefined, style: paint ? { background: `linear-gradient(var(--bt-wash),var(--bt-wash)),${paint}` } : undefined },
+    h('div', { className: 'bt-look-side' },
+      shown.map((bot, at) => h('span', { key: bot.id, className: 'bt-look-row', 'data-on': at === 0 || undefined },
+        h(BotAvatar, { bot, size: 22, badge: false, live: at === 0 }),
+        h('span', { className: 'bt-look-name' }, bot.name)))),
+    h('div', { className: 'bt-look-chat' },
+      h('div', { className: 'bt-look-user', style: { maxWidth: `${width}%` } }, t('Plan a three-day trip to Kyoto.')),
+      thinkingShown(prefs) ? h('div', { className: 'bt-look-think' }, h(ClockIcon), t('Thought for a few seconds'), h(ChevronRightIcon)) : null,
+      h('div', { className: 'bt-look-bot', style: { maxWidth: `${flat ? flatWidthOf(prefs) : width}%` } },
+        t('Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.')),
+      h('div', { className: 'bt-look-composer' }, h('span', { className: 'bt-look-placeholder' }, t('Message')), h('span', { className: 'bt-look-send' }, h(ArrowUpIcon)))))
 }
 
-function ThemeCard({ id, theme, current, pick, children }) {
-  const mode = isDark() ? theme.dark : theme.light
+function ThemeCard({ id, theme, current, dark, pick, children }) {
+  const mode = dark ? theme.dark : theme.light
   return h('div', { className: 'bt-look-theme', 'data-on': id === current ? '' : undefined },
     h('button', { type: 'button', className: 'bt-look-swatch', 'aria-pressed': id === current, onClick: () => pick(id), style: { '--s': mode.sidebar, '--m': mode.bg, '--a': mode.accent, '--b': mode.bubble } },
       h('span'), h('span')),
@@ -163,6 +189,7 @@ function OwnThemeActions({ id, theme, prefs, actions, run }) {
 }
 
 function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }) {
+  const dark = useDarkMode()
   const themes = themesOf(prefs)
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const appearance = readAppearance(prefs.appearance)
@@ -191,14 +218,14 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
   return h(Section, { title: t('Theme') },
     ownWindow ? h(Row, { label: t('Appearance') }, h(Choice, { label: t('Appearance'), value: appearance.mode ?? 'system', options: MODES, pick: id => run(actions.setPrefs({ appearance: { mode: id } })) })) : null,
     ownWindow ? null : dshRows.filter(row => dshRowId(row) === 'appearance'),
-    h('div', { className: 'bt-look-themes' },
-      Object.entries(themes).map(([id, theme]) => h(ThemeCard, { key: id, id, theme, current, pick },
+    h('div', { className: 'bt-look-themes', 'data-tour': 'theme-grid' },
+      Object.entries(themes).map(([id, theme]) => h(ThemeCard, { key: id, id, theme, current, dark, pick },
         theme.own ? h(OwnThemeActions, { id, theme, prefs, actions, run }) : null)),
       h('div', { className: 'bt-look-theme bt-look-new' },
         h('button', { type: 'button', className: 'bt-look-tact', onClick: create }, t('New theme')),
         h('label', { className: 'bt-look-tact' }, t('Import…'),
           h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(importFile(file)) } })))),
-    h(Row, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.') },
+    h(Row, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.'), tour: 'accent' },
       h('div', { className: 'bt-swatches' },
         h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => { dropAccent(); return run(actions.setPrefs({ accent: null })) } }),
         ACCENT_INKS.map(ink => h('button', {
@@ -398,6 +425,7 @@ function StylesheetField({ value, save }) {
 export function AppearancePage({ roster, actions, run, Section, Row, Choice, Switch, ownWindow, dshRows = [] }) {
   const prefs = roster.prefs ?? {}
   const appearance = readAppearance(prefs.appearance)
+  const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
   const set = change => run(actions.setPrefs({ appearance: change }))
   const [safe, setSafe] = useState(safeAppearance)
   useEffect(() => onSafeAppearance(setSafe), [])
@@ -405,7 +433,7 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
     safe ? h('div', { key: 'safe', className: 'bt-look-note bt-look-safe', role: 'status' },
       t('This window opened in safe appearance: the background and your stylesheet are off here.'), ' ',
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: leaveSafeAppearance }, t('Turn them back on'))) : null,
-    h(Preview, { key: 'preview', background: safe ? undefined : appearance.background }),
+    h(LookPreview, { key: 'preview', roster, prefs, background: safe ? undefined : appearance.background }),
     h(ThemeSection, { key: 'theme', prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }),
     h(ColorsSection, { key: 'colors', prefs, actions, run, Section, Row, Choice }),
     h(TextSection, { key: 'text', prefs, actions, run, Section, Row, ownWindow, dshRows }),
@@ -416,12 +444,14 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
       h(BackgroundEditor, { value: appearance.background, save: background => set({ background }), actions, run, Row, Choice }),
       // The window material switch comes with the desktop window's own frame (docs/plans/2026-11-21-own-frontend.md).
     ),
-    h(Section, { key: 'messages', title: t('Messages') },
+    h(Section, { key: 'messages', title: t('Messages'), tour: 'layout' },
       h(Row, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
       layoutOf(prefs) === 'flat' ? h(Row, { label: t('Text width') }, h(Slider, { label: t('Text width'), value: flatWidthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(Row, { label: t('Bubble width') }, h(Slider, { label: t('Bubble width'), value: widthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: width => run(actions.setPrefs({ width })) })),
-      h(Row, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(Row, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
+    h(Section, { key: 'motion', title: t('Motion'), tour: 'motion' },
+      h(Row, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
+      h(Row, { label: t('Bot animation') }, h(Choice, { label: t('Bot animation'), value: motion, options: MOTIONS, className: 'bt-motion-seg', pick: id => run(actions.setPrefs({ motion: id })) }))),
     h(Section, { key: 'advanced', title: t('Advanced') },
       h(Row, { label: t('Your stylesheet'), hint: t('Loaded last, after every other style. Hold Shift while the window opens to start without it.') }),
       h(StylesheetField, { value: appearance.css, save: css => set({ css }) }),
@@ -453,16 +483,8 @@ export function ChatBackgroundSection({ owner, ownerKind, actions, run, Section,
 
 // Colors from the --bt-* variables only; corners on the standard steps.
 export const APPEARANCE_PAGE_CSS = `
-.bt-look-preview{position:relative;flex:none;height:150px;margin:0 0 18px;border-radius:16px;overflow:hidden;background:var(--bt-main);border:.5px solid var(--bt-line-2)}
-.bt-look-pside{position:absolute;inset:12px auto 12px 12px;width:28%;display:flex;flex-direction:column;gap:7px;padding:10px;border-radius:12px;background:var(--bt-sidebar);box-sizing:border-box}
-.bt-look-pside i{height:12px;border-radius:999px;background:var(--bt-line-2)}
-.bt-look-pside i:first-child{background:var(--bt-active)}
-.bt-look-pmain{position:absolute;inset:12px 12px 12px calc(28% + 22px);display:flex;flex-direction:column;justify-content:flex-end;gap:7px;padding:12px;border-radius:12px;background:var(--bt-main);box-sizing:border-box}
-.bt-look-preview[data-bg] .bt-look-pmain{background:var(--bt-pane,var(--bt-main))}
-.bt-look-preview[data-bg] .bt-look-pside{background:var(--bt-sidebar)}
-.bt-look-pbot,.bt-look-pyou{max-width:70%;padding:6px 12px;border-radius:18px;font-size:12px;line-height:16px}
-.bt-look-pbot{align-self:flex-start;background:var(--bt-bubble);color:var(--bt-ink)}
-.bt-look-pyou{align-self:flex-end;background:var(--bt-user);color:var(--bt-user-ink)}
+.bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
+.bt-look[data-bg] .bt-look-side{background:var(--bt-sidebar)}
 .bt-look-themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;padding:12px 16px}
 .bt-look-theme{display:flex;flex-direction:column;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-card)}
 .bt-look-theme[data-on]{border-color:var(--bt-accent);box-shadow:0 0 0 1px var(--bt-accent)}
@@ -486,7 +508,7 @@ export const APPEARANCE_PAGE_CSS = `
 .bt-look-pair{display:flex;gap:16px}
 .bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
-.bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;text-transform:uppercase}
+.bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:var(--bt-mono,ui-monospace,Menlo,Consolas,monospace);font-size:12px;text-transform:uppercase}
 .bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
 .bt-look-well::-webkit-color-swatch-wrapper{padding:0}
 .bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
@@ -502,7 +524,7 @@ export const APPEARANCE_PAGE_CSS = `
 .bt-look-kind[data-kind=gradient] span,.bt-look-kind[data-kind=image] span{padding:1px 6px;border-radius:999px;background:var(--bt-card);color:var(--bt-ink)}
 .bt-look-kind[data-on]{border-color:var(--bt-accent);box-shadow:0 0 0 1px var(--bt-accent)}
 .bt-look-css{padding:0 16px 12px}
-.bt-look-css textarea{height:auto;min-height:96px;padding:8px 11px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:18px;resize:vertical}
+.bt-look-css textarea{height:auto;min-height:96px;padding:8px 11px;font-family:var(--bt-mono,ui-monospace,Menlo,Consolas,monospace);font-size:12px;line-height:18px;resize:vertical}
 .bt-look-note{padding:10px 16px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 .bt-look-safe{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-card)}
 button[data-armed]{color:var(--bt-warn)}

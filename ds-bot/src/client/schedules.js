@@ -77,14 +77,16 @@ export function timingText(task) {
     default: return ''
   }
 }
-const nextText = (task) => {
+export const nextText = (task) => {
   if (task.state === 'overdue' || (task.state === undefined && task.status === 'active' && Date.parse(task.scheduledAt) <= Date.now())) return t('Overdue: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) })
   if (task.status === 'paused') return t('Paused')
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
 }
 
-// A paused one-time task whose time has passed has nothing to resume to.
-const canResume = task => task.status === 'paused' && !((task.kind === 'at' || task.kind === 'after') && Date.parse(task.scheduledAt) <= Date.now())
+// A one-time task whose time has passed has nothing to resume to, so it is not paused
+// either: it could only be deleted afterwards.
+const lateOnce = task => (task.kind === 'at' || task.kind === 'after') && Date.parse(task.scheduledAt) <= Date.now()
+const canPauseTask = task => (task.status === 'active' || task.status === 'paused') && !lateOnce(task)
 
 function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = useState(false)
@@ -107,17 +109,20 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     void actions.schedulePause(task.sessionId, task.id, task.status !== 'active').then((next) => { setBusy(false); onView(next) }, (failure) => {
       setBusy(false)
       setFailed(hostText(failure?.message ?? String(failure)))
+      // The task may have ended or changed meanwhile: show it as it is now.
+      void actions.schedules?.().then(onView, () => {})
     })
   }
-  const pausable = canPause && (task.status === 'active' || canResume(task))
+  const pausable = canPause && canPauseTask(task)
   const room = task.roomId ? roster.roomsById[task.roomId] : undefined
-  return h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
+  // The reason a pause or resume failed goes on a line of its own: not inside the row's
+  // expand button, and not dimmed with a paused row.
+  return h(Fragment, null, h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
     showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     h('button', { type: 'button', className: 'bt-set-copy bt-task-copy', 'aria-expanded': expanded || undefined, onClick: () => setExpanded(open => !open) },
       h('span', { className: 'bt-task-title' }, task.title),
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
-      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null,
-      failed ? h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, failed) : null),
+      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
     pausable ? h('button', {
       type: 'button', className: 'bt-mini bt-task-remove bt-task-pause', disabled: busy,
@@ -126,7 +131,8 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
-    }, confirming ? t('Delete') : h(TrashIcon)))
+    }, confirming ? t('Delete') : h(TrashIcon))),
+  failed ? h('div', { className: 'bt-set-row bt-task-failed', role: 'alert' }, h('span', { className: 'bt-danger bt-set-hint' }, failed)) : null)
 }
 
 const pad = number => String(number).padStart(2, '0')
@@ -217,7 +223,7 @@ function AutomationOff({ actions }) {
     h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
     h('span', { className: 'bt-task-off-title' }, t('Turn on Automation tasks in DSH')),
     h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'data-tour': 'open-plugins', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
 }
 
 // A plain `start` opens the create form for that Bot or group chat; the
@@ -225,8 +231,13 @@ function AutomationOff({ actions }) {
 // Bot's own view gets here.
 export function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions)
-  const owner = start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null
-  const [adding, setAdding] = useState(Boolean(start) && owner === null)
+  // "Show all" lifts the owner filter here: Settings keeps one Scheduled tasks page per
+  // visit, so a route back to the same page would not reach it.
+  const [owner, setOwner] = useState(() => (start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null))
+  // `start` is either a Bot or group chat id (open the form for it) or a `bot:` / `room:`
+  // filter; the form only ever gets a plain id, so a lifted filter leaves it unset.
+  const filter = start?.startsWith('bot:') || start?.startsWith('room:')
+  const [adding, setAdding] = useState(Boolean(start) && !filter)
   if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
   if (!view.available) return h(AutomationOff, { actions })
   const shown = next => { publish(next); setAdding(false) }
@@ -235,10 +246,10 @@ export function SchedulesPage({ roster, actions, start }) {
     ...roster.rooms.map(room => [room.id, h(RoomAvatar, { room, roster, size: 18 }), room.name, view.tasks.filter(task => task.botId === undefined && task.roomId === room.id)]),
   ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner))
   const addBar = adding ? null : h('div', { className: 'bt-actions' },
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
-    owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('schedules') }, t('Show all')) : null)
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
+    owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setOwner(null) }, t('Show all')) : null)
   return [
-    adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
+    adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0
       ? (!adding ? h('section', { key: 'none', className: 'bt-set-section' },
           h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Scheduled tasks')), addBar),

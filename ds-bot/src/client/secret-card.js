@@ -16,7 +16,7 @@ const MIN_VALUE = 4
 const NONE = {}
 
 export const KeyIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M7 9.5a3.5 3.5 0 1 1 0 .01z' }), h('path', { d: 'M10.4 10.6L17 10.6M14.5 10.6v2.4M16.6 10.6v1.8' }))
+  h('circle', { cx: 6.75, cy: 10, r: 3.25 }), h('path', { d: 'M10 10h7M14.25 10v2.5M16.75 10v1.8' }))
 const LockIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M6.5 9V7a3.5 3.5 0 0 1 7 0v2' }), h('rect', { x: 4.5, y: 9, width: 11, height: 8, rx: 2 }))
 const WarnIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -302,7 +302,6 @@ function SecretStoreCard({ store, actions, run, Section }) {
   const field = (label, value, onChange, autoFocus) => h('label', { className: 'bt-q-field bt-secret-field' },
     h(MaskedInput, { value, onChange, label, autoFocus }))
   const row = children => h('div', { className: 'bt-secret-row-actions' }, children)
-  const hint = key => h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t(key)))
   if (locked) {
     const reason = store?.reason
     const why = reason === 'passphrase-source'
@@ -310,7 +309,7 @@ function SecretStoreCard({ store, actions, run, Section }) {
       : reason === 'wrong-passphrase'
         ? t('The passphrase in the environment or the passphrase file did not unlock the secrets.')
         : t('No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.')
-    return h(Section, { title: t('Encryption at rest') },
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       h('div', { className: 'bt-set-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, t('Secrets are locked')),
@@ -319,38 +318,48 @@ function SecretStoreCard({ store, actions, run, Section }) {
         row(h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t('Unlock')))))
   }
   if (mode === 'encrypted') {
-    return h(Section, { title: t('Encryption at rest') },
-      hint('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.'),
+    const desc = t('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.')
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       form === 'decrypt'
-        ? h('div', { className: 'bt-set-row bt-bs-stack' },
-          field(t('Passphrase'), passphrase, setPassphrase, true),
-          row([
-            h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-            h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
-          ]))
-        : h('div', { className: 'bt-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption'))))
+        ? [
+            h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
+            h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
+              field(t('Passphrase'), passphrase, setPassphrase, true),
+              row([
+                h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+                h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
+              ])),
+          ]
+        : h('div', { className: 'bt-set-row' },
+          h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
+          h('span', { className: 'bt-set-control' },
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption')))))
   }
-  return h(Section, { title: t('Encryption at rest') },
-    hint('Keys are stored in a file only this user can read, but the values are not encrypted.'),
+  const desc = t('Keys are stored in a file only this user can read, but the values are not encrypted.')
+  return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
     form === 'encrypt'
-      ? h('div', { className: 'bt-set-row bt-bs-stack' },
-        field(t('Passphrase (at least 8 characters)'), passphrase, setPassphrase, true),
-        field(t('Repeat the passphrase'), confirm, setConfirm),
-        confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
-        row([
-          h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-          h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
-        ]))
-      : h('div', { className: 'bt-actions' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest'))))
+      ? [
+          h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
+          h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
+            field(t('Passphrase (at least 8 characters)'), passphrase, setPassphrase, true),
+            field(t('Repeat the passphrase'), confirm, setConfirm),
+            confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
+            row([
+              h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+              h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
+            ])),
+        ]
+      : h('div', { className: 'bt-set-row' },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
+        h('span', { className: 'bt-set-control' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest')))))
 }
 
 export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
     h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
     h('p', { key: 'about', className: 'bt-secret-about' },

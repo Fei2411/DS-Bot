@@ -543,7 +543,7 @@ export function UsagePage({ roster, actions, focusId }) {
     return error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : h(Skeleton)
   }
   if (view.rows.length === 0) {
-    return h('div', { className: 'bt-us' },
+    return h('div', { className: 'bt-us', 'data-tour': 'usage-tabs' },
       h('div', { className: 'bt-us-empty' },
         h(BotMark, { look: MAIN_LOOK, size: 56, live: true }),
         h('b', null, view.scanning ? t('Reading your chats…') : t('No usage yet.')),
@@ -623,7 +623,7 @@ export function UsagePage({ roster, actions, focusId }) {
   }
 
   return h('div', { ref: root, className: 'bt-us', key: focusId ?? 'all' },
-    h('div', { className: 'bt-us-top' },
+    h('div', { className: 'bt-us-top', 'data-tour': 'usage-tabs' },
       h(Tabs, { label: t('Time range'), value: rangeId, onChange: chooseRange, options: rangeOptions, boxRef: tabs }),
       view.scanning ? h('span', { className: 'bt-us-note', role: 'status' }, t('Still reading older chats; totals may grow.')) : null,
       picking ? h(SpanPicker, { span, today, oldest, active: activeDays, near: tabs, onPick: pickSpan, onClose: () => setPicking(false) }) : null),

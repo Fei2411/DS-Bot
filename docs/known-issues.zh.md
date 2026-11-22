@@ -53,6 +53,8 @@ Error: configured web provider "auto" is not registered
 
 错误码是 `WEB_PROVIDER_CONFIGURED_MISSING`。
 
+独立桌面应用在下次启动时会恢复搜索选择器，前提是自身基础 bundle 提供了另一个搜索 provider（`app/src/search-patch.mjs`）。先重启应用。下面的手动恢复适用于插件宿主，或没有可用基础选择的情况。
+
 **原因：** 不管 `web-search-auto` 这一行开没开，DS Bot 的 `cordis.patch.yml` 都会把 `web` 行的 `searchProvider` 设成 `auto`；而它指定的 provider 不存在时，DeepSeek Harness 不会换用别的 provider。
 
 **怎么处理：** profile 文件夹和上一条里的一样。

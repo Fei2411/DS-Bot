@@ -13,6 +13,7 @@ import {
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
 } from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
+import { OverlayBoundary } from './overlay-boundary.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'
 import { GearIcon } from './icons.js'
@@ -237,7 +238,7 @@ export function SettingsShell(props) {
   // A layout effect, so the Settings dialog changes hands before the next paint.
   useLayoutEffect(() => holdSeat?.(), [])
   const open = settings !== null && settings !== undefined
-  const openSettings = () => actions.openSettings('general')
+  const openSettings = () => actions.openSettings('overview')
   return h(Fragment, null,
     h('div', { className: 'bt-settings-row', 'data-rail': wide ? undefined : '' },
       renderSlot('settings.launcher', {
@@ -260,10 +261,14 @@ export function SettingsShell(props) {
         onReconnect: reconnect,
       }),
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
-    kept ? createPortal(h(SettingsDialog, {
+    kept ? h(OverlayBoundary, {
+      name: 'settings', active: !leaving, notify: !leaving,
+      reset: `${kept.page}:${kept.id ?? ''}`,
+      onDismiss: () => actions.closeSettings?.(), actions,
+    }, createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
       dsh: { sections, items, renderSlot, preferences },
-    }), document.body) : null,
+    }), document.body)) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
       openSection: (id) => { finishOnboarding(); actions.openSettings(...settingsPlace(id)) },
@@ -474,7 +479,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
-          return { status: 'handled', run: () => actions.openSettings('general') }
+          return { status: 'handled', run: () => actions.openSettings('overview') }
         },
       }), 'ds-bot: settings command')
     }),

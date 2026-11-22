@@ -4,7 +4,7 @@
 
 ## 目录
 
-`catalog.js` 是一个纯数据数组，一项一个服务：`{ id, name, category, about, remote?: { url }, auth, headers?, whoami? }`。`about` 是自己写的一句话，不抄官网。`auth` 四种：`none`（免登录）、`oauth`（MCP OAuth，`client` 指定已知的公开客户端，`token: true` 同时接受贴令牌）、`key`（密钥放 header 或 query 参数，`keyUrl` 指路去哪里拿）、自定义项（用户加的地址或命令）。GitHub 保留原来的样子：`mcp__github__*` 工具名不变、`GITHUB_TOKEN` 不变、贴令牌流程不变。行内图标一律自绘：GitHub 用原标，其余用按 id 取色的首字母块。
+`catalog.js` 是一个纯数据数组，一项一个服务：`{ id, name, category, about, remote?: { url }, auth, headers?, whoami? }`。`about` 是自己写的一句话，不抄官网。`auth` 四种：`none`（免登录）、`oauth`（MCP OAuth，`client` 指定已知的公开客户端，`token: true` 同时接受贴令牌）、`key`（密钥放 header 或 query 参数，`keyUrl` 指路去哪里拿）、自定义项（用户加的地址或命令）。GitHub 保留原来的样子：`mcp__github__*` 工具名不变、`GITHUB_TOKEN` 不变、贴令牌流程不变。行内图标优先使用 `connector-marks.js` 的服务标记（含已注明来源的产品 logo）；没有标记的自定义项用按 id 取色的首字母块。
 
 ## 登录
 
@@ -54,3 +54,4 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 - 2026-11-08 自定义远程连接器可选 OAuth：`custom.oauth` 存进状态，`entryFor` 回报 `oauth` 并暴露 `remote.url`，凭据/刷新/只读开关复用目录流程；旧的自定义连接器不变。
 - 2026-11-04 重写：修正网关把连接器路径和 query 丢到源站根的问题；下游断开销毁上游；只读模式拒批请求；CIMD 存储客户端只在固定端口复用；邮箱附件路径收紧并显示大小；卡片回话与密钥卡同一机制。
+- 2026-11-22：纠正「除 GitHub 外都用自绘首字母」的图标描述（#1006），对照 dev 代码校正。
