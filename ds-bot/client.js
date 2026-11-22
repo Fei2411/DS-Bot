@@ -24961,7 +24961,6 @@ function EffortBar({ reasoning, current: current2, onPick }) {
           type: "button",
           className: "bt-effort-reset",
           "aria-label": t("Default"),
-          title: t("Default"),
           disabled: picked === void 0,
           onClick: () => commit(void 0)
         }, (0, import_react20.createElement)(ResetIcon)) : null
@@ -24996,7 +24995,6 @@ function EffortBar({ reasoning, current: current2, onPick }) {
           className: "bt-effort-dot",
           "data-filled": dotRatio <= ratio + 1e-3 || void 0,
           style: { "--bt-dot-p": dotRatio },
-          title: stop.label,
           "aria-hidden": true
         });
       }),
@@ -25044,7 +25042,7 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
           type: "button",
           role: "menuitemradio",
           "aria-checked": model.ref === current2,
-          title: model.ref,
+          "aria-description": model.ref,
           onClick: () => onPick(model.ref)
         },
         (0, import_react20.createElement)("span", { className: "bt-menu-label" }, nameOf(model)),
