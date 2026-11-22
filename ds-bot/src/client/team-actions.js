@@ -220,14 +220,6 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
-    // The endpoint's own options: `roomId` for a member's group conversation, and
-    // `blank` or `handoff` for a Bot's own chat (neither keeps the older behavior).
-    newPart: (botId, { roomId, blank = false, handoff = false } = {}) => after(call('bot-new-part', {
-      botId,
-      ...(roomId !== undefined ? { roomId } : {}),
-      ...(blank ? { blank: true } : {}),
-      ...(handoff ? { handoff: true } : {}),
-    })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),

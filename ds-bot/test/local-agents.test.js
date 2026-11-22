@@ -982,6 +982,8 @@ test('a running turn of a local-agent part is not checked before its steps', asy
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     isLocalAgentRoute: route => route.startsWith('local-acp-'),
     localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
@@ -1001,9 +1003,9 @@ test('a running turn of a local-agent part is not checked before its steps', asy
   assert.equal(result, 'next-called')
 })
 
-// A manual new part gives the deterministic handoff: verbatim tail + anchors +
-// the read_own_chat line, with no model call.
-test('a fresh part carries the deterministic handoff', async () => {
+// A run-mode change on a local agent gives the deterministic handoff: verbatim tail +
+// anchors + the read_own_chat line, with no model call.
+test('a run-mode change on a local agent carries the deterministic handoff', async () => {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { archiveSession: async () => {}, unarchiveSession: async () => {} }
   ctx.sessions = { flush: async () => {} }
@@ -1028,6 +1030,8 @@ test('a fresh part carries the deterministic handoff', async () => {
     sessionOfRoom: () => undefined,
     isBotSession: id => ['s1', 's2'].includes(id),
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -1053,7 +1057,7 @@ test('a fresh part carries the deterministic handoff', async () => {
     noteText: () => '',
     followFolder: async () => {},
     heldBack: () => [],
-    resolveAgent: async id => ({ id, session: { id, deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
+    resolveAgent: async id => ({ id, session: { id, requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }), deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
     createSession: async () => 's2',
     desiredModel: async bot => bot.model,
     desiredEffort: async () => undefined,
@@ -1074,15 +1078,16 @@ test('a fresh part carries the deterministic handoff', async () => {
     llmRequests: new Map(),
   }
   partsInstall(rt)
-  assert.equal(typeof rt.newPart, 'function')
-  await rt.newPart('s1')
+  assert.equal(rt.newPart, undefined)
+  assert.equal(rt.switchPart, undefined)
+  await rt.followEngine('b1')
   // The switch runs as a job; the Bot lands on s2 with s1 kept as an earlier part.
   for (let i = 0; i < 50 && bot.sessionId !== 's2'; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(bot.sessionId, 's2', rt.warnings.join(' | '))
   assert.equal(bot.segments.length, 1)
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
-  assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+  assert.match(text, /run mode|previous part|read_own_chat/i)
 })
 
 test('an open-ended request outlives the default deadline', async () => {

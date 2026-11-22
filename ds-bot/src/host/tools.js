@@ -9,7 +9,7 @@ import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
-import { isOpenPart, ownChatSessions } from './threads.js'
+import { ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
@@ -160,9 +160,7 @@ export function install(rt) {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     if (room) return `group "${room.name}"`
     if (rt.taskOwners?.has(sessionId)) return 'a background task'
-    // A Bot's own chat may keep another part live in the background: it is a second
-    // conversation of that Bot, not its foreground chat.
-    return isOpenPart(rt.botOf(rt.chatOwners.get(sessionId)), sessionId) ? 'another of its conversations' : 'its own chat'
+    return 'its own chat'
   }
   // A Bot request still in the inbox: no step or turn has taken it out yet.
   const unreadRequest = (agent, senderId, toUser) => {

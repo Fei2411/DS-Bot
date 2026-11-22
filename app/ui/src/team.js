@@ -124,8 +124,6 @@ export function createTeam() {
     noteNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
     const changed = {}
-    // Which current parts run changes without a new revision; the session list reads it.
-    if (value.partsRunning !== undefined && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) changed.partsRunning = value.partsRunning
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })

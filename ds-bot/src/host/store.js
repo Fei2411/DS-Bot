@@ -182,14 +182,28 @@ export function install(rt) {
     for (const [id, bot] of Object.entries(state.bots)) {
       if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
       const botId = sessionIdOf(bot.id) ?? id
+      const currentSid = sessionIdOf(bot.sessionId) ?? botId
+      const existingSegments = Array.isArray(bot.segments) ? bot.segments : []
+      const seen = new Set([currentSid, ...existingSegments.map(segment => sessionIdOf(segment?.sessionId)).filter(Boolean)])
       const now = Date.now()
+      const added = []
       for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
         const sid = sessionIdOf(part?.sessionId)
-        const earlier = Array.isArray(part?.segments) ? part.segments.filter(segment => sessionIdOf(segment?.sessionId) !== undefined) : []
-        if (sid === undefined && earlier.length === 0) continue
-        bot.segments = [...(Array.isArray(bot.segments) ? bot.segments : []), ...earlier, ...(sid === undefined ? [] : [{ sessionId: sid, endedAt: now }])]
-        if (sid !== undefined) (state.retiredParts ??= []).push({ sessionId: sid, botId })
+        for (const segment of Array.isArray(part?.segments) ? part.segments : []) {
+          const segId = sessionIdOf(segment?.sessionId)
+          if (segId === undefined || seen.has(segId)) continue
+          seen.add(segId)
+          added.push(segment)
+        }
+        if (sid !== undefined && !seen.has(sid)) {
+          seen.add(sid)
+          added.push({ sessionId: sid, endedAt: now })
+          if (!(state.retiredParts ?? []).some(item => sessionIdOf(item?.sessionId) === sid)) {
+            (state.retiredParts ??= []).push({ sessionId: sid, botId })
+          }
+        }
       }
+      if (added.length > 0) bot.segments = [...existingSegments, ...added]
       delete bot.openParts
       migrated = true
     }
@@ -344,8 +358,10 @@ export function install(rt) {
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
-            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
-            await registry.archiveSession(sessionId, { stopActivity: true })
+            if (target !== sessionId) {
+              if (target !== undefined) await rt.moveSchedules(sessionId, target)
+              await registry.archiveSession(sessionId, { stopActivity: true })
+            }
           }
           state.retiredParts = state.retiredParts.filter(item => item !== entry)
         } catch (error) {

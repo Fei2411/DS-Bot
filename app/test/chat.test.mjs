@@ -122,12 +122,12 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 // Mounts a Bot's chat with `prefs` in the roster, types a draft, and returns the
 // send log plus the rendered tree accessor.
-const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => {
+const view = (prefs, ready = true, question, { ui = {} } = {}) => {
   const listeners = new Set()
   const sent = []
   const answered = []
   const stopped = []
-  const roster = { ready, prefs, partsRunning, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
+  const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
   const team = {
     actions: {
       noteSent() {},
