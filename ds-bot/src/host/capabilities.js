@@ -368,7 +368,15 @@ export function install(rt) {
   const reconcileAgent = async (agent, bot) => {
     const sessionId = agent.session.id
     const desired = bot ? expandCapabilityNames(bot.capabilities, library()) : new Set()
-    for (const [root, leaves] of loaded.get(sessionId) ?? []) {
+    const entries = loaded.get(sessionId)
+    if (agent.status !== 'running') {
+      for (const root of entries?.keys() ?? []) {
+        if (!bot?.packs?.includes(root) || !own(library(), root)) entries.delete(root)
+        else entries.set(root, expandCapabilityNames([root], library()))
+      }
+      if (entries?.size === 0) loaded.delete(sessionId)
+    }
+    for (const [root, leaves] of entries ?? []) {
       if (bot?.packs?.includes(root) && own(library(), root)) {
         for (const name of expandCapabilityNames([root], library())) leaves.add(name)
       }

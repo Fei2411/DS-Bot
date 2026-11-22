@@ -245,6 +245,7 @@ test('removed catalog entries and library items stay mounted until turn end', as
   t.after(() => env.dispose())
   const { rt, ctx, mounts, skills } = env
   const agent = testAgent('chief', mounts, skills)
+  agent.status = 'running'
   rt.resolveAgent = async () => agent
   await created(env)({ agent })
   for (const name of ['first', 'second']) {
@@ -259,6 +260,34 @@ test('removed catalog entries and library items stay mounted until turn end', as
   assert.deepEqual(rt.state.bots.chief.packs, [])
   await ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
   assert.equal(skills.get('chief').size, 0)
+})
+
+test('idle catalog removals reconcile before the next turn can assemble tools', async t => {
+  for (const kind of ['skill', 'pack']) {
+    for (const removal of ['detach', 'delete', ...(kind === 'pack' ? ['delete-member'] : [])]) {
+      await t.test(`${kind} ${removal}`, async t => {
+        const env = await setup()
+        t.after(() => env.dispose())
+        const { rt, mounts, skills } = env
+        const agent = testAgent('chief', mounts, skills)
+        agent.status = 'idle'
+        rt.resolveAgent = async () => agent
+        await created(env)({ agent })
+        await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Guide' }, { ui: true })
+        const root = kind === 'pack' ? 'bundle' : 'guide'
+        if (kind === 'pack') await rt.capabilitySave({ name: root, kind, items: ['guide'] }, { ui: true })
+        await rt.changeCapabilityAttachment('attach', { name: root, mode: 'catalog' }, 'chief')
+        await rt.usePack('chief', root)
+        assert.equal(skills.get('chief').has('guide'), true)
+        if (removal === 'detach') await rt.changeCapabilityAttachment('detach', { name: root }, 'chief')
+        else await rt.capabilityDelete(removal === 'delete-member' ? 'guide' : root, { ui: true })
+        await rt.ensureCapabilities('chief')
+        assert.equal(skills.get('chief').size, 0, 'awaited pre-prompt reconciliation removes stale tools')
+        agent.status = 'running'
+        assert.equal(skills.get('chief').size, 0, 'first step starts without the removed capability')
+      })
+    }
+  }
 })
 
 test('catalog holders protect library entries and private Bots refuse attachment changes', async t => {
