@@ -12,7 +12,7 @@ import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 import { imViewChoices } from './view-choices.js'
-import { imViewFormText, parseImViewForm } from './view-form.js'
+import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './view-form.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -268,16 +268,19 @@ export function install(rt) {
         if (code !== null && entry.answer === undefined && (entry.replyVersion !== VIEW_REPLY_VERSION || incomplete)) resendCards.add(entry)
       }
     }
+    const hasLegacyCutoff = Number.isSafeInteger(data?.legacyViewCodeCutoff) && data.legacyViewCodeCutoff >= 0
     held = {
       data: {
         runtime: data?.runtime !== null && typeof data?.runtime === 'object' ? data.runtime : {},
         cards,
         sent: data?.sent !== null && typeof data?.sent === 'object' ? data.sent : {},
         viewCodeSeq,
+        legacyViewCodeCutoff: hasLegacyCutoff ? data.legacyViewCodeCutoff : viewCodeSeq,
       },
       timer: undefined,
     }
     runtimes.set(id, held)
+    if (!hasLegacyCutoff) await writeRuntime(id)
     return held
   }
   const scheduleWrite = (id) => {
@@ -304,6 +307,7 @@ export function install(rt) {
     const { runtime, cards, sent } = held.data
     const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
     if (held.data.viewCodeSeq > 0) data.viewCodeSeq = held.data.viewCodeSeq
+    data.legacyViewCodeCutoff = held.data.legacyViewCodeCutoff
     try {
       await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
@@ -1091,7 +1095,14 @@ export function install(rt) {
     return 'answered'
   }
   const answerViewCode = async (conn, chat, body, senderId) => {
-    if (!/^\/card/i.test(body)) return false
+    if (!/^\/card/i.test(body)) {
+      const legacy = /^(V([1-9]\d*))(?=\s|$)/i.exec(body)
+      if (legacy === null || !isLegacyImViewFormAnswer(body.slice(legacy[0].length))) return false
+      const data = await dataOf(conn.id)
+      if (Number(legacy[2]) > data.legacyViewCodeCutoff) return false
+      await sendCardReply(conn, chat, `Card replies now start with /card — use /card ${legacy[1].toUpperCase()} … on the refreshed card.`)
+      return true
+    }
     const command = /^\/card(?:@\S+)?\s+(V[1-9]\d*)(?=\s|$)/i.exec(body)
     if (command === null) {
       await sendCardReply(conn, chat, 'Invalid card reply. Use /card <code> followed by your answer.')
@@ -1356,9 +1367,10 @@ export function install(rt) {
       if (interrupted !== undefined) {
         resendCards.delete(interrupted)
         if (tokenView !== undefined) {
+          const replaced = interrupted.replyVersion !== VIEW_REPLY_VERSION ? 'This card replaces the earlier reply instructions.\n' : ''
           interrupted.replyVersion = VIEW_REPLY_VERSION
           interrupted.delivered = false
-          interrupted.text = `${body}\n${imViewFormText(tokenView, interrupted.code)}`
+          interrupted.text = `${replaced}${body}\n${imViewFormText(tokenView, interrupted.code)}`
         }
         continue
       }

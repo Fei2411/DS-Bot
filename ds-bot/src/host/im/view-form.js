@@ -52,9 +52,18 @@ export function imViewFormText(view, code) {
   const sample = field === undefined ? '' : field.form !== undefined ? field.node.value || 'example'
     : field.node.type === 'toggle' ? 'yes' : field.node.type === 'choice' ? '1' : inputDefault(field.node)
   lines.push(`Reply example: /card ${code}${actions.length > 1 ? ' 1' : ''}${picks}${field === undefined ? '' : `\\n${index + 1}: ${String(sample).replaceAll('\n', '\\n')}`} (\\n means a new line)`)
-  lines.push('In groups, mention the Bot before /card. Bare card codes are ordinary chat text.')
+  lines.push('In groups, mention the Bot before /card. Bare codes never answer cards.')
   if (fields.length > 0) lines.push('Use <n>: <value> lines; values continue until the next numbered line. Omitted inputs and fields use defaults.')
   return lines.join('\n')
+}
+
+export function isLegacyImViewFormAnswer(text) {
+  const [head, ...lines] = text.replaceAll('\r\n', '\n').split('\n')
+  const command = head.trim()
+  if (/^\d+:/.test(command)) return true
+  if (command !== '' && !/^(?:\d[\d, \t]*|(?:\d+[ \t]+)?cancel)$/i.test(command)) return false
+  const fields = lines.join('\n').trimStart()
+  return fields === '' || /^\d+:/.test(fields)
 }
 
 export function parseImViewForm(view, text) {
