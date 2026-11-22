@@ -40059,6 +40059,7 @@ var STATE_TEXT = {
   "needs-sign-in": "Your ChatGPT session expired or was revoked. Sign in again.",
   "temporarily-unavailable": "ChatGPT is temporarily unavailable. Retry without signing out."
 };
+var EMPTY_MODELS = "No models are available for this ChatGPT account.";
 function ChatGPTSettings({ actions, apply: apply2, provider }) {
   const [status, setStatus] = (0, import_react51.useState)(null);
   const [pending, setPending] = (0, import_react51.useState)(null);
@@ -40112,8 +40113,8 @@ function ChatGPTSettings({ actions, apply: apply2, provider }) {
       }[kind]();
       if (live.current && version === generation.current) {
         if (kind !== "models") setStatus(next);
-        if (kind === "models" && Array.isArray(next) && next.length === 0) setNotice(t("No models are available for this ChatGPT account."));
-        if (kind === "sign-out" && next.remoteRevocationConfirmed === false) setNotice(t("Local credentials were cleared, but remote revocation was not confirmed."));
+        if (kind === "models" && Array.isArray(next) && next.length === 0) setNotice(EMPTY_MODELS);
+        if (kind === "sign-out" && next.remoteRevocationConfirmed === false) setNotice("Local credentials were cleared, but remote revocation was not confirmed.");
       }
     } catch (failure) {
       if (live.current && version === generation.current) setError(hostText(failure?.message ?? String(failure)));
@@ -40174,14 +40175,14 @@ function ChatGPTControls({ status, pending = null, error = "", notice = "", mode
     ) : null,
     (0, import_react51.createElement)("div", { className: "bt-set-hint", role: "status" }, t(STATE_TEXT[state] ?? "Checking ChatGPT connection…")),
     typeof status?.planUsage === "boolean" && state !== "signed-out" && state !== "unsupported" ? (0, import_react51.createElement)("div", { className: "bt-set-hint" }, t(status.planUsage ? "Plan usage enabled" : "Plan usage disabled")) : null,
-    state === "connected" && models.length === 0 ? (0, import_react51.createElement)("div", { className: "bt-set-hint" }, t("No models are available for this ChatGPT account.")) : null,
+    state === "connected" && models.length === 0 && notice !== EMPTY_MODELS ? (0, import_react51.createElement)("div", { className: "bt-set-hint" }, t(EMPTY_MODELS)) : null,
     models.length > 0 ? (0, import_react51.createElement)(
       "div",
       { className: "bt-provider-models", "aria-label": t("Models") },
       models.map((model) => (0, import_react51.createElement)("span", { key: model.ref ?? model.id, className: "bt-tag", title: model.ref ?? model.id }, model.name ?? model.id))
     ) : null,
     (0, import_react51.createElement)("div", { className: "bt-secret-row-actions", "aria-busy": working || void 0 }, controls),
-    notice ? (0, import_react51.createElement)("div", { className: "bt-set-hint", role: "status" }, notice) : null,
+    notice ? (0, import_react51.createElement)("div", { className: "bt-set-hint", role: "status" }, t(notice)) : null,
     error ? (0, import_react51.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, error) : null
   );
 }

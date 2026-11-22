@@ -10,6 +10,7 @@ const STATE_TEXT = {
   'needs-sign-in': 'Your ChatGPT session expired or was revoked. Sign in again.',
   'temporarily-unavailable': 'ChatGPT is temporarily unavailable. Retry without signing out.',
 }
+const EMPTY_MODELS = 'No models are available for this ChatGPT account.'
 
 // Polling is authoritative, including changes made by the desktop relay. A generation
 // prevents an older status read from undoing a just-completed account operation.
@@ -58,8 +59,8 @@ export function ChatGPTSettings({ actions, apply, provider }) {
       })[kind]()
       if (live.current && version === generation.current) {
         if (kind !== 'models') setStatus(next)
-        if (kind === 'models' && Array.isArray(next) && next.length === 0) setNotice(t('No models are available for this ChatGPT account.'))
-        if (kind === 'sign-out' && next.remoteRevocationConfirmed === false) setNotice(t('Local credentials were cleared, but remote revocation was not confirmed.'))
+        if (kind === 'models' && Array.isArray(next) && next.length === 0) setNotice(EMPTY_MODELS)
+        if (kind === 'sign-out' && next.remoteRevocationConfirmed === false) setNotice('Local credentials were cleared, but remote revocation was not confirmed.')
       }
     } catch (failure) {
       if (live.current && version === generation.current) setError(hostText(failure?.message ?? String(failure)))
@@ -111,10 +112,10 @@ export function ChatGPTControls({ status, pending = null, error = '', notice = '
     h('div', { className: 'bt-set-hint', role: 'status' }, t(STATE_TEXT[state] ?? 'Checking ChatGPT connection…')),
     typeof status?.planUsage === 'boolean' && state !== 'signed-out' && state !== 'unsupported'
       ? h('div', { className: 'bt-set-hint' }, t(status.planUsage ? 'Plan usage enabled' : 'Plan usage disabled')) : null,
-    state === 'connected' && models.length === 0 ? h('div', { className: 'bt-set-hint' }, t('No models are available for this ChatGPT account.')) : null,
+    state === 'connected' && models.length === 0 && notice !== EMPTY_MODELS ? h('div', { className: 'bt-set-hint' }, t(EMPTY_MODELS)) : null,
     models.length > 0 ? h('div', { className: 'bt-provider-models', 'aria-label': t('Models') },
       models.map(model => h('span', { key: model.ref ?? model.id, className: 'bt-tag', title: model.ref ?? model.id }, model.name ?? model.id))) : null,
     h('div', { className: 'bt-secret-row-actions', 'aria-busy': working || undefined }, controls),
-    notice ? h('div', { className: 'bt-set-hint', role: 'status' }, notice) : null,
+    notice ? h('div', { className: 'bt-set-hint', role: 'status' }, t(notice)) : null,
     error ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, error) : null)
 }

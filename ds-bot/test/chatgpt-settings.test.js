@@ -160,6 +160,7 @@ test('model refresh has a real empty state and reloads provider and model catalo
   await settle()
   await b.click('Refresh models')
   assert.match(textOf(b.render()), /No models are available for this ChatGPT account/)
+  assert.equal(textOf(b.render()).match(/No models are available for this ChatGPT account/g)?.length, 1)
   assert.match(textOf(b.render()), /Plan usage enabled/)
   assert.deepEqual(b.calls, ['providers', 'models'])
   b.cleanup()
