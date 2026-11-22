@@ -10,6 +10,7 @@ import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { API_ACTOR } from '../src/host/roster.js'
 
 // DSH's settings and credentials for a DeepSeek route that takes an API key. A key set
 // or removed is announced the way DSH announces it. `records` are the stored records
@@ -105,6 +106,27 @@ const until = async (check) => {
     await settle()
   }
 }
+
+test('API-created Bots retain a non-user creator across persistence and receive no Main rights', async t => {
+  const { stop, home, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await rt.load()
+  await rt.bootstrap()
+  const bot = await rt.createBot({ name: 'API worker', main: true, createdBy: null }, API_ACTOR)
+  assert.equal(bot.createdBy, 'api:external')
+  assert.equal(rt.isMain(bot.id), false)
+  assert.equal(rt.isMain(bot.createdBy), false)
+  await rt.save()
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots[bot.id]
+  assert.equal(saved.createdBy, 'api:external')
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
+  const kickoff = sent.find(entry => entry.sessionId === bot.id).message
+  assert.equal(kickoff.source.senderName, 'External API')
+  assert.equal(kickoff.source.senderSessionId, 'api:external')
+  assert.match(JSON.stringify(kickoff.content), /external API.*created you/)
+  await assert.rejects(rt.updateBot(bot.id, { private: true }, API_ACTOR), /Only the user/)
+  await assert.rejects(rt.updateBot(bot.id, { browserGrants: [] }, API_ACTOR), /Only the user/)
+})
 
 test('the first Main Bot waits for the user to pick a model, then greets', async (t) => {
   const { call, stop, sent, selected } = start(undefined, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })

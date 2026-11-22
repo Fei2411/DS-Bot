@@ -184,7 +184,8 @@ export function install(rt) {
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model it can
   // run on is served.
-  async function createBot(options) {
+  async function createBot(options, actorId) {
+    if (actorId === API_ACTOR) options = { ...options, createdBy: 'api:external', main: false }
     const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
     if (problem !== undefined) throw new Error(problem)
@@ -229,7 +230,7 @@ export function install(rt) {
         packs: [],
       }
       if (main) state.mainBotIds.push(id)
-      const creator = rt.botOf(createdBy)
+      const creator = createdBy === 'api:external' ? { name: 'The external API' } : rt.botOf(createdBy)
       const original = rt.botOf(copyOf)
       const language = rt.uiLanguage?.()
       // The kickoff arrives as a user message, so it outranks the Bot's instructions
@@ -293,7 +294,7 @@ export function install(rt) {
     if (rt.hostClosing?.() === true) return
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
-    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
+    void rt.deliver({ fromId: greeting.from ?? undefined, ...(greeting.from === 'api:external' ? { fromName: 'External API' } : {}), toId: bot.id, text, role: 'kickoff' })
       .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
   }
 
