@@ -588,3 +588,52 @@ test('real DSH SessionStore + ReactLoopAgent: concurrent reconcileTasksAfterRest
   assert.equal(ensureSpy.mock.callCount(), 2, 'each of the 2 valid entries must enter forwardPulledMessages exactly once (second concurrent reconcile short-circuited via inFlightTransferIds)')
   assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'malformed and id-less entries must be fully cleared from state')
 })
+
+test('real DSH SessionStore + ReactLoopAgent: startup reconcile deduplicates a saved prompt already running in a turn moved to background by a live handoff', async (t) => {
+  const rig = await createRealLoopRig(t, { holdFork: true })
+  const dmA = rig.agents.get('dm-a')
+
+  // Simulate a prompt that DSH durably accepted before crash and is now running on dm-a,
+  // while its pendingHandoffInputs record survived on disk because the host crashed before clearing it.
+  dmA.followup(createUserMessage({
+    content: [{ type: 'text', text: 'Please run slow work for status update' }],
+    source: { kind: 'user', rpcId: 'rpc-already-running-1' },
+  }))
+  await rig.toolStarted.promise
+
+  // A follow-up user message moves dm-a (still running rpc-already-running-1) into background.
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'New foreground question' }], source: { kind: 'user' } }))
+  await rig.forkStarted.promise
+
+  rig.rt.state.pendingHandoffInputs = [
+    {
+      id: 'rpc-already-running-1',
+      botId: 'a',
+      content: [{ type: 'text', text: 'Please run slow work for status update' }],
+      source: { kind: 'user', rpcId: 'rpc-already-running-1' },
+      at: Date.now() - 10_000,
+    },
+    ...(rig.rt.state.pendingHandoffInputs ?? []),
+  ]
+
+  const reconcilePromise = rig.rt.reconcileTasksAfterRestart()
+  await realDelay(20)
+  rig.forkGate.resolve()
+  await reconcilePromise
+
+  await settle(() => {
+    const fgSid = rig.rt.botOf('a').sessionId
+    return fgSid !== 'dm-a'
+      && (rig.repliesBySession.get(fgSid) ?? []).some(r => r.includes('New foreground question'))
+  }, 5000, 'new foreground must answer the new follow-up')
+  await realDelay(60)
+
+  const fgSid = rig.rt.botOf('a').sessionId
+  const fgReplies = rig.repliesBySession.get(fgSid) ?? []
+  assert.equal(
+    fgReplies.some(r => r.includes('Please run slow work for status update')),
+    false,
+    'prompt already running in the moved background session must NOT be replayed onto the new foreground',
+  )
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'deduplicated pending entry must be cleared from state')
+})

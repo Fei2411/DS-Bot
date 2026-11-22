@@ -624,22 +624,46 @@ export function install(rt) {
         if (inFlightTransferIds.has(id)) continue
         inFlightTransferIds.add(id)
         try {
+          const movedSids = new Set()
           while (entry.botId !== undefined && handoffing.has(entry.botId)) {
-            await handoffing.get(entry.botId)?.promise?.catch(() => {})
+            const active = handoffing.get(entry.botId)
+            if (active?.oldSid !== undefined) movedSids.add(active.oldSid)
+            await active?.promise?.catch(() => {})
           }
           if (!stillPending(id)) continue
           let targetSid
           let label
+          let bot
           if (entry.roomId !== undefined) {
             const room = rt.roomOf(entry.roomId)
             targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
             label = room?.name
           } else if (entry.botId !== undefined) {
-            const bot = rt.botOf(entry.botId)
+            bot = rt.botOf(entry.botId)
             targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
             label = bot?.name
+            for (const task of bot?.tasks ?? []) {
+              if (task?.origin !== 'fg-handoff') continue
+              if (task.sessionId !== undefined) movedSids.add(task.sessionId)
+              for (const seg of task.segments ?? []) {
+                if (seg?.sessionId !== undefined) movedSids.add(seg.sessionId)
+              }
+            }
           }
           if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
+            await clearPendingTransfers([id])
+            continue
+          }
+          let admittedElsewhere = false
+          for (const sid of movedSids) {
+            if (sid === targetSid) continue
+            const movedAgent = ctx.get('agents')?.get(sid) ?? await rt.resolveAgent(sid).catch(() => undefined)
+            if (isAdmittedOn(movedAgent, id) || (entry.source?.rpcId !== undefined && isAdmittedOn(movedAgent, entry.source.rpcId))) {
+              admittedElsewhere = true
+              break
+            }
+          }
+          if (admittedElsewhere) {
             await clearPendingTransfers([id])
             continue
           }
