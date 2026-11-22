@@ -1,7 +1,25 @@
 {
   "env": { "browser": true, "node": true, "es2024": true },
+  "plugins": ["react"],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
   "rules": {
     "no-undef": "error",
     "no-unused-vars": ["error", { "ignoreRestSiblings": true }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/client/**/*.js"],
+      "rules": {
+        "react/rules-of-hooks": "error"
+      }
+    }
+  ]
 }
