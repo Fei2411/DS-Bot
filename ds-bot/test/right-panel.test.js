@@ -330,17 +330,13 @@ test('the Bot label and instructions are keyed by Bot id and stay read-only when
   assert.equal(about.props.onSave, undefined)
 })
 
-test('every Bot gets the Sessions section and New session, not only local-agent Bots', () => {
-  // A plain cloud-model Bot (no engine badge) has chat parts too.
-  const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
-  assert.match(textOf(plain), /Sessions/)
-  const entry = buttonsOf(plain).find(button => textOf(button).includes('New session'))
-  assert.ok(entry, 'the New session button is there')
-  assert.equal(entry.props.disabled, undefined)
-  // A local-agent Bot keeps the same section.
-  const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
-  const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
-  assert.ok(engineEntry, 'the local-agent Bot still has it')
+test('no Bot shows a Sessions list or New session control, including local-agent Bots', () => {
+  const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a', parts: ['a-old'] } } })
+  assert.doesNotMatch(textOf(plain), /Sessions/)
+  assert.equal(buttonsOf(plain).find(button => textOf(button).includes('New session')), undefined)
+  const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a-old'] } } })
+  assert.doesNotMatch(textOf(engine), /Sessions/)
+  assert.equal(buttonsOf(engine).find(button => textOf(button).includes('New session')), undefined)
 })
 
 // A second instance of the drawer bundle whose React runs effects at once and keeps

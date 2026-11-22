@@ -33,8 +33,8 @@ and model changes all work the same way.
 - A route's models are what its CLI reports, plus a "CLI default" entry.
 - Every DS Bot Session maps to one CLI session. A Bot's own chat and each of
   its group sessions are separate CLI sessions, so no content crosses between
-  them. Switching to an earlier part resumes its mapped CLI session; a part
-  that belongs to another run mode moves on first (see Run mode).
+  them. Like any other Bot, an abot has one continuous conversation — no
+  session list or manual session switching.
 - The CLI gets only new input since the last handed message: the user, other
   Bots, and tool results for calls it made. On a new or lost CLI session, the
   DS Bot system prompt plus a bounded recent window of the history is sent as
@@ -59,7 +59,7 @@ and model changes all work the same way.
   allow-once option; anything else denies it. It fails closed: only an explicit
   allow option counts. The Bot's permission preset maps to the closest mode the
   agent advertises.
-- Starting a new session or changing the work folder starts a fresh part as
+- Changing the work folder starts a fresh part automatically as
   for any Bot: the old CLI session writes the handoff note (see Context). A
   run-mode change starts fresh parts with the deterministic handoff — the last
   messages word for word, a list of earlier message anchors, and a line to use
