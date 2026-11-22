@@ -2333,10 +2333,11 @@ export function install(rt) {
     if (rt.isRetiring?.(partId) === true) {
       throw Object.assign(new Error('This conversation is still being retired; delete it once its tasks have moved'), { code: 'bot/busy' })
     }
-    // A part mid-move is being handed on: deleting it here would race the job that is
-    // still moving its input and tasks.
-    if (rt.isSwitchingPart?.(partId) === true) {
-      throw Object.assign(new Error('This conversation is being moved; try again once it settles'), { code: 'bot/busy' })
+    // A part mid-move is being handed on, and a move that failed keeps its record in
+    // `state.switching` until `handOnHeld` moves its input and reminders: deleting it
+    // here would erase that record and archive the part with its tasks still on it.
+    if (rt.isSwitchingPart?.(partId) === true || state.switching?.[partId] !== undefined) {
+      throw Object.assign(new Error('This conversation is still being handed on; try again once it settles'), { code: 'bot/busy' })
     }
     const at = (bot.segments ?? []).findIndex(segment => segment.sessionId === partId)
     if (at === -1) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
@@ -2355,11 +2356,11 @@ export function install(rt) {
       rt.closeCard(partId, state.views[partId], 'dismissed')
       delete state.views[partId]
     }
-    // The per-Session records the roster also clears when a Bot goes: a closed card, the
-    // turns already fed out, and a move in flight for this part.
+    // The per-Session records the roster also clears when a Bot goes: a closed card and
+    // the turns already fed out. `state.switching` is deliberately left alone: it is the
+    // recovery record of a move that has not finished.
     if (state.closedCards !== undefined) delete state.closedCards[partId]
     delete state.exchangeTurns[partId]
-    delete state.switching[partId]
     // A browser handoff raised from a deleted part must not come back into the chat the
     // user is reading. The page stays with the user instead of returning to the Bot:
     // dropping the hold would let another chat drive a browser the user took over (#1939).

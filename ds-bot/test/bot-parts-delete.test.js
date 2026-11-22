@@ -203,6 +203,22 @@ test('a part waiting to retire is refused until its tasks have moved', async (t)
   assert.deepEqual(archived.map(entry => entry.id), ['b1'])
 })
 
+test('a part with an unfinished move is refused, and its recovery record stays', async (t) => {
+  const { rt, archived, call, stop } = await start(seed({ segments: earlier('b1') }))
+  t.after(stop)
+  // `startSwitch` drops the live job but leaves this record for `handOnHeld` when moving
+  // the input or the reminders failed (parts.js, `runSwitch`).
+  rt.state.switching = { b1: { botId: 'b' } }
+
+  const out = await call('bot-delete-part', { botId: 'b', sessionId: 'b1' })
+  assert.equal(out.ok, false)
+  assert.equal(out.error.code, 'bot/busy')
+  assert.deepEqual(archived, [])
+  // The part and the record are still there for the restart pass to finish the move.
+  assert.deepEqual(rt.botOf('b').segments.map(segment => segment.sessionId), ['b1'])
+  assert.deepEqual(rt.state.switching, { b1: { botId: 'b' } })
+})
+
 test('a deleted private part keeps its id on the Bot, so the archive stays closed', async (t) => {
   const { rt, stored, stop } = await start(seed({ segments: earlier('b1') }))
   t.after(stop)
