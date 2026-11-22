@@ -112,6 +112,73 @@ test('private text, group mention and photo become adapter messages', async () =
   } finally { api.close() }
 })
 
+test('a multiline Telegram group mention answers a token form without losing field lines', async (t) => {
+  const api = await fakeApi()
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tg-form-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1, mainBotIds: ['a'],
+    bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 } },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }))
+  const prompts = []
+  const followups = []
+  const ctx = fakeContext()
+  const agent = {
+    id: 'a', session: { id: 'a', requestHeader: () => undefined },
+    followup: message => followups.push(message), cancel() {},
+    inbox: { nextStep: [], nextTurn: [], remove: () => false }, async whenIdle() {},
+  }
+  Object.assign(ctx, {
+    llm: { listProviders: () => [] },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async () => ({ id: 'w1' }), archiveSession: async () => {} },
+    sessionController: {
+      prompt: async request => { prompts.push(request); return { ok: true } },
+      resolveAgent: async () => ({ agent }), selectModel: async () => {},
+    },
+    sessions: { flush: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  rt.config.im = { telegram: { api: api.api } }
+  t.after(async () => {
+    await ctx.dispose()
+    api.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'TOKEN' } })
+  const saved = rt.state.im.connections[conn.id]
+  saved.paired.push({ id: '9', name: 'Ann', at: 1 })
+  saved.chats['-8'] = { kind: 'group', target: { botId: 'a' }, at: 1 }
+  await rt.save()
+  await until(() => rt.imStatusView()[conn.id]?.state === 'ready')
+  const message = (id, text) => ({ update_id: id, message: {
+    message_id: id, chat: { id: -8, type: 'supergroup', title: 'Crew' },
+    from: { id: 9, first_name: 'Ann' }, text,
+    entities: [{ type: 'mention', offset: 0, length: 8 }],
+  } })
+  api.updates.push(message(100, '@fakebot show a form'))
+  await until(() => prompts.length === 1)
+  const emit = (type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: 'a' }, { type, data, time: Date.now() })
+    }
+  }
+  emit('turn/start', { turn: 1 })
+  emit('user/message', { source: { kind: 'user', rpcId: prompts[0].requestId }, content: [{ type: 'text', text: 'show a form' }] })
+  await rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
+    type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }, { id: 'notes', label: 'Notes', multiline: true }],
+  } }, { agent, concludeTurn() {} })
+  const viewId = rt.state.views.a.id
+  const card = await until(() => api.calls.find(call => call.method === 'sendMessage' && /Card V\d+/.test(call.params.text)))
+  const code = /Card (V\d+)/.exec(card.params.text)[1]
+  api.updates.push(message(101, `@fakebot  \t ${code}\n1: Alice\n2: first line\nsecond line`))
+  await until(() => followups.length === 1)
+  assert.equal(rt.state.views.a, undefined)
+  assert.equal(prompts.length, 1, 'the answer is consumed rather than relayed as ordinary chat')
+  assert.deepEqual(JSON.parse(followups[0].content[0].text).answers[0], {
+    id: viewId, action: 'details', values: { fields: { name: 'Alice', notes: 'first line\nsecond line' } },
+  })
+})
+
 test('callback_query answers the query and reports the action', async () => {
   const api = await fakeApi()
   const got = { actions: [] }
