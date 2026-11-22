@@ -104,6 +104,7 @@ test('local agent CLI activity strips shell wrappers, drops non-activity tags, a
     bundle: true, format: 'cjs', platform: 'node', write: false,
     external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
   })
+  const seenMentions = []
   const mod = { exports: {} }
   runInNewContext(bundle.outputFiles[0].text, {
     module: mod, exports: mod.exports, Intl, Date, TextEncoder, queueMicrotask,
@@ -126,7 +127,7 @@ test('local agent CLI activity strips shell wrappers, drops non-activity tags, a
         'react-dom': {},
         '@deepseek-ai/dsh-client-ui-primitives': {
           CellEmpty: () => null,
-          MarkdownText: ({ text }) => text,
+          MarkdownText: ({ text, fileMentions }) => { seenMentions.push({ text, fileMentions }); return text },
         },
       }
       if (!(name in platform)) throw new Error(`no platform module ${name}`)
@@ -169,15 +170,20 @@ test('local agent CLI activity strips shell wrappers, drops non-activity tags, a
   }))
   assert.equal(textOf(reasoningTree), '')
 
+  const resolver = { resolve: () => '/tmp/report.md' }
+  const toggled = []
+  const closedStep = { ...interleavedStep, finalNode: { seq: 12 } }
   const responseTree = render(AssistantCell({
-    node: { key: 'i1', data: interleavedStep },
+    node: { key: 'i1', data: closedStep, location: { kind: 'step', turn: { status: 'closed' } } },
     groupPart: 'response',
     sessionId: 'b1',
+    fileMentions: () => resolver,
+    useTurnData: () => ({ closing: { finalNode: { seq: 12 } } }),
     useRoster: hook(roster),
-    useUi: hook({}),
-    useTurnSteps: () => [interleavedStep],
+    useUi: hook({ reactions: { 'b1:1:i1': { 0: ['👍'], 1: ['❤️'] } } }),
+    useTurnSteps: () => [closedStep],
     useTurnContext: () => [],
-    actions: { noteLive() {} },
+    actions: { noteLive() {}, toggleReaction: (...args) => toggled.push(args) },
   }))
   const fullText = textOf(responseTree)
   assert.equal(fullText.includes('userMessage'), false)
@@ -189,4 +195,32 @@ test('local agent CLI activity strips shell wrappers, drops non-activity tags, a
   const folds = walk(responseTree, n => n.type === 'details' && String(n.props?.className ?? '').includes('bt-act-fold'))
   assert.equal(folds.length, 1)
   assert.equal(folds[0].props.open, false)
+
+  // Saved reactions keep the original step msgKey and sequential bubble indexes across segments.
+  const reactButtons = walk(responseTree, n => n.type === 'button' && n.props?.className === 'bt-react')
+  assert.deepEqual(reactButtons.map(b => textOf(b)), ['👍', '❤️'])
+  reactButtons[0].props.onClick()
+  reactButtons[1].props.onClick()
+  assert.deepEqual(toggled, [['b1:1:i1', 0, '👍'], ['b1:1:i1', 1, '❤️']])
+
+  // File mention resolver reaches earlier text segments too, not only the final segment.
+  assert.equal(seenMentions.length, 2)
+  assert.equal(seenMentions[0].fileMentions, resolver)
+  assert.equal(seenMentions[1].fileMentions, resolver)
+})
+
+test('turnReasoning keeps earlier non-interleaved thoughts and avoids duplicating interleaved thoughts', () => {
+  const s1 = step(1, [think('Before interleaved'), tool])
+  const s2 = step(2, [{ kind: 'text', text: 'Checking' }, think('Inline thought'), { kind: 'text', text: 'Mid' }])
+  const s3 = step(3, [think('After interleaved'), { kind: 'text', text: 'Done' }])
+
+  // Interleaved step at the end must not swallow earlier non-interleaved thoughts.
+  assert.deepEqual([s1, s2].map(cur => turnReasoning([s1, s2], cur)), ['Before interleaved', ''])
+  assert.equal(opensReply([s1, s2], s1, true), true)
+
+  // Non-interleaved step after an interleaved step must not repeat the inline thought.
+  assert.deepEqual([s2, s3].map(cur => turnReasoning([s2, s3], cur)), ['', 'After interleaved'])
+
+  // Contiguous non-interleaved runs on both sides of an interleaved step stay separated in order.
+  assert.deepEqual([s1, s2, s3].map(cur => turnReasoning([s1, s2, s3], cur)), ['Before interleaved', '', 'After interleaved'])
 })

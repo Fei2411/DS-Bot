@@ -40,7 +40,7 @@ const useNullUi = () => null
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, indexOffset = 0, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -53,10 +53,11 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
+      const bubbleIndex = indexOffset + index
       const last = index === cleaned.length - 1
       return h(Bubble, {
-        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
+        key: bubbleIndex, text, index: bubbleIndex, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+        picked: msgKey ? reactions?.[bubbleIndex] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : undefined,
@@ -325,6 +326,8 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
     const head = speaker !== undefined && opensReply(steps, data, shown)
     const lastTextIndex = segments.findLastIndex(seg => seg.kind === 'text')
     const lastThoughtIndex = segments.findLastIndex(seg => seg.kind === 'process' && Boolean(seg.thought))
+    const msgKey = `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`
+    let textOffset = 0
     return h(Fragment, null,
       relays.map(relay => {
         const source = relay.source
@@ -343,11 +346,13 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
         if (seg.kind === 'text') {
           const segTexts = seg.texts.map(stripToolCallTags).filter(text => text.trim() !== '')
           if (segTexts.length === 0) return null
+          const indexOffset = textOffset
+          textOffset += segTexts.length
           return h(Bubbles, {
             key: `txt:${segIndex}`, texts: segTexts, roster, selfId, actions,
             streaming: running && isLast, sessionId,
-            msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}:${segIndex}`,
-            useUi, mentions: segIndex === lastTextIndex ? mentions : undefined,
+            msgKey, indexOffset,
+            useUi, mentions,
             fold: FOLD_HUGE, time: speaker === undefined && segIndex === lastTextIndex ? data.time : undefined,
             textInteractionSource,
           })

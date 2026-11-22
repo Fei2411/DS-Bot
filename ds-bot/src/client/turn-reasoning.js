@@ -1,10 +1,24 @@
+// Non-interleaved steps pool their reasoning within each contiguous run between
+// interleaved steps so thoughts neither drop nor duplicate across boundaries.
+function reasoningRun(members, current) {
+  const idx = members.findIndex(step => step.step === current.step)
+  if (idx === -1) return [current]
+  let start = idx
+  while (start > 0 && !hasInterleavedBlocks(members[start - 1])) start -= 1
+  let end = idx + 1
+  while (end < members.length && !hasInterleavedBlocks(members[end])) end += 1
+  return members.slice(start, end)
+}
+
 // Settled and live reasoning of every loaded step in a Turn, shown once on the last
 // step that has reasoning: only steps with reasoning get a reasoning part to render
 // it. Sitting under the Turn's tool lines keeps the row directly above the reply.
 export function turnReasoning(steps, current) {
+  if (hasInterleavedBlocks(current)) return ''
   const members = steps.length ? steps : [current]
-  if (members.findLast(step => stepReasoning(step) !== '')?.step !== current.step) return ''
-  return members.map(stepReasoning).filter(Boolean).join('\n\n')
+  const run = reasoningRun(members, current)
+  if (run.findLast(step => stepReasoning(step) !== '')?.step !== current.step) return ''
+  return run.map(stepReasoning).filter(Boolean).join('\n\n')
 }
 
 // Whether `current` opens the Turn's reply in the chat: the first step with reply text,
@@ -12,8 +26,8 @@ export function turnReasoning(steps, current) {
 // comes first.
 export function opensReply(steps, current, withReasoning = true) {
   const members = steps.length ? steps : [current]
-  const reasoner = withReasoning ? members.findLast(step => stepReasoning(step) !== '') : undefined
-  return members.find(step => texts(step).length > 0 || step === reasoner)?.step === current.step
+  return members.find(step => texts(step).length > 0
+    || (withReasoning && (hasInterleavedBlocks(step) ? stepReasoning(step) !== '' : turnReasoning(members, step) !== '')))?.step === current.step
 }
 
 // A step still streaming reasoning with no reply text yet is thinking: the row

@@ -29616,15 +29616,25 @@ var CONNECTOR_CSS = `
 `;
 
 // src/client/turn-reasoning.js
+function reasoningRun(members, current2) {
+  const idx = members.findIndex((step) => step.step === current2.step);
+  if (idx === -1) return [current2];
+  let start = idx;
+  while (start > 0 && !hasInterleavedBlocks(members[start - 1])) start -= 1;
+  let end = idx + 1;
+  while (end < members.length && !hasInterleavedBlocks(members[end])) end += 1;
+  return members.slice(start, end);
+}
 function turnReasoning(steps, current2) {
+  if (hasInterleavedBlocks(current2)) return "";
   const members = steps.length ? steps : [current2];
-  if (members.findLast((step) => stepReasoning(step) !== "")?.step !== current2.step) return "";
-  return members.map(stepReasoning).filter(Boolean).join("\n\n");
+  const run2 = reasoningRun(members, current2);
+  if (run2.findLast((step) => stepReasoning(step) !== "")?.step !== current2.step) return "";
+  return run2.map(stepReasoning).filter(Boolean).join("\n\n");
 }
 function opensReply(steps, current2, withReasoning = true) {
   const members = steps.length ? steps : [current2];
-  const reasoner = withReasoning ? members.findLast((step) => stepReasoning(step) !== "") : void 0;
-  return members.find((step) => texts(step).length > 0 || step === reasoner)?.step === current2.step;
+  return members.find((step) => texts(step).length > 0 || withReasoning && (hasInterleavedBlocks(step) ? stepReasoning(step) !== "" : turnReasoning(members, step) !== ""))?.step === current2.step;
 }
 var thinkingStep = (steps) => steps.find(thinkingLive);
 var thinkingLive = (step) => step.status === "running" && texts(step).length === 0 && step.blocks.some((block) => block.kind === "reasoning");
@@ -30747,7 +30757,7 @@ var USER_MESSAGE_CSS = `
 var import_react34 = require("react");
 var import_react_dom4 = require("react-dom");
 var useNullUi = () => null;
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, indexOffset = 0, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -30762,11 +30772,12 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     "div",
     { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
     cleaned.map((text, index) => {
+      const bubbleIndex = indexOffset + index;
       const last = index === cleaned.length - 1;
       return (0, import_react34.createElement)(Bubble, {
-        key: index,
+        key: bubbleIndex,
         text,
-        index,
+        index: bubbleIndex,
         roster,
         selfId,
         actions,
@@ -30775,7 +30786,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         mentions,
         fold,
         textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
+        picked: msgKey ? reactions?.[bubbleIndex] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : void 0
@@ -31071,6 +31082,8 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
     const head2 = speaker2 !== void 0 && opensReply(steps, data, shown);
     const lastTextIndex = segments.findLastIndex((seg) => seg.kind === "text");
     const lastThoughtIndex = segments.findLastIndex((seg) => seg.kind === "process" && Boolean(seg.thought));
+    const msgKey = `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`;
+    let textOffset = 0;
     return (0, import_react34.createElement)(
       import_react34.Fragment,
       null,
@@ -31093,6 +31106,8 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
         if (seg.kind === "text") {
           const segTexts = seg.texts.map(stripToolCallTags).filter((text) => text.trim() !== "");
           if (segTexts.length === 0) return null;
+          const indexOffset = textOffset;
+          textOffset += segTexts.length;
           return (0, import_react34.createElement)(Bubbles, {
             key: `txt:${segIndex}`,
             texts: segTexts,
@@ -31101,9 +31116,10 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
             actions,
             streaming: running && isLast,
             sessionId,
-            msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}:${segIndex}`,
+            msgKey,
+            indexOffset,
             useUi,
-            mentions: segIndex === lastTextIndex ? mentions : void 0,
+            mentions,
             fold: FOLD_HUGE,
             time: speaker2 === void 0 && segIndex === lastTextIndex ? data.time : void 0,
             textInteractionSource
