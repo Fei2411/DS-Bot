@@ -956,6 +956,70 @@ test('a later pass over a longer Session list keeps the Session it failed on and
   assert.equal(selected.length, total)
 })
 
+test('a read-only host never mutates Session models on adapter updates or model sync/retry calls', async () => {
+  const { rt, selected, listeners } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  rt.readOnly = () => 'another dsh holds the team'
+  rt.hasLoaded = () => true
+  await rt.catalog()
+  await listeners.get('llm/adapters-updated')()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  await rt.syncModels()
+  await rt.applyModel(bot, { force: true })
+  await rt.reapplyModel(bot, 'b1')
+  await rt.retryModel('b1')
+  await rt.selectSessionModel('b1', { provider: 'deepseek', model: 'v4-flash' }, { force: true })
+  assert.deepEqual(selected, [])
+  assert.equal(bot.appliedModel, 'gone/x')
+})
+
+test('llm/adapters-updated waits until the store has loaded before syncing models', async () => {
+  const { rt, selected, listeners } = bench()
+  let loaded = false
+  rt.hasLoaded = () => loaded
+  await listeners.get('llm/adapters-updated')()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  assert.deepEqual(selected, [])
+  // Once the store finishes loading, the first sync still runs with the loaded Bots.
+  loaded = true
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('restoring a preferred provider after a partial fallback apply reconciles background parts too', async () => {
+  const { rt, selected, providers } = bench({ providers: { fallback: ['y'] }, fallback: { provider: 'fallback', model: 'y' } })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+    openParts: [{ sessionId: 'b1-bg', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  const select = rt.ctx.sessionController.selectModel
+  let failMain = true
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'b1' && failMain) throw new Error('session "b1" not found')
+    return select(request)
+  }
+  // preferred/x is absent: applyModel tries fallback/y; b1 fails while b1-bg succeeds,
+  // leaving bot.appliedModel on preferred/x and b1-bg on fallback/y.
+  await assert.rejects(rt.applyModel(bot), /session "b1" not found/)
+  assert.equal(bot.appliedModel, 'preferred/x')
+  assert.deepEqual(selected, ['b1-bg:fallback/y'])
+  selected.length = 0
+
+  // preferred/x returns and b1 is reachable again: both b1 and b1-bg must move back to preferred/x.
+  providers.preferred = ['x']
+  failMain = false
+  rt.dropCatalog()
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1:preferred/x', 'b1-bg:preferred/x'])
+  // Reconciled now, so a subsequent apply writes nothing.
+  selected.length = 0
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, [])
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {

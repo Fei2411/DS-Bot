@@ -133,6 +133,8 @@ export function install(rt) {
   let modelsSynced = null
   // A model service that cannot be read means the host is going away.
   const llm = () => closing ? undefined : serviceOf(ctx, 'llm')
+  const readOnly = () => rt.readOnly?.() !== undefined
+  const storeLoaded = () => rt.hasLoaded === undefined || rt.hasLoaded() === true
   let catalogCache = { at: 0, value: [] }
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
@@ -167,10 +169,11 @@ export function install(rt) {
   // and without a timer that keeps running (#1937).
   let adaptersSyncTimer
   const syncAfterAdapters = () => {
+    if (readOnly() || !storeLoaded()) return
     if (adaptersSyncTimer !== undefined) clearTimeout(adaptersSyncTimer)
     adaptersSyncTimer = setTimeout(() => {
       adaptersSyncTimer = undefined
-      if (closing) return
+      if (closing || readOnly() || !storeLoaded()) return
       void syncModels().catch(error => rt.warn('ds-bot: models after a provider change not applied: %s', error))
     }, ADAPTERS_SYNC_MS)
   }
@@ -448,8 +451,9 @@ export function install(rt) {
   }
 
   function selectSessionModel(sessionId, { provider, model, reasoningEffort }, { force = false } = {}) {
+    if (readOnly()) return Promise.resolve()
     const run = selecting.then(async () => {
-      if (llm() === undefined) return
+      if (llm() === undefined || readOnly()) return
       const route = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
       if (!force) {
         const recorded = await recordedSelection(sessionId)
@@ -533,14 +537,14 @@ export function install(rt) {
   // the same for the named Sessions only, which is how a retry touches nothing else
   // (#2002 review).
   async function applyModel(bot, { force = false, forceSessions, syncGroups = true } = {}) {
-    if (llm() === undefined) return undefined
+    if (llm() === undefined || readOnly()) return undefined
     const ref = await desiredModel(bot)
     if (ref === undefined) {
       if (syncGroups) await syncBotRooms(bot.id)
       return ref
     }
     const effort = await desiredEffort(bot, ref)
-    if (llm() === undefined) return
+    if (llm() === undefined || readOnly()) return
     const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
     const own = ownChatSessions(bot)
@@ -548,11 +552,15 @@ export function install(rt) {
     // A Session of a group this Bot left, or a part moved on to a fresh one, owes nothing.
     pruneSessionRetries(bot.id, new Set([...own, ...groups]))
     const forced = sessionId => force === true || forceSessions?.has(sessionId) === true
-    // A Session with a record owes its write even when the Bot's record already matches:
-    // an earlier pass that took a shorter Session list can advance `appliedModel` while
-    // a later pass is still writing, and that later pass may fail or stop midway, so a
-    // retry decided by `ownChanged` alone would skip its Sessions for good (#2002 review).
-    const owesWrite = sessionId => ownChanged || forced(sessionId) || sessionRetry.has(sessionId)
+    // A Session owes its write when the Bot record changed, a retry/force names it, or
+    // its last applied selection in this process differs from the desired route (e.g. a
+    // background part succeeded on a fallback while another part failed before
+    // `appliedModel` updated, and the preferred provider then returned).
+    const owesWrite = (sessionId) => {
+      if (ownChanged || forced(sessionId) || sessionRetry.has(sessionId)) return true
+      const applied = sessionSelections.get(sessionId)
+      return applied !== undefined && !sameSelection(applied, route)
+    }
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change,
@@ -587,7 +595,7 @@ export function install(rt) {
         rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error)
       }
     }
-    if (llm() === undefined || !ownChanged) return ref
+    if (llm() === undefined || readOnly() || !ownChanged) return ref
     bot.appliedModel = ref
     if (effort === undefined) delete bot.appliedEffort
     else bot.appliedEffort = effort
@@ -626,6 +634,7 @@ export function install(rt) {
   // sync tries them once more instead of waiting for a change that never comes.
   const roomRetry = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
+    if (readOnly()) return
     try {
       const ref = await roomModel(sessionId, room)
       if (ref === undefined) return
@@ -670,6 +679,7 @@ export function install(rt) {
   // A Session recorded as failed is retried on the next trigger even when the models are
   // the same, as every state refresh finds them.
   const syncModels = () => {
+    if (readOnly()) return modelsSynced ?? Promise.resolve()
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
     else if (roomRetry.size > 0 || sessionRetry.size > 0) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
@@ -709,7 +719,7 @@ export function install(rt) {
   // moment for the one retry a recorded failure is waiting for (#1937). No record, no
   // work: a team whose models are applied never pays for this.
   async function retryModel(botId) {
-    if (botId === undefined || !botHasRetry(botId)) return
+    if (readOnly() || botId === undefined || !botHasRetry(botId)) return
     const bot = state.bots?.[botId]
     if (bot === undefined) {
       clearBotRetries(botId)
@@ -723,7 +733,7 @@ export function install(rt) {
   // Session is rewritten even when the Bot's record already looks applied; the other
   // Sessions of the Bot are left alone (#1937, #2002 review).
   async function reapplyModel(bot, sessionId) {
-    if (bot === undefined || llm() === undefined) return
+    if (readOnly() || bot === undefined || llm() === undefined) return
     if (sessionId === undefined) return applyModel(bot, { force: true })
     return applyModel(bot, { forceSessions: new Set([sessionId]) })
   }
@@ -733,6 +743,7 @@ export function install(rt) {
   // today, and each of them re-selects even when its record looks applied (`force`):
   // its Session may still be on the route, or on another Bot's route in a group.
   async function routeRefused(ref, bot) {
+    if (readOnly()) return
     const served = await servedModels(ref)
     if (!refused.has(ref)) {
       refused.set(ref, served)
