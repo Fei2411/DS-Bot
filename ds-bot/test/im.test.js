@@ -1065,7 +1065,7 @@ test('member cards follow only the originating IM group and answers return throu
 
 test('IM view buttons and numbered replies answer the asking member, not other chats', async (t) => {
   for (const buttons of [true, false]) {
-    const s = await start({ adapter: fakeAdapter({ buttons }) })
+    const s = await start({ platform: buttons ? 'telegram' : 'dingtalk', adapter: fakeAdapter({ buttons }) })
     t.after(s.stop)
     const { one } = await pairedConn(s)
     one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
@@ -1245,12 +1245,13 @@ test('IM group display views are sent as room lines and unowned completions with
     assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
     assert.match(await show({ title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }), /Use ask_user for a choice/)
     s.fake.sent.length = 0
+    const imOrigin = s.rt.captureImOrigin('r1')
     s.emitEvent('member-b', 'user/message', { source: { kind }, content: [{ type: 'text', text: 'old result' }] })
     assert.equal(s.rt.roomHasImOrigin('r1'), false)
     const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, { agent: { id: 'member-b' } })
     assert.match(await ask({ question: 'Private?', options: [{ label: 'A' }] }), /Question cards only work in your own chat/)
-    s.rt.state.questions['member-b'] = { id: `private-${kind}`, question: 'Private?', options: [{ label: 'A' }] }
-    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'text', text: 'Private' } }
+    s.rt.state.questions['member-b'] = { id: `private-${kind}`, question: 'Private?', options: [{ label: 'A' }], imOrigin }
+    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'confirm', id: 'private' }, imOrigin }
     await s.rt.save()
     await s.flush()
     assert.deepEqual(s.fake.sent, [])
