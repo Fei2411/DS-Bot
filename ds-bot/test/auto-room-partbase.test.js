@@ -52,7 +52,7 @@ async function bootBot(t, { provider, model, contextWindow, defaultMaxTokens, on
 
   class MockAdapter extends LlmAdapter {
     providerInfo() { return { id: provider, name: provider } }
-    async listModels() { return [{ id: model, name: model, inputModalities: ['text'] }] }
+    async listModels() { return [{ provider, id: model, name: model, inputModalities: ['text'] }] }
     async resolveModel(p, id) {
       return {
         provider: p,

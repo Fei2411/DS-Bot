@@ -131,6 +131,9 @@ export function install(rt) {
   // A model service that cannot be read means the host is going away.
   const llm = () => closing ? undefined : serviceOf(ctx, 'llm')
   let catalogCache = { at: 0, value: [] }
+  // The providers whose models could not be listed at the last catalog read: what
+  // they serve is unknown, which is not the same as serving nothing.
+  let unlisted = new Set()
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
   // HOSTED_ENGINE_ROUTE it is remembered with the models its provider served then,
@@ -209,11 +212,16 @@ export function install(rt) {
     const service = llm()
     if (service === undefined) return answerable(catalogCache.value)
     const entries = []
+    const failed = new Set()
     for (const provider of service.listProviders()) {
       // A local-agent route owned by another adapter is not offered by DS Bot.
       if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
-      try { models = await service.listModels(provider.id) } catch { continue }
+      try { models = await service.listModels(provider.id) } catch (error) {
+        failed.add(provider.id)
+        if (!unlisted.has(provider.id)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
+        continue
+      }
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
@@ -225,6 +233,7 @@ export function install(rt) {
         })
       }
     }
+    unlisted = failed
     // The host was disposed while the models were listed: keep the answer, skip the
     // work that would read other services.
     if (llm() === undefined) return answerable(entries)
@@ -336,12 +345,15 @@ export function install(rt) {
   // A Bot with no model yet waits for the user to pick one and changes nothing. A
   // model that is no longer served falls back to the last one it ran on, then the
   // default; a fallback is never one that needs a key, nor a local agent. A local
-  // agent that is gone stays the Bot's: its turn fails with the repair card.
+  // agent that is gone stays the Bot's: its turn fails with the repair card. So does
+  // a model whose provider could not be listed: a failed request says nothing about
+  // what the provider serves.
   async function desiredModel(bot) {
     if (!bot.model) return undefined
     if (isLocal(bot.model)) return bot.model
     const entries = await catalog()
     if (entries.some(entry => entry.ref === bot.model)) return bot.model
+    if (unlisted.has(splitRef(bot.model).provider) && !refused.has(bot.model)) return bot.model
     return usableOf(entries).some(entry => entry.ref === bot.appliedModel) ? bot.appliedModel : pickDefault(entries)
   }
 

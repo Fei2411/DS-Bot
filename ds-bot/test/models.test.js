@@ -68,6 +68,29 @@ test('a Bot runs on its own model, else the one it last ran on, else the default
   assert.equal(await rt.desiredModel({ model: 'gone/model' }), 'ollama/kimi-k3')
 })
 
+test('a Bot keeps its model while its provider\'s models cannot be listed', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  const bot = { model: 'deepseek/deepseek-v4-pro', appliedModel: 'deepseek/deepseek-v4-pro' }
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  assert.equal(await rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }), 'deepseek/deepseek-v4-pro')
+  // A provider that is not there at all is still a model no longer served.
+  assert.equal(await rt.desiredModel({ model: 'gone/model' }), 'ollama/kimi-k3')
+  await rt.catalog({ fresh: true })
+  assert.equal(warnings.length, 1)
+  assert.match(String(warnings[0]), /deepseek/)
+  // Listed again without the model, the model is no longer served.
+  rt.ctx.llm.listModels = async id => (id === 'deepseek' ? [{ id: 'deepseek-v4.1-flash' }] : listModels(id))
+  await rt.catalog({ fresh: true })
+  assert.equal(await rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }), 'ollama/kimi-k3')
+})
+
 test('choosing a Bot model leaves the user\'s DSH default model as it was', async () => {
   const writes = []
   let current = { provider: 'ollama', model: 'kimi-k3' }
