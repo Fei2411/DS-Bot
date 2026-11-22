@@ -330,9 +330,11 @@ function GroupsPage({ roster, actions, run }) {
 // the window reloads. The page's key resets it; Usage stays mounted, so its
 // boundary resets when the shown page changes.
 class PageBoundary extends Component {
-  state = { failed: false }
+  state = { failed: false, reset: this.props.reset }
   static getDerivedStateFromError() { return { failed: true } }
-  componentDidUpdate(previous) { if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false }) }
+  static getDerivedStateFromProps(props, state) {
+    return props.reset === state.reset ? null : { failed: false, reset: props.reset }
+  }
   componentDidCatch(error) { console.error('ds-bot: a settings page failed', error); noteClientError('settings-page', error) }
   render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
 }

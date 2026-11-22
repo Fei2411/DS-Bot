@@ -33,12 +33,12 @@ export { clockLabel }
 // Chat cells
 
 
+const useNullUi = () => null
+
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
-const useNullUi = () => null
-
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
 export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {

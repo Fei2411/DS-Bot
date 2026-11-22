@@ -40657,12 +40657,12 @@ function GroupsPage({ roster, actions, run: run2 }) {
   ];
 }
 var PageBoundary = class extends import_react55.Component {
-  state = { failed: false };
+  state = { failed: false, reset: this.props.reset };
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  componentDidUpdate(previous) {
-    if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false });
+  static getDerivedStateFromProps(props, state) {
+    return props.reset === state.reset ? null : { failed: false, reset: props.reset };
   }
   componentDidCatch(error) {
     console.error("ds-bot: a settings page failed", error);
@@ -48313,7 +48313,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       name: "panel",
       active: shown !== null,
       notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task ?? ""}`,
+      reset: `${pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
       onDismiss: () => actions.closePanel?.(),
       actions
     }, (0, import_react_dom13.createPortal)((0, import_react76.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,

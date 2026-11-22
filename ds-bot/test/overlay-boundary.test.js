@@ -342,6 +342,42 @@ test('Overlays wraps every overlay and watcher child in an OverlayBoundary', () 
   ])
 })
 
+test('Overlays derives distinct panel reset keys for different background tasks', () => {
+  const { react } = createRuntime()
+  const { Overlays, OverlayBoundary } = loadModule(react)
+
+  const roster = { bots: [], rooms: [], byId: { 'bot-1': { id: 'bot-1', name: 'Chief' } }, roomsById: {}, exchangeTurns: {}, prefs: {} }
+  const renderPanelReset = (task) => {
+    const tree = Overlays({
+      useRoster: select => select(roster),
+      useUi: select => select({ details: 'bot-1', view: 'task', renaming: false, tab: null, side: null, task, leftDrawer: false, panelYield: false }),
+      useSessions: select => select({ byId: {} }),
+      useSessionStatus: select => select(new Map()),
+      useActivity: select => select({}),
+      useWork: select => select({ approvals: [], rooms: {}, waiting: {} }),
+      useComputer: select => select({ asks: {} }),
+      useRegistry: select => select(0),
+      useBrowserPages: select => select({}),
+      useBrowserTabs: select => select({}),
+      useBrowserHolds: select => select({}),
+      useUpdate: select => select({}),
+      useFrame: select => select({ viewport: 1400, sidebarWidth: 280, collapsedWidth: 0 }),
+      useSidebarPref: select => select('open'),
+      useSettingsShellHeld: select => select(false),
+      actions: {},
+    })
+    const panel = tree.props.children.filter(Boolean).find(node => node.type === OverlayBoundary && node.props.name === 'panel')
+    return panel.props.reset
+  }
+
+  const resetA = renderPanelReset({ botId: 'bot-1', taskId: 'task-1' })
+  const resetB = renderPanelReset({ botId: 'bot-1', taskId: 'task-2' })
+  assert.notEqual(resetA, resetB)
+  assert.ok(!resetA.includes('[object Object]'))
+  assert.ok(resetA.includes('bot-1:task-1'))
+  assert.ok(resetB.includes('bot-1:task-2'))
+})
+
 test('SettingsShell wraps its SettingsDialog portal in an OverlayBoundary', () => {
   const { react } = createRuntime()
   const { SettingsShell, OverlayBoundary } = loadModule(react)
