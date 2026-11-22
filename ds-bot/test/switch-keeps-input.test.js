@@ -289,13 +289,6 @@ test('an ordinary failure in the move that never started wakes the part at once'
   assert.equal(silent.agentOf('b').calls.filter(([kind]) => kind === 'send').length, 0)
 })
 
-// #1501: a Bot's own chat may keep a part live in the background. A switch that fails
-// there keeps its input in that part's thread, not in the foreground chat the user reads.
-const BACKGROUND = {
-  ...TEAM,
-  bots: { ...TEAM.bots, b: { ...TEAM.bots.b, openParts: [{ sessionId: 'bb', segments: [] }] } },
-}
-
 test('a marked earlier part hands its kept input on after a restart, once, and is archived', async (t) => {
   const fail = { flush: 2 }
   const host = await start({ fail, services })
