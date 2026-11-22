@@ -115,7 +115,7 @@ test('catalog mode migrates old Bots and moves attachments between disjoint tier
   await assert.rejects(rt.changeCapabilityAttachment('attach', { name: 'guide', mode: 'bad' }, 'chief'), /mode/)
 })
 
-test('feature catalog is sorted, summarized, empty when absent, and frozen per session', async t => {
+test('feature catalog is sorted, summarized, empty when absent, and frozen until turn end', async t => {
   const env = await setup()
   t.after(() => env.dispose())
   const { rt, ctx } = env
@@ -132,6 +132,18 @@ test('feature catalog is sorted, summarized, empty when absent, and frozen per s
   rt.state.bots.worker.packs = ['alpha']
   assert.equal(render('worker'), '')
   assert.equal(render('outside'), '')
+  const finish = ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')
+  await finish({ id: 'chief' }, { type: 'turn/end' })
+  assert.equal(render('chief'), '')
+  await finish({ id: 'worker' }, { type: 'turn/end' })
+  const workerText = render('worker')
+  assert.match(workerText, /- alpha: Echo service/)
+  await rt.capabilitySave({ ...mcp('alpha'), description: 'Updated description' }, { ui: true })
+  assert.equal(render('worker'), workerText)
+  await finish({ id: 'worker' }, { type: 'turn/start' })
+  assert.equal(render('worker'), workerText)
+  await finish({ id: 'worker' }, { type: 'turn/end' })
+  assert.match(render('worker'), /- alpha: Updated description/)
 })
 
 test('use_pack mounts only the calling session and drop_pack waits for turn end', async t => {

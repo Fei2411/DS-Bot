@@ -542,10 +542,9 @@ export function install(rt) {
     if (loadingSecrets === 0) void scheduleReconcile()
   }
   rt.capabilitiesStateSaved = () => { void scheduleReconcile() }
-  const catalogFor = sessionId => {
+  const renderCatalog = sessionId => {
     const bot = botOfSession(sessionId)
     if (!bot) return ''
-    if (frozenCatalogs.has(sessionId)) return frozenCatalogs.get(sessionId)
     const lines = [...(bot.packs ?? [])].sort().flatMap(name => {
       const item = own(library(), name)
       if (!item) return []
@@ -554,7 +553,12 @@ export function install(rt) {
       const count = members.every(member => toolCounts.has(member)) ? members.reduce((sum, member) => sum + toolCounts.get(member), 0) : undefined
       return [`- ${name}: ${summary}${count === undefined ? '' : ` (${count} tools)`}`]
     })
-    const text = lines.length ? ['# Feature packs', ...lines, 'Call use_pack when a task needs one of these packs.'].join('\n') : ''
+    return lines.length ? ['# Feature packs', ...lines, 'Call use_pack when a task needs one of these packs.'].join('\n') : ''
+  }
+  const catalogFor = sessionId => {
+    if (!botOfSession(sessionId)) return ''
+    if (frozenCatalogs.has(sessionId)) return frozenCatalogs.get(sessionId)
+    const text = renderCatalog(sessionId)
     frozenCatalogs.set(sessionId, text)
     return text
   }
@@ -600,6 +604,7 @@ export function install(rt) {
   ctx.on('session/event', async function finishFeaturePacks(session, event) {
     if (event.type !== 'turn/end') return
     const sessionId = session?.id
+    if (frozenCatalogs.has(sessionId) && frozenCatalogs.get(sessionId) !== renderCatalog(sessionId)) frozenCatalogs.delete(sessionId)
     const entries = loaded.get(sessionId)
     if (!entries) return
     const bot = botOfSession(sessionId)
