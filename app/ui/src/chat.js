@@ -23,6 +23,9 @@ import { SessionTranscript, UserAttachments, useSessionFollow } from './session-
 const FOLLOW_PX = 80
 const STAGED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
+// Matches host STAGED_TOTAL_MAX (64 MB) using the same accounting (base64 length for images, raw bytes for files).
+const MAX_BATCH_STAGED_BYTES = 64 * 1024 * 1024
+const stagedByteCost = (size, isImage) => (isImage ? Math.ceil(size / 3) * 4 : size)
 const EMPTY_OBJ = {}
 const EMPTY_WORK = { bots: {}, approvals: [] }
 const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
@@ -89,7 +92,8 @@ function revokeUrl(url) {
 }
 
 function revokeEntryUrls(entry) {
-  if (entry?.settled !== true) return
+  if (entry?.settled !== true || entry.revoked === true) return
+  entry.revoked = true
   for (const url of entry.previewUrls ?? []) revokeUrl(url)
 }
 const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
@@ -337,7 +341,9 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     const list = Array.from(fileList ?? []).filter(Boolean)
     if (list.length === 0) return
     const next = []
+    let usedCost = (attachmentsRef.current ?? []).reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
     let oversized = false
+    let overBudget = false
     for (const file of list) {
       const size = Number.isFinite(file.size) ? file.size : 0
       if (size > MAX_ATTACHMENT_BYTES) {
@@ -346,6 +352,12 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       }
       const mediaType = typeof file.type === 'string' ? file.type : ''
       const isImage = STAGED_IMAGE_TYPES.has(mediaType)
+      const cost = stagedByteCost(size, isImage)
+      if (usedCost + cost > MAX_BATCH_STAGED_BYTES) {
+        overBudget = true
+        continue
+      }
+      usedCost += cost
       const previewUrl = isImage && typeof URL?.createObjectURL === 'function' ? URL.createObjectURL(file) : null
       if (previewUrl) ownedUrlsRef.current.add(previewUrl)
       seqRef.current += 1
@@ -360,6 +372,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       })
     }
     if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
+    else if (overBudget) setError(t('File too large (max {size})', { size: '64 MB' }))
     else if (next.length > 0) setError(null)
     if (next.length > 0) setAttachments(current => [...current, ...next])
   }, [disabled])
@@ -510,13 +523,19 @@ export function Chat({ sessionId, team, registry }) {
     keep.current = null
     follow.current = true
     setPending((list) => {
-      for (const entry of list) revokeEntryUrls(entry)
+      for (const entry of list) {
+        entry.removed = true
+        revokeEntryUrls(entry)
+      }
       return []
     })
   }, [activeSessionId])
 
   useEffect(() => () => {
-    for (const entry of pendingRef.current ?? []) revokeEntryUrls(entry)
+    for (const entry of pendingRef.current ?? []) {
+      entry.removed = true
+      revokeEntryUrls(entry)
+    }
   }, [])
 
   const clearPendingUsers = useCallback((freshUsers, initial) => {
@@ -526,14 +545,17 @@ export function Chat({ sessionId, team, registry }) {
       const removed = []
       for (const item of freshUsers) {
         const itemImages = item.images ?? item.imageRefs?.length ?? 0
-        const itemFiles = item.files ?? item.fileRefs?.length ?? 0
+        const itemFiles = item.fileCount ?? item.fileRefs?.length ?? (Array.isArray(item.files) ? item.files.length : 0)
         const at = next.findIndex(entry => entry.text === item.text
           && entry.imageCount === itemImages
           && entry.fileCount === itemFiles
           && (!initial || !Number.isFinite(item.time) || item.time >= entry.time - 2000))
         if (at >= 0) removed.push(...next.splice(at, 1))
       }
-      for (const entry of removed) revokeEntryUrls(entry)
+      for (const entry of removed) {
+        entry.removed = true
+        revokeEntryUrls(entry)
+      }
       return next.length === list.length ? list : next
     })
   }, [])
@@ -543,7 +565,7 @@ export function Chat({ sessionId, team, registry }) {
       text,
       time,
       images: summary?.images ?? 0,
-      files: summary?.files ?? 0,
+      fileCount: summary?.files ?? 0,
     }], initial)
   }, [clearPendingUsers])
 
@@ -607,11 +629,17 @@ export function Chat({ sessionId, team, registry }) {
       fileCount,
       previewUrls: items.map(item => item.previewUrl).filter(Boolean),
       settled: false,
+      removed: false,
+      revoked: false,
       time: Date.now(),
     }
     setPending(list => [...list, entry])
     actions.noteSent(activeSessionId)
     try {
+      const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+      if (batchCost > MAX_BATCH_STAGED_BYTES) {
+        throw new Error(t('File too large (max {size})', { size: '64 MB' }))
+      }
       const imageIds = []
       const fileIds = []
       for (const item of items) {
@@ -634,16 +662,19 @@ export function Chat({ sessionId, team, registry }) {
         await actions.send(activeSessionId, text)
       }
       // Ownership of previewUrls transfers here: if pending already cleared (e.g. fast SSE or
-      // rollover), revoke now; otherwise pending clear/unmount will revoke them.
+      // rollover before React committed a re-render), revoke immediately via `entry.removed`.
       entry.settled = true
-      if (!(pendingRef.current ?? []).includes(entry)) revokeEntryUrls(entry)
+      if (entry.removed) revokeEntryUrls(entry)
     } catch (error) {
-      if (sendGen.current === myGen) setPending(list => list.filter(item => item !== entry))
+      if (sendGen.current === myGen) {
+        entry.removed = true
+        setPending(list => list.filter(item => item !== entry))
+      }
       throw error
     }
   }
 
-  const readOnly = roster.readOnly === true
+  const readOnly = Boolean(roster.readOnly)
   const onStop = readOnly ? undefined
     : isRoom
       ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)

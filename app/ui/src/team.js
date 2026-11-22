@@ -129,8 +129,14 @@ export function createTeam() {
     noteNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
     const changed = {}
+    if (value.readOnly !== undefined && value.readOnly !== current.readOnly) changed.readOnly = value.readOnly
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
+    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
+    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
+    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? {})) changed.secrets = value.secrets
+    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? null)) changed.secretStore = value.secretStore
+    if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // In a window with no visit record yet, everything already there counts as seen.

@@ -110,15 +110,6 @@ export function install(rt) {
     }
     while (stagedTotalBytes() + incomingBytes > STAGED_TOTAL_MAX && evictOldestStaged()) { /* evict oldest across both maps */ }
   }
-  ctx.effect(() => {
-    const timer = setInterval(() => sweepStaged(Date.now()), STAGED_SWEEP_MS)
-    timer.unref?.()
-    return () => {
-      clearInterval(timer)
-      staged.clear()
-      stagedFiles.clear()
-    }
-  }, 'ds-bot: staged upload expiry')
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -796,7 +787,10 @@ export function install(rt) {
           const mediaType = String(body.mediaType ?? '')
           const data = typeof body.data === 'string' ? body.data : ''
           if (!STAGED_TYPES.has(mediaType)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
-          const maxBytes = ctx.get?.('attachments')?.imageLimits?.maxImageBytes ?? STAGED_FILE_MAX
+          const hostImageMax = ctx.get?.('attachments')?.imageLimits?.maxImageBytes
+          const maxBytes = Number.isFinite(hostImageMax) && hostImageMax > 0
+            ? Math.min(hostImageMax, STAGED_FILE_MAX)
+            : STAGED_FILE_MAX
           const decoded = decodeCanonicalBase64(data, maxBytes, { allowEmpty: false })
           if (decoded.tooLarge) return fail('This file is too large to send (max 16 MB)', 'bot/refused')
           if (decoded.invalid) return fail('This is not a photo DS Bot can send', 'bot/invalid')
@@ -833,6 +827,7 @@ export function install(rt) {
           const ids = Array.isArray(body.images) ? body.images.map(String) : []
           const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
           if ((text === '' && ids.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          if (new Set(ids).size !== ids.length || new Set(fileIds).size !== fileIds.length) return fail('Duplicate attachment reference', 'bot/invalid')
           sweepStaged(Date.now())
           const images = ids.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
@@ -857,10 +852,16 @@ export function install(rt) {
           } catch (error) {
             const now = Date.now()
             for (const [id, entry] of claimedImages) {
-              if (entry.at >= now - STAGED_MS && !staged.has(id)) staged.set(id, entry)
+              if (entry.at >= now - STAGED_MS && !staged.has(id)) {
+                pruneStaged(staged, entry.byteLength ?? entry.data?.length ?? 0, now)
+                staged.set(id, entry)
+              }
             }
             for (const [id, entry] of claimedFiles) {
-              if (entry.at >= now - STAGED_MS && !stagedFiles.has(id)) stagedFiles.set(id, entry)
+              if (entry.at >= now - STAGED_MS && !stagedFiles.has(id)) {
+                pruneStaged(stagedFiles, entry.byteLength ?? entry.bytes?.length ?? 0, now)
+                stagedFiles.set(id, entry)
+              }
             }
             throw error
           }
@@ -1172,17 +1173,27 @@ export function install(rt) {
   Object.assign(rt, { sendUser, answerQuestion, answerView })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
-  ctx.effect(() => ctx.connection.fetch.register({
-    path: ROUTE,
-    methods: ['POST'],
-    requestBody: 'buffered',
-    fetch: async (request) => {
-      let body
-      try { body = await request.json() } catch { body = {} }
-      const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal)
-      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
-    },
-  }), 'ds-bot: api route')
+  ctx.effect(() => {
+    const timer = setInterval(() => sweepStaged(Date.now()), STAGED_SWEEP_MS)
+    timer.unref?.()
+    const stopRoute = ctx.connection.fetch.register({
+      path: ROUTE,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let body
+        try { body = await request.json() } catch { body = {} }
+        const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal)
+        return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    })
+    return () => {
+      clearInterval(timer)
+      staged.clear()
+      stagedFiles.clear()
+      stopRoute?.()
+    }
+  }, 'ds-bot: api route')
 
   ctx.effect(() => {
     void rt.load()

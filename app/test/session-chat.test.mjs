@@ -638,7 +638,7 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
   const heldState = { 'session-main': { 'view:v1': 1 } }
   const roster = {
     ready: true,
-    readOnly: true,
+    readOnly: 'The Bot team is open in another dsh',
     prefs: { enterToSend: true, thinking: true },
     bots: [{ id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] }],
     byId: { 'session-main': { id: 'session-main', name: 'Chief', color: 'blue', parts: ['part-0'] } },
@@ -737,8 +737,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     await tick()
     assert.deepEqual(plain(pageCalls[0]), ['session-page', { sessionId: 'session-main', beforeSeq: 45, maxMessages: 40 }])
 
-    // Unlock read-only mode, then send "继续" twice -> both stay pending; a gap-reopen user/message must NOT clear pending early.
-    roster.readOnly = false
+    // Unlock read-only mode (null), then send "继续" twice -> both stay pending; a gap-reopen user/message must NOT clear pending early.
+    roster.readOnly = null
     inst.render()
     const sendText = async (value) => {
       const ta = all(inst.render(), n => n.type === 'textarea')[0]
@@ -955,24 +955,39 @@ test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via 
   }
 })
 
-test('createTeam pull() syncs browserHolds and computerLive from state responses', async () => {
+test('createTeam pull() syncs browserHolds, computerLive, and readOnly transitions across unchanged-revision polls', async () => {
   const store = new Map()
   sandbox.localStorage = {
     getItem: key => store.get(key) ?? null,
     setItem: (key, val) => { store.set(key, String(val)) },
     removeItem: key => { store.delete(key) },
   }
-  sandbox.setInterval = () => 0
+  let pollStep = 0
+  let intervalFn = null
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
   sandbox.clearInterval = () => {}
   sandbox.__testCall = async (endpoint) => {
     if (endpoint === 'state') {
+      pollStep += 1
+      if (pollStep === 1) {
+        return {
+          revision: 1,
+          liveKey: 'lk-1',
+          bots: [],
+          rooms: [],
+          readOnly: 'Opened in another dsh',
+          browserHolds: { b1: { by: 'bot', callId: 'c1', reason: 'login' } },
+          computerLive: { active: true },
+        }
+      }
+      // Same revision, unchanged: true -> readOnly clears to null without bumping revision!
       return {
         revision: 1,
-        liveKey: 'lk-1',
-        bots: [],
-        rooms: [],
-        browserHolds: { b1: { by: 'bot', callId: 'c1', reason: 'login' } },
-        computerLive: { active: true },
+        unchanged: true,
+        liveKey: 'lk-2',
+        readOnly: null,
+        browserHolds: {},
+        computerLive: { active: false },
       }
     }
     return {}
@@ -985,12 +1000,22 @@ test('createTeam pull() syncs browserHolds and computerLive from state responses
     const Probe = () => {
       const holds = team.hooks.useBrowserHolds(s => s)
       const comp = team.hooks.useComputer(s => s)
-      return react.createElement('div', { holds, comp })
+      const ro = team.hooks.useRoster(s => s.readOnly)
+      return react.createElement('div', { holds, comp, ro })
     }
     const probe = mount(Probe, {})
-    const rendered = probe.render()
+    let rendered = probe.render()
     assert.deepEqual(plain(rendered.props.holds), { b1: { by: 'bot', callId: 'c1', reason: 'login' } })
     assert.deepEqual(plain(rendered.props.comp), { active: true })
+    assert.equal(rendered.props.ro, 'Opened in another dsh')
+
+    // Trigger next catch-up poll with unchanged: true -> readOnly must transition to null live.
+    intervalFn()
+    await tick()
+    await tick()
+    rendered = probe.render()
+    assert.equal(rendered.props.ro, null)
+    assert.deepEqual(plain(rendered.props.holds), {})
   } finally {
     stop()
     sandbox.__testCall = async () => ({})

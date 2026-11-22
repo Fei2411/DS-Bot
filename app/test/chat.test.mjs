@@ -658,12 +658,14 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
     },
     revokeObjectURL: (url) => { revokedUrls.push(url) },
   }
+  let resolveSend = null
   let rejectSend = null
   let stopCalls = 0
   const statusMap = new Map([['b1', { running: true }]])
   const roster = {
     ready: true,
-    readOnly: true,
+    // Real host contract: non-empty explanatory string when locked, null when writable.
+    readOnly: 'The Bot team is open in another dsh',
     prefs: { enterToSend: true },
     bots: [{ id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] }],
     byId: { b1: { id: 'b1', name: 'Chief', color: 'blue', sessionId: 'b1', parts: [] } },
@@ -679,7 +681,7 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
       noteLive() {},
       stageImage: async () => ({ id: 'img-ro' }),
       stageFile: async () => ({ id: 'file-ro' }),
-      send: () => new Promise((_, reject) => { rejectSend = reject }),
+      send: () => new Promise((resolve, reject) => { resolveSend = resolve; rejectSend = reject }),
       stopChat: async () => { stopCalls += 1 },
       speech: () => undefined,
       openVoice() {},
@@ -696,7 +698,7 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
 
   const inst = mount({ sessionId: 'b1', team })
   try {
-    // Read-only window: textarea & send disabled, no Stop button, paste & drag-drop ignored.
+    // Read-only window (reason string): textarea & send disabled, no Stop button, paste & drag-drop ignored.
     let tree = inst.render()
     assert.equal(textarea(tree).props.disabled, true)
     assert.equal(all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop').length, 0)
@@ -711,8 +713,8 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
     tree = inst.render()
     assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 0, 'read-only blocks paste & drop')
 
-    // Unlock read-only: Stop resolves while running stays true (queued turn) -> Stop button unlocks again!
-    roster.readOnly = false
+    // Unlock read-only (null): Stop resolves while running stays true (queued turn) -> Stop button unlocks again!
+    roster.readOnly = null
     tree = inst.render()
     const stopBtn1 = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0]
     assert.equal(stopBtn1.props.disabled, false)
@@ -721,6 +723,20 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
     tree = inst.render()
     assert.equal(stopCalls, 1)
     assert.equal(all(tree, n => n.type === 'button' && n.props?.className === 'dsb-stop')[0].props.disabled, false, 'Stop must re-enable after resolving even while queued turn keeps running=true')
+
+    // Batch staging budget (64 MB): selecting 5 x 14 MB files caps at 4 and reports an error so a batch cannot self-evict.
+    const bigBatch = Array.from({ length: 5 }, (_, idx) => ({
+      name: `doc-${idx}.bin`, type: 'application/octet-stream', size: 14 * 1024 * 1024, arrayBuffer: async () => new ArrayBuffer(0),
+    }))
+    all(tree, n => n.type === 'input' && n.props?.type === 'file')[0].props.onChange({ target: { files: bigBatch, value: '' } })
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-chip').length, 4, 'at most 4 x 14MB fit inside 64MB batch budget')
+    assert.equal(all(tree, n => n.type === 'p' && n.props?.className === 'dsb-composer-error').length, 1)
+    // Clear those 4 chips before the rollover test.
+    for (const btn of all(tree, n => n.type === 'button' && n.props?.className === 'dsb-attach-x')) {
+      btn.props.onClick()
+      tree = inst.render()
+    }
 
     // Foreground rollover while send is in flight and then fails -> restored preview URL must NOT be revoked!
     textarea(tree).props.onPaste({
@@ -742,6 +758,19 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
     tree = inst.render({ sessionId: 'b1-p2', team })
     assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-thumb').length, 1)
     assert.equal(revokedUrls.length, 0, 'restored preview URL must still be unrevoked')
+
+    // Fast SSE / rollover removes pending BEFORE actions.send resolves AND WITHOUT an intermediate render:
+    // once actions.send resolves, entry.removed guarantees the blob URL is revoked exactly once!
+    sendButton(tree).props.onClick()
+    await tick()
+    // Simulate rollover clearing pending before React re-renders, while send is still in flight.
+    roster.byId['b1-p3'] = { id: 'b1-p3', name: 'Chief', color: 'blue', sessionId: 'b1-p3', parts: ['b1', 'b1-p2'] }
+    inst.render({ sessionId: 'b1-p3', team })
+    // Notice pendingRef was updated on render, OR even with fast SSE without re-render: resolveSend now settles!
+    resolveSend()
+    await tick()
+    await tick()
+    assert.equal(revokedUrls.filter(url => url.includes('keep.png')).length, 1, 'settled & already-removed preview URL is revoked exactly once')
   } finally {
     inst.unmount()
   }
@@ -775,5 +804,53 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
     assert.equal(all(room.rowsOf().pending[0], n => n.props?.className === 'bt-ufile').length, 1, 'remaining pending entry is the file attachment')
   } finally {
     room.unmount()
+  }
+
+  // Fast SSE clears pending BEFORE actions.send resolves and WITHOUT an intermediate React render ->
+  // once actions.send resolves, entry.removed guarantees the preview URL is still revoked exactly once!
+  let fastResolve = null
+  let fastItems = []
+  const fastListeners = new Set()
+  const fastRoster = {
+    ready: true, readOnly: null, prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Alpha' }], byId: { b1: { id: 'b1', name: 'Alpha' } },
+    rooms: [{ id: 'r2', name: 'Fast', members: ['b1'], sessionId: 'r2' }],
+    roomsById: { r2: { id: 'r2', name: 'Fast', members: ['b1'], sessionId: 'r2' } },
+    questions: {}, views: {}, exchangeTurns: {},
+  }
+  sandbox.__testCall = async () => ({ roomId: 'r2', items: fastItems, cursor: null })
+  const fastTeam = {
+    actions: {
+      noteSent() {}, noteLive() {},
+      stageImage: async () => ({ id: 'img-fast' }),
+      send: () => new Promise(resolve => { fastResolve = resolve }),
+      speech: () => undefined, openVoice() {}, clearQuote() {}, canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: s => s(fastRoster), useUi: s => s({}), useSessionStatus: s => s(new Map()),
+    },
+    chat: { on: fn => { fastListeners.add(fn); return () => fastListeners.delete(fn) } },
+  }
+  const fast = mount({ sessionId: 'r2', team: fastTeam })
+  try {
+    fast.render()
+    await tick()
+    const fastImg = { name: 'fast-sse.png', type: 'image/png', size: 4, arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer }
+    all(fast.render(), n => n.type === 'input' && n.props?.type === 'file')[0].props.onChange({ target: { files: [fastImg], value: '' } })
+    sendButton(fast.render()).props.onClick()
+    await tick()
+    // SSE echoes the image BEFORE fastResolve() and WITHOUT any intermediate fast.render()!
+    fastItems = [{ id: '99', kind: 'user', text: '', images: 1, imageRefs: [{ attachmentId: 'att-fast' }], time: Date.now() }]
+    for (const fn of fastListeners) fn('room', { roomId: 'r2' })
+    await tick()
+    await tick()
+    assert.equal(revokedUrls.filter(url => url.includes('fast-sse.png')).length, 0, 'unsettled URL not revoked yet')
+    fastResolve()
+    await tick()
+    await tick()
+    assert.equal(revokedUrls.filter(url => url.includes('fast-sse.png')).length, 1, 'revoked once on settle even with no intermediate render')
+  } finally {
+    fast.unmount()
+    sandbox.__testCall = defaultCall
   }
 })

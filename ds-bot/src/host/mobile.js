@@ -127,7 +127,7 @@ export function roomItems(events, rowsOf = () => []) {
         items.push({
           id: `${seq}`, kind: 'user', text: textOf(content),
           ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}),
-          ...(fileBlocks.length > 0 ? { files: fileBlocks.length, fileRefs } : {}),
+          ...(fileBlocks.length > 0 ? { fileRefs } : {}),
           time: event.time ?? null,
         })
       } else if (source?.kind === 'schedule') {

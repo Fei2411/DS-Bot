@@ -1108,10 +1108,16 @@ test('stage-file and stage-image enforce canonical base64, size caps, 64MB evict
   assert.equal(emptyFile.ok, true)
   assert.equal(typeof emptyFile.value.id, 'string')
 
-  // Oversized payload (>16MB) pre-rejected cleanly with bot/refused.
+  // Oversized payload (>16MB) pre-rejected cleanly with bot/refused even when host imageLimits is 50 MB (real DSH default).
+  const attachmentsSvc = ctx.get('attachments')
+  attachmentsSvc.imageLimits = { maxImageBytes: 50 * 1024 * 1024 }
   const over = 'A'.repeat(Math.ceil((16 * 1024 * 1024 + 1) / 3) * 4)
   assert.equal((await call('stage-file', { name: 'huge.bin', data: over })).error.code, 'bot/refused')
   assert.equal((await call('stage-image', { mediaType: 'image/png', data: over })).error.code, 'bot/refused')
+
+  // Duplicate attachment IDs in one send are rejected cleanly.
+  const dup = (await call('stage-file', { name: 'dup.txt', data: Buffer.from('ok').toString('base64') })).value
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [dup.id, dup.id] })).error.code, 'bot/invalid')
 
   // Shared 64MB budget evicts oldest staged entry when exceeded.
   const chunk15 = Buffer.alloc(15 * 1024 * 1024, 1).toString('base64')
@@ -1168,13 +1174,14 @@ test('image and file-download pass throughSeq, skip empty seq=0 parts, and roomI
   assert.equal(seenCalls.some(c => c.address.sessionId === currentSession), false, 'empty seq=0 segment must be skipped')
   assert.equal(seenCalls[0].throughSeq, 1, 'older segment receives throughSeq = seq - 1')
 
-  // roomItems preserves fileRefs on user messages, and room-chat attaches sessionId to user items.
+  // roomItems preserves fileRefs on user messages (never numeric `files`, which mobile maps as an array),
+  // and room-chat attaches sessionId to user items.
   const roomFileRef = { attachmentId: 'att-room-file', name: 'deck.pdf', bytes: 1024 }
   history[room.id] = [
     { seq: 1, time: 100, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: roomFileRef }, { type: 'text', text: 'check deck' }] } },
   ]
   const parsed = roomItems(history[room.id])
-  assert.equal(parsed.items[0].files, 1)
+  assert.equal(parsed.items[0].files, undefined, 'roomItems must not emit numeric files (mobile calls .map on files)')
   assert.deepEqual(parsed.items[0].fileRefs, [roomFileRef])
   const chat = (await call('room-chat', { roomId: room.id })).value
   assert.equal(chat.items[0].sessionId, room.id)
