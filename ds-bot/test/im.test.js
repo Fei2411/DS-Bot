@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { fork } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -148,6 +149,15 @@ const dm = (s, senderId, text, extra = {}) => s.fake.handlers.onMessage({
 const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'group', title: 'Group One' }, ...extra } = {}) => s.fake.handlers.onMessage({
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
 })
+
+const tokenCard = async (s, index = 0) => {
+  for (let at = 0; at < 200; at += 1) {
+    const card = s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index]
+    if (card !== undefined) return card
+    await delay(10)
+  }
+  assert.fail('token card was not delivered')
+}
 
 test('two concurrent syncs start exactly one adapter', async (t) => {
   const s = await start()
@@ -1179,6 +1189,334 @@ test('answering persisted member cards restores the room origin after a restart'
   }
 })
 
+test('group token views accept every complex input kind through the shared view answer path', async (t) => {
+  const input = node => ({ type: 'stack', children: [node, { type: 'submit', id: 'send' }] })
+  const choices = id => ({ type: 'choice', id, label: id, options: [{ label: 'Fast', value: 'f' }, { label: 'Safe', value: 's' }] })
+  const multi = { type: 'options', id: 'pick', multi: true, options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }] }
+  const cases = [
+    { name: 'number', view: input({ type: 'number', id: 'n', label: 'Count', min: 1, max: 10, value: 2 }), reply: '\n1: 5', values: { inputs: { n: 5 } } },
+    { name: 'slider', view: input({ type: 'slider', id: 'n', label: 'Size', min: 0, max: 10, value: 2 }), reply: '\n1: 4.5', values: { inputs: { n: 4.5 } } },
+    { name: 'toggle', view: input({ type: 'toggle', id: 'yes', label: 'Enabled' }), reply: '\n1: on', values: { inputs: { yes: true } } },
+    { name: 'several choices', view: { type: 'stack', children: [choices('first'), choices('second'), { type: 'submit', id: 'send' }] }, reply: '\n1: 2\n2: Fast', values: { inputs: { first: 's', second: 'f' } } },
+    { name: 'multiline form', view: { type: 'form', id: 'details', fields: [{ id: 'notes', label: 'Notes', multiline: true }, { id: 'name', label: 'Name', value: 'Default' }] }, reply: '\n1: first line\nsecond line', values: { fields: { notes: 'first line\nsecond line', name: 'Default' } } },
+    { name: 'multi-select spaces', view: multi, reply: ' 1 3', values: { selected: ['A', 'C'] } },
+    { name: 'multi-select commas', view: multi, reply: ' 1,3', values: { selected: ['A', 'C'] } },
+    { name: 'cancel', view: { type: 'form', id: 'details', fields: [{ id: 'notes', label: 'Notes' }], cancelLabel: 'Cancel' }, reply: ' cancel', values: { canceled: true } },
+    { name: 'multiple actions', view: { type: 'stack', children: [{ type: 'number', id: 'n', label: 'Count', value: 2 }, { type: 'confirm', id: 'go' }] }, reply: ' 2\n1: 3', values: { inputs: { n: 3 }, confirmed: false } },
+  ]
+  for (const entry of cases) await t.test(entry.name, async (t) => {
+    const s = await start({ platform: 'dingtalk' })
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+    s.rt.roomOf('r1').sessions = { b: 'member-b' }
+    s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+    await s.rt.save()
+    await gm(s, 'u1', 'show a form')
+    s.imTurn('r1')
+    s.fake.sent.length = 0
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: entry.name, view: entry.view }, { agent: { id: 'member-b' }, concludeTurn() {} })
+    const pending = s.rt.state.views['member-b']
+    assert.ok(pending)
+    await s.flush()
+    const card = await tokenCard(s)
+    assert.ok(card)
+    assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+    const code = /Card (V\d+)/.exec(card.text)[1]
+    const api = (await s.rt.channelCall('state')).value
+    assert.equal(api.views['member-b'].code, undefined)
+    assert.ok(!JSON.stringify(api.views).includes('imOrigin'))
+    await gm(s, 'u1', code.toLowerCase() + entry.reply)
+    assert.equal(s.rt.state.views['member-b'], undefined)
+    const followup = s.agentOf('member-b').lastFollowup
+    assert.match(followup.source.rpcId, /^im:/)
+    assert.deepEqual(JSON.parse(followup.content[0].text).answers[0].values, entry.values)
+  })
+})
+
+test('token view answers enforce pairing, mention, chat, origin, binding and stale checks without capturing plain text', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  s.rt.roomOf('r1').sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  await gm(s, 'u1', 'show inputs')
+  s.imTurn('r1')
+  const show = () => s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Count', view: { type: 'stack', children: [
+    { type: 'number', id: 'n', label: 'Count', min: 1, max: 10, value: 2 }, { type: 'submit', id: 'send' },
+  ] } }, { agent: { id: 'member-b' }, concludeTurn() {} })
+  await show()
+  await s.flush()
+  const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  const id = s.rt.state.views['member-b'].id
+  await gm(s, 'stranger', `${code}\n1: 4`)
+  await gm(s, 'u1', `${code}\n1: 4`, { mentioned: false })
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  let prompts = s.prompts.length
+  await gm(s, 'u1', `${code} is our release version`, { chat: { key: 'g2', kind: 'group' } })
+  assert.equal(s.prompts.length, prompts + 1)
+  assert.equal(s.prompts.at(-1).content[0].text, `${code} is our release version`)
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  prompts = s.prompts.length
+  await gm(s, 'u1', `${code}\n1: 99`)
+  await s.flush()
+  assert.ok(s.fake.sent.some(job => job.chat.key === 'g1' && job.text.startsWith('Invalid view answer:')))
+  assert.equal(s.prompts.length, prompts)
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'a' } })
+  let sent = s.fake.sent.length
+  await gm(s, 'u1', `${code}\n1: 4`)
+  await s.flush()
+  assert.equal(s.prompts.length, prompts, 'a stale form value must not reach the new binding target')
+  assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  await gm(s, 'u1', 'ordinary text for the new target')
+  assert.equal(s.prompts.length, prompts + 1)
+  assert.equal(s.prompts.at(-1).content[0].text, 'ordinary text for the new target')
+  prompts = s.prompts.length
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
+  sent = s.fake.sent.length
+  await gm(s, 'u1', `${code}\n1: 4`)
+  await s.flush()
+  assert.equal(s.prompts.length, prompts)
+  assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  sent = s.fake.sent.length
+  await gm(s, 'u1', 'ordinary unbound text')
+  await s.flush()
+  assert.equal(s.prompts.length, prompts)
+  assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && !/no longer answerable/.test(job.text)))
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await gm(s, 'u1', 'ordinary group discussion')
+  await gm(s, 'u1', 'V999999 unknown code')
+  assert.equal(s.prompts.length, prompts + 2)
+  assert.equal(s.rt.state.views['member-b'].id, id)
+  await gm(s, 'u1', `${code}\n1: 4`)
+  assert.equal(s.rt.state.views['member-b'], undefined)
+  assert.equal(s.agentOf('member-b').followed, 1)
+  prompts = s.prompts.length
+  await gm(s, 'u1', `${code}\n1: 5`)
+  assert.equal(s.prompts.length, prompts)
+  assert.equal(s.agentOf('member-b').followed, 1)
+  await show()
+  await s.flush()
+  const next = /Card (V\d+)/.exec((await tokenCard(s, 1)).text)[1]
+  assert.notEqual(next, code)
+  await gm(s, 'u1', `${code}\n1: 5`)
+  assert.ok(s.rt.state.views['member-b'])
+  await gm(s, 'u1', next)
+  assert.deepEqual(JSON.parse(s.agentOf('member-b').lastFollowup.content[0].text).answers[0].values.inputs, { n: 2 })
+})
+
+test('own-chat form codes persist across restart and do not reuse a settled code', async (t) => {
+  let s = await start()
+  t.after(() => s.stop())
+  const { one } = await pairedConn(s)
+  await dm(s, 'u1', 'form please')
+  s.imTurn('a')
+  const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name', value: 'Default' }] }
+  const show = () => s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Details', view }, { agent: { id: 'a' }, concludeTurn() {} })
+  await show()
+  const id = s.rt.state.views.a.id
+  await s.flush()
+  const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  await s.close()
+  const saved = JSON.parse(readFileSync(join(s.home, 'im', `${one.id}.json`), 'utf8'))
+  assert.equal(saved.cards[`v:${id}`][0].code, code)
+  s = await start({ home: s.home })
+  await s.rt.imEndpoint('im-retry', { id: one.id })
+  await dm(s, 'u1', `${code}\n1: Alice`)
+  assert.equal(s.rt.state.views.a, undefined)
+  assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields, { name: 'Alice' })
+  await dm(s, 'u1', 'another form')
+  s.imTurn('a')
+  await show()
+  await s.flush()
+  const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  assert.notEqual(next, code)
+})
+
+test('form codes match exact receiving chats without capturing code-prefixed prose', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+  one.chats.g2 = { kind: 'group', target: { botId: 'b' }, at: 1 }
+  await s.rt.save()
+  const codes = []
+  for (const [index, botId] of ['a', 'b'].entries()) {
+    await gm(s, 'u1', 'show a form', { chat: { key: `g${index + 1}`, kind: 'group' } })
+    s.imTurn(botId)
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
+      type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }],
+    } }, { agent: { id: botId }, concludeTurn() {} })
+    codes.push(/Card (V\d+)/.exec((await tokenCard(s, index)).text)[1])
+  }
+  assert.notEqual(codes[0], codes[1])
+  for (const [chatKey, text] of [
+    ['g2', `${codes[0]} is our release version`],
+    ['g2', `${codes[0]}\n1: a code this chat never received`],
+    ['g2', `${codes[1]} is our release version`],
+    ['g1', `${codes[0]} is our release version`],
+  ]) {
+    const prompts = s.prompts.length
+    await gm(s, 'u1', text, { chat: { key: chatKey, kind: 'group' } })
+    assert.equal(s.prompts.length, prompts + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, text)
+  }
+  assert.ok(s.rt.state.views.a)
+  assert.ok(s.rt.state.views.b)
+  await gm(s, 'u1', `${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
+  assert.equal(s.rt.state.views.b, undefined)
+  assert.equal(JSON.parse(s.agentOf('b').lastFollowup.content[0].text).answers[0].values.fields.name, 'Bob')
+})
+
+test('expired form codes stay private after pruning, rebinding and restart', async (t) => {
+  for (const restart of [false, true]) await t.test(restart ? 'restart' : 'live', async (t) => {
+    let s = await start()
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+    one.chats.g2 = { kind: 'group', target: { botId: 'b' }, at: 1 }
+    await s.rt.save()
+    await gm(s, 'u1', 'show a form')
+    s.imTurn('a')
+    const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'a' }, concludeTurn() {} })
+    const id = s.rt.state.views.a.id
+    const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    await gm(s, 'u1', `${code}\n1: First`)
+    assert.equal(s.rt.state.views.a, undefined)
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    delete data.viewCodeHighWater
+    data.viewCodes = { archived: Array.from({ length: 205 }, (_, index) => index + 2) }
+    data.viewCodeSeq += 1000
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    await s.rt.save()
+    let pruned
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      pruned = JSON.parse(readFileSync(path, 'utf8'))
+      if (pruned.cards[`v:${id}`] === undefined) break
+      await delay(10)
+    }
+    assert.equal(pruned.cards[`v:${id}`], undefined, 'the settled delivery must actually be pruned')
+    assert.deepEqual(pruned.viewCodes.g1, [Number(code.slice(1))], 'legacy deliveries backfill exact per-chat history')
+    assert.equal(pruned.viewCodes.archived.length, 200)
+    assert.equal(pruned.viewCodes.archived[0], 7)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+    if (restart) {
+      await s.close()
+      const saved = JSON.parse(readFileSync(path, 'utf8'))
+      delete saved.viewCodeSeq
+      writeFileSync(path, JSON.stringify(saved))
+      s = await start({ home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    const refused = async () => {
+      const prompts = s.prompts.length
+      const sent = s.fake.sent.length
+      await gm(s, 'u1', `${code.toLowerCase()}\n1: Private form value`)
+      await s.flush()
+      assert.equal(s.prompts.length, prompts)
+      assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
+      assert.equal(s.agentOf('b').lastFollowup, undefined)
+    }
+    await refused()
+    const prose = `${code} is our release version`
+    const beforeProse = s.prompts.length
+    await gm(s, 'u1', prose)
+    assert.equal(s.prompts.length, beforeProse + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, prose)
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
+    await refused()
+    await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+    let prompts = s.prompts.length
+    await gm(s, 'u1', `${code} is our release version`, { chat: { key: 'g2', kind: 'group' } })
+    assert.equal(s.prompts.length, prompts + 1)
+    assert.equal(s.prompts.at(-1).content[0].text, `${code} is our release version`)
+    prompts = s.prompts.length
+    await gm(s, 'u1', 'ordinary group text')
+    await gm(s, 'u1', 'V999999 unknown code')
+    assert.equal(s.prompts.length, prompts + 2)
+    s.imTurn('b')
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'b' }, concludeTurn() {} })
+    const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    assert.ok(Number(next.slice(1)) > Number(code.slice(1)), 'history prevents code reuse even without the counter or delivery')
+  })
+})
+
+test('token reservations recover interrupted sends without replaying completed deliveries after a killed process', async (t) => {
+  for (const mode of ['open', 'complete', 'complete-no-id', 'settled']) await t.test(mode, async (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-im-crash-'))
+    const child = fork(new URL('./fixtures/im-view-crash.mjs', import.meta.url), [home, mode], {
+      execArgv: ['--import', new URL('./harness-resolve.mjs', import.meta.url).href],
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    })
+    let stderr = ''
+    child.stderr.on('data', chunk => { stderr += chunk })
+    let s
+    t.after(async () => {
+      child.kill('SIGKILL')
+      if (s !== undefined) await s.stop()
+      else rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    })
+    const delivery = await new Promise((resolve, reject) => {
+      child.once('message', resolve)
+      child.once('error', reject)
+      child.once('exit', (code, signal) => reject(new Error(`worker exited ${code}/${signal}: ${stderr}`)))
+    })
+    const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })))
+    child.kill('SIGKILL')
+    assert.equal((await exited).signal, 'SIGKILL')
+    assert.equal(delivery.persisted.cards[`v:${delivery.viewId}`][0].code, delivery.code, 'the code is durable before the platform sees it')
+    assert.ok(delivery.persisted.viewCodeSeq >= Number(delivery.code.slice(1)))
+    s = await start({ home })
+    await s.rt.imEndpoint('im-retry', { id: delivery.connId })
+    if (mode !== 'settled') {
+      assert.equal(s.rt.state.views.a.id, delivery.viewId)
+      if (mode === 'open') {
+        const recovered = await tokenCard(s)
+        assert.equal(recovered.chat.key, 'dm-u1')
+        assert.match(recovered.text, new RegExp(`Card ${delivery.code}\\b`))
+        await Promise.all([s.rt.save(), s.rt.save()])
+        await s.flush()
+        assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 1)
+      } else {
+        await s.flush()
+        assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 0)
+      }
+      await dm(s, 'u1', `${delivery.code}\n1: Recovered`)
+      assert.equal(s.rt.state.views.a, undefined)
+      assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Recovered')
+    } else assert.equal(s.rt.state.views.a, undefined)
+    s.fake.sent.length = 0
+    const previousFollowup = s.agentOf('a').lastFollowup
+    await dm(s, 'u1', 'new form')
+    s.imTurn('a')
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
+      type: 'form', id: 'replacement', fields: [{ id: 'name', label: 'Name' }],
+    } }, { agent: { id: 'a' }, concludeTurn() {} })
+    await s.flush()
+    const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    assert.notEqual(code, delivery.code)
+    const id = s.rt.state.views.a.id
+    await dm(s, 'u1', `${delivery.code}\n1: Wrong card`)
+    assert.equal(s.rt.state.views.a.id, id)
+    assert.equal(s.agentOf('a').lastFollowup, previousFollowup)
+    await dm(s, 'u1', `${code}\n1: Correct card`)
+    assert.equal(s.rt.state.views.a, undefined)
+    assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Correct card')
+  })
+})
+
 test('legacy own-chat question deliveries accept existing answers after restart without turn origins', async (t) => {
   for (const buttons of [true, false]) {
     let s = await start({ platform: buttons ? 'telegram' : 'dingtalk' })
@@ -1317,6 +1655,37 @@ test('own-chat view answers are refused after the delivering chat is rebound or 
   }
 })
 
+test('own-chat simple views and forms reach IM when show_view concludes the turn', async (t) => {
+  for (const kind of ['simple', 'form']) await t.test(kind, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    await pairedConn(s)
+    await dm(s, 'u1', 'show a view')
+    s.imTurn('a')
+    const view = kind === 'simple' ? { type: 'confirm', id: 'go' }
+      : { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Turn-ending view', view }, {
+      agent: { id: 'a' },
+      concludeTurn() { s.emitEvent('a', 'turn/end', { reason: { kind: 'completed' } }) },
+    })
+    const pending = s.rt.state.views.a
+    assert.equal(s.rt.captureImOrigin('a'), undefined)
+    assert.equal(pending.imOrigin.chatKey, 'dm-u1')
+    if (kind === 'form') {
+      const card = await tokenCard(s)
+      assert.equal(card.chat.key, 'dm-u1')
+      const code = /Card (V\d+)/.exec(card.text)[1]
+      await dm(s, 'u1', `${code}\n1: Alice`)
+      assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Alice')
+    } else {
+      await s.flush()
+      assert.ok(s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${pending.id}:0`)))
+      await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${pending.id}:0` })
+    }
+    assert.equal(s.rt.state.views.a, undefined)
+  })
+})
+
 test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -1389,7 +1758,8 @@ test('IM group display views are sent as room lines and unowned completions with
     await s.flush()
     assert.ok(s.fake.sent.some(job => job.text.includes('70%')))
     assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
-    assert.match(await show({ title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }), /Use ask_user for a choice/)
+    assert.match(await show({ title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }), /user's answer arrives/)
+    await s.flush()
     s.fake.sent.length = 0
     const imOrigin = s.rt.captureImOrigin('r1')
     s.emitEvent('member-b', 'user/message', { source: { kind }, content: [{ type: 'text', text: 'old result' }] })
@@ -1397,7 +1767,7 @@ test('IM group display views are sent as room lines and unowned completions with
     const ask = args => s.rt.teamTools.find(tool => tool.name === 'ask_user').execute(args, { agent: { id: 'member-b' } })
     assert.match(await ask({ question: 'Private?', options: [{ label: 'A' }] }), /Question cards only work in your own chat/)
     s.rt.state.questions['member-b'] = { id: `private-${kind}`, question: 'Private?', options: [{ label: 'A' }], imOrigin }
-    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'confirm', id: 'private' }, imOrigin }
+    s.rt.state.views['member-b'] = { id: `view-${kind}`, title: 'Private view', view: { type: 'form', id: 'private', fields: [{ id: 'name', label: 'Name' }] }, imOrigin }
     await s.rt.save()
     await s.flush()
     assert.deepEqual(s.fake.sent, [])

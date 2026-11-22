@@ -5,7 +5,7 @@ import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon
 import { botState, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
-import { clockLabel, openingTurn, unseenSince } from './cells.js'
+import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { ApprovalIslandPod, roomApprovals } from './member-status.js'
 import { TaskIslandPod, isActiveTask, tasksForChat } from './bot-tasks.js'
@@ -200,6 +200,23 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
 
+// The shell's Back to bottom slot comes after the transcript, so a query for it walks
+// the whole transcript, every frame, while it is absent (the user is pinned). DSH marks
+// the chat root with data-chat-following-tail exactly when it leaves the slot out, and
+// that root comes before the transcript; keeping both elements answers without a walk.
+export function pinWatch() {
+  let slot = null
+  let tail = null
+  return (scroller) => {
+    if (slot?.isConnected && scroller.contains(slot)) return [...slot.children].some(child => child.tagName === 'BUTTON')
+    if (tail?.isConnected && scroller.contains(tail) && tail.hasAttribute('data-chat-following-tail')) return false
+    tail = scroller.querySelector('[data-chat-following-tail]')
+    if (tail) return false
+    slot = scroller.querySelector('[class*="_toBottomSlot"]')
+    return slot?.querySelector(':scope>button') != null
+  }
+}
+
 // New-message pills. "N new messages ↓" takes Back to bottom's place when
 // replies land while the user is scrolled up; "N new messages ↑" points at an unread
 // divider above the viewport until it has been seen. The shell shows Back to bottom
@@ -209,6 +226,7 @@ function useTranscriptView() {
   useEffect(() => {
     let frame = 0
     let watched = null
+    const unpinned = pinWatch()
     const observer = new MutationObserver(() => schedule())
     const measure = () => {
       frame = 0
@@ -221,7 +239,7 @@ function useTranscriptView() {
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
       const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50
-      const sep = scroller.querySelector('.bt-new-sep')
+      const sep = newDividerIn(scroller)
       let divider = null
       if (sep) {
         const at = sep.getBoundingClientRect()
@@ -229,7 +247,7 @@ function useTranscriptView() {
       }
       const composer = parseFloat(getComputedStyle(scroller).getPropertyValue('--dsh-composer-height')) || 152
       const next = {
-        unpinned: scroller.querySelector('[class*="_toBottomSlot"]>button') !== null,
+        unpinned: unpinned(scroller),
         divider,
         center: Math.round(box.left + box.width / 2),
         top: Math.round(headerBottom + 8),
@@ -299,7 +317,10 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     if (back) back.click()
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
   }
-  const toDivider = () => document.querySelector('[data-conversation-scroll] .bt-new-sep')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const toDivider = () => {
+    const scroller = document.querySelector('[data-conversation-scroll]')
+    if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
   return createPortal(h(Fragment, null,
     showUp ? pill('up', unread, { left: view.center, top: view.top }, toDivider, () => setAbove(state => ({ ...state, dismissed: true }))) : null,
     showDown ? pill('down', fresh, { left: view.center, bottom: view.bottom }, toLatest, () => setRelease(state => ({ ...state, dismissed: true }))) : null),

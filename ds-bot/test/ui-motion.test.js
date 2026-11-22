@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { effectsTier, reducedEffects, reducedMotion } from './src/client/motion.js'",
+      "export { effectsTier, reducedEffects, reducedMotion, useViewport } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
       "export { BotMark } from './src/client/mark.js'",
@@ -183,6 +183,24 @@ test('effectsTier, reducedEffects and reducedMotion handle Node without globals 
   assert.equal(client.effectsTier(), 'full')
   assert.equal(client.reducedEffects(), true)
   assert.equal(client.reducedMotion(), true)
+})
+
+test('useViewport listens to the visual viewport only while enabled', () => {
+  const listening = new Set()
+  const visualViewport = {
+    addEventListener: (type) => listening.add(type),
+    removeEventListener: (type) => listening.delete(type),
+  }
+  const cleanups = []
+  const { exports: client } = loadClient({ window: { visualViewport } }, { useEffect: (run) => { const stop = run(); if (stop) cleanups.push(stop) } })
+  client.useViewport(false)
+  assert.equal(listening.size, 0)
+  client.useViewport(true)
+  assert.deepEqual([...listening].sort(), ['resize', 'scroll'])
+  cleanups.forEach(stop => stop())
+  assert.equal(listening.size, 0)
+  client.useViewport()
+  assert.equal(listening.size, 2)
 })
 
 test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules while stripping shell selectors', () => {

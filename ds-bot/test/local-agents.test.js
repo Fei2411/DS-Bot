@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
-import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
@@ -2276,4 +2276,84 @@ test('ACP errors with numeric, empty or object codes keep their message and get 
     collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
     err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
   )
+})
+
+
+test('stream reports live thoughts, tool activities and end-of-stream idle to the turn tracker', async (t) => {
+  const seen = []
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'inspect files')])))
+  assert.equal(out.finish.kind, 'stop')
+  assert.deepEqual(seen, [
+    ['s1', 'thought', 'thought about: The conversation so far (oldest first):\n', false],
+    ['s1', 'activity', '▸ Read src/a.js', false],
+    ['s1', 'activity', '▸ Run `npm test`', false],
+    ['s1', 'text', 'ok: The conversation so far (oldest first):\n\nUser: inspect files', false],
+    ['s1', 'idle', null, false],
+  ])
+  // A request DS Bot makes for itself never reports live turn activity.
+  seen.length = 0
+  assert.equal(await adapter.compact('s1'), 'done')
+  assert.deepEqual(seen, [])
+})
+
+test('stream reports idle in finally when a consumer terminates the generator early', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null]) },
+  })
+  t.after(() => adapter.dispose())
+  const gen = adapter.stream(options('s1', [user('m1', 'inspect files')]))
+  for await (const chunk of gen) {
+    if (chunk.type === 'reasoning-delta' && chunk.text.includes('Read src/a.js')) break
+  }
+  assert.equal(seen.some(([, type, text]) => type === 'activity' && text === '▸ Read src/a.js'), true)
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null])
+})
+
+test('Devin and Cursor recorded ACP team-MCP streams emit only team-marked activities', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const devin = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(devin.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s1', 'activity', '▸ Calling message_bot from dsbot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null, false])
+
+  seen.length = 0
+  const cursor = await collect(adapter.stream(options('s2', [user('m1', 'team-permission')])))
+  assert.equal(cursor.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s2', 'activity', '▸ dsbot: message_bot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s2', 'idle', null, false])
+})
+
+test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', () => {
+  assert.equal(unwrapShellCommand('/bin/zsh -lc pwd'), 'pwd')
+  assert.equal(unwrapShellCommand('/bin/zsh -lc "python3 -c \'print(\\"hi\\")\'"'), 'python3 -c \'print("hi")\'')
+  assert.equal(unwrapShellCommand(['/bin/bash', '-lc', 'git status -sb']), 'git status -sb')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 't1'
+  const pushed = []
+  thread.push = event => pushed.push(event)
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'userMessage', text: 'hi' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'developerMessage', text: 'sys' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: '' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'commandExecution', command: '/bin/zsh -lc pwd' } })
+  engine.onNotice('item/completed', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: 'done' } })
+  assert.deepEqual(pushed, [
+    { type: 'activity', text: '▸ pwd', turnId: 'u1' },
+    { type: 'text', text: 'done', turnId: 'u1' },
+  ])
 })
