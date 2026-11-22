@@ -112,9 +112,6 @@ export function install(rt) {
 
   // Fill `state` from the saved file and bring an older team up to date. Returns the
   // groups whose Session titles still need the new name.
-  // Sessions of withdrawn parallel parts (#1548) folded away by the last adopt, still
-  // to be archived in DSH.
-  const retiredParts = []
   const adopt = (parsed) => {
     lockEpoch += 1
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
@@ -178,16 +175,20 @@ export function install(rt) {
     }
     // A Bot has one conversation at a time again: a team saved with parts opened while
     // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
-    // readable, and their Sessions are archived, which stops what still runs there.
-    for (const bot of Object.values(state.bots)) {
+    // readable. Each live one is listed in `retiredParts` until its tasks have moved to
+    // the Bot's chat and its Session is archived, which stops what still runs there; the
+    // list is saved, so a host that cannot finish now finishes at a later start.
+    if (!Array.isArray(state.retiredParts)) delete state.retiredParts
+    for (const [id, bot] of Object.entries(state.bots)) {
       if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
+      const botId = sessionIdOf(bot.id) ?? id
       const now = Date.now()
       for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
         const sid = sessionIdOf(part?.sessionId)
         const earlier = Array.isArray(part?.segments) ? part.segments.filter(segment => sessionIdOf(segment?.sessionId) !== undefined) : []
         if (sid === undefined && earlier.length === 0) continue
         bot.segments = [...(Array.isArray(bot.segments) ? bot.segments : []), ...earlier, ...(sid === undefined ? [] : [{ sessionId: sid, endedAt: now }])]
-        if (sid !== undefined) retiredParts.push(sid)
+        if (sid !== undefined) (state.retiredParts ??= []).push({ sessionId: sid, botId })
       }
       delete bot.openParts
       migrated = true
@@ -328,6 +329,35 @@ export function install(rt) {
     }
   }
 
+  // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
+  // that saves the team does it, and an entry stays listed until both steps succeed.
+  let retiring
+  const retireParts = () => {
+    if (retiring !== undefined || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
+    retiring = (async () => {
+      // The schedule service attaches after the store loads.
+      await new Promise(resolve => setImmediate(resolve))
+      for (const entry of [...state.retiredParts]) {
+        const sessionId = sessionIdOf(entry?.sessionId)
+        try {
+          if (sessionId !== undefined) {
+            const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
+            const registry = ctx.workspaceRegistry
+            if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
+            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            await registry.archiveSession(sessionId, { stopActivity: true })
+          }
+          state.retiredParts = state.retiredParts.filter(item => item !== entry)
+        } catch (error) {
+          warn('ds-bot: withdrawn parallel part %s not retired yet: %s', sessionId, error)
+        }
+      }
+      if (state.retiredParts.length === 0) delete state.retiredParts
+      await save().catch(error => warn('ds-bot: saving the retired parallel parts failed: %s', error))
+    })().finally(() => { retiring = undefined })
+    return retiring
+  }
+
   const load = () => loaded ??= (async () => {
     claimLock()
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
@@ -335,11 +365,7 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
-    for (const sessionId of retiredParts.splice(0)) {
-      void Promise.resolve()
-        .then(() => ctx.workspaceRegistry?.archiveSession(sessionId, { stopActivity: true }))
-        .catch(error => warn('ds-bot: withdrawn parallel part %s not archived: %s', sessionId, error))
-    }
+    void retireParts()
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
       // memory and the next save() writes it.
@@ -400,6 +426,7 @@ export function install(rt) {
         warnedReadOnly = false
         adopt(readFileState())
         notifyStoreSync()
+        void retireParts()
         return
       }
     } else if (!lockBroken && !lock.owns()) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
@@ -65,19 +65,23 @@ const TEAM = {
 const LEGACY = JSON.parse(JSON.stringify(TEAM))
 LEGACY.bots.w1.openParts = [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }], startedAt: 6 }]
 
-async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w3', 'w4', 'w5']) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-parallel-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(state))
-  const ctx = fakeContext({})
+async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w3', 'w4', 'w5'], { home = mkdtempSync(join(tmpdir(), 'dsb-parallel-')), before, services, lock } = {}) {
+  if (state !== null) writeFileSync(join(home, 'state.json'), JSON.stringify(state))
+  // A lock another dsh holds, written before this host loads the team.
+  if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
+  const ctx = fakeContext({ services })
   const registry = await dshRegistry(t, join(home, 'dsh'), live, ctx)
   for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   ctx.workspaceRegistry = registry
+  before?.(registry)
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  let disposed = false
+  const stop = async () => { if (!disposed) { disposed = true; await ctx.dispose() } }
+  t.after(async () => { await stop(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  return { home, registry, call, ctx, rt }
+  return { home, registry, call, ctx, rt, stop }
 }
 
 const saved = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
@@ -124,6 +128,44 @@ test('a team saved with parallel parts keeps them as earlier parts and archives 
   const kept = saved(home).bots.w1
   assert.equal(Object.hasOwn(kept, 'openParts'), false)
   assert.deepEqual(kept.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
+})
+
+// The retired part's reminders go to the Bot's chat before its Session is archived:
+// archiving stops the Session, and DSH drops what is scheduled on it.
+test('a retired parallel part hands its scheduled tasks to the Bot chat before it is archived', async (t) => {
+  const order = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w3' } }],
+    edit: async (request) => { order.push(['move', request.id, request.patch?.target?.sessionId]); return { id: request.id } },
+    list: async () => [],
+  }
+  let archivedRegistry
+  await team(t, [], LEGACY, undefined, {
+    services: { schedule },
+    before: (registry) => {
+      archivedRegistry = registry
+      const archive = registry.archiveSession.bind(registry)
+      registry.archiveSession = async (id, options) => { order.push(['archive', String(id)]); return archive(id, options) }
+    },
+  })
+  await until(() => [...archivedRegistry.archivedSessionIds].includes('w3'))
+  assert.deepEqual(order, [['move', 's1', 'w2'], ['archive', 'w3']])
+})
+
+// A part that could not be retired stays listed in the saved team, and a later start
+// that saves the team finishes it.
+test('a retired parallel part whose archive fails is retried at the next start', async (t) => {
+  const first = await team(t, [], LEGACY, undefined, {
+    before: (registry) => { registry.archiveSession = async () => { throw new Error('busy disk') } },
+  })
+  await first.call('state')
+  await until(() => saved(first.home).retiredParts !== undefined && saved(first.home).bots.w1.openParts === undefined)
+  assert.deepEqual(saved(first.home).retiredParts, [{ sessionId: 'w3', botId: 'w1' }])
+  await first.stop()
+  const again = await team(t, [], null, undefined, { home: first.home })
+  await again.call('state')
+  await until(() => [...again.registry.archivedSessionIds].includes('w3') && saved(first.home).retiredParts === undefined)
+  assert.deepEqual(saved(first.home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
 })
 
 for (const [what, options] of [['a new session', {}], ['a blank session', { blank: true }], ['a handoff', { handoff: true }]]) {
@@ -205,4 +247,19 @@ test('a blank session replaces the idle part and carries nothing over', async (t
   assert.deepEqual(followed, [])
   assert.equal(rt.chatOwners.get('w5'), 'w1')
   assert.equal(rt.chatOwners.get('w2'), undefined)
+})
+
+// A host that starts while another dsh saves the team only reads it; once that dsh
+// closes and this host takes over, it retires the parts the other one left.
+test('a host that takes over the team later retires the withdrawn parallel parts', async (t) => {
+  const { home, registry, call } = await team(t, [], LEGACY, undefined, {
+    lock: { pid: process.ppid, host: hostname(), token: 'other-dsh' },
+  })
+  assert.match((await call('state')).value.readOnly, /another dsh/)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  rmSync(join(home, 'state.lock'))
+  assert.equal((await call('state')).value.readOnly, null)
+  await until(() => [...registry.archivedSessionIds].includes('w3'))
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
 })
