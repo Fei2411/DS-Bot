@@ -1,16 +1,21 @@
 // -------------------------------------------------------------------------
-// The composer's "@" in a Bot's chat or a group chat: a Bot group that inserts
-// "@Name", and the chats that "+ → Reference a chat" opens in the same menu.
-// Both are sources of the shell's trigger menu; the shell's own file and session
-// rows stay beside them, because a source cannot be hidden for one Session.
+// The composer's "@" in a Bot's chat or a group chat: one Bot group that inserts
+// "@Name". Referring to another chat is a separate picker (palette.js, mode
+// 'reference'), so a typed "@" never lists conversations and a conversation never
+// lists Bots: the two never compete for the same menu.
 import { t } from './i18n.js'
-import { currentPart, relativeShort } from './text.js'
+import { currentPart } from './text.js'
 
 export const BOTS_SOURCE = 'ds-bot'
+// The source name the chats were written under while they lived in the "@" menu.
+// Kept for drafts saved then; see atSources.
 export const CHATS_SOURCE = 'ds-bot-chats'
 // The words the group host reads as "everyone" (groups.js ROOM_ALL).
 const ROOM_ALL = ['all', 'everyone', '所有人', '全体']
 const OTHER_CHATS_MAX = 8
+// The unfiltered list stays short; a query is a search, so it gets a wider cap -
+// otherwise conversations past the eighth were never reachable.
+const MAX_CHATS_WITH_QUERY = 50
 
 const conversationOf = (roster, sessionId) => {
   if (!roster.ready) return null
@@ -37,26 +42,30 @@ export function mentionRows(roster, sessionId, query = '') {
   return rows
 }
 
-// The chats a message here can reference: every other Bot's chat, then the latest
+// The chats the reference picker offers: every other Bot's chat, then the latest
 // conversations outside the team. Group chats stay out: a group's Session holds only
 // the user's messages, so a snapshot of it would miss every Bot's reply.
-export function chatRows(roster, list, sessionId) {
+export function chatRows(roster, list, sessionId, query = '') {
   const here = conversationOf(roster, sessionId)
   if (here === null) return []
+  const needle = query.trim().toLowerCase()
+  const matches = (text) => needle === '' || String(text ?? '').toLowerCase().includes(needle)
   const byId = list?.byId ?? {}
-  const bots = roster.bots.filter(bot => bot.id !== here.self?.id).map((bot) => {
+  const bots = roster.bots.filter((bot) => bot.id !== here.self?.id).map((bot) => {
     const id = currentPart(bot)
     return { sessionId: id, label: t('Chat with {name}', { name: bot.name }), bot, updatedAt: byId[id]?.updatedAt }
-  })
+  }).filter((row) => matches(row.bot.name) || matches(row.label))
   const team = new Set([
-    ...roster.bots.flatMap(bot => [bot.id, currentPart(bot), ...(bot.parts ?? [])]),
-    ...roster.rooms.flatMap(room => [room.id, room.sessionId, ...(room.ownParts ?? []), ...(room.parts ?? [])].filter(id => id !== undefined)),
+    ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...(bot.parts ?? [])]),
+    ...roster.rooms.flatMap((room) => [room.id, room.sessionId, ...(room.ownParts ?? []), ...(room.parts ?? [])].filter((id) => id !== undefined)),
   ])
-  const others = (list?.ids ?? []).map(id => byId[id])
-    .filter(row => row !== undefined && row.id !== sessionId && !team.has(row.id) && row.origin !== 'subagent' && row.blank !== true)
+  const others = (list?.ids ?? []).map((id) => byId[id])
+    .filter((row) => row !== undefined && row.id !== sessionId && !team.has(row.id) && row.origin !== 'subagent' && row.blank !== true)
+    .filter((row) => matches(row.displayTitle) || matches(row.title) || matches(row.id))
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, OTHER_CHATS_MAX)
-    .map(row => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }))
+    // 有搜索词时放宽上限：否则第 9 条之后的历史会话永远搜不到
+    .slice(0, needle === '' ? OTHER_CHATS_MAX : MAX_CHATS_WITH_QUERY)
+    .map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }))
   return [...bots, ...others]
 }
 
@@ -69,9 +78,15 @@ export function sessionMention(sessionId, label) {
   return `@[${label.replace(/[\\\]]/g, mark => `\\${mark}`)}](dsh-session:${payload})`
 }
 
-// `launched(sessionId)`: whether "+ → Reference a chat" opened the menu, so the chats
-// never join a typed "@". `iconFor(row)` is the row's character mark.
-export function atSources({ roster, sessions, launched, iconFor }) {
+// The Bot group of the "@" menu. `iconFor(row)` is the row's character mark.
+// Chats are not a source here: "+ → Reference a chat" opens DS Bot's own picker,
+// so a typed "@" stays about the team and nothing else.
+//
+// `ds-bot-chats` stays registered with no rows and its original codec: DSH restores
+// a saved draft's chip by the source name it was written with, and refuses to send a
+// draft whose chip has no codec to serialize. Old drafts keep sending; new ones never
+// put a chat chip there in the first place.
+export function atSources({ roster, iconFor }) {
   const bots = {
     trigger: '@',
     name: BOTS_SOURCE,
@@ -89,27 +104,14 @@ export function atSources({ roster, sessions, launched, iconFor }) {
     },
     onPick: ({ candidate }) => (candidate.value ? { text: candidate.value } : undefined),
   }
-  const chats = {
+  const legacyChats = {
     trigger: '@',
     name: CHATS_SOURCE,
     order: -10,
     showGroupTitle: false,
-    async candidates(session) {
-      if (!launched(session.sessionId)) return []
-      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId).map(row => ({
-        name: row.bot ? row.bot.name : row.label,
-        ...(row.updatedAt ? { description: relativeShort(row.updatedAt) } : {}),
-        icon: row.bot ? iconFor(row) : 'session',
-        section: row.bot ? t('Bots') : t('Conversations'),
-        value: JSON.stringify({ sessionId: row.sessionId, label: row.label }),
-      }))
-    },
-    onPick({ candidate }) {
-      const { sessionId, label } = JSON.parse(candidate.value)
-      const mention = sessionMention(sessionId, label)
-      return { insert: { source: CHATS_SOURCE, ref: mention, label, appearance: 'session', clipboardText: mention } }
-    },
+    // No rows: a typed "@" must not offer conversations.
+    async candidates() { return [] },
     codec: { clipboardText: ref => ref, serialize: ref => Promise.resolve(ref) },
   }
-  return [bots, chats]
+  return [bots, legacyChats]
 }

@@ -93,7 +93,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.palette ? h(OverlayBoundary, {
       name: 'palette', reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken), actions,
-    }, createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
+    }, createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, mode: ui.palette.mode ?? 'search', owner: ui.palette.owner ?? null, roster, actions, useSessions }), document.body)) : null,
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId]
       ? h(OverlayBoundary, {
           name: 'group-search', reset: groupSearchToken,

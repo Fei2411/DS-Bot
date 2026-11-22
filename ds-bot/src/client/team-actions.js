@@ -25,7 +25,20 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
-    openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
+    // A string is the shell's own search, opened with the character just typed; an
+    // object opens a named mode, `reference` being DS Bot's chat picker for "+".
+    openPalette: (options = '') => {
+      const fields = typeof options === 'string' ? { query: options } : (options ?? {})
+      ui.set(state => ({ ...state, palette: { query: fields.query ?? '', mode: fields.mode ?? null, owner: fields.owner ?? null, token: Date.now() }, newChat: null, menu: null }))
+    },
+    // The reference picker's pick: the composing Session inserts the mention itself,
+    // since it is the one that holds the caret and the draft the pick was made from.
+    // The palette closes through its own exit timer, so this leaves it alone.
+    pickChatReference: (pick) => {
+      if (!pick || pick.owner === undefined || pick.target === undefined) return
+      ui.set(state => ({ ...state, chatRef: { ...pick, token: Date.now() } }))
+    },
+    clearChatReference: (token) => { ui.set(state => (state.chatRef && (token === undefined || state.chatRef.token === token) ? { ...state, chatRef: null } : state)) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
     // Searching one group's own history, from its header.

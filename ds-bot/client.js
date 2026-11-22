@@ -1530,6 +1530,9 @@ var JA = {
   "Remove pasted text": "貼り付けたテキストを削除",
   "Add files": "ファイルを追加",
   "Reference a chat": "チャットを参照",
+  "Search chats": "チャットを検索",
+  "Try a chat title": "チャットのタイトルをお試しください",
+  "Could not insert a chat reference": "チャットの参照を挿入できませんでした",
   "Chat with {name}": "{name} とのチャット",
   "Scheduled task": "定期タスク",
   "Open the scheduled tasks of this chat": "このチャットの定期タスクを開く",
@@ -4256,6 +4259,9 @@ var KO = {
   "Remove pasted text": "붙여넣은 텍스트 삭제",
   "Add files": "파일 추가",
   "Reference a chat": "대화 참조",
+  "Search chats": "대화 검색",
+  "Try a chat title": "대화 제목으로 시도해 보세요",
+  "Could not insert a chat reference": "대화 참조를 삽입하지 못했습니다",
   "Chat with {name}": "{name}와(과)의 대화",
   "Scheduled task": "예약 작업",
   "Open the scheduled tasks of this chat": "이 대화의 예약 작업 열기",
@@ -6987,6 +6993,9 @@ var ES = {
   "Remove pasted text": "Quitar el texto pegado",
   "Add files": "Añadir archivos",
   "Reference a chat": "Referenciar un chat",
+  "Search chats": "Buscar chats",
+  "Try a chat title": "Prueba con el título de una conversación",
+  "Could not insert a chat reference": "No se pudo insertar la referencia al chat",
   "Chat with {name}": "Chat con {name}",
   "Scheduled task": "Tarea programada",
   "Open the scheduled tasks of this chat": "Abrir las tareas programadas de este chat",
@@ -9678,6 +9687,9 @@ var FR = {
   "Remove pasted text": "Supprimer le texte collé",
   "Add files": "Ajouter des fichiers",
   "Reference a chat": "Référencer une discussion",
+  "Search chats": "Rechercher des discussions",
+  "Try a chat title": "Essayez le titre d'une discussion",
+  "Could not insert a chat reference": "Impossible d'insérer la référence à la discussion",
   "Chat with {name}": "Discussion avec {name}",
   "Scheduled task": "Tâche planifiée",
   "Open the scheduled tasks of this chat": "Ouvrir les tâches planifiées de cette conversation",
@@ -12404,6 +12416,9 @@ var DE = {
   "Remove pasted text": "Eingefügten Text entfernen",
   "Add files": "Dateien hinzufügen",
   "Reference a chat": "Chat referenzieren",
+  "Search chats": "Chats durchsuchen",
+  "Try a chat title": "Titel einer Unterhaltung versuchen",
+  "Could not insert a chat reference": "Chat-Referenz konnte nicht eingefügt werden",
   "Chat with {name}": "Chat mit {name}",
   "Scheduled task": "Geplante Aufgabe",
   "Open the scheduled tasks of this chat": "Geplante Aufgaben dieses Chats öffnen",
@@ -15216,6 +15231,9 @@ var ZH = {
   "Still opening…": "还在打开…",
   "Add files": "添加文件",
   "Reference a chat": "引用对话",
+  "Search chats": "搜索对话",
+  "Try a chat title": "试试对话标题",
+  "Could not insert a chat reference": "没能插入对话引用",
   "Chat with {name}": "与 {name} 的对话",
   "Scheduled task": "定时任务",
   "Open the scheduled tasks of this chat": "打开这个会话的定时任务",
@@ -16295,8 +16313,21 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     openNewChat: (mode, sectionId = null) => {
       ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
-    openPalette: (query = "") => {
-      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+    // A string is the shell's own search, opened with the character just typed; an
+    // object opens a named mode, `reference` being DS Bot's chat picker for "+".
+    openPalette: (options = "") => {
+      const fields = typeof options === "string" ? { query: options } : options ?? {};
+      ui.set((state) => ({ ...state, palette: { query: fields.query ?? "", mode: fields.mode ?? null, owner: fields.owner ?? null, token: Date.now() }, newChat: null, menu: null }));
+    },
+    // The reference picker's pick: the composing Session inserts the mention itself,
+    // since it is the one that holds the caret and the draft the pick was made from.
+    // The palette closes through its own exit timer, so this leaves it alone.
+    pickChatReference: (pick2) => {
+      if (!pick2 || pick2.owner === void 0 || pick2.target === void 0) return;
+      ui.set((state) => ({ ...state, chatRef: { ...pick2, token: Date.now() } }));
+    },
+    clearChatReference: (token) => {
+      ui.set((state) => state.chatRef && (token === void 0 || state.chatRef.token === token) ? { ...state, chatRef: null } : state);
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
@@ -44751,6 +44782,86 @@ function watchAgentTerminals(slots, sessionId, onError) {
   };
 }
 
+// src/client/at-menu.js
+var BOTS_SOURCE = "ds-bot";
+var CHATS_SOURCE = "ds-bot-chats";
+var ROOM_ALL = ["all", "everyone", "所有人", "全体"];
+var OTHER_CHATS_MAX = 8;
+var MAX_CHATS_WITH_QUERY = 50;
+var conversationOf = (roster, sessionId) => {
+  if (!roster.ready) return null;
+  const room2 = roster.roomsById[sessionId];
+  if (room2) return { room: room2 };
+  const self = roster.byId[sessionId];
+  return self ? { self } : null;
+};
+function mentionRows(roster, sessionId, query = "") {
+  const here = conversationOf(roster, sessionId);
+  if (here === null) return null;
+  const bots = here.room ? here.room.members.map((id) => roster.byId[id]).filter(Boolean) : roster.bots.filter((bot) => bot.id !== here.self.id);
+  const needle = query.trim().toLowerCase();
+  const rows2 = bots.filter((bot) => bot.name.toLowerCase().includes(needle)).map((bot) => ({ bot, text: `@${bot.name} ` }));
+  const everyone = t("Everyone");
+  if (here.room && bots.length > 1 && [everyone, ...ROOM_ALL].some((word) => word.toLowerCase().startsWith(needle))) {
+    rows2.push({ room: here.room, text: `@${everyone} ` });
+  }
+  return rows2;
+}
+function chatRows(roster, list, sessionId, query = "") {
+  const here = conversationOf(roster, sessionId);
+  if (here === null) return [];
+  const needle = query.trim().toLowerCase();
+  const matches3 = (text) => needle === "" || String(text ?? "").toLowerCase().includes(needle);
+  const byId = list?.byId ?? {};
+  const bots = roster.bots.filter((bot) => bot.id !== here.self?.id).map((bot) => {
+    const id = currentPart(bot);
+    return { sessionId: id, label: t("Chat with {name}", { name: bot.name }), bot, updatedAt: byId[id]?.updatedAt };
+  }).filter((row) => matches3(row.bot.name) || matches3(row.label));
+  const team = /* @__PURE__ */ new Set([
+    ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...bot.parts ?? []]),
+    ...roster.rooms.flatMap((room2) => [room2.id, room2.sessionId, ...room2.ownParts ?? [], ...room2.parts ?? []].filter((id) => id !== void 0))
+  ]);
+  const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).filter((row) => matches3(row.displayTitle) || matches3(row.title) || matches3(row.id)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, needle === "" ? OTHER_CHATS_MAX : MAX_CHATS_WITH_QUERY).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
+  return [...bots, ...others];
+}
+function sessionMention(sessionId, label) {
+  let binary2 = "";
+  for (const byte of new TextEncoder().encode(JSON.stringify(sessionId))) binary2 += String.fromCharCode(byte);
+  const payload = btoa(binary2).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `@[${label.replace(/[\\\]]/g, (mark2) => `\\${mark2}`)}](dsh-session:${payload})`;
+}
+function atSources({ roster, iconFor }) {
+  const bots = {
+    trigger: "@",
+    name: BOTS_SOURCE,
+    order: -20,
+    showGroupTitle: false,
+    async candidates(session, { query }) {
+      return (mentionRows(roster.getSnapshot(), session.sessionId, query) ?? []).map((row) => ({
+        name: row.bot ? row.bot.name : t("Everyone"),
+        ...row.bot?.role ? { description: row.bot.role } : {},
+        ...row.room ? { description: t("{count} members", { count: row.room.members.length }) } : {},
+        icon: iconFor(row),
+        section: t("Bots"),
+        value: row.text
+      }));
+    },
+    onPick: ({ candidate }) => candidate.value ? { text: candidate.value } : void 0
+  };
+  const legacyChats = {
+    trigger: "@",
+    name: CHATS_SOURCE,
+    order: -10,
+    showGroupTitle: false,
+    // No rows: a typed "@" must not offer conversations.
+    async candidates() {
+      return [];
+    },
+    codec: { clipboardText: (ref) => ref, serialize: (ref) => Promise.resolve(ref) }
+  };
+  return [bots, legacyChats];
+}
+
 // src/client/enter-steer.js
 var steerable = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0 && input.queue.some((message) => message.source?.kind === "user");
 var enterSteers = (event, input) => event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
@@ -44957,12 +45068,37 @@ function menuIcons(roster) {
     return marks.get(id);
   };
 }
-function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useUi, actions }) {
   const roster = useRoster((value) => value);
   const [open, setOpen] = (0, import_react64.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react64.useRef)(null);
   const menu = (0, import_react64.useRef)(null);
+  const insertion = (0, import_react64.useRef)(void 0);
+  const chatRef = useUi?.((state) => state.chatRef && state.chatRef.owner === sessionId ? state.chatRef : null);
+  const pickerOpen = useUi?.((state) => Boolean(state.palette && state.palette.mode === "reference" && state.palette.owner === sessionId));
+  const pickerWasOpen = (0, import_react64.useRef)(false);
+  (0, import_react64.useEffect)(() => {
+    const was = pickerWasOpen.current;
+    pickerWasOpen.current = pickerOpen === true;
+    if (!was || pickerOpen) return;
+    if (typeof document === "undefined") return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const focus = inputActions?.focus;
+    if (typeof focus === "function") focus.call(inputActions);
+  }, [pickerOpen]);
+  (0, import_react64.useEffect)(() => {
+    if (!chatRef || typeof inputActions?.insertText !== "function") return;
+    actions.clearChatReference(chatRef.token);
+    const text = sessionMention(chatRef.target, chatRef.label);
+    const from = insertion.current;
+    insertion.current = void 0;
+    if (from !== void 0 && inputActions.insertText(text, from)) return;
+    const fresh = inputActions.captureInsertion?.();
+    if (fresh !== void 0 && inputActions.insertText(text, fresh)) return;
+    actions.reportError(new Error(t("Could not insert a chat reference")), "composer");
+  }, [chatRef?.token]);
   const tick = useViewport();
   const inputNow = (0, import_react64.useRef)(void 0);
   const ready = useInput?.((state) => {
@@ -45041,9 +45177,10 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   };
   const reference = () => {
     setOpen(null);
-    actions.referenceChat(sessionId, inputActions?.captureInsertion?.());
+    insertion.current = inputActions?.captureInsertion?.();
+    actions.openPalette({ mode: "reference", owner: sessionId });
   };
-  const canReference = typeof inputActions?.captureInsertion === "function" && actions.canReferenceChat();
+  const canReference = typeof inputActions?.captureInsertion === "function" && typeof inputActions?.insertText === "function";
   const room2 = roster.roomsById?.[sessionId];
   const goal = () => {
     setOpen(null);
@@ -45138,94 +45275,6 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
   }, [current2, frozen, chatId, sessionId, draft, ids]);
   return null;
-}
-
-// src/client/at-menu.js
-var BOTS_SOURCE = "ds-bot";
-var CHATS_SOURCE = "ds-bot-chats";
-var ROOM_ALL = ["all", "everyone", "所有人", "全体"];
-var OTHER_CHATS_MAX = 8;
-var conversationOf = (roster, sessionId) => {
-  if (!roster.ready) return null;
-  const room2 = roster.roomsById[sessionId];
-  if (room2) return { room: room2 };
-  const self = roster.byId[sessionId];
-  return self ? { self } : null;
-};
-function mentionRows(roster, sessionId, query = "") {
-  const here = conversationOf(roster, sessionId);
-  if (here === null) return null;
-  const bots = here.room ? here.room.members.map((id) => roster.byId[id]).filter(Boolean) : roster.bots.filter((bot) => bot.id !== here.self.id);
-  const needle = query.trim().toLowerCase();
-  const rows2 = bots.filter((bot) => bot.name.toLowerCase().includes(needle)).map((bot) => ({ bot, text: `@${bot.name} ` }));
-  const everyone = t("Everyone");
-  if (here.room && bots.length > 1 && [everyone, ...ROOM_ALL].some((word) => word.toLowerCase().startsWith(needle))) {
-    rows2.push({ room: here.room, text: `@${everyone} ` });
-  }
-  return rows2;
-}
-function chatRows(roster, list, sessionId) {
-  const here = conversationOf(roster, sessionId);
-  if (here === null) return [];
-  const byId = list?.byId ?? {};
-  const bots = roster.bots.filter((bot) => bot.id !== here.self?.id).map((bot) => {
-    const id = currentPart(bot);
-    return { sessionId: id, label: t("Chat with {name}", { name: bot.name }), bot, updatedAt: byId[id]?.updatedAt };
-  });
-  const team = /* @__PURE__ */ new Set([
-    ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...bot.parts ?? []]),
-    ...roster.rooms.flatMap((room2) => [room2.id, room2.sessionId, ...room2.ownParts ?? [], ...room2.parts ?? []].filter((id) => id !== void 0))
-  ]);
-  const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, OTHER_CHATS_MAX).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
-  return [...bots, ...others];
-}
-function sessionMention(sessionId, label) {
-  let binary2 = "";
-  for (const byte of new TextEncoder().encode(JSON.stringify(sessionId))) binary2 += String.fromCharCode(byte);
-  const payload = btoa(binary2).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `@[${label.replace(/[\\\]]/g, (mark2) => `\\${mark2}`)}](dsh-session:${payload})`;
-}
-function atSources({ roster, sessions, launched, iconFor }) {
-  const bots = {
-    trigger: "@",
-    name: BOTS_SOURCE,
-    order: -20,
-    showGroupTitle: false,
-    async candidates(session, { query }) {
-      return (mentionRows(roster.getSnapshot(), session.sessionId, query) ?? []).map((row) => ({
-        name: row.bot ? row.bot.name : t("Everyone"),
-        ...row.bot?.role ? { description: row.bot.role } : {},
-        ...row.room ? { description: t("{count} members", { count: row.room.members.length }) } : {},
-        icon: iconFor(row),
-        section: t("Bots"),
-        value: row.text
-      }));
-    },
-    onPick: ({ candidate }) => candidate.value ? { text: candidate.value } : void 0
-  };
-  const chats = {
-    trigger: "@",
-    name: CHATS_SOURCE,
-    order: -10,
-    showGroupTitle: false,
-    async candidates(session) {
-      if (!launched(session.sessionId)) return [];
-      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId).map((row) => ({
-        name: row.bot ? row.bot.name : row.label,
-        ...row.updatedAt ? { description: relativeShort(row.updatedAt) } : {},
-        icon: row.bot ? iconFor(row) : "session",
-        section: row.bot ? t("Bots") : t("Conversations"),
-        value: JSON.stringify({ sessionId: row.sessionId, label: row.label })
-      }));
-    },
-    onPick({ candidate }) {
-      const { sessionId, label } = JSON.parse(candidate.value);
-      const mention = sessionMention(sessionId, label);
-      return { insert: { source: CHATS_SOURCE, ref: mention, label, appearance: "session", clipboardText: mention } };
-    },
-    codec: { clipboardText: (ref) => ref, serialize: (ref) => Promise.resolve(ref) }
-  };
-  return [bots, chats];
 }
 
 // src/client/side-model.js
@@ -46153,7 +46202,8 @@ var TURN_ERROR_CSS = `
 // src/client/palette.js
 var import_react68 = require("react");
 var PALETTE_EXIT_MS = 160;
-function CommandPalette({ start, token, roster, actions, useSessions }) {
+function CommandPalette({ start, token, mode = "search", owner, roster, actions, useSessions }) {
+  const reference = mode === "reference";
   const [query, setQuery] = (0, import_react68.useState)(start ?? "");
   const [cursor, setCursor] = (0, import_react68.useState)(0);
   const [leaving, setLeaving] = (0, import_react68.useState)(false);
@@ -46166,7 +46216,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
   useEscape(close);
   const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)];
   const found = useSessions((list) => {
-    if (wanted.length < 2) return "[]";
+    if (reference || wanted.length < 2) return "[]";
     const hits = [];
     for (const id of ids) {
       const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
@@ -46187,60 +46237,80 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     }
     return JSON.stringify(hits);
   });
+  const chatList = useSessions((list) => reference ? JSON.stringify(chatRows(roster, list, owner, query).map((row) => ({
+    id: row.sessionId,
+    label: row.label,
+    name: row.bot?.name,
+    role: row.bot?.role,
+    updatedAt: row.updatedAt
+  }))) : "[]");
   const matchesName = (...fields) => wanted === "" || fields.some((field) => (field ?? "").toLowerCase().includes(wanted));
   const sections = [];
-  const people = [
-    ...roster.bots.filter((bot) => matchesName(bot.name, bot.role)).map((bot) => ({
-      key: bot.id,
-      avatar: (0, import_react68.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }),
-      title: bot.name,
-      subtitle: [bot.role, isMainOf(roster, bot.id) ? t("Main Bot") : ""].filter(Boolean).join(" · "),
-      badge: bot.hidden ? t("Hidden") : void 0,
-      run: async () => {
-        if (bot.hidden) await actions.setFlags(bot.id, { hidden: false });
-        actions.openSession(bot.id);
-      }
-    })),
-    ...roster.rooms.filter((room2) => matchesName(room2.name)).map((room2) => ({
-      key: room2.id,
-      avatar: (0, import_react68.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
-      title: room2.name,
-      subtitle: t("{count} members", { count: room2.members.length }),
-      badge: room2.hidden ? t("Hidden") : void 0,
-      run: async () => {
-        if (room2.hidden) await actions.setFlags(room2.id, { hidden: false });
-        actions.openSession(room2.id);
-      }
-    }))
-  ];
-  if (people.length) sections.push([t("Bots"), people]);
-  const agents = (roster.agents ?? []).filter(() => matchesName("DSH Agent")).map((agent) => ({
-    key: agent.id,
-    avatar: (0, import_react68.createElement)("span", { className: "bt-palette-agent" }, (0, import_react68.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 18 })),
-    title: "DSH Agent",
-    subtitle: t("Plain dsh session"),
-    run: () => actions.openAgent(agent.id)
-  }));
-  if (agents.length) sections.push(["DSH Agent", agents]);
-  const messages = JSON.parse(found).map(([id, turn, snippet]) => {
-    const bot = roster.byId[id];
-    const room2 = roster.roomsById[id];
-    return {
-      key: `${id}:${turn}`,
-      title: bot?.name ?? room2?.name ?? t("Bot"),
-      subtitle: snippet,
-      avatar: bot ? (0, import_react68.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react68.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
-      run: () => actions.openSession(id)
-    };
-  });
-  if (messages.length) sections.push([t("Messages"), messages]);
-  const commands = [
-    { key: "cmd:new", icon: (0, import_react68.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
-    { key: "cmd:bot", icon: (0, import_react68.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
-    { key: "cmd:group", icon: (0, import_react68.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    { key: "cmd:settings", icon: (0, import_react68.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("overview") }
-  ].filter((command) => matchesName(command.title));
-  if (commands.length) sections.push([t("Commands"), commands]);
+  if (reference) {
+    const chats = JSON.parse(chatList).map((row) => ({
+      key: row.id,
+      icon: (0, import_react68.createElement)(ChatsIcon),
+      title: row.name ?? row.label,
+      // A Bot row says what it is; a standalone chat says when it was last used, so
+      // two chats sharing a title are still two different rows.
+      subtitle: row.name ? row.role : row.updatedAt ? relativeShort(row.updatedAt) : void 0,
+      run: () => actions.pickChatReference({ owner, target: row.id, label: row.label })
+    }));
+    if (chats.length) sections.push([t("Conversations"), chats]);
+  } else {
+    const people = [
+      ...roster.bots.filter((bot) => matchesName(bot.name, bot.role)).map((bot) => ({
+        key: bot.id,
+        avatar: (0, import_react68.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }),
+        title: bot.name,
+        subtitle: [bot.role, isMainOf(roster, bot.id) ? t("Main Bot") : ""].filter(Boolean).join(" · "),
+        badge: bot.hidden ? t("Hidden") : void 0,
+        run: async () => {
+          if (bot.hidden) await actions.setFlags(bot.id, { hidden: false });
+          actions.openSession(bot.id);
+        }
+      })),
+      ...roster.rooms.filter((room2) => matchesName(room2.name)).map((room2) => ({
+        key: room2.id,
+        avatar: (0, import_react68.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
+        title: room2.name,
+        subtitle: t("{count} members", { count: room2.members.length }),
+        badge: room2.hidden ? t("Hidden") : void 0,
+        run: async () => {
+          if (room2.hidden) await actions.setFlags(room2.id, { hidden: false });
+          actions.openSession(room2.id);
+        }
+      }))
+    ];
+    if (people.length) sections.push([t("Bots"), people]);
+    const agents = (roster.agents ?? []).filter(() => matchesName("DSH Agent")).map((agent) => ({
+      key: agent.id,
+      avatar: (0, import_react68.createElement)("span", { className: "bt-palette-agent" }, (0, import_react68.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 18 })),
+      title: "DSH Agent",
+      subtitle: t("Plain dsh session"),
+      run: () => actions.openAgent(agent.id)
+    }));
+    if (agents.length) sections.push(["DSH Agent", agents]);
+    const messages = JSON.parse(found).map(([id, turn, snippet]) => {
+      const bot = roster.byId[id];
+      const room2 = roster.roomsById[id];
+      return {
+        key: `${id}:${turn}`,
+        title: bot?.name ?? room2?.name ?? t("Bot"),
+        subtitle: snippet,
+        avatar: bot ? (0, import_react68.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react68.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
+        run: () => actions.openSession(id)
+      };
+    });
+    if (messages.length) sections.push([t("Messages"), messages]);
+    const commands = [
+      { key: "cmd:new", icon: (0, import_react68.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
+      { key: "cmd:bot", icon: (0, import_react68.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
+      { key: "cmd:group", icon: (0, import_react68.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
+      { key: "cmd:settings", icon: (0, import_react68.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("overview") }
+    ].filter((command) => matchesName(command.title));
+    if (commands.length) sections.push([t("Commands"), commands]);
+  }
   const rows2 = sections.flatMap(([, items]) => items);
   const active = Math.min(cursor, Math.max(rows2.length - 1, 0));
   const shown = rows2.map((row) => row.key).join("\n");
@@ -46263,7 +46333,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
     (0, import_react68.createElement)("div", { className: "bt-backdrop", onMouseDown: close }),
     (0, import_react68.createElement)(
       "div",
-      { className: "bt-palette", role: "dialog", "aria-label": t("Search"), "aria-modal": true },
+      { className: "bt-palette", role: "dialog", "aria-label": reference ? t("Reference a chat") : t("Search"), "aria-modal": true },
       (0, import_react68.createElement)(
         "div",
         { className: "bt-palette-head" },
@@ -46271,8 +46341,8 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
         (0, import_react68.createElement)("input", {
           autoFocus: true,
           value: query,
-          placeholder: t("Search Bots, chats and messages"),
-          "aria-label": t("Search"),
+          placeholder: reference ? t("Search chats") : t("Search Bots, chats and messages"),
+          "aria-label": reference ? t("Search chats") : t("Search"),
           role: "combobox",
           "aria-expanded": true,
           "aria-controls": "bt-palette-list",
@@ -46308,7 +46378,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
           { className: "bt-palette-empty" },
           (0, import_react68.createElement)("span", { className: "bt-palette-empty-icon", "aria-hidden": true }, (0, import_react68.createElement)(SearchIcon)),
           (0, import_react68.createElement)("span", { className: "bt-palette-empty-label" }, t("No results")),
-          (0, import_react68.createElement)("span", { className: "bt-palette-empty-hint" }, t("Try a Bot name or words from a message"))
+          (0, import_react68.createElement)("span", { className: "bt-palette-empty-hint" }, reference ? t("Try a chat title") : t("Try a Bot name or words from a message"))
         ) : sections.map(([title, items]) => (0, import_react68.createElement)(
           import_react68.Fragment,
           { key: title },
@@ -50529,7 +50599,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react79.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
+    }, (0, import_react_dom13.createPortal)((0, import_react79.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, mode: ui.palette.mode ?? "search", owner: ui.palette.owner ?? null, roster, actions, useSessions }), document.body)) : null,
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react79.createElement)(OverlayBoundary, {
       name: "group-search",
       reset: groupSearchToken,
@@ -52905,7 +52975,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
+  const ui = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, chatRef: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -53920,34 +53990,20 @@ function apply(ctx) {
     ...options.priority === void 0 ? {} : { priority: freePriority(ctx.slots.entries(name), options) }
   }, component));
   const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY));
-  let atMenu = null;
   const installAtMenu = () => {
     const fiber = ctx.inject(["inputTriggers"], (scope) => {
       scope.effect(() => {
         const triggers = scope.inputTriggers;
-        const controllerOf = (sessionId) => {
-          const binding = ctx.sessions.binding(sessionId);
-          return binding === void 0 ? void 0 : triggers.sessionOf(binding.ctx);
-        };
-        const launched = (sessionId) => controllerOf(sessionId)?.launcher.getSnapshot() === CHATS_SOURCE;
         const offs = [
-          ...atSources({ roster, sessions: ctx.sessions, launched, iconFor: menuIcons(roster) }).map((source) => triggers.registerSource(source)),
+          ...atSources({ roster, iconFor: menuIcons(roster) }).map((source) => triggers.registerSource(source)),
           triggers.registerSource(sideSource({ roster, actions }))
         ];
-        atMenu = { controllerOf };
         return () => {
-          atMenu = null;
           for (const off of offs) off();
         };
       }, "ds-bot: @ menu");
     });
     return () => fiber.dispose();
-  };
-  actions.canReferenceChat = () => atMenu !== null;
-  actions.referenceChat = (sessionId, span) => {
-    const controller = atMenu?.controllerOf(sessionId);
-    if (controller === void 0 || span === void 0) return;
-    controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
   };
   const installFrameSync = () => {
     let lastDetails = ui.getSnapshot().details;
