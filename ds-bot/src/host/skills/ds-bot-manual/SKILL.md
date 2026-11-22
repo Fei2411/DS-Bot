@@ -7,6 +7,8 @@ description: Read the DS Bot user manual when users ask how DS Bot works, what i
 
 Read the relevant reference before answering or changing a setting. This manual describes DS Bot, not every tool supplied by DSH or an installed plugin. Check the current tool catalog and current settings too. Availability depends on the host, installed services, model and user permissions.
 
+Settings paths in the references often abbreviate to a page name. See the [settings map](references/settings.md) for the current navigation group and tab, or use Settings search.
+
 ## How to use it
 
 - Answer questions with the shortest useful steps and the exact English UI labels below. Explain the effect and limits, not just the switch.

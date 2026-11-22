@@ -143,6 +143,12 @@ export function install(rt) {
         bot.capabilities = []
         migrated = true
       }
+      const packs = Array.isArray(bot.packs) ? [...new Set(bot.packs.filter(name => typeof name === 'string' && !bot.capabilities.includes(name)))] : []
+      if (bot.packs === undefined) bot.packs = packs
+      else if (JSON.stringify(bot.packs) !== JSON.stringify(packs)) {
+        bot.packs = packs
+        migrated = true
+      }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
         migrated = true
@@ -166,6 +172,73 @@ export function install(rt) {
       }
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
+    }
+    // A Bot has one conversation at a time again: a team saved with parts opened while
+    // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
+    // readable. Each live one is listed in `retiredParts` until its tasks have moved to
+    // the Bot's chat and its Session is archived, which stops what still runs there; the
+    // list is saved, so a host that cannot finish now finishes at a later start.
+    if (!Array.isArray(state.retiredParts)) delete state.retiredParts
+    const liveTeamSessions = new Set()
+    for (const [id, entry] of Object.entries(state.bots)) {
+      if (entry === null || typeof entry !== 'object') continue
+      const currentSid = sessionIdOf(entry.sessionId) ?? sessionIdOf(entry.id) ?? id
+      if (currentSid !== undefined) liveTeamSessions.add(currentSid)
+      for (const task of Array.isArray(entry.tasks) ? entry.tasks : []) {
+        const taskSid = sessionIdOf(task?.sessionId)
+        if (taskSid !== undefined) liveTeamSessions.add(taskSid)
+        for (const seg of Array.isArray(task?.segments) ? task.segments : []) {
+          const segSid = sessionIdOf(seg?.sessionId)
+          if (segSid !== undefined) liveTeamSessions.add(segSid)
+        }
+      }
+    }
+    for (const [id, room] of Object.entries(state.rooms)) {
+      if (room === null || typeof room !== 'object') continue
+      const roomSid = sessionIdOf(room.sessionId) ?? sessionIdOf(room.id) ?? id
+      if (roomSid !== undefined) liveTeamSessions.add(roomSid)
+      for (const sid of Object.values(room.sessions ?? {})) {
+        const memberSid = sessionIdOf(sid)
+        if (memberSid !== undefined) liveTeamSessions.add(memberSid)
+      }
+    }
+    let foldedOpenParts = false
+    for (const [id, bot] of Object.entries(state.bots)) {
+      if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
+      const botId = sessionIdOf(bot.id) ?? id
+      const existingSegments = Array.isArray(bot.segments) ? bot.segments : []
+      const seen = new Set([...liveTeamSessions, ...existingSegments.map(segment => sessionIdOf(segment?.sessionId)).filter(Boolean)])
+      const now = Date.now()
+      const segments = Array.isArray(bot.segments) ? [...bot.segments] : []
+      // Earlier parts are kept in time order: each one starts where the one before ended.
+      const fold = (segment) => {
+        const at = segments.findIndex(other => Number(other?.endedAt) > segment.endedAt)
+        segments.splice(at === -1 ? segments.length : at, 0, segment)
+      }
+      for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
+        const sid = sessionIdOf(part?.sessionId)
+        const earlier = Array.isArray(part?.segments) ? part.segments.filter(segment => sessionIdOf(segment?.sessionId) !== undefined) : []
+        if (sid === undefined && earlier.length === 0) continue
+        for (const segment of earlier) {
+          const segId = sessionIdOf(segment.sessionId)
+          if (seen.has(segId)) continue
+          seen.add(segId)
+          fold({ ...segment, endedAt: Number.isFinite(segment.endedAt) ? segment.endedAt : now })
+        }
+        // A live part has no end of its own: it is placed where its last Session began.
+        const began = Math.max(Number.isFinite(part.startedAt) ? part.startedAt : 0, ...earlier.map(segment => Number.isFinite(segment.endedAt) ? segment.endedAt : 0))
+        if (sid !== undefined && !seen.has(sid)) {
+          seen.add(sid)
+          fold({ sessionId: sid, endedAt: began > 0 ? began : now })
+          if (!(state.retiredParts ?? []).some(item => sessionIdOf(item?.sessionId) === sid)) {
+            (state.retiredParts ??= []).push({ sessionId: sid, botId })
+          }
+        }
+      }
+      if (segments.length > 0 || Array.isArray(bot.segments)) bot.segments = segments
+      delete bot.openParts
+      migrated = true
+      foldedOpenParts = true
     }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
@@ -288,7 +361,7 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
-    return { migrated: migrated || stale.length > 0, stale }
+    return { migrated: migrated || stale.length > 0, stale, foldedOpenParts }
   }
 
   const hasLoaded = () => storeReady
@@ -303,6 +376,78 @@ export function install(rt) {
     }
   }
 
+  // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
+  // that saves the team does it, and an entry stays listed until both steps succeed.
+  let retiring
+  let waitingForSchedules
+  // A part waiting to be retired may still run a turn, so it is not complete yet.
+  const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
+  // How long retirement waits for DSH's schedule service, so no part is archived with
+  // its reminders still on it.
+  const scheduleDeadline = Date.now() + 10_000
+  const retireParts = () => {
+    if (retiring !== undefined || stopped || readOnly() !== undefined || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return retiring
+    const epoch = lockEpoch
+    const run = (async () => {
+      // The schedule service attaches after the store loads.
+      await new Promise(resolve => setImmediate(resolve))
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch || !Array.isArray(state.retiredParts) || state.retiredParts.length === 0) return
+      if (rt.schedulesPending?.() === true && Date.now() < scheduleDeadline) {
+        waitingForSchedules ??= setTimeout(() => { waitingForSchedules = undefined; void retireParts() }, scheduleDeadline - Date.now())
+        waitingForSchedules.unref?.()
+        return
+      }
+      const snapshot = state.retiredParts.slice()
+      let changed = false
+      const dropEntry = (entry, sessionId) => {
+        if (!Array.isArray(state.retiredParts)) return
+        const before = state.retiredParts.length
+        state.retiredParts = state.retiredParts.filter(item => (sessionId !== undefined ? sessionIdOf(item?.sessionId) !== sessionId : item !== entry))
+        if (state.retiredParts.length !== before) changed = true
+      }
+      for (const entry of snapshot) {
+        if (stopped || readOnly() !== undefined || lockEpoch !== epoch || !Array.isArray(state.retiredParts)) return
+        const sessionId = sessionIdOf(entry?.sessionId)
+        try {
+          if (sessionId !== undefined) {
+            // Never archive or move schedules off any live team session (foreground chat,
+            // active #783 background task, group member session, or group's own session).
+            if (chatOwners.has(sessionId) || groupOwners.has(sessionId) || roomOwners.has(sessionId)) {
+              dropEntry(entry, sessionId)
+              continue
+            }
+            const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
+            const registry = ctx.workspaceRegistry
+            if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
+            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
+            try {
+              await registry.archiveSession(sessionId, { stopActivity: true })
+            } catch (archiveError) {
+              // Session already gone from DSH live registry and persistence: treat as retired.
+              if (archiveError?.name !== 'WorkspaceUnknownSessionError') throw archiveError
+            }
+          }
+          dropEntry(entry, sessionId)
+        } catch (error) {
+          warn('ds-bot: withdrawn parallel part %s not retired yet: %s', sessionId, error)
+        }
+      }
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
+      if (Array.isArray(state.retiredParts) && state.retiredParts.length === 0) {
+        delete state.retiredParts
+        changed = true
+      }
+      if (changed) {
+        await save().catch(error => warn('ds-bot: saving the retired parallel parts failed: %s', error))
+      }
+    })()
+    const tracked = run.catch(error => warn('ds-bot: retiring withdrawn parallel parts failed: %s', error))
+      .finally(() => { if (retiring === tracked) retiring = undefined })
+    retiring = tracked
+    return tracked
+  }
+
   const load = () => loaded ??= (async () => {
     claimLock()
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
@@ -310,6 +455,7 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    void retireParts()
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
       // memory and the next save() writes it.
@@ -340,11 +486,21 @@ export function install(rt) {
           warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
         }
       }
-      adopt(readFileState())
+      const { foldedOpenParts } = adopt(readFileState())
       notifyStoreSync()
+      return foldedOpenParts
     })
     writing = run.catch(() => {})
-    const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
+    const tracked = run.then((foldedOpenParts) => {
+      if (adopting === tracked) adopting = undefined
+      void retireParts()
+      if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped && readOnly() === undefined) {
+        void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
+      }
+    }, (error) => {
+      if (adopting === tracked) adopting = undefined
+      throw error
+    })
     adopting = tracked
     return tracked
   }
@@ -368,8 +524,12 @@ export function install(rt) {
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
-        adopt(readFileState())
+        const { foldedOpenParts } = adopt(readFileState())
         notifyStoreSync()
+        void retireParts()
+        if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped) {
+          void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
+        }
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -479,7 +639,8 @@ export function install(rt) {
 
   ctx.effect(() => () => {
     stopped = true
-    return writing.finally(() => lock.release())
+    clearTimeout(waitingForSchedules)
+    return Promise.allSettled([writing, retiring]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -557,15 +718,7 @@ export function install(rt) {
       indexPast(bot.segments, { botId })
       const currentSid = chatOf(botId)
       if (sessionIdOf(currentSid) !== undefined) chatOwners.set(currentSid, botId)
-      // Parts opened while the Bot was busy are its own chat too: a turn there may use
-      // the team tools, and the phone still sees only the current part. Their earlier
-      // parts stay the Bot's as well, so their history still reads on that thread.
-      for (const part of bot.openParts ?? []) {
-        const partSid = sessionIdOf(part?.sessionId)
-        if (partSid !== undefined) chatOwners.set(partSid, botId)
-        indexPast(part?.segments, { botId })
-      }
-      // Background tasks keep their own stable records separate from openParts. Only
+      // Background tasks keep their own stable records. Only
       // active tasks stay in chatOwners/taskOwners; settled tasks move to pastOwners
       // so folder/engine/model sweeps do not wake them again.
       for (const task of bot.tasks ?? []) {
@@ -665,7 +818,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

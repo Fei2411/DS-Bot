@@ -9,11 +9,12 @@ import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
-import { isOpenPart, ownChatSessions } from './threads.js'
+import { ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
+import { install as installBuiltinPacks } from './builtin-packs.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -54,6 +55,7 @@ const WORKING_DIRECTORY_TOOL = 'working_directory'
 
 export function install(rt) {
   const { ctx, state } = rt
+  installBuiltinPacks(rt)
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
   const callerRoom = (exec) => {
@@ -160,9 +162,7 @@ export function install(rt) {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     if (room) return `group "${room.name}"`
     if (rt.taskOwners?.has(sessionId)) return 'a background task'
-    // A Bot's own chat may keep another part live in the background: it is a second
-    // conversation of that Bot, not its foreground chat.
-    return isOpenPart(rt.botOf(rt.chatOwners.get(sessionId)), sessionId) ? 'another of its conversations' : 'its own chat'
+    return 'its own chat'
   }
   // A Bot request still in the inbox: no step or turn has taken it out yet.
   const unreadRequest = (agent, senderId, toUser) => {
@@ -969,7 +969,7 @@ export function install(rt) {
   // the sessions ds-bot does not own, while this one shadows it inside them.
   rt.teamTools.push(defineTool({
     name: 'show_view',
-    description: `${showViewDescription({ where: 'your own chat or an IM-origin group' })} IM forms and multi-select views show a card code and instructions for replying with typed values.`,
+    description: `${showViewDescription({ where: 'your own chat or an IM-origin group' })} IM forms and multi-select views show instructions for replying with !card <code> and typed values. Group replies must mention the Bot. Bare codes never answer cards.`,
     parameters: {
       ...showViewParameters,
       report_issue: { type: 'string', description: 'Only for DS Bot issue approval: use the exact arguments from prepare_ds_bot_issue' },
@@ -1188,14 +1188,21 @@ export function install(rt) {
   // after this one.
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
+    const filterTools = agent.ctx.on('llm/stream', function filterBuiltinTools(options, next) {
+      const hidden = rt.hiddenBuiltinTools(agent.session?.id)
+      if (!options.tools?.some(tool => hidden.has(tool.name))) return next()
+      return agent.ctx.llm.stream({ ...options, tools: options.tools.filter(tool => !hidden.has(tool.name)) })
+    })
+    if (typeof filterTools === 'function') held.disposers.push(filterTools)
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(agent.session?.id)])
       // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
       // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {},
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !hidden.has(tool.name)) } : {},
+        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name) && ![...hidden].some(name => section.name === `tool:${name}`)) } : {},
       }
     })
     held.filtered = true
@@ -1562,6 +1569,7 @@ export function install(rt) {
       parameters: {
         name: { type: 'string', required: true, description: 'Capability name from list_capabilities' },
         bot: { type: 'string', description: 'Optional Bot name; only a Main Bot may change another Bot' },
+        ...(endpoint === 'attach' ? { mode: { type: 'string', enum: ['always', 'catalog'], description: 'Always on (default), or available through use_pack' } } : {}),
       },
       output,
       async execute(args, exec) {
@@ -1579,6 +1587,23 @@ export function install(rt) {
             .map(item => ` The user must allow ${item.name} in DS Bot settings before it can work.`)
             .join('')
           return `${verb} ${args.name} ${args.bot ? `to ${result.bot}` : 'to yourself'}. Changes apply from ${result.bot}'s next message.${endpoint === 'attach' ? approvals : ''}`
+        } catch (error) { return error.message }
+      },
+    }))
+  }
+
+  for (const name of ['use_pack', 'drop_pack']) {
+    rt.teamTools.push(defineTool({
+      name,
+      description: name === 'use_pack' ? 'Load a feature pack from your catalog for this session. Waits for mounting; ready tools are available at the next step.' : 'Drop a session-loaded feature pack at the end of this turn.',
+      parameters: {
+        name: { type: 'string', required: true },
+        ...(name === 'use_pack' ? { reason: { type: 'string', description: 'Why this task needs the pack' } } : {}),
+      },
+      output,
+      async execute(args, exec) {
+        try {
+          return await rt[name === 'use_pack' ? 'usePack' : 'dropPack'](exec.agent?.session?.id ?? exec.agent?.id, args.name)
         } catch (error) { return error.message }
       },
     }))

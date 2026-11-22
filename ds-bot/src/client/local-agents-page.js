@@ -78,7 +78,7 @@ export function LocalAgentsPage({ run, Row }) {
   if (view === null) return null
   if (view.available === false) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot register local agent routes.'))
   return [
-    h('section', { key: 'found', className: 'bt-set-section' },
+    h('section', { key: 'found', className: 'bt-set-section', 'data-tour': 'la-detected' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Detected agents')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: refresh }, t('Refresh'))),
@@ -88,7 +88,7 @@ export function LocalAgentsPage({ run, Row }) {
     h('section', { key: 'custom', className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Custom agents')),
-        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add agent'), onClick: () => { setArmedRemove(null); setEditing('new') } }, h(PlusIcon), t('Add agent'))),
+        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add agent'), 'data-tour': 'la-add', onClick: () => { setArmedRemove(null); setEditing('new') } }, h(PlusIcon), t('Add agent'))),
       h('div', { className: 'bt-set-card' },
         view.custom.length === 0 && editing !== 'new'
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('ACP-compatible agents, added by command.')))

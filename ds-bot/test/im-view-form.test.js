@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { imViewFormText, isImViewFormAnswer, parseImViewForm } from '../src/host/im/view-form.js'
+import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from '../src/host/im/view-form.js'
 
 const calculator = { type: 'stack', children: [
   { type: 'number', id: 'count', label: 'Count', min: 1, max: 10, value: 2 },
@@ -10,19 +10,19 @@ const calculator = { type: 'stack', children: [
   { type: 'submit', id: 'send' },
 ] }
 
-test('token reply shapes distinguish submissions from code-prefixed prose', () => {
-  for (const answer of ['', '1', '1 3', '1,3', 'cancel', '2 CANCEL', '\n1: Alice\nsecond line', '2\n1: yes', '1: value']) {
-    assert.equal(isImViewFormAnswer(answer), true, JSON.stringify(answer))
-  }
-  for (const prose of ['is our release version', '1 is our release', '\nordinary text', 'cancel the deployment', '1\nordinary text']) {
-    assert.equal(isImViewFormAnswer(prose), false, JSON.stringify(prose))
-  }
-})
-
 test('token forms render types, defaults, bounds and an answer example', () => {
   const text = imViewFormText(calculator, 'V3')
-  for (const part of ['Card V3', 'Submit', 'number', 'slider', 'min 1', 'max 10', 'default 2', '1=Fast; 2=Safe', 'Reply example: V3\\n1: 2']) assert.ok(text.includes(part), part)
+  for (const part of ['Card V3', 'Submit', 'number', 'slider', 'min 1', 'max 10', 'default 2', '1=Fast; 2=Safe', 'Reply example: !card V3\\n1: 2', 'mention the Bot before !card']) assert.ok(text.includes(part), part)
   assert.ok(!text.includes('1. Submit'))
+})
+
+test('legacy reply shapes include defaults, options, fields and cancellation but not prose', () => {
+  for (const text of ['', '\n', '1 3', '1,3', '\n1: Alice\n  continued\tvalue', '2\r\n1: Alice', 'cancel', '2 CANCEL', '1: value']) {
+    assert.equal(isLegacyImViewFormAnswer(text), true, text)
+  }
+  for (const text of ['is our release', '2 is our release', '1. value', '!card V1 1', 'cancel prose', '1\nnot a field']) {
+    assert.equal(isLegacyImViewFormAnswer(text), false, text)
+  }
 })
 
 test('token forms parse all input values and default omitted inputs', () => {
