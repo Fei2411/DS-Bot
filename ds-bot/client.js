@@ -41850,15 +41850,15 @@ var import_react57 = require("react");
 var TEAM_SLOTS = 6;
 function useProviders(actions) {
   const [view, setView] = (0, import_react57.useState)(null);
-  const load = () => actions.providers === void 0 ? Promise.resolve(null) : translated(actions.providers()).then((next) => {
-    if (next?.providers) setView(next);
-    return next;
-  });
+  const [loaded, setLoaded] = (0, import_react57.useState)(actions.providers === void 0);
   (0, import_react57.useEffect)(() => {
-    void load().catch(() => {
-    });
+    if (actions.providers === void 0) return;
+    void translated(actions.providers()).then((next) => {
+      if (next?.providers) setView(next);
+    }).catch(() => {
+    }).finally(() => setLoaded(true));
   }, []);
-  return [view, setView];
+  return [view, setView, loaded];
 }
 function useWeek(actions, wanted) {
   const [week, setWeek] = (0, import_react57.useState)(null);
@@ -41886,13 +41886,13 @@ var needsKey = (bot, roster) => {
   const ref = modelRefOf(bot);
   return Boolean(ref) && (roster.models ?? []).some((entry) => entry.ref === ref && entry.needsKey === true);
 };
-function Attention({ roster, actions, run: run2, view, setView, needsModel, keyMissing }) {
+function Attention({ roster, actions, run: run2, view, setView, loaded, needsModel, keyMissing }) {
   const missing = (view?.providers ?? []).filter((provider) => provider.key && !provider.key.configured).map((provider) => ({ provider, users: usersOf(provider, roster) })).filter((entry) => entry.users.length > 0);
   const apply2 = (promise) => run2(translated(promise).then((next) => {
     if (next?.providers) setView(next);
     void actions.refreshModels?.();
   }));
-  const blind = view === null && keyMissing;
+  const blind = keyMissing && loaded && missing.length === 0;
   if (missing.length === 0 && !needsModel && !blind) return null;
   return (0, import_react57.createElement)(
     "section",
@@ -42091,10 +42091,10 @@ function HomeList({ groups, icons, status, onOpen }) {
   );
 }
 function OverviewPage({ roster, actions, run: run2, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onSearch }) {
-  const [view, setView] = useProviders(actions);
+  const [view, setView, loaded] = useProviders(actions);
   return [
     (0, import_react57.createElement)("button", { key: "search", type: "button", className: "bt-ov-search", "data-tour": "search", onClick: onSearch }, (0, import_react57.createElement)(SearchIcon), (0, import_react57.createElement)("span", null, t("Search"))),
-    (0, import_react57.createElement)(Attention, { key: "attention", roster, actions, run: run2, view, setView, needsModel, keyMissing }),
+    (0, import_react57.createElement)(Attention, { key: "attention", roster, actions, run: run2, view, setView, loaded, needsModel, keyMissing }),
     (0, import_react57.createElement)(Team, { key: "team", roster, actions }),
     (0, import_react57.createElement)(Tiles, { key: "tiles", roster, actions, icons, view, hasProviders, narrow }),
     (0, import_react57.createElement)(HomeList, { key: "home", groups: homeGroups, icons, status: homeStatus, onOpen: onHomeOpen })
@@ -42805,6 +42805,13 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     anchors.box.current?.querySelector?.("[aria-current=location]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activePart]);
   const pageKey = parts ? `group:${activeGroup.id}` : `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown === "schedules" ? id ?? "" : "")}`;
+  const requests = (0, import_react58.useRef)({ pageKey, parts: {} });
+  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, parts: {} };
+  if ((shown === "bot-models" || shown === "schedules") && id) {
+    const ask = `${shown}:${id}:${jump}`;
+    if (requests.current.parts[shown]?.key !== ask) requests.current.parts[shown] = { key: ask, id };
+  }
+  const request = (part) => requests.current.parts[part];
   (0, import_react58.useEffect)(() => {
     setError("");
   }, [pageKey]);
@@ -42866,7 +42873,6 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     clearTimeout(headingTimer.current);
     headingTimer.current = setTimeout(() => {
       heading.current = null;
-      onPartsScroll();
     }, 900);
     setSpied(key);
     scrollToPart(key, true);
@@ -42927,7 +42933,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         return (0, import_react58.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow });
       // A preset opens the page afresh each time search offers it.
       case "bot-models":
-        return (0, import_react58.createElement)(BotModelsPage, { key: shown === "bot-models" && id ? `preset:${id}:${jump}` : "bot-models", roster, actions, run: run2, Section: SetSection, preset: shown === "bot-models" && id ? id : null });
+        return (0, import_react58.createElement)(BotModelsPage, { key: request("bot-models")?.key ?? "bot-models", roster, actions, run: run2, Section: SetSection, preset: request("bot-models")?.id ?? null });
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case "deepseek-services":
         return (0, import_react58.createElement)(DeepSeekServicesPage, { key: roster.modelsKey ?? "", actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented });
@@ -42936,7 +42942,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "groups":
         return (0, import_react58.createElement)(GroupsPage, { roster, actions, run: run2 });
       case "schedules":
-        return (0, import_react58.createElement)(SchedulesPage, { key: shown === "schedules" && id ? `start:${id}:${jump}` : "schedules", roster, actions, start: shown === "schedules" ? id ?? void 0 : void 0 });
+        return (0, import_react58.createElement)(SchedulesPage, { key: request("schedules")?.key ?? "schedules", roster, actions, start: request("schedules")?.id });
       case "connectors":
         return (0, import_react58.createElement)(ConnectorsPage, { roster, actions });
       case "im":

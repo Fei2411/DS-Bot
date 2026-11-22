@@ -17,12 +17,19 @@ import { t } from './i18n.js'
 
 const TEAM_SLOTS = 6
 
+// `loaded`: the first answer came, or failed; until then Overview cannot tell which bar a
+// keyless Bot needs.
 function useProviders(actions) {
   const [view, setView] = useState(null)
-  const load = () => (actions.providers === undefined ? Promise.resolve(null)
-    : translated(actions.providers()).then((next) => { if (next?.providers) setView(next); return next }))
-  useEffect(() => { void load().catch(() => {}) }, [])
-  return [view, setView]
+  const [loaded, setLoaded] = useState(actions.providers === undefined)
+  useEffect(() => {
+    if (actions.providers === undefined) return
+    void translated(actions.providers())
+      .then((next) => { if (next?.providers) setView(next) })
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [])
+  return [view, setView, loaded]
 }
 
 // The last seven days of tokens, from the same rows as the Usage page. Phone width shows
@@ -53,7 +60,7 @@ const needsKey = (bot, roster) => {
 
 // Without the providers' view (no Providers page here) a Bot on a keyless model still
 // shows, from the roster alone, and leads to its model.
-function Attention({ roster, actions, run, view, setView, needsModel, keyMissing }) {
+function Attention({ roster, actions, run, view, setView, loaded, needsModel, keyMissing }) {
   const missing = (view?.providers ?? [])
     .filter(provider => provider.key && !provider.key.configured)
     .map(provider => ({ provider, users: usersOf(provider, roster) }))
@@ -62,7 +69,7 @@ function Attention({ roster, actions, run, view, setView, needsModel, keyMissing
     if (next?.providers) setView(next)
     void actions.refreshModels?.()
   }))
-  const blind = view === null && keyMissing
+  const blind = keyMissing && loaded && missing.length === 0
   if (missing.length === 0 && !needsModel && !blind) return null
   return h('section', { className: 'bt-ov-attention', 'aria-label': t('Needs your attention') },
     missing.map(({ provider, users }) => h('div', { key: provider.id, className: 'bt-ov-alert' },
@@ -195,10 +202,10 @@ function HomeList({ groups, icons, status, onOpen }) {
 }
 
 export function OverviewPage({ roster, actions, run, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onSearch }) {
-  const [view, setView] = useProviders(actions)
+  const [view, setView, loaded] = useProviders(actions)
   return [
     h('button', { key: 'search', type: 'button', className: 'bt-ov-search', 'data-tour': 'search', onClick: onSearch }, h(SearchIcon), h('span', null, t('Search'))),
-    h(Attention, { key: 'attention', roster, actions, run, view, setView, needsModel, keyMissing }),
+    h(Attention, { key: 'attention', roster, actions, run, view, setView, loaded, needsModel, keyMissing }),
     h(Team, { key: 'team', roster, actions }),
     h(Tiles, { key: 'tiles', roster, actions, icons, view, hasProviders, narrow }),
     h(HomeList, { key: 'home', groups: homeGroups, icons, status: homeStatus, onOpen: onHomeOpen }),

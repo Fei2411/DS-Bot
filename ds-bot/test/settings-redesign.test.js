@@ -548,7 +548,7 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
   })
 })
 
-test('SettingsTour replays from step 0 without unmounting, keeps search hits inside spotlight, and avoids snap-back', async () => {
+test('SettingsTour replays from step 0 without unmounting, ends when search opens, and avoids snap-back', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'; export { SettingsTour, TOUR_SEEN_KEY } from './src/client/settings-tour.js'")
   await withGlobals(async () => {
     const store = new Map()
@@ -572,6 +572,7 @@ test('SettingsTour replays from step 0 without unmounting, keeps search hits ins
       deepseekServices: () => Promise.resolve(null),
       folders: () => Promise.resolve({ team: '/work' }),
       schedules: () => Promise.resolve({ available: true, tasks: [] }),
+      diagnostics: () => Promise.resolve({ entries: [], total: 0, markdown: '' }),
       repoStars: () => Promise.resolve(null),
       setPrefs: () => Promise.resolve(),
     }
@@ -583,22 +584,24 @@ test('SettingsTour replays from step 0 without unmounting, keeps search hits ins
     let tree = draw()
     assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search')
 
-    // Typing in search during the search step renders results inside [data-tour="search"].
+    // The search step's target opens the search palette; the walkthrough ends there (and is
+    // marked seen) so the field takes the keyboard.
+    const searchButton = findAll(tree, n => n.type === 'button' && n.props?.['data-tour'] === 'search')[0]
+    assert.ok(searchButton, '[data-tour="search"] must be the rail search button')
+    searchButton.props.onClick()
+    tree = draw()
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0, 'opening search ends the walkthrough')
+    assert.equal(store.get(TOUR_SEEN_KEY), '1', 'opening search during the full walkthrough marks it seen')
     const searchInput = () => findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-set-search-input')[0]
     searchInput().props.onChange({ target: { value: '微信' } })
     tree = draw()
-    const searchWrap = findAll(tree, n => n.props?.['data-tour'] === 'search')[0]
-    assert.ok(searchWrap, '[data-tour="search"] wrapper must exist')
-    const hitsInsideWrap = findAll(searchWrap, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit')
-    assert.equal(hitsInsideWrap.length, 1, 'search hits must live inside [data-tour="search"]')
+    assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search-hit').length, 1)
 
-    // Picking a non-General hit navigates to IM, dismisses the tour, marks seen, and stays on IM.
+    // Picking a hit goes to IM and stays there.
     searchInput().props.onKeyDown({ key: 'Enter', isComposing: false, preventDefault() {}, stopPropagation() {} })
     tree = draw()
     tree = draw()
-    assert.equal(currentPage, 'im', 'picking IM search hit must not snap back to general')
-    assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer').length, 0, 'picking search hit dismisses tour')
-    assert.equal(store.get(TOUR_SEEN_KEY), '1', 'picking search hit during full tour marks it seen')
+    assert.equal(currentPage, 'im', 'picking IM search hit must not snap back')
 
     // Replay the same section guide without unmounting: advance, skip, then start again → must start at step 0.
     currentPage = 'general'
@@ -624,7 +627,7 @@ test('SettingsTour replays from step 0 without unmounting, keeps search hits ins
     startFull().props.onClick()
     tree = draw()
     tree = draw()
-    assert.equal(currentPage, 'general')
+    assert.equal(currentPage, 'overview')
     assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search')
     findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-send bt-soft-sm')[0].props.onClick()
     tree = draw()
@@ -637,13 +640,13 @@ test('SettingsTour replays from step 0 without unmounting, keeps search hits ins
     startFull().props.onClick()
     tree = draw()
     tree = draw()
-    assert.equal(currentPage, 'general')
+    assert.equal(currentPage, 'overview')
     assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'search', 'replaying dismissed full guide must start at step 0')
     harness.unmount()
 
     // Standalone SettingsTour: changing currentPage externally must not snap back; schedules tour falls back to open-plugins when new-task is absent.
     const navCalls = []
-    let standalonePage = 'general'
+    let standalonePage = 'overview'
     const openPluginsEl = {
       getBoundingClientRect: () => ({ left: 400, top: 260, right: 520, bottom: 292, width: 120, height: 32 }),
       closest: () => null,
@@ -1000,6 +1003,45 @@ test('Overview fixes a missing API key in place, marks the Bots it stops, and su
     harness.unmount()
     const none = harness.render(harness.React.createElement(SettingsDialog, { page: 'bot-models', id: 'deepseek/deepseek-chat', roster: { ...allOn, byId: Object.fromEntries(allOn.bots.map(bot => [bot.id, bot])) }, actions, useUpdate: sel => sel({}) }))
     assert.equal(findAll(none, n => n.props?.className === 'bt-set-row bt-bm-offer').length, 0)
+    harness.unmount()
+  })
+})
+
+test('a part keeps the request it opened with while the user moves to another part of its domain', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+    let route = ['schedules', 'new']
+    const actions = {
+      openSettings: (page, id) => { route = [page, id ?? null] },
+      closeSettings() {},
+      setPrefs: () => Promise.resolve(),
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+    }
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, { page: route[0], id: route[1], roster: baseRoster, actions, useUpdate: sel => sel({}) }))
+    const newTaskButton = tree => findAll(findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === 'schedules')[0], n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')
+    draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    let tree = draw()
+    assert.equal(newTaskButton(tree).length, 0, 'a new-task link opens the form')
+    // The Bots anchor routes to `bots` with no id; the half-filled form stays open.
+    route = ['bots', null]
+    tree = draw()
+    assert.equal(newTaskButton(tree).length, 0, 'moving to another part keeps the form')
+    // Another domain starts clean: back on Team without a request, the form is closed.
+    route = ['models', null]
+    draw()
+    route = ['bots', null]
+    tree = draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    tree = draw()
+    assert.equal(newTaskButton(tree).length, 1)
     harness.unmount()
   })
 })

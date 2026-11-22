@@ -625,6 +625,16 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const pageKey = parts
     ? `group:${activeGroup.id}`
     : `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
+  // A request a part opened with (a search's model preset, a new-task link) stays with the
+  // part while the user moves between the domain's parts; a new request replaces it, and
+  // another domain or a page of its own starts clean.
+  const requests = useRef({ pageKey, parts: {} })
+  if (requests.current.pageKey !== pageKey) requests.current = { pageKey, parts: {} }
+  if ((shown === 'bot-models' || shown === 'schedules') && id) {
+    const ask = `${shown}:${id}:${jump}`
+    if (requests.current.parts[shown]?.key !== ask) requests.current.parts[shown] = { key: ask, id }
+  }
+  const request = part => requests.current.parts[part]
   useEffect(() => { setError('') }, [pageKey])
   useEffect(() => { if (shown !== 'general' && advancedToken !== 0) setAdvancedToken(0) }, [shown])
   // A section guide runs while its domain stays open.
@@ -679,7 +689,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     userScrolled.current = true
     heading.current = key
     clearTimeout(headingTimer.current)
-    headingTimer.current = setTimeout(() => { heading.current = null; onPartsScroll() }, 900)
+    // The hold lapses without moving the mark: a short last part the box cannot bring to
+    // the top keeps the anchor that was picked until the user scrolls.
+    headingTimer.current = setTimeout(() => { heading.current = null }, 900)
     setSpied(key)
     scrollToPart(key, true)
     if (key !== shown) {
@@ -743,12 +755,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
       case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
       // A preset opens the page afresh each time search offers it.
-      case 'bot-models': return h(BotModelsPage, { key: shown === 'bot-models' && id ? `preset:${id}:${jump}` : 'bot-models', roster, actions, run, Section: SetSection, preset: shown === 'bot-models' && id ? id : null })
+      case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
       case 'bots': return h(BotsPage, { roster, actions, run, startCreating: shown === 'bots' && id === 'new' })
       case 'groups': return h(GroupsPage, { roster, actions, run })
-      case 'schedules': return h(SchedulesPage, { key: shown === 'schedules' && id ? `start:${id}:${jump}` : 'schedules', roster, actions, start: shown === 'schedules' ? (id ?? undefined) : undefined })
+      case 'schedules': return h(SchedulesPage, { key: request('schedules')?.key ?? 'schedules', roster, actions, start: request('schedules')?.id })
       case 'connectors': return h(ConnectorsPage, { roster, actions })
       case 'im': return h(ImPage, { roster, actions })
       case 'phone': return h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow })
