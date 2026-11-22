@@ -308,7 +308,7 @@ test('turn/end state machine ignores disposed, switched/blocked, HANDOFF_ACK, ru
   assert.match(env.deliveries.find(d => d.role === 'task-report').text, /Final verified answer\./)
 })
 
-test('nested task_* tools, interactive cards (ask_user/show_view/request_secret), and switchPart are blocked for tasks', async (t) => {
+test('nested task_* tools and interactive cards (ask_user/show_view/request_secret) are blocked for tasks, and tasks stay read-only', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -327,8 +327,8 @@ test('nested task_* tools, interactive cards (ask_user/show_view/request_secret)
   const secRes = await env.tool('request_secret').execute({ name: 'MY_API_KEY', purpose: 'call api' }, execOf(taskAgent))
   assert.match(secRes, /Background tasks cannot show secret cards/)
 
-  // Clicking/opening a task via switchPart or bot-open-part must fail instead of swapping bot.sessionId.
-  await assert.rejects(env.rt.switchPart('a', task.sessionId), /read-only/i)
+  // Session switching is removed, so tasks can never swap bot.sessionId.
+  assert.equal(env.rt.switchPart, undefined)
   const openRes = await env.callApi('bot-open-part', { botId: 'a', sessionId: task.sessionId })
   assert.equal(openRes.ok, false)
   assert.equal(env.rt.botOf('a').sessionId, 'dm-a', 'bot.sessionId must remain unchanged')
@@ -511,7 +511,10 @@ test('reconcileTasksAfterRestart marks orphaned idle tasks interrupted while pre
   assert.match(interruptReport.text, /restarted/)
 
   // reconcileEndedTask settles a task whose turn ended during plugin reload using durable log.
-  env.agentMap.get(tInflight.sessionId).session.events.push(
+  const inflightAgent = env.agentMap.get(tInflight.sessionId)
+  const firstMsg = inflightAgent.followups[0]
+  await env.emit(tInflight.sessionId, 'user/message', { source: firstMsg.source, content: firstMsg.content })
+  inflightAgent.session.events.push(
     { type: 'turn/start', seq: 10, data: { turn: 1 } },
     { type: 'assistant/message', seq: 11, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Reload finished work.' }] } } },
   )
@@ -645,9 +648,7 @@ test('partsOfThread, settled task pastOwners routing, post_to_group(report_back)
   const task = botA.tasks[0]
   const taskAgent = env.agentMap.get(task.sessionId)
 
-  // 1. partsOfThread handles task threads cleanly even when openParts is empty or populated.
-  assert.deepEqual(env.rt.partsOfThread('a', task.sessionId).map(p => p.sessionId), [task.sessionId])
-  botA.openParts = [{ sessionId: 'open-1', segments: [] }]
+  // 1. partsOfThread isolates a task thread cleanly from foreground segments.
   assert.deepEqual(env.rt.partsOfThread('a', task.sessionId).map(p => p.sessionId), [task.sessionId])
 
   // 2. setPermission propagates to active background task sessions too.

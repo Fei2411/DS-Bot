@@ -19,7 +19,7 @@ Both forms run the same `ds-bot` plugin. The point of the app is that DS Bot con
 
 ## Ten core requirements
 
-1. **Built on DSH, independent of each other.** Every Bot is built on DSH, and the Bots are independent of each other.
+1. **Built on DSH, independent of each other, one continuous chat per Bot.** Every Bot is built on DSH, independent of the others, and always has one continuous conversation (including Bots backed by a local agent CLI): no session list, no manual session switching, no manual new-session button, and no parallel sessions inside one Bot. When context fills up, DS Bot moves to a fresh part automatically while earlier history stays continuously readable and searchable. Long-running work runs asynchronously in the background so foreground chat stays responsive, while background tasks remain visible, approvable, and stoppable by the user. Parallel work comes from multiple Bots or background tasks, never from splitting one Bot into multiple sessions.
 2. **Reliable.** Bots work reliably: they stay aligned with the goal, act on evidence, stay inside their task, and their results can be checked. Bots will also be able to improve themselves (planned).
 3. **Memory and persistence.** Bots keep working over time, that is, they have a long-term memory. A Bot can read the other Bots' memories but not change them (only a Main Bot can change another Bot's memory). A Bot manages its own memory, and the user can manage each Bot's memory too. A group chat shares one memory.
 4. **Levels of rights.** A Main Bot has the highest rights: it creates and changes other Bots. Other Bots do not have these rights, and only the user deletes a Bot. There can be more than one Main Bot. Every Bot can call on every other Bot.

@@ -2,6 +2,13 @@
 
 - Date: 2026-11-13
 - Related: Issue #1501
+- Status: **withdrawn** (2026-11-22). The maintainer decided against parallel or switchable
+  sessions — and manual new-session / session-list controls — inside any Bot (including
+  local-agent CLIs): every Bot has one continuous conversation, context rolls over
+  automatically, and parallel work goes to another Bot or to the Bot's own background
+  tasks (#783). The feature from #1548 and the session-list / manual new-session UI are
+  removed; this note stays as the record of what was tried. Do not build it again without
+  the maintainer's go-ahead.
 
 ## Why
 

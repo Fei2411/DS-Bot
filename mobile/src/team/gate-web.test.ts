@@ -33,3 +33,7 @@ test('the host and browser client share the exact same allowlist, strictly disjo
     assert.equal(BROWSER_ALLOWED.has(endpoint), false, `${endpoint} must not be in BROWSER_ALLOWED`)
   }
 })
+
+test('the web client lets a browser stop a Bot background task', async () => {
+  await ensureUnlock('bot-stop-task')
+})

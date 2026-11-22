@@ -582,6 +582,21 @@ test('file-download sends a file attachment and refuses an unknown session or at
   assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
 })
 
+test('image and file-download serve a DSH Agent Session to the phone', async (t) => {
+  const { rt, call, ctx, history, stop } = start()
+  t.after(stop)
+  await team(call)
+  const own = rt.agentOf
+  rt.agentOf = id => (id === 's-agent' ? { id: 'a1', sessions: ['s-agent'] } : own?.(id))
+  const photo = await ctx.get('attachments').saveImage({ data: Buffer.from('PNG bytes'), mediaType: 'image/png', width: 4, height: 4 })
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('agent notes'), name: 'notes.txt' })
+  history['s-agent'] = [{ seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: photo }, { type: 'file', attachment: ref }] } }]
+  const img = await call('image', { sessionId: 's-agent', attachmentId: photo.attachmentId })
+  assert.equal(Buffer.from(img.value.data, 'base64').toString(), 'PNG bytes')
+  const saved = await call('file-download', { sessionId: 's-agent', attachmentId: ref.attachmentId })
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), 'agent notes')
+})
+
 test('a presented file rides on the closing Bot row so the phone can save it', async (t) => {
   const { rt, stop } = start()
   t.after(stop)
@@ -980,25 +995,4 @@ test('browser handoff open and settle emit live feed events and clear browserHol
   assert.equal(nextState.unchanged, true)
   assert.notEqual(nextState.liveKey, openState.liveKey)
   assert.deepEqual(nextState.browserHolds, {})
-})
-
-test('switching to an earlier part closes open question and view cards instead of leaving orphaned keys', async (t) => {
-  const { call, ctx, rt, stop } = start()
-  t.after(stop)
-  const { chief } = await team(call)
-  const bot = rt.botOf(chief)
-  const part1 = bot.sessionId
-  const part2 = `s-${randomUUID()}`
-  bot.segments = [{ sessionId: part1, endedAt: 100 }]
-  bot.sessionId = part2
-  rt.save()
-  rt.state.questions[part2] = { id: 'q-1', question: 'Pick one', options: [{ label: 'A' }] }
-  rt.state.views[part2] = { id: 'v-1', title: 'Confirm', view: { type: 'text', text: 'hi' } }
-  ctx.workspaceRegistry.unarchiveSession = async () => {}
-  ctx.workspaceRegistry.archiveSession = async () => {}
-
-  await rt.switchPart(chief, part1)
-  const after = (await call('state', {})).value
-  assert.deepEqual(after.questions, {})
-  assert.deepEqual(after.views, {})
 })
