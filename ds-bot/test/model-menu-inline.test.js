@@ -64,7 +64,13 @@ function mount(Component, firstProps) {
 }
 
 const listeners = []
+const resizeObservers = []
 const sandbox = {
+  ResizeObserver: class {
+    constructor(update) { this.update = update; resizeObservers.push(this) }
+    observe(element) { this.element = element }
+    disconnect() { this.disconnected = true }
+  },
   window: {
     innerWidth: 1024, innerHeight: 768,
     addEventListener: (name, fn, capture) => listeners.push({ name, fn, capture }),
@@ -118,6 +124,28 @@ test('the Settings default picker labels the inherited usable model without chan
   const explicit = render([model], { bot: { id: 'new-bots', model: 'gone/model' } })
   assert.deepEqual(text(explicit, 'bt-model-name'), ['model'])
   assert.deepEqual(text(explicit, 'bt-model-default'), [])
+})
+
+test('a wide picker hides a squeezed provider rather than showing a stub', () => {
+  const props = { bot: { id: 'new-bots', model: 'official/flash' }, roster: { models: [{ ref: 'official/flash', name: 'Flash', provider: 'official' }] }, actions: {}, run: () => {}, wide: true, withEfforts: false }
+  const element = ModelMenu(props)
+  const view = mount(element.type, element.props)
+  const provider = { clientWidth: 60, scrollWidth: 70, toggleAttribute(name, hidden) { this.hidden = hidden } }
+  nodes(view.tree, node => node.props.className === 'bt-model-trigger')[0].props.ref.current = { querySelector: () => provider }
+  view.rerender({ ...props, wide: false })
+  view.rerender(props)
+  const observer = resizeObservers.at(-1)
+  assert.equal(observer.element, provider)
+  assert.equal(provider.hidden, false)
+  provider.clientWidth = 30
+  observer.update()
+  assert.equal(provider.hidden, true)
+  provider.clientWidth = 20
+  provider.scrollWidth = 20
+  observer.update()
+  assert.equal(provider.hidden, false)
+  view.rerender({ ...props, wide: false })
+  assert.equal(observer.disconnected, true)
 })
 
 test('a save still under way keeps the slider on the newest pick', async () => {

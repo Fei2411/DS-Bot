@@ -1247,7 +1247,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
   .bt-la-row>.bt-set-copy{width:auto}
   .bt-set-model .bt-set-control{max-width:none}
-  .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;flex-shrink:1}
+  .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }

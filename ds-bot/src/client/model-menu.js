@@ -481,10 +481,11 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
     'data-empty': !shown || undefined,
   },
   h('span', { className: 'bt-model-copy' },
+    h(wide ? 'span' : Fragment, wide ? { className: 'bt-model-label' } : null,
     h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
     shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
       ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
-      : t('{provider} · not available', { provider: shown.provider })) : null,
+      : t('{provider} · not available', { provider: shown.provider })) : null),
     inherited ? h('span', { className: 'bt-model-default' }, t('Default')) : null),
   h(Caret))
 }
@@ -530,6 +531,16 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240)
   const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel })
   const { manage, hasEfforts } = picker
+  useLayoutEffect(() => {
+    if (!wide) return
+    const provider = button.current?.querySelector('.bt-model-provider')
+    if (!provider) return
+    const update = () => provider.toggleAttribute('data-squeezed', provider.clientWidth < Math.min(48, provider.scrollWidth))
+    const observer = new ResizeObserver(update)
+    observer.observe(provider)
+    update()
+    return () => observer.disconnect()
+  }, [wide, button, picker.shown?.provider])
   const toggle = () => {
     if (isOpen) { close(); return }
     picker.opened()
@@ -711,12 +722,18 @@ export const MODEL_CSS = `
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
-.bt-model-trigger[data-wide]{display:flex;flex:none;width:240px;min-width:min(200px,100%);max-width:100%;height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+.bt-model-trigger[data-wide]{display:flex;flex:0 1 auto;width:auto;min-width:min(200px,100%);max-width:min(340px,100%);height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
 .bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 .bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}
 .bt-model-trigger[data-wide] .bt-model-name{font-weight:450}
 .bt-model-trigger[data-wide] .bt-model-provider{flex-shrink:2}
+.bt-model-label{display:contents}
+@media (min-width:641px){
+  .bt-model-trigger[data-wide] .bt-model-label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+  .bt-model-trigger[data-wide] .bt-model-name{flex-shrink:0;max-width:100%}
+  .bt-model-trigger[data-wide] .bt-model-provider[data-squeezed]{visibility:hidden}
+}
 .bt-model-trigger[data-wide][data-empty] .bt-model-name{color:var(--bt-ink-3)}
 .bt-model-trigger[data-wide] .bt-model-caret{background:var(--bt-select-arrow) center/12px 12px no-repeat}
 .bt-model-trigger[data-wide] .bt-model-caret path{display:none}
