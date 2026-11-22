@@ -17,6 +17,7 @@ import { imViewFormText, parseImViewForm } from './view-form.js'
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RECENT_VIEW_CODES_KEEP = 100
+const VIEW_REPLY_VERSION = 1
 const RETRY_MS = 5_000
 // A send that keeps failing is given up on, with a bounded backoff, so one broken
 // message cannot hold every later message in the same chat forever (#1417).
@@ -241,7 +242,7 @@ export function install(rt) {
 
   // ---------------------------------------------------------------- runtime file
   const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
-  const interruptedCards = new WeakSet()
+  const resendCards = new WeakSet()
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -263,7 +264,8 @@ export function install(rt) {
         if (code !== null && Number.isSafeInteger(number)) {
           viewCodeSeq = Math.max(viewCodeSeq, number)
         }
-        if (code !== null && entry.delivered !== true && entry.messageId === undefined && entry.answer === undefined) interruptedCards.add(entry)
+        const incomplete = entry.delivered === false || entry.delivered !== true && entry.messageId === undefined
+        if (code !== null && entry.answer === undefined && (entry.replyVersion !== VIEW_REPLY_VERSION || incomplete)) resendCards.add(entry)
       }
     }
     held = {
@@ -1345,19 +1347,24 @@ export function install(rt) {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
     const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined && (tokenView === undefined || entry.code !== undefined))
-    const recorded = new Set(entries.filter(entry => !interruptedCards.has(entry)).map(entry => entry.chatKey))
+    const recorded = new Set(entries.filter(entry => !resendCards.has(entry)).map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
     for (const { chatKey } of pending) {
-      const interrupted = entries.find(entry => entry.chatKey === chatKey && interruptedCards.has(entry))
+      const interrupted = entries.find(entry => entry.chatKey === chatKey && resendCards.has(entry))
       if (interrupted !== undefined) {
-        interruptedCards.delete(interrupted)
+        resendCards.delete(interrupted)
+        if (tokenView !== undefined) {
+          interrupted.replyVersion = VIEW_REPLY_VERSION
+          interrupted.delivered = false
+          interrupted.text = `${body}\n${imViewFormText(tokenView, interrupted.code)}`
+        }
         continue
       }
       const code = tokenView === undefined ? undefined : `V${++data.viewCodeSeq}`
       const message = code === undefined ? body : `${body}\n${imViewFormText(tokenView, code)}`
-      entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code, delivered: false }) })
+      entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code, delivered: false, replyVersion: VIEW_REPLY_VERSION }) })
     }
     scheduleWrite(conn.id)
     if (tokenView !== undefined) {

@@ -1340,6 +1340,68 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   assert.notEqual(next, code)
 })
 
+test('pending legacy code cards receive the new reply instructions once with the same code', async (t) => {
+  for (const mode of ['own', 'group', 'interrupted']) await t.test(mode, async (t) => {
+    let s = await start()
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    const grouped = mode === 'group'
+    const sessionId = grouped ? 'member-b' : 'a'
+    const chatKey = grouped ? 'g1' : 'dm-u1'
+    const message = text => grouped ? gm(s, 'u1', text) : dm(s, 'u1', text)
+    if (grouped) {
+      s.rt.roomOf('r1').sessions = { b: sessionId }
+      s.rt.groupOwners.set(sessionId, { botId: 'b', roomId: 'r1' })
+      await gm(s, 'u1', 'discover')
+      await gm(s, 'u1', 'discover', { chat: { key: 'g2', kind: 'group' } })
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { roomId: 'r1' } })
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g2', target: { roomId: 'r1' } })
+    }
+    await message('form please')
+    s.imTurn(grouped ? 'r1' : 'a')
+    const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Details', view }, { agent: { id: sessionId }, concludeTurn() {} })
+    const id = s.rt.state.views[sessionId].id
+    const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    const delivery = data.cards[`v:${id}`][0]
+    assert.equal(delivery.replyVersion, 1)
+    assert.equal(delivery.delivered, true)
+    if (mode === 'interrupted') {
+      assert.ok(delivery.messageId)
+      delivery.delivered = false
+    } else {
+      delete delivery.replyVersion
+      delivery.text = `Card ${code}\nReply example: ${code}\\n1: Alice`
+    }
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    const updated = await tokenCard(s)
+    assert.equal(updated.chat.key, chatKey)
+    assert.ok(updated.text.includes(`Reply example: /card ${code}`))
+    assert.equal(/Card (V\d+)/.exec(updated.text)[1], code)
+    await Promise.all([s.rt.save(), s.rt.save()])
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 1)
+    assert.equal(s.rt.state.views[sessionId].id, id)
+    await s.close()
+    const migrated = JSON.parse(readFileSync(path, 'utf8'))
+    assert.equal(migrated.cards[`v:${id}`][0].replyVersion, 1)
+    assert.equal(migrated.cards[`v:${id}`][0].delivered, true)
+    assert.equal(migrated.viewCodeSeq, data.viewCodeSeq)
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 0)
+    await message(`/card ${code}\n1: Alice`)
+    assert.equal(s.rt.state.views[sessionId], undefined)
+    assert.deepEqual(JSON.parse(s.agentOf(sessionId).lastFollowup.content[0].text).answers[0].values.fields, { name: 'Alice' })
+  })
+})
+
 test('only reserved card commands answer forms and all malformed or unknown commands stay out of ordinary chat', async (t) => {
   const s = await start()
   t.after(s.stop)
