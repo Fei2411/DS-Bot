@@ -32389,7 +32389,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const groups = useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) }))));
   const away = !running && groups.length > 0;
   const blockingAlert = blockingApproval || pending.question;
-  const dmDoing = blockingAlert ? "alert" : doing === "alert" && !approval ? void 0 : doing;
+  const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
   const state = botState(running || away, dmDoing, alert);
   const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : null;
   const learningWaitLine = pending.learning ? t("Waiting for your approval") : null;
@@ -32409,7 +32409,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     actions.openSession(id);
     actions.openTaskDeck?.(id);
   };
-  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", taskCounts.active > 0 ? t("{count} background tasks running", { count: taskCounts.active }) : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", taskCounts.active > 0 ? t("{count} background tasks running", { count: taskCounts.active }) : "", waitsFor, waitLine || learningWaitLine || "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
   if (tile && wide) {
     return (0, import_react37.createElement)("div", { className: "bt-tile-wrap" }, (0, import_react37.createElement)(
       "button",

@@ -167,14 +167,63 @@ test('a running Bot paused on a tool approval shows "Waiting for your approval",
   const [preview] = walk(row, node => classes(node).includes('bt-row-preview-wait'))
   assert.equal(textOf(preview), 'Waiting for your approval')
 
-  // Unanswerable approvals do not mark the Bot as waiting for approval.
+  // Unanswerable approvals do not mark the Bot, Room, or collapsed Section as waiting for approval,
+  // even when host activityView() reports 'alert' for that Bot.
+  const room = { id: 'r1', name: 'Ops Room', members: ['coder'], sectionId: 'sec-1', createdAt: 2 }
   const unanswerable = renderSidebar({
-    bots: [bot],
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a2', botId: 'coder', answerable: false }] },
+    bots: [{ ...bot, sectionId: 'sec-1' }],
+    rooms: [room],
+    sections: [{ id: 'sec-1', name: 'Ops', collapsed: true }],
+    activity: { coder: 'alert' },
+    statusMap: new Map([['coder', { running: true }]]),
+    work: {
+      waiting: {},
+      rooms: {},
+      approvals: [
+        { id: 'a2', botId: 'coder', answerable: false },
+        { id: 'a3', botId: 'coder', roomId: 'r1', answerable: false },
+      ],
+    },
   })
   const [quietRow] = walk(unanswerable, node => node.props?.['data-bot-id'] === 'coder')
+  const [quietRoom] = walk(unanswerable, node => node.props?.['data-room-id'] === 'r1')
   assert.equal(walk(quietRow, node => classes(node).includes('bt-badge-alert')).length, 0)
   assert.equal(walk(quietRow, node => classes(node).includes('bt-row-preview-wait')).length, 0)
+  assert.equal(walk(quietRoom, node => classes(node).includes('bt-row-preview-wait')).length, 0)
+  assert.equal(walk(quietRoom, node => classes(node).includes('bt-unread-wait')).length, 0)
+  const [secStatus] = walk(unanswerable, node => classes(node).includes('bt-sec-status'))
+  assert.equal(secStatus?.props?.['data-kind'], 'working')
+})
+
+test('a group approval does not leak alert badge onto a running DM Bot that also has a non-blocking learning proposal', () => {
+  const reviewer = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
+  const room = { id: 'r1', name: 'Review Group', members: ['reviewer'], createdAt: 2 }
+  const tree = renderSidebar({
+    bots: [reviewer],
+    rooms: [room],
+    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    activity: { reviewer: 'alert' },
+    statusMap: new Map([['reviewer', { running: true }]]),
+    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
+  })
+  const [botRow] = walk(tree, node => node.props?.['data-bot-id'] === 'reviewer')
+  assert.equal(walk(botRow, node => classes(node).includes('bt-badge-alert')).length, 0)
+  assert.equal(walk(botRow, node => classes(node).includes('bt-badge-working')).length, 1)
+})
+
+test('a Bot with both a blocking question and a non-blocking learning proposal reports "Waiting for your answer" consistently', () => {
+  const ops = { id: 'ops', name: 'Ops', createdAt: 1 }
+  const tree = renderSidebar({
+    bots: [ops],
+    rosterExtra: {
+      learning: { ops: [{ id: 'p1', kind: 'skill', name: 's1' }] },
+      questions: { ops: { id: 'q1', question: 'Confirm?' } },
+    },
+  })
+  const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
+  assert.equal(textOf(walk(row, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
+  assert.match(row.props['aria-label'], /Waiting for your answer/)
+  assert.doesNotMatch(row.props['aria-label'], /Waiting for your approval/)
 })
 
 test('a running Bot paused on a secret, connector, mail, question, or view card wears the alert mark and status line', () => {
