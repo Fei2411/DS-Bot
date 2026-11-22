@@ -27,7 +27,7 @@ import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
 import { BotModelsPage } from './bot-models-page.js'
-import { GuidePage, useDarkMode } from './guide-page.js'
+import { SettingsTour, canAutoStartTour, hasSectionTour, markTourSeen } from './settings-tour.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
@@ -41,7 +41,6 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // in-page segmented tabs inside multi-page domains. Every existing openSettings(page, id)
 // route resolves to its owning nav group and sub-tab.
 const NAV_GROUPS = [
-  { id: 'guide', label: 'Guide', icon: 'guide', pages: [['guide', 'Guide']], section: 'top' },
   { id: 'general', label: 'General', icon: 'general', pages: [['general', 'General']], section: 'main' },
   { id: 'appearance', label: 'Appearance', icon: 'appearance', pages: [['appearance', 'Appearance']], section: 'main' },
   {
@@ -94,11 +93,10 @@ export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== ''
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, guide: CompassIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // Search index covering every page, sub-tab, and key control (English + localized labels).
 const SEARCH_ENTRIES = [
-  { id: 'guide', label: 'Guide', group: 'Guide', page: 'guide', icon: 'guide', keywords: 'overview home setup start 导览 首页 快速配置' },
   { id: 'general', label: 'General', group: 'General', page: 'general', icon: 'general', keywords: 'basics language workspace 语言 工作区 默认模型' },
   { id: 'default-model', label: 'Default model', group: 'General', page: 'general', icon: 'general', keywords: 'new bots model 默认模型' },
   { id: 'enter-send', label: 'Enter sends message', group: 'General', page: 'general', icon: 'general', keywords: 'input keyboard enter 回车 发送' },
@@ -125,7 +123,7 @@ const SEARCH_ENTRIES = [
   { id: 'capabilities', label: 'Capabilities', group: 'Tools', page: 'capabilities', icon: 'capabilities', keywords: 'shared mcp skill pack 能力 技能 包' },
   { id: 'secrets', label: 'Secrets', group: 'Tools', page: 'secrets', icon: 'secrets', keywords: 'encrypt passphrase password keys 密钥 加密 口令' },
   { id: 'usage', label: 'Usage', group: 'Usage', page: 'usage', icon: 'usage', keywords: 'tokens cost stats chart 用量 统计 消耗' },
-  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update release github 关于 版本 更新' },
+  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update release github guide walkthrough 关于 版本 更新 引导' },
   { id: 'feedback', label: 'Feedback', group: 'About DS Bot', page: 'feedback', icon: 'feedback', keywords: 'bug error log diagnostics issue 反馈 报错 日志 诊断' },
 ]
 
@@ -160,13 +158,13 @@ function SecondsField({ label, value, save }) {
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
-function SetSection({ title, action = null, className = '', children }) {
-  return h('section', { className: `bt-set-section ${className}`.trim() },
+function SetSection({ title, action = null, className = '', tour = null, children }) {
+  return h('section', { className: `bt-set-section ${className}`.trim(), 'data-tour': tour || undefined },
     action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : title ? h('h3', null, title) : null,
     h('div', { className: 'bt-set-card' }, children))
 }
-function SetRow({ label, hint, children, className = '' }) {
-  return h('div', { className: `bt-set-row ${className}`.trim() },
+function SetRow({ label, hint, children, className = '', tour = null }) {
+  return h('div', { className: `bt-set-row ${className}`.trim(), 'data-tour': tour || undefined },
     h('div', { className: 'bt-set-copy' }, h('span', null, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
@@ -209,8 +207,22 @@ function WidthSlider({ label, value, save }) {
     h('output', null, `${width}%`))
 }
 
+function useDarkMode() {
+  const read = () => typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true
+  const [dark, setDark] = useState(read)
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.body || typeof MutationObserver !== 'function') return undefined
+    const sync = () => setDark(read())
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return dark
+}
+
 function ThemeGallery({ themes, current, dark, onPick }) {
-  return h('div', { className: 'bt-theme-grid', role: 'group', 'aria-label': t('Theme') },
+  return h('div', { className: 'bt-theme-grid', role: 'group', 'aria-label': t('Theme'), 'data-tour': 'theme-grid' },
     Object.entries(themes).map(([id, theme]) => {
       const palette = dark ? theme.dark : theme.light
       const active = current === id
@@ -271,7 +283,7 @@ function AppearancePage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'look', title: t('Theme') },
       h('div', { className: 'bt-set-row bt-theme-row' },
         h(ThemeGallery, { themes, current, dark, onPick: theme => run(actions.setPrefs({ theme })) })),
-      h(SetRow, { label: t('Accent') },
+      h(SetRow, { label: t('Accent'), tour: 'accent' },
         h('div', { className: 'bt-swatches' },
           h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => pickPreset(null) }),
           ACCENT_INKS.map(ink => h('button', {
@@ -281,13 +293,13 @@ function AppearancePage({ roster, actions, run, dsh }) {
           h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent) },
             h('input', { type: 'color', value: custom, 'aria-label': t('Custom accent'), onChange: event => pickCustom(event.target.value) })))),
       look.map(id => dshItem(dsh, id))),
-    h(SetSection, { key: 'messages', title: t('Messages') },
+    h(SetSection, { key: 'messages', title: t('Messages'), tour: 'layout' },
       h(SetRow, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === 'flat' ? h(SetRow, { label: t('Text width') }, h(WidthSlider, { label: t('Text width'), value: flatWidthOf(prefs), save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
-    h(SetSection, { key: 'motion', title: t('Motion') },
+    h(SetSection, { key: 'motion', title: t('Motion'), tour: 'motion' },
       h(SetRow, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(SetRow, { label: t('Bot animation') }, h(Choice, { label: t('Bot animation'), value: motion, options: MOTIONS, className: 'bt-motion-seg', pick: id => run(actions.setPrefs({ motion: id })) }))),
   ]
@@ -308,7 +320,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h(SetRow, { label: t('Bot mode') }, h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => actions.setSurface('bot') }, t('Switch')))) : null,
     h(SetSection, { key: 'basics', title: t('Basics') },
       basicDsh.includes('language') ? dshItem(dsh, 'language') : null,
-      h(SetRow, { label: t('Default model'), className: 'bt-set-model' },
+      h(SetRow, { label: t('Default model'), className: 'bt-set-model', tour: 'default-model' },
         h(ModelMenu, {
           bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
           roster, actions, run, wide: true, withEfforts: false,
@@ -325,6 +337,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
         type: 'button',
         className: 'bt-set-row bt-set-collapse',
         'aria-expanded': advancedOpen,
+        'data-tour': 'advanced',
         onClick: () => setAdvancedOpen(open => !open),
       },
       h('span', { className: 'bt-set-copy' },
@@ -372,7 +385,7 @@ function LocationsSection({ actions, run }) {
       setMoving(false)
     }))
   }
-  return h(SetSection, { title: t('Locations'), className: 'bt-set-places' },
+  return h(SetSection, { title: t('Locations'), className: 'bt-set-places', tour: 'locations' },
     h(SetRow, { label: t('Team workspace') },
       team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving })),
     data === null ? null : h(SetRow, { label: t('Data location'), hint: data.path },
@@ -385,7 +398,7 @@ function MainBotsSection({ roster, actions, run }) {
   const mains = (roster.mainBotIds ?? []).map(id => roster.byId[id]).filter(Boolean)
   const [first, ...others] = mains
   const candidates = roster.bots.filter(bot => !isMainOf(roster, bot.id))
-  return h(SetSection, { title: t('Main Bot') },
+  return h(SetSection, { title: t('Main Bot'), tour: 'main-bot' },
     h(SetRow, { label: t('Main Bot') },
       h('select', {
         className: 'bt-select', 'aria-label': t('Main Bot'), value: first?.id ?? '',
@@ -403,11 +416,11 @@ function MainBotsSection({ roster, actions, run }) {
 
 function BotsPage({ roster, actions, run }) {
   const [creating, setCreating] = useState(false)
-  const newBotBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setCreating(true) }, h(PlusIcon), t('New Bot'))
+  const newBotBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-bot', onClick: () => setCreating(true) }, h(PlusIcon), t('New Bot'))
   return [
     h(MainBotsSection, { key: 'main', roster, actions, run }),
     creating ? h(CreateBot, { key: 'create', roster, actions, inline: true, onBack: () => setCreating(false), onCreated: bot => actions.openSettings('bots', bot.id) }) : null,
-    h(SetSection, { key: 'bots', title: t('Bots · {count}', { count: roster.bots.length }), action: newBotBtn },
+    h(SetSection, { key: 'bots', title: t('Bots · {count}', { count: roster.bots.length }), action: newBotBtn, tour: 'bot-list' },
       roster.bots.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-set-row', onClick: () => actions.openSettings('bots', bot.id) },
         h('span', { className: 'bt-set-bot' },
           h(BotAvatar, { bot, size: 28, badge: false, live: false }),
@@ -422,10 +435,10 @@ function BotsPage({ roster, actions, run }) {
 
 function GroupsPage({ roster, actions, run }) {
   const [creating, setCreating] = useState(false)
-  const newGroupBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))
+  const newGroupBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-group', disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))
   return [
     creating ? h(NewGroupForm, { key: 'create', roster, actions, run, onCancel: () => setCreating(false), onCreated: room => actions.openSettings('groups', room.id) }) : null,
-    h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }), action: newGroupBtn },
+    h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }), action: newGroupBtn, tour: 'group-list' },
       roster.rooms.length === 0
         ? h(SetRow, { label: t('No group chats yet.') })
         : roster.rooms.map((room) => {
@@ -460,14 +473,30 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [query, setQuery] = useState('')
   const [hitIndex, setHitIndex] = useState(0)
   const [advancedToken, setAdvancedToken] = useState(0)
+  const [tour, setTour] = useState(() => (!leaving && page === 'general' && !id && canAutoStartTour() ? { mode: 'full', nonce: 1 } : null))
+  const dialogRef = useRef(null)
   const searchListRef = useRef(null)
-  const close = useCallback(() => actions.closeSettings(), [actions])
+  const tourRef = useRef(tour)
+  tourRef.current = tour
+  const close = useCallback(() => {
+    if (tourRef.current?.mode === 'full') markTourSeen()
+    actions.closeSettings()
+  }, [actions])
   const trimmed = query.trim().toLowerCase()
   const onEscape = useCallback(() => {
     if (query !== '') { setQuery(''); return }
-    actions.closeSettings()
-  }, [query, actions])
+    close()
+  }, [query, close])
   useEscape(onEscape, !leaving)
+  const startTour = useCallback((mode) => {
+    setQuery('')
+    setTour(prev => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+  const dismissTour = useCallback(() => setTour(null), [])
+  const navigateForTour = useCallback((nextPage) => {
+    setQuery('')
+    actions.openSettings(nextPage)
+  }, [actions])
   const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
@@ -559,6 +588,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
   useEffect(() => { setError('') }, [pageKey])
   useEffect(() => { if (shown !== 'general' && advancedToken !== 0) setAdvancedToken(0) }, [shown])
+  useEffect(() => {
+    if (tour && tour.mode !== 'full' && shown !== tour.mode) setTour(null)
+  }, [tour, shown])
   const depth = bot || room || advanced ? 1 : 0
   const last = useRef({ key: pageKey, depth, move: 'up' })
   if (last.current.key !== pageKey) {
@@ -573,7 +605,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
 
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id
-    const dotTone = (group.id === 'guide' || group.id === 'models') && needsModel ? 'warn'
+    const dotTone = group.id === 'models' && needsModel ? 'warn'
       : group.id === 'connect' && phoneConnected ? 'ok'
       : null
     return h('button', {
@@ -589,15 +621,15 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
 
   const subTabs = !section && depth === 0 && activeGroup.pages.length > 1 ? activeGroup.pages : null
-  const topGroups = groups.filter(group => group.section === 'top')
   const mainGroups = groups.filter(group => group.section === 'main')
   const lastGroups = groups.filter(group => group.section === 'last')
+  const showSectionGuide = !section && depth === 0 && !usageFocus && hasSectionTour(shown)
 
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
-    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
+    h('div', { ref: dialogRef, className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
       h('div', { className: 'bt-settings-rail' },
-        h('div', { className: 'bt-set-search' },
+        h('div', { className: 'bt-set-search', 'data-tour': 'search' },
           h(SearchIcon),
           h('input', {
             type: 'text',
@@ -650,8 +682,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
                   hit.groupTitle && hit.groupTitle !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.groupTitle) : null)))
           : h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
               h('span', { ref: nav.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-              topGroups.map(groupButton),
-              topGroups.length > 0 ? h('span', { className: 'bt-settings-rule', 'aria-hidden': true }) : null,
               mainGroups.map(groupButton),
               extra.length > 0 ? h('span', { className: 'bt-settings-rule', 'aria-hidden': true }) : null,
               extra.map(row => h('button', {
@@ -666,7 +696,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         h('div', { className: 'bt-settings-head' },
           back ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': back, title: back, onClick: () => actions.openSettings(shown) }, h(ChevronLeftIcon)) : null,
           h('h2', { key: bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : activeGroup.id) }, bot?.name ?? room?.name ?? label),
-          dsh ? h('div', { className: 'bt-settings-actions' }, dsh.renderSlot('settings.action', {})) : null),
+          h('div', { className: 'bt-settings-head-end' },
+            dsh ? h('div', { className: 'bt-settings-actions' }, dsh.renderSlot('settings.action', {})) : null,
+            showSectionGuide ? h('button', {
+              type: 'button',
+              className: 'bt-soft bt-soft-sm bt-with-icon bt-tour-trigger',
+              onClick: () => startTour(shown),
+            }, h(CompassIcon), t('Guide')) : null)),
         subTabs ? h('div', { className: 'bt-settings-subnav' },
           h(Segmented, { key: activeGroup.id, label: t(activeGroup.label), value: shown, className: 'bt-settings-tabs' },
             subTabs.map(([subKey, subLabel]) => h('button', {
@@ -680,7 +716,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         shown === 'usage' ? null : h('div', { key: pageKey, className: 'bt-settings-scroll bt-settings-page', 'data-move': last.current.move },
           errorLine,
           h(PageBoundary, null,
-          shown === 'guide' ? h(GuidePage, { roster, actions, run, dsh }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
           shown === 'appearance' ? h(AppearancePage, { roster, actions, run, dsh }) : null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
@@ -703,9 +738,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,
           shown === 'feedback' ? h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow }) : null,
-          shown === 'about' ? h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow }) : null)),
+          shown === 'about' ? h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, onStartTour: () => startTour('full') }) : null)),
         usageOpened ? h('div', { key: 'usage', className: 'bt-settings-scroll bt-settings-usage', 'data-off': shown === 'usage' ? undefined : '', 'aria-hidden': shown === 'usage' ? undefined : true },
           shown === 'usage' ? errorLine : null,
           h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
-      h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon))))
+      h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon)),
+      leaving ? null : h(SettingsTour, {
+        tour,
+        currentPage: shown,
+        dialogRef,
+        hasProviders,
+        hasAdvancedModels: hasSection(dsh, 'models'),
+        onNavigate: navigateForTour,
+        onDismiss: dismissTour,
+      })))
 }

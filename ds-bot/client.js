@@ -1974,26 +1974,65 @@ var JA = {
   // DeepSeek services
   "DeepSeek services": "DeepSeek サービス",
   "Guide": "ガイド",
+  "Settings guide": "設定ガイド",
+  "Next": "次へ",
   "Team": "チーム",
   "Tools": "ツール",
   "Providers": "プロバイダー",
   "Basics": "基本",
   "Advanced": "詳細",
   "Motion": "モーション",
-  "Set up": "設定する",
   "Allow action": "操作を許可",
-  "Not set": "未設定",
-  "{count} Bots": "{count} 体の Bot",
-  "{count} groups": "{count} 件のグループ",
   "Phone online": "スマホ接続中",
-  "On": "オン",
-  "{count} secrets": "{count} 件のシークレット",
-  "Encrypted": "暗号化済み",
   "Search settings": "設定を検索",
   "No matching settings": "一致する設定はありません",
   "Show QR code": "QR コードを表示",
   "Turn on & pair": "オンにしてペアリング",
   "Waiting for connection…": "接続を待っています…",
+  "Select Bots": "Bot を選択",
+  "Pick the default model new Bots start with.": "新しい Bot が最初に使うデフォルトモデルを選びます。",
+  "Click the folder menu to change the default team workspace.": "フォルダメニューをクリックして、デフォルトのチーム作業フォルダを変更します。",
+  "Click here to expand memory limits and background timeouts.": "ここをクリックするとメモリ上限やバックグラウンドのタイムアウトを展開します。",
+  "Click a preview card to switch the visual theme.": "プレビューカードをクリックしてテーマを切り替えます。",
+  "Pick a preset color or click the last swatch for a custom color.": "プリセット色を選ぶか、最後の色見本でカスタム色を指定します。",
+  "Switch between Bubble and Flat layout, or adjust width below.": "バブル表示とフラット表示を切り替え、下で幅を調整します。",
+  "Tune interface motion and Bot animation intensity here.": "ここで画面モーションと Bot アニメーションの強さを調整します。",
+  "Click any provider row to expand it and enter your API key.": "プロバイダー行をクリックして展開し、API キーを入力します。",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "ここをクリックして OpenAI・Anthropic・Gemini 互換エンドポイントを追加します。",
+  "Click here to tune context windows, thinking levels, and model order.": "ここをクリックしてコンテキスト長・思考レベル・モデル順を調整します。",
+  "Check the Bots whose model you want to switch together.": "まとめてモデルを変更したい Bot にチェックを入れます。",
+  'Click "Select all" or pick a model here to apply it in one click.': "「すべて選択」を押すか、ここでモデルを選ぶと一括適用されます。",
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': "「更新」でローカル CLI を検出し、「サインイン」でログインコマンドをコピーします。",
+  'Click "+ Add agent" to register an ACP-compatible command.': "「+ エージェントを追加」から ACP 対応コマンドを登録します。",
+  'Confirm the API key is ready, or click "Manage models" to set it up.': "API キーが準備済みか確認し、未設定なら「モデルを管理」から設定します。",
+  "Turn on this switch to read images and documents with DeepSeek.": "このスイッチをオンにすると DeepSeek で画像や文書を読み取ります。",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "ここで音声読み上げを DeepSeek に切り替えるか、下で音声入力を有効にします。",
+  "Pick your primary Main Bot from this dropdown.": "このドロップダウンからメイン Bot を選びます。",
+  'Click "+ New Bot" to create a new team member.': "「+ 新しい Bot」をクリックしてメンバーを作成します。",
+  "Click any Bot row to edit its role, model, folder, and permissions.": "Bot 行をクリックすると役割・モデル・フォルダ・権限を編集できます。",
+  'Click "+ Create group chat" to put multiple Bots in one room.': "「+ グループチャットを作成」で複数の Bot を同じ部屋にまとめます。",
+  "Click a group row to change its members, admin, or shared folder.": "グループ行をクリックするとメンバー・管理者・共有フォルダを変更できます。",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': "「+ 新しいタスク」で実行する Bot・スケジュール・指示を設定します。",
+  'Search an app here, or click "+ Custom" to add your own MCP server.': "ここでアプリを検索するか、「+ カスタム」で独自の MCP サーバーを追加します。",
+  'Click "Connect" on any card to sign in or paste credentials.': "各カードの「接続」をクリックしてサインインまたは認証情報を入力します。",
+  "Click a platform below and follow its steps to bind a Bot.": "下のプラットフォームを選んで手順どおりに設定し、Bot を紐付けます。",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': "「オンにしてペアリング」で 1 回限りの QR コードを表示し、スマホで読み取ります。",
+  'Click "Edit" here only if you host your own relay server.': "独自の中継サーバーを運用している場合のみ、ここで「編集」をクリックします。",
+  "Turn on this switch so other local agents can reach your Bots.": "このスイッチをオンにすると、この端末の他エージェントから Bot に接続できます。",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': "クライアント名を入力して「トークンを作成」を押し、下で許可する Bot を選びます。",
+  "Turn on this switch and grant system permissions when prompted.": "このスイッチをオンにし、表示されたシステム権限を許可します。",
+  "Pick how each Bot may control the computer from its dropdown.": "各 Bot のドロップダウンからパソコン操作の許可レベルを選びます。",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': "「+ 操作を許可」から投稿・アップロード・ダウンロード・削除を事前許可できます。",
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': "「+ 機能を追加」から共有 MCP・スキル・パックを追加します。",
+  "Click here to protect saved keys on disk with a passphrase.": "ここをクリックしてパスフレーズで保存済みキーを暗号化します。",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': "「+ キーを追加」でキーを保存し、使える Bot を指定します。",
+  "Switch time ranges here or pick custom dates from the calendar.": "ここで期間を切り替えるか、カレンダーから任意の日付を選びます。",
+  "Type a keyword here to jump straight to any setting.": "ここにキーワードを入力すると、目的の設定へすぐ移動できます。",
+  'Click a provider to enter your API key, or click "+ Add a provider".': "プロバイダーを押して API キーを入力するか、「+ プロバイダーを追加」を押します。",
+  "Select Bots below and pick a model here to switch them together.": "下で Bot を選び、ここでモデルを選ぶとまとめて切り替えられます。",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': "「+ 新しい Bot」でメンバーを追加し、下の行から個別設定できます。",
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "上のタブでコネクターや IM に切り替え、ここでスマホをペアリングできます。",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": "ここでテーマや配色・レイアウトを変更できます。このガイドは「DS Bot について」からいつでも再開できます。",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
   "Find it in Plugins → Web search.": "プラグイン → ウェブ検索 にあります。",
@@ -4650,26 +4689,65 @@ var KO = {
   // DeepSeek services
   "DeepSeek services": "DeepSeek 서비스",
   Guide: "가이드",
+  "Settings guide": "설정 가이드",
+  Next: "다음",
   Team: "팀",
   Tools: "도구",
   Providers: "공급자",
   Basics: "기본",
   Advanced: "고급",
   Motion: "모션",
-  "Set up": "설정하기",
   "Allow action": "작업 허용",
-  "Not set": "미설정",
-  "{count} Bots": "Bot {count}개",
-  "{count} groups": "그룹 {count}개",
   "Phone online": "휴대폰 온라인",
-  On: "켜짐",
-  "{count} secrets": "시크릿 {count}개",
-  Encrypted: "암호화됨",
   "Search settings": "설정 검색",
   "No matching settings": "일치하는 설정이 없습니다",
   "Show QR code": "QR 코드 표시",
   "Turn on & pair": "켜고 페어링",
   "Waiting for connection…": "연결 대기 중…",
+  "Select Bots": "Bot 선택",
+  "Pick the default model new Bots start with.": "새 Bot이 기본으로 사용할 모델을 선택하세요.",
+  "Click the folder menu to change the default team workspace.": "폴더 메뉴를 눌러 기본 팀 작업 폴더를 변경하세요.",
+  "Click here to expand memory limits and background timeouts.": "여기를 눌러 메모리 한도와 백그라운드 시간 제한을 펼치세요.",
+  "Click a preview card to switch the visual theme.": "미리보기 카드를 눌러 테마를 전환하세요.",
+  "Pick a preset color or click the last swatch for a custom color.": "프리셋 색상을 고르거나 마지막 색상 칸에서 직접 지정하세요.",
+  "Switch between Bubble and Flat layout, or adjust width below.": "말풍선/플랫 레이아웃을 전환하고 아래에서 너비를 조절하세요.",
+  "Tune interface motion and Bot animation intensity here.": "여기서 인터페이스 모션과 Bot 애니메이션 강도를 조절하세요.",
+  "Click any provider row to expand it and enter your API key.": "공급자 행을 눌러 펼친 뒤 API 키를 입력하세요.",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "여기를 눌러 사용자 지정 OpenAI·Anthropic·Gemini 엔드포인트를 추가하세요.",
+  "Click here to tune context windows, thinking levels, and model order.": "여기를 눌러 컨텍스트 길이, 사고 수준, 모델 순서를 조정하세요.",
+  "Check the Bots whose model you want to switch together.": "모델을 한꺼번에 바꿀 Bot을 체크하세요.",
+  'Click "Select all" or pick a model here to apply it in one click.': '"모두 선택"을 누르거나 여기서 모델을 고르면 한 번에 적용됩니다.',
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': '"새로고침"으로 로컬 CLI를 찾고, "로그인"으로 로그인 명령을 복사하세요.',
+  'Click "+ Add agent" to register an ACP-compatible command.': '"+ 에이전트 추가"를 눌러 ACP 호환 명령을 등록하세요.',
+  'Confirm the API key is ready, or click "Manage models" to set it up.': 'API 키 상태를 확인하고 미설정이면 "모델 관리"에서 입력하세요.',
+  "Turn on this switch to read images and documents with DeepSeek.": "이 스위치를 켜면 DeepSeek으로 이미지와 문서를 읽습니다.",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "여기서 음성 읽기를 DeepSeek으로 바꾸거나 아래에서 음성 입력을 켜세요.",
+  "Pick your primary Main Bot from this dropdown.": "이 드롭다운에서 대표 메인 Bot을 선택하세요.",
+  'Click "+ New Bot" to create a new team member.': '"+ 새 Bot"을 눌러 새 팀원을 만드세요.',
+  "Click any Bot row to edit its role, model, folder, and permissions.": "Bot 행을 눌러 역할, 모델, 폴더, 권한을 편집하세요.",
+  'Click "+ Create group chat" to put multiple Bots in one room.': '"+ 그룹 채팅 만들기"를 눌러 여러 Bot을 한 방에 모으세요.',
+  "Click a group row to change its members, admin, or shared folder.": "그룹 행을 눌러 멤버, 관리자, 공유 폴더를 변경하세요.",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': '"+ 새 작업"을 눌러 실행할 Bot, 일정, 프롬프트를 설정하세요.',
+  'Search an app here, or click "+ Custom" to add your own MCP server.': '여기서 앱을 검색하거나 "+ 사용자 지정"으로 MCP 서버를 추가하세요.',
+  'Click "Connect" on any card to sign in or paste credentials.': '카드의 "연결"을 눌러 로그인하거나 인증 정보를 입력하세요.',
+  "Click a platform below and follow its steps to bind a Bot.": "아래 플랫폼을 누르고 안내에 따라 Bot을 연결하세요.",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': '"켜고 페어링"을 눌러 일회용 QR 코드를 띄운 뒤 휴대폰으로 스캔하세요.',
+  'Click "Edit" here only if you host your own relay server.': '자체 중계 서버를 운영할 때만 여기서 "편집"을 누르세요.',
+  "Turn on this switch so other local agents can reach your Bots.": "이 스위치를 켜면 이 컴퓨터의 다른 에이전트가 Bot에 접근할 수 있습니다.",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': '클라이언트 이름을 적고 "토큰 생성"을 누른 뒤 아래에서 허용할 Bot을 고르세요.',
+  "Turn on this switch and grant system permissions when prompted.": "이 스위치를 켜고 안내에 따라 시스템 권한을 허용하세요.",
+  "Pick how each Bot may control the computer from its dropdown.": "각 Bot 드롭다운에서 컴퓨터 제어 수준을 선택하세요.",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': '"+ 작업 허용"을 눌러 게시·업로드·다운로드·삭제를 미리 허용하세요.',
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': '"+ 기능 추가"를 눌러 공유 MCP 서버, 스킬 또는 팩을 추가하세요.',
+  "Click here to protect saved keys on disk with a passphrase.": "여기를 눌러 암호문으로 저장된 키를 암호화하세요.",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': '"+ 키 추가"를 눌러 키를 저장하고 사용할 Bot을 선택하세요.',
+  "Switch time ranges here or pick custom dates from the calendar.": "여기서 기간을 바꾸거나 달력에서 직접 날짜를 선택하세요.",
+  "Type a keyword here to jump straight to any setting.": "여기에 키워드를 입력해 원하는 설정으로 바로 이동하세요.",
+  'Click a provider to enter your API key, or click "+ Add a provider".': '공급자를 눌러 API 키를 입력하거나 "+ 공급자 추가"를 누르세요.',
+  "Select Bots below and pick a model here to switch them together.": "아래에서 Bot을 고르고 여기서 모델을 선택해 한 번에 전환하세요.",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': '"+ 새 Bot"으로 멤버를 추가하거나 아래 행을 눌러 개별 편집하세요.',
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "위 탭에서 커넥터나 IM을 전환하고, 여기서 휴대폰을 페어링하세요.",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": '여기서 테마, 강조색, 레이아웃을 바꿀 수 있습니다. "DS Bot 정보"에서 언제든 다시 볼 수 있습니다.',
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
   "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
@@ -7327,26 +7405,65 @@ var ES = {
   // DeepSeek services
   "DeepSeek services": "Servicios de DeepSeek",
   Guide: "Guía",
+  "Settings guide": "Guía de ajustes",
+  Next: "Siguiente",
   Team: "Equipo",
   Tools: "Herramientas",
   Providers: "Proveedores",
   Basics: "Básicos",
   Advanced: "Avanzado",
   Motion: "Movimiento",
-  "Set up": "Configurar",
   "Allow action": "Permitir acción",
-  "Not set": "Sin configurar",
-  "{count} Bots": "{count} Bots",
-  "{count} groups": "{count} grupos",
   "Phone online": "Teléfono en línea",
-  On: "Activado",
-  "{count} secrets": "{count} secretos",
-  Encrypted: "Cifrado",
   "Search settings": "Buscar ajustes",
   "No matching settings": "No hay ajustes coincidentes",
   "Show QR code": "Mostrar código QR",
   "Turn on & pair": "Activar y vincular",
   "Waiting for connection…": "Esperando conexión…",
+  "Select Bots": "Seleccionar Bots",
+  "Pick the default model new Bots start with.": "Elige el modelo predeterminado para los nuevos Bots.",
+  "Click the folder menu to change the default team workspace.": "Haz clic en el menú de carpeta para cambiar el espacio de trabajo predeterminado.",
+  "Click here to expand memory limits and background timeouts.": "Haz clic aquí para desplegar límites de memoria y tiempos en segundo plano.",
+  "Click a preview card to switch the visual theme.": "Haz clic en una tarjeta de vista previa para cambiar el tema.",
+  "Pick a preset color or click the last swatch for a custom color.": "Elige un color predefinido o haz clic en la última muestra para personalizarlo.",
+  "Switch between Bubble and Flat layout, or adjust width below.": "Alterna entre diseño de burbuja y plano, o ajusta el ancho abajo.",
+  "Tune interface motion and Bot animation intensity here.": "Ajusta aquí las transiciones de la interfaz y la animación de los Bots.",
+  "Click any provider row to expand it and enter your API key.": "Haz clic en un proveedor para desplegarlo e introducir tu clave API.",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "Haz clic aquí para añadir un endpoint personalizado de OpenAI, Anthropic o Gemini.",
+  "Click here to tune context windows, thinking levels, and model order.": "Haz clic aquí para ajustar contexto, niveles de razonamiento y orden de modelos.",
+  "Check the Bots whose model you want to switch together.": "Marca los Bots cuyo modelo quieres cambiar a la vez.",
+  'Click "Select all" or pick a model here to apply it in one click.': 'Pulsa "Seleccionar todo" o elige un modelo aquí para aplicarlo en un clic.',
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': 'Pulsa "Actualizar" para detectar CLI locales o "Iniciar sesión" para copiar el comando.',
+  'Click "+ Add agent" to register an ACP-compatible command.': 'Pulsa "+ Añadir agente" para registrar un comando compatible con ACP.',
+  'Confirm the API key is ready, or click "Manage models" to set it up.': 'Comprueba que la clave API esté lista o pulsa "Gestionar modelos" para configurarla.',
+  "Turn on this switch to read images and documents with DeepSeek.": "Activa este interruptor para leer imágenes y documentos con DeepSeek.",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "Cambia a DeepSeek aquí para lectura en voz alta o activa el dictado abajo.",
+  "Pick your primary Main Bot from this dropdown.": "Elige tu Bot principal en este desplegable.",
+  'Click "+ New Bot" to create a new team member.': 'Pulsa "+ Nuevo Bot" para crear un nuevo miembro.',
+  "Click any Bot row to edit its role, model, folder, and permissions.": "Haz clic en cualquier Bot para editar su rol, modelo, carpeta y permisos.",
+  'Click "+ Create group chat" to put multiple Bots in one room.': 'Pulsa "+ Crear chat grupal" para reunir varios Bots en una sala.',
+  "Click a group row to change its members, admin, or shared folder.": "Haz clic en un grupo para cambiar miembros, administrador o carpeta compartida.",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': 'Pulsa "+ Nueva tarea" para elegir Bot, horario e instrucción.',
+  'Search an app here, or click "+ Custom" to add your own MCP server.': 'Busca una aplicación aquí o pulsa "+ Personalizado" para añadir tu servidor MCP.',
+  'Click "Connect" on any card to sign in or paste credentials.': 'Pulsa "Conectar" en cualquier tarjeta para iniciar sesión o pegar credenciales.',
+  "Click a platform below and follow its steps to bind a Bot.": "Haz clic en una plataforma abajo y sigue los pasos para vincular un Bot.",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': 'Pulsa "Activar y vincular" para mostrar un código QR único y escanéalo con tu teléfono.',
+  'Click "Edit" here only if you host your own relay server.': 'Pulsa "Editar" aquí solo si alojas tu propio servidor de retransmisión.',
+  "Turn on this switch so other local agents can reach your Bots.": "Activa este interruptor para que otros agentes locales accedan a tus Bots.",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': 'Escribe un nombre de cliente, pulsa "Crear token" y elige abajo los Bots permitidos.',
+  "Turn on this switch and grant system permissions when prompted.": "Activa este interruptor y concede los permisos del sistema cuando se soliciten.",
+  "Pick how each Bot may control the computer from its dropdown.": "Elige el nivel de control del ordenador de cada Bot en su desplegable.",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': 'Pulsa "+ Permitir acción" para aprobar de antemano envíos, subidas, descargas o borrados.',
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': 'Pulsa "+ Añadir capacidad" para añadir un servidor MCP, habilidad o paquete compartido.',
+  "Click here to protect saved keys on disk with a passphrase.": "Haz clic aquí para proteger las claves guardadas con una frase de paso.",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': 'Pulsa "+ Añadir clave" para guardar una clave y elegir qué Bots pueden usarla.',
+  "Switch time ranges here or pick custom dates from the calendar.": "Cambia el rango de tiempo aquí o elige fechas en el calendario.",
+  "Type a keyword here to jump straight to any setting.": "Escribe una palabra clave aquí para ir directo a cualquier ajuste.",
+  'Click a provider to enter your API key, or click "+ Add a provider".': 'Haz clic en un proveedor para poner tu clave API o pulsa "+ Añadir proveedor".',
+  "Select Bots below and pick a model here to switch them together.": "Marca Bots abajo y elige un modelo aquí para cambiarlos a la vez.",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': 'Pulsa "+ Nuevo Bot" para añadir un miembro o haz clic en una fila para editarlo.',
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "Usa las pestañas de arriba para conectores o IM, o pulsa aquí para vincular tu teléfono.",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": "Elige aquí tema, color de acento y diseño. Puedes repetir esta guía en Acerca de DS Bot.",
   "DeepSeek API": "API de DeepSeek",
   "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
   "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
@@ -9960,26 +10077,65 @@ var FR = {
   // DeepSeek services
   "DeepSeek services": "Services DeepSeek",
   "Guide": "Guide",
+  "Settings guide": "Guide des paramètres",
+  "Next": "Suivant",
   "Team": "Équipe",
   "Tools": "Outils",
   "Providers": "Fournisseurs",
   "Basics": "Essentiel",
   "Advanced": "Avancé",
   "Motion": "Mouvement",
-  "Set up": "Configurer",
   "Allow action": "Autoriser une action",
-  "Not set": "Non défini",
-  "{count} Bots": "{count} Bots",
-  "{count} groups": "{count} groupes",
   "Phone online": "Téléphone en ligne",
-  "On": "Activé",
-  "{count} secrets": "{count} secrets",
-  "Encrypted": "Chiffré",
   "Search settings": "Rechercher dans les paramètres",
   "No matching settings": "Aucun paramètre correspondant",
   "Show QR code": "Afficher le code QR",
   "Turn on & pair": "Activer et associer",
   "Waiting for connection…": "En attente de connexion…",
+  "Select Bots": "Sélectionner des Bots",
+  "Pick the default model new Bots start with.": "Choisissez le modèle par défaut attribué aux nouveaux Bots.",
+  "Click the folder menu to change the default team workspace.": "Cliquez sur le menu de dossier pour changer l’espace de travail par défaut.",
+  "Click here to expand memory limits and background timeouts.": "Cliquez ici pour afficher les limites de mémoire et délais en arrière-plan.",
+  "Click a preview card to switch the visual theme.": "Cliquez sur une carte d’aperçu pour changer le thème.",
+  "Pick a preset color or click the last swatch for a custom color.": "Choisissez une couleur prédéfinie ou cliquez sur la dernière pastille pour personnaliser.",
+  "Switch between Bubble and Flat layout, or adjust width below.": "Basculez entre bulles et plat, ou ajustez la largeur ci-dessous.",
+  "Tune interface motion and Bot animation intensity here.": "Réglez ici les transitions de l’interface et l’animation des Bots.",
+  "Click any provider row to expand it and enter your API key.": "Cliquez sur un fournisseur pour l’ouvrir et saisir votre clé API.",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "Cliquez ici pour ajouter un point de terminaison OpenAI, Anthropic ou Gemini.",
+  "Click here to tune context windows, thinking levels, and model order.": "Cliquez ici pour régler contexte, niveaux de réflexion et ordre des modèles.",
+  "Check the Bots whose model you want to switch together.": "Cochez les Bots dont vous souhaitez changer le modèle en même temps.",
+  'Click "Select all" or pick a model here to apply it in one click.': "Cliquez sur « Tout sélectionner » ou choisissez un modèle ici pour l’appliquer.",
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': "Cliquez sur « Actualiser » pour détecter les CLI ou sur « Se connecter » pour copier la commande.",
+  'Click "+ Add agent" to register an ACP-compatible command.': "Cliquez sur « + Ajouter un agent » pour enregistrer une commande ACP.",
+  'Confirm the API key is ready, or click "Manage models" to set it up.': "Vérifiez que la clé API est prête ou cliquez sur « Gérer les modèles ».",
+  "Turn on this switch to read images and documents with DeepSeek.": "Activez cet interrupteur pour lire images et documents avec DeepSeek.",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "Passez à DeepSeek ici pour la lecture vocale, ou activez la dictée ci-dessous.",
+  "Pick your primary Main Bot from this dropdown.": "Choisissez votre Bot principal dans ce menu déroulant.",
+  'Click "+ New Bot" to create a new team member.': "Cliquez sur « + Nouveau Bot » pour créer un membre.",
+  "Click any Bot row to edit its role, model, folder, and permissions.": "Cliquez sur un Bot pour modifier son rôle, modèle, dossier et autorisations.",
+  'Click "+ Create group chat" to put multiple Bots in one room.': "Cliquez sur « + Créer un groupe » pour réunir plusieurs Bots.",
+  "Click a group row to change its members, admin, or shared folder.": "Cliquez sur un groupe pour modifier ses membres, son admin ou son dossier partagé.",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': "Cliquez sur « + Nouvelle tâche » pour définir le Bot, la fréquence et la consigne.",
+  'Search an app here, or click "+ Custom" to add your own MCP server.': "Recherchez une app ici ou cliquez sur « + Personnalisé » pour ajouter un serveur MCP.",
+  'Click "Connect" on any card to sign in or paste credentials.': "Cliquez sur « Connecter » sur une carte pour vous connecter ou coller vos identifiants.",
+  "Click a platform below and follow its steps to bind a Bot.": "Cliquez sur une plateforme ci-dessous et suivez les étapes pour lier un Bot.",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': "Cliquez sur « Activer et associer » pour afficher un QR code unique à scanner sur téléphone.",
+  'Click "Edit" here only if you host your own relay server.': "Cliquez sur « Modifier » ici uniquement si vous hébergez votre propre relais.",
+  "Turn on this switch so other local agents can reach your Bots.": "Activez cet interrupteur pour permettre aux autres agents locaux d’accéder à vos Bots.",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': "Saisissez un nom de client, cliquez sur « Créer un jeton », puis choisissez les Bots autorisés.",
+  "Turn on this switch and grant system permissions when prompted.": "Activez cet interrupteur et accordez les autorisations système demandées.",
+  "Pick how each Bot may control the computer from its dropdown.": "Choisissez le niveau de contrôle de l’ordinateur de chaque Bot dans son menu.",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': "Cliquez sur « + Autoriser une action » pour pré-approuver envois, téléchargements ou suppressions.",
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': "Cliquez sur « + Ajouter une capacité » pour ajouter un serveur MCP, une compétence ou un pack.",
+  "Click here to protect saved keys on disk with a passphrase.": "Cliquez ici pour chiffrer les clés enregistrées avec une phrase secrète.",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': "Cliquez sur « + Ajouter une clé » pour enregistrer une clé et choisir les Bots autorisés.",
+  "Switch time ranges here or pick custom dates from the calendar.": "Changez la période ici ou choisissez des dates dans le calendrier.",
+  "Type a keyword here to jump straight to any setting.": "Saisissez un mot-clé ici pour accéder directement à n’importe quel paramètre.",
+  'Click a provider to enter your API key, or click "+ Add a provider".': "Cliquez sur un fournisseur pour saisir votre clé API ou sur « + Ajouter un fournisseur ».",
+  "Select Bots below and pick a model here to switch them together.": "Sélectionnez des Bots ci-dessous puis choisissez un modèle ici pour les basculer ensemble.",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': "Cliquez sur « + Nouveau Bot » pour ajouter un membre ou sur une ligne pour le modifier.",
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "Utilisez les onglets ci-dessus pour les connecteurs ou la messagerie, ou cliquez ici pour associer votre téléphone.",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": "Choisissez ici thème, couleur et disposition. Relancez ce guide dans À propos de DS Bot.",
   "DeepSeek API": "API DeepSeek",
   "DeepSeek Web Search API": "API de recherche web DeepSeek",
   "Find it in Plugins → Web search.": "Dans Plugins → Recherche web.",
@@ -12635,27 +12791,66 @@ var DE = {
   "{name} waits for the computer": "{name} wartet, bis du fertig bist",
   // DeepSeek services
   "DeepSeek services": "DeepSeek-Dienste",
-  Guide: "Übersicht",
+  Guide: "Anleitung",
+  "Settings guide": "Einstellungs-Anleitung",
+  Next: "Weiter",
   Team: "Team",
   Tools: "Werkzeuge",
   Providers: "Anbieter",
   Basics: "Grundlagen",
   Advanced: "Erweitert",
   Motion: "Bewegung",
-  "Set up": "Einrichten",
   "Allow action": "Aktion erlauben",
-  "Not set": "Nicht festgelegt",
-  "{count} Bots": "{count} Bots",
-  "{count} groups": "{count} Gruppen",
   "Phone online": "Telefon online",
-  On: "Ein",
-  "{count} secrets": "{count} Geheimnisse",
-  Encrypted: "Verschlüsselt",
   "Search settings": "Einstellungen durchsuchen",
   "No matching settings": "Keine passenden Einstellungen",
   "Show QR code": "QR-Code anzeigen",
   "Turn on & pair": "Aktivieren und koppeln",
   "Waiting for connection…": "Warte auf Verbindung…",
+  "Select Bots": "Bots auswählen",
+  "Pick the default model new Bots start with.": "Wähle das Standardmodell für neue Bots.",
+  "Click the folder menu to change the default team workspace.": "Klicke auf das Ordnermenü, um den Standard-Arbeitsbereich zu ändern.",
+  "Click here to expand memory limits and background timeouts.": "Hier klicken, um Speicherlimits und Hintergrund-Timeouts anzuzeigen.",
+  "Click a preview card to switch the visual theme.": "Klicke auf eine Vorschaukarte, um das Design zu wechseln.",
+  "Pick a preset color or click the last swatch for a custom color.": "Wähle eine Farbe oder klicke auf das letzte Feld für eine eigene Farbe.",
+  "Switch between Bubble and Flat layout, or adjust width below.": "Wechsle zwischen Blasen- und Flach-Layout oder passe unten die Breite an.",
+  "Tune interface motion and Bot animation intensity here.": "Stelle hier Oberflächen-Bewegungen und Bot-Animationen ein.",
+  "Click any provider row to expand it and enter your API key.": "Klicke auf einen Anbieter, um ihn zu öffnen und den API-Schlüssel einzugeben.",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "Hier klicken, um einen eigenen OpenAI-, Anthropic- oder Gemini-Endpunkt hinzuzufügen.",
+  "Click here to tune context windows, thinking levels, and model order.": "Hier klicken, um Kontextfenster, Denkstufen und Modellreihenfolge anzupassen.",
+  "Check the Bots whose model you want to switch together.": "Hake die Bots an, deren Modell du gemeinsam wechseln möchtest.",
+  'Click "Select all" or pick a model here to apply it in one click.': "Klicke auf „Alle auswählen“ oder wähle hier ein Modell zum sofortigen Anwenden.",
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': "Klicke auf „Aktualisieren“ zum Suchen oder auf „Anmelden“, um den Befehl zu kopieren.",
+  'Click "+ Add agent" to register an ACP-compatible command.': "Klicke auf „+ Agent hinzufügen“, um einen ACP-Befehl einzutragen.",
+  'Confirm the API key is ready, or click "Manage models" to set it up.': "Prüfe, ob der API-Schlüssel bereit ist, oder klicke auf „Modelle verwalten“.",
+  "Turn on this switch to read images and documents with DeepSeek.": "Aktiviere diesen Schalter, damit DeepSeek Bilder und Dokumente liest.",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "Wechsle hier für Sprachausgabe zu DeepSeek oder aktiviere unten das Diktat.",
+  "Pick your primary Main Bot from this dropdown.": "Wähle hier deinen primären Haupt-Bot.",
+  'Click "+ New Bot" to create a new team member.': "Klicke auf „+ Neuer Bot“, um ein neues Mitglied zu erstellen.",
+  "Click any Bot row to edit its role, model, folder, and permissions.": "Klicke auf einen Bot, um Rolle, Modell, Ordner und Rechte zu bearbeiten.",
+  'Click "+ Create group chat" to put multiple Bots in one room.': "Klicke auf „+ Gruppenchat erstellen“, um mehrere Bots zusammenzubringen.",
+  "Click a group row to change its members, admin, or shared folder.": "Klicke auf eine Gruppe, um Mitglieder, Admin oder gemeinsamen Ordner zu ändern.",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': "Klicke auf „+ Neue Aufgabe“, um Bot, Zeitplan und Auftrag festzulegen.",
+  'Search an app here, or click "+ Custom" to add your own MCP server.': "Suche hier nach einer App oder füge mit „+ Benutzerdefiniert“ deinen MCP-Server hinzu.",
+  'Click "Connect" on any card to sign in or paste credentials.': "Klicke auf „Verbinden“ einer Karte, um dich anzumelden oder Zugangsdaten einzugeben.",
+  "Click a platform below and follow its steps to bind a Bot.": "Wähle unten eine Plattform und folge den Schritten, um einen Bot zu verbinden.",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': "Klicke auf „Aktivieren und koppeln“ für einen einmaligen QR-Code und scanne ihn am Handy.",
+  'Click "Edit" here only if you host your own relay server.': "Klicke hier nur auf „Bearbeiten“, wenn du einen eigenen Relay-Server betreibst.",
+  "Turn on this switch so other local agents can reach your Bots.": "Aktiviere diesen Schalter, damit andere lokale Agenten deine Bots erreichen.",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': "Gib einen Client-Namen ein, klicke auf „Token erstellen“ und wähle unten erlaubte Bots.",
+  "Turn on this switch and grant system permissions when prompted.": "Aktiviere diesen Schalter und erteile bei Aufforderung die Systemrechte.",
+  "Pick how each Bot may control the computer from its dropdown.": "Wähle pro Bot im Menü, wie er den Computer steuern darf.",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': "Klicke auf „+ Aktion erlauben“, um Posten, Hoch-/Herunterladen oder Löschen vorab freizugeben.",
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': "Klicke auf „+ Fähigkeit hinzufügen“ für gemeinsame MCP-Server, Skills oder Pakete.",
+  "Click here to protect saved keys on disk with a passphrase.": "Hier klicken, um gespeicherte Schlüssel mit einer Passphrase zu verschlüsseln.",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': "Klicke auf „+ Schlüssel hinzufügen“, um einen Schlüssel zu speichern und Bots freizuschalten.",
+  "Switch time ranges here or pick custom dates from the calendar.": "Wechsle hier den Zeitraum oder wähle im Kalender eigene Daten.",
+  "Type a keyword here to jump straight to any setting.": "Gib hier ein Stichwort ein, um direkt zu einer Einstellung zu springen.",
+  'Click a provider to enter your API key, or click "+ Add a provider".': "Klicke auf einen Anbieter für den API-Schlüssel oder auf „+ Anbieter hinzufügen“.",
+  "Select Bots below and pick a model here to switch them together.": "Wähle unten Bots aus und bestimme hier das gemeinsame Modell.",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': "Klicke auf „+ Neuer Bot“ für ein Mitglied oder auf eine Zeile zum Bearbeiten.",
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "Wechsle oben zu Connectors oder IM oder klicke hier, um dein Handy zu koppeln.",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": "Wähle hier Design, Akzentfarbe und Layout. Starte diese Anleitung jederzeit unter Über DS Bot neu.",
   "DeepSeek API": "DeepSeek-API",
   "DeepSeek Web Search API": "DeepSeek-Websuche-API",
   "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
@@ -14180,27 +14375,67 @@ var ZH = {
   "Close settings": "关闭设置",
   // DeepSeek services
   "DeepSeek services": "DeepSeek 服务",
-  Guide: "导览",
+  // Settings navigation & walkthrough
+  Guide: "引导",
+  "Settings guide": "设置引导",
+  Next: "下一步",
   Team: "团队",
   Tools: "工具",
   Providers: "服务商",
   Basics: "基础",
   Advanced: "高级",
   Motion: "动效",
-  "Set up": "去设置",
   "Allow action": "允许操作",
-  "Not set": "未设置",
-  "{count} Bots": "{count} 个 Bot",
-  "{count} groups": "{count} 个群聊",
   "Phone online": "手机已在线",
-  On: "开",
-  "{count} secrets": "{count} 个密钥",
-  Encrypted: "已加密",
   "Search settings": "搜索设置",
   "No matching settings": "没有匹配的设置",
   "Show QR code": "显示二维码",
   "Turn on & pair": "开启并配对",
   "Waiting for connection…": "等待连接…",
+  "Select Bots": "选择 Bot",
+  "Pick the default model new Bots start with.": "为新建的 Bot 指定默认模型。",
+  "Click the folder menu to change the default team workspace.": "点文件夹菜单，切换 Bot 默认干活的总工作区。",
+  "Click here to expand memory limits and background timeouts.": "点这里展开记忆上限和后台命令超时设置。",
+  "Click a preview card to switch the visual theme.": "点击预览卡片即可切换界面主题。",
+  "Pick a preset color or click the last swatch for a custom color.": "选一个预设强调色，或点最后一个色块自定义。",
+  "Switch between Bubble and Flat layout, or adjust width below.": "切换气泡/平铺排版，并在下方调节宽度。",
+  "Tune interface motion and Bot animation intensity here.": "在这里调节界面动效和 Bot 动画幅度。",
+  "Click any provider row to expand it and enter your API key.": "点击任意服务商展开面板，填入 API 密钥并保存。",
+  "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint.": "点这里接入自定义的 OpenAI、Anthropic 或 Gemini 接口。",
+  "Click here to tune context windows, thinking levels, and model order.": "点这里调整上下文长度、思考档位和模型排序。",
+  "Check the Bots whose model you want to switch together.": "勾选需要批量切换模型的 Bot。",
+  'Click "Select all" or pick a model here to apply it in one click.': "点「全选」或在这里选一个模型，一键应用到已选 Bot。",
+  'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.': "点「刷新」扫描本机 CLI，未登录时点「登录」复制登录命令。",
+  'Click "+ Add agent" to register an ACP-compatible command.': "点「添加代理」，通过命令接入自定义 ACP 代理。",
+  'Confirm the API key is ready, or click "Manage models" to set it up.': "先确认密钥已就绪，未配置时点「管理模型」填入。",
+  "Turn on this switch to read images and documents with DeepSeek.": "打开开关，用 DeepSeek 识别图片和文档文字。",
+  "Switch to DeepSeek here for voice replies, or enable dictation below.": "在这里切到 DeepSeek 朗读回复，或在下方开启语音听写。",
+  "Pick your primary Main Bot from this dropdown.": "在这里指定主 Bot，它会固定在侧栏顶部。",
+  'Click "+ New Bot" to create a new team member.': "点「新建 Bot」创建新成员。",
+  "Click any Bot row to edit its role, model, folder, and permissions.": "点击任意 Bot 进入详情，配置角色、模型、文件夹和权限。",
+  'Click "+ Create group chat" to put multiple Bots in one room.': "点「新建群聊」把多个 Bot 拉进同一个群。",
+  "Click a group row to change its members, admin, or shared folder.": "点击已有群聊可调整成员、管理员和群文件夹。",
+  'Click "+ New task" to pick a Bot, schedule, and prompt.': "点「新建任务」，选好执行 Bot、时间和提示词即可自动运行。",
+  'Search an app here, or click "+ Custom" to add your own MCP server.': "在这里搜索应用，或点「自定义」添加自己的 MCP 服务。",
+  'Click "Connect" on any card to sign in or paste credentials.': "点任意卡片右侧的「连接」，按提示授权或填写密钥。",
+  "Click a platform below and follow its steps to bind a Bot.": "选一个聊天平台点击「连接」，按步骤填好凭证并绑定 Bot。",
+  'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.': "点「开启并配对」生成一次性二维码，用手机端扫码即可连上。",
+  'Click "Edit" here only if you host your own relay server.': "只有自建中继服务器时，才需要点这里修改地址。",
+  "Turn on this switch so other local agents can reach your Bots.": "打开开关，允许本机其他代理访问你的 Bot 团队。",
+  'Enter a client name, click "Create token", then pick allowed Bots below.': "填客户端名称点「生成令牌」，再在下方勾选允许访问的 Bot。",
+  "Turn on this switch and grant system permissions when prompted.": "打开开关，按提示授予辅助功能和录屏权限。",
+  "Pick how each Bot may control the computer from its dropdown.": "在这里为每个 Bot 单独设置电脑操控级别。",
+  'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.': "点「允许操作」为指定 Bot 预先放行发帖、上传、下载或删除。",
+  'Click "+ Add capability" to add a shared MCP server, skill, or pack.': "点「添加能力」创建共享 MCP、技能或能力包，再在 Bot 设置中启用。",
+  "Click here to protect saved keys on disk with a passphrase.": "点这里设置口令，对本地保存的密钥开启静态加密。",
+  'Click "+ Add a key" to save a key and choose which Bots can use it.': "点「添加密钥」手动录入密钥，并选择哪些 Bot 可以使用。",
+  "Switch time ranges here or pick custom dates from the calendar.": "在这里切换时间范围，或点日历选择自定义日期。",
+  "Type a keyword here to jump straight to any setting.": "在这里输入关键词，直接跳到任意设置项。",
+  'Click a provider to enter your API key, or click "+ Add a provider".': "点服务商填入 API 密钥，或点右上角「添加服务商」。",
+  "Select Bots below and pick a model here to switch them together.": "在下方勾选 Bot，再在这里选模型即可一键切换。",
+  'Click "+ New Bot" to add a member, or click any Bot row to edit it.': "点「新建 Bot」添加成员，点下方列表项可单独调整。",
+  "Use the tabs above for connectors or IM, or click here to pair your phone.": "上方标签可切换连接器或 IM，点这里直接扫码连手机。",
+  "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.": "在这里切换主题、强调色和排版；随时可在「关于 DS Bot」重开引导。",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek 联网搜索 API",
   "Find it in Plugins → Web search.": "在 插件 → 网页搜索 里设置。",
@@ -15963,7 +16198,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   const openSideChat = (sessionId, chatId) => {
     ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
   };
-  const openSettings = (page = "guide", id = null) => {
+  const openSettings = (page = "general", id = null) => {
     ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
@@ -18090,7 +18325,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-dialog-sink{to{opacity:0;translate:0 6px;scale:.975;filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-rail{width:var(--bt-set-nav-w);flex:none;display:flex;flex-direction:column;min-height:0;border-right:.5px solid var(--bt-line);background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
-.bt-set-search{flex:none;display:flex;align-items:center;gap:7px;margin:14px 10px 6px;padding:0 10px;height:32px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink-3);transition:border-color .14s ease,box-shadow .14s ease}
+.bt-set-search{flex:none;display:flex;align-items:center;gap:7px;margin:16px 10px 8px;padding:0 10px;height:32px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink-3);transition:border-color .14s ease,box-shadow .14s ease}
 .bt-set-search:focus-within{border-color:color-mix(in srgb,var(--bt-accent) 55%,var(--bt-line));box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 16%,transparent);color:var(--bt-ink-2)}
 .bt-set-search>svg{flex:none;width:14px;height:14px}
 .bt-set-search-input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px}
@@ -18098,7 +18333,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-set-search-clear{flex:none;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-set-search-clear:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-set-search-clear svg{width:12px;height:12px}
-.bt-set-search-list{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 14px;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
+.bt-set-search-list{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 16px;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
 .bt-set-search-hit{display:flex;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-set-search-hit:hover,.bt-set-search-hit[data-active]{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-set-search-hit>svg{flex:none;width:14px;height:14px;color:var(--bt-ink-2)}
@@ -18124,9 +18359,12 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
 /* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
 .bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
-.bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
+.bt-settings-head-end{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
+.bt-settings-actions{display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
-.bt-settings-subnav{flex:none;padding:4px 28px 6px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none}
+.bt-tour-trigger{color:var(--bt-ink-2);border-radius:999px;padding:0 10px}
+.bt-tour-trigger:hover{color:var(--bt-ink)}
+.bt-settings-subnav{flex:none;padding:0 28px 12px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none}
 .bt-settings-subnav::-webkit-scrollbar{display:none}
 .bt-settings-tabs{flex:none}
 .bt-settings-tabs button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
@@ -18156,11 +18394,11 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
    rendered. */
 .bt-settings-usage[data-off]{position:absolute;top:0;left:var(--bt-set-nav-w);width:calc(var(--bt-set-w) - var(--bt-set-nav-w));height:100%;box-sizing:border-box;content-visibility:hidden;pointer-events:none}
 .bt-settings-main{flex:none;display:flex;flex-direction:column;min-width:0;width:calc(var(--bt-set-w) - var(--bt-set-nav-w));height:var(--bt-set-h)}
-.bt-settings-head{display:flex;align-items:center;gap:8px;min-height:32px;padding:16px 64px 8px 28px}
+.bt-settings-head{display:flex;align-items:center;gap:10px;min-height:32px;padding:16px 60px 12px 28px}
 .bt-settings-head h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.01em;animation:bt-veil-in .2s ease-out}
 .bt-settings-head>.bt-icon-btn{animation:bt-back-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 @keyframes bt-back-in{from{translate:6px 0;scale:.8}}
-.bt-settings-scroll{flex:1;overflow-y:auto;padding:12px 28px 28px;display:flex;flex-direction:column;gap:20px;scrollbar-width:thin}
+.bt-settings-scroll{flex:1;overflow-y:auto;padding:4px 28px 28px;display:flex;flex-direction:column;gap:20px;scrollbar-width:thin}
 .bt-settings-page>:not(.bt-us){animation:bt-page-up ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .22s ease-out backwards}
 .bt-settings-page[data-move=in]>:not(.bt-us){animation-name:bt-page-in,bt-veil-in}
 .bt-settings-page[data-move=out]>:not(.bt-us){animation-name:bt-page-out,bt-veil-in}
@@ -18173,46 +18411,30 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-page-out{from{transform:translateX(-18px)}}
 .bt-settings-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-settings-form{display:flex;flex-direction:column;gap:18px}
+.bt-settings-form{display:flex;flex-direction:column;gap:20px}
 .bt-set-section{display:flex;flex-direction:column;gap:8px}
 .bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink);margin:0;padding:0 4px}
 .bt-set-collapse{cursor:pointer}
 .bt-set-collapse-title{font-weight:500}
 .bt-collapse-chevron{transition:transform .18s ease,color .14s ease}
 .bt-collapse-chevron[data-open]{transform:rotate(180deg)}
-/* Settings → Guide bento hub. */
-.bt-guide{display:flex;flex-direction:column;gap:16px}
-.bt-guide-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:12px;border:.5px solid color-mix(in srgb,var(--bt-accent) 32%,var(--bt-line));background:color-mix(in srgb,var(--bt-accent) 7%,var(--bt-card));box-shadow:var(--bt-card-shadow)}
-.bt-guide-banner[data-tone=warn]{border-color:color-mix(in srgb,var(--bt-warn) 42%,var(--bt-line));background:color-mix(in srgb,var(--bt-warn) 8%,var(--bt-card))}
-.bt-guide-banner-copy{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;line-height:18px;font-weight:500}
-.bt-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-.bt-guide-card{display:flex;flex-direction:column;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);overflow:hidden;transition:border-color .14s ease}
-.bt-guide-card:hover{border-color:var(--bt-line-2)}
-.bt-guide-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
-.bt-guide-head:hover{background:var(--bt-hover)}
-.bt-guide-head:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink-2)}
-.bt-guide-icon{flex:none;width:28px;height:28px;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center}
-.bt-guide-icon>svg{width:15px;height:15px}
-.bt-guide-title{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
-.bt-guide-status{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap;min-width:0}
-.bt-guide-status[data-tone=warn]{color:var(--bt-warn)}
-.bt-guide-status[data-tone=ok]{color:var(--bt-ink-2)}
-.bt-guide-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
-.bt-guide-status[data-tone=ok] .bt-guide-dot,.bt-guide-dot[data-tone=ok]{background:var(--bt-green)}
-.bt-guide-status[data-tone=warn] .bt-guide-dot,.bt-guide-dot[data-tone=warn]{background:var(--bt-warn)}
-.bt-guide-dot[data-tone=accent]{background:var(--bt-accent)}
-.bt-guide-team{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-width:0}
-.bt-guide-meta{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-left:auto}
-.bt-guide-team .bt-guide-meta,.bt-guide-banner-copy .bt-guide-meta{margin-left:0}
-.bt-guide-ellipsis{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-guide-body{padding:11px 16px 14px;border-top:.5px solid var(--bt-line)}
-.bt-guide-chips,.bt-guide-themes{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.bt-guide-chip,.bt-guide-theme-pill{height:28px;padding:0 10px;border-radius:999px;border:.5px solid var(--bt-line);background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-guide-chip:hover,.bt-guide-theme-pill:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-guide-chip:active,.bt-guide-theme-pill:active{scale:.96}
-.bt-guide-chip[data-on],.bt-guide-theme-pill[aria-pressed=true]{background:var(--bt-accent-soft);border-color:color-mix(in srgb,var(--bt-accent) 42%,transparent);color:var(--bt-ink)}
-.bt-guide-theme-swatch{width:12px;height:12px;border-radius:50%;corner-shape:round;border:1.5px solid;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
-.bt-guide-theme-swatch>span{width:4px;height:4px;border-radius:50%;corner-shape:round}
+/* Interactive step-by-step spotlight walkthrough inside Settings. */
+.bt-tour-layer{position:absolute;inset:0;z-index:30;pointer-events:none;border-radius:inherit;overflow:hidden}
+.bt-tour-backdrop{position:absolute;inset:0;pointer-events:auto;background:transparent}
+.bt-tour-backdrop-dim{background:rgba(0,0,0,.36)}
+body[data-ds-dark-theme] .bt-tour-backdrop-dim{background:rgba(0,0,0,.56)}
+.bt-tour-spot{position:absolute;border-radius:12px;border:2px solid var(--bt-accent);box-shadow:0 0 0 9999px rgba(0,0,0,.38),0 0 0 4px color-mix(in srgb,var(--bt-accent) 20%,transparent);pointer-events:none;box-sizing:border-box;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")},${spring(SPRING_SHAPE, "width")},${spring(SPRING_SHAPE, "height")};animation:bt-veil-in .18s ease-out}
+body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 9999px rgba(0,0,0,.58),0 0 0 4px color-mix(in srgb,var(--bt-accent) 26%,transparent)}
+.bt-tour-card{position:absolute;width:304px;max-width:calc(100% - 24px);padding:14px 16px;border-radius:16px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_SHAPE, "top")};animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .18s ease-out}
+.bt-tour-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-tour-title{font-size:14px;line-height:20px;font-weight:600;color:var(--bt-ink)}
+.bt-tour-count{flex:none;font-size:11px;line-height:16px;font-weight:500;font-variant-numeric:tabular-nums;padding:1px 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-tour-cue{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-tour-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px}
+.bt-tour-skip{border:0;background:none;padding:4px 6px;margin-left:-6px;border-radius:8px;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-tour-skip:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-tour-nav{display:flex;align-items:center;gap:6px}
+.bt-tour-nav .bt-send{height:28px;font-size:12px}
 /* Settings → Appearance visual theme cards. */
 .bt-theme-row{padding:14px 16px}
 .bt-theme-grid{width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
@@ -18232,15 +18454,15 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-theme-card[aria-pressed=true] .bt-theme-card-foot{color:var(--bt-ink)}
 .bt-theme-check{display:inline-flex;color:var(--bt-accent)}
 .bt-theme-check>svg{width:13px;height:13px}
-.bt-browser-settings{display:flex;flex-direction:column;gap:22px}
-.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column}
+.bt-browser-settings{display:flex;flex-direction:column;gap:20px}
+.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:hidden}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
 button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink-2)}
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
-.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
-.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
+.bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
+.bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-control{flex:none;display:flex;align-items:center;gap:8px}
@@ -18270,7 +18492,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-browser-form .bt-select{width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-browser-site{width:min(320px,100%);max-width:320px}
-.bt-browser-form-foot{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:.5px solid var(--bt-line)}
+.bt-browser-form-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
 .bt-chevron{color:var(--bt-ink-3);display:inline-flex;flex:none;transition:transform .16s ease,color .16s ease}
@@ -18296,7 +18518,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @media(max-width:600px){.bt-set-form-row{grid-template-columns:1fr}}
 
 /* Settings → Phone. */
-.bt-phone{display:flex;flex-direction:column;gap:22px}
+.bt-phone{display:flex;flex-direction:column;gap:20px}
 .bt-phone-server{gap:8px}
 .bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}
 .bt-phone-server .bt-input{flex:1;min-width:0}
@@ -18304,7 +18526,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-error{padding:0 4px}
 .bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
 .bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
-.bt-mcp{display:flex;flex-direction:column;gap:22px}
+.bt-mcp{display:flex;flex-direction:column;gap:20px}
 .bt-mcp .bt-input{flex:1;min-width:0}
 .bt-mcp-token{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px}
 .bt-mcp-token code{word-break:break-all;user-select:all}
@@ -18560,7 +18782,10 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
-.bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+.bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;line-height:32px;font-weight:450;text-align:left;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+button.bt-select{display:inline-flex;align-items:center;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-set-control>.bt-model-trigger:not([data-wide]){min-width:148px;min-height:34px;padding:5px 10px 5px 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);box-shadow:none;font-size:13px}
+.bt-set-control>.bt-model-trigger:not([data-wide]):hover,.bt-set-control>.bt-model-trigger:not([data-wide])[aria-expanded=true]{background:var(--bt-active)}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
 /* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
@@ -18569,7 +18794,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 :where([class^="bt-"],[class*=" bt-"]):where(button,a,[tabindex],[role="button"],[role="tab"],[role="menuitem"]):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-checks,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row,.bt-guide-head,.bt-set-search-hit):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row,.bt-set-search-hit):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
@@ -18722,7 +18947,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 :is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
 :is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
-@media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-thumb,.bt-tour-spot,.bt-tour-card{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*,.bt-tour-spot,.bt-tour-card{animation:none}}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
    or scroll instead of overflowing. These rules sit at the end of the sheet:
@@ -18731,7 +18956,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
   .bt-settings-rail{width:100%;flex:none;border-right:0;border-bottom:.5px solid var(--bt-line)}
-  .bt-set-search{margin:8px 52px 4px 10px}
+  .bt-set-search{margin:10px 52px 4px 10px}
   .bt-set-search-list{max-height:46vh;padding:4px 10px 10px}
   /* Right padding is not honored inside a scrolling flex row; a transparent
      right border keeps the last tab clear of the close button. */
@@ -18740,13 +18965,13 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-nav>.bt-thumb{left:0;right:auto;top:6px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
-  .bt-settings-close{top:8px;right:10px}
+  .bt-settings-close{top:10px;right:10px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
-  .bt-settings-head{padding:14px 16px 4px 16px}
-  .bt-settings-subnav{padding:4px 16px 6px}
+  .bt-settings-head{padding:14px 16px 8px 16px}
+  .bt-settings-subnav{padding:0 16px 8px}
   .bt-settings-usage[data-off]{left:0;width:100%}
-  .bt-settings-scroll{overflow-x:clip;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px))}
-  .bt-guide-grid{grid-template-columns:1fr}
+  .bt-settings-scroll{overflow-x:clip;padding:4px 16px calc(24px + env(safe-area-inset-bottom,0px))}
+  .bt-tour-card{width:auto;max-width:none}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
@@ -18762,7 +18987,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 /* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
 .bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
-.bt-settings-scroll{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+.bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 .bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
 .bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 /* iOS zooms the whole page on focused inputs under 16px. */
@@ -19376,9 +19601,9 @@ function useGaze(ref, enabled) {
       const node = ref.current;
       if (!node || !point || reducedEffects()) return;
       const box = node.getBoundingClientRect();
-      const clamp = (value) => Math.max(-1, Math.min(1, value));
-      node.style.setProperty("--bt-gx", clamp((point.x - box.left - box.width / 2) / 160).toFixed(2));
-      node.style.setProperty("--bt-gy", clamp((point.y - box.top - box.height / 2) / 160).toFixed(2));
+      const clamp2 = (value) => Math.max(-1, Math.min(1, value));
+      node.style.setProperty("--bt-gx", clamp2((point.x - box.left - box.width / 2) / 160).toFixed(2));
+      node.style.setProperty("--bt-gy", clamp2((point.y - box.top - box.height / 2) / 160).toFixed(2));
     };
     const onMove = (event) => {
       if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
@@ -21211,7 +21436,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
   return [
     (0, import_react12.createElement)(
       Section2,
-      { key: "switch" },
+      { key: "switch", tour: "comp-switch" },
       (0, import_react12.createElement)(
         Row4,
         { label: t("Let Bots use the computer") },
@@ -21231,7 +21456,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
     ) : null,
     (0, import_react12.createElement)(
       Section2,
-      { key: "bots", title: t("Bots") },
+      { key: "bots", title: t("Bots"), tour: "comp-bots" },
       computer.enabled && !providerWorks(provider) ? (0, import_react12.createElement)("div", { className: "bt-set-row" }, (0, import_react12.createElement)("span", { className: "bt-set-hint" }, t("Bots get no computer tools until the provider is ready."))) : null,
       roster.bots.map((bot) => (0, import_react12.createElement)(
         Row4,
@@ -24802,7 +25027,7 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
     const why = reason === "passphrase-source" ? t("The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.") : reason === "wrong-passphrase" ? t("The passphrase in the environment or the passphrase file did not unlock the secrets.") : t("No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.");
     return (0, import_react19.createElement)(
       Section2,
-      { title: t("Encryption at rest") },
+      { title: t("Encryption at rest"), tour: "secret-encrypt" },
       (0, import_react19.createElement)(
         "div",
         { className: "bt-set-row bt-bs-stack" },
@@ -24821,7 +25046,7 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
     const desc2 = t("Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.");
     return (0, import_react19.createElement)(
       Section2,
-      { title: t("Encryption at rest") },
+      { title: t("Encryption at rest"), tour: "secret-encrypt" },
       form === "decrypt" ? [
         (0, import_react19.createElement)("div", { key: "hint", className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc2)),
         (0, import_react19.createElement)(
@@ -24851,7 +25076,7 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
   const desc = t("Keys are stored in a file only this user can read, but the values are not encrypted.");
   return (0, import_react19.createElement)(
     Section2,
-    { title: t("Encryption at rest") },
+    { title: t("Encryption at rest"), tour: "secret-encrypt" },
     form === "encrypt" ? [
       (0, import_react19.createElement)("div", { key: "hint", className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, desc)),
       (0, import_react19.createElement)(
@@ -24881,7 +25106,7 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
   const [open, setOpen] = (0, import_react19.useState)(null);
   const [adding, setAdding] = (0, import_react19.useState)(false);
   const secrets = roster.secrets ?? [];
-  const addBtn = adding ? null : (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react19.createElement)(PlusIcon), t("Add a key"));
+  const addBtn = adding ? null : (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "secret-add", onClick: () => setAdding(true) }, (0, import_react19.createElement)(PlusIcon), t("Add a key"));
   return [
     (0, import_react19.createElement)(SecretStoreCard, { key: "store", store: roster.secretStore, actions, run: run2, Section: Section2 }),
     (0, import_react19.createElement)(
@@ -26495,7 +26720,7 @@ function SchedulesPage({ roster, actions, start }) {
   const addBar = adding ? null : (0, import_react23.createElement)(
     "div",
     { className: "bt-actions" },
-    (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New task")),
+    (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-task", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New task")),
     owner !== null ? (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
   );
   return [
@@ -26789,7 +27014,7 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
       "div",
       { className: "bt-la-sec-head" },
       (0, import_react24.createElement)("h3", null, t("Shared capabilities")),
-      draft ? null : (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: startNew }, (0, import_react24.createElement)(PlusIcon), t("Add capability"))
+      draft ? null : (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "cap-add", onClick: startNew }, (0, import_react24.createElement)(PlusIcon), t("Add capability"))
     ),
     draft ? (0, import_react24.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     (0, import_react24.createElement)(
@@ -33707,7 +33932,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
       [t("Automation tasks"), ClockIcon, () => actions.selectPanel("schedules")],
-      [t("Settings"), GearIcon, () => actions.openSettings("guide")]
+      [t("Settings"), GearIcon, () => actions.openSettings("general")]
     ].filter(Boolean),
     typeof actions.setSurface === "function" ? [[t("Classic Agent mode"), SwitchIcon, () => actions.setSurface("agent")]] : null
   ].filter(Boolean);
@@ -35388,7 +35613,7 @@ function UsagePage({ roster, actions, focusId }) {
   if (view.rows.length === 0) {
     return (0, import_react42.createElement)(
       "div",
-      { className: "bt-us" },
+      { className: "bt-us", "data-tour": "usage-tabs" },
       (0, import_react42.createElement)(
         "div",
         { className: "bt-us-empty" },
@@ -35502,7 +35727,7 @@ function UsagePage({ roster, actions, focusId }) {
     { ref: root, className: "bt-us", key: focusId ?? "all" },
     (0, import_react42.createElement)(
       "div",
-      { className: "bt-us-top" },
+      { className: "bt-us-top", "data-tour": "usage-tabs" },
       (0, import_react42.createElement)(Tabs, { label: t("Time range"), value: rangeId, onChange: chooseRange, options: rangeOptions, boxRef: tabs }),
       view.scanning ? (0, import_react42.createElement)("span", { className: "bt-us-note", role: "status" }, t("Still reading older chats; totals may grow.")) : null,
       picking ? (0, import_react42.createElement)(SpanPicker, { span, today, oldest, active: activeDays, near: tabs, onPick: pickSpan, onClose: () => setPicking(false) }) : null
@@ -35779,11 +36004,11 @@ function Grid({ apps, actions, open, place = null, signInPlaces }) {
     }
   })));
 }
-function Section({ title, apps, actions, open, onAll, place, signInPlaces }) {
+function Section({ title, apps, actions, open, onAll, place, signInPlaces, tour = null }) {
   if (apps.length === 0) return null;
   return (0, import_react43.createElement)(
     "section",
-    { className: "bt-app-section" },
+    { className: "bt-app-section", "data-tour": tour || void 0 },
     (0, import_react43.createElement)(
       "div",
       { className: "bt-app-section-head" },
@@ -35902,7 +36127,7 @@ function ConnectorsPage({ roster, actions }) {
   } else {
     const featured = FEATURED.map((id) => apps.find((app) => app.id === id)).filter(Boolean);
     body = [
-      (0, import_react43.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open }),
+      (0, import_react43.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open, tour: "conn-grid" }),
       ...CATEGORIES.map(([id, label]) => (0, import_react43.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
       // An added server has no catalog category. Without its own section a new OAuth
       // entry, which stays off until its sign-in finishes, would be on neither the
@@ -35916,7 +36141,7 @@ function ConnectorsPage({ roster, actions }) {
     banner,
     (0, import_react43.createElement)(
       "div",
-      { className: "bt-app-bar" },
+      { className: "bt-app-bar", "data-tour": "conn-search" },
       (0, import_react43.createElement)(
         "label",
         { className: "bt-app-search" },
@@ -37794,7 +38019,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       ),
       (0, import_react44.createElement)(
         Row4,
-        { label: t("Server"), hint: serverHost(phone.server) },
+        { label: t("Server"), hint: serverHost(phone.server), tour: "phone-server" },
         (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setEditingServer((open) => !open) }, editingServer ? t("Hide") : t("Edit"))
       ),
       editingServer ? (0, import_react44.createElement)(
@@ -37807,7 +38032,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       ) : null
     ),
     error ? (0, import_react44.createElement)("div", { className: "bt-connector-error bt-phone-error", role: "alert" }, error) : null,
-    (0, import_react44.createElement)(Section2, { title: t("Pair a phone") }, phone.pairing ? (0, import_react44.createElement)(
+    (0, import_react44.createElement)(Section2, { title: t("Pair a phone"), tour: "phone-pair" }, phone.pairing ? (0, import_react44.createElement)(
       "div",
       { className: "bt-phone-pair" },
       (0, import_react44.createElement)(QrCode, { text: phone.pairing.uri }),
@@ -37908,7 +38133,7 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
       { title: t("Connection") },
       (0, import_react45.createElement)(
         Row4,
-        { label: t("MCP access"), hint: statusText4(mcp), className: mcp.error ? "bt-phone-warn" : "" },
+        { label: t("MCP access"), hint: statusText4(mcp), className: mcp.error ? "bt-phone-warn" : "", tour: "mcp-switch" },
         (0, import_react45.createElement)(Switch, { on: mcp.on, label: t("MCP access"), disabled: busy, onChange: (on) => void run2(actions.mcpSet({ on })) })
       ),
       (0, import_react45.createElement)(
@@ -37920,7 +38145,7 @@ function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
     ),
     (0, import_react45.createElement)(
       Section2,
-      { title: t("Add a client") },
+      { title: t("Add a client"), tour: "mcp-add" },
       (0, import_react45.createElement)(
         Row4,
         { label: t("Name") },
@@ -38417,7 +38642,7 @@ function ImPage({ roster, actions }) {
     ) : null,
     (0, import_react46.createElement)(
       "section",
-      { className: "bt-app-section" },
+      { className: "bt-app-section", "data-tour": "im-platforms" },
       (0, import_react46.createElement)("div", { className: "bt-app-section-head" }, (0, import_react46.createElement)("h3", null, list.length > 0 ? t("Add an IM bot") : t("Choose a platform"))),
       (0, import_react46.createElement)("div", { className: "bt-app-grid" }, platforms.map((platform) => (0, import_react46.createElement)(PlatformTile, {
         key: platform.id,
@@ -38600,7 +38825,7 @@ function ServicesForm({
     (0, import_react47.createElement)("style", { "data-ds-bot": "deepseek-services" }, SERVICES_CSS),
     (0, import_react47.createElement)(
       Section2,
-      { key: "key", title: t("DeepSeek API") },
+      { key: "key", title: t("DeepSeek API"), tour: "svc-key" },
       (0, import_react47.createElement)(
         Row4,
         { label: t("API key") },
@@ -38627,7 +38852,7 @@ function ServicesForm({
     ),
     (0, import_react47.createElement)(
       Section2,
-      { key: "ocr", title: t("Image and document reading") },
+      { key: "ocr", title: t("Image and document reading"), tour: "svc-ocr" },
       (0, import_react47.createElement)(Row4, {
         label: t("Use DeepSeek to read images and documents"),
         hint: t("Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.")
@@ -38641,7 +38866,7 @@ function ServicesForm({
     ),
     (0, import_react47.createElement)(
       Section2,
-      { key: "tts", title: t("Text to speech") },
+      { key: "tts", title: t("Text to speech"), tour: "svc-tts" },
       (0, import_react47.createElement)(
         Row4,
         { label: t("Read replies aloud") },
@@ -38843,7 +39068,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
   const toggleKind = (kind, checked) => {
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
-  const addBtn = adding || bots.length === 0 ? null : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react48.createElement)(PlusIcon), t("Allow action"));
+  const addBtn = adding || bots.length === 0 ? null : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "browser-allow", onClick: () => setAdding(true) }, (0, import_react48.createElement)(PlusIcon), t("Allow action"));
   return (0, import_react48.createElement)(
     "div",
     { className: "bt-browser-settings" },
@@ -39209,7 +39434,7 @@ function dshHint(dsh, shown) {
   return t("Version {version}", { version: dsh.current });
 }
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4 }) {
+function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4, onStartTour = null }) {
   const update = useUpdate((value) => value) ?? {};
   const [checking, setChecking] = (0, import_react50.useState)(false);
   const [stars, setStars] = (0, import_react50.useState)(null);
@@ -39293,6 +39518,7 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
     (0, import_react50.createElement)(
       Section2,
       { key: "links", title: t("Links") },
+      onStartTour ? (0, import_react50.createElement)(Row4, { label: t("Settings guide") }, (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: onStartTour }, (0, import_react50.createElement)(CompassIcon), t("Start"))) : null,
       repo ? (0, import_react50.createElement)(Row4, { label: t("Source code"), hint: repo.replace(/^https:\/\//, "") }, (0, import_react50.createElement)("a", linkProps(repo), (0, import_react50.createElement)(GitHubMark), t("Open"))) : null,
       update.notesUrl ? (0, import_react50.createElement)(Row4, { label: t("Release notes") }, (0, import_react50.createElement)("a", linkProps(update.notesUrl), t("Open"))) : null,
       (0, import_react50.createElement)(Row4, { label: t("Report a problem") }, (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("feedback") }, t("Open")))
@@ -39300,7 +39526,7 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
   ];
 }
 var ABOUT_CSS = `
-.bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
 .bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
 body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
@@ -39309,7 +39535,7 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:600}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.bt-about-ask{margin:-10px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-about-ask{margin:-12px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-star{flex:none;display:inline-flex;align-items:stretch;height:30px;border-radius:999px;border:1px solid var(--bt-line-2,var(--bt-line));overflow:hidden;color:var(--bt-ink);text-decoration:none;font-size:12px;line-height:28px;transition:transform .12s ease,border-color .15s ease}
 .bt-star:hover{border-color:color-mix(in srgb,var(--bt-star) 55%,var(--bt-line))}
 .bt-star:active{transform:scale(.96)}
@@ -39447,11 +39673,11 @@ function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced
   }, []);
   if (view === null) return null;
   if (!view.available) return (0, import_react51.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot set up model providers."));
-  const addBtn = adding ? null : (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react51.createElement)(PlusIcon), t("Add a provider"));
+  const addBtn = adding ? null : (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "provider-add", onClick: () => setAdding(true) }, (0, import_react51.createElement)(PlusIcon), t("Add a provider"));
   return [
     (0, import_react51.createElement)(
       Section2,
-      { key: "list", title: t("Model providers · {count}", { count: view.providers.length }), action: addBtn },
+      { key: "list", title: t("Model providers · {count}", { count: view.providers.length }), action: addBtn, tour: "provider-list" },
       view.providers.map((provider) => (0, import_react51.createElement)(ProviderRow, {
         key: provider.id,
         provider,
@@ -39467,7 +39693,7 @@ function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
     advanced ? (0, import_react51.createElement)(
       "div",
-      { key: "advanced", className: "bt-set-card" },
+      { key: "advanced", className: "bt-set-card", "data-tour": "provider-advanced" },
       (0, import_react51.createElement)(
         "button",
         { type: "button", className: "bt-set-row bt-bs-row bt-advanced", onClick: advanced },
@@ -39957,7 +40183,7 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
   return [
     (0, import_react52.createElement)(
       "section",
-      { key: "found", className: "bt-set-section" },
+      { key: "found", className: "bt-set-section", "data-tour": "la-detected" },
       (0, import_react52.createElement)(
         "div",
         { className: "bt-la-sec-head" },
@@ -39978,7 +40204,7 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
         "div",
         { className: "bt-la-sec-head" },
         (0, import_react52.createElement)("h3", null, t("Custom agents")),
-        editing === "new" ? null : (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add agent"), onClick: () => {
+        editing === "new" ? null : (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add agent"), "data-tour": "la-add", onClick: () => {
           setArmedRemove(null);
           setEditing("new");
         } }, (0, import_react52.createElement)(PlusIcon), t("Add agent"))
@@ -40129,7 +40355,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2 }) {
   return [
     (0, import_react53.createElement)(
       Section2,
-      { key: "change", title: t("Change several Bots") },
+      { key: "change", title: t("Change several Bots"), tour: "bm-bar" },
       (0, import_react53.createElement)(
         "div",
         { className: "bt-set-row bt-bm-bar" },
@@ -40155,7 +40381,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2 }) {
     ),
     (0, import_react53.createElement)(
       Section2,
-      { key: "bots", title: t("Bots · {count}", { count: bots.length }) },
+      { key: "bots", title: t("Bots · {count}", { count: bots.length }), tour: "bm-list" },
       bots.map((bot) => {
         const local = isLocalRoute(modelRefOf(bot));
         const entry = resultsById.get(bot.id);
@@ -40211,208 +40437,334 @@ var BOT_MODELS_CSS = `
 .bt-bm-summary .bt-set-copy>span{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 `;
 
-// src/client/guide-page.js
+// src/client/settings-tour.js
 var import_react54 = require("react");
-var isDarkNow = () => typeof document !== "undefined" && document.body?.hasAttribute?.("data-ds-dark-theme") === true;
-function useDarkMode() {
-  const [dark, setDark] = (0, import_react54.useState)(isDarkNow);
+var TOUR_SEEN_KEY = "ds-bot:settings-tour-v1";
+function canAutoStartTour() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (typeof window.localStorage?.getItem !== "function") return false;
+    return window.localStorage.getItem(TOUR_SEEN_KEY) !== "1";
+  } catch {
+    return false;
+  }
+}
+function markTourSeen() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem?.(TOUR_SEEN_KEY, "1");
+  } catch {
+  }
+}
+var SECTION_TOURS = {
+  general: [
+    { target: "default-model", title: "Default model", cue: "Pick the default model new Bots start with." },
+    { target: "locations", title: "Locations", cue: "Click the folder menu to change the default team workspace." },
+    { target: "advanced", title: "Advanced", cue: "Click here to expand memory limits and background timeouts." }
+  ],
+  appearance: [
+    { target: "theme-grid", title: "Theme", cue: "Click a preview card to switch the visual theme." },
+    { target: "accent", title: "Accent", cue: "Pick a preset color or click the last swatch for a custom color." },
+    { target: "layout", title: "Messages", cue: "Switch between Bubble and Flat layout, or adjust width below." },
+    { target: "motion", title: "Motion", cue: "Tune interface motion and Bot animation intensity here." }
+  ],
+  models: [
+    { target: "provider-list", title: "Providers", cue: "Click any provider row to expand it and enter your API key." },
+    { target: "provider-add", title: "Add a provider", cue: "Click here to add a custom OpenAI, Anthropic, or Gemini endpoint." },
+    { target: "provider-advanced", title: "Advanced settings", cue: "Click here to tune context windows, thinking levels, and model order.", optional: true }
+  ],
+  "bot-models": [
+    { target: "bm-list", title: "Select Bots", cue: "Check the Bots whose model you want to switch together." },
+    { target: "bm-bar", title: "Choose a model", cue: 'Click "Select all" or pick a model here to apply it in one click.' }
+  ],
+  "local-agents": [
+    { target: "la-detected", title: "Detected agents", cue: 'Click "Refresh" to scan local CLIs, or "Sign in" to copy the login command.' },
+    { target: "la-add", title: "Custom agents", cue: 'Click "+ Add agent" to register an ACP-compatible command.' }
+  ],
+  "deepseek-services": [
+    { target: "svc-key", title: "DeepSeek API", cue: 'Confirm the API key is ready, or click "Manage models" to set it up.' },
+    { target: "svc-ocr", title: "Image and document reading", cue: "Turn on this switch to read images and documents with DeepSeek." },
+    { target: "svc-tts", title: "Text to speech", cue: "Switch to DeepSeek here for voice replies, or enable dictation below." }
+  ],
+  bots: [
+    { target: "main-bot", title: "Main Bot", cue: "Pick your primary Main Bot from this dropdown." },
+    { target: "new-bot", title: "New Bot", cue: 'Click "+ New Bot" to create a new team member.' },
+    { target: "bot-list", title: "Bots", cue: "Click any Bot row to edit its role, model, folder, and permissions." }
+  ],
+  groups: [
+    { target: "new-group", title: "Create group chat", cue: 'Click "+ Create group chat" to put multiple Bots in one room.' },
+    { target: "group-list", title: "Group chats", cue: "Click a group row to change its members, admin, or shared folder." }
+  ],
+  schedules: [
+    { target: "new-task", title: "New task", cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.' }
+  ],
+  connectors: [
+    { target: "conn-search", title: "Search connectors", cue: 'Search an app here, or click "+ Custom" to add your own MCP server.' },
+    { target: "conn-grid", title: "Connectors", cue: 'Click "Connect" on any card to sign in or paste credentials.' }
+  ],
+  im: [
+    { target: "im-platforms", title: "Add an IM bot", cue: "Click a platform below and follow its steps to bind a Bot." }
+  ],
+  phone: [
+    { target: "phone-pair", title: "Pair a phone", cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
+    { target: "phone-server", title: "Server", cue: 'Click "Edit" here only if you host your own relay server.' }
+  ],
+  mcp: [
+    { target: "mcp-switch", title: "MCP access", cue: "Turn on this switch so other local agents can reach your Bots." },
+    { target: "mcp-add", title: "Add a client", cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' }
+  ],
+  computer: [
+    { target: "comp-switch", title: "Computer use", cue: "Turn on this switch and grant system permissions when prompted." },
+    { target: "comp-bots", title: "Bots", cue: "Pick how each Bot may control the computer from its dropdown." }
+  ],
+  browser: [
+    { target: "browser-allow", title: "Allowed actions", cue: 'Click "+ Allow action" to pre-approve posting, uploads, downloads, or deletes.' }
+  ],
+  capabilities: [
+    { target: "cap-add", title: "Shared capabilities", cue: 'Click "+ Add capability" to add a shared MCP server, skill, or pack.' }
+  ],
+  secrets: [
+    { target: "secret-encrypt", title: "Encryption at rest", cue: "Click here to protect saved keys on disk with a passphrase." },
+    { target: "secret-add", title: "Secrets", cue: 'Click "+ Add a key" to save a key and choose which Bots can use it.' }
+  ],
+  usage: [
+    { target: "usage-tabs", title: "Time range", cue: "Switch time ranges here or pick custom dates from the calendar." }
+  ]
+};
+var hasSectionTour = (page) => Object.hasOwn(SECTION_TOURS, page);
+function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } = {}) {
+  if (mode === "full") {
+    return [
+      { page: "general", target: "search", title: "Search settings", cue: "Type a keyword here to jump straight to any setting." },
+      hasProviders ? { page: "models", target: "provider-list", title: "Models", cue: 'Click a provider to enter your API key, or click "+ Add a provider".' } : { page: "bot-models", target: "bm-bar", title: "Bot models", cue: "Select Bots below and pick a model here to switch them together." },
+      { page: "bots", target: "new-bot", title: "Team", cue: 'Click "+ New Bot" to add a member, or click any Bot row to edit it.' },
+      { page: "phone", target: "phone-pair", title: "Connect", cue: "Use the tabs above for connectors or IM, or click here to pair your phone." },
+      { page: "appearance", target: "theme-grid", title: "Appearance", cue: "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot." }
+    ];
+  }
+  const steps = SECTION_TOURS[mode] ?? [];
+  return steps.filter((step) => !(step.optional && step.target === "provider-advanced" && !hasAdvancedModels));
+}
+var PAD = 6;
+var EDGE = 16;
+var GAP2 = 14;
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function measureSpotlight(dialogEl, targetKey) {
+  if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== "function") return null;
+  const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`);
+  if (!el || typeof el.getBoundingClientRect !== "function") return null;
+  const dialogRect = dialogEl.getBoundingClientRect();
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0 || dialogRect.width <= 0 || dialogRect.height <= 0) return null;
+  let left = rect.left - dialogRect.left - PAD;
+  let top = rect.top - dialogRect.top - PAD;
+  let right = rect.right - dialogRect.left + PAD;
+  let bottom = rect.bottom - dialogRect.top + PAD;
+  const scrollBox = typeof el.closest === "function" ? el.closest(".bt-settings-scroll") : null;
+  if (scrollBox && typeof scrollBox.getBoundingClientRect === "function") {
+    const clip2 = scrollBox.getBoundingClientRect();
+    const clipTop = clip2.top - dialogRect.top;
+    const clipBottom = clip2.bottom - dialogRect.top;
+    const clipLeft = clip2.left - dialogRect.left;
+    const clipRight = clip2.right - dialogRect.left;
+    top = Math.max(top, clipTop + 2);
+    bottom = Math.min(bottom, clipBottom - 2);
+    left = Math.max(left, clipLeft + 2);
+    right = Math.min(right, clipRight - 2);
+  } else {
+    left = Math.max(left, 4);
+    top = Math.max(top, 4);
+    right = Math.min(right, dialogRect.width - 4);
+    bottom = Math.min(bottom, dialogRect.height - 4);
+  }
+  const width = right - left;
+  const height = bottom - top;
+  if (width <= 8 || height <= 8) return null;
+  return {
+    left: Math.round(left),
+    top: Math.round(top),
+    width: Math.round(width),
+    height: Math.round(height),
+    dialogW: Math.round(dialogRect.width),
+    dialogH: Math.round(dialogRect.height),
+    el
+  };
+}
+function placeCard(spot, cardW, cardH) {
+  if (!spot) return null;
+  const { left, top, width, height, dialogW, dialogH } = spot;
+  const right = left + width;
+  const bottom = top + height;
+  if (dialogW <= 640) {
+    const fitsBottom = bottom + GAP2 + cardH <= dialogH - EDGE;
+    return fitsBottom ? { left: 12, right: 12, bottom: 12 } : { left: 12, right: 12, top: 12 };
+  }
+  const maxLeft = Math.max(EDGE, dialogW - cardW - EDGE);
+  const maxTop = Math.max(EDGE, dialogH - cardH - EDGE);
+  if (left < 220 && right + GAP2 + cardW <= dialogW - EDGE) {
+    return { left: Math.round(right + GAP2), top: Math.round(clamp(top, EDGE, maxTop)) };
+  }
+  if (bottom + GAP2 + cardH <= dialogH - EDGE) {
+    return { left: Math.round(clamp(left, EDGE, maxLeft)), top: Math.round(bottom + GAP2) };
+  }
+  if (top - GAP2 - cardH >= EDGE) {
+    return { left: Math.round(clamp(left, EDGE, maxLeft)), top: Math.round(top - GAP2 - cardH) };
+  }
+  if (left - GAP2 - cardW >= EDGE) {
+    return { left: Math.round(left - GAP2 - cardW), top: Math.round(clamp(top, EDGE, maxTop)) };
+  }
+  return { left: Math.round(maxLeft), top: Math.round(maxTop) };
+}
+function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedModels, onNavigate, onDismiss }) {
+  const steps = (0, import_react54.useMemo)(
+    () => tour ? stepsForTour(tour.mode, { hasProviders, hasAdvancedModels }) : [],
+    [tour?.mode, hasProviders, hasAdvancedModels]
+  );
+  const tourKey = tour ? `${tour.mode}:${tour.nonce}` : "";
+  const [stepState, setStepState] = (0, import_react54.useState)({ key: tourKey, index: 0 });
+  const index = stepState.key === tourKey ? stepState.index : 0;
+  const [spot, setSpot] = (0, import_react54.useState)(null);
+  const [cardSize, setCardSize] = (0, import_react54.useState)({ width: 304, height: 140 });
+  const layerRef = (0, import_react54.useRef)(null);
+  const cardRef = (0, import_react54.useRef)(null);
+  const scrolledRef = (0, import_react54.useRef)("");
+  const active = Boolean(tour && steps.length > 0);
+  const step = active ? steps[Math.min(index, steps.length - 1)] : null;
+  const isLast = active && index >= steps.length - 1;
+  const dismiss = (0, import_react54.useCallback)(() => {
+    if (tour?.mode === "full") markTourSeen();
+    onDismiss();
+  }, [tour?.mode, onDismiss]);
+  const next = (0, import_react54.useCallback)(() => {
+    if (!active) return;
+    if (isLast) dismiss();
+    else setStepState((prev2) => ({ key: tourKey, index: Math.min((prev2.key === tourKey ? prev2.index : 0) + 1, steps.length - 1) }));
+  }, [active, isLast, dismiss, tourKey, steps.length]);
+  const prev = (0, import_react54.useCallback)(() => {
+    if (!active) return;
+    setStepState((prev2) => ({ key: tourKey, index: Math.max(0, (prev2.key === tourKey ? prev2.index : 0) - 1) }));
+  }, [active, tourKey]);
+  useEscape(dismiss, active, { priority: 1 });
   (0, import_react54.useEffect)(() => {
-    if (typeof document === "undefined" || !document.body || typeof MutationObserver !== "function") return void 0;
-    const sync = () => setDark(isDarkNow());
+    if (!active || typeof window === "undefined") return void 0;
+    const onKeyDown = (event) => {
+      if (isImeComposing(event)) return;
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        next();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        prev();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, next, prev]);
+  (0, import_react54.useEffect)(() => {
+    if (!step?.page || step.page === currentPage) return;
+    onNavigate(step.page);
+  }, [step?.page, currentPage, onNavigate]);
+  (0, import_react54.useEffect)(() => {
+    if (!active || !step) {
+      setSpot(null);
+      return void 0;
+    }
+    if (step.page && step.page !== currentPage) {
+      setSpot(null);
+      return void 0;
+    }
+    const dialogEl = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
+    if (!dialogEl) {
+      setSpot(null);
+      return void 0;
+    }
+    let raf = 0;
+    const stepKey = `${tourKey}:${index}:${step.target}`;
+    const sync = () => {
+      const box = cardRef.current;
+      if (box && box.offsetWidth > 0 && box.offsetHeight > 0) {
+        setCardSize((prev2) => prev2.width === box.offsetWidth && prev2.height === box.offsetHeight ? prev2 : { width: box.offsetWidth, height: box.offsetHeight });
+      }
+      const measured = measureSpotlight(dialogEl, step.target);
+      if (measured && scrolledRef.current !== stepKey) {
+        scrolledRef.current = stepKey;
+        measured.el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        const afterScroll = measureSpotlight(dialogEl, step.target);
+        setSpot(afterScroll ?? measured);
+        return;
+      }
+      setSpot(measured);
+    };
+    const schedule = () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
+      if (typeof requestAnimationFrame === "function") raf = requestAnimationFrame(sync);
+      else sync();
+    };
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
-    return () => observer.disconnect();
-  }, []);
-  return dark;
-}
-function StatusPill({ tone = "muted", text }) {
-  return (0, import_react54.createElement)(
-    "span",
-    { className: "bt-guide-status", "data-tone": tone },
-    (0, import_react54.createElement)("span", { className: "bt-guide-dot", "aria-hidden": true }),
-    (0, import_react54.createElement)("span", null, text)
-  );
-}
-function GuideCard({ icon: icon2, title, status, target, onOpen, children }) {
-  return (0, import_react54.createElement)(
-    "section",
-    { className: "bt-guide-card" },
-    (0, import_react54.createElement)(
-      "button",
-      { type: "button", className: "bt-guide-head", onClick: () => onOpen(target) },
-      (0, import_react54.createElement)("span", { className: "bt-guide-icon", "aria-hidden": true }, (0, import_react54.createElement)(icon2)),
-      (0, import_react54.createElement)("span", { className: "bt-guide-title" }, title),
-      status,
-      (0, import_react54.createElement)("span", { className: "bt-chevron" }, (0, import_react54.createElement)(ChevronRightIcon))
-    ),
-    (0, import_react54.createElement)("div", { className: "bt-guide-body" }, children)
-  );
-}
-function Chip({ label, page, id = null, active = false, onOpen }) {
-  return (0, import_react54.createElement)("button", {
-    type: "button",
-    className: "bt-guide-chip",
-    "data-on": active || void 0,
-    onClick: () => onOpen(page, id)
-  }, label);
-}
-function GuidePage({ roster, actions, run: run2, dsh }) {
-  const dark = useDarkMode();
-  const open = (page, id = null) => actions.openSettings(page, id);
-  const prefs = roster?.prefs ?? {};
-  const models = roster?.models ?? [];
-  const usableModels = models.filter((entry) => entry.needsKey !== true && !isLocalRoute(entry.ref));
-  const hasProviders = actions.providers !== void 0;
-  const hasServices = actions.deepseekServices !== void 0;
-  const needsModel = hasProviders && usableModels.length === 0;
-  const bots = roster?.bots ?? [];
-  const rooms = roster?.rooms ?? [];
-  const mainBot = roster?.byId?.[(roster?.mainBotIds ?? [])[0]];
-  const connData = roster?.connectors ?? {};
-  const readyApps = (connData.mail?.accounts?.length ?? 0) + (connData.connectors ?? []).filter((entry) => entry.id !== "mail" && entry.state === "ready").length;
-  const enabledIm = (roster?.im?.connections ?? []).filter((entry) => entry.enabled).length;
-  const connectedPhones = (roster?.phone?.phones ?? []).filter((entry) => entry.connected).length;
-  const phoneOnline = Boolean(roster?.phone?.on && roster?.phone?.status === "online" && connectedPhones > 0);
-  const phoneReady = Boolean(roster?.phone?.on && roster?.phone?.status === "online");
-  const mcpOn = roster?.mcp?.on === true;
-  const connectCount = readyApps + enabledIm + connectedPhones + (mcpOn ? 1 : 0);
-  const computerOn = roster?.computer?.enabled === true;
-  const secretsCount = (roster?.secrets ?? []).length;
-  const secretsEncrypted = roster?.secretStore?.mode === "encrypted";
-  const themes = allThemes();
-  const currentTheme = themes[prefs.theme] ? prefs.theme : "deepseek";
-  const hasPlugins = (dsh?.sections ?? []).some((row) => row.id === "plugins");
-  const inAgentMode = actions.setSurface && actions.surfaceMode?.() === "agent";
-  const modelStatus = needsModel ? (0, import_react54.createElement)(StatusPill, { tone: "warn", text: t("Needs an API key") }) : (0, import_react54.createElement)(StatusPill, { tone: usableModels.length > 0 ? "ok" : "muted", text: usableModels.length > 0 ? t("{count} models", { count: usableModels.length }) : t("Not set") });
-  const teamStatus = (0, import_react54.createElement)(
-    "span",
-    { className: "bt-guide-team" },
-    mainBot ? (0, import_react54.createElement)(BotAvatar, { bot: mainBot, size: 18, badge: false, live: false }) : null,
-    (0, import_react54.createElement)("span", { className: "bt-guide-meta" }, [
-      t("{count} Bots", { count: bots.length }),
-      rooms.length > 0 ? t("{count} groups", { count: rooms.length }) : null
-    ].filter(Boolean).join(" · "))
-  );
-  const connectStatus = phoneOnline && connectCount === connectedPhones ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("Phone online") }) : connectCount > 0 ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("{count} connected", { count: connectCount }) }) : phoneReady ? (0, import_react54.createElement)(StatusPill, { tone: "ok", text: t("Ready") }) : (0, import_react54.createElement)(StatusPill, { tone: "muted", text: t("Off") });
-  const toolsSummary = computerOn ? t("On") : secretsCount > 0 ? [t("{count} secrets", { count: secretsCount }), secretsEncrypted ? t("Encrypted") : null].filter(Boolean).join(" · ") : t("Off");
-  const toolsStatus = (0, import_react54.createElement)(StatusPill, { tone: computerOn || secretsEncrypted ? "ok" : "muted", text: toolsSummary });
-  const defaultModelName = prefs.defaultBotModel ? models.find((entry) => entry.ref === prefs.defaultBotModel)?.name ?? prefs.defaultBotModel : t("Default");
+    const settleTimer = setTimeout(sync, 260);
+    window.addEventListener?.("resize", schedule);
+    dialogEl.addEventListener?.("scroll", schedule, true);
+    let observer = null;
+    if (typeof MutationObserver === "function") {
+      observer = new MutationObserver(schedule);
+      observer.observe(dialogEl, { childList: true, subtree: true, attributes: false });
+    }
+    return () => {
+      clearTimeout(settleTimer);
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
+      window.removeEventListener?.("resize", schedule);
+      dialogEl.removeEventListener?.("scroll", schedule, true);
+      observer?.disconnect();
+    };
+  }, [active, step, currentPage, dialogRef, tourKey, index]);
+  if (!active || !step) return null;
+  const cardStyle = placeCard(spot, cardSize.width, cardSize.height) ?? { right: 20, bottom: 20 };
   return (0, import_react54.createElement)(
     "div",
-    { className: "bt-guide" },
-    inAgentMode ? (0, import_react54.createElement)(
-      "div",
-      { className: "bt-guide-banner" },
-      (0, import_react54.createElement)(
-        "span",
-        { className: "bt-guide-banner-copy" },
-        (0, import_react54.createElement)("span", { className: "bt-guide-dot", "data-tone": "accent", "aria-hidden": true }),
-        (0, import_react54.createElement)("span", null, t("Bot mode"))
-      ),
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => actions.setSurface("bot") }, t("Switch"))
-    ) : null,
-    needsModel ? (0, import_react54.createElement)(
-      "div",
-      { className: "bt-guide-banner", "data-tone": "warn" },
-      (0, import_react54.createElement)(
-        "span",
-        { className: "bt-guide-banner-copy" },
-        (0, import_react54.createElement)("span", { className: "bt-guide-dot", "data-tone": "warn", "aria-hidden": true }),
-        (0, import_react54.createElement)("span", null, t("Models")),
-        (0, import_react54.createElement)("span", { className: "bt-guide-meta" }, t("Needs an API key"))
-      ),
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => open("models") }, t("Set up"))
-    ) : null,
+    {
+      ref: layerRef,
+      className: "bt-tour-layer",
+      role: "dialog",
+      "aria-modal": false,
+      "aria-label": t(step.title),
+      "data-tour-mode": tour.mode,
+      "data-tour-step": step.target
+    },
+    (0, import_react54.createElement)("div", {
+      className: spot ? "bt-tour-backdrop" : "bt-tour-backdrop bt-tour-backdrop-dim",
+      onMouseDown: (event) => event.stopPropagation()
+    }),
+    spot ? (0, import_react54.createElement)("div", {
+      className: "bt-tour-spot",
+      "aria-hidden": true,
+      style: { left: spot.left, top: spot.top, width: spot.width, height: spot.height }
+    }) : null,
     (0, import_react54.createElement)(
       "div",
-      { className: "bt-guide-grid" },
+      {
+        ref: cardRef,
+        className: "bt-tour-card",
+        style: cardStyle,
+        onMouseDown: (event) => event.stopPropagation()
+      },
       (0, import_react54.createElement)(
-        GuideCard,
-        { icon: SlidersIcon, title: t("Models"), status: modelStatus, target: hasProviders ? "models" : "bot-models", onOpen: open },
-        (0, import_react54.createElement)(
-          "div",
-          { className: "bt-guide-chips" },
-          hasProviders ? (0, import_react54.createElement)(Chip, { label: t("Providers"), page: "models", active: needsModel, onOpen: open }) : null,
-          (0, import_react54.createElement)(Chip, { label: t("Bot models"), page: "bot-models", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Local agents"), page: "local-agents", onOpen: open }),
-          hasServices ? (0, import_react54.createElement)(Chip, { label: t("DeepSeek services"), page: "deepseek-services", onOpen: open }) : null
-        )
+        "div",
+        { className: "bt-tour-head" },
+        (0, import_react54.createElement)("span", { className: "bt-tour-title" }, t(step.title)),
+        steps.length > 1 ? (0, import_react54.createElement)("span", { className: "bt-tour-count" }, `${index + 1} / ${steps.length}`) : null
       ),
+      (0, import_react54.createElement)("p", { className: "bt-tour-cue" }, t(step.cue)),
       (0, import_react54.createElement)(
-        GuideCard,
-        { icon: PeopleIcon, title: t("Team"), status: teamStatus, target: "bots", onOpen: open },
+        "div",
+        { className: "bt-tour-foot" },
+        (0, import_react54.createElement)("button", { type: "button", className: "bt-tour-skip", onClick: dismiss }, t("Skip")),
         (0, import_react54.createElement)(
           "div",
-          { className: "bt-guide-chips" },
-          (0, import_react54.createElement)(Chip, { label: t("Bots"), page: "bots", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Group chats"), page: "groups", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Scheduled tasks"), page: "schedules", onOpen: open })
-        )
-      ),
-      (0, import_react54.createElement)(
-        GuideCard,
-        { icon: ConnectorIcon, title: t("Connect"), status: connectStatus, target: "connectors", onOpen: open },
-        (0, import_react54.createElement)(
-          "div",
-          { className: "bt-guide-chips" },
-          (0, import_react54.createElement)(Chip, { label: t("Connectors"), page: "connectors", active: readyApps > 0, onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("IM"), page: "im", active: enabledIm > 0, onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Phone"), page: "phone", active: phoneOnline, onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("MCP access"), page: "mcp", active: mcpOn, onOpen: open })
-        )
-      ),
-      (0, import_react54.createElement)(
-        GuideCard,
-        { icon: BlocksIcon, title: t("Tools"), status: toolsStatus, target: "computer", onOpen: open },
-        (0, import_react54.createElement)(
-          "div",
-          { className: "bt-guide-chips" },
-          (0, import_react54.createElement)(Chip, { label: t("Computer use"), page: "computer", active: computerOn, onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Browser"), page: "browser", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Capabilities"), page: "capabilities", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Secrets"), page: "secrets", active: secretsEncrypted, onOpen: open })
-        )
-      ),
-      (0, import_react54.createElement)(
-        GuideCard,
-        { icon: PaletteIcon, title: t("Appearance"), status: (0, import_react54.createElement)("span", { className: "bt-guide-meta" }, t(themes[currentTheme].label)), target: "appearance", onOpen: open },
-        (0, import_react54.createElement)(
-          "div",
-          { className: "bt-guide-themes", role: "group", "aria-label": t("Theme") },
-          Object.entries(themes).slice(0, 4).map(([id, theme]) => {
-            const palette = dark ? theme.dark : theme.light;
-            return (0, import_react54.createElement)(
-              "button",
-              {
-                key: id,
-                type: "button",
-                className: "bt-guide-theme-pill",
-                "aria-pressed": currentTheme === id,
-                onClick: () => {
-                  if (currentTheme !== id) run2(actions.setPrefs({ theme: id }));
-                }
-              },
-              (0, import_react54.createElement)(
-                "span",
-                { className: "bt-guide-theme-swatch", style: { background: palette.bg, borderColor: palette.accent } },
-                (0, import_react54.createElement)("span", { style: { background: palette.accent } })
-              ),
-              (0, import_react54.createElement)("span", null, t(theme.label))
-            );
-          })
-        )
-      ),
-      (0, import_react54.createElement)(
-        GuideCard,
-        { icon: GearIcon, title: t("General"), status: (0, import_react54.createElement)("span", { className: "bt-guide-meta bt-guide-ellipsis" }, defaultModelName), target: "general", onOpen: open },
-        (0, import_react54.createElement)(
-          "div",
-          { className: "bt-guide-chips" },
-          (0, import_react54.createElement)(Chip, { label: t("Basics"), page: "general", onOpen: open }),
-          (0, import_react54.createElement)(Chip, { label: t("Usage"), page: "usage", onOpen: open }),
-          hasPlugins ? (0, import_react54.createElement)(Chip, { label: dsh.sections.find((row) => row.id === "plugins").label, page: "dsh", id: "plugins", onOpen: open }) : null,
-          (0, import_react54.createElement)(Chip, { label: t("About DS Bot"), page: "about", onOpen: open })
+          { className: "bt-tour-nav" },
+          index > 0 ? (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: prev }, t("Back")) : null,
+          (0, import_react54.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: next }, isLast ? t("Done") : t("Next"))
         )
       )
     )
@@ -40711,7 +41063,6 @@ function settingsPreferences(ctx) {
 var import_react56 = require("react");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
 var NAV_GROUPS = [
-  { id: "guide", label: "Guide", icon: "guide", pages: [["guide", "Guide"]], section: "top" },
   { id: "general", label: "General", icon: "general", pages: [["general", "General"]], section: "main" },
   { id: "appearance", label: "Appearance", icon: "appearance", pages: [["appearance", "Appearance"]], section: "main" },
   {
@@ -40763,9 +41114,8 @@ var dshItem = (dsh, id) => (0, import_react56.createElement)(
   { key: id, className: "bt-dsh-item", "data-item": id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react56.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
 );
-var PAGE_ICONS = { ...SETTINGS_ICONS, guide: CompassIcon, appearance: PaletteIcon, models: SlidersIcon, "bot-models": LayersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, appearance: PaletteIcon, models: SlidersIcon, "bot-models": LayersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var SEARCH_ENTRIES = [
-  { id: "guide", label: "Guide", group: "Guide", page: "guide", icon: "guide", keywords: "overview home setup start 导览 首页 快速配置" },
   { id: "general", label: "General", group: "General", page: "general", icon: "general", keywords: "basics language workspace 语言 工作区 默认模型" },
   { id: "default-model", label: "Default model", group: "General", page: "general", icon: "general", keywords: "new bots model 默认模型" },
   { id: "enter-send", label: "Enter sends message", group: "General", page: "general", icon: "general", keywords: "input keyboard enter 回车 发送" },
@@ -40792,7 +41142,7 @@ var SEARCH_ENTRIES = [
   { id: "capabilities", label: "Capabilities", group: "Tools", page: "capabilities", icon: "capabilities", keywords: "shared mcp skill pack 能力 技能 包" },
   { id: "secrets", label: "Secrets", group: "Tools", page: "secrets", icon: "secrets", keywords: "encrypt passphrase password keys 密钥 加密 口令" },
   { id: "usage", label: "Usage", group: "Usage", page: "usage", icon: "usage", keywords: "tokens cost stats chart 用量 统计 消耗" },
-  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update release github 关于 版本 更新" },
+  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update release github guide walkthrough 关于 版本 更新 引导" },
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var MEMORY_SIZES = [
@@ -40825,18 +41175,18 @@ function SecondsField({ label, value, save }) {
     if (event.key === "Enter") event.target.blur();
   } });
 }
-function SetSection({ title, action = null, className = "", children }) {
+function SetSection({ title, action = null, className = "", tour = null, children }) {
   return (0, import_react56.createElement)(
     "section",
-    { className: `bt-set-section ${className}`.trim() },
+    { className: `bt-set-section ${className}`.trim(), "data-tour": tour || void 0 },
     action ? (0, import_react56.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react56.createElement)("h3", null, title), action) : title ? (0, import_react56.createElement)("h3", null, title) : null,
     (0, import_react56.createElement)("div", { className: "bt-set-card" }, children)
   );
 }
-function SetRow({ label, hint, children, className = "" }) {
+function SetRow({ label, hint, children, className = "", tour = null }) {
   return (0, import_react56.createElement)(
     "div",
-    { className: `bt-set-row ${className}`.trim() },
+    { className: `bt-set-row ${className}`.trim(), "data-tour": tour || void 0 },
     (0, import_react56.createElement)("div", { className: "bt-set-copy" }, (0, import_react56.createElement)("span", null, label), hint ? (0, import_react56.createElement)("span", { className: "bt-set-hint" }, hint) : null),
     children ? (0, import_react56.createElement)("div", { className: "bt-set-control" }, children) : null
   );
@@ -40886,10 +41236,23 @@ function WidthSlider({ label, value, save }) {
     (0, import_react56.createElement)("output", null, `${width}%`)
   );
 }
+function useDarkMode() {
+  const read = () => typeof document !== "undefined" && document.body?.hasAttribute?.("data-ds-dark-theme") === true;
+  const [dark, setDark] = (0, import_react56.useState)(read);
+  (0, import_react56.useEffect)(() => {
+    if (typeof document === "undefined" || !document.body || typeof MutationObserver !== "function") return void 0;
+    const sync = () => setDark(read());
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
 function ThemeGallery({ themes, current: current2, dark, onPick }) {
   return (0, import_react56.createElement)(
     "div",
-    { className: "bt-theme-grid", role: "group", "aria-label": t("Theme") },
+    { className: "bt-theme-grid", role: "group", "aria-label": t("Theme"), "data-tour": "theme-grid" },
     Object.entries(themes).map(([id, theme]) => {
       const palette = dark ? theme.dark : theme.light;
       const active = current2 === id;
@@ -40974,7 +41337,7 @@ function AppearancePage({ roster, actions, run: run2, dsh }) {
       ),
       (0, import_react56.createElement)(
         SetRow,
-        { label: t("Accent") },
+        { label: t("Accent"), tour: "accent" },
         (0, import_react56.createElement)(
           "div",
           { className: "bt-swatches" },
@@ -41000,7 +41363,7 @@ function AppearancePage({ roster, actions, run: run2, dsh }) {
     ),
     (0, import_react56.createElement)(
       SetSection,
-      { key: "messages", title: t("Messages") },
+      { key: "messages", title: t("Messages"), tour: "layout" },
       (0, import_react56.createElement)(SetRow, { label: t("Message layout") }, (0, import_react56.createElement)(Choice2, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === "flat" ? (0, import_react56.createElement)(SetRow, { label: t("Text width") }, (0, import_react56.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
@@ -41009,7 +41372,7 @@ function AppearancePage({ roster, actions, run: run2, dsh }) {
     ),
     (0, import_react56.createElement)(
       SetSection,
-      { key: "motion", title: t("Motion") },
+      { key: "motion", title: t("Motion"), tour: "motion" },
       (0, import_react56.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react56.createElement)(Choice2, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
       (0, import_react56.createElement)(SetRow, { label: t("Bot animation") }, (0, import_react56.createElement)(Choice2, { label: t("Bot animation"), value: motion, options: MOTIONS, className: "bt-motion-seg", pick: (id) => run2(actions.setPrefs({ motion: id })) }))
     )
@@ -41039,7 +41402,7 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
       basicDsh.includes("language") ? dshItem(dsh, "language") : null,
       (0, import_react56.createElement)(
         SetRow,
-        { label: t("Default model"), className: "bt-set-model" },
+        { label: t("Default model"), className: "bt-set-model", tour: "default-model" },
         (0, import_react56.createElement)(ModelMenu, {
           bot: { id: "new-bots", name: t("New Bots"), model: isLocalRoute(prefs.defaultBotModel) ? void 0 : prefs.defaultBotModel },
           roster,
@@ -41069,6 +41432,7 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
           type: "button",
           className: "bt-set-row bt-set-collapse",
           "aria-expanded": advancedOpen,
+          "data-tour": "advanced",
           onClick: () => setAdvancedOpen((open) => !open)
         },
         (0, import_react56.createElement)(
@@ -41127,7 +41491,7 @@ function LocationsSection({ actions, run: run2 }) {
   };
   return (0, import_react56.createElement)(
     SetSection,
-    { title: t("Locations"), className: "bt-set-places" },
+    { title: t("Locations"), className: "bt-set-places", tour: "locations" },
     (0, import_react56.createElement)(
       SetRow,
       { label: t("Team workspace") },
@@ -41148,7 +41512,7 @@ function MainBotsSection({ roster, actions, run: run2 }) {
   const candidates = roster.bots.filter((bot) => !isMainOf(roster, bot.id));
   return (0, import_react56.createElement)(
     SetSection,
-    { title: t("Main Bot") },
+    { title: t("Main Bot"), tour: "main-bot" },
     (0, import_react56.createElement)(
       SetRow,
       { label: t("Main Bot") },
@@ -41181,13 +41545,13 @@ function MainBotsSection({ roster, actions, run: run2 }) {
 }
 function BotsPage({ roster, actions, run: run2 }) {
   const [creating, setCreating] = (0, import_react56.useState)(false);
-  const newBotBtn = creating ? null : (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setCreating(true) }, (0, import_react56.createElement)(PlusIcon), t("New Bot"));
+  const newBotBtn = creating ? null : (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-bot", onClick: () => setCreating(true) }, (0, import_react56.createElement)(PlusIcon), t("New Bot"));
   return [
     (0, import_react56.createElement)(MainBotsSection, { key: "main", roster, actions, run: run2 }),
     creating ? (0, import_react56.createElement)(CreateBot, { key: "create", roster, actions, inline: true, onBack: () => setCreating(false), onCreated: (bot) => actions.openSettings("bots", bot.id) }) : null,
     (0, import_react56.createElement)(
       SetSection,
-      { key: "bots", title: t("Bots · {count}", { count: roster.bots.length }), action: newBotBtn },
+      { key: "bots", title: t("Bots · {count}", { count: roster.bots.length }), action: newBotBtn, tour: "bot-list" },
       roster.bots.map((bot) => (0, import_react56.createElement)(
         "button",
         { key: bot.id, type: "button", className: "bt-set-row", onClick: () => actions.openSettings("bots", bot.id) },
@@ -41208,12 +41572,12 @@ function BotsPage({ roster, actions, run: run2 }) {
 }
 function GroupsPage({ roster, actions, run: run2 }) {
   const [creating, setCreating] = (0, import_react56.useState)(false);
-  const newGroupBtn = creating ? null : (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react56.createElement)(PlusIcon), t("Create group chat"));
+  const newGroupBtn = creating ? null : (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-group", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react56.createElement)(PlusIcon), t("Create group chat"));
   return [
     creating ? (0, import_react56.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : null,
     (0, import_react56.createElement)(
       SetSection,
-      { key: "groups", title: t("Group chats · {count}", { count: roster.rooms.length }), action: newGroupBtn },
+      { key: "groups", title: t("Group chats · {count}", { count: roster.rooms.length }), action: newGroupBtn, tour: "group-list" },
       roster.rooms.length === 0 ? (0, import_react56.createElement)(SetRow, { label: t("No group chats yet.") }) : roster.rooms.map((room2) => {
         const admin = roster.byId[room2.admin];
         return (0, import_react56.createElement)(
@@ -41254,17 +41618,33 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const [query, setQuery] = (0, import_react56.useState)("");
   const [hitIndex, setHitIndex] = (0, import_react56.useState)(0);
   const [advancedToken, setAdvancedToken] = (0, import_react56.useState)(0);
+  const [tour, setTour] = (0, import_react56.useState)(() => !leaving && page === "general" && !id && canAutoStartTour() ? { mode: "full", nonce: 1 } : null);
+  const dialogRef = (0, import_react56.useRef)(null);
   const searchListRef = (0, import_react56.useRef)(null);
-  const close = (0, import_react56.useCallback)(() => actions.closeSettings(), [actions]);
+  const tourRef = (0, import_react56.useRef)(tour);
+  tourRef.current = tour;
+  const close = (0, import_react56.useCallback)(() => {
+    if (tourRef.current?.mode === "full") markTourSeen();
+    actions.closeSettings();
+  }, [actions]);
   const trimmed2 = query.trim().toLowerCase();
   const onEscape = (0, import_react56.useCallback)(() => {
     if (query !== "") {
       setQuery("");
       return;
     }
-    actions.closeSettings();
-  }, [query, actions]);
+    close();
+  }, [query, close]);
   useEscape(onEscape, !leaving);
+  const startTour = (0, import_react56.useCallback)((mode) => {
+    setQuery("");
+    setTour((prev) => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+  const dismissTour = (0, import_react56.useCallback)(() => setTour(null), []);
+  const navigateForTour = (0, import_react56.useCallback)((nextPage) => {
+    setQuery("");
+    actions.openSettings(nextPage);
+  }, [actions]);
   const [narrowNav, setNarrowNav] = (0, import_react56.useState)(() => typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 640px)").matches : false);
   (0, import_react56.useEffect)(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return void 0;
@@ -41353,6 +41733,9 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   (0, import_react56.useEffect)(() => {
     if (shown !== "general" && advancedToken !== 0) setAdvancedToken(0);
   }, [shown]);
+  (0, import_react56.useEffect)(() => {
+    if (tour && tour.mode !== "full" && shown !== tour.mode) setTour(null);
+  }, [tour, shown]);
   const depth = bot || room2 || advanced ? 1 : 0;
   const last = (0, import_react56.useRef)({ key: pageKey, depth, move: "up" });
   if (last.current.key !== pageKey) {
@@ -41363,7 +41746,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const errorLine = error ? (0, import_react56.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id;
-    const dotTone = (group.id === "guide" || group.id === "models") && needsModel ? "warn" : group.id === "connect" && phoneConnected ? "ok" : null;
+    const dotTone = group.id === "models" && needsModel ? "warn" : group.id === "connect" && phoneConnected ? "ok" : null;
     return (0, import_react56.createElement)(
       "button",
       {
@@ -41379,22 +41762,22 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     );
   };
   const subTabs = !section && depth === 0 && activeGroup.pages.length > 1 ? activeGroup.pages : null;
-  const topGroups = groups.filter((group) => group.section === "top");
   const mainGroups = groups.filter((group) => group.section === "main");
   const lastGroups = groups.filter((group) => group.section === "last");
+  const showSectionGuide = !section && depth === 0 && !usageFocus && hasSectionTour(shown);
   return (0, import_react56.createElement)(
     "div",
     { className: "bt-settings-layer", "data-leaving": leaving || void 0 },
     (0, import_react56.createElement)("div", { className: "bt-scrim", onMouseDown: close }),
     (0, import_react56.createElement)(
       "div",
-      { className: "bt-settings", role: "dialog", "aria-modal": true, "aria-label": t("Settings"), "data-shortcut-modal": "settings" },
+      { ref: dialogRef, className: "bt-settings", role: "dialog", "aria-modal": true, "aria-label": t("Settings"), "data-shortcut-modal": "settings" },
       (0, import_react56.createElement)(
         "div",
         { className: "bt-settings-rail" },
         (0, import_react56.createElement)(
           "div",
-          { className: "bt-set-search" },
+          { className: "bt-set-search", "data-tour": "search" },
           (0, import_react56.createElement)(SearchIcon),
           (0, import_react56.createElement)("input", {
             type: "text",
@@ -41458,8 +41841,6 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           "nav",
           { ref: nav.box, className: "bt-settings-nav", "aria-label": t("Settings pages") },
           (0, import_react56.createElement)("span", { ref: nav.thumb, className: "bt-thumb", "aria-hidden": true }),
-          topGroups.map(groupButton),
-          topGroups.length > 0 ? (0, import_react56.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }) : null,
           mainGroups.map(groupButton),
           extra.length > 0 ? (0, import_react56.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }) : null,
           extra.map((row) => (0, import_react56.createElement)("button", {
@@ -41484,7 +41865,16 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           { className: "bt-settings-head" },
           back ? (0, import_react56.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": back, title: back, onClick: () => actions.openSettings(shown) }, (0, import_react56.createElement)(ChevronLeftIcon)) : null,
           (0, import_react56.createElement)("h2", { key: bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : activeGroup.id) }, bot?.name ?? room2?.name ?? label),
-          dsh ? (0, import_react56.createElement)("div", { className: "bt-settings-actions" }, dsh.renderSlot("settings.action", {})) : null
+          (0, import_react56.createElement)(
+            "div",
+            { className: "bt-settings-head-end" },
+            dsh ? (0, import_react56.createElement)("div", { className: "bt-settings-actions" }, dsh.renderSlot("settings.action", {})) : null,
+            showSectionGuide ? (0, import_react56.createElement)("button", {
+              type: "button",
+              className: "bt-soft bt-soft-sm bt-with-icon bt-tour-trigger",
+              onClick: () => startTour(shown)
+            }, (0, import_react56.createElement)(CompassIcon), t("Guide")) : null
+          )
         ),
         subTabs ? (0, import_react56.createElement)(
           "div",
@@ -41514,7 +41904,6 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           (0, import_react56.createElement)(
             PageBoundary,
             null,
-            shown === "guide" ? (0, import_react56.createElement)(GuidePage, { roster, actions, run: run2, dsh }) : null,
             shown === "general" ? (0, import_react56.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
             shown === "appearance" ? (0, import_react56.createElement)(AppearancePage, { roster, actions, run: run2, dsh }) : null,
             shown === "computer" ? (0, import_react56.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
@@ -41537,7 +41926,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             shown === "schedules" ? (0, import_react56.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
             shown === "secrets" ? (0, import_react56.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection }) : null,
             shown === "feedback" ? (0, import_react56.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow }) : null,
-            shown === "about" ? (0, import_react56.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow }) : null
+            shown === "about" ? (0, import_react56.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow, onStartTour: () => startTour("full") }) : null
           )
         ),
         usageOpened ? (0, import_react56.createElement)(
@@ -41547,7 +41936,16 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           (0, import_react56.createElement)(PageBoundary, { reset: shown }, (0, import_react56.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
         ) : null
       ),
-      (0, import_react56.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react56.createElement)(CloseIcon))
+      (0, import_react56.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react56.createElement)(CloseIcon)),
+      leaving ? null : (0, import_react56.createElement)(SettingsTour, {
+        tour,
+        currentPage: shown,
+        dialogRef,
+        hasProviders,
+        hasAdvancedModels: hasSection(dsh, "models"),
+        onNavigate: navigateForTour,
+        onDismiss: dismissTour
+      })
     )
   );
 }
@@ -42078,7 +42476,7 @@ function SettingsShell(props) {
   (0, import_react58.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
   (0, import_react58.useLayoutEffect)(() => holdSeat?.(), []);
   const open = settings !== null && settings !== void 0;
-  const openSettings = () => actions.openSettings("guide");
+  const openSettings = () => actions.openSettings("general");
   return (0, import_react58.createElement)(
     import_react58.Fragment,
     null,
@@ -42366,7 +42764,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
           if (modal !== null && modal !== "settings") return { status: "blocked", reason: "modal" };
-          return { status: "handled", run: () => actions.openSettings("guide") };
+          return { status: "handled", run: () => actions.openSettings("general") };
         }
       }), "ds-bot: settings command");
     }),
@@ -44675,7 +45073,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     { key: "cmd:new", icon: (0, import_react65.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
     { key: "cmd:bot", icon: (0, import_react65.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
     { key: "cmd:group", icon: (0, import_react65.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    { key: "cmd:settings", icon: (0, import_react65.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("guide") }
+    { key: "cmd:settings", icon: (0, import_react65.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") }
   ].filter((command) => matchesName(command.title));
   if (commands.length) sections.push([t("Commands"), commands]);
   const rows2 = sections.flatMap(([, items]) => items);
@@ -45557,7 +45955,7 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
 
 // src/client/speech-playback.js
 var CJK = /\p{Script=Han}/u;
-var EDGE = /^\s+|\s+$/g;
+var EDGE2 = /^\s+|\s+$/g;
 var ALWAYS_END = /^[!?。！？…；;]/;
 var CLOSER = /^['"”’」』）)\]]/;
 var ABBREV = /(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i;
@@ -45620,11 +46018,11 @@ var billedSlice = (text, limit) => {
 var splitSpeech = (text, limit = 800) => {
   const chunks = [];
   const push = (piece) => {
-    let rest = piece.replace(EDGE, "");
+    let rest = piece.replace(EDGE2, "");
     while (rest !== "") {
       const part = billedLength(rest) <= limit ? rest : billedSlice(rest, limit);
-      chunks.push(part.replace(EDGE, ""));
-      rest = rest.slice(part.length).replace(EDGE, "");
+      chunks.push(part.replace(EDGE2, ""));
+      rest = rest.slice(part.length).replace(EDGE2, "");
     }
   };
   for (const paragraph of text.split(/\n\s*\n/)) {

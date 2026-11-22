@@ -271,7 +271,7 @@ test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no 
   assert.deepEqual(labels.slice(-4), ['Account', 'Plugins', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
-  assert.equal(labels[0], 'Guide')
+  assert.equal(labels[0], 'General')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
