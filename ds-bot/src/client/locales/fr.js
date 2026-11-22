@@ -1551,7 +1551,6 @@ export const FR = {
   "Hide steps": "Masquer les étapes",
   "Show steps": "Afficher les étapes",
   "Current chat": "Chat actuel",
-  "Earlier & parallel sessions": "Sessions précédentes et parallèles",
   "{count} tools": "{count} outils",
   "Mailbox": "Boîte mail",
   "Email address": "Adresse e-mail",
