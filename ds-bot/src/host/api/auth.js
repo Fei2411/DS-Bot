@@ -1,9 +1,10 @@
 // External API configuration, token store, scope/target authorization, rate limits,
 // DNS-rebinding guards, and metadata-only audit log.
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 
 export const DEFAULT_HOST = '127.0.0.1'
 export const DEFAULT_PORT = 17830
@@ -21,6 +22,14 @@ const AUDIT_MAX_ENTRIES = 5_000
 const AUDIT_ROTATE_CHECK_EVERY = 200
 const TOKEN_NAME_MAX = 80
 const QUERY_SECRET_RE = /[?&](?:token|api_key|apikey|access_token|auth|bearer|key)=/i
+const scryptAsync = promisify(scrypt)
+const DEFAULT_RATE_LIMIT = 120
+const DEFAULT_CONCURRENT_RUNS = 4
+const AUTH_WINDOW_MS = 60_000
+const AUTH_FAILURE_LIMIT = 10
+const VERIFICATION_TTL_MS = 30_000
+const AUTH_CACHE_LIMIT = 1024
+const positiveLimit = (value, fallback) => Number.isInteger(value) && value > 0 ? value : fallback
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
@@ -48,7 +57,7 @@ function hashSha256Raw(token) {
   return createHash('sha256').update(token).digest('hex')
 }
 
-function verifySecret(entry, secret, fullToken) {
+async function verifySecret(entry, secret, fullToken) {
   if (typeof entry?.hash !== 'string' || !/^[0-9a-f]{64}$/i.test(entry.hash)) return false
   let digest
   if (entry.hashAlgo === 'sha256-raw') {
@@ -56,7 +65,9 @@ function verifySecret(entry, secret, fullToken) {
     digest = hashSha256Raw(fullToken)
   } else {
     if (typeof entry?.salt !== 'string') return false
-    digest = entry.hashAlgo === 'scrypt' ? hashScrypt(entry.salt, secret) : hashSha256(entry.salt, secret)
+    digest = entry.hashAlgo === 'scrypt'
+      ? (await scryptAsync(secret, entry.salt, 32, { N: 16384, r: 8, p: 1 })).toString('hex')
+      : hashSha256(entry.salt, secret)
   }
   const actual = Buffer.from(digest, 'hex')
   const expected = Buffer.from(entry.hash, 'hex')
@@ -81,6 +92,8 @@ export function normalizeConfig(raw) {
     host,
     port,
     openaiCompat: raw?.openaiCompat !== false,
+    rateLimitPerMin: positiveLimit(raw?.rateLimitPerMin, DEFAULT_RATE_LIMIT),
+    maxConcurrentRuns: positiveLimit(raw?.maxConcurrentRuns, DEFAULT_CONCURRENT_RUNS),
   }
 }
 
@@ -124,6 +137,10 @@ export function createApiAuth(rt) {
   const rateWindows = new Map()
   // Active concurrent run counter per token keyId.
   const activeRuns = new Map()
+  const authAttempts = new Map()
+  const verified = new Map()
+  let tokenVersion = ''
+  const tokenFingerprint = entry => JSON.stringify({ ...entry, lastUsedAt: undefined })
 
   const writes = () => rt.readOnly?.() === undefined
 
@@ -203,6 +220,11 @@ export function createApiAuth(rt) {
   const reloadTokens = () => {
     const raw = readJson(tokensPath, [])
     tokens = Array.isArray(raw) ? raw.filter(item => item && typeof item === 'object' && typeof item.keyId === 'string') : []
+    const version = JSON.stringify(tokens.map(tokenFingerprint))
+    if (version !== tokenVersion) {
+      verified.clear()
+      tokenVersion = version
+    }
     return tokens
   }
 
@@ -221,6 +243,12 @@ export function createApiAuth(rt) {
   function updateConfig(patch = {}) {
     if (!writes()) throw Object.assign(new Error(rt.readOnly() ?? 'Host is read-only'), { code: 'bot/read-only' })
     const next = { ...config }
+    for (const field of ['rateLimitPerMin', 'maxConcurrentRuns']) {
+      if (patch[field] !== undefined) {
+        next[field] = sanitizeLimit(patch[field], { name: field, max: field === 'rateLimitPerMin' ? 10_000 : 500 })
+          ?? (field === 'rateLimitPerMin' ? DEFAULT_RATE_LIMIT : DEFAULT_CONCURRENT_RUNS)
+      }
+    }
     if (patch.enabled !== undefined) next.enabled = patch.enabled === true
     if (patch.openaiCompat !== undefined) next.openaiCompat = patch.openaiCompat === true
     if (patch.port !== undefined) {
@@ -294,8 +322,8 @@ export function createApiAuth(rt) {
       if (!Number.isFinite(ts) || ts <= Date.now()) throw invalid('Expiration time must be in the future')
       expiresAt = Math.floor(ts)
     }
-    const maxConcurrentRuns = sanitizeLimit(input.maxConcurrentRuns, { name: 'Max concurrent runs', min: 1, max: 500 })
-    const rateLimitPerMin = sanitizeLimit(input.rateLimitPerMin, { name: 'Rate limit per minute', min: 1, max: 10_000 })
+    const maxConcurrentRuns = sanitizeLimit(input.maxConcurrentRuns, { name: 'Max concurrent runs', min: 1, max: 500 }) ?? config.maxConcurrentRuns
+    const rateLimitPerMin = sanitizeLimit(input.rateLimitPerMin, { name: 'Rate limit per minute', min: 1, max: 10_000 }) ?? config.rateLimitPerMin
 
     const keyId = randomBytes(4).toString('hex')
     // 256-bit random secret encoded as URL-safe base64.
@@ -404,8 +432,8 @@ export function createApiAuth(rt) {
       lastUsedAt: entry.lastUsedAt ?? null,
       paused: entry.paused === true,
       revoked: entry.revoked === true,
-      maxConcurrentRuns: entry.maxConcurrentRuns ?? null,
-      rateLimitPerMin: entry.rateLimitPerMin ?? null,
+      maxConcurrentRuns: positiveLimit(entry.maxConcurrentRuns, config.maxConcurrentRuns),
+      rateLimitPerMin: positiveLimit(entry.rateLimitPerMin, config.rateLimitPerMin),
     }
   }
 
@@ -439,7 +467,44 @@ export function createApiAuth(rt) {
     return { ok: true }
   }
 
-  function authenticate(req) {
+  async function checkSecret(entry, secret, presented) {
+    const fingerprint = tokenFingerprint(entry)
+    const key = `${entry.keyId}:${hashSha256Raw(secret || presented)}`
+    const cached = verified.get(key)
+    if (cached?.fingerprint === fingerprint && cached.until > Date.now()) return true
+    if (!await verifySecret(entry, secret, presented)) return false
+    reloadTokens()
+    if (!tokens.some(item => item.keyId === entry.keyId && tokenFingerprint(item) === fingerprint)) return false
+    if (verified.size >= AUTH_CACHE_LIMIT) verified.delete(verified.keys().next().value)
+    verified.set(key, { fingerprint, until: Date.now() + VERIFICATION_TTL_MS })
+    return true
+  }
+
+  async function authenticate(req) {
+    const now = Date.now()
+    for (const [address, attempts] of authAttempts) {
+      const live = attempts.filter(at => now - at < AUTH_WINDOW_MS)
+      if (live.length === 0) authAttempts.delete(address)
+      else authAttempts.set(address, live)
+    }
+    const address = req.socket?.remoteAddress ?? 'unknown'
+    const attempts = authAttempts.get(address) ?? []
+    if (attempts.length >= AUTH_FAILURE_LIMIT || (!authAttempts.has(address) && authAttempts.size >= AUTH_CACHE_LIMIT)) {
+      return { ok: false, status: 429, code: 'api/auth-rate-limited', message: 'Too many failed authentication attempts', details: { retryAfterMs: Math.max(1, AUTH_WINDOW_MS - (now - (attempts[0] ?? now))) } }
+    }
+    attempts.push(now)
+    authAttempts.set(address, attempts)
+    const result = await authenticateToken(req)
+    if (result.ok) {
+      const current = authAttempts.get(address)
+      const index = current?.indexOf(now) ?? -1
+      if (index >= 0) current.splice(index, 1)
+      if (current?.length === 0) authAttempts.delete(address)
+    }
+    return result
+  }
+
+  async function authenticateToken(req) {
     const originCheck = checkRequestOrigin(req)
     if (!originCheck.ok) return originCheck
 
@@ -467,14 +532,24 @@ export function createApiAuth(rt) {
         return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
       }
       const candidate = tokens.find(item => item.keyId === keyId && item.revoked !== true)
-      if (candidate !== undefined && verifySecret(candidate, secret, presented)) entry = candidate
+      if (candidate !== undefined && await checkSecret(candidate, secret, presented)) entry = candidate
     } else if (presented.startsWith('dsb_')) {
       // Support tokens migrated from v0.3.9 mcp.json (raw sha256 hashes of `dsb_<secret>`).
-      entry = tokens.find(item => item.revoked !== true && item.hashAlgo === 'sha256-raw' && verifySecret(item, '', presented))
+      for (const item of tokens) {
+        if (item.revoked !== true && item.hashAlgo === 'sha256-raw' && await checkSecret(item, '', presented)) {
+          entry = item
+          break
+        }
+      }
     }
     if (entry === undefined) {
       return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
     }
+    const current = tokens.find(item => item.keyId === entry.keyId)
+    if (!current || tokenFingerprint(current) !== tokenFingerprint(entry)) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'API token changed during verification' }
+    }
+    entry = current
     if (entry.paused === true) {
       return { ok: false, status: 403, code: 'api/token-paused', message: 'This API token is paused' }
     }
@@ -552,8 +627,8 @@ export function createApiAuth(rt) {
       name: entry.name,
       scopes: [...scopes],
       targetScope,
-      maxConcurrentRuns: entry.maxConcurrentRuns ?? null,
-      rateLimitPerMin: entry.rateLimitPerMin ?? null,
+      maxConcurrentRuns: positiveLimit(entry.maxConcurrentRuns, config.maxConcurrentRuns),
+      rateLimitPerMin: positiveLimit(entry.rateLimitPerMin, config.rateLimitPerMin),
       hasScope,
       canAccessBot,
       canAccessRoom,

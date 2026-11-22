@@ -90,9 +90,9 @@ export function install(rt) {
       }
       audit.path = url.pathname
       await rt.refresh()
-      const check = auth.authenticate(req)
+      const check = await auth.authenticate(req)
       if (!check.ok) {
-        sendError(res, httpError(check.status, check.code, check.message))
+        sendError(res, httpError(check.status, check.code, check.message, check.details))
         return
       }
       const principal = check.token

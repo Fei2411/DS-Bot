@@ -68,6 +68,23 @@ test('loopback hosts require literal addresses and malformed Host headers return
   }
 })
 
+test('failed HTTP authentication returns Retry-After after ten attempts', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-api-auth-limit-'))
+  const { ctx, rt } = startHost(home)
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  const view = await rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  for (let i = 0; i < 10; i += 1) {
+    const response = await fetch(`${view.baseUrl}/v1/health`)
+    assert.equal(response.status, 401)
+    await response.text()
+  }
+  const response = await fetch(`${view.baseUrl}/v1/health`)
+  assert.equal(response.status, 429)
+  assert.ok(Number(response.headers.get('retry-after')) > 0)
+  await response.text()
+})
+
 test('default off, auth rejections, query token rejection, DNS rebinding, and rate limits', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-apisec-'))
   const { ctx, rt } = startHost(home, {

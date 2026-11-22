@@ -11,6 +11,8 @@ const PKG = JSON.parse(readFileSync(new URL('../../../package.json', import.meta
 export const JSON_BODY_LIMIT = 2 * 1024 * 1024 // 2 MiB
 export const UPLOAD_BODY_LIMIT = 32 * 1024 * 1024 // 32 MiB
 const UPLOAD_TTL_MS = 30 * 60_000
+const UPLOADS_PER_TOKEN = 20
+const UPLOAD_BYTES_PER_TOKEN = 128 * 1024 * 1024
 const GLOBAL_STREAM_BUFFER = 500
 const SSE_KEEPALIVE_MS = 20_000
 const BOT_FIELDS = new Set(['name', 'role', 'instructions', 'color', 'avatar', 'model', 'effort'])
@@ -815,6 +817,22 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
   async function handleUpload(req, res, principal) {
     requireScope(principal, 'message')
     if (!writes()) throw httpError(503, 'bot/read-only', rt.readOnly() ?? 'Host is read-only')
+    const checkCapacity = (size = 0) => {
+      let count = 0
+      let total = 0
+      for (const [id, entry] of uploads) {
+        if (Date.now() - entry.createdAt >= UPLOAD_TTL_MS) {
+          uploads.delete(id)
+          try { rmSync(entry.path, { force: true }) } catch {}
+        } else if (entry.tokenId === principal.keyId) {
+          count += 1
+          total += entry.size
+        }
+      }
+      if (count >= UPLOADS_PER_TOKEN) throw httpError(429, 'api/upload-limit', 'A token may stage at most 20 live uploads', { retryAfterMs: UPLOAD_TTL_MS })
+      if (total + size > UPLOAD_BYTES_PER_TOKEN) throw httpError(413, 'api/upload-limit', 'A token may stage at most 128 MiB of live uploads')
+    }
+    checkCapacity()
     const contentType = String(req.headers['content-type'] ?? '').toLowerCase()
     let name = 'upload.bin'
     let mime = 'application/octet-stream'
@@ -839,6 +857,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       mime = contentType.split(';')[0].trim() || 'application/octet-stream'
     }
 
+    checkCapacity(bytes.length)
     const uploadId = `upl_${randomBytes(8).toString('hex')}`
     mkdirSync(uploadsDir, { recursive: true })
     const filePath = join(uploadsDir, uploadId)
