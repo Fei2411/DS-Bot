@@ -39,14 +39,16 @@ export function install(rt) {
       ...(roomId ? { roomId } : {}),
       ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''),
+      privacy: request.privacy === true,
       reason: String(request.reason ?? '').slice(0, 500),
       detail: rt.callDetail?.(sessionId, request.callId) ?? {},
       at: Date.now(),
     }
     pending.set(id, entry)
-    rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
+    rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
     rt.approvalWaiting?.(entry)
-    emit('open', { ...entry, answerable: true })
+    const { privacy: _, ...publicEntry } = entry
+    emit('open', { ...publicEntry, answerable: true })
     const settle = (outcome) => {
       if (!pending.has(id)) return false
       pending.delete(id)
@@ -104,7 +106,7 @@ export function install(rt) {
     })
   }, { prepend: true })
 
-  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => {
+  const approvalsView = () => [...pending.values()].map(({ answer, privacy: _, ...entry }) => {
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(entry.sessionId) : undefined
     const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(entry.sessionId)?.task?.title)
     return {
@@ -130,5 +132,6 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, onApproval })
+  const isPrivacyApproval = id => pending.get(id)?.privacy === true
+  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, onApproval, isPrivacyApproval })
 }

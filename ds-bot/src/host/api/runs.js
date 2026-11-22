@@ -346,7 +346,7 @@ export function createRunCoordinator(rt, auth) {
   }
 
   function approvalActionOf(entry) {
-    const isPrivacyApproval = /private Bot|outside its own folder|share this with the team/i.test(String(entry.reason ?? ''))
+    const isPrivacyApproval = rt.isPrivacyApproval?.(entry.id) === true
     return {
       kind: 'approval',
       actionId: entry.id,
@@ -1070,6 +1070,9 @@ export function createRunCoordinator(rt, auth) {
   }
 
   async function respondToRun(runId, principal, body = {}) {
+    if (typeof body.actionId !== 'string' || body.actionId.trim() === '') {
+      return { ok: false, status: 400, code: 'api/invalid', message: 'actionId is required' }
+    }
     const found = getRunForPrincipal(runId, principal)
     if (!found.ok) return found
     const { record } = found
@@ -1078,8 +1081,18 @@ export function createRunCoordinator(rt, auth) {
       return { ok: false, status: 409, code: 'run/not-waiting', message: 'This run is not waiting for human input' }
     }
     const action = record.pendingAction
-    if (body.actionId !== undefined && String(body.actionId) !== String(action.actionId)) {
+    if (body.actionId !== action.actionId) {
       return { ok: false, status: 409, code: 'run/stale-action', message: 'Pending action id does not match' }
+    }
+    if (action.kind === 'approval') {
+      const live = (rt.approvalsView?.() ?? []).find(entry => entry.id === action.actionId && entry.sessionId === action.sessionId && entry.botId === action.botId && entry.answerable === true)
+      if (!live) return { ok: false, status: 409, code: 'run/stale-action', message: 'This approval is no longer open' }
+      if (rt.isPrivacyApproval?.(live.id) === true) {
+        return { ok: false, status: 403, code: 'api/action-not-permitted', message: 'Privacy approvals must be completed by the user on the computer or phone' }
+      }
+    }
+    if (action.kind === 'question' && rt.own(state.questions, action.sessionId)?.id !== action.actionId) {
+      return { ok: false, status: 409, code: 'run/stale-action', message: 'This question is no longer open' }
     }
     if (action.kind === 'secret' || action.kind === 'browser_hold' || action.canRespondViaApi !== true) {
       return { ok: false, status: 403, code: 'api/action-not-permitted', message: `Action "${action.kind}" must be completed by the user on the computer or phone` }

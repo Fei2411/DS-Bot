@@ -165,6 +165,7 @@ export function install(rt) {
     const outcome = await approval.request({
       agent: exec.agent,
       toolName: exec.name,
+      privacy: true,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: en,
       displayReason: { en, zh },

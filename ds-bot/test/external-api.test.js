@@ -432,11 +432,12 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   const h = createHarness(undefined, {
     async onPrompt({ sessionId, text, emitSessionEvent, triggerApproval, rt, agents, nextSeq }) {
       emitSessionEvent(sessionId, { type: 'turn/start', seq: nextSeq(), time: Date.now(), data: { turn: 1 } })
-      if (text === 'need-approval') {
+      if (text === 'need-approval' || text === 'privacy-outbound' || text === 'privacy-reworded') {
         approvalPromise = triggerApproval({
           agent: agents.get(sessionId),
-          toolName: 'bash',
-          reason: 'Run npm test',
+          toolName: text === 'need-approval' ? 'bash' : 'message_bot',
+          privacy: text !== 'need-approval',
+          reason: text === 'privacy-outbound' ? 'Let Vault send this to Chief?' : 'Please confirm this operation',
         }).then((outcome) => {
           emitSessionEvent(sessionId, {
             type: 'assistant/message',
@@ -446,6 +447,9 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
           })
           emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
         })
+      } else if (text === 'need-view') {
+        rt.state.views[sessionId] = { id: 'v_1', title: 'Confirm' }
+        emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
       } else if (text === 'need-question') {
         rt.state.questions[sessionId] = { id: 'q_1', question: 'Proceed?', options: [{ label: 'Yes' }, { label: 'No' }] }
         emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
@@ -483,17 +487,28 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   assert.equal(runA.pendingAction.kind, 'approval')
   assert.equal(runA.pendingAction.canRespondViaApi, true)
 
+  const respond = (run, body) => fetch(`${view.baseUrl}/v1/runs/${run.runId}/respond`, {
+    method: 'POST', headers: { Authorization: `Bearer ${approveToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  assert.equal((await respond(runA, { choice: 'allow' })).status, 400)
+  assert.equal((await respond(runA, { actionId: 'stale', choice: 'allow' })).status, 409)
+  const approvalsView = h.rt.approvalsView
+  h.rt.approvalsView = () => []
+  assert.equal((await respond(runA, { actionId: runA.pendingAction.actionId, choice: 'allow' })).status, 409)
+  h.rt.approvalsView = approvalsView
+
   const denied = await fetch(`${view.baseUrl}/v1/runs/${runA.runId}/respond`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${msgOnlyToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ choice: 'allow' }),
+    body: JSON.stringify({ actionId: runA.pendingAction.actionId, choice: 'allow' }),
   })
   assert.equal(denied.status, 403)
 
   const allowed = await fetch(`${view.baseUrl}/v1/runs/${runA.runId}/respond`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${approveToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ choice: 'allow' }),
+    body: JSON.stringify({ actionId: runA.pendingAction.actionId, choice: 'allow' }),
   })
   assert.equal(allowed.status, 200)
   await approvalPromise
@@ -512,16 +527,42 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   assert.equal(runQ.status, 'waiting_human')
   assert.equal(runQ.pendingAction.kind, 'question')
 
+  assert.equal((await respond(runQ, { answer: 'Yes' })).status, 400)
+  const question = h.rt.state.questions[runQ.pendingAction.sessionId]
+  h.rt.state.questions[runQ.pendingAction.sessionId] = { ...question, id: 'replacement' }
+  assert.equal((await respond(runQ, { actionId: runQ.pendingAction.actionId, answer: 'Yes' })).status, 409)
+  h.rt.state.questions[runQ.pendingAction.sessionId] = question
+
   const ansQ = await fetch(`${view.baseUrl}/v1/runs/${runQ.runId}/respond`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${msgOnlyToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: 'Yes' }),
+    body: JSON.stringify({ actionId: runQ.pendingAction.actionId, answer: 'Yes' }),
   })
   assert.equal(ansQ.status, 200)
   await new Promise(resolve => setTimeout(resolve, 40))
   const doneQ = await fetch(`${view.baseUrl}/v1/runs/${runQ.runId}`, { headers: { Authorization: `Bearer ${msgOnlyToken}` } }).then(r => r.json())
   assert.equal(doneQ.status, 'completed')
   assert.equal(doneQ.output.text, 'Continued after human input.')
+
+  for (const text of ['privacy-outbound', 'privacy-reworded', 'need-view']) {
+    const response = await fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+      method: 'POST', headers: { Authorization: `Bearer ${approveToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, wait: 5 }),
+    })
+    const run = await response.json()
+    assert.equal(response.status, 202)
+    assert.equal((await respond(run, {})).status, 400)
+    if (text === 'need-view') {
+      delete h.rt.state.views[run.pendingAction.sessionId]
+      assert.equal((await respond(run, { actionId: run.pendingAction.actionId })).status, 409)
+    } else {
+      assert.equal(run.pendingAction.canRespondViaApi, false)
+      assert.equal((await respond(run, { actionId: run.pendingAction.actionId, choice: 'allow' })).status, 403)
+      assert.equal('privacy' in h.rt.approvalsView()[0], false)
+      h.rt.answerApproval(run.pendingAction.actionId, 'reject')
+      await approvalPromise
+    }
+  }
 
   // C. Secret card -> waiting_human with canRespondViaApi: false -> respond refused with 403
   const r3 = await fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
@@ -538,7 +579,7 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   const refuseSecret = await fetch(`${view.baseUrl}/v1/runs/${runS.runId}/respond`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${approveToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: 'sk-123' }),
+    body: JSON.stringify({ actionId: runS.pendingAction.actionId, answer: 'sk-123' }),
   })
   assert.equal(refuseSecret.status, 403)
 })
