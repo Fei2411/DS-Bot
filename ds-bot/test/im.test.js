@@ -1326,8 +1326,8 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   assert.notEqual(next, code)
 })
 
-test('token reservations survive a killed process with open and recently settled cards', async (t) => {
-  for (const mode of ['open', 'settled']) await t.test(mode, async (t) => {
+test('token reservations recover interrupted sends without replaying completed deliveries after a killed process', async (t) => {
+  for (const mode of ['open', 'complete', 'complete-no-id', 'settled']) await t.test(mode, async (t) => {
     const home = mkdtempSync(join(tmpdir(), 'dsb-im-crash-'))
     const child = fork(new URL('./fixtures/im-view-crash.mjs', import.meta.url), [home, mode], {
       execArgv: ['--import', new URL('./harness-resolve.mjs', import.meta.url).href],
@@ -1353,8 +1353,25 @@ test('token reservations survive a killed process with open and recently settled
     assert.ok(delivery.persisted.viewCodeSeq >= Number(delivery.code.slice(1)))
     s = await start({ home })
     await s.rt.imEndpoint('im-retry', { id: delivery.connId })
-    if (mode === 'open') assert.equal(s.rt.state.views.a.id, delivery.viewId)
-    else assert.equal(s.rt.state.views.a, undefined)
+    if (mode !== 'settled') {
+      assert.equal(s.rt.state.views.a.id, delivery.viewId)
+      if (mode === 'open') {
+        const recovered = await tokenCard(s)
+        assert.equal(recovered.chat.key, 'dm-u1')
+        assert.match(recovered.text, new RegExp(`Card ${delivery.code}\\b`))
+        await Promise.all([s.rt.save(), s.rt.save()])
+        await s.flush()
+        assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 1)
+      } else {
+        await s.flush()
+        assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 0)
+      }
+      await dm(s, 'u1', `${delivery.code}\n1: Recovered`)
+      assert.equal(s.rt.state.views.a, undefined)
+      assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Recovered')
+    } else assert.equal(s.rt.state.views.a, undefined)
+    s.fake.sent.length = 0
+    const previousFollowup = s.agentOf('a').lastFollowup
     await dm(s, 'u1', 'new form')
     s.imTurn('a')
     await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
@@ -1366,7 +1383,7 @@ test('token reservations survive a killed process with open and recently settled
     const id = s.rt.state.views.a.id
     await dm(s, 'u1', `${delivery.code}\n1: Wrong card`)
     assert.equal(s.rt.state.views.a.id, id)
-    assert.equal(s.agentOf('a').lastFollowup, undefined)
+    assert.equal(s.agentOf('a').lastFollowup, previousFollowup)
     await dm(s, 'u1', `${code}\n1: Correct card`)
     assert.equal(s.rt.state.views.a, undefined)
     assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Correct card')

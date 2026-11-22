@@ -47,7 +47,7 @@ adapters.telegram = {
             await new Promise(() => {})
           }
         }
-        return { messageId: '1' }
+        return { messageId: mode === 'complete-no-id' ? undefined : '1' }
       },
       async edit() {}, async typing() {}, stop() {},
     }
@@ -71,6 +71,15 @@ await rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
   type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }],
 } }, { agent, concludeTurn() {} })
 while (delivery === undefined) await delay(1)
+if (mode.startsWith('complete')) {
+  let persisted
+  do {
+    await delay(1)
+    persisted = JSON.parse(readFileSync(join(home, 'im', `${conn.id}.json`), 'utf8'))
+  } while (persisted.cards[`v:${delivery.viewId}`][0].delivered !== true)
+  delivery.persisted = persisted
+  report()
+}
 if (mode === 'settled') {
   await message(`${delivery.code}\n1: First`)
   report()

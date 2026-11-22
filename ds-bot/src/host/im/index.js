@@ -241,6 +241,7 @@ export function install(rt) {
 
   // ---------------------------------------------------------------- runtime file
   const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
+  const interruptedCards = new WeakSet()
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -255,6 +256,7 @@ export function install(rt) {
         const code = /^V([1-9]\d*)$/.exec(entry.code ?? '')
         const number = code === null ? 0 : Number(code[1])
         if (Number.isSafeInteger(number)) viewCodeSeq = Math.max(viewCodeSeq, number)
+        if (code !== null && entry.delivered !== true && entry.messageId === undefined && entry.answer === undefined) interruptedCards.add(entry)
       }
     }
     held = {
@@ -325,11 +327,13 @@ export function install(rt) {
     if (held !== undefined) {
       held.messageId = messageId ?? held.messageId
       held.text = body ?? held.text
+      held.delivered = true
     } else {
       entries.push({ chatKey, messageId, text: body })
     }
     data.cards[cardKey] = entries
     scheduleWrite(id)
+    if (held?.code !== undefined) await writeRuntime(id)
   }
   const unmarkCard = async (id, cardKey, chatKey) => {
     const data = await dataOf(id)
@@ -875,7 +879,9 @@ export function install(rt) {
         }
         const settled = queue.stoppedSend
         queue.stoppedSend = undefined
-        if (connections()[conn.id] !== undefined) job.after?.(sent)
+        if (connections()[conn.id] !== undefined) {
+          await Promise.resolve(job.after?.(sent)).catch(error => rt.warn('ds-bot: im card delivery not remembered: %s', error))
+        }
         clearSettledSendStatus(conn.id, chatKey, runner, settled)
         clearPendingSend(conn.id, chatKey, settled)
         if (runner.stopped || runners.get(conn.id) !== runner) break
@@ -1319,14 +1325,19 @@ export function install(rt) {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
     const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined && (tokenView === undefined || entry.code !== undefined))
-    const recorded = new Set(entries.map(entry => entry.chatKey))
+    const recorded = new Set(entries.filter(entry => !interruptedCards.has(entry)).map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
     for (const { chatKey } of pending) {
+      const interrupted = entries.find(entry => entry.chatKey === chatKey && interruptedCards.has(entry))
+      if (interrupted !== undefined) {
+        interruptedCards.delete(interrupted)
+        continue
+      }
       const code = tokenView === undefined ? undefined : `V${++data.viewCodeSeq}`
       const message = code === undefined ? body : `${body}\n${imViewFormText(tokenView, code)}`
-      entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code }) })
+      entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code, delivered: false }) })
     }
     scheduleWrite(conn.id)
     if (tokenView !== undefined) {
@@ -1351,7 +1362,7 @@ export function install(rt) {
         chat: { key: chatKey, kind: chat.kind, title: chat.title },
         text: message,
         buttons,
-        after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, message) },
+        after: (sent) => markCard(conn.id, cardKey, chatKey, sent?.messageId, message),
         onDrop: () => unmarkCard(conn.id, cardKey, chatKey),
       })
     }
