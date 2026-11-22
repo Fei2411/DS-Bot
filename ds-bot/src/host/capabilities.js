@@ -59,6 +59,7 @@ export function install(rt) {
   const mounts = new Map()
   // One reconcile chain per Agent: a slow MCP server holds up only its own Agent.
   const chains = new WeakMap()
+  const removalChains = new WeakMap()
   const queued = new WeakSet()
   const sessionStatuses = new Map()
   const loaded = new Map()
@@ -341,6 +342,7 @@ export function install(rt) {
     if (agentMounts.get(name)?.key === key) return
     await drop()
     statusSet(bot.id, name, sessionId, { state: 'connecting' })
+    let mounted
     try {
       const plugin = item.kind === 'skill'
         ? {
@@ -351,22 +353,24 @@ export function install(rt) {
           },
         }
         : await loadMcpPlugin()
-      if (stopped) return
+      if (stopped || agents.get(sessionId)?.deref() !== agent || !desiredFor(agent, botOfSession(sessionId)).has(name)) return
       const fiber = item.kind === 'skill' ? agent.ctx.plugin(plugin) : agent.ctx.plugin(plugin, config)
-      agentMounts.set(name, { key, fiber })
+      mounted = { key, fiber }
+      agentMounts.set(name, mounted)
       await fiber.await()
-      if (stopped || agents.get(sessionId)?.deref() !== agent) return
+      if (stopped || agents.get(sessionId)?.deref() !== agent || agentMounts.get(name) !== mounted) return
       statusSet(bot.id, name, sessionId, { state: 'ready' })
       if (item.kind === 'skill') toolCounts.set(name, 0)
       const schemas = agent.ctx.tools?.schemas?.(agent)
       if (item.kind === 'mcp' && Array.isArray(schemas)) toolCounts.set(name, schemas.filter(tool => tool.name.startsWith(`mcp__${name}__`)).length)
     } catch (error) {
+      if (mounted && agentMounts.get(name) !== mounted) return
       await drop()
       const message = rt.redactSecrets([error, error?.cause].filter(Boolean).map(part => String(part?.message ?? part)).join(': ') || 'Connection failed').slice(0, 300)
       statusSet(bot.id, name, sessionId, { state: 'error', error: message })
     }
   }
-  const reconcileAgent = async (agent, bot) => {
+  const desiredFor = (agent, bot) => {
     const sessionId = agent.session.id
     const desired = bot ? expandCapabilityNames(bot.capabilities, library()) : new Set()
     const entries = loaded.get(sessionId)
@@ -383,26 +387,45 @@ export function install(rt) {
       }
       for (const name of leaves) desired.add(name)
     }
+    return desired
+  }
+  const pruneAgent = agent => {
+    const run = (removalChains.get(agent) ?? Promise.resolve()).then(async () => {
+      const sessionId = agent.session.id
+      if (stopped || agents.get(sessionId)?.deref() !== agent) return
+      const bot = botOfSession(sessionId)
+      const desired = desiredFor(agent, bot)
+      if (bot) {
+        for (const name of sessionStatuses.get(bot.id)?.keys() ?? []) {
+          if (!desired.has(name)) clearStatus(bot.id, name, sessionId)
+        }
+      } else {
+        clearSession(sessionId)
+      }
+      const drops = []
+      const agentMounts = mounts.get(agent)
+      for (const [name, mount] of agentMounts ?? []) {
+        if (desired.has(name)) continue
+        agentMounts.delete(name)
+        drops.push(disposeMount(mount))
+      }
+      await Promise.all(drops)
+    })
+    removalChains.set(agent, run)
+    return run
+  }
+  const reconcileAgent = async (agent, bot) => {
+    await pruneAgent(agent)
+    const desired = desiredFor(agent, bot)
     const agentMounts = mounts.get(agent) ?? new Map()
     if (desired.size > 0) mounts.set(agent, agentMounts)
-    if (bot) {
-      for (const name of sessionStatuses.get(bot.id)?.keys() ?? []) {
-        if (!desired.has(name)) clearStatus(bot.id, name, sessionId)
-      }
-    } else {
-      clearSession(sessionId)
-    }
-    for (const [name, mount] of agentMounts) {
-      if (desired.has(name)) continue
-      await disposeMount(mount)
-      agentMounts.delete(name)
-    }
     await Promise.all([...desired].map(name => mountOne(agent, bot, agentMounts, name)))
     if (agentMounts.size === 0 && mounts.get(agent) === agentMounts) mounts.delete(agent)
   }
   const botOfSession = sessionId => (rt.isBotSession(sessionId) ? rt.botOf(rt.selfOf(sessionId)) : undefined)
   // At most one run waits behind the running one; it reads the latest state when it starts.
-  const reconcileOne = agent => {
+  const reconcileOne = async agent => {
+    await pruneAgent(agent)
     if (queued.has(agent)) return chains.get(agent)
     queued.add(agent)
     const run = (chains.get(agent) ?? Promise.resolve()).then(async () => {
@@ -451,6 +474,7 @@ export function install(rt) {
   // same Agent do not wait for it again.
   const stalled = new WeakSet()
   const prepare = async (agent, sessionId) => {
+    await pruneAgent(agent)
     const run = loadInputs().then(() => reconcileOne(agent)).then(() => true, error => {
       rt.warn('ds-bot: capability mount for %s failed: %s', sessionId, error)
       return true
@@ -626,7 +650,10 @@ export function install(rt) {
     pendingDrops.delete(sessionId)
     if (!entries.size) loaded.delete(sessionId)
     const agent = agents.get(sessionId)?.deref()
-    if (agent) await reconcileOne(agent)
+    if (agent) {
+      await pruneAgent(agent)
+      void reconcileOne(agent).catch(error => rt.warn('ds-bot: capability reconcile for %s failed: %s', sessionId, error))
+    }
   })
   // Creation waits for these listeners, so a new Agent's first request already has its
   // tools and skill catalog. agent/pre-step is too late: a step assembles its tools first.

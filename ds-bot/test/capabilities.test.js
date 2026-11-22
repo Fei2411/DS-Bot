@@ -240,6 +240,65 @@ test('use_pack returns approval, mount error and bounded timeout statuses', asyn
   await rt.reconcileCapabilities()
 })
 
+test('a pending MCP startup does not block another pack removal before the next turn', async t => {
+  for (const removal of ['drop', 'detach', 'delete']) {
+    await t.test(removal, async t => {
+      const env = await setup()
+      const { rt, ctx, mounts, skills } = env
+      let release
+      let settled = false
+      let turnEnd
+      const gate = new Promise(resolve => { release = resolve })
+      const agent = testAgent('chief', mounts, skills, { awaitMount: async record => {
+        if (record.config?.serverName !== 'slow') return
+        await gate
+        settled = true
+      } })
+      t.after(async () => {
+        release()
+        await turnEnd
+        await rt.reconcileCapabilities()
+        await env.dispose()
+      })
+      agent.status = 'running'
+      agent.ctx.tools = { schemas: () => [{ name: 'mcp__slow__echo' }] }
+      rt.resolveAgent = async () => agent
+      await created(env)({ agent })
+      for (const name of ['slow', 'fast']) await rt.capabilitySave(mcp(name), { ui: true })
+      await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Guide' }, { ui: true })
+      await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['fast', 'guide'] }, { ui: true })
+      for (const name of ['slow', 'bundle']) await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+      assert.match(await rt.usePack('chief', 'bundle'), /fast: ready/)
+      const fast = mounts.find(record => record.config?.serverName === 'fast')
+      rt.capabilityEnsureTimeoutMs = 5
+      assert.match(await rt.usePack('chief', 'slow'), /time limit/)
+      if (removal === 'drop') {
+        await rt.dropPack('chief', 'bundle')
+        assert.equal(fast.disposed, false)
+        turnEnd = ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
+      }
+      agent.status = 'idle'
+      if (removal === 'detach') await rt.changeCapabilityAttachment('detach', { name: 'bundle' }, 'chief')
+      if (removal === 'delete') await rt.capabilityDelete('bundle', { ui: true })
+      await rt.ensureCapabilities('chief')
+      agent.status = 'running'
+      assert.equal(fast.disposed, true, 'removed MCP is disposed before the first step')
+      assert.equal(skills.get('chief').size, 0, 'removed skill is absent before the first step')
+      assert.equal(settled, false, 'unrelated MCP startup is still pending')
+      assert.equal(mounts.find(record => record.config?.serverName === 'slow').disposed, false)
+      agent.status = 'idle'
+      await rt.changeCapabilityAttachment('detach', { name: 'slow' }, 'chief')
+      await rt.ensureCapabilities('chief')
+      release()
+      await rt.reconcileCapabilities()
+      assert.equal(mounts.filter(record => record.config?.serverName === 'fast').length, 1)
+      await rt.changeCapabilityAttachment('attach', { name: 'slow', mode: 'catalog' }, 'chief')
+      const catalog = ctx.sections.get('feature-packs').text({ agent })
+      assert.match(catalog, /- slow: Echo service\n/, 'removed startup must not publish a late ready tool count')
+    })
+  }
+})
+
 test('removed catalog entries and library items stay mounted until turn end', async t => {
   const env = await setup()
   t.after(() => env.dispose())
