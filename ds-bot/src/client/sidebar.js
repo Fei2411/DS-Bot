@@ -525,8 +525,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, leaving, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-entering': entering || undefined, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -590,6 +590,8 @@ export function TeamSidebar(props) {
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
   const shown = held ?? mode
+  const firstColumn = useRef(true)
+  useLayoutEffect(() => { if (shown === 'hidden') firstColumn.current = false }, [shown])
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
@@ -916,7 +918,7 @@ export function TeamSidebar(props) {
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -1193,8 +1195,8 @@ function mainAvatarPlace(roster) {
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
 }
 
-// The avatar's box where the team column comes to rest. The column also slides in as it first
-// draws (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
+// The avatar's box where the team column comes to rest. The column slides in when expanded
+// (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
 // outside the page and the whale would have nowhere to land; offsetLeft and offsetTop leave the
 // slide's transform out.
 function restingBox(mark) {
