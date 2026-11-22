@@ -322,6 +322,46 @@ test('API turns do not leak to IM outbound and tag apiVia instead of imVia', asy
   assert.equal(rt.apiViaView().b1?.[1], 'Claude Code')
 })
 
+test('API group runs queue behind existing IM work without clearing its origin', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-api-group-origin-'))
+  const { ctx, rt } = startHost(home, {
+    version: 1, mainBotIds: ['b1'], bots: { b1: { id: 'b1', name: 'Chief', createdAt: 1 } },
+    rooms: { r1: { id: 'r1', name: 'Group', members: ['b1'], sessionId: 'r1' } },
+    exchanges: [], exchangeTurns: {}, revision: 1,
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  let busy = true
+  let cleared = 0
+  let prompted = 0
+  rt.roomActive = () => busy
+  rt.clearImOrigin = () => { assert.equal(busy, false); cleared += 1 }
+  const prompt = ctx.sessionController.prompt
+  ctx.sessionController.prompt = async args => { prompted += 1; return prompt(args) }
+  const view = await rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await rt.apiEndpoint('api-token-create', { name: 'Group API', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const response = await fetch(`${view.baseUrl}/v1/groups/r1/messages`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'API-only group turn', wait: 0 }),
+  })
+  assert.equal(response.status, 202)
+  assert.equal((await response.json()).status, 'queued')
+  assert.equal(cleared, 0)
+  assert.equal(prompted, 0)
+  const cancelled = await fetch(`${view.baseUrl}/v1/groups/r1/messages`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Cancel queued API work', wait: 0 }),
+  }).then(result => result.json())
+  rt.stopRoomWork = () => assert.fail('queued cancellation must not stop the IM round')
+  assert.equal((await fetch(`${view.baseUrl}/v1/runs/${cancelled.runId}/cancel`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` },
+  })).status, 200)
+  busy = false
+  await new Promise(resolve => setTimeout(resolve, 180))
+  assert.equal(cleared, 1)
+  assert.equal(prompted, 1)
+})
+
 test('persisted in-flight Runs settle cleanly as stopped on host restart', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-apirestart-'))
   writeFileSync(join(home, 'api-runs.json'), JSON.stringify({

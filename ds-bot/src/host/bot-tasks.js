@@ -294,7 +294,7 @@ export function install(rt) {
         return
       }
 
-      if (!notifyForeground && parentWork === undefined) return
+      if (task.origin === 'api' || (!notifyForeground && parentWork === undefined)) return
       let targetSession
       if (task.roomId !== undefined) {
         const room = rt.roomOf(task.roomId)
@@ -353,7 +353,7 @@ export function install(rt) {
   }
 
   // Starts a background task for a Bot from either its foreground own chat or a group member Session.
-  async function startTask(fromSessionId, { title, brief, workdir }, exec) {
+  async function startTask(fromSessionId, { title, brief, workdir }, exec, { api = false } = {}) {
     if (rt.taskOwners?.has(fromSessionId)) {
       throw Object.assign(new Error('Background tasks cannot start nested background tasks. Finish this task and report back to your chat instead.'), { code: 'bot/invalid' })
     }
@@ -413,11 +413,11 @@ export function install(rt) {
 
     const id = newId()
     const now = Date.now()
-    const imOrigin = room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
+    const imOrigin = api ? undefined : room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
     // Link into the DM handoff tree when a foreground DM turn is answering another Bot.
     // Group tasks participate in group dispatch batches via `hasRoomTasks` instead.
     const liveEntry = rt.live.get(fromSessionId)
-    const parentWork = room === undefined ? rt.workOf?.(liveEntry?.info) : undefined
+    const parentWork = !api && room === undefined ? rt.workOf?.(liveEntry?.info) : undefined
     const linkWork = parentWork !== undefined && rt.ownsWork?.(bot.id, parentWork)
     const taskWorkId = linkWork ? `task:${id}` : undefined
 
@@ -429,6 +429,7 @@ export function install(rt) {
       status: 'running',
       startedAt: now,
       updatedAt: now,
+      ...(api ? { origin: 'api' } : {}),
       ...(room !== undefined ? { roomId: room.id } : {}),
       ...(taskWorkId !== undefined ? { workId: taskWorkId, parentWorkId: parentWork } : {}),
       ...(imOrigin !== undefined ? { imOrigin } : {}),

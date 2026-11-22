@@ -360,6 +360,7 @@ export function createRunCoordinator(rt, auth) {
 
   // Inspects whether a Bot/session currently has any open human-interaction card.
   function detectPendingAction(tracker) {
+    if (tracker.dispatched === false) return null
     const { run } = tracker
     const botId = run.target.kind === 'bot' ? run.target.id : undefined
     const roomId = run.target.kind === 'group' ? run.target.id : undefined
@@ -712,7 +713,7 @@ export function createRunCoordinator(rt, auth) {
   // Track approval open/settled transitions for active runs.
   const offApproval = rt.onApproval?.((kind, data) => {
     for (const tracker of active.values()) {
-      if (isTerminal(tracker.run.status)) continue
+      if (isTerminal(tracker.run.status) || tracker.dispatched === false) continue
       const match = tracker.run.target.kind === 'group'
         ? data?.roomId === tracker.run.target.id
         : (tracker.sessions.has(data?.sessionId) || (tracker.run.taskId && data?.taskId === tracker.run.taskId))
@@ -829,7 +830,7 @@ export function createRunCoordinator(rt, auth) {
       if (cleanMode === 'task') {
         const fromSessionId = rt.chatOf(bot.id)
         const taskTitle = String(title ?? '').trim() || cleanText.replace(/\s+/g, ' ').slice(0, 60) || 'API task'
-        const started = await rt.startTask(fromSessionId, { title: taskTitle, brief: cleanText })
+        const started = await rt.startTask(fromSessionId, { title: taskTitle, brief: cleanText }, undefined, { api: true })
         record.taskId = started.id
         record.sessionId = started.sessionId
         record.partId = started.sessionId
@@ -923,6 +924,7 @@ export function createRunCoordinator(rt, auth) {
       run: record,
       requestId,
       sessions: new Set([roomSid ?? room.id]),
+      dispatched: false,
       events: [],
       eventSeq: 0,
       listeners: new Set(),
@@ -937,24 +939,37 @@ export function createRunCoordinator(rt, auth) {
     runs.set(runId, record)
     active.set(runId, tracker)
     byRequestId.set(requestId, runId)
-    indexRoom(room.id, runId)
     if (idemRecord.key !== undefined) {
       idempotency.set(idemRecord.key, { fingerprint: idemRecord.fingerprint, runId, createdAt: now })
     }
 
-    try {
-      const content = [
-        ...(cleanText !== '' ? [{ type: 'text', text: cleanText }] : []),
-        ...attachments.map(att => att.block),
-      ]
-      await rt.sendUser({ sessionId: room.id, content, requestId })
-      scheduleSave()
-      return { run: toPublicView(record), replayed: false }
-    } catch (error) {
-      if (idemRecord.key !== undefined) idempotency.delete(idemRecord.key)
-      finishRun(tracker, 'failed', { error: { code: error?.code ?? 'api/send-failed', message: error?.message ?? String(error) } })
-      throw error
+    const launch = async () => {
+      if (disposed || isTerminal(record.status)) return
+      const memberBusy = [...rt.groupOwners].some(([sid, owner]) => owner.roomId === room.id && rt.live.get(sid)?.turn !== undefined)
+      if (rt.roomActive?.(room.id) || memberBusy || rt.live.get(roomSid)?.turn !== undefined) {
+        tracker.roomTimer = setTimeout(() => { void launch() }, 100)
+        tracker.roomTimer.unref?.()
+        return
+      }
+      try {
+        tracker.dispatched = true
+        tracker.lastRoomSeq = Number(room.seq ?? 0)
+        indexRoom(room.id, runId)
+        rt.clearImOrigin?.(roomSid)
+        const content = [
+          ...(cleanText !== '' ? [{ type: 'text', text: cleanText }] : []),
+          ...attachments.map(att => att.block),
+        ]
+        await rt.sendUser({ sessionId: room.id, content, requestId })
+        scheduleSave()
+      } catch (error) {
+        if (idemRecord.key !== undefined) idempotency.delete(idemRecord.key)
+        finishRun(tracker, 'failed', { error: { code: error?.code ?? 'api/send-failed', message: error?.message ?? String(error) } })
+      }
     }
+    await launch()
+    scheduleSave()
+    return { run: toPublicView(record), replayed: false }
   }
 
   function checkIdempotency({ tokenId, targetKind, targetId, idempotencyKey, payload }) {
@@ -1056,6 +1071,10 @@ export function createRunCoordinator(rt, auth) {
     const { record } = found
     if (isTerminal(record.status)) return { ok: true, run: toPublicView(record) }
     const tracker = active.get(record.runId)
+    if (tracker?.dispatched === false) {
+      finishRun(tracker, 'stopped', { error: { code: 'api/cancelled', message: 'Cancelled before dispatch' } })
+      return { ok: true, run: toPublicView(record) }
+    }
     if (record.target.kind === 'group') {
       await rt.stopRoomWork?.(record.target.id)
     } else if (record.mode === 'task' && record.taskId) {
