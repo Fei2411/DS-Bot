@@ -392,6 +392,27 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
   assert.match(textOf(unansPreview), /^.+…$/)
   assert.equal(walk(unansRow, node => classes(node).includes('bt-badge-alert')).length, 0)
   assert.equal(walk(unansRow, node => classes(node).includes('bt-badge-working')).length, 1)
+
+  // (e) Turn-start poll lag (running: true, activity: {}) + non-blocking approval (learning or bgApproval)
+  // still renders the working shimmer subtitle instead of falling through to amber approval text.
+  for (const extra of [
+    { rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } } },
+    { work: { waiting: {}, rooms: {}, approvals: [{ id: 'a4', botId: 'reviewer', taskId: 't1' }] } },
+  ]) {
+    const lagTree = renderSidebar({
+      bots: [bot],
+      activity: {},
+      statusMap: new Map([['reviewer', { running: true }]]),
+      ...extra,
+    })
+    const [lagRow] = walk(lagTree, node => node.props?.['data-bot-id'] === 'reviewer')
+    const [lagPreview] = walk(lagRow, node => classes(node).includes('bt-row-preview'))
+    assert.ok(lagPreview !== undefined)
+    assert.ok(!classes(lagPreview).includes('bt-row-preview-wait'))
+    assert.equal(textOf(lagPreview), 'On it…')
+    assert.equal(walk(lagRow, node => classes(node).includes('bt-badge-working')).length, 1)
+    assert.equal(walk(lagRow, node => classes(node).includes('bt-unread-wait')).length, 1)
+  }
 })
 
 test('browser_handoff and computer_handoff holds surface alert state on BotRow and collapsed SectionBlock, while manual takeovers do not', () => {
@@ -430,11 +451,12 @@ test('browser_handoff and computer_handoff holds surface alert state on BotRow a
     assert.equal(walk(tree, node => classes(node).includes('bt-sec-status')).length, 0)
   }
 
-  // Computer handoff (by: 'bot' with or without callId, or user takeover preserving callId).
+  // Computer handoff (by: 'bot' with or without callId, or user takeover preserving callId or non-takeover reason).
   for (const hold of [
     { id: 'ch-1', by: 'bot', surface: 'computer', reason: 'confirm', callId: 'c-1' },
     { id: 'ch-2', by: 'bot', surface: 'computer', reason: 'login' },
     { id: 'ch-3', by: 'user', surface: 'computer', reason: 'confirm', callId: 'c-1' },
+    { id: 'ch-4', by: 'user', surface: 'computer', reason: 'login' },
   ]) {
     const tree = renderSidebar({
       bots: [ops],

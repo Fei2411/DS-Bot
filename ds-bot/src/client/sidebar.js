@@ -82,7 +82,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined)
+const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
 
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked, onDragStart }) {
   const id = bot.id
@@ -128,7 +128,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       : handoff ? t('Waiting for you') : null
   const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && !blockingAlert && (dmDoing || doing === 'alert') ? doingLine(dmDoing ?? 'working') : null
+  const runningLine = running && !blockingAlert ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const waitsRaw = useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null'
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])

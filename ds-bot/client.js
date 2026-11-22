@@ -32421,7 +32421,7 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.callId !== void 0);
+var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
   const part = currentPart(bot);
@@ -32455,7 +32455,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const state = botState(running || away, dmDoing, alert);
   const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : handoff ? t("Waiting for you") : null;
   const deferredWaitLine = nonBlockingApproval ? t("Waiting for your approval") : null;
-  const runningLine = running && !blockingAlert && (dmDoing || doing === "alert") ? doingLine(dmDoing ?? "working") : null;
+  const runningLine = running && !blockingAlert ? doingLine(dmDoing ?? "working") : null;
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   const waitsRaw = useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null";
   const waits = (0, import_react37.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
