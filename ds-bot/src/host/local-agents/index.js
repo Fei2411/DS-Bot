@@ -78,7 +78,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
       const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
       if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
       if (entry.signInProbe === undefined) {
-        const probe = checkSignIn(entry.path, ENGINES[entry.route].signedIn).then((result) => {
+        const probe = Promise.resolve().then(() => checkSignIn(entry.path, ENGINES[entry.route].signedIn)).catch(() => null).then((result) => {
           if (entry.signInProbe !== probe) return
           entry.signedIn = result
           entry.signedInAt = now()
@@ -246,6 +246,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         await rt.catalog?.({ fresh: true })
         for (const entry of found.values()) {
           delete entry.signedIn
+          delete entry.signedInAt
           delete entry.signInProbe
         }
         return freshList()

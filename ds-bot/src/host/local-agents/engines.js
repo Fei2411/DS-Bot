@@ -24,8 +24,9 @@ const CLIS = {
       args: ['auth', 'status'],
       fallback: {
         platformFile: {
+          win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['devin', 'credentials.toml'] },
           default: { env: 'XDG_DATA_HOME', base: ['.local', 'share'], path: ['devin', 'credentials.toml'] },
-          match: /^[ \t]*windsurf_api_key[ \t]*=[ \t]*(?:"[^"\r\n]+"|'[^'\r\n]+')[ \t]*(?:#[^\r\n]*)?\r?$/mu,
+          match: /^[ \t]*windsurf_api_key[ \t]*=[ \t]*(?:"[ \t]*[^\s"\r\n][^"\r\n]*"|'[ \t]*[^\s'\r\n][^'\r\n]*')[ \t]*(?:#[^\r\n]*)?\r?$/mu,
         },
       },
     },

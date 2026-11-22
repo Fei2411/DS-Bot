@@ -270,10 +270,18 @@ function probeFile(file, { loggedOut, has = [], any = [], match } = {}) {
 
 const isAbsoluteFor = (value, platform) => (platform === 'win32' ? win32.isAbsolute(value) : isAbsolute(value))
 
+function envValue(env, name, platform) {
+  if (env === undefined || env === null || name === undefined) return ''
+  if (platform !== 'win32') return String(env[name] ?? '').trim()
+  const upper = name.toUpperCase()
+  const key = Object.keys(env).find(candidate => candidate.toUpperCase() === upper)
+  return key === undefined ? '' : String(env[key] ?? '').trim()
+}
+
 function resolvePlatformFile(spec, home, platform, env) {
   const entry = spec[platform] ?? spec.default
   if (entry === undefined) return undefined
-  const envRoot = entry.env !== undefined ? String(env?.[entry.env] ?? '').trim() : ''
+  const envRoot = envValue(env, entry.env, platform)
   const base = envRoot !== '' && isAbsoluteFor(envRoot, platform) ? envRoot : join(home, ...(entry.base ?? []))
   return join(base, ...entry.path)
 }

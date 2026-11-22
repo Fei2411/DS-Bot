@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -341,6 +342,7 @@ test('Devin CLI falls back to credentials.toml on status timeout, while explicit
     return file
   }
   const slow = makeScript('devin-slow.mjs', 'setTimeout(() => {}, 10_000)')
+  const offline = makeScript('devin-offline.mjs', 'console.error("Timed out verifying account status.")')
   const loggedOut = makeScript('devin-out.mjs', 'console.log("Not logged in.\\nRun `devin auth login` to authenticate.")')
   const loggedIn = makeScript('devin-in.mjs', 'console.log("Logged in (via Devin).")')
 
@@ -348,28 +350,42 @@ test('Devin CLI falls back to credentials.toml on status timeout, while explicit
   const devinDir = join(home, '.local', 'share', 'devin')
   const creds = join(devinDir, 'credentials.toml')
 
-  assert.equal(await probeSignIn(loggedIn, signedIn, { home, env: {} }), true)
-  assert.equal(await probeSignIn(slow, signedIn, { home, env: {}, timeoutMs: 120 }), null, 'no credentials file stays unknown')
+  assert.equal(await probeSignIn(loggedIn, signedIn, { home, platform: 'linux', env: {} }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), null, 'no credentials file stays unknown')
 
   mkdirSync(devinDir, { recursive: true })
-  for (const invalid of ['', '# windsurf_api_key = "k"\n', 'windsurf_api_key = ""\n', 'api_server_url = "https://example.test"\n']) {
+  for (const invalid of ['', '# windsurf_api_key = "k"\n', 'windsurf_api_key = ""\n', 'windsurf_api_key = "   "\n', 'windsurf_api_key = \'  \'\n', 'api_server_url = "https://example.test"\n']) {
     writeFileSync(creds, invalid)
-    assert.equal(await probeSignIn(slow, signedIn, { home, env: {}, timeoutMs: 120 }), null, `rejects ${JSON.stringify(invalid)}`)
+    assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), null, `rejects ${JSON.stringify(invalid)}`)
   }
 
   for (const valid of ['windsurf_api_key = "tok-1"\n', 'windsurf_api_key = \'tok-2\'\r\n', '  windsurf_api_key = "tok-3" # inline\n']) {
     writeFileSync(creds, valid)
-    assert.equal(await probeSignIn(slow, signedIn, { home, env: {}, timeoutMs: 120 }), true, `accepts ${JSON.stringify(valid)}`)
+    assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), true, `accepts ${JSON.stringify(valid)}`)
   }
 
-  assert.equal(await probeSignIn(loggedOut, signedIn, { home, env: {} }), false, 'explicit Not logged in beats credentials.toml')
+  // Real subprocess timeout falls back to credentials.toml.
+  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'linux', env: {}, timeoutMs: 150 }), true)
+  assert.equal(await probeSignIn(loggedOut, signedIn, { home, platform: 'linux', env: {} }), false, 'explicit Not logged in beats credentials.toml')
 
   const xdg = join(root, 'xdg-data')
   mkdirSync(join(xdg, 'devin'), { recursive: true })
   writeFileSync(join(xdg, 'devin', 'credentials.toml'), 'windsurf_api_key = "tok-xdg"\n')
   const emptyHome = join(root, 'empty-home')
-  assert.equal(await probeSignIn(slow, signedIn, { home: emptyHome, platform: 'linux', env: { XDG_DATA_HOME: xdg }, timeoutMs: 120 }), true)
-  assert.equal(await probeSignIn(slow, signedIn, { home: emptyHome, platform: 'linux', env: { XDG_DATA_HOME: 'relative/path' }, timeoutMs: 120 }), null)
+  assert.equal(await probeSignIn(offline, signedIn, { home: emptyHome, platform: 'linux', env: { XDG_DATA_HOME: xdg } }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: emptyHome, platform: 'linux', env: { XDG_DATA_HOME: 'relative/path' } }), null)
+
+  // Windows (%APPDATA% case-insensitively, or ~/AppData/Roaming)
+  const winHome = join(root, 'win')
+  const winCreds = join(winHome, 'AppData', 'Roaming', 'devin', 'credentials.toml')
+  mkdirSync(dirname(winCreds), { recursive: true })
+  writeFileSync(winCreds, 'windsurf_api_key = "tok-win"\r\n')
+  assert.equal(await probeSignIn(offline, signedIn, { home: winHome, platform: 'win32', env: {} }), true)
+
+  const appData = join(root, 'appdata')
+  mkdirSync(join(appData, 'devin'), { recursive: true })
+  writeFileSync(join(appData, 'devin', 'credentials.toml'), 'windsurf_api_key = "tok-appdata"\r\n')
+  assert.equal(await probeSignIn(offline, signedIn, { home: emptyHome, platform: 'win32', env: { AppData: appData } }), true)
 })
 
 test('Cursor CLI falls back to macOS Keychain then auth.json on timeout, while explicit logout wins', async (t) => {
@@ -388,55 +404,62 @@ test('Cursor CLI falls back to macOS Keychain then auth.json on timeout, while e
     return file
   }
   const slow = makeScript('cursor-slow.mjs', 'setTimeout(() => {}, 10_000)')
+  const offline = makeScript('cursor-offline.mjs', 'console.error("Status check error: network unavailable")')
   const loggedOut = makeScript('cursor-out.mjs', 'console.log("Not logged in")')
   const loggedIn = makeScript('cursor-in.mjs', 'console.log("✓ Logged in as user@example.test")')
-  const fromExit = code => t.mock.fn((_file, _args, options) => spawn(process.execPath, ['-e', `process.exit(${code})`], options))
-  const hit = fromExit(0)
-  const miss = fromExit(44)
+  const fakeKeychain = code => t.mock.fn(() => {
+    const child = new EventEmitter()
+    queueMicrotask(() => child.emit('close', code))
+    return child
+  })
+  const hit = fakeKeychain(0)
+  const miss = fakeKeychain(44)
 
   const home = join(root, 'home')
   assert.equal(await probeSignIn(loggedIn, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), true)
   assert.equal(await probeSignIn(loggedOut, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: hit }), false, 'explicit Not logged in beats Keychain')
   assert.equal(hit.mock.callCount(), 0)
 
-  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: hit, timeoutMs: 120 }), true)
+  // Real subprocess timeout falls back to macOS Keychain metadata lookup.
+  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: hit, timeoutMs: 150 }), true)
   const [file, args, options] = hit.mock.calls[0].arguments
   assert.equal(file, '/usr/bin/security')
   assert.deepEqual(args, ['find-generic-password', '-s', 'cursor-access-token', '-a', 'cursor-user'])
   assert.equal(options.stdio, 'ignore')
+  assert.ok(options.signal instanceof AbortSignal)
 
   // macOS with Keychain miss chains to ~/.cursor/auth.json
   const macAuth = join(home, '.cursor', 'auth.json')
   mkdirSync(dirname(macAuth), { recursive: true })
   for (const invalid of ['', 'not json', '{}', '{"accessToken":""}', '{"accessToken":"   ","apiKey":null}']) {
     writeFileSync(macAuth, invalid)
-    assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss, timeoutMs: 120 }), null)
+    assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), null)
   }
   writeFileSync(macAuth, JSON.stringify({ accessToken: 'tok-mac' }))
-  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss, timeoutMs: 120 }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), true)
 
   // Linux ($XDG_CONFIG_HOME or ~/.config) and Windows (%APPDATA% or ~/AppData/Roaming)
   const linuxHome = join(root, 'linux')
   const linuxAuth = join(linuxHome, '.config', 'cursor', 'auth.json')
   mkdirSync(dirname(linuxAuth), { recursive: true })
   writeFileSync(linuxAuth, JSON.stringify({ apiKey: 'key-linux' }))
-  assert.equal(await probeSignIn(slow, signedIn, { home: linuxHome, platform: 'linux', env: {}, spawnKeychain: hit, timeoutMs: 120 }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: linuxHome, platform: 'linux', env: {}, spawnKeychain: hit }), true)
 
   const xdgCfg = join(root, 'xdg-cfg')
   mkdirSync(join(xdgCfg, 'cursor'), { recursive: true })
   writeFileSync(join(xdgCfg, 'cursor', 'auth.json'), JSON.stringify({ refreshToken: 'rt-xdg' }))
-  assert.equal(await probeSignIn(slow, signedIn, { home: join(root, 'empty'), platform: 'linux', env: { XDG_CONFIG_HOME: xdgCfg }, timeoutMs: 120 }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: join(root, 'empty'), platform: 'linux', env: { XDG_CONFIG_HOME: xdgCfg } }), true)
 
   const winHome = join(root, 'win')
   const winAuth = join(winHome, 'AppData', 'Roaming', 'Cursor', 'auth.json')
   mkdirSync(dirname(winAuth), { recursive: true })
   writeFileSync(winAuth, JSON.stringify({ accessToken: 'tok-win' }))
-  assert.equal(await probeSignIn(slow, signedIn, { home: winHome, platform: 'win32', env: {}, timeoutMs: 120 }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: winHome, platform: 'win32', env: {} }), true)
 
   const appData = join(root, 'appdata')
   mkdirSync(join(appData, 'Cursor'), { recursive: true })
   writeFileSync(join(appData, 'Cursor', 'auth.json'), JSON.stringify({ accessToken: 'tok-appdata' }))
-  assert.equal(await probeSignIn(slow, signedIn, { home: join(root, 'empty'), platform: 'win32', env: { APPDATA: appData }, timeoutMs: 120 }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: join(root, 'empty'), platform: 'win32', env: { AppData: appData } }), true)
 })
 
 test('probeSignIns retries inconclusive null quickly, deduplicates concurrent calls, and ignores stale probes after refresh', async (t) => {
@@ -514,4 +537,9 @@ test('probeSignIns retries inconclusive null quickly, deduplicates concurrent ca
   await Promise.all([p1, p2])
   const after = await rt.localAgentsEndpoint('local-agents', {})
   assert.equal(after.detected[0].signedIn, true, 'stale pre-refresh probe cannot clobber refreshed state')
+
+  // A probe rejection degrades that entry to null instead of failing the endpoint.
+  gate = Promise.reject(new Error('probe crashed'))
+  const degraded = await rt.localAgentsEndpoint('local-agent-refresh', {})
+  assert.equal(degraded.detected[0].signedIn, null)
 })
