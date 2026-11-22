@@ -216,14 +216,17 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
 /**
  * Extracts DSH-compatible `{ turns: Map<number, { turn, status, start, end? }>, openTurn }`
  * from `SessionLog.events` for `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`.
+ * Hidden Bot-exchange turns (which have no visible `turn-tail`) are excluded so proposals
+ * never strand on a hidden turn.
  */
-export function extractTurnFacts(events) {
+export function extractTurnFacts(events, { roster, sessionId } = {}) {
   const turns = new Map()
+  const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
   let openTurn
   for (const event of Array.isArray(events) ? events : []) {
     if (!event || typeof event !== 'object') continue
     const turn = event.data?.turn
-    if (!Number.isInteger(turn)) continue
+    if (!Number.isInteger(turn) || hidden(turn)) continue
     const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
     if (event.type === 'turn/start') {
       const existing = turns.get(turn)

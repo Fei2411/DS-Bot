@@ -271,6 +271,15 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
 
 const EMPTY_SESSIONS = { ids: [], byId: {} }
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
+// Per-chat monotonic revision tracking ownership of the saved draft slot so a late
+// unmounted send failure never overwrites a newer draft written after switching chats.
+const draftRevisions = new Map()
+const writeDraft = (entry) => {
+  const next = (draftRevisions.get(entry.chatId) ?? 0) + 1
+  draftRevisions.set(entry.chatId, next)
+  keepDraft(entry)
+  return next
+}
 
 function readSavedDraftText(chatId) {
   if (!chatId) return ''
@@ -484,7 +493,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       skipNextSaveRef.current = false
       return
     }
-    keepDraft({
+    writeDraft({
       chatId,
       part: sessionId,
       text,
@@ -534,7 +543,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     const next = current.filter(item => item.id !== id)
     attachmentsRef.current = next
     if (chatId && hydratedChatRef.current === chatId) {
-      keepDraft({
+      writeDraft({
         chatId,
         part: sessionId,
         text: textRef.current,
@@ -631,7 +640,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setText('')
     setCaret(0)
     setAttachments([])
-    if (chatId) keepDraft({ chatId, part: sessionId, text: '', files: [] })
+    const clearedRev = chatId ? writeDraft({ chatId, part: sessionId, text: '', files: [] }) : null
     try {
       await onSend(value, items)
       // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
@@ -640,8 +649,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       }
     } catch (failure) {
       if (!mountedRef.current) {
-        if (chatId) {
-          keepDraft({
+        if (chatId && draftRevisions.get(chatId) === clearedRev) {
+          writeDraft({
             chatId,
             part: sessionId,
             text: value,

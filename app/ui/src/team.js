@@ -190,6 +190,7 @@ export function createTeam() {
     ...baseActions,
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
+    openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
     openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
@@ -199,7 +200,7 @@ export function createTeam() {
     },
     landOn: id => show(partFor(id)),
     toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
-    openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null })),
+    openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
     closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
     markUnread: id => writeUnread(id, true),
     clearUnread: id => writeUnread(id, false),

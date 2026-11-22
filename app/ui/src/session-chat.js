@@ -563,7 +563,7 @@ export function SessionTranscript({
   thinkingAt, hasMore = false, registry = defaultSlots,
 }) {
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
-  const turnFacts = useMemo(() => extractTurnFacts(log?.events), [log?.events])
+  const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
   const turnSig = turnFactsSignature(turnFacts)
   const turnFactsRef = useRef(turnFacts)
   turnFactsRef.current = turnFacts

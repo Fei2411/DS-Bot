@@ -26,7 +26,7 @@ export function activeComposerTrigger(text, caret) {
     const body = before.slice(1)
     if (!/\s/.test(body)) {
       let end = pos
-      while (end < text.length && !/\s/.test(text[end])) end += 1
+      while (end < text.length && /[A-Za-z0-9_-]/.test(text[end])) end += 1
       return { kind: 'command', start: 0, end, query: body }
     }
   }
@@ -39,7 +39,7 @@ export function activeComposerTrigger(text, caret) {
       const query = before.slice(atIndex + 1)
       if (!/[\s@]/.test(query)) {
         let end = pos
-        while (end < text.length && !/[\s@]/.test(text[end])) end += 1
+        while (end < text.length && /[\p{L}\p{N}_-]/u.test(text[end])) end += 1
         return { kind: 'mention', start: atIndex, end, query }
       }
     }

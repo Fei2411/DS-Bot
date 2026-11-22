@@ -42,9 +42,12 @@ export function ShortcutsDialog({ open, enterToSend = true, onClose }) {
       closeBtn.current?.focus?.()
       return undefined
     }
-    if (returnFocus.current && typeof returnFocus.current.focus === 'function') {
-      returnFocus.current.focus()
-      returnFocus.current = null
+    const prev = returnFocus.current
+    returnFocus.current = null
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (prev && prev.isConnected !== false && typeof prev.focus === 'function'
+      && (!active || active === document.body || active === document.documentElement)) {
+      prev.focus()
     }
     return undefined
   }, [open])

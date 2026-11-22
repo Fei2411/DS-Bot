@@ -285,6 +285,11 @@ test('activeComposerTrigger and applyTriggerText parse @ mentions and leading / 
 
   const midCmd = activeComposerTrigger('/shor', 3)
   assert.deepEqual(plain(midCmd), { kind: 'command', start: 0, end: 5, query: 'sh' })
+
+  // Caret immediately before punctuation preserves the punctuation and following words.
+  const beforeComma = activeComposerTrigger('Ask @Wr, please', 7)
+  assert.deepEqual(plain(beforeComma), { kind: 'mention', start: 4, end: 7, query: 'Wr' })
+  assert.equal(applyTriggerText('Ask @Wr, please', beforeComma, '@Writer ').text, 'Ask @Writer , please')
 })
 
 test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', () => {
@@ -420,6 +425,10 @@ test('matchGlobalShortcut and ShortcutsDialog respect platform, IME, settings Cm
 
   let closed = 0
   portalTargets.length = 0
+  let focusedPrev = 0
+  const prevEl = { isConnected: true, focus() { focusedPrev += 1 } }
+  const modalInput = { isConnected: true, focus() {} }
+  sandbox.document.activeElement = prevEl
   const inst = mount(ShortcutsDialog, { open: true, enterToSend: false, onClose: () => { closed += 1 } })
   try {
     const tree = inst.render()
@@ -437,7 +446,20 @@ test('matchGlobalShortcut and ShortcutsDialog respect platform, IME, settings Cm
     const closeBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-shortcuts-close'))[0]
     closeBtn.props.onClick()
     assert.equal(closed, 2)
+
+    // Closing while another modal already took focus must NOT steal focus back to prevEl.
+    sandbox.document.activeElement = modalInput
+    inst.render({ open: false, enterToSend: false, onClose: () => { closed += 1 } })
+    assert.equal(focusedPrev, 0, 'closing shortcuts must not steal focus from a newly opened modal')
+
+    // Closing back to document.body restores focus to prevEl.
+    sandbox.document.activeElement = prevEl
+    inst.render({ open: true, enterToSend: false, onClose: () => { closed += 1 } })
+    sandbox.document.activeElement = sandbox.document.body
+    inst.render({ open: false, enterToSend: false, onClose: () => { closed += 1 } })
+    assert.equal(focusedPrev, 1, 'closing shortcuts back to body restores previous focus')
   } finally {
+    sandbox.document.activeElement = null
     inst.unmount()
   }
 })
@@ -480,10 +502,18 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
       ],
     }).log
 
-    const facts = extractTurnFacts(log.events)
+    const facts = extractTurnFacts(log.events, { roster: { exchangeTurns: { b1: [99] } }, sessionId: 'b1' })
     assert.equal(facts.openTurn, 2)
     assert.deepEqual(plain(facts.turns.get(1)), { turn: 1, status: 'closed', start: { seq: 1, time: 1000 }, end: { seq: 4, time: 1020 } })
     assert.deepEqual(plain(facts.turns.get(2)), { turn: 2, status: 'open', start: { seq: 5, time: 2000 } })
+
+    // Hidden internal exchange turns are excluded so learning proposals never strand on a hidden turn.
+    const hiddenFacts = extractTurnFacts([
+      ...log.events,
+      { seq: 6, time: 1500, type: 'turn/start', data: { turn: 3 } },
+      { seq: 7, time: 1520, type: 'turn/end', data: { turn: 3, reason: { kind: 'stop' } } },
+    ], { roster: { exchangeTurns: { b1: [3] } }, sessionId: 'b1' })
+    assert.equal(hiddenFacts.turns.has(3), false, 'hidden exchange turn must be excluded from turnFacts')
 
     const rows = buildSessionRows(log, { roster: { exchangeTurns: {} }, sessionId: 'b1' })
     assert.deepEqual(plain(rows.map(r => r.kind)), ['assistant', 'deliverables', 'turn-tail'])
@@ -683,6 +713,40 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
     assert.deepEqual(sentMessages, [['b1', 'ping @Wr']])
   } finally {
     second.unmount()
+    storageMap.clear()
+    forgetKeptFiles()
+  }
+
+  // 8. A late unmounted send failure must NOT overwrite a newer saved draft on the same chat.
+  let rejectLateSend
+  const lateTeam = {
+    ...team,
+    actions: {
+      ...team.actions,
+      send: () => new Promise((_, reject) => { rejectLateSend = reject }),
+    },
+  }
+  const sending = mount(Chat, { sessionId: 'b1', team: lateTeam })
+  try {
+    let t1 = sending.render()
+    all(t1, n => n.type === 'textarea')[0].props.onChange({ target: { value: 'old send', selectionStart: 8 } })
+    t1 = sending.render()
+    all(t1, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    await tick()
+  } finally {
+    sending.unmount()
+  }
+  const newer = mount(Chat, { sessionId: 'b1', team })
+  try {
+    let t2 = newer.render()
+    all(t2, n => n.type === 'textarea')[0].props.onChange({ target: { value: 'fresh draft', selectionStart: 11 } })
+    newer.render()
+    rejectLateSend(new Error('network down'))
+    await tick()
+    await tick()
+    assert.equal(JSON.parse(storageMap.get(STORAGE.drafts)).b1.text, 'fresh draft', 'late failed send must not clobber newer draft')
+  } finally {
+    newer.unmount()
     storageMap.clear()
     forgetKeptFiles()
   }
