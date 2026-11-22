@@ -88,7 +88,10 @@ const stalled = async (url, init) => new Promise((resolve, reject) => {
   init.signal.addEventListener('abort', () => reject(init.signal.reason))
 })
 
-test('boundedFetch gives up on a call whose response does not start, without marking it unknown', async () => {
+test('boundedFetch gives up on a call whose response does not start, without marking it unknown', async (t) => {
+  // The timer is unref()ed, so it does not hold the event loop open by itself.
+  const alive = setInterval(() => {}, 1000)
+  t.after(() => clearInterval(alive))
   const fetch = boundedFetch(stalled, 20)
   await assert.rejects(fetch('https://example.test/token'), error => error.name === 'TimeoutError' && error.unknown !== true)
   await assert.rejects(fetch('https://example.test/send', { method: 'POST', body: '{}' }), error => error.name === 'TimeoutError' && error.unknown !== true)
@@ -109,6 +112,7 @@ test('boundedFetch lets a slow body finish once the response has started', async
   const response = await boundedFetch(slowBody, 20)('https://example.test/token', { method: 'POST' })
   assert.deepEqual(await response.json(), { code: 0 })
 })
+
 test('boundedFetch keeps a signal the caller set', async () => {
   const seen = []
   const own = new AbortController().signal

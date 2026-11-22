@@ -26,6 +26,7 @@ export function boundedFetch(fetchImpl = (...args) => globalThis.fetch(...args),
     if (init?.signal != null) return fetchImpl(url, init)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new DOMException('The request timed out', 'TimeoutError')), timeoutMs)
+    timer.unref?.()
     try {
       return await fetchImpl(url, { ...init, signal: controller.signal })
     } finally {
