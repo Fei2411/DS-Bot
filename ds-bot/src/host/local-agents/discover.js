@@ -4,7 +4,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join, win32 } from 'node:path'
+import { delimiter, isAbsolute, join, win32 } from 'node:path'
 
 // The CLI signs in by itself; an API key or another agent's backend variable in
 // our environment would shadow that or leak, so neither reaches the child.
@@ -218,15 +218,17 @@ function classifySignIn(error, stdout, stderr, check) {
   return null
 }
 
-const SIGN_IN_TIMEOUT_MS = 3_000
+// Network-backed status commands (e.g. `devin auth status`, `cursor-agent status`)
+// routinely take 2-4s under concurrent startup; 3s killed them before stdout flushed.
+const SIGN_IN_TIMEOUT_MS = 8_000
 
-function probeMacKeychain({ service, account }, spawnKeychain) {
+function probeMacKeychain({ service, account }, spawnKeychain, timeoutMs = SIGN_IN_TIMEOUT_MS) {
   return new Promise((resolve) => {
     try {
       // Without -g or -w this looks up metadata only. A miss proves nothing:
       // the CLI may be using a fallback credential store.
       const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
-        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(SIGN_IN_TIMEOUT_MS), killSignal: 'SIGKILL',
+        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
       })
       child.once('error', () => resolve(null))
       child.once('close', (code) => resolve(code === 0 ? true : null))
@@ -238,41 +240,81 @@ function probeMacKeychain({ service, account }, spawnKeychain) {
 // (it ignores XDG_DATA_HOME and LOCALAPPDATA).
 const APP_DATA = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'] }
 
-function hasJsonPaths(file, paths) {
+function hasJsonPaths(file, paths, mode = 'every') {
   try {
     const data = JSON.parse(readFileSync(file, 'utf8'))
-    return paths.every((path) => Boolean(path.reduce((value, key) => value?.[key], data)))
+    return paths[mode]((path) => {
+      const value = path.reduce((current, key) => current?.[key], data)
+      return typeof value === 'string' ? value.trim() !== '' : Boolean(value)
+    })
   } catch {
     return false
   }
 }
 
-function probeAppDataFile({ path, loggedOut, has = [] }, home, platform) {
-  const file = join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...path)
+function matchesFile(file, pattern) {
+  try {
+    return pattern.test(readFileSync(file, 'utf8'))
+  } catch {
+    return false
+  }
+}
+
+function probeFile(file, { loggedOut, has = [], any = [], match } = {}) {
   if (!isFile(file) || (loggedOut !== undefined && isFile(`${file}${loggedOut}`))) return null
-  return has.length === 0 || hasJsonPaths(file, has) ? true : null
+  if (has.length > 0 && !hasJsonPaths(file, has, 'every')) return null
+  if (any.length > 0 && !hasJsonPaths(file, any, 'some')) return null
+  if (match !== undefined && !matchesFile(file, match)) return null
+  return true
+}
+
+const isAbsoluteFor = (value, platform) => (platform === 'win32' ? win32.isAbsolute(value) : isAbsolute(value))
+
+function envValue(env, name, platform) {
+  if (env === undefined || env === null || name === undefined) return ''
+  if (platform !== 'win32') return String(env[name] ?? '').trim()
+  const upper = name.toUpperCase()
+  const key = Object.keys(env).find(candidate => candidate.toUpperCase() === upper)
+  return key === undefined ? '' : String(env[key] ?? '').trim()
+}
+
+function resolvePlatformFile(spec, home, platform, env) {
+  const entry = spec[platform] ?? spec.default
+  if (entry === undefined) return undefined
+  const envRoot = envValue(env, entry.env, platform)
+  const base = envRoot !== '' && isAbsoluteFor(envRoot, platform) ? envRoot : join(home, ...(entry.base ?? []))
+  return join(base, ...entry.path)
+}
+
+function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs }) {
+  if (check.macKeychain !== undefined) {
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs) : Promise.resolve(null)
+  }
+  if (check.file !== undefined) return Promise.resolve(probeFile(join(home, ...check.file)))
+  if (check.appDataFile !== undefined) {
+    return Promise.resolve(probeFile(join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...check.appDataFile.path), check.appDataFile))
+  }
+  if (check.platformFile !== undefined) {
+    const file = resolvePlatformFile(check.platformFile, home, platform, env)
+    return Promise.resolve(file === undefined ? null : probeFile(file, check.platformFile))
+  }
+  if (check.args === undefined) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    try {
+      const launch = launchOf(executable, check.args)
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: timeoutMs, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+        resolve(classifySignIn(error, stdout, stderr, check))
+      })
+    } catch { resolve(null) }
+  })
 }
 
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
-export function probeSignIn(executable, check, { home = homedir(), platform = process.platform, spawnKeychain = spawn } = {}) {
-  if (check === undefined) return Promise.resolve(null)
-  if (check.macKeychain !== undefined) {
-    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain) : Promise.resolve(null)
+export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS } = {}) {
+  for (let current = check; current !== undefined; current = current.fallback) {
+    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs })
+    if (result !== null) return result
   }
-  if (check.file !== undefined) return Promise.resolve(isFile(join(home, ...check.file)) ? true : null)
-  if (check.appDataFile !== undefined) return Promise.resolve(probeAppDataFile(check.appDataFile, home, platform))
-  return new Promise((resolve) => {
-    try {
-      const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: SIGN_IN_TIMEOUT_MS, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
-        const result = classifySignIn(error, stdout, stderr, check)
-        if (result !== null || check.fallback === undefined) {
-          resolve(result)
-          return
-        }
-        void probeSignIn(executable, check.fallback, { home, platform, spawnKeychain }).then(resolve, () => resolve(null))
-      })
-    } catch { resolve(null) }
-  })
+  return null
 }

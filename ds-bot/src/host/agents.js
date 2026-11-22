@@ -81,16 +81,61 @@ export function install(rt) {
     return agent
   }
 
+  // A Session another plugin deleted outright is already gone: archiving it either
+  // wrote it before (resolving without a write) or cannot find it at all. Only that
+  // definite miss for this exact Session may drop the reference; an active Session, a
+  // storage fault, or a miss naming another Session stays a failure, so the reference
+  // and its tool restriction stay retryable.
+  const alreadyGone = (error, sessionId) => error?.name === 'WorkspaceUnknownSessionError'
+    && error?.sessionId === sessionId
+
   async function archiveAgentSession(agentId, sessionId) {
     writeCheck()
     const agent = record(agentId)
     if (!agent.sessions.includes(sessionId)) throw new Error('Session does not belong to the DSH Agent')
     // Archive first: the Session leaves the Agent only once it is actually gone,
     // so a failed archive stays retryable and keeps its tool restriction.
-    await ctx.workspaceRegistry.archiveSession(sessionId)
+    try {
+      await ctx.workspaceRegistry.archiveSession(sessionId)
+    } catch (error) {
+      if (!alreadyGone(error, sessionId)) throw error
+    }
     agent.sessions = agent.sessions.filter(id => id !== sessionId)
     await rt.save()
   }
+
+  // A permanent delete by another plugin leaves a reference whose Session can never
+  // be opened or archived again. The session manager reports a completed physical
+  // delete on its own event (not a dsh teardown signal: a plain close or unload is
+  // not a deletion), and this window drops the reference so the sidebar loses it
+  // too. Without such a plugin the listener never runs; an older dangling reference
+  // is still cleared by the archive action above.
+  ctx.on('session-manager/session-deleted', async ({ sessionId } = {}) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    await rt.load()
+    const agent = Object.values(state.agents).find(item => item.sessions?.includes(sessionId))
+    if (agent === undefined) return
+    writeCheck()
+    const position = agent.sessions.indexOf(sessionId)
+    agent.sessions = agent.sessions.filter(id => id !== sessionId)
+    try {
+      // The deletion already happened elsewhere, so the reference must not come
+      // back after a restart: this write has to land.
+      await rt.save({ required: true })
+    } catch (error) {
+      // The write did not land: keep the reference so the archive action or a
+      // later attempt can still clear it, rather than forgetting it in this window.
+      // The failed save had already re-indexed the state without this Session, so
+      // rebuild the Agent index after putting the reference back: until the next
+      // save or adopt, rt.agentOf must still see an owned Agent Session, or every
+      // window treats it as a Session no Agent owns.
+      if (state.agents[agent.id] === agent && !agent.sessions.includes(sessionId)) {
+        agent.sessions.splice(Math.min(position, agent.sessions.length), 0, sessionId)
+      }
+      rt.indexAgents()
+      throw error
+    }
+  })
 
   async function renameAgentSession(agentId, sessionId, title) {
     writeCheck()
@@ -112,6 +157,9 @@ export function install(rt) {
       try {
         await ctx.workspaceRegistry.archiveSession(sessionId)
       } catch (error) {
+        // A Session deleted outside dsh is already gone; it must not keep the
+        // whole Agent alive forever.
+        if (alreadyGone(error, sessionId)) continue
         failure ??= error
         kept.push(sessionId)
       }
