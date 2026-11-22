@@ -78,7 +78,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
       offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
-        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, roster.models ?? []) }))),
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
         h('div', { className: 'bt-set-control bt-bm-actions' },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
           h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,

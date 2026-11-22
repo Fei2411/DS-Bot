@@ -1016,7 +1016,7 @@ test('a part keeps the request it opened with while the user moves to another pa
       id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
     ))
     const { SettingsDialog } = mod.exports
-    let route = ['schedules', 'new']
+    let route = ['schedules', 'chief']
     const actions = {
       openSettings: (page, id) => { route = [page, id ?? null] },
       closeSettings() {},
@@ -1083,6 +1083,12 @@ test('Scheduled tasks "Show all" clears a Bot filter, while an anchor round trip
     tree = draw()
     tree = draw()
     assert.equal(showAll(tree).length, 0, '"Show all" lifts the filter')
+
+    // A new task after "Show all" targets a real Bot, not the filter string.
+    findAll(part(tree), n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')[0].props.onClick()
+    tree = draw()
+    const target = findAll(part(tree), n => n.type === 'select' && n.props?.className === 'bt-select bt-task-bot')[0]
+    assert.equal(target.props.value, 'chief')
     harness.unmount()
   })
 })

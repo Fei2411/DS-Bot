@@ -27049,7 +27049,8 @@ function AutomationOff({ actions }) {
 function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions);
   const [owner, setOwner] = (0, import_react23.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
-  const [adding, setAdding] = (0, import_react23.useState)(Boolean(start) && owner === null);
+  const filter = start?.startsWith("bot:") || start?.startsWith("room:");
+  const [adding, setAdding] = (0, import_react23.useState)(Boolean(start) && !filter);
   if (view === null) return (0, import_react23.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
   if (!view.available) return (0, import_react23.createElement)(AutomationOff, { actions });
   const shown = (next) => {
@@ -27067,7 +27068,7 @@ function SchedulesPage({ roster, actions, start }) {
     owner !== null ? (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setOwner(null) }, t("Show all")) : null
   );
   return [
-    adding ? (0, import_react23.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
+    adding ? (0, import_react23.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? (filter ? void 0 : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0 ? !adding ? (0, import_react23.createElement)(
       "section",
       { key: "none", className: "bt-set-section" },
@@ -40836,7 +40837,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2, preset =
       offered && moving.length > 0 ? (0, import_react53.createElement)(
         "div",
         { className: "bt-set-row bt-bm-offer", role: "status" },
-        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {names} to {model}?", { names: moving.map((bot) => bot.name).join(t(", ")), model: modelName(offered, roster.models ?? []) }))),
+        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {names} to {model}?", { names: moving.map((bot) => bot.name).join(t(", ")), model: modelName(offered, (roster.models ?? []).filter((entry) => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
         (0, import_react53.createElement)(
           "div",
           { className: "bt-set-control bt-bm-actions" },
