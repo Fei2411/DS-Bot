@@ -282,6 +282,42 @@ test('a half-written row of another change does not swallow the row after it', a
   assert.ok(read('journal.torn').includes(half))
 })
 
+// The log is read from its end, so these logs are longer than one read of it, in
+// characters of more than one byte, and end in a row longer than that read.
+const longLog = count => Array.from({ length: count }, (_, i) => `${JSON.stringify({ id: `old-${i}`, time: '2026-10-01T10:00:00.000Z', op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: `- 旧的记录 ${i} ${'长'.repeat(400)}` })}\n`).join('')
+
+test('a long change log still finds the row of a change that was already finished', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const row = { op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: '- One [added: 2026-10-23]' }
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  const finished = `${JSON.stringify({ id: 'change-1', time: '2026-10-23T10:00:00.000Z', ...row, note: '长'.repeat(50_000) })}\n`
+  writeFileSync(join(home, 'memory', 'journal.jsonl'), `${longLog(300)}${finished}`)
+  interrupted(home, { steps: [{ action: 'write', path: 'bots/b2/MEMORY.md', text: '# Memory\n\n- One [added: 2026-10-23]\n\n## Index\n' }], row })
+  const { journal, stop } = start({ home })
+  t.after(() => stop())
+  await until(() => !existsSync(pendingFile(home)))
+  assert.deepEqual(journal().map(row => row.id).slice(-2), ['old-299', 'change-1'])
+  assert.equal(journal().length, 301)
+})
+
+test('a half-written row at the end of a long change log is cut at the right byte', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  const half = `{"id":"op-0","time":"2026-10-23T10:00:00.000Z","after":"- ${'半'.repeat(30_000)}`
+  writeFileSync(join(home, 'memory', 'journal.jsonl'), `${longLog(300)}${half}`)
+  const { tool, read, journal, stop } = start({ home })
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Second fact' }, 'b2')
+  const rows = journal()
+  assert.equal(rows.length, 301)
+  assert.equal(rows[299].id, 'old-299')
+  assert.match(rows[299].after, /^- 旧的记录 299 长/)
+  assert.match(rows.at(-1).after, /^- Second fact/)
+  assert.equal(read('journal.torn'), `${half}\n`)
+})
+
 test('a change that would not fit in the record is refused, and the memory still reads', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))

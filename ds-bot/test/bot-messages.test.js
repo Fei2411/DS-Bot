@@ -1392,6 +1392,10 @@ test('New session on an idle group member moves its group conversation on; a wor
   agentOf('gb').status = 'working'
   assert.equal((await call('bot-new-part', { botId: 'b', roomId: 'r1' })).ok, false)
   agentOf('gb').status = 'idle'
+  // A member's group conversation has no blank path: its only move is the handoff one.
+  const blank = await call('bot-new-part', { botId: 'b', roomId: 'r1', blank: true })
+  assert.equal(blank.ok, false)
+  assert.equal(blank.error.code, 'bot/invalid')
   const moved = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
   assert.equal(moved.ok, true, JSON.stringify(moved))
   for (let at = 0; at < 200 && runtime.state.rooms.r1.sessions.b === 'gb'; at += 1) await delay(5)

@@ -186,7 +186,7 @@ test('an idle member with a group Session offers a new session; one without a Se
   assert.equal(node.props['aria-label'], `New session · ${team.byId.a.name}`)
   node.props.onClick()
   await Promise.resolve()
-  assert.deepEqual(started, [['a', 'r1']])
+  assert.deepEqual(plain(started), [['a', { roomId: 'r1' }]])
   const working = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [] }, team)[0]
   assert.equal(FreshMemberPart({ entry: working, bot: team.byId.a, room, actions }), null)
   const asking = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [{ botId: 'a', roomId: 'r1', at: 1 }] }, team)[0]

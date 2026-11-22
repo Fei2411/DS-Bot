@@ -1,6 +1,7 @@
 // Newline-delimited JSON-RPC over a child process's stdio: requests we send,
 // answers and server-initiated requests we receive. Shared by the ACP and the
 // Codex app-server engines.
+import { lineSplitter } from './lines.js'
 
 // One wire message is one JSON value on one line.
 export class JsonRpcPeer {
@@ -55,7 +56,10 @@ export class JsonRpcPeer {
         resolve: (value) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(value) },
         reject: (error) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(error) },
       }
-      const onAbort = () => call.reject(signal.reason ?? new Error('aborted'))
+      const onAbort = () => {
+        this.pending.delete(id)
+        call.reject(signal.reason ?? new Error('aborted'))
+      }
       this.pending.set(id, call)
       if (timeout > 0) timer = setTimeout(() => { if (this.pending.delete(id)) call.reject(new Error(`${method} timed out`)) }, timeout)
       if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })
@@ -78,18 +82,8 @@ export function wireProcess(child, peer) {
   // A write that meets a process on its way out fails with EPIPE. Its exit already
   // ends what waits on it; an unheard stream error would take DS Bot down.
   child.stdin.on('error', () => {})
-  let rest = ''
   child.stdout.setEncoding('utf8')
-  child.stdout.on('data', (chunk) => {
-    rest += chunk
-    let at
-    while ((at = rest.indexOf('\n')) !== -1) {
-      const line = rest.slice(0, at).trim()
-      rest = rest.slice(at + 1)
-      if (line !== '') peer.handleLine(line)
-    }
-  })
-  return rest
+  child.stdout.on('data', lineSplitter(line => peer.handleLine(line)))
 }
 
 // A waitable event stream attached to one CLI session/thread: the engine pushes

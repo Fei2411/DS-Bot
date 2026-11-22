@@ -134,16 +134,16 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
   useEffect(() => { void apply(actions.providers()) }, [])
   if (view === null) return null
   if (!view.available) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot set up model providers.'))
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'provider-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
   return [
-    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn },
+    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn, tour: 'provider-list' },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions, roster, revision: view.revision,
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
-    advanced ? h('div', { key: 'advanced', className: 'bt-set-card' },
+    advanced ? h('div', { key: 'advanced', className: 'bt-set-card', 'data-tour': 'provider-advanced' },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
         h('span', { className: 'bt-set-copy' }, h('span', null, t('Advanced settings'))), h(ChevronRightIcon))) : null,
   ]
