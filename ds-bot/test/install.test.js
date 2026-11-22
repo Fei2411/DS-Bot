@@ -98,8 +98,9 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/status',
     'on llm/stream',
     'on session/event',
-    // bot-tasks.js: approval status bridge and turn/end task settlement.
+    // bot-tasks.js: approval status bridge, foreground inbox handoff, and turn/end task settlement.
     'effect ds-bot: bot-tasks approval bridge',
+    'on agent/inbox/inserted',
     'on session/event',
     // changes.js: the announced workspace/changes turn, remembered for the group row.
     'on session/event',

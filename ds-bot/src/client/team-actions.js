@@ -228,19 +228,6 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ...(blank ? { blank: true } : {}),
       ...(handoff ? { handoff: true } : {}),
     })),
-    // A running part opened from the session list takes no input until it ends.
-    openPart: (botId, sessionId, running = false) => {
-      ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
-      return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
-        ui.set(state => (state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state))
-        throw error
-      })
-    },
-    clearReadOnlyPart: () => ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null })),
-    stopChat: botId => {
-      ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }))
-      return after(call('stop-chat', { botId }))
-    },
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),

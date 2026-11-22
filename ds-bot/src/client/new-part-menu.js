@@ -6,16 +6,17 @@ import { call } from './api.js'
 import { t } from './i18n.js'
 
 // "New session" in a Bot's chat gives two ways out of a long conversation: a blank
-// part, or a part that starts with the handoff package from the one it replaces. A
-// working part has no note to hand on yet, so it offers the blank part only.
+// part, or a part that starts with the handoff package from the one it replaces. Both
+// replace the current part, so a working Bot offers neither: it has one conversation
+// at a time.
 export function newPartChoices({ botId, busy = false, actions, run }) {
   const submit = promise => (typeof run === 'function' ? run(promise) : promise)
   const start = mode => submit(actions?.newPart !== undefined
     ? actions.newPart(botId, mode === 'blank' ? { blank: true } : { handoff: true })
     : call('bot-new-part', { botId, ...(mode === 'blank' ? { blank: true } : { handoff: true }) }))
-  return [
+  return busy ? [] : [
     { mode: 'blank', label: t('Blank session'), start: () => start('blank') },
-    ...(busy ? [] : [{ mode: 'handoff', label: t('Continue with handoff'), start: () => start('handoff') }]),
+    { mode: 'handoff', label: t('Continue with handoff'), start: () => start('handoff') },
   ]
 }
 
@@ -25,7 +26,7 @@ export function NewPartMenu({ botId, busy = false, actions, run }) {
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-agent-sessions-new',
-      'aria-haspopup': 'menu', 'aria-expanded': isOpen, title: t('New session'),
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen, title: t('New session'), ...(choices.length === 0 ? { disabled: true } : {}),
       onClick: () => (isOpen ? close() : open()),
     }, h(PlusIcon), t('New session')),
     shownPlace ? createPortal(h('div', {
