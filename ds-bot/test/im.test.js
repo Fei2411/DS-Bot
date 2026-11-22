@@ -1022,6 +1022,8 @@ test('member cards follow only the originating IM group and answers return throu
   await firstHandlers.onMessage({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, text: 'ask the group', mentioned: true })
   s.imTurn('r1')
   s.fake.sent.length = 0
+  assert.match(await ask({ ...args, allowCustom: true }), /Group question cards accept listed choices only/)
+  assert.equal(s.rt.state.questions['member-b'], undefined)
   assert.match(await ask(args), /card is on screen/)
   const question = s.rt.state.questions['member-b']
   await s.flush()
