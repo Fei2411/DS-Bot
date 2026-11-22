@@ -108,6 +108,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on llm/stream',
     'effect ds-bot: load secrets',
     'effect ds-bot: connectors',
+    'prompt feature-packs 646',
+    'on session/event',
     'on agent/created',
     'effect ds-bot: capabilities',
     'on agent/status',

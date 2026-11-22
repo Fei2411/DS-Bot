@@ -1562,6 +1562,7 @@ export function install(rt) {
       parameters: {
         name: { type: 'string', required: true, description: 'Capability name from list_capabilities' },
         bot: { type: 'string', description: 'Optional Bot name; only a Main Bot may change another Bot' },
+        ...(endpoint === 'attach' ? { mode: { type: 'string', enum: ['always', 'catalog'], description: 'Always on (default), or available through use_pack' } } : {}),
       },
       output,
       async execute(args, exec) {
@@ -1579,6 +1580,23 @@ export function install(rt) {
             .map(item => ` The user must allow ${item.name} in DS Bot settings before it can work.`)
             .join('')
           return `${verb} ${args.name} ${args.bot ? `to ${result.bot}` : 'to yourself'}. Changes apply from ${result.bot}'s next message.${endpoint === 'attach' ? approvals : ''}`
+        } catch (error) { return error.message }
+      },
+    }))
+  }
+
+  for (const name of ['use_pack', 'drop_pack']) {
+    rt.teamTools.push(defineTool({
+      name,
+      description: name === 'use_pack' ? 'Load a feature pack from your catalog for this session. Waits for mounting; ready tools are available at the next step.' : 'Drop a session-loaded feature pack at the end of this turn.',
+      parameters: {
+        name: { type: 'string', required: true },
+        ...(name === 'use_pack' ? { reason: { type: 'string', description: 'Why this task needs the pack' } } : {}),
+      },
+      output,
+      async execute(args, exec) {
+        try {
+          return await rt[name === 'use_pack' ? 'usePack' : 'dropPack'](exec.agent?.session?.id ?? exec.agent?.id, args.name)
         } catch (error) { return error.message }
       },
     }))

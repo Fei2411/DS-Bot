@@ -61,6 +61,10 @@ export function install(rt) {
   const chains = new WeakMap()
   const queued = new WeakSet()
   const sessionStatuses = new Map()
+  const loaded = new Map()
+  const pendingDrops = new Map()
+  const frozenCatalogs = new Map()
+  const toolCounts = new Map()
   let statusesCache
   let statusesKey
   let pluginPromise
@@ -80,7 +84,7 @@ export function install(rt) {
   }
   const allowedToEdit = (item, botId) => rt.isMain(botId) || item.createdBy === botId
   const usedByOthers = (name, botId) => Object.values(state.bots).some(bot => bot.id !== botId
-    && (bot.capabilities ?? []).some((attached) => {
+    && [...(bot.capabilities ?? []), ...(bot.packs ?? [])].some((attached) => {
       const item = own(library(), attached)
       return attached === name || (item?.kind === 'pack' && (item.items ?? []).includes(name))
     }))
@@ -153,7 +157,10 @@ export function install(rt) {
     if (!ui) editCheck(item, botId, 'delete')
     delete items[item.name]
     for (const pack of Object.values(items)) if (pack.kind === 'pack') pack.items = (pack.items ?? []).filter(child => child !== item.name)
-    for (const bot of Object.values(state.bots)) bot.capabilities = (bot.capabilities ?? []).filter(attached => attached !== item.name)
+    for (const bot of Object.values(state.bots)) {
+      bot.capabilities = (bot.capabilities ?? []).filter(attached => attached !== item.name)
+      bot.packs = (bot.packs ?? []).filter(attached => attached !== item.name)
+    }
     await rt.save()
     return true
   }
@@ -164,34 +171,37 @@ export function install(rt) {
   const dropOrphanCapabilities = (bot) => {
     const items = library()
     const packed = name => Object.values(items).some(item => item.kind === 'pack' && (item.items ?? []).includes(name))
-    for (const name of bot.capabilities ?? []) {
+    for (const name of new Set([...(bot.capabilities ?? []), ...(bot.packs ?? [])])) {
       const item = own(items, name)
       if (item === undefined || item.kind !== 'mcp' || item.transport !== 'stdio' || item.approved === true) continue
       if (item.createdBy !== bot.id || usedByOthers(name, bot.id) || packed(name)) continue
       delete items[item.name]
     }
   }
-  const changeAttachment = async (endpoint, { name, bot: targetRef }, callerId) => {
+  const changeAttachment = async (endpoint, { name, bot: targetRef, mode }, callerId) => {
     await rt.load()
     writeCheck()
     const caller = rt.botOf(callerId)
     if (!caller) throw new Error('Only Bots on the team can change capabilities.')
     const target = targetRef ? rt.findBot(targetRef) : caller
     if (!target) throw new Error(`No Bot named ${targetRef}.`)
+    if (target.id !== caller.id && target.private === true) throw new Error('Other Bots cannot change a private Bot’s capabilities.')
     if (target.id !== caller.id && !rt.isMain(callerId)) throw new Error('Only a Main Bot can change another Bot’s capabilities.')
     const item = own(ensureLibrary(), String(name ?? ''))
     if (!item) throw new Error(`No capability named ${name}.`)
-    await setAttached(target, item.name, endpoint === 'attach')
+    await setAttached(target, item.name, endpoint === 'attach', mode)
     return { bot: target.name, attached: endpoint === 'attach' }
   }
   // Changes one name against the saved list, so two quick changes both land.
-  const setAttached = async (bot, name, attached) => {
+  const setAttached = async (bot, name, attached, mode = 'always') => {
+    if (!['always', 'catalog'].includes(mode)) throw new Error('Capability mode must be always or catalog.')
     bot.capabilities ??= []
-    const wasEmpty = bot.capabilities.length === 0
-    if (attached && !bot.capabilities.includes(name)) bot.capabilities.push(name)
-    if (!attached) bot.capabilities = bot.capabilities.filter(entry => entry !== name)
+    bot.packs ??= []
+    bot.capabilities = bot.capabilities.filter(entry => entry !== name)
+    bot.packs = bot.packs.filter(entry => entry !== name)
+    if (attached) bot[mode === 'catalog' ? 'packs' : 'capabilities'].push(name)
     await rt.save()
-    if (wasEmpty && bot.capabilities.length > 0) {
+    if (bot.capabilities.length > 0) {
       await trackBotAgents(bot)
       void scheduleReconcile()
     }
@@ -308,6 +318,7 @@ export function install(rt) {
   const mountOne = async (agent, bot, agentMounts, name) => {
     const sessionId = agent.session.id
     const item = own(library(), name)
+    if (!item) return
     const drop = async () => {
       await disposeMount(agentMounts.get(name))
       agentMounts.delete(name)
@@ -345,6 +356,9 @@ export function install(rt) {
       await fiber.await()
       if (stopped || agents.get(sessionId)?.deref() !== agent) return
       statusSet(bot.id, name, sessionId, { state: 'ready' })
+      if (item.kind === 'skill') toolCounts.set(name, 0)
+      const schemas = agent.ctx.tools?.schemas?.(agent)
+      if (item.kind === 'mcp' && Array.isArray(schemas)) toolCounts.set(name, schemas.filter(tool => tool.name.startsWith(`mcp__${name}__`)).length)
     } catch (error) {
       await drop()
       const message = rt.redactSecrets([error, error?.cause].filter(Boolean).map(part => String(part?.message ?? part)).join(': ') || 'Connection failed').slice(0, 300)
@@ -354,6 +368,12 @@ export function install(rt) {
   const reconcileAgent = async (agent, bot) => {
     const sessionId = agent.session.id
     const desired = bot ? expandCapabilityNames(bot.capabilities, library()) : new Set()
+    for (const [root, leaves] of loaded.get(sessionId) ?? []) {
+      if (bot?.packs?.includes(root) && own(library(), root)) {
+        for (const name of expandCapabilityNames([root], library())) leaves.add(name)
+      }
+      for (const name of leaves) desired.add(name)
+    }
     const agentMounts = mounts.get(agent) ?? new Map()
     if (desired.size > 0) mounts.set(agent, agentMounts)
     if (bot) {
@@ -440,7 +460,7 @@ export function install(rt) {
     await rt.load()
     const bot = botOfSession(sessionId)
     if (!bot) return
-    if ((bot.capabilities ?? []).length === 0 && !mounts.get(agents.get(sessionId)?.deref())?.size) return
+    if ((bot.capabilities ?? []).length === 0 && !loaded.get(sessionId)?.size && !mounts.get(agents.get(sessionId)?.deref())?.size) return
     let agent
     try {
       agent = await rt.resolveAgent(sessionId)
@@ -457,8 +477,13 @@ export function install(rt) {
     if (agents.get(sessionId)?.deref() === agent) return
     agents.set(sessionId, new WeakRef(agent))
     agent.ctx.effect(() => () => {
-      if (agents.get(sessionId)?.deref() === agent) agents.delete(sessionId)
-      clearSession(sessionId)
+      if (agents.get(sessionId)?.deref() === agent) {
+        agents.delete(sessionId)
+        clearSession(sessionId)
+        loaded.delete(sessionId)
+        pendingDrops.delete(sessionId)
+        frozenCatalogs.delete(sessionId)
+      }
       for (const mount of mounts.get(agent)?.values() ?? []) void disposeMount(mount)
       mounts.delete(agent)
     }, `ds-bot: capabilities ${sessionId}`)
@@ -507,7 +532,7 @@ export function install(rt) {
       if (!bot) throw new Error('Unknown Bot')
       const name = String(body.name ?? '')
       if (!own(library(), name)) throw new Error(`No capability named ${name}.`)
-      return setAttached(bot, name, body.attached === true)
+      return setAttached(bot, name, body.attached === true, body.mode)
     }
     throw new Error('Unknown capability operation.')
   }
@@ -517,6 +542,76 @@ export function install(rt) {
     if (loadingSecrets === 0) void scheduleReconcile()
   }
   rt.capabilitiesStateSaved = () => { void scheduleReconcile() }
+  const catalogFor = sessionId => {
+    const bot = botOfSession(sessionId)
+    if (!bot) return ''
+    if (frozenCatalogs.has(sessionId)) return frozenCatalogs.get(sessionId)
+    const lines = [...(bot.packs ?? [])].sort().flatMap(name => {
+      const item = own(library(), name)
+      if (!item) return []
+      const summary = String(item.description || (item.kind === 'mcp' ? 'MCP server' : item.kind === 'skill' ? 'Skill instructions' : `Includes ${(item.items ?? []).join(', ') || 'no items'}`)).replace(/\s+/g, ' ').trim().slice(0, 120)
+      const members = item.kind === 'pack' ? item.items ?? [] : [name]
+      const count = members.every(member => toolCounts.has(member)) ? members.reduce((sum, member) => sum + toolCounts.get(member), 0) : undefined
+      return [`- ${name}: ${summary}${count === undefined ? '' : ` (${count} tools)`}`]
+    })
+    const text = lines.length ? ['# Feature packs', ...lines, 'Call use_pack when a task needs one of these packs.'].join('\n') : ''
+    frozenCatalogs.set(sessionId, text)
+    return text
+  }
+  ctx.systemPrompt.section({ name: 'feature-packs', order: 646, text: ({ agent }) => {
+    if (agent?.ctx) trackAgent(agent)
+    return catalogFor(agent?.id)
+  } })
+  const usePack = async (sessionId, name) => {
+    await rt.load()
+    const bot = botOfSession(sessionId)
+    if (!bot) throw new Error('Only Bots on the team can use feature packs.')
+    writeCheck()
+    if (bot.capabilities?.includes(name)) return `${name} is already always on.`
+    if (!bot.packs?.includes(name)) throw new Error(`${name} is not in your feature pack catalog.`)
+    const leaves = expandCapabilityNames([name], library())
+    const agent = await rt.resolveAgent(sessionId)
+    trackAgent(agent)
+    let entries = loaded.get(sessionId)
+    if (!entries) loaded.set(sessionId, entries = new Map())
+    entries.set(name, leaves)
+    pendingDrops.get(sessionId)?.delete(name)
+    let timer
+    const completed = await Promise.race([
+      reconcileOne(agent).then(() => true),
+      new Promise(resolve => { timer = setTimeout(resolve, rt.capabilityEnsureTimeoutMs ?? ENSURE_TIMEOUT_MS, false) }),
+    ]).finally(() => clearTimeout(timer))
+    return [...leaves].map(child => {
+      const status = sessionStatuses.get(bot.id)?.get(child)?.get(sessionId)
+      if (!status || status.state === 'connecting') return `${child}: error (${completed ? 'mount did not publish a status' : 'mount did not finish within the time limit'})`
+      return `${child}: ${status.state}${status.error ? ` (${status.error})` : ''}`
+    }).join('\n') || `${name}: ready (empty pack)`
+  }
+  const dropPack = async (sessionId, name) => {
+    await rt.load()
+    if (!botOfSession(sessionId)) throw new Error('Only Bots on the team can use feature packs.')
+    writeCheck()
+    if (!loaded.get(sessionId)?.has(name)) return `${name} is not loaded in this session.`
+    let drops = pendingDrops.get(sessionId)
+    if (!drops) pendingDrops.set(sessionId, drops = new Set())
+    drops.add(name)
+    return `${name} will be dropped at the end of this turn.`
+  }
+  ctx.on('session/event', async function finishFeaturePacks(session, event) {
+    if (event.type !== 'turn/end') return
+    const sessionId = session?.id
+    const entries = loaded.get(sessionId)
+    if (!entries) return
+    const bot = botOfSession(sessionId)
+    for (const name of entries.keys()) {
+      if (pendingDrops.get(sessionId)?.has(name) || !bot?.packs?.includes(name) || !own(library(), name)) entries.delete(name)
+      else entries.set(name, expandCapabilityNames([name], library()))
+    }
+    pendingDrops.delete(sessionId)
+    if (!entries.size) loaded.delete(sessionId)
+    const agent = agents.get(sessionId)?.deref()
+    if (agent) await reconcileOne(agent)
+  })
   // Creation waits for these listeners, so a new Agent's first request already has its
   // tools and skill catalog. agent/pre-step is too late: a step assembles its tools first.
   ctx.on('agent/created', async function prepareCapabilities({ agent }) {
@@ -542,6 +637,10 @@ export function install(rt) {
       mounts.clear()
       agents.clear()
       sessionStatuses.clear()
+      loaded.clear()
+      pendingDrops.clear()
+      frozenCatalogs.clear()
+      toolCounts.clear()
       statusesCache = undefined
       await Promise.all(live.flatMap(agentMounts => [...agentMounts.values()].map(disposeMount)))
     }
@@ -558,5 +657,7 @@ export function install(rt) {
     ensureCapabilities,
     expandCapabilities: names => expandCapabilityNames(names, library()),
     changeCapabilityAttachment: changeAttachment,
+    usePack,
+    dropPack,
   })
 }
