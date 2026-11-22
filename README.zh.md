@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文
 
-![版本](https://img.shields.io/badge/版本-v0.3_预览-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
+![版本](https://img.shields.io/badge/版本-v0.3.9-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 dsh）的开源项目，提供独立桌面应用和 dsh 插件两种形态。它将 dsh 改造为 bot 形式，你可以与自己创建的 bot 交流、工作。
 
@@ -49,6 +49,8 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 
 我强烈建议你直接通过和 bot 对话来配置其他 bot 和群聊。
 
+设置按功能分组：**模型**下有**提供方**、**Bot 模型**、**本地智能体**和 **DeepSeek 服务**；**团队**下有 **Bot**、**群聊**和**定时任务**；**连接**下有**连接器**、**IM**、**手机**和 **MCP 访问**；**工具**下有**电脑操控**、**浏览器**、**能力**和**密钥**。外观有独立页面，反馈在关于 DS Bot 下。下文的页面名也可以通过设置搜索找到。
+
 ### 网页搜索
 
 DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉web-search-auto后所有会话的网页搜索都失败)。
@@ -70,6 +72,8 @@ HTTP MCP 客户端连 `http://127.0.0.1:8797/mcp`，带请求头 `Authorization:
 ### Bot
 
 你可以在一个窗口中和一个 bot 完成所有对话和工作，你无需担心背后的上下文问题。你可以在 bot 详情页查看 bot 信息，也可以为 bot 选择你想使用的模型和思考强度。你可以随时切换模型，但我仍然建议你为一个 bot 长期保持一个模型，仅在真正必要的时刻切换。
+
+每个 bot 都有自己保存的配置：模型、思考强度、指令、文件夹和权限。这是 Bot 的配置，不是独立的 DSH 安装 profile；修改一个 Bot 的模型不会改变其他 Bot 的模型分配。
 
 另外，bot 拥有记忆，它会记住你的喜好并在下次的工作中应用。你可以在 bot 的详情页管理记忆，也可以直接和 bot 对话来进行管理。
 
@@ -105,9 +109,9 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ### 浏览器
 
-每个 bot 有自己独立的浏览器，登录状态互不干扰，也支持从文件或本机浏览器导入 Cookie。在 设置 → 浏览器 里开启操作插件后，bot 可以自己打开和操作网页；发帖、上传、下载、删除需要你批准，遇到登录、验证码或付款会发卡片交给你处理，你随时可以接管再交还。
+每个 bot 有自己独立的浏览器，登录状态互不干扰，也支持从文件或本机浏览器导入 Cookie。要操作网页，在 DSH profile 里把 `browserPlugin` 设为 `refs`、`script` 或 `task`，再重启 DS Bot；设置 → 浏览器 说明了配置方法并管理操作授权。发帖、上传、下载、删除需要你批准，除非已在该页预先授权；遇到登录、验证码或付款会交给你处理，你随时可以接管再交还。
 
-浏览器功能仅桌面应用和 dsh Desktop 可用（dsh Web 没有），且只有桌面应用在退出后会保留网页登录状态、支持导入 Cookie。Windows 上 Chrome 和 Edge 开启了 v20 加密的新 Cookie 无法直接读取，需要先用浏览器扩展导出成文件再导入。
+内嵌浏览器面板仅桌面应用和 dsh Desktop 可用（dsh Web 没有）；交互式浏览器插件在宿主上单独运行。只有桌面应用在退出后会保留面板的网页登录状态、支持导入 Cookie。Windows 上 Chrome 和 Edge 的 v20 Cookie 无法从数据库直接解密，但支持的 Chromium 浏览器开启实时远程调试后可以导入；也可以从文件导出再导入。
 
 ### 电脑操控
 
@@ -155,7 +159,7 @@ bot 可以直接创建、检查和修改 Word（`.docx`）、PowerPoint（`.pptx
 
 ## 致谢
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：ds bot 建在 dsh 的插件系统上。每个 bot 都在 dsh 会话里工作，用的是 dsh 的工具和模型。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：ds bot 建在 dsh 的插件系统和 Session 上。模型 Bot 用它的 agent 循环和模型服务；本地智能体 Bot 用 CLI 自己的工具和模型访问。辅助模型调用不经过 agent 循环，搜索 / 抓取和 DeepSeek OCR、TTS、ASR 则直接请求服务。
 - [esbuild](https://esbuild.github.io/)：用来打包插件的界面代码。
 - 感谢下面这些项目公开的设计思路。ds bot 参考了它们的思路，没有使用它们的代码：
   - [AgentMemoryRepo](https://github.com/AgentMemoryRepo/agentmemoryrepo)：bot 记忆的 Markdown 格式。

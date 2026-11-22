@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md)
 
-![version](https://img.shields.io/badge/version-v0.3_preview-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.3.9-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into bots that you create, talk to and work with.
 
@@ -49,6 +49,8 @@ See [`docker/README.md`](docker/README.md).
 
 I strongly recommend that you set up your other bots and group chats by just talking to a bot.
 
+Settings groups related pages: **Models** contains **Providers**, **Bot models**, **Local agents** and **DeepSeek services**; **Team** contains **Bots**, **Group chats** and **Scheduled tasks**; **Connect** contains **Connectors**, **IM**, **Phone** and **MCP access**; **Tools** contains **Computer use**, **Browser**, **Capabilities** and **Secrets**. Appearance has its own page, and Feedback is under About DS Bot. Page names below can also be found with Settings search.
+
 ### Web search
 
 DS Bot selects its `auto` search provider for the whole profile. If you disable `web-search-auto`, also select another registered search provider in that profile. See [Web search](ds-bot/README.md#web-search) and the [recovery steps](docs/known-issues.md#web-search-fails-everywhere-after-turning-off-web-search-auto).
@@ -70,6 +72,8 @@ Point an HTTP MCP client at `http://127.0.0.1:8797/mcp` with the header `Authori
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model and thinking level you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
+
+Each bot has its own saved profile: model, thinking level, instructions, folder and permissions. This is a Bot configuration, not a separate DSH installation profile; changing one Bot's model does not change the other Bots' assignments.
 
 Bots also have memory. A bot remembers what you like and uses it in later work. You can manage its memory on the bot's details page, or just tell the bot.
 
@@ -105,9 +109,9 @@ There are a few limits to keep in mind: a local agent uses the CLI's own tools a
 
 ### Browser
 
-Each bot has its own isolated browser with separate sign-ins, and can import cookies from a file or from your local browsers. Turn on a browser plugin in Settings → Browser to let bots open and operate web pages on their own; posting, uploading, downloading and deleting need your approval, and sign-in, captchas or payments hand back to you with a card so you can take over and hand back at any time.
+Each bot has its own isolated browser with separate sign-ins, and can import cookies from a file or from your local browsers. For interactive browsing, set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart DS Bot; Settings → Browser explains this setup and manages action grants. Posting, uploading, downloading and deleting need your approval unless preauthorized there; sign-in, captchas or payments hand back to you so you can take over and hand back at any time.
 
-The browser feature is available in the desktop app and DSH Desktop only (not in DSH Web), and only the desktop app keeps browser sign-ins after you quit and supports cookie import. On Windows, new Chrome and Edge cookies encrypted with v20 cannot be read directly — export them to a file with a browser extension first.
+The embedded browser panel is available in the desktop app and DSH Desktop only (not in DSH Web); interactive browser plugins run on the host separately. Only the desktop app keeps the panel's sign-ins after you quit and supports cookie import. On Windows, Chrome and Edge v20 cookies cannot be decrypted directly from the database, but live remote debugging in supported Chromium browsers can import them; file export/import is another option.
 
 ### Computer use
 
@@ -155,7 +159,7 @@ The plugin source is in [`ds-bot/`](ds-bot/). For options and internals, see [`d
 
 ## Acknowledgments
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): DS Bot is built on the DSH plugin system. Every bot works in DSH sessions and uses the DSH tools and models.
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): DS Bot is built on the DSH plugin system and Sessions. Model Bots use its agent loop and model service; local-agent Bots use their CLI's tools and model access. Auxiliary model calls run outside the agent loop, while web search/fetch and DeepSeek OCR, TTS and ASR make direct service requests.
 - [esbuild](https://esbuild.github.io/): bundles the plugin's interface code.
 - Thanks to these projects for the ideas they published. DS Bot learned from their designs and does not contain their code:
   - [AgentMemoryRepo](https://github.com/AgentMemoryRepo/agentmemoryrepo): the Markdown format of Bot memory.
