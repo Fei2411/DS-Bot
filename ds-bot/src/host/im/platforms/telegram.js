@@ -93,7 +93,7 @@ export default {
     const strip = (text) => {
       if (selfName === '') return text
       const field = /(?:^|\n)\d+:/.exec(text)?.index ?? text.length
-      const header = text.slice(0, field).replace(/@\w+/g, mention => mention === selfName ? '' : mention)
+      const header = text.slice(0, field).replace(/(?<![\w.@])@\w+(?![\w.-])/g, mention => mention === selfName ? '' : mention)
       return header.trimStart() + text.slice(field)
     }
 

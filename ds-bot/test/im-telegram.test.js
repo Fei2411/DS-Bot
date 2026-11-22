@@ -112,20 +112,33 @@ test('private text, group mention and photo become adapter messages', async () =
   } finally { api.close() }
 })
 
-test('trailing Telegram group mentions preserve numbered replies, card codes and stop commands', async (t) => {
+test('Telegram removes only standalone addressing mentions and preserves emails and domains', async (t) => {
   const api = await fakeApi()
   const messages = []
   const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
     onMessage: msg => messages.push(msg), onAction: () => {}, onStatus: () => {},
   })
   t.after(() => { handle.stop(); api.close() })
-  for (const [index, text] of ['1 3 @fakebot', 'V3 1 3 @fakebot', '/stop @fakebot'].entries()) {
+  const cases = [
+    ['1 3 @fakebot', '1 3 '],
+    ['V3 1 3 @fakebot', 'V3 1 3 '],
+    ['/stop @fakebot', '/stop '],
+    ['@fakebot look', 'look'],
+    ['@fakebot email alice@fakebot.example', 'email alice@fakebot.example'],
+    ['@fakebot domain https://@fakebot.example/path', 'domain https://@fakebot.example/path'],
+    ['@fakebot domain docs.@fakebot', 'domain docs.@fakebot'],
+    ['@fakebot @fakebot-dev.example', '@fakebot-dev.example'],
+    ['@fakebot @@fakebot', '@@fakebot'],
+    ['@fakebot name@fakebot', 'name@fakebot'],
+    ['@fakebot @fakebot_extra', '@fakebot_extra'],
+  ]
+  for (const [index, [text]] of cases.entries()) {
     api.updates.push({ update_id: index + 1, message: {
       message_id: index + 1, chat: { id: -8, type: 'supergroup' }, from: { id: 9 }, text,
     } })
   }
-  await until(() => messages.length === 3)
-  assert.deepEqual(messages.map(msg => msg.text.trim()), ['1 3', 'V3 1 3', '/stop'])
+  await until(() => messages.length === cases.length)
+  assert.deepEqual(messages.map(msg => msg.text), cases.map(([, expected]) => expected))
   assert.ok(messages.every(msg => msg.mentioned))
 })
 
