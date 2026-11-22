@@ -71,19 +71,11 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, tasks: _rawTasks, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, tasks: _rawTasks, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
-      // `openParts` are the parts opened while the Bot was busy: live, with their own
-      // earlier parts, and each one's run state read from the live turns.
-      const open = (openParts ?? []).map(part => ({
-        sessionId: part.sessionId,
-        startedAt: part.startedAt ?? 0,
-        parts: (part.segments ?? []).map(segment => segment.sessionId),
-      }))
       const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
       return {
         ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
-        ...(open.length > 0 ? { openParts: open } : {}),
         ...(botTasks.length > 0 ? { tasks: botTasks } : {}),
         ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
@@ -93,15 +85,11 @@ export function install(rt) {
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
     // ones; `parts` the members' hidden group Sessions and their earlier segments,
-    // for usage; `sessionMembers` the member ids that currently have a group Session.
+    // for usage.
     rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, parts: ownParts, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId), ...(ownParts ?? []).map(segment => segment.sessionId)]
-      const sessionMembers = (room.members ?? []).filter((id) => {
-        const sid = rt.own(sessions, id)
-        return typeof sid === 'string' && sid !== ''
-      })
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, sessionMembers, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
     }),
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
@@ -156,13 +144,6 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    // Which of a Bot's own chat parts has a turn right now, current or background:
-    // the session list's Running mark reads this, not a guess from the transcript.
-    partsRunning: Object.fromEntries(Object.values(state.bots)
-      .flatMap(bot => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)])
-      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
-      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
-      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
@@ -863,28 +844,6 @@ export function install(rt) {
         case 'local-agent-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
-        // "New session" and "open an earlier session" on an abot's chat: ordinary
-        // parts moves (parts.js), the same mechanism every Bot's chat uses. `blank`
-        // starts the fresh part without the handoff package, `handoff` asks for the
-        // handoff explicitly; a member's group Session has no blank path.
-        case 'bot-new-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id), { blank: body.blank === true, handoff: body.handoff === true }))
-          const room = rt.roomOf(String(body.roomId))
-          if (room === undefined) return fail('Unknown group chat', 'bot/not-found')
-          if (!room.members.includes(bot.id)) return fail('Not a member of that group', 'bot/invalid')
-          const member = rt.own(room.sessions, bot.id)
-          if (typeof member !== 'string' || member === '') return fail('This Bot has no session in this group yet', 'bot/invalid')
-          return ok(await rt.newPart(member, { blank: body.blank === true, handoff: body.handoff === true }))
-        }
-        case 'bot-open-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          return ok(await rt.switchPart(bot.id, String(body.sessionId ?? '')))
-        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))

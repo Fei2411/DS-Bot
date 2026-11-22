@@ -1227,7 +1227,7 @@ test('group token views accept every complex input kind through the shared view 
     const api = (await s.rt.channelCall('state')).value
     assert.equal(api.views['member-b'].code, undefined)
     assert.ok(!JSON.stringify(api.views).includes('imOrigin'))
-    await gm(s, 'u1', code.toLowerCase() + entry.reply)
+    await gm(s, 'u1', '!CaRd ' + code.toLowerCase() + entry.reply)
     assert.equal(s.rt.state.views['member-b'], undefined)
     const followup = s.agentOf('member-b').lastFollowup
     assert.match(followup.source.rpcId, /^im:/)
@@ -1253,8 +1253,8 @@ test('token view answers enforce pairing, mention, chat, origin, binding and sta
   await s.flush()
   const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
   const id = s.rt.state.views['member-b'].id
-  await gm(s, 'stranger', `${code}\n1: 4`)
-  await gm(s, 'u1', `${code}\n1: 4`, { mentioned: false })
+  await gm(s, 'stranger', `!card ${code}\n1: 4`)
+  await gm(s, 'u1', `!card ${code}\n1: 4`, { mentioned: false })
   assert.equal(s.rt.state.views['member-b'].id, id)
   let prompts = s.prompts.length
   await gm(s, 'u1', `${code} is our release version`, { chat: { key: 'g2', kind: 'group' } })
@@ -1262,14 +1262,14 @@ test('token view answers enforce pairing, mention, chat, origin, binding and sta
   assert.equal(s.prompts.at(-1).content[0].text, `${code} is our release version`)
   assert.equal(s.rt.state.views['member-b'].id, id)
   prompts = s.prompts.length
-  await gm(s, 'u1', `${code}\n1: 99`)
+  await gm(s, 'u1', `!card ${code}\n1: 99`)
   await s.flush()
   assert.ok(s.fake.sent.some(job => job.chat.key === 'g1' && job.text.startsWith('Invalid view answer:')))
   assert.equal(s.prompts.length, prompts)
   assert.equal(s.rt.state.views['member-b'].id, id)
   await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'a' } })
   let sent = s.fake.sent.length
-  await gm(s, 'u1', `${code}\n1: 4`)
+  await gm(s, 'u1', `!card ${code}\n1: 4`)
   await s.flush()
   assert.equal(s.prompts.length, prompts, 'a stale form value must not reach the new binding target')
   assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
@@ -1280,7 +1280,7 @@ test('token view answers enforce pairing, mention, chat, origin, binding and sta
   prompts = s.prompts.length
   await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
   sent = s.fake.sent.length
-  await gm(s, 'u1', `${code}\n1: 4`)
+  await gm(s, 'u1', `!card ${code}\n1: 4`)
   await s.flush()
   assert.equal(s.prompts.length, prompts)
   assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
@@ -1295,20 +1295,20 @@ test('token view answers enforce pairing, mention, chat, origin, binding and sta
   await gm(s, 'u1', 'V999999 unknown code')
   assert.equal(s.prompts.length, prompts + 2)
   assert.equal(s.rt.state.views['member-b'].id, id)
-  await gm(s, 'u1', `${code}\n1: 4`)
+  await gm(s, 'u1', `!card ${code}\n1: 4`)
   assert.equal(s.rt.state.views['member-b'], undefined)
   assert.equal(s.agentOf('member-b').followed, 1)
   prompts = s.prompts.length
-  await gm(s, 'u1', `${code}\n1: 5`)
+  await gm(s, 'u1', `!card ${code}\n1: 5`)
   assert.equal(s.prompts.length, prompts)
   assert.equal(s.agentOf('member-b').followed, 1)
   await show()
   await s.flush()
   const next = /Card (V\d+)/.exec((await tokenCard(s, 1)).text)[1]
   assert.notEqual(next, code)
-  await gm(s, 'u1', `${code}\n1: 5`)
+  await gm(s, 'u1', `!card ${code}\n1: 5`)
   assert.ok(s.rt.state.views['member-b'])
-  await gm(s, 'u1', next)
+  await gm(s, 'u1', `!card ${next}`)
   assert.deepEqual(JSON.parse(s.agentOf('member-b').lastFollowup.content[0].text).answers[0].values.inputs, { n: 2 })
 })
 
@@ -1329,7 +1329,7 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   assert.equal(saved.cards[`v:${id}`][0].code, code)
   s = await start({ home: s.home })
   await s.rt.imEndpoint('im-retry', { id: one.id })
-  await dm(s, 'u1', `${code}\n1: Alice`)
+  await dm(s, 'u1', `/card@fakebot ${code}\n1: Alice`)
   assert.equal(s.rt.state.views.a, undefined)
   assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields, { name: 'Alice' })
   await dm(s, 'u1', 'another form')
@@ -1338,9 +1338,76 @@ test('own-chat form codes persist across restart and do not reuse a settled code
   await s.flush()
   const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
   assert.notEqual(next, code)
+  await dm(s, 'u1', `/card ${next}\n1: Bob`)
+  assert.equal(s.rt.state.views.a, undefined)
+  assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields, { name: 'Bob' })
 })
 
-test('form codes match exact receiving chats without capturing code-prefixed prose', async (t) => {
+test('pending legacy code cards receive the new reply instructions once with the same code', async (t) => {
+  for (const mode of ['own', 'group', 'slash', 'interrupted']) await t.test(mode, async (t) => {
+    let s = await start()
+    t.after(() => s.stop())
+    const { one } = await pairedConn(s)
+    const grouped = mode === 'group'
+    const sessionId = grouped ? 'member-b' : 'a'
+    const chatKey = grouped ? 'g1' : 'dm-u1'
+    const message = text => grouped ? gm(s, 'u1', text) : dm(s, 'u1', text)
+    if (grouped) {
+      s.rt.roomOf('r1').sessions = { b: sessionId }
+      s.rt.groupOwners.set(sessionId, { botId: 'b', roomId: 'r1' })
+      await gm(s, 'u1', 'discover')
+      await gm(s, 'u1', 'discover', { chat: { key: 'g2', kind: 'group' } })
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { roomId: 'r1' } })
+      await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g2', target: { roomId: 'r1' } })
+    }
+    await message('form please')
+    s.imTurn(grouped ? 'r1' : 'a')
+    const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Details', view }, { agent: { id: sessionId }, concludeTurn() {} })
+    const id = s.rt.state.views[sessionId].id
+    const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+    await s.close()
+    const path = join(s.home, 'im', `${one.id}.json`)
+    const data = JSON.parse(readFileSync(path, 'utf8'))
+    const delivery = data.cards[`v:${id}`][0]
+    assert.equal(delivery.replyVersion, 2)
+    assert.equal(delivery.delivered, true)
+    if (mode === 'interrupted') {
+      assert.ok(delivery.messageId)
+      delivery.delivered = false
+    } else {
+      if (mode === 'slash') delivery.replyVersion = 1
+      else delete delivery.replyVersion
+      delivery.text = `Card ${code}\nReply example: ${mode === 'slash' ? '/card ' : ''}${code}\\n1: Alice`
+    }
+    writeFileSync(path, JSON.stringify(data))
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    const updated = await tokenCard(s)
+    assert.equal(updated.chat.key, chatKey)
+    assert.ok(updated.text.includes(`Reply example: !card ${code}`))
+    if (mode !== 'interrupted') assert.ok(updated.text.includes('replaces the earlier reply instructions'))
+    assert.equal(/Card (V\d+)/.exec(updated.text)[1], code)
+    await Promise.all([s.rt.save(), s.rt.save()])
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 1)
+    assert.equal(s.rt.state.views[sessionId].id, id)
+    await s.close()
+    const migrated = JSON.parse(readFileSync(path, 'utf8'))
+    assert.equal(migrated.cards[`v:${id}`][0].replyVersion, 2)
+    assert.equal(migrated.cards[`v:${id}`][0].delivered, true)
+    assert.equal(migrated.viewCodeSeq, data.viewCodeSeq)
+    s = await start({ home: s.home })
+    await s.rt.imEndpoint('im-retry', { id: one.id })
+    await s.flush()
+    assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 0)
+    await message(`!card ${code}\n1: Alice`)
+    assert.equal(s.rt.state.views[sessionId], undefined)
+    assert.deepEqual(JSON.parse(s.agentOf(sessionId).lastFollowup.content[0].text).answers[0].values.fields, { name: 'Alice' })
+  })
+})
+
+test('only reserved card commands answer forms and all malformed or unknown commands stay out of ordinary chat', async (t) => {
   const s = await start()
   t.after(s.stop)
   const { one } = await pairedConn(s)
@@ -1362,6 +1429,10 @@ test('form codes match exact receiving chats without capturing code-prefixed pro
     ['g2', `${codes[0]}\n1: a code this chat never received`],
     ['g2', `${codes[1]} is our release version`],
     ['g1', `${codes[0]} is our release version`],
+    ['g1', `${codes[0]} 1 3`],
+    ['g1', 'V3 1 3'],
+    ['g1', '!cardigan sale'],
+    ['g1', '/cardboard private'],
   ]) {
     const prompts = s.prompts.length
     await gm(s, 'u1', text, { chat: { key: chatKey, kind: 'group' } })
@@ -1370,7 +1441,17 @@ test('form codes match exact receiving chats without capturing code-prefixed pro
   }
   assert.ok(s.rt.state.views.a)
   assert.ok(s.rt.state.views.b)
-  await gm(s, 'u1', `${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
+  const pending = s.rt.state.views.b.id
+  for (const text of ['!card', '!card invalid', '!card V999999\n1: private', '/card', '/card invalid', '/card V999999\n1: private', `!card ${codes[0]}\n1: wrong chat`, `!card ${codes[1]} prose is not an answer`]) {
+    const prompts = s.prompts.length
+    const sent = s.fake.sent.length
+    await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
+    await s.flush()
+    assert.equal(s.prompts.length, prompts)
+    assert.equal(s.rt.state.views.b.id, pending)
+    assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
+  }
+  await gm(s, 'u1', `!card ${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
   assert.equal(s.rt.state.views.b, undefined)
   assert.equal(JSON.parse(s.agentOf('b').lastFollowup.content[0].text).answers[0].values.fields.name, 'Bob')
 })
@@ -1389,13 +1470,14 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
     await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'a' }, concludeTurn() {} })
     const id = s.rt.state.views.a.id
     const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
-    await gm(s, 'u1', `${code}\n1: First`)
+    await gm(s, 'u1', `!card ${code}\n1: First`)
     assert.equal(s.rt.state.views.a, undefined)
     await s.close()
     const path = join(s.home, 'im', `${one.id}.json`)
     const data = JSON.parse(readFileSync(path, 'utf8'))
     delete data.viewCodeHighWater
-    data.viewCodes = { archived: Array.from({ length: 205 }, (_, index) => index + 2) }
+    data.viewCodes = { g1: Array.from({ length: 205 }, (_, index) => index + 2) }
+    assert.ok(!data.viewCodes.g1.includes(Number(code.slice(1))), 'the old code has also fallen out of its receiving chat history')
     data.viewCodeSeq += 1000
     writeFileSync(path, JSON.stringify(data))
     s = await start({ home: s.home })
@@ -1408,22 +1490,17 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
       await delay(10)
     }
     assert.equal(pruned.cards[`v:${id}`], undefined, 'the settled delivery must actually be pruned')
-    assert.deepEqual(pruned.viewCodes.g1, [Number(code.slice(1))], 'legacy deliveries backfill exact per-chat history')
-    assert.equal(pruned.viewCodes.archived.length, 200)
-    assert.equal(pruned.viewCodes.archived[0], 7)
+    assert.equal(pruned.viewCodes, undefined, 'routing no longer retains or relies on expiring per-chat history')
     await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
     if (restart) {
       await s.close()
-      const saved = JSON.parse(readFileSync(path, 'utf8'))
-      delete saved.viewCodeSeq
-      writeFileSync(path, JSON.stringify(saved))
       s = await start({ home: s.home })
       await s.rt.imEndpoint('im-retry', { id: one.id })
     }
     const refused = async () => {
       const prompts = s.prompts.length
       const sent = s.fake.sent.length
-      await gm(s, 'u1', `${code.toLowerCase()}\n1: Private form value`)
+      await gm(s, 'u1', `!card ${code.toLowerCase()}\n1: Private form value`)
       await s.flush()
       assert.equal(s.prompts.length, prompts)
       assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && /no longer answerable/.test(job.text)))
@@ -1449,8 +1526,98 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
     s.imTurn('b')
     await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'b' }, concludeTurn() {} })
     const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
-    assert.ok(Number(next.slice(1)) > Number(code.slice(1)), 'history prevents code reuse even without the counter or delivery')
+    assert.ok(Number(next.slice(1)) > data.viewCodeSeq, 'the durable allocation counter survives pruning and restart')
   })
+})
+
+test('legacy bare replies stay private after delivery pruning, rebind and restart without moving the cutoff', async (t) => {
+  let s = await start()
+  t.after(() => s.stop())
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
+  await s.rt.save()
+  await gm(s, 'u1', 'show a form')
+  s.imTurn('a')
+  const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+  const show = botId => s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: botId }, concludeTurn() {} })
+  await show('a')
+  const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  await gm(s, 'u1', `!card ${code}\n1: First`)
+  await s.close()
+  const path = join(s.home, 'im', `${one.id}.json`)
+  const legacy = JSON.parse(readFileSync(path, 'utf8'))
+  delete legacy.legacyViewCodeCutoff
+  legacy.cards = {}
+  legacy.viewCodeSeq += 1000
+  writeFileSync(path, JSON.stringify(legacy))
+  s = await start({ home: s.home })
+  await s.rt.imEndpoint('im-retry', { id: one.id })
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).legacyViewCodeCutoff, legacy.viewCodeSeq, 'the cutoff is durable on first load, before new allocation')
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).cards, {})
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+  await gm(s, 'u1', 'show another form')
+  s.imTurn('b')
+  await show('b')
+  const next = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  assert.ok(Number(next.slice(1)) > legacy.viewCodeSeq)
+  const pending = s.rt.state.views.b.id
+  const refuse = async () => {
+    for (const text of [`${code.toLowerCase()}\n1: Private value`, `${code} 1,3`, `${code} 2\n1: Private value`, `${code} cancel`, `${code} 2 cancel`]) {
+      const prompts = s.prompts.length
+      const sent = s.fake.sent.length
+      await gm(s, 'u1', text)
+      await s.flush()
+      assert.equal(s.prompts.length, prompts, text)
+      assert.equal(s.rt.state.views.b.id, pending)
+      assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`)), text)
+    }
+  }
+  for (const restart of [false, true]) {
+    if (restart) {
+      await s.close()
+      s = await start({ home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).legacyViewCodeCutoff, legacy.viewCodeSeq)
+    await refuse()
+    for (const text of [`${code} is our release`, `${next}\n1: Ordinary text`, `${next} 1,3`]) {
+      const prompts = s.prompts.length
+      await gm(s, 'u1', text)
+      assert.equal(s.prompts.length, prompts + 1)
+      assert.equal(s.prompts.at(-1).content[0].text, text)
+      assert.equal(s.rt.state.views.b.id, pending)
+    }
+  }
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
+  await refuse()
+})
+
+test('fresh connections keep a durable zero cutoff after allocation and restart', async (t) => {
+  let s = await start()
+  t.after(() => s.stop())
+  const { one } = await pairedConn(s)
+  const path = join(s.home, 'im', `${one.id}.json`)
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).legacyViewCodeCutoff, 0)
+  await dm(s, 'u1', 'form please')
+  s.imTurn('a')
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
+  const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
+  const pending = s.rt.state.views.a.id
+  for (const restart of [false, true]) {
+    if (restart) {
+      await s.close()
+      s = await start({ home: s.home })
+      await s.rt.imEndpoint('im-retry', { id: one.id })
+    }
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).legacyViewCodeCutoff, 0)
+    for (const text of [`${code}\n1: Ordinary text`, `${code} 1 3`, 'V999 cancel']) {
+      const prompts = s.prompts.length
+      await dm(s, 'u1', text)
+      assert.equal(s.prompts.length, prompts + 1)
+      assert.equal(s.prompts.at(-1).content[0].text, text)
+      assert.equal(s.rt.state.views.a.id, pending)
+    }
+  }
 })
 
 test('token reservations recover interrupted sends without replaying completed deliveries after a killed process', async (t) => {
@@ -1493,7 +1660,7 @@ test('token reservations recover interrupted sends without replaying completed d
         await s.flush()
         assert.equal(s.fake.sent.filter(job => /Card V\d+/.test(job.text)).length, 0)
       }
-      await dm(s, 'u1', `${delivery.code}\n1: Recovered`)
+      await dm(s, 'u1', `!card ${delivery.code}\n1: Recovered`)
       assert.equal(s.rt.state.views.a, undefined)
       assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Recovered')
     } else assert.equal(s.rt.state.views.a, undefined)
@@ -1508,10 +1675,10 @@ test('token reservations recover interrupted sends without replaying completed d
     const code = /Card (V\d+)/.exec((await tokenCard(s)).text)[1]
     assert.notEqual(code, delivery.code)
     const id = s.rt.state.views.a.id
-    await dm(s, 'u1', `${delivery.code}\n1: Wrong card`)
+    await dm(s, 'u1', `!card ${delivery.code}\n1: Wrong card`)
     assert.equal(s.rt.state.views.a.id, id)
     assert.equal(s.agentOf('a').lastFollowup, previousFollowup)
-    await dm(s, 'u1', `${code}\n1: Correct card`)
+    await dm(s, 'u1', `!card ${code}\n1: Correct card`)
     assert.equal(s.rt.state.views.a, undefined)
     assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Correct card')
   })
@@ -1675,7 +1842,7 @@ test('own-chat simple views and forms reach IM when show_view concludes the turn
       const card = await tokenCard(s)
       assert.equal(card.chat.key, 'dm-u1')
       const code = /Card (V\d+)/.exec(card.text)[1]
-      await dm(s, 'u1', `${code}\n1: Alice`)
+      await dm(s, 'u1', `!card ${code}\n1: Alice`)
       assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Alice')
     } else {
       await s.flush()

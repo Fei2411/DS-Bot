@@ -224,6 +224,7 @@ export function install(rt) {
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
+        packs: [],
       }
       if (main) state.mainBotIds.push(id)
       const creator = rt.botOf(createdBy)
