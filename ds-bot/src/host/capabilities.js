@@ -586,6 +586,7 @@ export function install(rt) {
     trackAgent(agent)
     let entries = loaded.get(sessionId)
     if (!entries) loaded.set(sessionId, entries = new Map())
+    for (const child of entries.get(name) ?? []) leaves.add(child)
     entries.set(name, leaves)
     pendingDrops.get(sessionId)?.delete(name)
     let timer

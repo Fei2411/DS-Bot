@@ -262,6 +262,25 @@ test('removed catalog entries and library items stay mounted until turn end', as
   assert.equal(skills.get('chief').size, 0)
 })
 
+test('reusing a pack preserves removed members until the turn boundary', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx, mounts, skills } = env
+  const agent = testAgent('chief', mounts, skills)
+  agent.status = 'running'
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  for (const name of ['first', 'second', 'third']) await rt.capabilitySave({ name, kind: 'skill', content: name }, { ui: true })
+  await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['first', 'second'] }, { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'bundle', mode: 'catalog' }, 'chief')
+  await rt.usePack('chief', 'bundle')
+  await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['second', 'third'] }, { ui: true })
+  assert.match(await rt.usePack('chief', 'bundle'), /first: ready/)
+  assert.deepEqual([...skills.get('chief').keys()].sort(), ['first', 'second', 'third'])
+  await ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
+  assert.deepEqual([...skills.get('chief').keys()].sort(), ['second', 'third'])
+})
+
 test('idle catalog removals reconcile before the next turn can assemble tools', async t => {
   for (const kind of ['skill', 'pack']) {
     for (const removal of ['detach', 'delete', ...(kind === 'pack' ? ['delete-member'] : [])]) {
