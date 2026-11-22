@@ -1,6 +1,6 @@
 # 功能包：按 Bot 挑选技能、MCP 和内置工具组（设计稿）
 
-状态：已决定；本次实现第 10 节的第 1 步。测量基于 `dev` @ `f09c081a`。
+状态：第 10 节的第 1、2、3 步已实现；第 3 步只交付 `team-admin`。最初测量基于 `dev` @ `f09c081a`，第 3 步的重新测量见第 6 节。
 相关：`docs/plans/2026-10-10-bot-runtime.md`「能力」一节（本稿是它的延伸，不推翻它）；PR #1654、#1838、#1919。
 
 ## 1. 现在每轮花多少 token
@@ -21,7 +21,7 @@
 
 1. **技能已经是「目录 + 按需加载」**，一个技能每轮只花 20–70 token。光把技能做成功能包，省不了多少 token；技能的问题是「无关的技能出现在目录里会被误用」，不是体积。
 2. **真正的大头是工具 schema**：内置 10.4k 每轮固定带着；每挂一个 MCP 服务再加 1k–4k，而且是全量注册。挂三四个 MCP 后，定义部分就能到 20k+。
-3. 普通 Bot 每轮带着约 2k token 的 Main 专用工具（create_bot 343、update_bot 424、update_group 381、save_capability 317、create_group 235、stop_bot 111、delete_group 59、list_bot_models 51、delete_capability 41）。
+3. 初次测量曾把约 2k token 的管理工具统称为 Main 专用，这是不准确的：其中 `update_bot`、`update_group`、`list_bot_models` 可供普通 Bot 自用或管理本群。本次仅隐藏真正 Main 专用的 create_bot、stop_bot、create_group、delete_group，减少 744 个代理 token，详见第 6 节；能力管理工具另行设计，保持原样。
 4. 现在已经有按 Bot 挂载：设置 → Capabilities 里的 MCP / 技能 / 能力包，挂到 `bot.capabilities` 后从下一条消息生效（`capabilities.js` reconcile，按 Agent 挂载）。缺的是「放在那、不挂、要用时再挂」这一档。
 
 所以功能包要管的是**工具（MCP + 内置工具组）**，技能顺带。
@@ -78,7 +78,8 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 
 | 内置包 | 工具 | 约 token | 默认 |
 |---|---|---:|---|
-| `team-admin` | create_bot、update_bot、stop_bot、list_bot_models、create_group、update_group、delete_group | ~1,600 | Main Bot 常驻；普通 Bot 关（它们本来就不能用） |
+| `team-admin`（已实现） | create_bot、stop_bot、create_group、delete_group | 744（重新测量） | Main Bot 常驻；普通 Bot 关 |
+| 保持可见（不入包） | update_bot（自改设置）、update_group（群管理员改本群）、list_bot_models（自选模型） | — | 原先误列为 Main 专用，实际可供普通 Bot 自用或管理本群，因此从包中移出；各自调用时权限不变 |
 | `capability-admin` | save/delete/attach/detach/list_capabilities | ~550 | Main Bot 常驻；普通 Bot 清单 |
 | `schedule` | schedule_create/list/view/edit | ~1,050 | 清单 |
 | `mail`、`browser`、`computer`、`office` | 各自工具 / 技能 | 各 0.5k–1k | 清单（前提是设置里已启用） |
@@ -86,7 +87,13 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 
 - 核心工具（read/edit/bash/grep、message_bot、ask_user、bot_remember/recall、use_pack/drop_pack 等）永远常驻，不进包。
 - 内置组的「卸」也只在轮次边界、按会话做，同第 5 节。
-- 第一阶段只做团队库里的 MCP / 技能 / 能力包；第二阶段再分内置组。按上表，普通 Bot 不带 Main 专用工具一项就每轮省约 1.6k，加上 schedule 和群工具进清单，私聊每轮能省 3k–4k。
+- 第一阶段只做团队库里的 MCP / 技能 / 能力包；第二阶段再分内置组。修正 Main 专用工具的范围后，本次普通 Bot 每步请求减少 744 个代理 token；schedule 和群工具分包的收益留待后续实现时测量。
+
+第 3 步已实现：`builtin-packs.js` 集中定义包内工具和角色默认档位，目前只定义 `team-admin`；其余工具组没有改动。沿用每个 Bot 的组装过滤，并通过 DSH 文档化的 `llm/stream` waterfall 过滤最终工具数组（DSH 0.2.2 在提示词组装之后加入工具）。普通 Bot 的私聊和群会话均不携带这 4 个 schema，Main Bot 保留它们；调用时的权限检查原样保留。原先「普通 Bot 本来就不能用这 7 个工具」的前提不成立：`update_bot` 允许每个 Bot 修改自己，`update_group` 允许群管理员修改自己的群，`list_bot_models` 为自行选择模型服务。因此包缩为真正只供 Main 调用的 4 个工具，另外 3 个对所有 Bot 保持可见，不回退自改设置和群管理能力。
+
+角色在 `turn/start` 同步取快照，`turn/end` 清理；同一轮后续步骤不随晋升或降级改变工具数组，下一轮采用新角色。身份提示词使用同一角色快照；团队规则和群管理员提示恢复原有的自改和本群管理指引，普通 Bot 不会被指向剩下的 4 个隐藏工具。真实 DSH 循环回归覆盖私聊和群会话的晋升、降级及排队下一轮，并确认另外 3 个工具始终可见。
+
+重新测量使用真实 DSH `tools.schemas()` 输出并以 `cl100k_base` 估算紧凑 JSON 工具数组：DS Bot 工具从 38 个 / 7,601 token 变为普通 Bot 的 34 个 / 6,857 token，**每步请求减少 4 个 schema / 744 token**，替代此前错误隐藏 7 个工具时的 1,598 token。Main Bot 不变；此数不含 DSH 原生工具、身份提示词、历史及缓存收益，不代表提供商实际计费。各工具独立估算为 create_bot 343、stop_bot 111、create_group 235、delete_group 59 token（数组边界使总差值与单项之和略有不同）。
 
 ## 7. 谁来组装
 
@@ -113,12 +120,12 @@ DS Bot 已经能按 Bot 过滤组装好的工具（`tools.js` `filterBotAssembly
 
 1. 三档存储 + 清单注入 + `use_pack` / `drop_pack`（只管团队库里的 MCP / 技能 / 包），测：挂载时机、轮末卸载、换段清空、审批和私有 Bot 规则；用 mock 模型 + usage 验缓存。
 2. 设置页三档开关（交给前端那边做）。
-3. 内置工具组分包，先做 `team-admin`（普通 Bot 立刻每轮省 ~1.6k）。
+3. 已实现：内置工具组分包，先做 `team-admin`（仅 4 个真正 Main 专用工具，普通 Bot 每步请求减少 744 个 cl100k 代理 token）；其他内置组后续再做，不依赖 #1654。
 4. #1654 的技能挪进内置包。
 
 ## 11. 已决定
 
-1. 采纳普通 Bot 的 `team-admin` 默认关，但放在第 10 节第 3 步；本次不隐藏任何现有团队管理工具，也不基于 #1654。
+1. 采纳普通 Bot 的 `team-admin` 默认关，但修正包的范围：仅含 create_bot、stop_bot、create_group、delete_group。`update_bot` 可自改设置、`update_group` 可由群管理员改本群、`list_bot_models` 服务于自行换模型，不能视为 Main 专用，三者对所有 Bot 保持可见。第 10 节第 3 步已实现修正后的决定，Main Bot 常驻，并在轮次边界应用角色变化。没有基于 #1654，也不需要它。
 2. 会话里装的包在 handoff / 新段时清空，不跟到下一段；新段只带常驻档。
 
 ## 附：测量方法
