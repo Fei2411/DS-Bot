@@ -138,8 +138,6 @@ const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => 
       canReferenceChat: () => false,
       answerQuestion: async (sessionId, id, answer) => { answered.push([sessionId, id, answer]) },
       dismissQuestion() {},
-      stopChat: async botId => { stopped.push(botId) },
-      clearReadOnlyPart() {},
     },
     hooks: {
       useRoster: select => select(roster),
@@ -152,36 +150,6 @@ const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => 
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
   return { sent, answered, stopped, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
 }
-
-// #1501: a part the user opened while its turn runs is read-only until it ends or the
-// user stops it. The Bot views take no input and offer the plugin's own Stop control.
-test('a running part the user opened takes no input, and its Stop action is the plugin\'s', async () => {
-  const { sent, stopped, tree } = view({ enterToSend: true }, true, undefined, { ui: { readOnlyPart: 'b1' }, partsRunning: { b1: true } })
-  const input = textarea(tree())
-  assert.equal(input.props.disabled, true)
-  assert.equal(sendButton(tree()).props.disabled, true)
-  const dock = all(tree(), child => child.props?.className === 'bt-readonly-dock' && child.props?.['data-on'] !== undefined)[0]
-  assert.ok(dock, 'the read-only dock is shown')
-  const stop = all(tree(), child => child.type === 'button' && child.props?.className === 'bt-soft bt-soft-sm')[0]
-  assert.ok(stop, 'the dock offers Stop')
-  stop.props.onClick()
-  await tick()
-  assert.deepEqual(plain(stopped), ['b1'])
-  // Nothing goes out from a locked composer.
-  input.props.onKeyDown(enter())
-  sendButton(tree()).props.onClick()
-  await tick()
-  assert.deepEqual(plain(sent), [])
-})
-
-test('a part that is not the running one the user opened keeps its composer', async () => {
-  const { sent, tree } = view({ enterToSend: true }, true, undefined, { ui: { readOnlyPart: 'other' }, partsRunning: { b1: true } })
-  assert.equal(textarea(tree()).props.disabled, false)
-  const event = enter()
-  textarea(tree()).props.onKeyDown(event)
-  await tick()
-  assert.deepEqual(plain(sent), [['b1', 'hi']])
-})
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {
   const { sent, tree } = view({ enterToSend: true })

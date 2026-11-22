@@ -1993,10 +1993,6 @@ export const ES = {
   "{count} skipped": "{count} omitidas",
   "No model picked yet": "Sin modelo elegido",
   "Running": "En ejecución",
-  "Open this session": "Abrir esta sesión",
-  "Open this running session": "Abrir esta sesión en ejecución",
-  "A running session keeps using model calls in the background.": "Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.",
-  "This session is still running. Wait for it to finish, or stop it.": "Esta sesión sigue en ejecución. Espera a que termine o detenla.",
 }
 
 export const HOST_ERRORS_ES = [

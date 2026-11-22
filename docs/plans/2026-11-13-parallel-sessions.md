@@ -2,6 +2,11 @@
 
 - Date: 2026-11-13
 - Related: Issue #1501
+- Status: **withdrawn** (2026-11-22). The maintainer decided against parallel or switchable
+  live sessions inside one Bot: a Bot has one conversation at a time, and parallel work
+  goes to another Bot or to the Bot's own background tasks (#783). The feature from #1548
+  is removed; this note stays as the record of what was tried. Do not build it again
+  without the maintainer's go-ahead.
 
 ## Why
 

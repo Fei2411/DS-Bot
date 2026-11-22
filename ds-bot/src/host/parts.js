@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { isTaskSession, ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -1150,11 +1150,11 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, blank = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, blank, folder, engine, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -1318,7 +1318,7 @@ export function install(rt) {
     const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
     const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
+    const readLines = () => (job.bare || job.blank ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
@@ -1434,10 +1434,13 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
-      freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
-      await ctx.sessions.flush(fresh.session)
+      // A blank part starts with nothing from the part it replaces: no note, no messages.
+      if (!job.blank) {
+        const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+        freshParts.set(freshId, estimateTokens(text))
+        fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
+        await ctx.sessions.flush(fresh.session)
+      }
       carry.push(...job.carry.splice(0))
       await forward(job, [...carry, ...held], freshId)
     } catch (error) {
@@ -2178,74 +2181,26 @@ export function install(rt) {
   }
 
   // "New session" in a Bot's chat: a manual move to a fresh part with the
-  // deterministic handoff package, no model call. `blank` opens a fresh part with
-  // neither the handoff package nor the old chat, and is the same part the working Bot
-  // gets: it starts at once and the part it replaces stays live in the background, at
-  // an idle Bot too. `handoff` asks for the note explicitly; a client that sends
-  // neither keeps the older behavior. A member's conversation in a group moves the
-  // handoff way only.
+  // deterministic handoff package, no model call. `blank` moves the same way but the
+  // fresh part starts with neither the handoff package nor the old chat. Either way the
+  // part it replaces is archived: a Bot has one conversation at a time, so a working
+  // Bot starts no new one. A member's conversation in a group moves the handoff way only.
   async function newPart(sessionId, { blank = false, handoff = false } = {}) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
-    if (blank) {
-      const bot = rt.botOf(place.botId)
-      if (bot === undefined || place.roomId !== undefined) throw Object.assign(new Error('A blank part starts only in a Bot\'s own conversation'), { code: 'bot/invalid' })
-      if (switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-      await openPartNow(bot, agent)
-      return true
-    }
+    if (blank && (rt.botOf(place.botId) === undefined || place.roomId !== undefined)) throw Object.assign(new Error('A blank part starts only in a Bot\'s own conversation'), { code: 'bot/invalid' })
     // A subagent or a waiting approval keeps the part busy in a private chat too, not
-    // only in a group where the room decides; `busyHere` stays what the older callers
-    // use, the handoff below reads the same work directly.
+    // only in a group where the room decides.
     const working = rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true
-    const busyHere = place.roomId !== undefined && working
-    if (handoff) {
-      // The note is written before the fresh part starts, so a handoff cannot wait out
-      // the turn: that would leave a delayed action with no visible failure, on a part
-      // that may change again. Refuse now and let the user ask again when it is idle.
-      // Archiving the part stops its background jobs, so a job that still runs keeps it
-      // too; a list that cannot be read proves nothing and is treated the same way.
-      const jobs = rt.runningJobs === undefined ? [] : rt.runningJobs(sessionId)
-      if (agent.status !== 'idle' || working || switches.has(sessionId) || jobs === undefined || jobs.length > 0) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
-      return true
-    }
-    if (agent.status === 'idle' && !busyHere) {
-      // Answers once the fresh part is there, so a switch that fails reaches the user.
-      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
-      return true
-    }
-    const bot = rt.botOf(place.botId)
-    if (bot === undefined || place.roomId !== undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-    await openPartNow(bot, agent)
+    // The fresh part replaces this one and archives it, which stops its background jobs,
+    // so a part that still works keeps going: the user asks again when it is idle. A job
+    // list that cannot be read proves nothing and is treated the same way.
+    const jobs = rt.runningJobs === undefined ? [] : rt.runningJobs(sessionId)
+    if (agent.status !== 'idle' || working || switches.has(sessionId) || jobs === undefined || jobs.length > 0) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    if (await startSwitch(agent, { manual: true, ...(blank && !handoff ? { blank: true } : {}) }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
     return true
-  }
-
-  // The part the user leaves stays live: no handoff note, no archive, no stop of its
-  // turn. It keeps its own earlier parts with it (threads.js).
-  async function openPartNow(bot, agent) {
-    const dir = rt.workDirOf({ botId: bot.id })
-    const freshId = await rt.createSession(bot.name, { dir })
-    const picked = await freshRoute(bot, agent.session)
-    if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
-    await rt.applyPermission(bot, freshId, undefined)
-      .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
-      await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
-      return
-    }
-    startOpenPart(bot, freshId)
-    rt.chatOwners.set(freshId, bot.id)
-    await rt.save()
-    // A model the user picked while this part was being made went to the parts that were
-    // registered then, and the sync recorded it as applied; this part was not one of them
-    // yet, so the route picked at the top may be the old one. Read it again now that the
-    // part is the Bot's, as the switch does.
-    const now = await freshRoute(bot, agent.session)
-    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
@@ -2395,15 +2350,6 @@ export function install(rt) {
     }
     const current = rt.chatOf(botId)
     if (partId === current) return false
-    // A part opened while the Bot was busy is live. Making it current swaps the two
-    // threads; both stay live and neither is archived or stopped.
-    if (isOpenPart(bot, partId)) {
-      focusOpenPart(bot, partId)
-      await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
-      await rt.applyPermission(bot, partId, undefined).catch(() => {})
-      await rt.save()
-      return true
-    }
     const segments = bot.segments ?? []
     const at = segments.findIndex(segment => segment.sessionId === partId)
     if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })

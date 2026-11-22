@@ -112,6 +112,9 @@ export function install(rt) {
 
   // Fill `state` from the saved file and bring an older team up to date. Returns the
   // groups whose Session titles still need the new name.
+  // Sessions of withdrawn parallel parts (#1548) folded away by the last adopt, still
+  // to be archived in DSH.
+  const retiredParts = []
   const adopt = (parsed) => {
     lockEpoch += 1
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
@@ -172,6 +175,22 @@ export function install(rt) {
       }
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
+    }
+    // A Bot has one conversation at a time again: a team saved with parts opened while
+    // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
+    // readable, and their Sessions are archived, which stops what still runs there.
+    for (const bot of Object.values(state.bots)) {
+      if (bot === null || typeof bot !== 'object' || !Object.hasOwn(bot, 'openParts')) continue
+      const now = Date.now()
+      for (const part of Array.isArray(bot.openParts) ? bot.openParts : []) {
+        const sid = sessionIdOf(part?.sessionId)
+        const earlier = Array.isArray(part?.segments) ? part.segments.filter(segment => sessionIdOf(segment?.sessionId) !== undefined) : []
+        if (sid === undefined && earlier.length === 0) continue
+        bot.segments = [...(Array.isArray(bot.segments) ? bot.segments : []), ...earlier, ...(sid === undefined ? [] : [{ sessionId: sid, endedAt: now }])]
+        if (sid !== undefined) retiredParts.push(sid)
+      }
+      delete bot.openParts
+      migrated = true
     }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
@@ -316,6 +335,11 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    for (const sessionId of retiredParts.splice(0)) {
+      void Promise.resolve()
+        .then(() => ctx.workspaceRegistry?.archiveSession(sessionId, { stopActivity: true }))
+        .catch(error => warn('ds-bot: withdrawn parallel part %s not archived: %s', sessionId, error))
+    }
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
       // memory and the next save() writes it.
@@ -563,15 +587,7 @@ export function install(rt) {
       indexPast(bot.segments, { botId })
       const currentSid = chatOf(botId)
       if (sessionIdOf(currentSid) !== undefined) chatOwners.set(currentSid, botId)
-      // Parts opened while the Bot was busy are its own chat too: a turn there may use
-      // the team tools, and the phone still sees only the current part. Their earlier
-      // parts stay the Bot's as well, so their history still reads on that thread.
-      for (const part of bot.openParts ?? []) {
-        const partSid = sessionIdOf(part?.sessionId)
-        if (partSid !== undefined) chatOwners.set(partSid, botId)
-        indexPast(part?.segments, { botId })
-      }
-      // Background tasks keep their own stable records separate from openParts. Only
+      // Background tasks keep their own stable records. Only
       // active tasks stay in chatOwners/taskOwners; settled tasks move to pastOwners
       // so folder/engine/model sweeps do not wake them again.
       for (const task of bot.tasks ?? []) {

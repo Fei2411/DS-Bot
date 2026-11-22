@@ -1,8 +1,7 @@
 // Background tasks of a Bot (#783).
 //
-// Each task is a dedicated Session stored in `bot.tasks[]` (kept separate from
-// user-opened parallel sessions in `bot.openParts[]` so viewing a task never swaps
-// it into `bot.sessionId`). A task keeps a stable `id` across context part switches,
+// Each task is a dedicated Session stored in `bot.tasks[]`, never swapped into
+// `bot.sessionId`. A task keeps a stable `id` across context part switches,
 // runs an explicit lifecycle state machine, delivers all messages through `rt.deliver`
 // (capabilities + inflight durability), integrates with handoff works and IM origins,
 // bubbles approvals to the foreground/mobile/IM, and exposes hooks for v0.4.0 events.
