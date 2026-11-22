@@ -3,7 +3,7 @@ import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { FolderIcon, SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BrandMark, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
@@ -13,6 +13,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { readAppearance } from '../../../ds-bot/src/shared/appearance.js'
 import { paintMode } from './mode.js'
 import { Chat } from './chat.js'
+import { RightPanel } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut } from './shortcuts.js'
 import { createTeam } from './team.js'
 
@@ -82,6 +83,8 @@ export function App() {
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
   const settingsOpen = hooks.useUi(state => Boolean(state.settings))
   const paletteOpen = hooks.useUi(state => Boolean(state.palette))
+  const rightPanel = hooks.useUi(state => state.rightPanel)
+  const readOnly = hooks.useRoster(value => Boolean(value.readOnly))
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => { setDrawerOpen(false) }, [shown])
   useEscape(() => setDrawerOpen(false), drawerOpen)
@@ -119,6 +122,7 @@ export function App() {
     actions.closeMemory()
     actions.closeMenu()
     actions.closePanel()
+    actions.closeRightPanel()
     actions.closePalette()
     actions.closeVoice()
     actions.closeShortcuts()
@@ -127,27 +131,42 @@ export function App() {
   }
   // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
   const chatKey = chat?.id ?? shown
-  return h('div', { className: 'dsb-frame', 'data-rail': wide ? undefined : '', 'data-drawer-open': drawerOpen ? '' : undefined },
-    drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
-    h('aside', { className: 'dsb-side' },
-      h('div', { className: 'dsb-band' }),
-      h('div', { className: 'dsb-side-list' },
-        wide ? null : h('button', { type: 'button', className: 'dsb-expand', 'aria-label': t('Expand sidebar'), title: t('Expand sidebar'), onClick: () => actions.toggleSidebar() }, h(BrandMark, { size: 22 })),
-        h(TeamSidebar, { ...views, wide: wide || drawerOpen })),
-      h('div', { className: 'dsb-side-foot' },
-        h('button', { type: 'button', className: 'dsb-settings', title: t('Settings'), onClick: () => { setDrawerOpen(false); actions.openSettings() } }, h(YouAvatar)))),
-    // The details panel makes room by giving the shell's `_centerCol` column a right margin.
-    h('main', { className: 'dsb-main dsb_centerCol' },
-      h('div', { className: 'dsb-band' }),
-      h('button', {
-        type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
-        onClick: () => setDrawerOpen(open => !open),
-      }, h(SidebarIcon)),
-      shown ? h(Fragment, { key: chatKey },
-        h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
-        h(Chat, { key: chatKey, sessionId: shown, team })) : null),
-    h(Contain, { onError: closeOverlays },
-      h(Overlays, views),
-      h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts })),
-    h(ErrorToast, views))
+  return h('div', {
+    className: 'dsb-frame',
+    'data-rail': wide ? undefined : '',
+    'data-drawer-open': drawerOpen ? '' : undefined,
+    'data-right-open': rightPanel ? '' : undefined,
+  },
+  drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
+  h('aside', { className: 'dsb-side' },
+    h('div', { className: 'dsb-band' }),
+    h('div', { className: 'dsb-side-list' },
+      wide ? null : h('button', { type: 'button', className: 'dsb-expand', 'aria-label': t('Expand sidebar'), title: t('Expand sidebar'), onClick: () => actions.toggleSidebar() }, h(BrandMark, { size: 22 })),
+      h(TeamSidebar, { ...views, wide: wide || drawerOpen })),
+    h('div', { className: 'dsb-side-foot' },
+      h('button', { type: 'button', className: 'dsb-settings', title: t('Settings'), onClick: () => { setDrawerOpen(false); actions.openSettings() } }, h(YouAvatar)))),
+  // The details panel makes room by giving the shell's `_centerCol` column a right margin.
+  h('main', { className: 'dsb-main dsb_centerCol' },
+    h('div', { className: 'dsb-band' }),
+    h('button', {
+      type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
+      onClick: () => setDrawerOpen(open => !open),
+    }, h(SidebarIcon)),
+    shown ? h('button', {
+      type: 'button',
+      className: 'bt-icon-btn dsb-right-toggle',
+      'aria-label': t('Files'),
+      'aria-pressed': Boolean(rightPanel),
+      title: t('Files'),
+      onClick: () => actions.toggleRightPanel(),
+    }, h(FolderIcon)) : null,
+    shown ? h(Fragment, { key: chatKey },
+      h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
+      h(Chat, { key: chatKey, sessionId: shown, team })) : null),
+  h(Contain, { onError: closeOverlays },
+    h(RightPanel, { sessionId: shown, panel: rightPanel, team, readOnly })),
+  h(Contain, { onError: closeOverlays },
+    h(Overlays, views),
+    h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts })),
+  h(ErrorToast, views))
 }

@@ -5,7 +5,7 @@ import { useRef, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
-import { language } from '../../../ds-bot/src/client/i18n.js'
+import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { toolState } from '../../../ds-bot/src/client/mark.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from '../../../ds-bot/src/client/shared-map.js'
 import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/client/sources.js'
@@ -56,7 +56,17 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  // One right-side column at a time: opening BotPanel (details/browser/side/task) closes the workspace right panel.
+  let lastDetails = null
+  ui.subscribe(() => {
+    const snap = ui.getSnapshot()
+    const openedBotPanel = lastDetails === null && snap.details !== null
+    lastDetails = snap.details
+    if (openedBotPanel && snap.rightPanel !== null) {
+      ui.set(state => (state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+    }
+  })
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const memoryNews = createSource({})
@@ -185,6 +195,18 @@ export function createTeam() {
 
   const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
   const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
+  const openRightPanel = (updatePanel) => {
+    ui.set(state => ({
+      ...state,
+      details: null,
+      view: 'details',
+      renaming: false,
+      tab: null,
+      side: null,
+      task: null,
+      rightPanel: typeof updatePanel === 'function' ? updatePanel(state.rightPanel) : updatePanel,
+    }))
+  }
 
   const actions = {
     ...baseActions,
@@ -194,9 +216,28 @@ export function createTeam() {
     openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
+    // Switching conversations also clears any preview/diff belonging to the previous workspace.
     openSession: (id) => {
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.shortcuts ? { ...state, newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : state))
-      show(partFor(id))
+      const next = partFor(id)
+      const switched = next !== shown.getSnapshot()
+      ui.set((state) => {
+        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts)
+        const rp = switched && state.rightPanel && (state.rightPanel.file || state.rightPanel.changes)
+          ? {
+            ...state.rightPanel,
+            file: null,
+            changes: null,
+            tab: state.rightPanel.tab === 'preview' || state.rightPanel.tab === 'changes' ? 'files' : state.rightPanel.tab,
+          }
+          : state.rightPanel
+        if (!dropOverlay && rp === state.rightPanel) return state
+        return {
+          ...state,
+          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : {}),
+          rightPanel: rp,
+        }
+      })
+      show(next)
     },
     landOn: id => show(partFor(id)),
     toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
@@ -233,7 +274,29 @@ export function createTeam() {
     providerModels: body => call('provider-models', body),
     removeProvider: provider => after(call('provider-remove', { provider })),
     openModels: () => actions.openSettings('models'),
-    hasRightSidebar: () => false,
+    hasRightSidebar: () => true,
+    canOpenFiles: () => true,
+    canOpenTerminal: () => !roster.getSnapshot().readOnly,
+    openFiles: () => openRightPanel(prev => ({ ...prev, tab: 'files' })),
+    openFile: (path) => {
+      const target = typeof path === 'string' ? path.trim() : (typeof path?.path === 'string' ? path.path.trim() : '')
+      if (!target) return
+      openRightPanel(prev => ({ ...prev, tab: 'preview', file: target }))
+    },
+    openChanges: async (changes) => {
+      if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
+      let available = false
+      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
+      if (!available) { actions.notice?.(t('These changes are no longer available')); return }
+      openRightPanel(prev => ({ ...prev, tab: 'changes', changes }))
+    },
+    newTerminal: () => openRightPanel(prev => ({ ...prev, tab: 'terminal', terminalNonce: (prev?.terminalNonce ?? 0) + 1 })),
+    setRightPanelTab: (tab) => ui.set(state => (state.rightPanel ? { ...state, rightPanel: { ...state.rightPanel, tab } } : state)),
+    closeRightPanel: () => ui.set(state => (state.rightPanel ? { ...state, rightPanel: null } : state)),
+    toggleRightPanel: () => {
+      if (ui.getSnapshot().rightPanel) actions.closeRightPanel()
+      else actions.openFiles()
+    },
     canReferenceChat: () => true,
     referenceChat: (sessionId, insertion) => chat.emit('reference-chat', { sessionId, insertion }),
     speech: () => undefined,

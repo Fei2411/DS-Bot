@@ -25,6 +25,9 @@ export function remoteAccessError(device, endpoint) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
   if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
+  if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) {
+    return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }
+  }
   return undefined
 }
 

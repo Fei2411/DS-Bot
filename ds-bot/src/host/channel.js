@@ -237,7 +237,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture', 'session-page'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes'])
   READS.add('chatgpt')
 
   // A change is all or nothing: one field the host refuses leaves every other field of it
@@ -1036,6 +1036,8 @@ export function install(rt) {
           return ok(true)
         default:
           if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))
+          if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
+          if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
           if (endpoint.startsWith('computer-')) {
             await rt.load()
             return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
@@ -1191,6 +1193,7 @@ export function install(rt) {
       clearInterval(timer)
       staged.clear()
       stagedFiles.clear()
+      void rt.terminalDispose?.()
       stopRoute?.()
     }
   }, 'ds-bot: api route')
