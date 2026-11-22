@@ -3,6 +3,7 @@
 import { openSessions } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
+import { avatarBytes } from './avatar.js'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
@@ -14,6 +15,13 @@ const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
 // The first Main Bot's greeting when the user wrote before it had a model that works.
 const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote to you before your model could answer; their message above has no answer yet. Answer it now, and say in one short sentence that you run their Bot team.'
+
+function cleanRoomAvatar(input) {
+  if (input === undefined || input === null) return input
+  if (typeof input?.image !== 'string' || !input.image.startsWith('data:')) throw new Error('A group avatar must contain an image data URL')
+  if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
+  return { image: avatarBytes(input.image).url }
+}
 
 function cleanBrowserGrants(input) {
   if (input === null) return null
@@ -379,6 +387,7 @@ export function install(rt) {
       resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
     }
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
+    const avatar = patch.avatar === undefined ? undefined : cleanAvatar(patch.avatar)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
@@ -431,7 +440,6 @@ export function install(rt) {
       else if (isColor(currentColor(patch.color))) bot.color = currentColor(patch.color)
     }
     if (patch.avatar !== undefined) {
-      const avatar = cleanAvatar(patch.avatar)
       if (avatar) bot.avatar = avatar
       else delete bot.avatar
     }
@@ -633,7 +641,7 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, section, sectionId } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, avatar, notice, mode, admin, createdBy, section, sectionId } = {}) {
     const members = [...new Set(memberIds)].filter(id => liveBot(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
@@ -641,10 +649,11 @@ export function install(rt) {
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     if (section !== undefined || sectionId !== undefined) resolveSectionInput({ section, sectionId }, { allowCreate: false })
-    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }))
+    const photo = cleanRoomAvatar(avatar)
+    return holdName('room', custom, () => buildRoom({ members, custom, avatar: photo, notice, mode, adminId, createdBy, section, sectionId }))
   }
 
-  async function buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }) {
+  async function buildRoom({ members, custom, avatar, notice, mode, adminId, createdBy, section, sectionId }) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays; like a member's it moves to a fresh part
     // in the group's folder once the group has one (parts.js).
@@ -661,6 +670,7 @@ export function install(rt) {
         id,
         name,
         ...(custom ? { named: true } : {}),
+        ...(avatar ? { avatar } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         members: live,
         admin: lead,
@@ -734,6 +744,7 @@ export function install(rt) {
     const asked = rt.roomOf(id)
     if (asked === undefined) throw new Error('Unknown group chat')
     planRoomChange(asked, patch, actorId)
+    const avatar = cleanRoomAvatar(patch.avatar)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
     const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
@@ -765,6 +776,11 @@ export function install(rt) {
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
+    }
+    if (avatar !== undefined && avatar?.image !== room.avatar?.image) {
+      if (avatar === null) delete room.avatar
+      else room.avatar = avatar
+      changes.push(avatar === null ? 'removed the avatar' : 'updated the avatar')
     }
     // Members' group conversations move on to the folder at their next turn there;
     // the group's own Session moves the same way, now when it is idle.

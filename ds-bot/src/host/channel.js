@@ -436,7 +436,7 @@ export function install(rt) {
           return ok(view())
         case 'create-room': {
           await rt.load()
-          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, section: body.section, sectionId: body.sectionId, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
+          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, avatar: body.avatar, section: body.section, sectionId: body.sectionId, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
           if (body.greet === true) await rt.greetRoom(room.id).catch(error => rt.warn('ds-bot: greeting in %s failed: %s', room.name, error))
           return ok(room)
         }
@@ -444,6 +444,7 @@ export function install(rt) {
           await rt.load()
           const { room, changes } = await rt.updateRoom(body.id, {
             name: body.name,
+            avatar: body.avatar,
             notice: body.notice,
             mode: body.mode,
             admin: body.admin,

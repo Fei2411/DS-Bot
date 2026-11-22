@@ -36,8 +36,10 @@
 
 - `state` 照旧。加 `avatars: 'ref'` 时，每张照片换成 `avatar.imageRef`（照片内容的 SHA-256 前 16 位），其他不变。
 - 手机经 link 的 `bot` 调用（`{ endpoint, payload }`）可以再带一个 `state` 字段，内容就是发给 `state` 接口的请求体：写入成功且团队版本变了时，回包里多一个 `state`，等于当场问一遍 `state` 的回答。读取、版本没变的写入、失败的写入都不带。
-- `avatar`：`{ botId }` → `{ botId, ref, image }`，没有照片时 `ref` 和 `image` 都是 `null`。客户端按 `ref` 缓存，`ref` 变了再取。
+- `avatar`：`{ botId }` → `{ botId, ref, image }`；有 `room-avatars` 能力时，也可用 `{ roomId }` → `{ roomId, ref, image }`。没有照片时 `ref` 和 `image` 都是 `null`。客户端按 `ref` 缓存，`ref` 变了再取。
 - 角色形象（`avatar.shape`）和默认颜色照旧由客户端按 Bot id 算（`characters.js` 的 `defaultColor`）。
+- `create-room` / `update-room` 接受可选的 `avatar: { image }`，在群记录和 `state.rooms[]` 返回。图片须为 PNG、JPEG、WebP 或 GIF 的 base64 data URL（最多 160,000 字符）；省略不改，传 `null` 恢复成员头像拼图。
+- 主 Bot 用同一个 `update-bot` 改名或换头像：`{ id: state.mainBotId, name?, avatar? }`。Bot id 和主 Bot 角色不变。
 
 ### 私聊
 
