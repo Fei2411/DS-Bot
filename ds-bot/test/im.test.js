@@ -1029,6 +1029,7 @@ test('member cards follow only the originating IM group and answers return throu
   const cards = s.fake.sent.filter(job => job.buttons?.some(button => button.data.startsWith('q:')))
   assert.equal(cards.length, 1)
   assert.equal(cards[0].chat.key, 'g1')
+  assert.equal(s.fake.sent.filter(job => job.chat.key === 'g1' && job.text.includes('Which route?')).length, 1)
   assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
   await secondHandlers.onAction({ chat: { key: 'g3', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
   assert.ok(s.rt.state.questions['member-b'])
@@ -1058,6 +1059,38 @@ test('member cards follow only the originating IM group and answers return throu
   const followed = s.agentOf('member-b').followed
   await firstHandlers.onAction({ chat: { key: 'g1', kind: 'group' }, sender: { id: 'u1' }, data: `q:${question.id}:0` })
   assert.equal(s.agentOf('member-b').followed, followed)
+})
+
+test('a member question preserves its unshown lead-in in the room and originating IM group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', target: { roomId: 'r1' }, at: 1 }
+  const room = s.rt.roomOf('r1')
+  room.sessions = { b: 'member-b' }
+  s.rt.groupOwners.set('member-b', { botId: 'b', roomId: 'r1' })
+  await s.rt.save()
+  await gm(s, 'u1', 'choose a route')
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  s.emitEvent('member-b', 'turn/start', { turn: 1 })
+  s.emitEvent('member-b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Both routes are safe; A is shorter.' }] } })
+  await s.rt.teamTools.find(tool => tool.name === 'ask_user').execute({ question: 'Which route?', options: [{ label: 'A' }, { label: 'B' }] }, { agent: { id: 'member-b' }, concludeTurn() {} })
+  s.emitEvent('member-b', 'turn/end', { reason: { kind: 'completed' } })
+  await s.flush()
+  const post = s.agentOf('r1').lastFollowup
+  assert.equal(post.source.progress, true)
+  assert.match(post.content[0].text, /Both routes are safe; A is shorter\./)
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', post)
+  await s.rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: 'r1', inbox: s.agentOf('r1').inbox }, callId: 'question-lead-in', signal: new AbortController().signal })
+  await s.flush()
+  assert.equal(room.log.filter(line => line.text?.includes('Both routes are safe; A is shorter.')).length, 1)
+  assert.equal(s.fake.sent.filter(job => job.text.includes('Both routes are safe; A is shorter.')).length, 1)
+  assert.equal(s.fake.sent.filter(job => job.text.includes('Which route?')).length, 1)
+  assert.ok(s.fake.sent.every(job => job.chat.key === 'g1'))
+  assert.ok(s.rt.state.questions['member-b'])
 })
 
 test('IM group display views are sent as room lines and unowned completions withhold member cards', async (t) => {

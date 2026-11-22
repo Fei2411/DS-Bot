@@ -1473,7 +1473,7 @@ export function install(rt) {
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
             if (failure !== undefined) waiter.fail(failure)
-            else waiter.resolve(reason?.kind === 'aborted' ? null : state.questions[id] !== undefined ? { answer: true } : groupReply())
+            else waiter.resolve(reason?.kind === 'aborted' ? null : state.questions[id] !== undefined ? { answer: true, text: groupReply() } : groupReply())
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)

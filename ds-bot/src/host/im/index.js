@@ -1860,6 +1860,7 @@ export function install(rt) {
   })
 
   rt.onRoomLine((room, line) => {
+    if (line.questionId !== undefined) return
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
     const roomSessionId = room.sessionId ?? room.id
     const origin = originOf(roomSessionId)

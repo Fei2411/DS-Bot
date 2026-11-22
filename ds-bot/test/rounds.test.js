@@ -131,6 +131,7 @@ test('an IM group question leaves its member waiting for the user while the roun
   assert.ok(first)
   await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
   await emit(first.sessionId, { type: 'user/message', data: first.message })
+  await emit(first.sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'I checked both routes before asking.' }] } } })
   let concluded = false
   const ask = rt.teamTools.find(tool => tool.name === 'ask_user')
   assert.equal(await ask.execute({ question: 'Choose?', options: [] }, { agent: { id: first.sessionId } }), 'Give at least one option.')
@@ -144,6 +145,7 @@ test('an IM group question leaves its member waiting for the user while the roun
   await running
   assert.ok(rt.state.questions[first.sessionId])
   assert.ok(rt.roomOf(room.id).log.some(line => line.text?.includes('Asked: Choose?')))
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text?.includes('I checked both routes before asking.')).length, 1)
   assert.ok(!rt.roomOf(room.id).log.some(line => line.kind === 'failed'))
   assert.equal(sent.filter(entry => entry.message.source.role === 'post').length, 0, 'asking does not post a second empty late reply')
 })

@@ -1551,6 +1551,9 @@ export function install(rt) {
       round.failed.push(member.name)
       noteFailure(room, member, reply.failure)
     } else if (reply?.answer) {
+      if (typeof reply.text === 'string' && !isPass(reply.text)) {
+        posted.push(postInRound(room, member, reply.text, Date.now() - startedAt, undefined, changes))
+      }
       slot.status = 'waiting-answer'
     } else if (reply?.approval) {
       // The member's turn goes on in the background and posts when it ends.
@@ -2149,12 +2152,18 @@ export function install(rt) {
   // as soon as it is ready, and the caller is woken once when the last member in the
   // batch finishes.
   async function lateRoomReply(sessionId, info, reply, { shown = false, toolCount = 0 } = {}) {
-    if (rt.state.questions[sessionId] !== undefined) return
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
+    if (rt.state.questions[sessionId] !== undefined) {
+      if (!isPass(text)) {
+        await postToRoom(room, member, text, { progress: true, quiet: true })
+          .catch(error => rt.warn('ds-bot: question lead-in from %s failed: %s', member.name, error))
+      }
+      return
+    }
     // While a DSH subagent or group background task of this member is still running, the
     // member's work is not finished yet: post any non-empty text as a progress line and
     // keep its batch open until the background work reports back.
