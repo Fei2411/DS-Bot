@@ -82,11 +82,18 @@ export function searchHits(query, { roster, extra = [], pageAvailable = () => tr
 const KIND_TITLES = { setting: 'Settings', bot: 'Bots', room: 'Group chats', model: 'Models', action: 'Models' }
 
 // Search over Settings, opened from the rail or with ⌘K / Ctrl+K.
-export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface, onPick, onClose }) {
+// Focus comes back to what opened it when it closes. Tab stays on the field: the list is
+// read through aria-activedescendant.
+export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface, onPick, onClose, returnFocus = false }) {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const listRef = useRef(null)
   const inputRef = useRef(null)
+  useEffect(() => {
+    if (!returnFocus || typeof document === 'undefined') return undefined
+    const opener = document.activeElement
+    return () => { if (opener && typeof opener.focus === 'function' && opener.isConnected !== false) opener.focus({ preventScroll: true }) }
+  }, [])
   const hits = useMemo(() => searchHits(query, { roster, extra, pageAvailable, hasSurface }), [query, roster, extra, hasSurface])
   useEffect(() => { setIndex(0) }, [query])
   useEffect(() => { inputRef.current?.focus?.({ preventScroll: true }) }, [])
@@ -112,7 +119,9 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
     if (at === 0 || KIND_TITLES[hits[at - 1].kind] !== title) rows.push(h('div', { key: `head:${title}`, className: 'bt-set-palette-group', role: 'presentation' }, t(title)))
     rows.push(h('button', {
       key: hit.id,
+      id: `bt-set-hit-${at}`,
       type: 'button',
+      tabIndex: -1,
       role: 'option',
       'aria-selected': at === index,
       className: 'bt-set-search-hit',
@@ -138,11 +147,14 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
           'aria-label': t('Search settings'),
           role: 'combobox',
           'aria-expanded': hits.length > 0,
+          'aria-controls': 'bt-set-hits',
+          'aria-activedescendant': hits.length > 0 ? `bt-set-hit-${index}` : undefined,
           autoComplete: 'off',
           spellCheck: false,
           onChange: event => setQuery(event.target.value),
           onKeyDown: (event) => {
             if (isImeComposing(event)) return
+            if (event.key === 'Tab') { event.preventDefault(); return }
             if (event.key === 'Escape') {
               event.preventDefault()
               event.stopPropagation()
@@ -158,7 +170,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
         }),
         h('kbd', { className: 'bt-set-kbd' }, 'esc')),
       query.trim() === '' ? null
-        : h('div', { ref: listRef, className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
+        : h('div', { ref: listRef, id: 'bt-set-hits', className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
             hits.length === 0 ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings')) : rows)))
 }
 

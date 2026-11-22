@@ -287,7 +287,7 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
       assert.equal(textOf(findAll(currentNav, n => n.props?.className === 'bt-settings-label')[0]), expectedGroup, `page "${page}" should highlight nav group "${expectedGroup}"`)
       const anchors = anchorsOf(tree)
       assert.ok(anchors, `page "${page}" should render the anchor row`)
-      const active = findAll(anchors, n => n.type === 'button' && n.props['aria-current'] === 'true')[0]
+      const active = findAll(anchors, n => n.type === 'button' && n.props['aria-current'] === 'location')[0]
       assert.ok(textOf(active).startsWith(expectedPart), `page "${page}" should mark anchor "${expectedPart}", got "${textOf(active)}"`)
       assert.equal(findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === page).length, 1, `page "${page}" should render its part`)
     }
@@ -329,6 +329,10 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
       page: currentPage, id: currentId, roster: baseRoster, actions, useUpdate: sel => sel({}),
     }))
     const fire = event => { for (const fn of [...listeners]) fn({ isComposing: false, preventDefault() {}, stopPropagation() {}, ...event }) }
+    // ⌘K on a Mac, Ctrl+K elsewhere; the other one is left to the text fields.
+    const mac = /mac|iphone|ipad/i.test(globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? '')
+    const primary = mac ? { metaKey: true } : { ctrlKey: true }
+    const other = mac ? { ctrlKey: true } : { metaKey: true }
 
     let tree = draw()
     const searchInput = () => findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-set-search-input')[0]
@@ -362,11 +366,13 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     fire({ key: 'Escape', keyCode: 27 })
     assert.equal(closed, 1)
 
-    // ⌘K (or Ctrl+K) opens it again from anywhere in Settings; plain K does nothing.
+    // ⌘K (or Ctrl+K) opens it again from anywhere in Settings; plain K and the other
+    // platform's modifier do nothing.
     fire({ key: 'k' })
+    fire({ key: 'k', ...other })
     tree = draw()
     assert.equal(searchInput(), undefined)
-    fire({ key: 'k', metaKey: true })
+    fire({ key: 'k', ...primary })
     tree = draw()
     assert.ok(searchInput())
 
@@ -386,7 +392,7 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     assert.equal(searchInput(), undefined, 'picking a hit closes the palette')
 
     // A model offers the batch switch, which opens Bot models with the model preset.
-    fire({ key: 'k', ctrlKey: true })
+    fire({ key: 'k', ...primary })
     tree = draw()
     type('deepseek chat')
     const switchHit = hits().find(hit => textOf(hit).startsWith('Switch Bots to DeepSeek Chat'))
@@ -396,10 +402,10 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     tree = draw()
     const offer = findAll(tree, n => n.props?.className === 'bt-set-row bt-bm-offer')[0]
     assert.ok(offer, 'Bot models asks before switching')
-    assert.match(textOf(offer), /Switch 2 Bots to DeepSeek Chat\?/)
+    assert.match(textOf(offer), /Switch Chief, Writer to DeepSeek Chat\?/)
 
     // Searching "memory" opens General with Advanced expanded; a later Advanced hit re-expands it.
-    fire({ key: 'k', metaKey: true })
+    fire({ key: 'k', ...primary })
     tree = draw()
     type('memory')
     hits()[0].props.onClick()
@@ -413,7 +419,7 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     collapseBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-set-collapse')[0]
     assert.equal(collapseBtn.props['aria-expanded'], false, 'manual click collapses Advanced')
 
-    fire({ key: 'k', metaKey: true })
+    fire({ key: 'k', ...primary })
     tree = draw()
     type('Background commands')
     hits()[0].props.onClick()
@@ -824,6 +830,18 @@ test('Overview fixes a missing API key in place, marks the Bots it stops, and su
     assert.equal(value(0), '1models')
     assert.equal(value(3), '3.5Ktokens')
     assert.equal(value(4), '1active')
+
+    // Bot models' offer lists only the Bots that would move, and none shows when none would.
+    const offerOf = ref => {
+      harness.unmount()
+      const page = harness.render(harness.React.createElement(SettingsDialog, { page: 'bot-models', id: ref, roster, actions, useUpdate: sel => sel({}) }))
+      return findAll(page, n => n.props?.className === 'bt-set-row bt-bm-offer')[0]
+    }
+    assert.match(textOf(offerOf('deepseek/deepseek-chat')), /^Switch Writer to DeepSeek Chat\?/)
+    const allOn = { ...roster, bots: bots.map(bot => ({ ...bot, model: 'deepseek/deepseek-chat' })) }
+    harness.unmount()
+    const none = harness.render(harness.React.createElement(SettingsDialog, { page: 'bot-models', id: 'deepseek/deepseek-chat', roster: { ...allOn, byId: Object.fromEntries(allOn.bots.map(bot => [bot.id, bot])) }, actions, useUpdate: sel => sel({}) }))
+    assert.equal(findAll(none, n => n.props?.className === 'bt-set-row bt-bm-offer').length, 0)
     harness.unmount()
   })
 })

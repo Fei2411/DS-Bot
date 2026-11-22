@@ -2086,11 +2086,11 @@ var JA = {
   "Overview": "概要",
   "Secrets {count}": "シークレット {count}",
   "Set up": "設定する",
-  "Sum up this week in three points.": "今週の進捗を3点にまとめて。",
+  "Plan a three-day trip to Kyoto.": "京都3日間の旅程を考えて。",
   "Switch Bots to {model}…": "Bot を {model} に切り替え…",
-  "Switch {count} Bots to {model}?": "{count} 個の Bot を {model} に切り替えますか？",
+  "Switch {names} to {model}?": "{names} を {model} に切り替えますか？",
   "Thought for a few seconds": "数秒考えました",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "3点です。新しい設定画面を公開、同期の不具合を2件修正、来週からスマホでテスト。",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "1日目は東山の寺院、2日目は嵐山、3日目は錦市場と静かな茶屋へ。",
   "Today {count}": "今日 {count}",
   "Used by {names}": "{names} が使用中",
   "active": "件実行中",
@@ -4824,11 +4824,11 @@ var KO = {
   "Overview": "개요",
   "Secrets {count}": "시크릿 {count}",
   "Set up": "설정",
-  "Sum up this week in three points.": "이번 주 진행 상황을 세 가지로 정리해 줘.",
+  "Plan a three-day trip to Kyoto.": "교토 3일 여행 일정을 짜 줘.",
   "Switch Bots to {model}…": "Bot을 {model}(으)로 전환…",
-  "Switch {count} Bots to {model}?": "Bot {count}개를 {model}(으)로 전환할까요?",
+  "Switch {names} to {model}?": "{names}을(를) {model}(으)로 전환할까요?",
   "Thought for a few seconds": "몇 초 동안 생각함",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "세 가지입니다. 새 설정 화면 공개, 동기화 버그 2건 수정, 다음 주 휴대폰 테스트 시작.",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "첫째 날은 동쪽 사찰, 둘째 날은 아라시야마, 셋째 날은 니시키 시장과 조용한 찻집.",
   "Today {count}": "오늘 {count}",
   "Used by {names}": "{names} 사용 중",
   "active": "개 실행 중",
@@ -7563,11 +7563,11 @@ var ES = {
   "Overview": "Resumen",
   "Secrets {count}": "Secretos {count}",
   "Set up": "Configurar",
-  "Sum up this week in three points.": "Resume esta semana en tres puntos.",
+  "Plan a three-day trip to Kyoto.": "Planifica un viaje de tres días a Kioto.",
   "Switch Bots to {model}…": "Cambiar Bots a {model}…",
-  "Switch {count} Bots to {model}?": "¿Cambiar {count} Bots a {model}?",
+  "Switch {names} to {model}?": "¿Cambiar {names} a {model}?",
   "Thought for a few seconds": "Pensó unos segundos",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "Tres puntos: salió el nuevo Ajustes, se corrigieron dos fallos de sincronización y la prueba en móvil empieza la semana que viene.",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "Día uno: los templos del este. Día dos: Arashiyama. Día tres: el mercado de Nishiki y una casa de té tranquila.",
   "Today {count}": "Hoy {count}",
   "Used by {names}": "Lo usa {names}",
   "active": "activas",
@@ -10258,11 +10258,11 @@ var FR = {
   "Overview": "Vue d’ensemble",
   "Secrets {count}": "Secrets {count}",
   "Set up": "Configurer",
-  "Sum up this week in three points.": "Résume cette semaine en trois points.",
+  "Plan a three-day trip to Kyoto.": "Prépare un voyage de trois jours à Kyoto.",
   "Switch Bots to {model}…": "Passer les Bots à {model}…",
-  "Switch {count} Bots to {model}?": "Passer {count} Bots à {model} ?",
+  "Switch {names} to {model}?": "Passer {names} à {model} ?",
   "Thought for a few seconds": "A réfléchi quelques secondes",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "Trois points : les nouveaux Réglages sont sortis, deux bugs de synchronisation sont corrigés, et les tests sur téléphone commencent la semaine prochaine.",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "Jour un : les temples de l’est. Jour deux : Arashiyama. Jour trois : le marché Nishiki et une maison de thé paisible.",
   "Today {count}": "Aujourd’hui {count}",
   "Used by {names}": "Utilisé par {names}",
   "active": "actives",
@@ -12996,11 +12996,11 @@ var DE = {
   "Overview": "Übersicht",
   "Secrets {count}": "Geheimnisse {count}",
   "Set up": "Einrichten",
-  "Sum up this week in three points.": "Fasse diese Woche in drei Punkten zusammen.",
+  "Plan a three-day trip to Kyoto.": "Plane eine dreitägige Reise nach Kyoto.",
   "Switch Bots to {model}…": "Bots auf {model} umstellen…",
-  "Switch {count} Bots to {model}?": "{count} Bots auf {model} umstellen?",
+  "Switch {names} to {model}?": "{names} auf {model} umstellen?",
   "Thought for a few seconds": "Ein paar Sekunden nachgedacht",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "Drei Punkte: Die neuen Einstellungen sind da, zwei Sync-Fehler sind behoben, und nächste Woche starten die Tests auf dem Handy.",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "Tag eins: die Tempel im Osten. Tag zwei: Arashiyama. Tag drei: der Nishiki-Markt und ein ruhiges Teehaus.",
   "Today {count}": "Heute {count}",
   "Used by {names}": "Genutzt von {names}",
   "active": "aktiv",
@@ -15548,11 +15548,11 @@ var ZH = {
   "Overview": "概览",
   "Secrets {count}": "密钥 {count}",
   "Set up": "去设置",
-  "Sum up this week in three points.": "把这周的进展总结成三条。",
+  "Plan a three-day trip to Kyoto.": "帮我规划一个三天的京都行程。",
   "Switch Bots to {model}…": "把 Bot 换成 {model}…",
-  "Switch {count} Bots to {model}?": "把 {count} 个 Bot 换成 {model}？",
+  "Switch {names} to {model}?": "把 {names} 换成 {model}？",
   "Thought for a few seconds": "思考了几秒",
-  "Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.": "三条：新版设置页上线；修好两处同步问题；下周开始手机测试。",
+  "Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.": "第一天：东山的寺院。第二天：岚山。第三天：锦市场，再找一家安静的茶屋。",
   "Today {count}": "今天 {count}",
   "Used by {names}": "{names} 在用",
   "active": "个在跑",
@@ -18468,13 +18468,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-set-search:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-set-search-label{flex:1;min-width:0}
 .bt-set-kbd{flex:none;font:500 11px/16px var(--bt-mono);padding:0 5px;border-radius:4px;background:var(--bt-hover);color:var(--bt-ink-2)}
-.bt-set-search:focus-within{border-color:color-mix(in srgb,var(--bt-accent) 55%,var(--bt-line));box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 16%,transparent);color:var(--bt-ink-2)}
 .bt-set-search>svg{flex:none;width:14px;height:14px}
 .bt-set-search-input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px}
 .bt-set-search-input::placeholder{color:var(--bt-ink-3)}
-.bt-set-search-clear{flex:none;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.bt-set-search-clear:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-set-search-clear svg{width:12px;height:12px}
 .bt-set-search-list{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 16px;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
 .bt-set-search-hit{display:flex;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-set-search-hit:hover,.bt-set-search-hit[data-active]{background:var(--bt-hover);color:var(--bt-ink)}
@@ -18495,7 +18491,6 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav>.bt-thumb{left:10px;right:10px;border-radius:10px;background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
 .bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent;box-shadow:none}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
-.bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
 .bt-settings-icon{display:inline-flex;flex:none;width:15px;height:15px;align-items:center;justify-content:center;transition:color .14s ease}
 /* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
 .bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
@@ -18506,10 +18501,6 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-actions:empty{display:none}
 .bt-tour-trigger{color:var(--bt-ink-2);border-radius:999px;padding:0 10px}
 .bt-tour-trigger:hover{color:var(--bt-ink)}
-.bt-settings-subnav{flex:none;padding:0 28px 12px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none}
-.bt-settings-subnav::-webkit-scrollbar{display:none}
-.bt-settings-tabs{flex:none}
-.bt-settings-tabs button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;white-space:nowrap}
 .bt-tab-tag{font-size:10px;line-height:14px;padding:1px 5px}
 /* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
    An auto basis without shrinking keeps natural-height content inside its section. */
@@ -18572,11 +18563,12 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-anchors::-webkit-scrollbar{display:none}
 .bt-settings-anchors>.bt-thumb{top:auto;bottom:-.5px;height:2px;border-radius:999px;background:var(--bt-ink)}
 .bt-anchor{position:relative;z-index:1;flex:none;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 6px;margin:0 4px;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer;white-space:nowrap;transition:color .14s ease}
-.bt-anchor:hover,.bt-anchor[aria-current=true]{color:var(--bt-ink)}
-.bt-anchor[aria-current=true]{font-weight:500}
+.bt-anchor:hover,.bt-anchor[aria-current=location]{color:var(--bt-ink)}
+.bt-anchor[aria-current=location]{font-weight:500}
 .bt-anchor:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-4px;border-radius:8px}
 .bt-settings-page>*{width:100%;max-width:760px;box-sizing:border-box}
 .bt-settings-parts{gap:36px;padding-top:20px}
+.bt-set-error-pin{position:sticky;top:0;z-index:2;margin:-20px 0 -16px;padding:10px 4px;background:var(--bt-main);box-shadow:0 .5px 0 var(--bt-line)}
 .bt-set-part{display:flex;flex-direction:column;gap:16px;min-width:0}
 .bt-set-part-title{margin:0;padding:0 4px;display:flex;align-items:center;gap:10px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
 .bt-set-part-title::after{content:'';flex:1;height:.5px;background:var(--bt-line)}
@@ -19214,8 +19206,8 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-settings-scroll{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 .bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
 .bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
-/* Phone-width viewports: the settings dialog takes the whole screen, its page
-   list becomes a horizontal strip across the top, and fixed-width pages wrap
+/* Phone-width viewports: the settings dialog takes the whole screen, its rail
+   gives way to Overview's list of pages, and fixed-width pages wrap
    or scroll instead of overflowing. These rules sit at the end of the sheet:
    the base column widths below would otherwise win the cascade back. */
 @media (max-width:640px){
@@ -19235,13 +19227,6 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-settings-anchors{padding:0 10px}
   .bt-look-side{display:none}
   .bt-set-palette-layer{padding-top:12px}
-  /* Right padding is not honored inside a scrolling flex row; a transparent
-     right border keeps the last tab clear of the close button. */
-  .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
-  .bt-settings-rail>.bt-settings-nav{flex:none;padding:6px 8px 8px;border-right:0;border-bottom:0}
-  .bt-settings-nav>.bt-thumb{left:0;right:auto;top:6px;bottom:8px}
-  .bt-settings-item{flex:none}
-  .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-close{top:10px;right:10px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
   .bt-settings-head{padding:14px 56px 8px 16px}
@@ -40681,6 +40666,7 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2, preset =
     setOffer(preset);
   }, [preset]);
   const offered = offer ? (roster.models ?? []).find((entry) => entry.ref === offer) : void 0;
+  const moving = offered ? eligible.filter((bot) => modelRefOf(bot) !== offered.ref) : [];
   const apply2 = (ref, chosen = bots.filter((bot) => selected.has(bot.id))) => {
     if (busy) return;
     if (chosen.length === 0) return;
@@ -40704,17 +40690,17 @@ function BotModelsPage({ roster, actions, run: run2, Section: Section2, preset =
     (0, import_react53.createElement)(
       Section2,
       { key: "change", title: t("Change several Bots"), tour: "bm-bar" },
-      offered && eligible.length > 0 ? (0, import_react53.createElement)(
+      offered && moving.length > 0 ? (0, import_react53.createElement)(
         "div",
         { className: "bt-set-row bt-bm-offer", role: "status" },
-        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {count} Bots to {model}?", { count: eligible.length, model: offered.name ?? offered.ref }))),
+        (0, import_react53.createElement)("span", { className: "bt-set-copy" }, (0, import_react53.createElement)("span", null, t("Switch {names} to {model}?", { names: moving.map((bot) => bot.name).join(t(", ")), model: offered.name ?? offered.ref }))),
         (0, import_react53.createElement)(
           "div",
           { className: "bt-set-control bt-bm-actions" },
           (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => setOffer(null) }, t("Cancel")),
           (0, import_react53.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: busy, onClick: () => {
             setOffer(null);
-            apply2(offered.ref, eligible);
+            apply2(offered.ref, moving);
           } }, t("Switch"))
         )
       ) : null,
@@ -40900,7 +40886,7 @@ function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } =
       { page: "overview", target: "search", title: "Search settings", cue: "Click here to search any setting, Bot, or model." },
       hasProviders ? { page: "models", target: "provider-list", title: "Models", cue: 'Click a provider to enter your API key, or click "+ Add a provider".' } : { page: "bot-models", target: "bm-bar", title: "Bot models", cue: "Select Bots below and pick a model here to switch them together." },
       { page: "bots", target: "new-bot", title: "Team", cue: 'Click "+ New Bot" to add a member, or click any Bot row to edit it.' },
-      { page: "phone", target: "phone-pair", title: "Connect", cue: "Use the tabs above for connectors or IM, or click here to pair your phone." },
+      { page: "phone", target: "phone-pair", title: "Connect", cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
       { page: "appearance", target: "theme-grid", title: "Appearance", cue: "Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot." }
     ];
   }
@@ -40920,11 +40906,12 @@ function sameSpot(a, b) {
 }
 function findTourTarget(dialogEl, targetKey) {
   if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== "function") return null;
-  const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`);
-  if (!el || typeof el.getBoundingClientRect !== "function") return null;
-  const rect = el.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  return el;
+  const all = typeof dialogEl.querySelectorAll === "function" ? [...dialogEl.querySelectorAll(`[data-tour="${targetKey}"]`)] : [dialogEl.querySelector(`[data-tour="${targetKey}"]`)].filter(Boolean);
+  return all.find((el) => {
+    if (typeof el.getBoundingClientRect !== "function") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }) ?? null;
 }
 function measureSpotlight(dialogEl, targetKey) {
   const el = findTourTarget(dialogEl, targetKey);
@@ -41586,11 +41573,18 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
   return [...settings, ...bots, ...rooms, ...models];
 }
 var KIND_TITLES = { setting: "Settings", bot: "Bots", room: "Group chats", model: "Models", action: "Models" };
-function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface, onPick, onClose }) {
+function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface, onPick, onClose, returnFocus = false }) {
   const [query, setQuery] = (0, import_react56.useState)("");
   const [index, setIndex] = (0, import_react56.useState)(0);
   const listRef = (0, import_react56.useRef)(null);
   const inputRef = (0, import_react56.useRef)(null);
+  (0, import_react56.useEffect)(() => {
+    if (!returnFocus || typeof document === "undefined") return void 0;
+    const opener2 = document.activeElement;
+    return () => {
+      if (opener2 && typeof opener2.focus === "function" && opener2.isConnected !== false) opener2.focus({ preventScroll: true });
+    };
+  }, []);
   const hits = (0, import_react56.useMemo)(() => searchHits(query, { roster, extra, pageAvailable, hasSurface }), [query, roster, extra, hasSurface]);
   (0, import_react56.useEffect)(() => {
     setIndex(0);
@@ -41625,7 +41619,9 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
       "button",
       {
         key: hit.id,
+        id: `bt-set-hit-${at}`,
         type: "button",
+        tabIndex: -1,
         role: "option",
         "aria-selected": at === index,
         className: "bt-set-search-hit",
@@ -41660,11 +41656,17 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
           "aria-label": t("Search settings"),
           role: "combobox",
           "aria-expanded": hits.length > 0,
+          "aria-controls": "bt-set-hits",
+          "aria-activedescendant": hits.length > 0 ? `bt-set-hit-${index}` : void 0,
           autoComplete: "off",
           spellCheck: false,
           onChange: (event) => setQuery(event.target.value),
           onKeyDown: (event) => {
             if (isImeComposing(event)) return;
+            if (event.key === "Tab") {
+              event.preventDefault();
+              return;
+            }
             if (event.key === "Escape") {
               event.preventDefault();
               event.stopPropagation();
@@ -41689,7 +41691,7 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
       ),
       query.trim() === "" ? null : (0, import_react56.createElement)(
         "div",
-        { ref: listRef, className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
+        { ref: listRef, id: "bt-set-hits", className: "bt-set-search-list", role: "listbox", "aria-label": t("Search settings") },
         hits.length === 0 ? (0, import_react56.createElement)("div", { className: "bt-set-search-empty" }, t("No matching settings")) : rows2
       )
     )
@@ -41712,10 +41714,10 @@ function useProviders(actions) {
   }, []);
   return [view, setView];
 }
-function useWeek(actions) {
+function useWeek(actions, wanted) {
   const [week, setWeek] = (0, import_react57.useState)(null);
   (0, import_react57.useEffect)(() => {
-    if (typeof actions.usage !== "function") return void 0;
+    if (!wanted || typeof actions.usage !== "function") return void 0;
     let stopped = false;
     let timer;
     const load = () => Promise.resolve(actions.usage()).then((view) => {
@@ -41731,20 +41733,21 @@ function useWeek(actions) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [wanted]);
   return week;
 }
 var needsKey = (bot, roster) => {
   const ref = modelRefOf(bot);
   return Boolean(ref) && (roster.models ?? []).some((entry) => entry.ref === ref && entry.needsKey === true);
 };
-function Attention({ roster, actions, run: run2, view, setView, needsModel }) {
+function Attention({ roster, actions, run: run2, view, setView, needsModel, keyMissing }) {
   const missing = (view?.providers ?? []).filter((provider) => provider.key && !provider.key.configured).map((provider) => ({ provider, users: usersOf(provider, roster) })).filter((entry) => entry.users.length > 0);
   const apply2 = (promise) => run2(translated(promise).then((next) => {
     if (next?.providers) setView(next);
     void actions.refreshModels?.();
   }));
-  if (missing.length === 0 && !needsModel) return null;
+  const blind = view === null && keyMissing;
+  if (missing.length === 0 && !needsModel && !blind) return null;
   return (0, import_react57.createElement)(
     "section",
     { className: "bt-ov-attention", "aria-label": t("Needs your attention") },
@@ -41766,6 +41769,13 @@ function Attention({ roster, actions, run: run2, view, setView, needsModel }) {
       (0, import_react57.createElement)("span", { className: "bt-ov-alert-icon", "aria-hidden": true }, (0, import_react57.createElement)(KeyIcon)),
       (0, import_react57.createElement)("span", { className: "bt-ov-alert-copy" }, (0, import_react57.createElement)("span", { className: "bt-ov-alert-title" }, t("Add a model provider"))),
       (0, import_react57.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => actions.openSettings("models") }, t("Set up"))
+    ) : null,
+    missing.length === 0 && !needsModel && blind ? (0, import_react57.createElement)(
+      "div",
+      { className: "bt-ov-alert" },
+      (0, import_react57.createElement)("span", { className: "bt-ov-alert-icon", "aria-hidden": true }, (0, import_react57.createElement)(KeyIcon)),
+      (0, import_react57.createElement)("span", { className: "bt-ov-alert-copy" }, (0, import_react57.createElement)("span", { className: "bt-ov-alert-title" }, t("Needs an API key"))),
+      (0, import_react57.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("bot-models") }, t("Open"))
     ) : null
   );
 }
@@ -41836,8 +41846,8 @@ function Tile({ icon: Icon, title, onOpen, value, unit, children, extra = null }
   );
 }
 var uniq = (list) => [...new Set(list.filter(Boolean))];
-function Tiles({ roster, actions, icons, view, hasProviders }) {
-  const week = useWeek(actions);
+function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
+  const week = useWeek(actions, !narrow);
   const schedules = useSchedules(actions);
   const prefs = roster.prefs ?? {};
   const models = roster.models ?? [];
@@ -41934,13 +41944,13 @@ function HomeList({ groups, icons, status, onOpen }) {
     ))
   );
 }
-function OverviewPage({ roster, actions, run: run2, icons, hasProviders, needsModel, homeGroups, homeStatus, onHomeOpen, onSearch }) {
+function OverviewPage({ roster, actions, run: run2, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onSearch }) {
   const [view, setView] = useProviders(actions);
   return [
-    (0, import_react57.createElement)("button", { key: "search", type: "button", className: "bt-ov-search", onClick: onSearch }, (0, import_react57.createElement)(SearchIcon), (0, import_react57.createElement)("span", null, t("Search"))),
-    (0, import_react57.createElement)(Attention, { key: "attention", roster, actions, run: run2, view, setView, needsModel }),
+    (0, import_react57.createElement)("button", { key: "search", type: "button", className: "bt-ov-search", "data-tour": "search", onClick: onSearch }, (0, import_react57.createElement)(SearchIcon), (0, import_react57.createElement)("span", null, t("Search"))),
+    (0, import_react57.createElement)(Attention, { key: "attention", roster, actions, run: run2, view, setView, needsModel, keyMissing }),
     (0, import_react57.createElement)(Team, { key: "team", roster, actions }),
-    (0, import_react57.createElement)(Tiles, { key: "tiles", roster, actions, icons, view, hasProviders }),
+    (0, import_react57.createElement)(Tiles, { key: "tiles", roster, actions, icons, view, hasProviders, narrow }),
     (0, import_react57.createElement)(HomeList, { key: "home", groups: homeGroups, icons, status: homeStatus, onOpen: onHomeOpen })
   ];
 }
@@ -42173,12 +42183,12 @@ function LookPreview({ roster, prefs }) {
     (0, import_react58.createElement)(
       "div",
       { className: "bt-look-chat" },
-      (0, import_react58.createElement)("div", { className: "bt-look-user", style: { maxWidth: `${width}%` } }, t("Sum up this week in three points.")),
+      (0, import_react58.createElement)("div", { className: "bt-look-user", style: { maxWidth: `${width}%` } }, t("Plan a three-day trip to Kyoto.")),
       thinkingShown(prefs) ? (0, import_react58.createElement)("div", { className: "bt-look-think" }, (0, import_react58.createElement)(ClockIcon), t("Thought for a few seconds"), (0, import_react58.createElement)(ChevronRightIcon)) : null,
       (0, import_react58.createElement)(
         "div",
         { className: "bt-look-bot", style: { maxWidth: `${flat ? flatWidthOf(prefs) : width}%` } },
-        t("Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.")
+        t("Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.")
       ),
       (0, import_react58.createElement)("div", { className: "bt-look-composer" }, (0, import_react58.createElement)("span", { className: "bt-look-placeholder" }, t("Message")), (0, import_react58.createElement)("span", { className: "bt-look-send" }, (0, import_react58.createElement)(ArrowUpIcon)))
     )
@@ -42516,6 +42526,7 @@ function partAt(box) {
   for (const part of parts) if (part.getBoundingClientRect().top <= top) found = part;
   return found.dataset.part;
 }
+var SCROLL_KEYS = /* @__PURE__ */ new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 var reducedMotion2 = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = (0, import_react58.useState)("");
@@ -42539,26 +42550,45 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     close();
   }, [palette, close]);
   useEscape(onEscape, !leaving);
+  const paletteRef = (0, import_react58.useRef)(palette);
+  paletteRef.current = palette;
+  const openPalette = (0, import_react58.useCallback)(() => {
+    const current2 = tourRef.current;
+    if (current2) {
+      if (current2.mode === "full") markTourSeen();
+      setTour(null);
+    }
+    setPalette(true);
+  }, []);
   (0, import_react58.useEffect)(() => {
     if (leaving || typeof window === "undefined") return void 0;
+    const mac = isMac();
     const onKeyDown = (event) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || String(event.key).toLowerCase() !== "k") return;
+      const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (!modifier || event.altKey || event.shiftKey || event.code !== "KeyK" && String(event.key).toLowerCase() !== "k") return;
       event.preventDefault();
       event.stopPropagation();
-      setPalette((open) => !open);
+      if (paletteRef.current) setPalette(false);
+      else openPalette();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [leaving]);
+  }, [leaving, openPalette]);
   const startTour = (0, import_react58.useCallback)((mode) => {
     setPalette(false);
     setTour((prev) => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }));
   }, []);
   const dismissTour = (0, import_react58.useCallback)(() => setTour(null), []);
+  const [jump, setJump] = (0, import_react58.useState)(0);
+  const go = (0, import_react58.useCallback)((nextPage, nextId) => {
+    setJump((count) => count + 1);
+    if (nextId === void 0) actions.openSettings(nextPage);
+    else actions.openSettings(nextPage, nextId);
+  }, [actions]);
   const navigateForTour = (0, import_react58.useCallback)((nextPage) => {
     setPalette(false);
-    actions.openSettings(nextPage);
-  }, [actions]);
+    go(nextPage);
+  }, [go]);
   const [narrowNav, setNarrowNav] = (0, import_react58.useState)(() => typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 640px)").matches : false);
   (0, import_react58.useEffect)(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return void 0;
@@ -42610,15 +42640,17 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const pickHit = (hit) => {
     setPalette(false);
     if (hit.expandAdvanced) setAdvancedToken((token) => token + 1);
-    if (hit.page === "dsh") actions.openSettings("dsh", hit.dshId);
-    else if (hit.target !== void 0) actions.openSettings(hit.page, hit.target);
-    else actions.openSettings(hit.page);
+    if (hit.page === "dsh") go("dsh", hit.dshId);
+    else go(hit.page, hit.target);
   };
   const parts = !section && depth === 0 && activeGroup.pages.length > 1 ? activeGroup.pages : null;
   const partKeys = parts ? parts.map(([key]) => key) : [];
   const [spied, setSpied] = (0, import_react58.useState)(null);
   const activePart = parts ? partKeys.includes(spied) ? spied : shown : null;
-  const anchors = useGlide(activePart ?? "", { axis: "x", selector: '[aria-current="true"]' });
+  const anchors = useGlide(activePart ?? "", { axis: "x", selector: '[aria-current="location"]' });
+  (0, import_react58.useEffect)(() => {
+    anchors.box.current?.querySelector?.("[aria-current=location]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activePart]);
   const pageKey = parts ? `group:${activeGroup.id}` : `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown === "schedules" ? id ?? "" : "")}`;
   (0, import_react58.useEffect)(() => {
     setError("");
@@ -42632,37 +42664,63 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (section || owner?.id !== activeGroup?.id || depth > 0) setTour(null);
   }, [tour, shown, section, depth]);
   const userScrolled = (0, import_react58.useRef)(false);
+  const anchored = (0, import_react58.useRef)(null);
+  const heading = (0, import_react58.useRef)(null);
+  const headingTimer = (0, import_react58.useRef)(0);
+  (0, import_react58.useEffect)(() => () => clearTimeout(headingTimer.current), []);
   const scrollToPart = (key, smooth) => {
     const box = scrollRef.current;
     const target = box?.querySelector?.(`[data-part="${key}"]`);
     if (!box || !target) return;
-    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 4;
+    const top = key === partKeys[0] ? 0 : target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 4;
     box.scrollTo?.({ top: Math.max(0, top), behavior: smooth && !reducedMotion2() ? "smooth" : "auto" });
   };
   (0, import_react58.useEffect)(() => {
     if (!parts) return void 0;
+    if (anchored.current === shown) {
+      anchored.current = null;
+      return void 0;
+    }
+    anchored.current = null;
+    heading.current = null;
     setSpied(shown);
     userScrolled.current = false;
-    const first = partKeys[0] === shown;
-    if (first) return void 0;
-    const frame2 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => scrollToPart(shown, false)) : 0;
-    const settle = setTimeout(() => {
+    const settle = () => {
       if (!userScrolled.current) scrollToPart(shown, false);
-    }, 420);
+    };
+    const frame2 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
+    const later = setTimeout(settle, 420);
     return () => {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame2);
-      clearTimeout(settle);
+      clearTimeout(later);
     };
-  }, [shown, pageKey]);
+  }, [shown, pageKey, jump]);
   const onPartsScroll = () => {
     const next = partAt(scrollRef.current);
+    if (heading.current !== null) {
+      if (next !== heading.current) return;
+      heading.current = null;
+    }
     if (next && next !== spied) setSpied(next);
+  };
+  const takeOver = () => {
+    userScrolled.current = true;
+    heading.current = null;
   };
   const goPart = (key) => {
     userScrolled.current = true;
+    heading.current = key;
+    clearTimeout(headingTimer.current);
+    headingTimer.current = setTimeout(() => {
+      heading.current = null;
+      onPartsScroll();
+    }, 900);
     setSpied(key);
     scrollToPart(key, true);
-    if (key !== shown) actions.openSettings(key);
+    if (key !== shown) {
+      anchored.current = key;
+      actions.openSettings(key);
+    }
   };
   const depthRef = (0, import_react58.useRef)({ key: pageKey, depth, move: "up" });
   if (depthRef.current.key !== pageKey) {
@@ -42670,7 +42728,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   }
   const [usageOpened, setUsageOpened] = (0, import_react58.useState)(shown === "usage");
   if (shown === "usage" && !usageOpened) setUsageOpened(true);
-  const errorLine = error ? (0, import_react58.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
+  const errorLine = error ? (0, import_react58.createElement)("div", { className: parts ? "bt-error bt-set-error-pin" : "bt-error", role: "alert", style: parts ? void 0 : { padding: 0 } }, error) : null;
   const groupStatus = (groupId) => {
     if (groupId === "models" && (needsModel || keyMissing)) return (0, import_react58.createElement)("span", { className: "bt-settings-dot", "data-tone": "warn", role: "img", "aria-label": t("Needs your attention") });
     if (groupId === "connect" && phoneConnected) return (0, import_react58.createElement)("span", { className: "bt-settings-dot", "data-tone": "ok", role: "img", "aria-label": t("Phone online") });
@@ -42687,7 +42745,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         type: "button",
         className: "bt-settings-item",
         "aria-current": active ? "page" : void 0,
-        onClick: () => actions.openSettings(group.pages[0][0])
+        onClick: () => go(group.pages[0][0])
       },
       (0, import_react58.createElement)(PAGE_ICONS[group.icon]),
       (0, import_react58.createElement)("span", { className: "bt-settings-label" }, t(group.label)),
@@ -42714,16 +42772,18 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         return (0, import_react58.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null });
       case "local-agents":
         return (0, import_react58.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow });
+      // A preset opens the page afresh each time search offers it.
       case "bot-models":
-        return (0, import_react58.createElement)(BotModelsPage, { roster, actions, run: run2, Section: SetSection, preset: shown === "bot-models" && id ? id : null });
+        return (0, import_react58.createElement)(BotModelsPage, { key: shown === "bot-models" && id ? `preset:${id}:${jump}` : "bot-models", roster, actions, run: run2, Section: SetSection, preset: shown === "bot-models" && id ? id : null });
+      // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case "deepseek-services":
-        return (0, import_react58.createElement)(DeepSeekServicesPage, { actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented });
+        return (0, import_react58.createElement)(DeepSeekServicesPage, { key: roster.modelsKey ?? "", actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented });
       case "bots":
         return (0, import_react58.createElement)(BotsPage, { roster, actions, run: run2, startCreating: shown === "bots" && id === "new" });
       case "groups":
         return (0, import_react58.createElement)(GroupsPage, { roster, actions, run: run2 });
       case "schedules":
-        return (0, import_react58.createElement)(SchedulesPage, { roster, actions, start: shown === "schedules" ? id ?? void 0 : void 0 });
+        return (0, import_react58.createElement)(SchedulesPage, { key: shown === "schedules" && id ? `start:${id}:${jump}` : "schedules", roster, actions, start: shown === "schedules" ? id ?? void 0 : void 0 });
       case "connectors":
         return (0, import_react58.createElement)(ConnectorsPage, { roster, actions });
       case "im":
@@ -42754,11 +42814,21 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (parts) {
       return (0, import_react58.createElement)(
         "div",
-        { key: pageKey, ref: scrollRef, className: "bt-settings-scroll bt-settings-page bt-settings-parts", "data-move": depthRef.current.move, onScroll: onPartsScroll, onWheel: () => {
-          userScrolled.current = true;
-        }, onTouchMove: () => {
-          userScrolled.current = true;
-        } },
+        {
+          key: pageKey,
+          ref: scrollRef,
+          className: "bt-settings-scroll bt-settings-page bt-settings-parts",
+          "data-move": depthRef.current.move,
+          onScroll: onPartsScroll,
+          onWheel: takeOver,
+          onTouchMove: takeOver,
+          onKeyDown: (event) => {
+            if (SCROLL_KEYS.has(event.key)) takeOver();
+          },
+          onPointerDown: (event) => {
+            if (event.target === event.currentTarget) takeOver();
+          }
+        },
         errorLine,
         parts.map(([key, partLabel2]) => (0, import_react58.createElement)(
           "section",
@@ -42784,8 +42854,10 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           needsModel,
           homeGroups,
           homeStatus: (key) => groupStatus(key),
-          onHomeOpen: (item) => item.page === "dsh" ? actions.openSettings("dsh", item.id) : actions.openSettings(item.page),
-          onSearch: () => setPalette(true)
+          onHomeOpen: (item) => item.page === "dsh" ? go("dsh", item.id) : go(item.page),
+          onSearch: openPalette,
+          narrow: narrowNav,
+          keyMissing
         }) : null,
         shown === "general" ? (0, import_react58.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react58.createElement)(AppearancePage, { roster, actions, run: run2, dsh }) : null,
@@ -42809,7 +42881,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         { className: "bt-settings-rail" },
         (0, import_react58.createElement)(
           "button",
-          { type: "button", className: "bt-set-search", "data-tour": "search", "aria-haspopup": "dialog", "aria-keyshortcuts": isMac() ? "Meta+K" : "Control+K", onClick: () => setPalette(true) },
+          { type: "button", className: "bt-set-search", "data-tour": "search", "aria-haspopup": "dialog", "aria-keyshortcuts": isMac() ? "Meta+K" : "Control+K", onClick: openPalette },
           (0, import_react58.createElement)(SearchIcon),
           (0, import_react58.createElement)("span", { className: "bt-set-search-label" }, t("Search")),
           (0, import_react58.createElement)("kbd", { className: "bt-set-kbd" }, isMac() ? "⌘K" : "Ctrl K")
@@ -42860,7 +42932,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             key,
             type: "button",
             className: "bt-anchor",
-            "aria-current": activePart === key ? "true" : void 0,
+            "aria-current": activePart === key ? "location" : void 0,
             onClick: () => goPart(key)
           }, t(partLabel2), beta(key)))
         ) : null,
@@ -42881,7 +42953,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         pageAvailable,
         hasSurface,
         onPick: pickHit,
-        onClose: () => setPalette(false)
+        onClose: () => setPalette(false),
+        returnFocus: true
       }) : null,
       leaving ? null : (0, import_react58.createElement)(SettingsTour, {
         tour,

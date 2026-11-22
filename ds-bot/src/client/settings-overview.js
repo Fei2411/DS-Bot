@@ -25,11 +25,12 @@ function useProviders(actions) {
   return [view, setView]
 }
 
-// The last seven days of tokens, from the same rows as the Usage page.
-function useWeek(actions) {
+// The last seven days of tokens, from the same rows as the Usage page. Phone width shows
+// no cards, so it asks for none.
+function useWeek(actions, wanted) {
   const [week, setWeek] = useState(null)
   useEffect(() => {
-    if (typeof actions.usage !== 'function') return undefined
+    if (!wanted || typeof actions.usage !== 'function') return undefined
     let stopped = false
     let timer
     const load = () => Promise.resolve(actions.usage()).then((view) => {
@@ -41,7 +42,7 @@ function useWeek(actions) {
     }).catch(() => {})
     void load()
     return () => { stopped = true; clearTimeout(timer) }
-  }, [])
+  }, [wanted])
   return week
 }
 
@@ -50,7 +51,9 @@ const needsKey = (bot, roster) => {
   return Boolean(ref) && (roster.models ?? []).some(entry => entry.ref === ref && entry.needsKey === true)
 }
 
-function Attention({ roster, actions, run, view, setView, needsModel }) {
+// Without the providers' view (no Providers page here) a Bot on a keyless model still
+// shows, from the roster alone, and leads to its model.
+function Attention({ roster, actions, run, view, setView, needsModel, keyMissing }) {
   const missing = (view?.providers ?? [])
     .filter(provider => provider.key && !provider.key.configured)
     .map(provider => ({ provider, users: usersOf(provider, roster) }))
@@ -59,7 +62,8 @@ function Attention({ roster, actions, run, view, setView, needsModel }) {
     if (next?.providers) setView(next)
     void actions.refreshModels?.()
   }))
-  if (missing.length === 0 && !needsModel) return null
+  const blind = view === null && keyMissing
+  if (missing.length === 0 && !needsModel && !blind) return null
   return h('section', { className: 'bt-ov-attention', 'aria-label': t('Needs your attention') },
     missing.map(({ provider, users }) => h('div', { key: provider.id, className: 'bt-ov-alert' },
       h('span', { className: 'bt-ov-alert-icon', 'aria-hidden': true }, h(KeyIcon)),
@@ -72,7 +76,11 @@ function Attention({ roster, actions, run, view, setView, needsModel }) {
     missing.length === 0 && needsModel ? h('div', { className: 'bt-ov-alert' },
       h('span', { className: 'bt-ov-alert-icon', 'aria-hidden': true }, h(KeyIcon)),
       h('span', { className: 'bt-ov-alert-copy' }, h('span', { className: 'bt-ov-alert-title' }, t('Add a model provider'))),
-      h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => actions.openSettings('models') }, t('Set up'))) : null)
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => actions.openSettings('models') }, t('Set up'))) : null,
+    missing.length === 0 && !needsModel && blind ? h('div', { className: 'bt-ov-alert' },
+      h('span', { className: 'bt-ov-alert-icon', 'aria-hidden': true }, h(KeyIcon)),
+      h('span', { className: 'bt-ov-alert-copy' }, h('span', { className: 'bt-ov-alert-title' }, t('Needs an API key'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('bot-models') }, t('Open'))) : null)
 }
 
 function Team({ roster, actions }) {
@@ -115,8 +123,8 @@ function Tile({ icon: Icon, title, onOpen, value, unit, children, extra = null }
 
 const uniq = list => [...new Set(list.filter(Boolean))]
 
-function Tiles({ roster, actions, icons, view, hasProviders }) {
-  const week = useWeek(actions)
+function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
+  const week = useWeek(actions, !narrow)
   const schedules = useSchedules(actions)
   const prefs = roster.prefs ?? {}
   const models = roster.models ?? []
@@ -186,13 +194,13 @@ function HomeList({ groups, icons, status, onOpen }) {
         h(ChevronRightIcon))))))
 }
 
-export function OverviewPage({ roster, actions, run, icons, hasProviders, needsModel, homeGroups, homeStatus, onHomeOpen, onSearch }) {
+export function OverviewPage({ roster, actions, run, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onSearch }) {
   const [view, setView] = useProviders(actions)
   return [
-    h('button', { key: 'search', type: 'button', className: 'bt-ov-search', onClick: onSearch }, h(SearchIcon), h('span', null, t('Search'))),
-    h(Attention, { key: 'attention', roster, actions, run, view, setView, needsModel }),
+    h('button', { key: 'search', type: 'button', className: 'bt-ov-search', 'data-tour': 'search', onClick: onSearch }, h(SearchIcon), h('span', null, t('Search'))),
+    h(Attention, { key: 'attention', roster, actions, run, view, setView, needsModel, keyMissing }),
     h(Team, { key: 'team', roster, actions }),
-    h(Tiles, { key: 'tiles', roster, actions, icons, view, hasProviders }),
+    h(Tiles, { key: 'tiles', roster, actions, icons, view, hasProviders, narrow }),
     h(HomeList, { key: 'home', groups: homeGroups, icons, status: homeStatus, onOpen: onHomeOpen }),
   ]
 }

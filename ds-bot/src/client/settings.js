@@ -232,10 +232,10 @@ function LookPreview({ roster, prefs }) {
         h(BotAvatar, { bot, size: 22, badge: false, live: at === 0 }),
         h('span', { className: 'bt-look-name' }, bot.name)))),
     h('div', { className: 'bt-look-chat' },
-      h('div', { className: 'bt-look-user', style: { maxWidth: `${width}%` } }, t('Sum up this week in three points.')),
+      h('div', { className: 'bt-look-user', style: { maxWidth: `${width}%` } }, t('Plan a three-day trip to Kyoto.')),
       thinkingShown(prefs) ? h('div', { className: 'bt-look-think' }, h(ClockIcon), t('Thought for a few seconds'), h(ChevronRightIcon)) : null,
       h('div', { className: 'bt-look-bot', style: { maxWidth: `${flat ? flatWidthOf(prefs) : width}%` } },
-        t('Three points: the new Settings is out, two sync bugs are fixed, and phone testing starts next week.')),
+        t('Day one: the eastern temples. Day two: Arashiyama. Day three: Nishiki Market and a quiet tea house.')),
       h('div', { className: 'bt-look-composer' }, h('span', { className: 'bt-look-placeholder' }, t('Message')), h('span', { className: 'bt-look-send' }, h(ArrowUpIcon)))))
 }
 
@@ -473,6 +473,7 @@ function partAt(box) {
   return found.dataset.part
 }
 
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 
 // While `leaving`, the dialog plays its exit and takes no input.
@@ -495,27 +496,51 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     close()
   }, [palette, close])
   useEscape(onEscape, !leaving)
-  // ⌘K / Ctrl+K opens search from anywhere in Settings.
+  // Search sits over the page; a walkthrough under way ends when the user opens it, since
+  // the walkthrough keeps the keyboard to its own card.
+  const paletteRef = useRef(palette)
+  paletteRef.current = palette
+  const openPalette = useCallback(() => {
+    const current = tourRef.current
+    if (current) {
+      if (current.mode === 'full') markTourSeen()
+      setTour(null)
+    }
+    setPalette(true)
+  }, [])
+  // ⌘K on a Mac, Ctrl+K elsewhere, toggles search from anywhere in Settings. Ctrl+K on a
+  // Mac stays the text fields' delete-to-end.
   useEffect(() => {
     if (leaving || typeof window === 'undefined') return undefined
+    const mac = isMac()
     const onKeyDown = (event) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || String(event.key).toLowerCase() !== 'k') return
+      const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+      if (!modifier || event.altKey || event.shiftKey || (event.code !== 'KeyK' && String(event.key).toLowerCase() !== 'k')) return
       event.preventDefault()
       event.stopPropagation()
-      setPalette(open => !open)
+      if (paletteRef.current) setPalette(false)
+      else openPalette()
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [leaving])
+  }, [leaving, openPalette])
   const startTour = useCallback((mode) => {
     setPalette(false)
     setTour(prev => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [])
   const dismissTour = useCallback(() => setTour(null), [])
+  // Each explicit trip to a page counts, so going again to the part already routed (or to
+  // the first part of the open domain) still scrolls to it.
+  const [jump, setJump] = useState(0)
+  const go = useCallback((nextPage, nextId) => {
+    setJump(count => count + 1)
+    if (nextId === undefined) actions.openSettings(nextPage)
+    else actions.openSettings(nextPage, nextId)
+  }, [actions])
   const navigateForTour = useCallback((nextPage) => {
     setPalette(false)
-    actions.openSettings(nextPage)
-  }, [actions])
+    go(nextPage)
+  }, [go])
   const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
@@ -571,9 +596,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const pickHit = (hit) => {
     setPalette(false)
     if (hit.expandAdvanced) setAdvancedToken(token => token + 1)
-    if (hit.page === 'dsh') actions.openSettings('dsh', hit.dshId)
-    else if (hit.target !== undefined) actions.openSettings(hit.page, hit.target)
-    else actions.openSettings(hit.page)
+    if (hit.page === 'dsh') go('dsh', hit.dshId)
+    else go(hit.page, hit.target)
   }
 
   // The parts of a domain share one scrolling page while none is drilled into.
@@ -581,7 +605,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const partKeys = parts ? parts.map(([key]) => key) : []
   const [spied, setSpied] = useState(null)
   const activePart = parts ? (partKeys.includes(spied) ? spied : shown) : null
-  const anchors = useGlide(activePart ?? '', { axis: 'x', selector: '[aria-current="true"]' })
+  const anchors = useGlide(activePart ?? '', { axis: 'x', selector: '[aria-current="location"]' })
+  // Phone width: the anchor row scrolls sideways, so the current one stays in it.
+  useEffect(() => {
+    anchors.box.current?.querySelector?.('[aria-current=location]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [activePart])
 
   // A page enters from the right when it is one level in, from the left when it comes
   // back out, and from below beside it. Parts of one domain share a page, so moving
@@ -599,35 +627,58 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (section || owner?.id !== activeGroup?.id || depth > 0) setTour(null)
   }, [tour, shown, section, depth])
 
-  // Opening a part scrolls to it; a page's own data can still arrive and move it, so the
-  // jump repeats once the page has settled unless the user scrolled meanwhile.
+  // Opening a part scrolls to it, the first part to the top; a page's own data can still
+  // arrive and move it, so the jump repeats once the page has settled unless the user
+  // scrolled meanwhile. An anchor scrolls smoothly on its own: the route it sets does not
+  // jump again, and the anchor row holds on it until the scroll gets there.
   const userScrolled = useRef(false)
+  const anchored = useRef(null)
+  const heading = useRef(null)
+  const headingTimer = useRef(0)
+  useEffect(() => () => clearTimeout(headingTimer.current), [])
   const scrollToPart = (key, smooth) => {
     const box = scrollRef.current
     const target = box?.querySelector?.(`[data-part="${key}"]`)
     if (!box || !target) return
-    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 4
+    const top = key === partKeys[0] ? 0 : target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 4
     box.scrollTo?.({ top: Math.max(0, top), behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' })
   }
   useEffect(() => {
     if (!parts) return undefined
+    if (anchored.current === shown) { anchored.current = null; return undefined }
+    anchored.current = null
+    heading.current = null
     setSpied(shown)
     userScrolled.current = false
-    const first = partKeys[0] === shown
-    if (first) return undefined
-    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => scrollToPart(shown, false)) : 0
-    const settle = setTimeout(() => { if (!userScrolled.current) scrollToPart(shown, false) }, 420)
-    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame); clearTimeout(settle) }
-  }, [shown, pageKey])
+    const settle = () => { if (!userScrolled.current) scrollToPart(shown, false) }
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
+    const later = setTimeout(settle, 420)
+    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame); clearTimeout(later) }
+  }, [shown, pageKey, jump])
   const onPartsScroll = () => {
     const next = partAt(scrollRef.current)
+    if (heading.current !== null) {
+      if (next !== heading.current) return
+      heading.current = null
+    }
     if (next && next !== spied) setSpied(next)
+  }
+  // Wheel, touch, scroll keys and the scrollbar all mean the user took over.
+  const takeOver = () => {
+    userScrolled.current = true
+    heading.current = null
   }
   const goPart = (key) => {
     userScrolled.current = true
+    heading.current = key
+    clearTimeout(headingTimer.current)
+    headingTimer.current = setTimeout(() => { heading.current = null; onPartsScroll() }, 900)
     setSpied(key)
     scrollToPart(key, true)
-    if (key !== shown) actions.openSettings(key)
+    if (key !== shown) {
+      anchored.current = key
+      actions.openSettings(key)
+    }
   }
 
   const depthRef = useRef({ key: pageKey, depth, move: 'up' })
@@ -639,7 +690,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // rendered state off screen (content-visibility).
   const [usageOpened, setUsageOpened] = useState(shown === 'usage')
   if (shown === 'usage' && !usageOpened) setUsageOpened(true)
-  const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
+  // Over a domain's parts the error stays at the top of the view, whichever part failed.
+  const errorLine = error ? h('div', { className: parts ? 'bt-error bt-set-error-pin' : 'bt-error', role: 'alert', style: parts ? undefined : { padding: 0 } }, error) : null
 
   const groupStatus = (groupId) => {
     if (groupId === 'models' && (needsModel || keyMissing)) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Needs your attention') })
@@ -656,7 +708,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       type: 'button',
       className: 'bt-settings-item',
       'aria-current': active ? 'page' : undefined,
-      onClick: () => actions.openSettings(group.pages[0][0]),
+      onClick: () => go(group.pages[0][0]),
     },
     h(PAGE_ICONS[group.icon]),
     h('span', { className: 'bt-settings-label' }, t(group.label)),
@@ -683,11 +735,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     switch (key) {
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
       case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
-      case 'bot-models': return h(BotModelsPage, { roster, actions, run, Section: SetSection, preset: shown === 'bot-models' && id ? id : null })
-      case 'deepseek-services': return h(DeepSeekServicesPage, { actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
+      // A preset opens the page afresh each time search offers it.
+      case 'bot-models': return h(BotModelsPage, { key: shown === 'bot-models' && id ? `preset:${id}:${jump}` : 'bot-models', roster, actions, run, Section: SetSection, preset: shown === 'bot-models' && id ? id : null })
+      // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
+      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
       case 'bots': return h(BotsPage, { roster, actions, run, startCreating: shown === 'bots' && id === 'new' })
       case 'groups': return h(GroupsPage, { roster, actions, run })
-      case 'schedules': return h(SchedulesPage, { roster, actions, start: shown === 'schedules' ? (id ?? undefined) : undefined })
+      case 'schedules': return h(SchedulesPage, { key: shown === 'schedules' && id ? `start:${id}:${jump}` : 'schedules', roster, actions, start: shown === 'schedules' ? (id ?? undefined) : undefined })
       case 'connectors': return h(ConnectorsPage, { roster, actions })
       case 'im': return h(ImPage, { roster, actions })
       case 'phone': return h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow })
@@ -706,7 +760,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const body = () => {
     if (shown === 'usage') return null
     if (parts) {
-      return h('div', { key: pageKey, ref: scrollRef, className: 'bt-settings-scroll bt-settings-page bt-settings-parts', 'data-move': depthRef.current.move, onScroll: onPartsScroll, onWheel: () => { userScrolled.current = true }, onTouchMove: () => { userScrolled.current = true } },
+      return h('div', { key: pageKey, ref: scrollRef, className: 'bt-settings-scroll bt-settings-page bt-settings-parts', 'data-move': depthRef.current.move, onScroll: onPartsScroll, onWheel: takeOver, onTouchMove: takeOver,
+        onKeyDown: (event) => { if (SCROLL_KEYS.has(event.key)) takeOver() },
+        onPointerDown: (event) => { if (event.target === event.currentTarget) takeOver() } },
         errorLine,
         parts.map(([key, partLabel]) => h('section', { key, className: 'bt-set-part', 'data-part': key, 'aria-labelledby': `bt-part-${key}` },
           h('h3', { id: `bt-part-${key}`, className: 'bt-set-part-title' }, t(partLabel), beta(key)),
@@ -718,8 +774,10 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         atHome ? h(OverviewPage, {
           roster, actions, run, icons: PAGE_ICONS, hasProviders, needsModel, homeGroups,
           homeStatus: key => groupStatus(key),
-          onHomeOpen: item => (item.page === 'dsh' ? actions.openSettings('dsh', item.id) : actions.openSettings(item.page)),
-          onSearch: () => setPalette(true),
+          onHomeOpen: item => (item.page === 'dsh' ? go('dsh', item.id) : go(item.page)),
+          onSearch: openPalette,
+          narrow: narrowNav,
+          keyMissing,
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
         shown === 'appearance' ? h(AppearancePage, { roster, actions, run, dsh }) : null,
@@ -734,7 +792,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     h('div', { className: 'bt-scrim', onMouseDown: close }),
     h('div', { ref: dialogRef, className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings', 'data-home': atHome || undefined },
       h('div', { className: 'bt-settings-rail' },
-        h('button', { type: 'button', className: 'bt-set-search', 'data-tour': 'search', 'aria-haspopup': 'dialog', 'aria-keyshortcuts': isMac() ? 'Meta+K' : 'Control+K', onClick: () => setPalette(true) },
+        h('button', { type: 'button', className: 'bt-set-search', 'data-tour': 'search', 'aria-haspopup': 'dialog', 'aria-keyshortcuts': isMac() ? 'Meta+K' : 'Control+K', onClick: openPalette },
           h(SearchIcon),
           h('span', { className: 'bt-set-search-label' }, t('Search')),
           h('kbd', { className: 'bt-set-kbd' }, isMac() ? '⌘K' : 'Ctrl K')),
@@ -767,7 +825,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
             key,
             type: 'button',
             className: 'bt-anchor',
-            'aria-current': activePart === key ? 'true' : undefined,
+            'aria-current': activePart === key ? 'location' : undefined,
             onClick: () => goPart(key),
           }, t(partLabel), beta(key)))) : null,
         body(),
@@ -779,6 +837,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         roster, extra, dsh, icons: PAGE_ICONS, pageAvailable, hasSurface,
         onPick: pickHit,
         onClose: () => setPalette(false),
+        returnFocus: true,
       }) : null,
       leaving ? null : h(SettingsTour, {
         tour,

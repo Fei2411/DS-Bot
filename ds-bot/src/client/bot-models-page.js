@@ -53,6 +53,8 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   const [offer, setOffer] = useState(preset)
   useEffect(() => { setOffer(preset) }, [preset])
   const offered = offer ? (roster.models ?? []).find(entry => entry.ref === offer) : undefined
+  // Only the Bots that would change: one already on the model is not counted.
+  const moving = offered ? eligible.filter(bot => modelRefOf(bot) !== offered.ref) : []
   const apply = (ref, chosen = bots.filter(bot => selected.has(bot.id))) => {
     if (busy) return
     if (chosen.length === 0) return
@@ -68,11 +70,11 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   })
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
-      offered && eligible.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
-        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {count} Bots to {model}?', { count: eligible.length, model: offered.name ?? offered.ref }))),
+      offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: offered.name ?? offered.ref }))),
         h('div', { className: 'bt-set-control bt-bm-actions' },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
-          h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, eligible) } }, t('Switch')))) : null,
+          h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
       h('div', { className: 'bt-set-row bt-bm-bar' },
         h('span', { className: 'bt-set-copy' },
           h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
