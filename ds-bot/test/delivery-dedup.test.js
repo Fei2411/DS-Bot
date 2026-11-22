@@ -160,7 +160,7 @@ async function createLoopRig(t, seed = baseSeed()) {
   return { home, rt, agents, tool, stepGate, modes, deliveries }
 }
 
-async function createRestartHost(t, home, logs, services) {
+async function createRestartHost(t, home, logs, services, inspectOverride) {
   const ctx = fakeContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
@@ -183,10 +183,13 @@ async function createRestartHost(t, home, logs, services) {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
+      // DSH's controller is a cordis service: its inspect reads this.ctx, so a
+      // detached call throws. The ctx stub lets an inspectOverride assert that.
+      ctx: { fixture: true },
       create: async () => ({ sessionId: 's1' }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
-      inspect: async sessionId => ({ events: logs.get(sessionId) ?? [] }),
+      inspect: inspectOverride ?? (async sessionId => ({ events: logs.get(sessionId) ?? [] })),
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
@@ -456,6 +459,39 @@ test('restart settles a completed peer handoff task from disk and replies to the
   assert.match(textOf(host.agentOf('a').calls[0]), /Peer task finished\./)
   assert.equal(host.agentOf('b-task').calls.length, 0)
   assert.equal(host.agentOf('b').calls.length, 0)
+  await host.stop()
+})
+
+test('restart settles a handoff task even when DSH inspect reads this.ctx', async (t) => {
+  // DSH's sessionController.inspect reads this.ctx on its first line: calling
+  // it detached from the controller throws synchronously, and resumeAll used
+  // to die there, leaving background tasks stuck on "running" forever (#2036).
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-task-ctx-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Peer request', origin: 'bot-handoff', status: 'running', exchangeId: 'child' }]
+  seed.works = { child: { from: 'a', to: 'b', open: [], results: [], at: 1 } }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const request = { kind: 'bot', role: 'request', exchangeId: 'child', senderSessionId: 'a' }
+  const logs = new Map([['b-task', [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'user/message', data: { source: request } },
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Peer task finished.' }] } } },
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]]])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { 'b-task': { botId: 'b', since: 1, trigger: request } },
+    queued: {},
+  }))
+  const host = await createRestartHost(t, home, logs, undefined, async function inspect(sessionId) {
+    if (this === undefined || this.ctx === undefined) throw new TypeError("Cannot read properties of undefined (reading 'ctx')")
+    return { events: logs.get(sessionId) ?? [] }
+  })
+  t.mock.timers.tick(3000)
+  await settle(() => host.rt.state.bots.b.tasks[0].status === 'completed' && host.agentOf('a').calls.length > 0)
+  assert.equal(host.rt.state.bots.b.tasks[0].status, 'completed')
+  assert.match(textOf(host.agentOf('a').calls[0]), /Peer task finished./)
   await host.stop()
 })
 
