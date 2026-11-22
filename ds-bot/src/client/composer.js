@@ -7,7 +7,11 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
-import { chatOfSession, dropSentDraft, keepDraft, keepSentDraft, takeDraft, takeSentDraft } from './draft-keep.js'
+import {
+  captureAdmissionBaseline, chatOfSession, dropPartDraft, dropSentDraft,
+  hasLivePartDraft, isSentAdmitted, keepDraft, keepSentDraft, markSentAdmitted,
+  maxUserSeqOf, peekSentDraft, takeDraft, takeSentDraft,
+} from './draft-keep.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -223,16 +227,27 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
 }
 
 const NO_IDS = []
+const NO_QUEUE = []
+const NO_SUBMISSIONS = []
 const FROZEN_PHASES = new Set(['adjudicating', 'submitting', 'sending'])
 
 // An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
 // and group Session and renders nothing.
-export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+export function DraftKeeper({ sessionId, inputActions, useInput, useSession, useConversation, useRoster, actions }) {
   const chatId = useRoster(roster => chatOfSession(roster, sessionId)?.id)
   const current = useRoster(roster => chatOfSession(roster, sessionId)?.part === sessionId)
   const draft = useInput?.(state => state.draft) ?? ''
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
   const phase = useInput?.(state => state.phase) ?? 'plain'
+  const queue = useInput?.(state => state.queue) ?? NO_QUEUE
+  const openState = useSession?.(state => state?.openState)
+  const pendingSubmissions = useSession?.(state => state?.pendingSubmissions) ?? NO_SUBMISSIONS
+  const chatNow = useRef(undefined)
+  const lastUserSeq = useConversation?.((conversation) => {
+    const chat = conversation?.views?.get?.('chat')
+    chatNow.current = chat
+    return maxUserSeqOf(chat)
+  }) ?? 0
   const frozen = FROZEN_PHASES.has(phase)
   // Only an ordinary message send has a text that may never come back: a command's
   // draft is still the user's, however its slash adjudication settles.
@@ -251,14 +266,27 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     const key = `${chatId}:${sessionId}`
     if (restored.current === key) return
     // The box may hold the text of a message that was already sent, when its send closed
-    // the composer before the shell committed the empty draft (#1891). It is not a draft:
-    // clear the box, and never carry that text from the kept draft either.
-    const sent = takeSentDraft({ chatId, sessionId })
-    if (sent !== '') {
-      dropped.current = sent
-      if (draft === sent) inputActions.setDraft('')
+    // the composer before the shell committed the empty draft (#1891). Clear it only once
+    // Host admission is confirmed (not merely attempted) and no other tab wrote a fresh
+    // unsent draft for this Session since the send started.
+    let effectiveDraft = draft
+    let clearSent = false
+    const watch = peekSentDraft({ chatId, sessionId })
+    if (watch !== undefined) {
+      if (draft !== watch.text || hasLivePartDraft({ chatId, part: sessionId })) {
+        dropSentDraft({ chatId, sessionId })
+      } else if (isSentAdmitted(watch, { chat: chatNow.current, pendingSubmissions, queue })) {
+        takeSentDraft({ chatId, sessionId })
+        dropped.current = draft
+        effectiveDraft = ''
+        clearSent = true
+      } else if (openState === 'cold' || openState === 'loading') {
+        return
+      } else {
+        dropSentDraft({ chatId, sessionId })
+      }
     }
-    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
+    const back = takeDraft({ chatId, part: sessionId, text: effectiveDraft, attached: ids.length })
     let added = []
     let attached = false
     let restoredText = false
@@ -266,8 +294,14 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     let ok = true
     try {
       if (back.text !== '') {
-        inputActions.setDraft(back.text)
-        restoredText = true
+        if (back.text === draft) {
+          dropped.current = ''
+        } else {
+          inputActions.setDraft(back.text)
+          restoredText = true
+        }
+      } else if (clearSent) {
+        inputActions.setDraft('')
       }
       if (back.files.length > 0) {
         added = actions.restoreDraftFiles(sessionId, back.files.map(item => item.file))
@@ -290,21 +324,38 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     pending.current = { text: restoredText, files: restoredFiles }
     restored.current = key
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
-  }, [current, frozen, chatId, sessionId, inputActions])
+  }, [current, frozen, chatId, sessionId, inputActions, draft, openState, pendingSubmissions, queue, lastUserSeq])
   useEffect(() => {
     if (!current) return
+    const key = `${chatId}:${sessionId}`
     if (frozen) {
-      // A message on its way out is not a draft any more: this page remembers its text,
-      // for this Session, so a composer that closes (or opens) before the shell commits
-      // the empty draft cannot bring it back. A send that fails returns to the plain
-      // phase with its draft, which is then kept again.
-      if (sending && draft !== '') keepSentDraft({ chatId, sessionId, text: draft })
+      // A message on its way out is not a draft any more: this page remembers its text
+      // and pre-send admission baseline for this Session so a composer that closes before
+      // the shell commits the empty draft clears it on return only once Host admission is
+      // confirmed. An aborted or refused send returns to plain without admission, so its
+      // draft stays.
+      if (sending && draft !== '') {
+        const existing = peekSentDraft({ chatId, sessionId })
+        if (existing?.text === draft) {
+          if (isSentAdmitted(existing, { chat: chatNow.current, pendingSubmissions, queue })) {
+            markSentAdmitted({ chatId, sessionId })
+          }
+        } else {
+          keepSentDraft({
+            chatId,
+            sessionId,
+            text: draft,
+            baseline: captureAdmissionBaseline({ chat: chatNow.current, pendingSubmissions, queue }),
+          })
+        }
+      }
       // Before the take, an earlier part's draft still waits to be carried; only a draft
-      // this composer already has is dropped.
-      if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: '', files: [] })
+      // this part owns is dropped.
+      if (restored.current === key) keepDraft({ chatId, part: sessionId, text: '', files: [] })
+      else if (sending) dropPartDraft({ chatId, part: sessionId })
       return
     }
-    if (restored.current !== `${chatId}:${sessionId}`) return
+    if (restored.current !== key) return
     // The sent text the shell just brought back is not kept again; what the user types
     // after it is.
     if (dropped.current !== '' && draft === dropped.current) return
@@ -317,6 +368,6 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, files: false }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) })
-  }, [current, sending, frozen, chatId, sessionId, draft, ids])
+  }, [current, sending, frozen, chatId, sessionId, draft, ids, pendingSubmissions, queue, lastUserSeq])
   return null
 }

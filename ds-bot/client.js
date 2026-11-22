@@ -42423,18 +42423,102 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeTexts(storage, texts2);
 }
+function dropPartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  if (keptFiles.get(chatId)?.part === part) keptFiles.delete(chatId);
+  const texts2 = readTexts(storage);
+  if (texts2[chatId]?.part !== part) return;
+  delete texts2[chatId];
+  writeTexts(storage, texts2);
+}
+function hasLivePartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  const entry = readTexts(storage)[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "";
+}
+var contentText2 = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
+var nodeSeq = (node) => typeof node?.data?.seq === "number" ? node.data.seq : typeof node?.anchorSeq === "number" ? node.anchorSeq : 0;
+function chatUserNodes(chat) {
+  if (chat?.nodes === void 0) return [];
+  if (typeof chat.nodes.values === "function") {
+    return chat.nodes.values().filter((node) => node?.kind === "user" || node?.kind === "steering");
+  }
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    const out = [];
+    for (const key of chat.order) {
+      const node = chat.nodes.get(key);
+      if (node?.kind === "user" || node?.kind === "steering") out.push(node);
+    }
+    return out;
+  }
+  return [];
+}
+function maxUserSeqOf(chat) {
+  if (chat?.nodes === void 0) return 0;
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    for (let i = chat.order.length - 1; i >= 0; i -= 1) {
+      const node = chat.nodes.get(chat.order[i]);
+      if (node?.kind === "user" || node?.kind === "steering") return nodeSeq(node);
+    }
+    return 0;
+  }
+  let max = 0;
+  for (const node of chatUserNodes(chat)) {
+    const seq = nodeSeq(node);
+    if (seq > max) max = seq;
+  }
+  return max;
+}
+function captureAdmissionBaseline({ chat, pendingSubmissions, queue } = {}) {
+  const pendingIds = /* @__PURE__ */ new Set();
+  for (const item of pendingSubmissions ?? []) {
+    if (typeof item?.requestId === "string") pendingIds.add(item.requestId);
+  }
+  const queueIds = /* @__PURE__ */ new Set();
+  for (const item of queue ?? []) {
+    if (typeof item?.id === "string") queueIds.add(item.id);
+  }
+  return { maxUserSeq: maxUserSeqOf(chat), pendingIds, queueIds };
+}
+function isSentAdmitted(watch, { chat, pendingSubmissions, queue } = {}) {
+  if (watch === void 0 || watch.text === "") return false;
+  if (watch.admitted === true) return true;
+  const wanted = watch.text.trim();
+  if (wanted === "") return false;
+  const baseline = watch.baseline;
+  for (const sub of pendingSubmissions ?? []) {
+    if (typeof sub?.requestId === "string" && baseline?.pendingIds?.has(sub.requestId)) continue;
+    if (typeof sub?.text === "string" && sub.text.trim() === wanted) return true;
+  }
+  for (const item of queue ?? []) {
+    if (typeof item?.id === "string" && baseline?.queueIds?.has(item.id)) continue;
+    if (item?.source?.kind !== void 0 && item.source.kind !== "user") continue;
+    if (contentText2(item?.content).trim() === wanted) return true;
+  }
+  const minSeq = baseline?.maxUserSeq ?? 0;
+  for (const node of chatUserNodes(chat)) {
+    if (nodeSeq(node) <= minSeq) continue;
+    if (contentText2(node?.data?.content).trim() === wanted) return true;
+  }
+  return false;
+}
 var sentTexts = /* @__PURE__ */ new Map();
 var sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ""}`;
-function keepSentDraft({ chatId, sessionId, text }) {
+function keepSentDraft({ chatId, sessionId, text, baseline }) {
   const key = sentKey(chatId, sessionId);
   if (text === "") sentTexts.delete(key);
-  else sentTexts.set(key, text);
+  else sentTexts.set(key, { text, baseline, admitted: false });
+}
+function peekSentDraft({ chatId, sessionId }) {
+  return sentTexts.get(sentKey(chatId, sessionId));
+}
+function markSentAdmitted({ chatId, sessionId }) {
+  const entry = sentTexts.get(sentKey(chatId, sessionId));
+  if (entry !== void 0) entry.admitted = true;
 }
 function takeSentDraft({ chatId, sessionId }) {
   const key = sentKey(chatId, sessionId);
-  const text = sentTexts.get(key) ?? "";
+  const entry = sentTexts.get(key);
   sentTexts.delete(key);
-  return text;
+  return entry;
 }
 function dropSentDraft({ chatId, sessionId }) {
   sentTexts.delete(sentKey(chatId, sessionId));
@@ -42714,13 +42798,24 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   );
 }
 var NO_IDS = [];
+var NO_QUEUE = [];
+var NO_SUBMISSIONS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
-function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+function DraftKeeper({ sessionId, inputActions, useInput, useSession, useConversation, useRoster, actions }) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
+  const queue = useInput?.((state) => state.queue) ?? NO_QUEUE;
+  const openState = useSession?.((state) => state?.openState);
+  const pendingSubmissions = useSession?.((state) => state?.pendingSubmissions) ?? NO_SUBMISSIONS;
+  const chatNow = (0, import_react60.useRef)(void 0);
+  const lastUserSeq = useConversation?.((conversation) => {
+    const chat = conversation?.views?.get?.("chat");
+    chatNow.current = chat;
+    return maxUserSeqOf(chat);
+  }) ?? 0;
   const frozen = FROZEN_PHASES.has(phase);
   const sending = phase === "sending";
   const restored = (0, import_react60.useRef)("");
@@ -42730,12 +42825,24 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     if (!current2 || frozen || inputActions === void 0) return;
     const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
-    const sent = takeSentDraft({ chatId, sessionId });
-    if (sent !== "") {
-      dropped.current = sent;
-      if (draft === sent) inputActions.setDraft("");
+    let effectiveDraft = draft;
+    let clearSent = false;
+    const watch = peekSentDraft({ chatId, sessionId });
+    if (watch !== void 0) {
+      if (draft !== watch.text || hasLivePartDraft({ chatId, part: sessionId })) {
+        dropSentDraft({ chatId, sessionId });
+      } else if (isSentAdmitted(watch, { chat: chatNow.current, pendingSubmissions, queue })) {
+        takeSentDraft({ chatId, sessionId });
+        dropped.current = draft;
+        effectiveDraft = "";
+        clearSent = true;
+      } else if (openState === "cold" || openState === "loading") {
+        return;
+      } else {
+        dropSentDraft({ chatId, sessionId });
+      }
     }
-    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    const back = takeDraft({ chatId, part: sessionId, text: effectiveDraft, attached: ids.length });
     let added = [];
     let attached = false;
     let restoredText = false;
@@ -42743,8 +42850,14 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     let ok = true;
     try {
       if (back.text !== "") {
-        inputActions.setDraft(back.text);
-        restoredText = true;
+        if (back.text === draft) {
+          dropped.current = "";
+        } else {
+          inputActions.setDraft(back.text);
+          restoredText = true;
+        }
+      } else if (clearSent) {
+        inputActions.setDraft("");
       }
       if (back.files.length > 0) {
         added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
@@ -42765,15 +42878,31 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     pending.current = { text: restoredText, files: restoredFiles };
     restored.current = key;
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
-  }, [current2, frozen, chatId, sessionId, inputActions]);
+  }, [current2, frozen, chatId, sessionId, inputActions, draft, openState, pendingSubmissions, queue, lastUserSeq]);
   (0, import_react60.useEffect)(() => {
     if (!current2) return;
+    const key = `${chatId}:${sessionId}`;
     if (frozen) {
-      if (sending && draft !== "") keepSentDraft({ chatId, sessionId, text: draft });
-      if (restored.current === `${chatId}:${sessionId}`) keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      if (sending && draft !== "") {
+        const existing = peekSentDraft({ chatId, sessionId });
+        if (existing?.text === draft) {
+          if (isSentAdmitted(existing, { chat: chatNow.current, pendingSubmissions, queue })) {
+            markSentAdmitted({ chatId, sessionId });
+          }
+        } else {
+          keepSentDraft({
+            chatId,
+            sessionId,
+            text: draft,
+            baseline: captureAdmissionBaseline({ chat: chatNow.current, pendingSubmissions, queue })
+          });
+        }
+      }
+      if (restored.current === key) keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      else if (sending) dropPartDraft({ chatId, part: sessionId });
       return;
     }
-    if (restored.current !== `${chatId}:${sessionId}`) return;
+    if (restored.current !== key) return;
     if (dropped.current !== "" && draft === dropped.current) return;
     dropped.current = "";
     dropSentDraft({ chatId, sessionId });
@@ -42781,7 +42910,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
-  }, [current2, sending, frozen, chatId, sessionId, draft, ids]);
+  }, [current2, sending, frozen, chatId, sessionId, draft, ids, pendingSubmissions, queue, lastUserSeq]);
   return null;
 }
 

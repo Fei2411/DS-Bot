@@ -69,37 +69,176 @@ export function keepDraft({ chatId, part, text, files }, storage = globalThis.lo
   writeTexts(storage, texts)
 }
 
+/**
+ * Drop the kept draft only when it belongs to `part`, leaving an earlier part's waiting
+ * draft untouched.
+ * @param {{ chatId: string, part: string }} where
+ * @param {Storage} [storage]
+ */
+export function dropPartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  if (keptFiles.get(chatId)?.part === part) keptFiles.delete(chatId)
+  const texts = readTexts(storage)
+  if (texts[chatId]?.part !== part) return
+  delete texts[chatId]
+  writeTexts(storage, texts)
+}
+
+/**
+ * Whether shared storage currently holds a live unsent draft for `part` (for example
+ * written in another tab after this page cleared its own draft on send).
+ * @param {{ chatId: string, part: string }} where
+ * @param {Storage} [storage]
+ * @returns {boolean}
+ */
+export function hasLivePartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  const entry = readTexts(storage)[chatId]
+  return textEntry(entry) && entry.part === part && entry.text !== ''
+}
+
+const contentText = content => (Array.isArray(content)
+  ? content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('')
+  : '')
+
+const nodeSeq = node => (typeof node?.data?.seq === 'number'
+  ? node.data.seq
+  : (typeof node?.anchorSeq === 'number' ? node.anchorSeq : 0))
+
+function chatUserNodes(chat) {
+  if (chat?.nodes === undefined) return []
+  if (typeof chat.nodes.values === 'function') {
+    return chat.nodes.values().filter(node => node?.kind === 'user' || node?.kind === 'steering')
+  }
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === 'function') {
+    const out = []
+    for (const key of chat.order) {
+      const node = chat.nodes.get(key)
+      if (node?.kind === 'user' || node?.kind === 'steering') out.push(node)
+    }
+    return out
+  }
+  return []
+}
+
+/**
+ * Highest durable event seq among user/steering nodes currently in a Chat snapshot.
+ * @param {object | undefined} chat
+ * @returns {number}
+ */
+export function maxUserSeqOf(chat) {
+  if (chat?.nodes === undefined) return 0
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === 'function') {
+    for (let i = chat.order.length - 1; i >= 0; i -= 1) {
+      const node = chat.nodes.get(chat.order[i])
+      if (node?.kind === 'user' || node?.kind === 'steering') return nodeSeq(node)
+    }
+    return 0
+  }
+  let max = 0
+  for (const node of chatUserNodes(chat)) {
+    const seq = nodeSeq(node)
+    if (seq > max) max = seq
+  }
+  return max
+}
+
+/**
+ * Snapshot the Session's already-admitted user messages at the start of a send attempt
+ * so a later check only counts admissions that happened after this send began.
+ * @param {{ chat?: object, pendingSubmissions?: readonly object[], queue?: readonly object[] }} [state]
+ */
+export function captureAdmissionBaseline({ chat, pendingSubmissions, queue } = {}) {
+  const pendingIds = new Set()
+  for (const item of pendingSubmissions ?? []) {
+    if (typeof item?.requestId === 'string') pendingIds.add(item.requestId)
+  }
+  const queueIds = new Set()
+  for (const item of queue ?? []) {
+    if (typeof item?.id === 'string') queueIds.add(item.id)
+  }
+  return { maxUserSeq: maxUserSeqOf(chat), pendingIds, queueIds }
+}
+
+/**
+ * Whether Host admission is confirmed for a remembered send watch: an accepted
+ * pendingSubmission echo, a new user queue item, or a durable user/steering message
+ * after the send's baseline whose text matches what was sent (trimmed like DSH's
+ * serializeDraftPrompt).
+ * @param {{ text: string, baseline?: { maxUserSeq: number, pendingIds: Set<string>, queueIds: Set<string> }, admitted?: boolean } | undefined} watch
+ * @param {{ chat?: object, pendingSubmissions?: readonly object[], queue?: readonly object[] }} [state]
+ * @returns {boolean}
+ */
+export function isSentAdmitted(watch, { chat, pendingSubmissions, queue } = {}) {
+  if (watch === undefined || watch.text === '') return false
+  if (watch.admitted === true) return true
+  const wanted = watch.text.trim()
+  if (wanted === '') return false
+  const baseline = watch.baseline
+  for (const sub of pendingSubmissions ?? []) {
+    if (typeof sub?.requestId === 'string' && baseline?.pendingIds?.has(sub.requestId)) continue
+    if (typeof sub?.text === 'string' && sub.text.trim() === wanted) return true
+  }
+  for (const item of queue ?? []) {
+    if (typeof item?.id === 'string' && baseline?.queueIds?.has(item.id)) continue
+    if (item?.source?.kind !== undefined && item.source.kind !== 'user') continue
+    if (contentText(item?.content).trim() === wanted) return true
+  }
+  const minSeq = baseline?.maxUserSeq ?? 0
+  for (const node of chatUserNodes(chat)) {
+    if (nodeSeq(node) <= minSeq) continue
+    if (contentText(node?.data?.content).trim() === wanted) return true
+  }
+  return false
+}
+
 // The text of a message that was already sent is not a draft. The shell may close its
 // composer before it commits the emptied draft and hand the sent text back on the next
-// visit; this page remembers the send so that visit can clear the box instead (#1891).
-// The note lives in this page's memory, never in browser storage: storage is shared by
-// every tab, and a mark another tab left is not this page's to act on (#2003). It belongs
-// to the Session that sent it, so a parallel Session of the same chat, which the user may
-// switch to, neither reads it nor consumes it (#2003 review).
+// visit; this page remembers the send attempt with its pre-send admission baseline so
+// that visit clears the box only once Host admission is confirmed (#1891). The note
+// lives in this page's memory, never in browser storage: storage is shared by every
+// tab, and a mark another tab left is not this page's to act on (#2003). It belongs
+// to the Session that sent it, so a parallel Session of the same chat, which the user
+// may switch to, neither reads it nor consumes it (#2003 review).
 const sentTexts = new Map()
 
 const sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ''}`
 
 /**
- * Remember that this page sent a message with this text in one Session of a chat.
- * @param {{ chatId: string, sessionId: string, text: string }} sent
+ * Remember an in-flight message send for one Session of a chat, along with its
+ * pre-send admission baseline.
+ * @param {{ chatId: string, sessionId: string, text: string, baseline?: object }} sent
  */
-export function keepSentDraft({ chatId, sessionId, text }) {
+export function keepSentDraft({ chatId, sessionId, text, baseline }) {
   const key = sentKey(chatId, sessionId)
   if (text === '') sentTexts.delete(key)
-  else sentTexts.set(key, text)
+  else sentTexts.set(key, { text, baseline, admitted: false })
 }
 
 /**
- * The text this page sent in this Session, read once when its composer opens again.
+ * Inspect the pending send watch for this Session without consuming it.
  * @param {{ chatId: string, sessionId: string }} where
- * @returns {string}
+ */
+export function peekSentDraft({ chatId, sessionId }) {
+  return sentTexts.get(sentKey(chatId, sessionId))
+}
+
+/**
+ * Latch confirmed Host admission on an in-flight send watch for this Session.
+ * @param {{ chatId: string, sessionId: string }} where
+ */
+export function markSentAdmitted({ chatId, sessionId }) {
+  const entry = sentTexts.get(sentKey(chatId, sessionId))
+  if (entry !== undefined) entry.admitted = true
+}
+
+/**
+ * Consume the remembered send watch for this Session.
+ * @param {{ chatId: string, sessionId: string }} where
  */
 export function takeSentDraft({ chatId, sessionId }) {
   const key = sentKey(chatId, sessionId)
-  const text = sentTexts.get(key) ?? ''
+  const entry = sentTexts.get(key)
   sentTexts.delete(key)
-  return text
+  return entry
 }
 
 /**

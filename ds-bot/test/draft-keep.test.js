@@ -5,7 +5,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { chatOfSession, dropSentDraft, forgetKeptFiles, keepDraft, keepSentDraft, pruneDrafts, takeDraft, takeSentDraft } from '../src/client/draft-keep.js'
+import {
+  captureAdmissionBaseline, chatOfSession, dropPartDraft, dropSentDraft,
+  forgetKeptFiles, hasLivePartDraft, isSentAdmitted, keepDraft, keepSentDraft,
+  markSentAdmitted, maxUserSeqOf, peekSentDraft, pruneDrafts, takeDraft, takeSentDraft,
+} from '../src/client/draft-keep.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
 import { STORAGE } from '../src/client/storage.js'
@@ -95,19 +99,20 @@ test('a send or an emptied box leaves nothing to take back', () => {
 
 test('a sent text is remembered for this page and Session only, and read once', () => {
   keepDraft({ chatId: 'bee', part: 'bee-2', text: 'hello', files: [] }, storage)
-  keepSentDraft({ chatId: 'bee', sessionId: 'bee-2', text: 'hello' })
+  keepSentDraft({ chatId: 'bee', sessionId: 'bee-2', text: 'hello', baseline: captureAdmissionBaseline() })
   assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'hello' } }, 'the shared draft store is not touched')
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-3' }), '', 'another Session of the chat does not read it')
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), 'hello')
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), '', 'the sent text is read once')
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-3' }), undefined, 'another Session of the chat does not read it')
+  assert.equal(peekSentDraft({ chatId: 'bee', sessionId: 'bee-2' })?.text, 'hello')
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' })?.text, 'hello')
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), undefined, 'the sent text is read once')
 })
 
 test('a settled send forgets its text, so a later visit cannot clear a same-text draft', () => {
   keepSentDraft({ chatId: 'bee', sessionId: 'bee-2', text: '继续' })
   keepSentDraft({ chatId: 'bee', sessionId: 'bee-3', text: 'another' })
   dropSentDraft({ chatId: 'bee', sessionId: 'bee-2' })
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), '')
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-3' }), 'another', 'only that Session is forgotten')
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), undefined)
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-3' })?.text, 'another', 'only that Session is forgotten')
 })
 
 test('a deleted chat takes this page\'s sent marks with it, and only that chat\'s', () => {
@@ -115,9 +120,64 @@ test('a deleted chat takes this page\'s sent marks with it, and only that chat\'
   keepSentDraft({ chatId: 'bee', sessionId: 'bee-b', text: 'two' })
   keepSentDraft({ chatId: 'chief', sessionId: 'chief', text: 'three' })
   pruneDrafts(['bee'], storage)
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-a' }), '')
-  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-b' }), '')
-  assert.equal(takeSentDraft({ chatId: 'chief', sessionId: 'chief' }), 'three')
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-a' }), undefined)
+  assert.equal(takeSentDraft({ chatId: 'bee', sessionId: 'bee-b' }), undefined)
+  assert.equal(takeSentDraft({ chatId: 'chief', sessionId: 'chief' })?.text, 'three')
+})
+
+test('admission verification distinguishes new Host admissions from pre-existing history and unconfirmed attempts', () => {
+  const oldChat = {
+    order: ['u1'],
+    nodes: {
+      get: k => (k === 'u1' ? { kind: 'user', anchorSeq: 4, data: { seq: 4, content: [{ type: 'text', text: '继续' }] } } : undefined),
+      values: () => [{ kind: 'user', anchorSeq: 4, data: { seq: 4, content: [{ type: 'text', text: '继续' }] } }],
+    },
+  }
+  assert.equal(maxUserSeqOf(oldChat), 4)
+  const baseline = captureAdmissionBaseline({
+    chat: oldChat,
+    pendingSubmissions: [{ requestId: 'old-req', text: '继续' }],
+    queue: [{ id: 'old-q', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }],
+  })
+  const watch = { text: ' 继续 ', baseline, admitted: false }
+  // Nothing new since baseline: not admitted.
+  assert.equal(isSentAdmitted(watch, {
+    chat: oldChat,
+    pendingSubmissions: [{ requestId: 'old-req', text: '继续' }],
+    queue: [{ id: 'old-q', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }],
+  }), false)
+  // A new accepted pendingSubmission confirms admission (trimmed like DSH serializeDraftPrompt).
+  assert.equal(isSentAdmitted(watch, { pendingSubmissions: [{ requestId: 'new-req', text: '继续' }] }), true)
+  // A new user queue row confirms admission; a bot-sourced row does not.
+  assert.equal(isSentAdmitted(watch, { queue: [{ id: 'bot-q', source: { kind: 'bot' }, content: [{ type: 'text', text: '继续' }] }] }), false)
+  assert.equal(isSentAdmitted(watch, { queue: [{ id: 'new-q', source: { kind: 'user' }, content: [{ type: 'image' }, { type: 'text', text: '继续' }] }] }), true)
+  // A new durable user or steering node above baseline.maxUserSeq confirms admission.
+  const admittedChat = {
+    order: ['u1', 's2'],
+    nodes: {
+      get: k => (k === 's2' ? { kind: 'steering', anchorSeq: 7, data: { seq: 7, content: [{ type: 'text', text: '继续' }] } } : oldChat.nodes.get(k)),
+      values: () => [
+        ...oldChat.nodes.values(),
+        { kind: 'steering', anchorSeq: 7, data: { seq: 7, content: [{ type: 'text', text: '继续' }] } },
+      ],
+    },
+  }
+  assert.equal(isSentAdmitted(watch, { chat: admittedChat }), true)
+  // Latching admitted via markSentAdmitted sticks even after echoes retire.
+  keepSentDraft({ chatId: 'bee', sessionId: 'bee-2', text: '继续', baseline })
+  markSentAdmitted({ chatId: 'bee', sessionId: 'bee-2' })
+  assert.equal(isSentAdmitted(peekSentDraft({ chatId: 'bee', sessionId: 'bee-2' }), {}), true)
+})
+
+test('dropPartDraft drops only the named part and hasLivePartDraft detects another tab\'s draft on the same part', () => {
+  keepDraft({ chatId: 'bee', part: 'bee', text: 'older', files: [image('a.png')] }, storage)
+  assert.equal(hasLivePartDraft({ chatId: 'bee', part: 'bee-2' }, storage), false)
+  dropPartDraft({ chatId: 'bee', part: 'bee-2' }, storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.drafts)), { bee: { part: 'bee', text: 'older' } })
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'fresh', files: [] }, storage)
+  assert.equal(hasLivePartDraft({ chatId: 'bee', part: 'bee-2' }, storage), true)
+  dropPartDraft({ chatId: 'bee', part: 'bee-2' }, storage)
+  assert.equal(hasLivePartDraft({ chatId: 'bee', part: 'bee-2' }, storage), false)
 })
 
 test('a removed image stays removed', () => {
@@ -189,6 +249,18 @@ test('the pinned DSH conversation service has the draft intake the keeper uses',
   const input = await readFile(join(dirname(types), 'lib', 'types', 'client', 'contract', 'input.d.ts'), 'utf8')
   assert.match(input, /addAttachments\(ids: readonly DraftAttachmentId\[\]\): boolean;/)
   assert.match(input, /readonly phase: 'plain' \| 'adjudicating' \| 'claimed' \| 'submitting' \| 'sending';/)
+  assert.match(input, /readonly queue: InboxState\['next-turn'\];/)
+  const sessionTypes = require.resolve('@deepseek-ai/dsh-api-session-controller/package.json')
+  const sessionSnap = await readFile(join(dirname(sessionTypes), 'lib', 'types', 'client', 'contract', 'snapshot.d.ts'), 'utf8')
+  assert.match(sessionSnap, /readonly pendingSubmissions: readonly PendingSubmission\[\];/)
+  assert.match(sessionSnap, /readonly openState: OpenState;/)
+  const chatTypes = require.resolve('@deepseek-ai/dsh-client-ui-chat/package.json')
+  const chatSnap = await readFile(join(dirname(chatTypes), 'lib', 'types', 'client', 'contract', 'snapshot.d.ts'), 'utf8')
+  assert.match(chatSnap, /chat: ChatSnapshot;/)
+  assert.match(chatSnap, /readonly nodes: ChatNodeStore;/)
+  const chatMsg = await readFile(join(dirname(chatTypes), 'lib', 'types', 'client', 'conversation-nodes', 'message.d.ts'), 'utf8')
+  assert.match(chatMsg, /user: ReferencedUserMessageNode;/)
+  assert.match(chatMsg, /steering: ReferencedSteeringMessageNode;/)
 })
 
 
@@ -394,7 +466,38 @@ test('DraftKeeper stops keeping a draft that is being sent, and keeps it again i
   assert.deepEqual(Array.from(back.files, item => item.file.name), ['img.png'])
 })
 
-test('DraftKeeper clears the sent text the shell hands back after the composer closed mid-send (#1891)', () => {
+// Real DSH session + conversation fixtures matching SessionSnapshot and ChatSnapshot.
+const chatSnapshot = (messages = []) => {
+  const map = new Map()
+  const order = []
+  for (const [index, msg] of messages.entries()) {
+    const key = `msg-${index + 1}`
+    order.push(key)
+    map.set(key, {
+      kind: msg.kind ?? 'user',
+      anchorSeq: msg.seq,
+      data: {
+        kind: msg.kind ?? 'user',
+        seq: msg.seq,
+        content: [{ type: 'text', text: msg.text }],
+        source: { kind: 'user' },
+      },
+    })
+  }
+  return { views: { get: target => (target === 'chat' ? { order, nodes: { get: k => map.get(k), values: () => [...map.values()] } } : undefined) } }
+}
+
+const sessionHooks = ({ session = { openState: 'open', pendingSubmissions: [] }, messages = [] } = {}) => {
+  const conv = { messages }
+  return {
+    session,
+    conv,
+    useSession: pick => pick(session),
+    useConversation: pick => pick(chatSnapshot(conv.messages)),
+  }
+}
+
+test('DraftKeeper clears the sent text only after Host admission is confirmed (#1891)', () => {
   const ls = memoryStorage()
   const { render, remount } = loadKeeper(ls)
   const setDrafts = []
@@ -405,19 +508,63 @@ test('DraftKeeper clears the sent text the shell hands back after the composer c
     reopenPastes: () => {},
   }
   const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
-  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain' }
-  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks()
+  const props = {
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+  }
 
   // The user types, sends, and leaves before the shell commits the emptied draft.
   render(props)
   state.phase = 'sending'
   render(props)
 
-  // The next visit: the shell restores the sent text into the box, which is not a draft.
+  // Returning while history is still loading waits without wiping or keeping stale text.
+  state.phase = 'plain'
+  host.session.openState = 'loading'
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'waits for session history before deciding')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {}, 'does not re-keep stale text while loading')
+
+  // Host history opens with the admitted durable user message: now the stale draft clears.
+  host.session.openState = 'open'
+  host.conv.messages = [{ seq: 1, text: 'hello there' }]
+  render(props)
+  assert.deepEqual(setDrafts, [''], 'the admitted sent text is cleared from the box')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {}, 'and it is not carried to a newer part')
+})
+
+test('DraftKeeper preserves an unsent draft when a mid-send navigation aborted or Host refused before admission (#2003 review)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const state = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
+  // Pre-existing turn already contains the same text at seq 2.
+  const host = sessionHooks({ messages: [{ seq: 2, text: '继续' }] })
+  const props = {
+    sessionId: 'bee-2',
+    inputActions: { setDraft: text => setDrafts.push(text), addAttachments: () => true },
+    actions: { draftFiles: () => [], restoreDraftFiles: () => [], releaseDraftFiles: () => {}, reopenPastes: () => {} },
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+  }
+
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // User navigated away before Host accepted (aborted on scope disposal or refused):
+  // no new pendingSubmission, queue item, or durable message above seq 2 exists.
   state.phase = 'plain'
   remount(props)
-  assert.deepEqual(setDrafts, [''], 'the sent text is cleared from the box')
-  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {}, 'and it is not carried to a newer part')
+  assert.deepEqual(setDrafts, [], 'unconfirmed send must NOT wipe the unsent draft')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '继续' } }, 'the unsent draft stays kept for retry')
 })
 
 test('DraftKeeper does not carry a sent text to the part the chat moved to', () => {
@@ -431,8 +578,15 @@ test('DraftKeeper does not carry a sent text to the part the chat moved to', () 
     reopenPastes: () => {},
   }
   const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
-  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain' }
-  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+  const state = { draft: 'hello there', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks()
+  const props = {
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+  }
 
   remount(props)
   state.phase = 'sending'
@@ -457,8 +611,15 @@ test('DraftKeeper keeps a command draft even though its composer closed while it
     reopenPastes: () => {},
   }
   const inputActions = { setDraft: text => setDrafts.push(text), addAttachments: () => true }
-  const state = { draft: '/goal ship it', attachmentIds: [], phase: 'plain' }
-  const props = { sessionId: 'bee-2', inputActions, actions, useRoster: pick => pick(roster), useInput: pick => pick(state) }
+  const state = { draft: '/goal ship it', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks()
+  const props = {
+    sessionId: 'bee-2', inputActions, actions,
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+  }
 
   remount(props)
   state.phase = 'submitting'
@@ -472,68 +633,116 @@ test('DraftKeeper keeps a command draft even though its composer closed while it
 
 // One visit of a composer: the shell mounts it for a chat, in a page that keeps its own
 // memory while browser storage is shared by every tab.
-const draftKeeperProps = (state, setDrafts) => ({
+const draftKeeperProps = (state, setDrafts, host = sessionHooks()) => ({
   sessionId: 'bee-2',
   inputActions: { setDraft: text => setDrafts.push(text), addAttachments: () => true },
   actions: { draftFiles: () => [], restoreDraftFiles: () => [], releaseDraftFiles: () => {}, reopenPastes: () => {} },
   useRoster: pick => pick(roster),
   useInput: pick => pick(state),
+  useSession: host.useSession,
+  useConversation: host.useConversation,
 })
 
-test("a send never clears another tab's draft, and each tab still clears its own sent text (#2003 review)", () => {
+test("a send never clears another tab's draft, and each tab still clears its own admitted sent text (#2003 review)", () => {
   const ls = memoryStorage()
   const tabA = loadKeeper(ls)
   const tabB = loadKeeper(ls)
-  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain' }
-  const stateB = { draft: '继续', attachmentIds: [], phase: 'plain' }
+  const hostA = sessionHooks()
+  const hostB = sessionHooks()
+  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
+  const stateB = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
   const setA = []
   const setB = []
-  const propsA = draftKeeperProps(stateA, setA)
-  const propsB = draftKeeperProps(stateB, setB)
+  const propsA = draftKeeperProps(stateA, setA, hostA)
+  const propsB = draftKeeperProps(stateB, setB, hostB)
 
-  // Tab B holds an unsent draft with the same text; tab A sends that text.
-  tabB.render(propsB)
+  // Tab A sends '继续' and leaves mid-send; Host admits it.
   tabA.render(propsA)
   stateA.phase = 'sending'
   tabA.render(propsA)
+  hostA.conv.messages = [{ seq: 1, text: '继续' }]
+  hostB.conv.messages = [{ seq: 1, text: '继续' }]
 
-  // Tab B leaves and comes back: its unsent draft is still in the box.
+  // Tab B opens bee-2 and writes a fresh unsent draft with the same text '继续'.
   tabB.remount(propsB)
   assert.deepEqual(setB, [], "tab A's sent text does not clear tab B's draft")
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '继续' } })
 
-  // Tab A's own next visit clears the text its send left behind.
+  // Tab A returns to bee-2: even though Tab A's earlier send was admitted, Tab B wrote
+  // a fresh unsent draft for bee-2 in shared storage, so Tab A must NOT erase it.
   stateA.phase = 'plain'
   tabA.remount(propsA)
-  assert.deepEqual(setA, [''], 'tab A still clears its own sent text')
+  assert.deepEqual(setA, [], "tab A returning must not erase tab B's fresh same-text draft")
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '继续' } })
 
-  // Even a different text in the other tab must not consume the mark.
+  // When no other tab wrote a fresh draft for bee-2, Tab A clears its own admitted sent text.
   setA.length = 0
-  setB.length = 0
   stateA.draft = '继续2'
   stateA.phase = 'plain'
   tabA.render(propsA)
   stateA.phase = 'sending'
   tabA.render(propsA)
-  stateB.draft = 'other'
-  tabB.remount(propsB)
-  assert.deepEqual(setB, [], "tab B's own draft is untouched")
+  hostA.conv.messages = [{ seq: 1, text: '继续' }, { seq: 2, text: '继续2' }]
   stateA.phase = 'plain'
-  stateA.draft = '继续2'
   tabA.remount(propsA)
-  assert.deepEqual(setA, [''], 'tab B did not consume tab A\'s sent text')
+  assert.deepEqual(setA, [''], 'tab A still clears its own admitted sent text when no other tab replaced it')
 })
 
-test("a composer mounted mid-send leaves an earlier part's draft for the take (#2003 review)", () => {
+test("clearing a sent draft passes '' to takeDraft so an earlier part's waiting draft is carried instead of wiped (#2003 review)", () => {
+  const ls = memoryStorage()
+  const { keepDraft: keep, takeDraft: take, render, remount } = loadKeeper(ls)
+  keep({ chatId: 'bee', part: 'bee', text: 'older unsent text', files: [image('red.png')] }, ls)
+
+  const setDrafts = []
+  const attached = []
+  const reopened = []
+  const state = { draft: 'look at this', attachmentIds: [], phase: 'sending', queue: [] }
+  const host = sessionHooks()
+  const props = {
+    sessionId: 'bee-2',
+    inputActions: {
+      setDraft: (text) => { setDrafts.push(text); state.draft = text },
+      addAttachments: (ids) => { attached.push(...ids); state.attachmentIds = [...ids]; return true },
+    },
+    actions: {
+      draftFiles: ids => ids.map(() => image('red.png')),
+      restoreDraftFiles: () => ['draft-7'],
+      releaseDraftFiles: () => {},
+      reopenPastes: (from, to) => reopened.push([from, to]),
+    },
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+  }
+
+  // Composer opens mid-send on bee-2: earlier part's draft in bee stays untouched.
+  render(props)
+  const preserved = take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls)
+  assert.equal(preserved.text, 'older unsent text', "the earlier part's draft is not dropped by the send")
+  assert.deepEqual(Array.from(preserved.files, item => item.file.name), ['red.png'])
+
+  // Composer leaves mid-send; Host admits 'look at this'; returning hands stale 'look at this' back.
+  state.phase = 'plain'
+  host.session.pendingSubmissions = [{ requestId: 'req-1', placement: 'transcript', time: 1, text: 'look at this', attachments: [] }]
+  remount(props)
+  assert.deepEqual(setDrafts, ['older unsent text'], 'replaces stale sent text with the earlier part draft')
+  assert.deepEqual(attached, ['draft-7'])
+  assert.deepEqual(reopened, [['bee', 'bee-2']])
+  // Next render after restored draft lands must keep it under bee-2 instead of wiping it.
+  render(props)
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'older unsent text' } })
+})
+
+test("a composer mounted mid-send leaves an earlier part's draft for the take when the send settles normally (#2003 review)", () => {
   const ls = memoryStorage()
   const { keepDraft: keep, takeDraft: take, render } = loadKeeper(ls)
   keep({ chatId: 'bee', part: 'bee', text: 'older unsent text', files: [image('red.png')] }, ls)
 
   const setDrafts = []
-  const state = { draft: 'look at this', attachmentIds: [], phase: 'sending' }
+  const state = { draft: 'look at this', attachmentIds: [], phase: 'sending', queue: [] }
   const props = draftKeeperProps(state, setDrafts)
 
-  // The composer opens while a send is already in flight, so the take waits; the draft
-  // of an earlier part is still in storage and must stay there until it can be carried.
   render(props)
   const preserved = take({ chatId: 'bee', part: 'bee-2', text: '', attached: 0 }, ls)
   assert.equal(preserved.text, 'older unsent text', "the earlier part's draft is not dropped by the send")
@@ -556,56 +765,69 @@ const parallelRoster = current => ({
   roomsById: {},
 })
 
-const parallelProps = (session, state, setDrafts) => ({
+const parallelProps = (session, state, setDrafts, host = sessionHooks()) => ({
   sessionId: session,
   inputActions: { setDraft: text => setDrafts.push(text), addAttachments: () => true },
   actions: { draftFiles: () => [], restoreDraftFiles: () => [], releaseDraftFiles: () => {}, reopenPastes: () => {} },
   useRoster: pick => pick(parallelRoster(session)),
   useInput: pick => pick(state),
+  useSession: host.useSession,
+  useConversation: host.useConversation,
 })
 
 test("another Session of the same chat does not take the sent text (#2003 review)", () => {
   const ls = memoryStorage()
   const page = loadKeeper(ls)
-  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain' }
-  const stateB = { draft: '继续', attachmentIds: [], phase: 'plain' }
+  const hostA = sessionHooks()
+  const hostB = sessionHooks()
+  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
+  const stateB = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
   const setA = []
   const setB = []
-  const propsA = parallelProps('bee-a', stateA, setA)
-  const propsB = parallelProps('bee-b', stateB, setB)
+  const propsA = parallelProps('bee-a', stateA, setA, hostA)
+  const propsB = parallelProps('bee-b', stateB, setB, hostB)
 
-  // Session A is open and sends the text.
+  // Session A is open and sends the text; Host queues it on A.
   page.render(propsA)
   stateA.phase = 'sending'
   page.render(propsA)
+  stateA.queue = [{ id: 'q-1', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }]
 
   // The user switches to parallel Session B, whose unsent draft has the same text.
   page.remount(propsB)
   assert.deepEqual(setB, [], "Session A's sent text does not clear B's draft")
 
-  // Back in A, the text its send left in the box is still cleared.
+  // Clear B's draft before returning so B does not carry its text into A; A still
+  // clears its own admitted sent text because B never consumed A's sent watch.
+  stateB.draft = ''
+  page.render(propsB)
   stateA.phase = 'plain'
   page.remount(propsA)
-  assert.deepEqual(setA, [''], 'A still clears its own sent text')
+  assert.deepEqual(setA, [''], 'A still clears its own admitted sent text')
 })
 
 test("a different draft in another Session does not consume the sent text (#2003 review)", () => {
   const ls = memoryStorage()
   const page = loadKeeper(ls)
-  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain' }
-  const stateB = { draft: 'other', attachmentIds: [], phase: 'plain' }
+  const hostA = sessionHooks()
+  const hostB = sessionHooks()
+  const stateA = { draft: '继续', attachmentIds: [], phase: 'plain', queue: [] }
+  const stateB = { draft: 'other', attachmentIds: [], phase: 'plain', queue: [] }
   const setA = []
   const setB = []
-  const propsA = parallelProps('bee-a', stateA, setA)
-  const propsB = parallelProps('bee-b', stateB, setB)
+  const propsA = parallelProps('bee-a', stateA, setA, hostA)
+  const propsB = parallelProps('bee-b', stateB, setB, hostB)
 
   page.render(propsA)
   stateA.phase = 'sending'
   page.render(propsA)
+  hostA.conv.messages = [{ seq: 1, text: '继续' }]
 
   page.remount(propsB)
   assert.deepEqual(setB, [], "B's own draft is untouched")
+  // Returning to A clears A's stale sent text and carries B's kept draft rather than
+  // leaving A's sent text in the box (which would happen if B had consumed A's watch).
   stateA.phase = 'plain'
   page.remount(propsA)
-  assert.deepEqual(setA, [''], "B did not consume A's sent text")
+  assert.deepEqual(setA, ['other'], "B did not consume A's admitted sent text")
 })
