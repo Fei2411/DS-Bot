@@ -73,6 +73,37 @@ function reader(response) {
   }
 }
 
+test('HTTP feed connections expire within the update deadline and reconnect with hello', async (t) => {
+  const { call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const connect = () => routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed'))
+  const next = reader(await connect())
+  assert.equal((await next()).event, 'hello')
+  let closed = false
+  const end = next().then(value => { closed = true; return value })
+  t.mock.timers.tick(5_999)
+  await Promise.resolve()
+  assert.equal(closed, false)
+  t.mock.timers.tick(1)
+  assert.equal(await end, undefined)
+  const reconnected = reader(await connect())
+  assert.equal((await reconnected()).event, 'hello')
+  t.mock.timers.tick(6_000)
+  assert.equal(await reconnected(), undefined)
+})
+
+test('an already disconnected HTTP feed closes without waiting for its lifetime', async (t) => {
+  const { stop, routes } = start()
+  t.after(stop)
+  const abort = new AbortController()
+  abort.abort()
+  const next = reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal })))
+  assert.equal((await next()).event, 'hello')
+  assert.equal(await next(), undefined)
+})
+
 test('state and live feed keep question and view routing metadata private', async (t) => {
   const imOrigin = { connId: 'private-connection', chatKey: 'private-chat', binding: 'room:r1' }
   const question = { id: 'q1', question: 'Which?', options: [{ label: 'A' }] }

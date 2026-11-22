@@ -11,8 +11,8 @@
 import { ROUTE } from './constants.js'
 
 export const FEED_ROUTE = `${ROUTE}/feed`
-// A comment line now and then keeps an idle connection open.
-const KEEPALIVE_MS = 20_000
+// Leave room for Desktop's 10-second update-lock request drain.
+const MAX_LIFETIME_MS = 6_000
 // Status changes come in bursts (a turn starts several Sessions); one notice covers them.
 const LIVE_DELAY_MS = 150
 // A window that stops reading is dropped once this many events wait for it; it
@@ -29,7 +29,7 @@ export function install(rt) {
       leave(controller)
       return
     }
-    try { controller.enqueue(chunk) } catch { clients.delete(controller) }
+    try { controller.enqueue(chunk) } catch { leave(controller) }
   }
   const publish = (event, data) => {
     for (const tap of taps) {
@@ -104,8 +104,13 @@ export function install(rt) {
   // once collected, its abort never fires and the feed stays open. Each open feed keeps
   // its Request until it leaves.
   const requests = new Map()
+  const lifetimes = new Map()
   const leave = (controller) => {
     clients.delete(controller)
+    clearTimeout(lifetimes.get(controller))
+    lifetimes.delete(controller)
+    const connection = requests.get(controller)
+    connection?.request.signal.removeEventListener('abort', connection.abort)
     requests.delete(controller)
     if (!listening()) writing.clear()
     try { controller.close() } catch { /* already closed or errored */ }
@@ -125,19 +130,17 @@ export function install(rt) {
         },
         cancel() { leave(controller) },
       })
-      requests.set(controller, request)
-      request.signal.addEventListener('abort', () => leave(controller), { once: true })
+      const abort = () => leave(controller)
+      requests.set(controller, { request, abort })
+      lifetimes.set(controller, setTimeout(abort, MAX_LIFETIME_MS))
+      request.signal.addEventListener('abort', abort, { once: true })
+      if (request.signal.aborted) leave(controller)
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } })
     },
   }), 'ds-bot: live feed route')
 
   ctx.effect(() => {
-    const keepalive = setInterval(() => {
-      if (clients.size > 0) for (const controller of clients) send(controller, encoder.encode(': keepalive\n\n'))
-    }, KEEPALIVE_MS)
-    keepalive.unref?.()
     return () => {
-      clearInterval(keepalive)
       clearTimeout(liveTimer)
       offSaved()
       for (const controller of clients) leave(controller)
