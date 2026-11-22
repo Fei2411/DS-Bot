@@ -999,13 +999,14 @@ export function install(rt) {
         }
         return 'The view is on screen.'
       }
+      const imOrigin = rt.captureImOrigin?.(owner === undefined ? id : rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId)
       state.views[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
         title,
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),
-        ...(owner === undefined ? {} : { imOrigin: rt.captureImOrigin?.(rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId) }),
+        ...(imOrigin === undefined ? {} : { imOrigin }),
         askedAt: Date.now(),
       }
       if (owner !== undefined) {

@@ -1511,6 +1511,37 @@ test('own-chat view answers are refused after the delivering chat is rebound or 
   }
 })
 
+test('own-chat simple views and forms reach IM when show_view concludes the turn', async (t) => {
+  for (const kind of ['simple', 'form']) await t.test(kind, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    await pairedConn(s)
+    await dm(s, 'u1', 'show a view')
+    s.imTurn('a')
+    const view = kind === 'simple' ? { type: 'confirm', id: 'go' }
+      : { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+    await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Turn-ending view', view }, {
+      agent: { id: 'a' },
+      concludeTurn() { s.emitEvent('a', 'turn/end', { reason: { kind: 'completed' } }) },
+    })
+    const pending = s.rt.state.views.a
+    assert.equal(s.rt.captureImOrigin('a'), undefined)
+    assert.equal(pending.imOrigin.chatKey, 'dm-u1')
+    if (kind === 'form') {
+      const card = await tokenCard(s)
+      assert.equal(card.chat.key, 'dm-u1')
+      const code = /Card (V\d+)/.exec(card.text)[1]
+      await dm(s, 'u1', `${code}\n1: Alice`)
+      assert.equal(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0].values.fields.name, 'Alice')
+    } else {
+      await s.flush()
+      assert.ok(s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${pending.id}:0`)))
+      await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${pending.id}:0` })
+    }
+    assert.equal(s.rt.state.views.a, undefined)
+  })
+})
+
 test('own-chat IM views accept a button answer using the shared view reply path', async (t) => {
   const s = await start()
   t.after(s.stop)

@@ -699,7 +699,10 @@ export function install(rt) {
   rt.roomHasImOrigin = roomId => originOf(rt.roomOf(roomId)?.sessionId ?? roomId) !== undefined
   const cardOrigin = (sessionId, card) => {
     const owner = rt.groupOwners.get(sessionId)
-    if (owner === undefined) return card.imOrigin === undefined ? originOf(sessionId) : originFromSaved(card.imOrigin)
+    if (owner === undefined) {
+      if (mixed.has(sessionId)) return undefined
+      return card.imOrigin === undefined ? originOf(sessionId) : originFromSaved(card.imOrigin)
+    }
     const roomSid = rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId
     if (mixed.has(roomSid)) return undefined
     return originFromSaved(card.imOrigin)
