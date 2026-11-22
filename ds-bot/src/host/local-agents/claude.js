@@ -187,7 +187,7 @@ class ClaudeSession {
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
-          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${block.name ?? 'tool'}` })
+          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
         }
         break
       }
@@ -269,6 +269,17 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+function claudeActivity(block) {
+  const name = block.name ?? 'tool'
+  const input = block.input !== null && typeof block.input === 'object' ? block.input : {}
+  const command = input.command ?? input.cmd
+  const detail = typeof command === 'string' && command.trim() !== ''
+    ? `\`${command.trim().slice(0, 160)}\``
+    : [input.description, input.file_path, input.path, input.pattern, input.url, input.query]
+      .find(value => typeof value === 'string' && value.trim() !== '')?.trim().slice(0, 120)
+  return detail ? `${name} ${detail}` : name
 }
 
 function claudeContent(blocks) {
