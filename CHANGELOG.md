@@ -4,6 +4,22 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-22
+
+### Changed
+
+- **Settings polish**: Settings navigation no longer shows duplicate or distorted icons (Capabilities and MCP, IM and Group chats, Bot models and Plugins, the key icon), and Settings cards have even padding, dividers and header alignment. ([#1995](https://github.com/Fei2411/DS-Bot/pull/1995))
+- **Performance**: `bot_recall` search reuses parsed memory files, and secret redaction of chat history is computed once per message. ([#1955](https://github.com/Fei2411/DS-Bot/pull/1955), [#1958](https://github.com/Fei2411/DS-Bot/pull/1958))
+
+### Fixed
+
+- **Settings model picker crash**: opening a model picker in Settings no longer crashes the page with React error #310. (reported by @tuyang1; [#1997](https://github.com/Fei2411/DS-Bot/issues/1997), [#2007](https://github.com/Fei2411/DS-Bot/pull/2007))
+- **Model menu flicker**: the native tooltip no longer flickers over the model list in Settings → Models. (reported by @Fancie-Personal; [#1546](https://github.com/Fei2411/DS-Bot/issues/1546), [#1983](https://github.com/Fei2411/DS-Bot/pull/1983))
+- **Local ACP agents**: stopping a local ACP agent no longer makes later replies arrive one turn late, and an agent that does not answer a Stop no longer blocks its later turns. (reported by @mamimama701; [#1998](https://github.com/Fei2411/DS-Bot/issues/1998), [#2011](https://github.com/Fei2411/DS-Bot/pull/2011), [#2013](https://github.com/Fei2411/DS-Bot/pull/2013))
+- **Web remote**: stopping a background task from the task bar in the web remote works. ([#1959](https://github.com/Fei2411/DS-Bot/pull/1959))
+- **WeChat iLink**: queued WeChat iLink messages get their replies after a restart without the user sending another message. (reported by @darrentangdt; [#1940](https://github.com/Fei2411/DS-Bot/issues/1940), [#2010](https://github.com/Fei2411/DS-Bot/pull/2010))
+- **Feishu and Lark**: long-connection discovery uses the app credentials, brief gateway policy refusals are retried, and app-credential requests no longer follow redirects. (reported by @bigstage915; [#1957](https://github.com/Fei2411/DS-Bot/issues/1957), [#2008](https://github.com/Fei2411/DS-Bot/pull/2008))
+
 ## [0.3.9] - 2026-11-21
 
 ### Added
