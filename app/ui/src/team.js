@@ -3,6 +3,7 @@
 // DSH keeps for them in the plugin; here the window keeps those as well.
 import { useRef, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
+import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { language } from '../../../ds-bot/src/client/i18n.js'
 import { toolState } from '../../../ds-bot/src/client/mark.js'
@@ -116,26 +117,34 @@ export function createTeam() {
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
+  let liveKey
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', locale: language() })
+    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
-    setChanged(activity, value.activity ?? {})
-    setChanged(work, value.work ?? NO_WORK)
+    if (value.liveKey !== undefined) liveKey = value.liveKey
+    if (value.activity !== undefined) setChanged(activity, value.activity)
+    if (value.work !== undefined) setChanged(work, value.work)
     if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
     if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
-    noteNews(value.memoryNews ?? {})
+    if (value.memoryNews !== undefined) noteNews(value.memoryNews)
     const current = roster.getSnapshot()
     const changed = {}
-    if (value.readOnly !== undefined && value.readOnly !== current.readOnly) changed.readOnly = value.readOnly
+    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? {})) changed.secrets = value.secrets
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? null)) changed.secretStore = value.secretStore
+    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
+    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
+    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
+    if (value.mcp !== undefined && JSON.stringify(value.mcp) !== JSON.stringify(current.mcp ?? null)) changed.mcp = value.mcp
+    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
+    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
+    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
+    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
@@ -160,15 +169,39 @@ export function createTeam() {
     return room ? currentPart(room) : id
   }
 
+  // Per-session turn facts (`{ turns: Map<turn, { turn, start, end? }>, openTurn }`) fed by
+  // `SessionTranscript` so `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`
+  // place cards on closed turns and hold open-turn cards in the dock.
+  const EMPTY_TURN_FACTS = Object.freeze({ turns: undefined, openTurn: undefined })
+  const turnFactsBySession = new Map()
+  const turnWatchers = new Map()
+  const notifyTurnWatchers = (sessionId) => {
+    const set = turnWatchers.get(sessionId)
+    if (!set) return
+    for (const listener of Array.from(set)) {
+      try { listener() } catch { /* listener failure */ }
+    }
+  }
+
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
+  const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
+
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
+    ...baseActions,
+    openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
+    openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
+    openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
+    openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
+    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     openSession: (id) => {
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
+      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.shortcuts ? { ...state, newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : state))
       show(partFor(id))
     },
     landOn: id => show(partFor(id)),
     toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
+    openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
+    closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
     markUnread: id => writeUnread(id, true),
     clearUnread: id => writeUnread(id, false),
     beginVisit: (id) => {
@@ -200,13 +233,32 @@ export function createTeam() {
     providerModels: body => call('provider-models', body),
     removeProvider: provider => after(call('provider-remove', { provider })),
     openModels: () => actions.openSettings('models'),
-    // Nothing else draws in the window: no shell panels, right sidebar, "@" menu or voice plugin.
     hasRightSidebar: () => false,
-    canReferenceChat: () => false,
+    canReferenceChat: () => true,
+    referenceChat: (sessionId, insertion) => chat.emit('reference-chat', { sessionId, insertion }),
     speech: () => undefined,
     voiceSetup: () => null,
-    turnFacts: () => ({ turns: undefined, openTurn: undefined }),
-    watchTurns: () => () => {},
+    noteTurnFacts: (sessionId, facts) => {
+      if (!sessionId) return
+      if (!facts) {
+        if (!turnFactsBySession.has(sessionId)) return
+        turnFactsBySession.delete(sessionId)
+      } else {
+        turnFactsBySession.set(sessionId, facts)
+      }
+      notifyTurnWatchers(sessionId)
+    },
+    turnFacts: sessionId => turnFactsBySession.get(sessionId) ?? EMPTY_TURN_FACTS,
+    watchTurns: (sessionId, listener) => {
+      if (!sessionId || typeof listener !== 'function') return () => {}
+      let set = turnWatchers.get(sessionId)
+      if (!set) { set = new Set(); turnWatchers.set(sessionId, set) }
+      set.add(listener)
+      return () => {
+        set.delete(listener)
+        if (set.size === 0) turnWatchers.delete(sessionId)
+      }
+    },
     noteSent: (sessionId) => {
       sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? []), { placement: 'direct', time: Date.now() }] }))
     },
@@ -266,12 +318,19 @@ export function createTeam() {
       if (READ_AGAIN.has(event)) read()
       onFeed(event, data)
     })
+    const stopApprovalNotices = noticeApprovals({
+      work,
+      roster,
+      shownSession: () => shown.getSnapshot(),
+      openSession: actions.openSession,
+    })
     const timer = setInterval(read, CATCH_UP_MS)
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
     window.addEventListener('pagehide', onPageHide)
     return () => {
       stopped = true
       closeFeed()
+      stopApprovalNotices()
       clearInterval(timer)
       window.removeEventListener('pagehide', onPageHide)
     }

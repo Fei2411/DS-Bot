@@ -214,6 +214,44 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
 }
 
 /**
+ * Extracts DSH-compatible `{ turns: Map<number, { turn, status, start, end? }>, openTurn }`
+ * from `SessionLog.events` for `BtwDock`, `BtwTurnTail`, `LearningDock`, and `LearningTurnTail`.
+ * Hidden Bot-exchange turns (which have no visible `turn-tail`) are excluded so proposals
+ * never strand on a hidden turn.
+ */
+export function extractTurnFacts(events, { roster, sessionId } = {}) {
+  const turns = new Map()
+  const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
+  let openTurn
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || typeof event !== 'object') continue
+    const turn = event.data?.turn
+    if (!Number.isInteger(turn) || hidden(turn)) continue
+    const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
+    if (event.type === 'turn/start') {
+      const existing = turns.get(turn)
+      turns.set(turn, {
+        turn,
+        status: existing?.end ? 'closed' : 'open',
+        start: existing?.start ?? mark,
+        ...(existing?.end ? { end: existing.end } : {}),
+      })
+      if (!existing?.end) openTurn = turn
+    } else if (event.type === 'turn/end') {
+      const existing = turns.get(turn)
+      turns.set(turn, {
+        turn,
+        status: 'closed',
+        start: existing?.start ?? mark,
+        end: mark,
+      })
+      if (openTurn === turn) openTurn = undefined
+    }
+  }
+  return { turns, openTurn }
+}
+
+/**
  * Converts a SessionLog into ordered display rows for a DM chat.
  * @param {import('../../../ds-bot/src/client/session-log.js').SessionLog} log
  * @param {{ roster?: object, sessionId?: string }} [options]
@@ -225,6 +263,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
   // Maps every callId / subCallId to its handle so upgrades (preparing -> start -> result)
   // and PTC nested dispatches update the exact ToolCallBlock in place without wrapper drift.
   const callsById = new Map()
+  const turnStarts = new Map()
   let currentTurn
   let currentStep
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
@@ -327,7 +366,12 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     }
 
     if (item.type === 'turn/start') {
-      if (Number.isInteger(item.data?.turn)) currentTurn = item.data.turn
+      if (Number.isInteger(item.data?.turn)) {
+        currentTurn = item.data.turn
+        if (!turnStarts.has(currentTurn)) {
+          turnStarts.set(currentTurn, Number.isFinite(item.time) ? { seq: item.seq, time: item.time } : { seq: item.seq })
+        }
+      }
       currentStep = undefined
       continue
     }
@@ -359,8 +403,39 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
           error: failure,
         })
       }
+      if (!hidden(turn) && Number.isInteger(turn)) {
+        const endMark = Number.isFinite(item.time) ? { seq: item.seq, time: item.time } : { seq: item.seq }
+        rows.push({
+          kind: 'turn-tail',
+          key: `turn-tail:${turn}`,
+          seq: item.seq,
+          time: null,
+          turn,
+          turnInfo: { turn, status: 'closed', start: turnStarts.get(turn) ?? endMark, end: endMark },
+        })
+      }
       currentTurn = undefined
       currentStep = undefined
+      continue
+    }
+
+    if (item.type === 'deliverables/presented') {
+      const turn = item.data?.turn ?? currentTurn
+      const files = Array.isArray(item.data?.files)
+        ? item.data.files
+          .map((file, index) => (file && typeof file.path === 'string' && file.path.trim() !== '' ? { ...file, index } : null))
+          .filter(Boolean)
+        : []
+      if (!hidden(turn) && files.length > 0) {
+        rows.push({
+          kind: 'deliverables',
+          key: `deliverables:${item.seq}`,
+          seq: item.seq,
+          time: item.time,
+          turn,
+          files,
+        })
+      }
       continue
     }
 

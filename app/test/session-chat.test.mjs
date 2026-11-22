@@ -364,10 +364,10 @@ test('real recorded DSH 0.2.2-rc.1 replay projects user, thinking, streaming, fl
   assert.equal(doneTools[0].block.isError, false)
   assert.match(doneTools[0].block.content[0].text, /Chief/)
 
-  // Frame 56: complete two-turn transcript with zero system injections or duplicates.
-  assert.deepEqual(plain(snapshots[56].map(r => r.kind)), ['user', 'assistant', 'user', 'tool', 'assistant'])
-  assert.equal(snapshots[56][2].text, '看看团队')
-  assert.match(snapshots[56][4].texts[0], /Chief/)
+  // Frame 56: complete two-turn transcript with zero system injections or duplicates (including turn-tail anchors).
+  assert.deepEqual(plain(snapshots[56].map(r => r.kind)), ['user', 'assistant', 'turn-tail', 'user', 'tool', 'assistant', 'turn-tail'])
+  assert.equal(snapshots[56][3].text, '看看团队')
+  assert.match(snapshots[56][5].texts[0], /Chief/)
 
   // Reconnect + page pagination merges seqs 10..16 without leaking system prompts.
   let reconnected = emptyLog()
@@ -426,7 +426,7 @@ test('buildSessionRows obeys real DSH PTC contract, settles interrupted calls, a
   const rows = buildSessionRows(log, { roster: { exchangeTurns: { s1: [2] } }, sessionId: 's1' })
 
   // Undispatched `never-ran` preparing call was removed on turn/end; `stuck-1` settled as Interrupted.
-  assert.deepEqual(plain(rows.map(r => r.kind)), ['compaction', 'answer', 'tool', 'tool', 'tool', 'turn-error', 'turn-error'])
+  assert.deepEqual(plain(rows.map(r => r.kind)), ['compaction', 'answer', 'tool', 'tool', 'tool', 'turn-error', 'turn-tail', 'turn-error', 'turn-tail'])
   assert.equal(rows[0].shadowedItemCount, 4)
   assert.equal(rows[0].summary, 'Earlier summary')
   assert.equal(rows[1].data.questions[0].question, 'Pick one?')
@@ -462,7 +462,7 @@ test('buildSessionRows obeys real DSH PTC contract, settles interrupted calls, a
   assert.equal(rows[4].block.error.code, 'interrupted')
 
   assert.equal(rows[5].error.code, 'INTERRUPTED')
-  assert.equal(rows[6].error.code, 'ACCOUNT_SIGNED_OUT')
+  assert.equal(rows[7].error.code, 'ACCOUNT_SIGNED_OUT')
 })
 
 test('slots support React.memo, orphan tools skip unkeyed slots, streaming PartialArguments summarizes incomplete JSON, and errors isolate with Retry', () => {
