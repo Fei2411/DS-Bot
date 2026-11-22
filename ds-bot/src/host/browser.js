@@ -8,7 +8,9 @@ import { output } from './tools.js'
 
 // A waiting client counts as present; one that has not polled for this long is gone.
 const CLIENT_STALE_MS = 30_000
-const WAIT_MS = 20_000
+// Desktop's update task inspection waits 10 seconds for admitted HTTP requests.
+// Leave room for the request handler and the HTTP bridge to finish the response.
+const WAIT_MS = 6_000
 const READ_TIMEOUT_MS = 15_000
 // A request stays queued until its window answers and is handed out again after this
 // long: the window aborts a poll whenever its open pages change, and a request already
@@ -55,9 +57,10 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
   /**
    * One long poll from a window. Resolves with the read requests due for it, at once when
    * there are some, else when one arrives or a handed-out one is due again, or after
-   * `waitMs`. A newer poll from the same window ends the older one empty.
+   * `waitMs`. Disconnecting or replacing this poll ends it empty.
    */
-  function wait(clientId, open) {
+  function wait(clientId, open, signal) {
+    if (signal?.aborted) return Promise.resolve([])
     const client = clients.get(clientId) ?? { open: {}, seen: 0, queue: [], holdVersion: 0 }
     clients.set(clientId, client)
     client.open = open && typeof open === 'object' ? open : {}
@@ -74,6 +77,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     return new Promise((resolve) => {
       const finish = (items) => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', end)
         if (client.end === end) client.wake = client.end = undefined
         client.seen = now()
         client.holdVersion = holdVersion
@@ -83,6 +87,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
       const timer = setTimeout(() => finish(due(client)), Math.min(waitMs, resend))
       client.wake = () => finish(due(client))
       client.end = end
+      signal?.addEventListener('abort', end, { once: true })
     })
   }
 

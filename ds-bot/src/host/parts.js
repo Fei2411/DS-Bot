@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -414,10 +414,7 @@ export function install(rt) {
       const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
       return partsOf(bot.id, undefined, segments, task.sessionId)
     }
-    const current = thread.thread === 'current'
-      ? rt.chatOf(bot.id)
-      : bot.openParts[thread.index].sessionId
-    return partsOf(bot.id, undefined, thread.segments, current)
+    return partsOf(bot.id, undefined, thread.segments, rt.chatOf(bot.id))
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
@@ -898,7 +895,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, manual, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, engine }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -910,8 +907,7 @@ export function install(rt) {
         : engine !== undefined ? `the user changed what you run on, to ${engine}`
           : cutoff ? 'the previous part kept being cut off at the output limit'
             : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-              : manual ? 'a fresh conversation was started'
-                : 'the previous part grew long'
+              : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -1031,7 +1027,10 @@ export function install(rt) {
         if (owner.next !== undefined && rt.taskOwners?.has(owner.next)) return owner.next
         return owner.roomId !== undefined ? rt.sessionOfRoom(rt.roomOf(owner.roomId)) : rt.chatOf(owner.botId)
       }
-      if (owner.roomId === undefined) return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+      if (owner.roomId === undefined) {
+        if (owner.next !== undefined && rt.chatOwners.has(owner.next)) return owner.next
+        return threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+      }
     }
     return currentOf(owner)
   }
@@ -1150,11 +1149,11 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -1326,7 +1325,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && !job.manual && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -1351,7 +1350,7 @@ export function install(rt) {
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = taskEntry?.workDir !== undefined
@@ -1434,7 +1433,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1473,6 +1472,9 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    if (payload.step === 1 && rt.consumeEmptyTaskWake?.(agent.id) && (payload.messages?.length ?? 0) === 0) {
+      return { kind: 'reject' }
+    }
     const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
     const route = splitRef(local)?.provider
     if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
@@ -2177,52 +2179,6 @@ export function install(rt) {
     return { sessionId, ...(await partPage([{ sessionId }], 0, cursor, steps)) }
   }
 
-  // "New session" in a Bot's chat: a manual move to a fresh part with the
-  // deterministic handoff package, no model call. While the Bot is working the fresh
-  // part starts at once and the part it replaces keeps running in the background.
-  // A member's conversation in a group moves the same way, but only while it is idle.
-  async function newPart(sessionId) {
-    await rt.load()
-    const agent = await rt.resolveAgent(sessionId)
-    const place = placeOf(sessionId)
-    if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
-    const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
-    if (agent.status === 'idle' && !busyHere) {
-      // Answers once the fresh part is there, so a switch that fails reaches the user.
-      if (await startSwitch(agent, { manual: true }) !== true) throw Object.assign(new Error('The new session did not start; the Bot stays in its current one'), { code: 'bot/failed' })
-      return true
-    }
-    const bot = rt.botOf(place.botId)
-    if (bot === undefined || place.roomId !== undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-    await openPartNow(bot, agent)
-    return true
-  }
-
-  // The part the user leaves stays live: no handoff note, no archive, no stop of its
-  // turn. It keeps its own earlier parts with it (threads.js).
-  async function openPartNow(bot, agent) {
-    const dir = rt.workDirOf({ botId: bot.id })
-    const freshId = await rt.createSession(bot.name, { dir })
-    const picked = await freshRoute(bot, agent.session)
-    if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
-    await rt.applyPermission(bot, freshId, undefined)
-      .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
-      await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
-      return
-    }
-    startOpenPart(bot, freshId)
-    rt.chatOwners.set(freshId, bot.id)
-    await rt.save()
-    // A model the user picked while this part was being made went to the parts that were
-    // registered then, and the sync recorded it as applied; this part was not one of them
-    // yet, so the route picked at the top may be the old one. Read it again now that the
-    // part is the Bot's, as the switch does.
-    const now = await freshRoute(bot, agent.session)
-    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
-  }
-
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
   // Forks the foreground Session at the latest completed turn boundary when
   // running on a DSH model in the same folder, falling back to a fresh Session
@@ -2359,67 +2315,5 @@ export function install(rt) {
     }
   }
 
-  // Opening an earlier part again: it becomes the current one and the part that
-  // was current joins the earlier ones where it sat.
-  async function switchPart(botId, partId) {
-    await rt.load()
-    const bot = rt.botOf(botId)
-    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
-    if (isTaskSession(bot, partId) || threadOfPart(bot, partId)?.thread === 'task') {
-      throw Object.assign(new Error('Background tasks are read-only and cannot replace the current chat'), { code: 'bot/invalid' })
-    }
-    const current = rt.chatOf(botId)
-    if (partId === current) return false
-    // A part opened while the Bot was busy is live. Making it current swaps the two
-    // threads; both stay live and neither is archived or stopped.
-    if (isOpenPart(bot, partId)) {
-      focusOpenPart(bot, partId)
-      await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
-      await rt.applyPermission(bot, partId, undefined).catch(() => {})
-      await rt.save()
-      return true
-    }
-    const segments = bot.segments ?? []
-    const at = segments.findIndex(segment => segment.sessionId === partId)
-    if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
-    const live = rt.live.get(current)
-    if (live?.turn !== undefined) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
-    // DSH turns away every step of an archived Session and every task aimed at it, so
-    // the part leaves the archive before it becomes current.
-    await ctx.workspaceRegistry.unarchiveSession(partId)
-    segments.splice(at, 1)
-    segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
-    bot.sessionId = partId
-    rt.chatOwners.delete(current)
-    rt.chatOwners.set(partId, botId)
-    rt.pastOwners.delete(partId)
-    rt.pastOwners.set(current, { botId })
-    // Marked as a switch until its tasks sit on the opened part and it is archived, so
-    // the restart pass (handOnHeld) finishes a move that fails here.
-    state.switching[current] = { botId }
-    if (state.questions[current] !== undefined) {
-      rt.closeCard(current, state.questions[current], 'dismissed')
-      delete state.questions[current]
-    }
-    if (state.views?.[current] !== undefined) {
-      rt.closeCard(current, state.views[current], 'dismissed')
-      delete state.views[current]
-    }
-    await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
-    const room = undefined
-    await rt.applyPermission(bot, partId, room).catch(() => {})
-    await rt.save()
-    // The stop that archiving runs removes the tasks still on the part, so they move first.
-    try {
-      await rt.moveSchedules?.(current, partId)
-      await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
-      delete state.switching[current]
-      await rt.save()
-    } catch (error) {
-      rt.warn('ds-bot: earlier part %s not archived: %s', current, error)
-    }
-    return true
-  }
-
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

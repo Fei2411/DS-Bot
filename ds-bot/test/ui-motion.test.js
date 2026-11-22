@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { effectsTier, reducedEffects, reducedMotion } from './src/client/motion.js'",
+      "export { effectsTier, reducedEffects, reducedMotion, useViewport } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
       "export { BotMark } from './src/client/mark.js'",
@@ -185,6 +185,24 @@ test('effectsTier, reducedEffects and reducedMotion handle Node without globals 
   assert.equal(client.reducedMotion(), true)
 })
 
+test('useViewport listens to the visual viewport only while enabled', () => {
+  const listening = new Set()
+  const visualViewport = {
+    addEventListener: (type) => listening.add(type),
+    removeEventListener: (type) => listening.delete(type),
+  }
+  const cleanups = []
+  const { exports: client } = loadClient({ window: { visualViewport } }, { useEffect: (run) => { const stop = run(); if (stop) cleanups.push(stop) } })
+  client.useViewport(false)
+  assert.equal(listening.size, 0)
+  client.useViewport(true)
+  assert.deepEqual([...listening].sort(), ['resize', 'scroll'])
+  cleanups.forEach(stop => stop())
+  assert.equal(listening.size, 0)
+  client.useViewport()
+  assert.equal(listening.size, 2)
+})
+
 test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules while stripping shell selectors', () => {
   const { SHELL_CSS, botOwnCss } = loadClient().exports
   assert.match(SHELL_CSS, /@keyframes bt-veil-in\{from\{opacity:0;filter:var\(--bt-fx-blur-6,blur\(6px\)\)\}\}/)
@@ -207,13 +225,13 @@ test('Traditional Chinese phrase mapping translates 界面动效 and its tier la
   assert.equal(toTraditional('无'), '無')
 })
 
-test('SettingsDialog renders Interface motion choices in General appearance and updates effects', () => {
+test('SettingsDialog renders Interface motion choices in Appearance and updates effects', () => {
   const dom = new JSDOM('<!doctype html><body></body>')
   const { exports: client, react } = loadClient({ document: dom.window.document, window: dom.window })
 
   const calls = []
   const tree = expand(react.createElement(client.SettingsDialog, {
-    page: 'general',
+    page: 'appearance',
     roster: { byId: {}, roomsById: {}, prefs: { effects: 'reduced' } },
     actions: {
       setPrefs: (patch) => { calls.push(patch); return Promise.resolve() },
@@ -227,7 +245,7 @@ test('SettingsDialog renders Interface motion choices in General appearance and 
   walk(tree, (node) => {
     if (node.type === 'div' && node.props?.['aria-label'] === 'Interface motion') group = node
   })
-  assert.ok(group, 'Interface motion Segmented group should render in GeneralPage')
+  assert.ok(group, 'Interface motion Segmented group should render in AppearancePage')
   const buttons = []
   walk(group, (node) => { if (node.type === 'button') buttons.push(node) })
   assert.deepEqual(buttons.map(btn => [textOf(btn), btn.props['aria-pressed']]), [

@@ -1,6 +1,6 @@
 # Bots, roles and characters
 
-A Bot is a long-lived identity with its own chat, instructions, model, working folder and memory. The **Label** is a short description under its name. It does not grant permissions. **Main Bot** is an administrative right, not just a label.
+A Bot is a long-lived identity with its own saved profile: instructions, model, thinking level, working folder and permissions, plus its own chat and memory. This is not a separate DSH installation profile. The **Label** is a short description under its name. It does not grant permissions. **Main Bot** is an administrative right, not just a label.
 
 ## Where and how
 

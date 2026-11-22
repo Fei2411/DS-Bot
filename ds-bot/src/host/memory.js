@@ -25,7 +25,7 @@
 // provider's prefix cache holds; a fresh part, or a checkpoint (which breaks the cache
 // anyway), freezes it anew.
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -60,6 +60,7 @@ const UPDATE_TEXT_MAX = 4_000
 // The changes kept in memory for update messages, and how far back a start reads them.
 const RECENT_ROWS_MAX = 2_000
 const RECENT_TAIL_CHARS = 512 * 1024
+const JOURNAL_TAIL_BYTES = 64 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
@@ -266,6 +267,42 @@ export function install(rt) {
     }
   }
 
+  // The end of the change log, from where it starts in bytes: at least its last whole
+  // row and what follows it. Every write finishes an interrupted change first, so the
+  // row of a change that is finished twice is the last one in its log, and a half row
+  // can only be at the end. The log only grows, so a write does not read all of it.
+  function journalTail(path) {
+    let fd
+    try {
+      fd = openSync(path, 'r')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { start: 0, text: '' }
+      unreadable(path, error)
+    }
+    try {
+      const size = fstatSync(fd).size
+      for (let length = JOURNAL_TAIL_BYTES; ; length *= 2) {
+        const start = Math.max(0, size - length)
+        const bytes = Buffer.alloc(size - start)
+        for (let at = 0; at < bytes.length;) {
+          const read = readSync(fd, bytes, at, bytes.length - at, start + at)
+          if (read === 0) break
+          at += read
+        }
+        const last = bytes.lastIndexOf(0x0a)
+        // A newline byte is never part of a longer character, so cutting after one
+        // keeps the text and its offset in bytes whole.
+        if (start > 0 && !(last > 0 && bytes.lastIndexOf(0x0a, last - 1) >= 0)) continue
+        const from = start === 0 ? 0 : bytes.indexOf(0x0a) + 1
+        return { start: start + from, text: bytes.subarray(from).toString('utf8') }
+      }
+    } catch (error) {
+      unreadable(path, error)
+    } finally {
+      closeSync(fd)
+    }
+  }
+
   // Whether the change log already holds the row of a change. Only a row that parses
   // counts: a half-written row is not proof that anything was done.
   function journalled(text, id) {
@@ -295,7 +332,7 @@ export function install(rt) {
   // are whole, and the row after it starts on a line of its own.
   async function journalRow(row) {
     const { path, torn } = journalFor(row.scope, row.op)
-    const text = readJournal(path)
+    const { start, text } = journalTail(path)
     if (journalled(text, row.id)) return false
     const cut = text.lastIndexOf('\n') + 1
     const half = text.slice(cut)
@@ -313,7 +350,7 @@ export function install(rt) {
       return true
     }
     await appendFile(torn, `${half}\n`, 'utf8')
-    truncateSync(path, Buffer.byteLength(text.slice(0, cut), 'utf8'))
+    truncateSync(path, start + Buffer.byteLength(text.slice(0, cut), 'utf8'))
     await appendFile(path, `${line}\n`, 'utf8')
     return true
   }
@@ -329,13 +366,13 @@ export function install(rt) {
   }
   function readTail(path) {
     if (tailsRead.has(path)) return
-    tailsRead.add(path)
     for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
       try {
         const row = JSON.parse(line)
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
       } catch { /* a line cut by the tail, or half-written */ }
     }
+    tailsRead.add(path)
   }
 
   // Whether anything but a tidy changed a memory after a time.
