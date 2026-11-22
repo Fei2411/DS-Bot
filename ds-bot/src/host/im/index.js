@@ -12,6 +12,7 @@ import { SOURCE_KIND } from '../constants.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 import { imViewChoices } from './view-choices.js'
+import { imViewFormText, parseImViewForm } from './view-form.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -251,6 +252,7 @@ export function install(rt) {
         runtime: data?.runtime !== null && typeof data?.runtime === 'object' ? data.runtime : {},
         cards: data?.cards !== null && typeof data?.cards === 'object' ? data.cards : {},
         sent: data?.sent !== null && typeof data?.sent === 'object' ? data.sent : {},
+        viewCodeSeq: Number.isSafeInteger(data?.viewCodeSeq) && data.viewCodeSeq > 0 ? data.viewCodeSeq : 0,
       },
       timer: undefined,
     }
@@ -276,6 +278,7 @@ export function install(rt) {
     // the empty object. Reading still defaults a missing `sent` to {}.
     const { runtime, cards, sent } = held.data
     const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
+    if (held.data.viewCodeSeq > 0) data.viewCodeSeq = held.data.viewCodeSeq
     try {
       await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
@@ -1032,6 +1035,10 @@ export function install(rt) {
     }
     const choice = imViewChoices(found.view.view)[index]
     if (choice === undefined || found.view.issueDraft !== undefined) return false
+    return submitViewCard(conn, chat, cardKey, found, choice, senderId)
+  }
+  const submitViewCard = async (conn, chat, cardKey, found, choice, senderId) => {
+    if (openCard(conn, chat.key, cardKey) === undefined || found.view.issueDraft !== undefined) return false
     if (!canAnswerCard(found.sessionId, found.view, conn, chat)) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
     rememberRequest(requestId, conn, chat.key, senderId, found.view.imOrigin)
@@ -1050,6 +1057,32 @@ export function install(rt) {
       throw error
     }
     return 'answered'
+  }
+  const answerViewCode = async (conn, chat, body, senderId) => {
+    const code = body.split(/\s/, 1)[0].toUpperCase()
+    if (!/^V[1-9]\d*$/.test(code)) return false
+    const data = runtimes.get(conn.id)?.data
+    if (data === undefined || Number(code.slice(1)) > data.viewCodeSeq) return false
+    const held = Object.entries(data.cards).find(([key, entries]) => key.startsWith('v:') && entries.some(entry => entry.code === code && entry.chatKey === chat.key))
+    const found = held === undefined ? undefined : viewById(held[0].slice(2))
+    if (held === undefined || found === undefined || openCard(conn, chat.key, held[0]) === undefined
+      || found.view.issueDraft !== undefined || !canAnswerCard(found.sessionId, found.view, conn, chat)) {
+      await sendCardReply(conn, chat, text('stale'))
+      return true
+    }
+    const parsed = parseImViewForm(found.view.view, body.slice(code.length).replace(/^[ \t]+/, ''))
+    if (parsed.error !== undefined) {
+      await sendCardReply(conn, chat, `Invalid view answer: ${parsed.error.slice(0, 180)}`)
+      return true
+    }
+    try {
+      const answered = await submitViewCard(conn, chat, held[0], found, parsed, senderId)
+      if (answered === false) await sendCardReply(conn, chat, text('stale'))
+    } catch (error) {
+      if (error?.code !== 'bot/invalid') throw error
+      await sendCardReply(conn, chat, `Invalid view answer: ${String(error.message).slice(0, 180)}`)
+    }
+    return true
   }
   // 'answered': the answer continued the turn the chat claimed. 'stale': the card was
   // gone and only the stale text was sent, so this chat claims nothing. false: the pick
@@ -1132,6 +1165,7 @@ export function install(rt) {
     const body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
     const target = resolveTarget(conn, chat)
+    if (await answerViewCode(conn, msg.chat, body, msg.sender.id)) return
     if (/^\/start(?:@\S+)?\s*$/.test(body)) {
       const name = target === undefined ? undefined : targetName(conn, target)
       await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
@@ -1261,22 +1295,27 @@ export function install(rt) {
     approval: (id) => [{ data: `a:${id}:allow`, label: text('allow') }, { data: `a:${id}:reject`, label: text('reject') }],
   }
 
-  const sendCard = async (conn, cardKey, targets, body, buttons, numbered = false) => {
+  const sendCard = async (conn, cardKey, targets, body, buttons, numbered = false, tokenView) => {
     const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
-    const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined)
+    const entries = data.cards[cardKey] = (data.cards[cardKey] ?? []).filter(entry => entry.binding !== undefined && (tokenView === undefined || entry.code !== undefined))
     const recorded = new Set(entries.map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
     if (pending.length === 0) return
     // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
-    for (const { chatKey } of pending) entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: body })
+    for (const { chatKey } of pending) {
+      const code = tokenView === undefined ? undefined : `V${++data.viewCodeSeq}`
+      const message = code === undefined ? body : `${body}\n${imViewFormText(tokenView, code)}`
+      entries.push({ chatKey, binding: bindingOf(conn, chatKey), numbered, messageId: undefined, text: message, ...(code === undefined ? {} : { code }) })
+    }
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
+      const message = entries.find(entry => entry.chatKey === chatKey).text
       enqueueAfterStage(conn, chatKey, {
         chat: { key: chatKey, kind: chat.kind, title: chat.title },
-        text: body,
+        text: message,
         buttons,
-        after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, body) },
+        after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, message) },
         onDrop: () => unmarkCard(conn.id, cardKey, chatKey),
       })
     }
@@ -1326,7 +1365,7 @@ export function install(rt) {
           await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], text('secretAsk', { bot: bot.name, name: request.name }))
         }
       }
-      // Views with typed fields stay text-only; simple choices can be answered here.
+      // Simple views use buttons or numbers; forms use an explicit delivery code.
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
         const owner = rt.groupOwners.get(sessionId)
@@ -1340,7 +1379,8 @@ export function install(rt) {
         const picks = choices.length === 0 ? '' : `\n${choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')}\n(${text('numbers')})`
         const buttons = imPlatform(conn.platform)?.buttons === true && choices.length > 0
           ? choices.map((choice, index) => ({ data: `v:${view.id}:${index}`, label: choice.label })) : undefined
-        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons, choices.length > 0)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}${picks}`, buttons, choices.length > 0,
+          view.issueDraft === undefined && choices.length === 0 ? view.view : undefined)
       }
     }
   }

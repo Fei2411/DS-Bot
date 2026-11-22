@@ -13,7 +13,6 @@ import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
-import { imViewChoices } from './im/view-choices.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
@@ -970,7 +969,7 @@ export function install(rt) {
   // the sessions ds-bot does not own, while this one shadows it inside them.
   rt.teamTools.push(defineTool({
     name: 'show_view',
-    description: showViewDescription({ where: 'your own chat' }),
+    description: `${showViewDescription({ where: 'your own chat or an IM-origin group' })} IM forms and multi-select views show a card code and instructions for replying with typed values.`,
     parameters: {
       ...showViewParameters,
       report_issue: { type: 'string', description: 'Only for DS Bot issue approval: use the exact arguments from prepare_ds_bot_issue' },
@@ -988,7 +987,6 @@ export function install(rt) {
       const title = checked.title
       const view = checked.view
       if (owner !== undefined && args.report_issue !== undefined) return 'Issue reports only work in your own chat.'
-      if (owner !== undefined && checked.interactive && imViewChoices(view).length === 0) return 'Views with typed inputs or multiple selections cannot be answered in an IM group. Use ask_user for a choice, or ask in your message instead.'
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const issueDraft = args.report_issue === undefined ? undefined : rt.claimIssueDraft?.(id, args.report_issue, checked)
