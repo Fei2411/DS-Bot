@@ -896,6 +896,8 @@ const ZH = {
   'Add DSH Agent': '添加 DSH Agent',
   'Remove DSH Agent': '移除 DSH Agent',
   'New session': '新会话',
+  'Blank session': '空白会话',
+  'Continue with handoff': '带交接继续',
   'Start a new session for {name} in this group': '为 {name} 在本群开始新会话',
   Started: '已开始',
   'Started a new session for {name} in this group': '已为 {name} 在本群开始新会话',

@@ -6,6 +6,7 @@ import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, u
 import { useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
+import { ownedPopups } from './popup-ownership.js'
 
 export const TOUR_SEEN_KEY = 'ds-bot:settings-tour-v1'
 
@@ -68,7 +69,16 @@ const SECTION_TOURS = {
     { target: 'group-list', title: 'Group chats', cue: 'Click a group row to change its members, admin, or shared folder.' },
   ],
   schedules: [
-    { target: 'new-task', title: 'New task', cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.' },
+    {
+      target: 'new-task',
+      title: 'New task',
+      cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
+      fallback: {
+        target: 'open-plugins',
+        title: 'Turn on Automation tasks in DSH',
+        cue: 'Switch on Automation tasks on the Plugins page in Settings.',
+      },
+    },
   ],
   connectors: [
     { target: 'conn-search', title: 'Search connectors', cue: 'Search an app here, or click "+ Custom" to add your own MCP server.' },
@@ -146,6 +156,14 @@ function findTourTarget(dialogEl, targetKey) {
     const rect = el.getBoundingClientRect()
     return rect.width > 0 && rect.height > 0
   }) ?? null
+}
+
+function resolveStep(dialogEl, step) {
+  if (!step) return { step: null, targetEl: null }
+  const primary = findTourTarget(dialogEl, step.target)
+  if (primary || !step.fallback) return { step, targetEl: primary }
+  const fallback = findTourTarget(dialogEl, step.fallback.target)
+  return fallback ? { step: step.fallback, targetEl: fallback } : { step, targetEl: null }
 }
 
 export function measureSpotlight(dialogEl, targetKey) {
@@ -237,12 +255,18 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   )
   const tourKey = tour ? `${tour.mode}:${tour.nonce}` : ''
   const [stepState, setStepState] = useState({ key: tourKey, index: 0 })
+  if (tourKey === '' && stepState.key !== '') setStepState({ key: '', index: 0 })
   const index = stepState.key === tourKey ? stepState.index : 0
   const [spot, setSpot] = useState(null)
+  const [resolvedStep, setResolvedStep] = useState(null)
   const [cardSize, setCardSize] = useState({ width: 304, height: 140 })
   const layerRef = useRef(null)
   const cardRef = useRef(null)
   const scrolledRef = useRef('')
+  const currentPageRef = useRef(currentPage)
+  currentPageRef.current = currentPage
+  const onNavigateRef = useRef(onNavigate)
+  onNavigateRef.current = onNavigate
 
   const active = Boolean(tour && steps.length > 0)
   const step = active ? steps[Math.min(index, steps.length - 1)] : null
@@ -275,16 +299,19 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     const layer = layerRef.current
     if (!doc?.body || !card || !layer) return undefined
     const inert = new Map()
-    let target = null
+    let interactive = [card]
+    let disposed = false
     const restore = () => {
       for (const [element, previous] of inert) element.inert = previous
       inert.clear()
     }
-    const allowed = element => card.contains(element) || Boolean(target?.contains(element))
+    const allowed = element => interactive.some(root => root.contains(element))
     const sync = () => {
       restore()
-      target = !step.page || step.page === currentPage ? findTourTarget(dialog, step.target) : null
-      const roots = [layer, target].filter(Boolean)
+      const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
+      interactive = [target, card].filter(Boolean)
+      interactive.push(...ownedPopups(interactive))
+      const roots = [layer, ...interactive]
       const isolate = element => {
         if (roots.includes(element)) return
         if (roots.some(root => element.contains(root))) {
@@ -297,13 +324,15 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
       isolate(doc.body)
       if (!allowed(doc.activeElement)) card.focus({ preventScroll: true })
     }
-    const onFocus = event => {
-      if (!allowed(event.target)) card.focus({ preventScroll: true })
+    const onFocus = () => {
+      // React autofocus runs before the enclosing portal's ref has been attached.
+      queueMicrotask(() => { if (!disposed) sync() })
     }
     const onTab = event => {
       if (event.key !== 'Tab') return
+      sync()
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
-      const controls = [target, card].filter(Boolean).flatMap(root => [root, ...root.querySelectorAll(selector)])
+      const controls = interactive.flatMap(root => [root, ...root.querySelectorAll(selector)])
         .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === 'visible')
       event.preventDefault()
       event.stopPropagation()
@@ -313,10 +342,11 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     sync()
     const observer = new MutationObserver(sync)
-    observer.observe(doc.body, { childList: true, subtree: true })
+    observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-leaving'] })
     doc.addEventListener('focusin', onFocus, true)
     doc.addEventListener('keydown', onTab, true)
     return () => {
+      disposed = true
       observer.disconnect()
       doc.removeEventListener('focusin', onFocus, true)
       doc.removeEventListener('keydown', onTab, true)
@@ -327,7 +357,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   useEffect(() => {
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
-      if (isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
       const tag = event.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }
@@ -337,33 +367,36 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [active, next, prev])
 
-  // Cross-page tour steps switch pages automatically.
+  // Cross-page tour steps switch pages only when entering a step.
   useEffect(() => {
-    if (!step?.page || step.page === currentPage) return
-    onNavigate(step.page)
-  }, [step?.page, currentPage, onNavigate])
+    if (!active || !step?.page || step.page === currentPageRef.current) return
+    onNavigateRef.current(step.page)
+  }, [active, tourKey, index, step?.page])
 
   // Measure target element & keep spotlight glued on scroll, resize, animations, and async page mounts.
   useEffect(() => {
-    if (!active || !step) { setSpot(null); return undefined }
-    if (step.page && step.page !== currentPage) { setSpot(null); return undefined }
+    if (!active || !step) { scrolledRef.current = ''; setSpot(null); setResolvedStep(null); return undefined }
+    if (step.page && step.page !== currentPage) { setSpot(null); setResolvedStep(null); return undefined }
     const dialogEl = dialogRef?.current ?? layerRef.current?.closest?.('.bt-settings')
     if (!dialogEl) { setSpot(null); return undefined }
 
     let raf = 0
-    const stepKey = `${tourKey}:${index}:${step.target}`
+    const stepKey = `${tourKey}:${index}`
     const sync = () => {
       const box = cardRef.current
       if (box && box.offsetWidth > 0 && box.offsetHeight > 0) {
         setCardSize(prev => (prev.width === box.offsetWidth && prev.height === box.offsetHeight ? prev : { width: box.offsetWidth, height: box.offsetHeight }))
       }
       // Scroll off-screen targets into view BEFORE clipping against `.bt-settings-scroll`.
-      const targetEl = findTourTarget(dialogEl, step.target)
-      if (targetEl && scrolledRef.current !== stepKey) {
-        scrolledRef.current = stepKey
-        targetEl.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      const resolved = resolveStep(dialogEl, step)
+      const shown = resolved.step ?? step
+      setResolvedStep(prev => (prev?.key === stepKey && prev.step === shown ? prev : { key: stepKey, step: shown }))
+      const targetKey = `${stepKey}:${shown.target}`
+      if (resolved.targetEl && scrolledRef.current !== targetKey) {
+        scrolledRef.current = targetKey
+        resolved.targetEl.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
       }
-      const measured = measureSpotlight(dialogEl, step.target)
+      const measured = measureSpotlight(dialogEl, shown.target)
       setSpot(prev => (sameSpot(prev, measured) ? prev : measured))
     }
     const schedule = () => {
@@ -400,6 +433,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
 
   if (!active || !step) return null
 
+  const stepKey = `${tourKey}:${index}`
+  const shownStep = resolvedStep?.key === stepKey ? resolvedStep.step : step
   const activeSpot = step.page && step.page !== currentPage ? null : spot
   const narrowViewport = typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth <= 640
   const fallbackStyle = narrowViewport ? { left: 12, right: 12, bottom: 12 } : { right: 20, bottom: 20 }
@@ -413,9 +448,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     className: 'bt-tour-layer',
     role: 'dialog',
     'aria-modal': false,
-    'aria-label': t(step.title),
+    'aria-label': t(shownStep.title),
     'data-tour-mode': tour.mode,
-    'data-tour-step': step.target,
+    'data-tour-step': shownStep.target,
   },
   h('div', {
     className: activeSpot ? 'bt-tour-backdrop' : 'bt-tour-backdrop bt-tour-backdrop-dim',
@@ -435,9 +470,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     onMouseDown: event => event.stopPropagation(),
   },
   h('div', { className: 'bt-tour-head' },
-    h('span', { className: 'bt-tour-title' }, t(step.title)),
+    h('span', { className: 'bt-tour-title' }, t(shownStep.title)),
     steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null),
-  h('p', { className: 'bt-tour-cue' }, t(step.cue)),
+  h('p', { className: 'bt-tour-cue' }, t(shownStep.cue)),
   h('div', { className: 'bt-tour-foot' },
     h('button', { type: 'button', className: 'bt-tour-skip', onClick: dismiss }, t('Skip')),
     h('div', { className: 'bt-tour-nav' },

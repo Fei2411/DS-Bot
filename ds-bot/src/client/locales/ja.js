@@ -810,6 +810,8 @@ export const JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Blank session": "空のセッション",
+  "Continue with handoff": "引き継ぎで続ける",
   "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
   "Started": "開始しました",
   "Started a new session for {name} in this group": "このグループで {name} の新しいセッションを開始しました",

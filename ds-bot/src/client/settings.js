@@ -484,6 +484,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [tour, setTour] = useState(() => (!leaving && (!page || page === 'overview' || page === 'general' || page === 'guide') && !id && canAutoStartTour() ? { mode: 'full', nonce: 1 } : null))
   const dialogRef = useRef(null)
   const scrollRef = useRef(null)
+  const tourNonceRef = useRef(1)
   const tourRef = useRef(tour)
   tourRef.current = tour
   const update = useUpdate?.(value => value) ?? {}
@@ -526,9 +527,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }, [leaving, openPalette])
   const startTour = useCallback((mode) => {
     setPalette(false)
-    setTour(prev => ({ mode, nonce: (prev?.nonce ?? 0) + 1 }))
+    tourNonceRef.current += 1
+    setTour({ mode, nonce: tourNonceRef.current })
   }, [])
-  const dismissTour = useCallback(() => setTour(null), [])
+  const dismissTour = useCallback(() => {
+    if (tourRef.current?.mode === 'full') markTourSeen()
+    setTour(null)
+  }, [])
   // Each explicit trip to a page counts, so going again to the part already routed (or to
   // the first part of the open domain) still scrolls to it.
   const [jump, setJump] = useState(0)
@@ -594,7 +599,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const phoneConnected = Boolean(roster.phone?.on && roster.phone?.status === 'online' && (roster.phone?.phones ?? []).some(entry => entry.connected))
 
   const pickHit = (hit) => {
+    if (!hit) return
     setPalette(false)
+    if (tourRef.current) dismissTour()
     if (hit.expandAdvanced) setAdvancedToken(token => token + 1)
     if (hit.page === 'dsh') go('dsh', hit.dshId)
     else go(hit.page, hit.target)

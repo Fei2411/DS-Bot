@@ -625,10 +625,19 @@ export function install(rt) {
     let end = to
     if (end === undefined) {
       const records = rt.ledger.records(bookOf(roomId))
-      const at = anchor === undefined ? -1 : records.findIndex(record => record.event === 'anchor' && record.id === anchor)
-      const next = at === -1
-        ? records.filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
-        : [records.slice(at + 1).find(record => record.event === 'anchor')?.from].filter(seq => seq !== undefined)
+      let at = anchor === undefined ? -1 : rt.ledger.anchorAt(bookOf(roomId), anchor)
+      // A window that only reads opens the book again on each call: a rewrite by the writing
+      // host in between moves the anchor, so the index must point at it in these records.
+      if (at !== -1 && (records[at]?.event !== 'anchor' || records[at].id !== anchor)) at = records.findIndex(record => record.event === 'anchor' && record.id === anchor)
+      let next = []
+      if (at === -1) next = records.filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
+      else {
+        for (let i = at + 1; i < records.length; i += 1) {
+          if (records[i].event !== 'anchor') continue
+          if (records[i].from !== undefined) next = [records[i].from]
+          break
+        }
+      }
       if (next.length > 0) end = Math.min(...next) - 1
     }
     // Not the messages the group's own Session shows itself.

@@ -7,6 +7,7 @@ import { KeyIcon, MaskedInput } from './secret-card.js'
 import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
+import { registerPopupOwner } from './popup-ownership.js'
 
 const MENU_EXIT_MS = 120
 
@@ -338,6 +339,7 @@ export function useAnchoredMenu(minWidth = 240) {
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
   const button = useRef(null)
   const menu = useRef(null)
+  useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
   const tick = useViewport()
   const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {
@@ -531,8 +533,9 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240)
   const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel })
   const { manage, hasEfforts } = picker
+  const hasModels = picker.models.length > 0
   useLayoutEffect(() => {
-    if (!wide) return
+    if (!wide || typeof ResizeObserver !== 'function') return
     const provider = button.current?.querySelector('.bt-model-provider')
     if (!provider) return
     const update = () => provider.toggleAttribute('data-squeezed', provider.clientWidth < Math.min(48, provider.scrollWidth))
@@ -540,7 +543,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
     observer.observe(provider)
     update()
     return () => observer.disconnect()
-  }, [wide, button, picker.shown?.provider])
+  }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels])
   const toggle = () => {
     if (isOpen) { close(); return }
     picker.opened()
