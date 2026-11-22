@@ -1476,6 +1476,9 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    if (payload.step === 1 && rt.consumeEmptyTaskWake?.(agent.id) && (payload.messages?.length ?? 0) === 0) {
+      return { kind: 'reject' }
+    }
     const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
     const route = splitRef(local)?.provider
     if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
