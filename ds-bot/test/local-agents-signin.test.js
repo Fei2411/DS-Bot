@@ -354,12 +354,27 @@ test('Devin CLI falls back to credentials.toml on status timeout, while explicit
   assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), null, 'no credentials file stays unknown')
 
   mkdirSync(devinDir, { recursive: true })
-  for (const invalid of ['', '# windsurf_api_key = "k"\n', 'windsurf_api_key = ""\n', 'windsurf_api_key = "   "\n', 'windsurf_api_key = \'  \'\n', 'api_server_url = "https://example.test"\n']) {
+  for (const invalid of [
+    '',
+    '# windsurf_api_key = "k"\n',
+    'windsurf_api_key = ""\n',
+    'windsurf_api_key = "   "\n',
+    'windsurf_api_key = \'  \'\n',
+    'windsurf_api_key = 123\n',
+    'windsurf_api_key = "tok" trailing\n',
+    '[backup]\nwindsurf_api_key = "tok-nested"\n',
+    'api_server_url = "https://example.test"\n',
+  ]) {
     writeFileSync(creds, invalid)
     assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), null, `rejects ${JSON.stringify(invalid)}`)
   }
 
-  for (const valid of ['windsurf_api_key = "tok-1"\n', 'windsurf_api_key = \'tok-2\'\r\n', '  windsurf_api_key = "tok-3" # inline\n']) {
+  for (const valid of [
+    'windsurf_api_key = "tok-1"\n',
+    'windsurf_api_key = \'tok-2\'\r\n',
+    '  windsurf_api_key = "tok-3" # inline\n',
+    'windsurf_api_key = "tok-\\"escaped\\""\n[other]\nkey = "v"\n',
+  ]) {
     writeFileSync(creds, valid)
     assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'linux', env: {} }), true, `accepts ${JSON.stringify(valid)}`)
   }
@@ -406,36 +421,63 @@ test('Cursor CLI falls back to macOS Keychain then auth.json on timeout, while e
   const slow = makeScript('cursor-slow.mjs', 'setTimeout(() => {}, 10_000)')
   const offline = makeScript('cursor-offline.mjs', 'console.error("Status check error: network unavailable")')
   const loggedOut = makeScript('cursor-out.mjs', 'console.log("Not logged in")')
+  const partial = makeScript('cursor-partial.mjs', 'console.log("Partially authenticated (missing refresh token)")')
   const loggedIn = makeScript('cursor-in.mjs', 'console.log("✓ Logged in as user@example.test")')
-  const fakeKeychain = code => t.mock.fn(() => {
+  const keychainWith = services => t.mock.fn((_file, args) => {
     const child = new EventEmitter()
-    queueMicrotask(() => child.emit('close', code))
+    const svc = args[args.indexOf('-s') + 1]
+    queueMicrotask(() => child.emit('close', services.has(svc) ? 0 : 44))
     return child
   })
-  const hit = fakeKeychain(0)
-  const miss = fakeKeychain(44)
+  const oauthHit = keychainWith(new Set(['cursor-access-token', 'cursor-refresh-token']))
+  const partialKeychain = keychainWith(new Set(['cursor-access-token']))
+  const apiKeyHit = keychainWith(new Set(['cursor-api-key']))
+  const miss = keychainWith(new Set())
 
   const home = join(root, 'home')
   assert.equal(await probeSignIn(loggedIn, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), true)
-  assert.equal(await probeSignIn(loggedOut, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: hit }), false, 'explicit Not logged in beats Keychain')
-  assert.equal(hit.mock.callCount(), 0)
+  assert.equal(await probeSignIn(loggedOut, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: oauthHit }), false, 'explicit Not logged in beats Keychain')
+  assert.equal(await probeSignIn(partial, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: oauthHit }), false, 'Partially authenticated is signed out and beats Keychain')
+  assert.equal(oauthHit.mock.callCount(), 0)
 
-  // Real subprocess timeout falls back to macOS Keychain metadata lookup.
-  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: hit, timeoutMs: 150 }), true)
-  const [file, args, options] = hit.mock.calls[0].arguments
-  assert.equal(file, '/usr/bin/security')
-  assert.deepEqual(args, ['find-generic-password', '-s', 'cursor-access-token', '-a', 'cursor-user'])
-  assert.equal(options.stdio, 'ignore')
-  assert.ok(options.signal instanceof AbortSignal)
+  // Real subprocess timeout falls back to macOS Keychain metadata lookup requiring access + refresh tokens.
+  assert.equal(await probeSignIn(slow, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: oauthHit, timeoutMs: 150 }), true)
+  assert.equal(oauthHit.mock.callCount(), 2)
+  for (const call of oauthHit.mock.calls) {
+    const [file, args, options] = call.arguments
+    assert.equal(file, '/usr/bin/security')
+    assert.equal(args[0], 'find-generic-password')
+    assert.equal(args[3], '-a')
+    assert.equal(args[4], 'cursor-user')
+    assert.equal(options.stdio, 'ignore')
+    assert.ok(options.signal instanceof AbortSignal)
+  }
+  assert.deepEqual(oauthHit.mock.calls.map(c => c.arguments[1][2]).sort(), ['cursor-access-token', 'cursor-refresh-token'])
 
-  // macOS with Keychain miss chains to ~/.cursor/auth.json
+  // Partial Keychain (access token without refresh token) stays unknown, while cursor-api-key succeeds.
+  assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: partialKeychain }), null)
+  assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: apiKeyHit }), true)
+
+  // macOS with Keychain miss chains to ~/.cursor/auth.json requiring (accessToken && refreshToken) or apiKey strings.
   const macAuth = join(home, '.cursor', 'auth.json')
   mkdirSync(dirname(macAuth), { recursive: true })
-  for (const invalid of ['', 'not json', '{}', '{"accessToken":""}', '{"accessToken":"   ","apiKey":null}']) {
+  for (const invalid of [
+    '',
+    'not json',
+    '{}',
+    '{"accessToken":""}',
+    '{"accessToken":"tok-only"}',
+    '{"refreshToken":"rt-only"}',
+    '{"accessToken":{},"refreshToken":"rt"}',
+    '{"accessToken":"tok","refreshToken":[]}',
+    '{"apiKey":true}',
+    '{"apiKey":123}',
+    '{"accessToken":"   ","apiKey":null}',
+  ]) {
     writeFileSync(macAuth, invalid)
-    assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), null)
+    assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), null, `rejects ${invalid}`)
   }
-  writeFileSync(macAuth, JSON.stringify({ accessToken: 'tok-mac' }))
+  writeFileSync(macAuth, JSON.stringify({ accessToken: 'tok-mac', refreshToken: 'rt-mac' }))
   assert.equal(await probeSignIn(offline, signedIn, { home, platform: 'darwin', env: {}, spawnKeychain: miss }), true)
 
   // Linux ($XDG_CONFIG_HOME or ~/.config) and Windows (%APPDATA% or ~/AppData/Roaming)
@@ -443,30 +485,31 @@ test('Cursor CLI falls back to macOS Keychain then auth.json on timeout, while e
   const linuxAuth = join(linuxHome, '.config', 'cursor', 'auth.json')
   mkdirSync(dirname(linuxAuth), { recursive: true })
   writeFileSync(linuxAuth, JSON.stringify({ apiKey: 'key-linux' }))
-  assert.equal(await probeSignIn(offline, signedIn, { home: linuxHome, platform: 'linux', env: {}, spawnKeychain: hit }), true)
+  assert.equal(await probeSignIn(offline, signedIn, { home: linuxHome, platform: 'linux', env: {}, spawnKeychain: oauthHit }), true)
 
   const xdgCfg = join(root, 'xdg-cfg')
   mkdirSync(join(xdgCfg, 'cursor'), { recursive: true })
-  writeFileSync(join(xdgCfg, 'cursor', 'auth.json'), JSON.stringify({ refreshToken: 'rt-xdg' }))
+  writeFileSync(join(xdgCfg, 'cursor', 'auth.json'), JSON.stringify({ accessToken: 'tok-xdg', refreshToken: 'rt-xdg' }))
   assert.equal(await probeSignIn(offline, signedIn, { home: join(root, 'empty'), platform: 'linux', env: { XDG_CONFIG_HOME: xdgCfg } }), true)
 
   const winHome = join(root, 'win')
   const winAuth = join(winHome, 'AppData', 'Roaming', 'Cursor', 'auth.json')
   mkdirSync(dirname(winAuth), { recursive: true })
-  writeFileSync(winAuth, JSON.stringify({ accessToken: 'tok-win' }))
+  writeFileSync(winAuth, JSON.stringify({ accessToken: 'tok-win', refreshToken: 'rt-win' }))
   assert.equal(await probeSignIn(offline, signedIn, { home: winHome, platform: 'win32', env: {} }), true)
 
   const appData = join(root, 'appdata')
   mkdirSync(join(appData, 'Cursor'), { recursive: true })
-  writeFileSync(join(appData, 'Cursor', 'auth.json'), JSON.stringify({ accessToken: 'tok-appdata' }))
+  writeFileSync(join(appData, 'Cursor', 'auth.json'), JSON.stringify({ apiKey: 'key-appdata' }))
   assert.equal(await probeSignIn(offline, signedIn, { home: join(root, 'empty'), platform: 'win32', env: { AppData: appData } }), true)
 })
 
-test('probeSignIns retries inconclusive null quickly, deduplicates concurrent calls, and ignores stale probes after refresh', async (t) => {
+test('probeSignIns retries inconclusive null after 20s, skips probe-less CLIs, deduplicates, and preserves refresh state', async (t) => {
   await refreshSearchDirs()
   const saved = { ...ENGINES }
   for (const route of Object.keys(ENGINES)) delete ENGINES[route]
   ENGINES['local-devin-cli'] = { ...saved['local-devin-cli'], command: process.execPath, commands: [process.execPath], version: ['-v'] }
+  ENGINES['local-opencode'] = { ...saved['local-opencode'], command: process.execPath, commands: [process.execPath], version: ['-v'] }
   t.after(() => {
     for (const route of Object.keys(ENGINES)) delete ENGINES[route]
     Object.assign(ENGINES, saved)
@@ -475,7 +518,7 @@ test('probeSignIns retries inconclusive null quickly, deduplicates concurrent ca
   let clock = 100_000
   let calls = 0
   let nextResult = null
-  let gate
+  const gates = []
   const owner = new Context()
   const llm = new LlmRuntime(owner)
   const ctx = fakeContext({ services: { llm } })
@@ -486,60 +529,78 @@ test('probeSignIns retries inconclusive null quickly, deduplicates concurrent ca
     now: () => clock,
     probeSignIn: async () => {
       calls++
-      if (gate !== undefined) {
-        const pending = gate
-        gate = undefined
-        return pending
-      }
+      if (gates.length > 0) return gates.shift()
       return nextResult
     },
   })
 
-  // Initial inconclusive null is cached only briefly (5s), not for 60s.
+  const devinOf = res => res.detected.find(entry => entry.route === 'local-devin-cli').signedIn
+  const opencodeOf = res => res.detected.find(entry => entry.route === 'local-opencode').signedIn
+
+  // Initial inconclusive null is cached for 20s (not 60s), and probe-less CLIs (OpenCode) never invoke probeSignIn.
   let list = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(list.detected[0].signedIn, null)
+  assert.equal(devinOf(list), null)
+  assert.equal(opencodeOf(list), null)
   assert.equal(calls, 1)
 
-  clock += 4_000
+  clock += 19_000
   nextResult = true
   list = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(list.detected[0].signedIn, null)
+  assert.equal(devinOf(list), null)
   assert.equal(calls, 1)
 
   clock += 2_000
   list = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(list.detected[0].signedIn, true)
+  assert.equal(devinOf(list), true)
   assert.equal(calls, 2)
 
   // Definitive true stays cached for 60s.
   clock += 30_000
   nextResult = false
   list = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(list.detected[0].signedIn, true)
+  assert.equal(devinOf(list), true)
   assert.equal(calls, 2)
 
-  // Concurrent local-agents calls share one in-flight probe.
+  // Concurrent local-agents calls share one in-flight probe; refresh superseding it never causes earlier callers to return null.
   clock += 35_000
   let releaseFirst
-  gate = new Promise((resolve) => { releaseFirst = resolve })
+  let releaseRefresh
+  gates.push(new Promise((resolve) => { releaseFirst = resolve }))
+  gates.push(new Promise((resolve) => { releaseRefresh = resolve }))
   const p1 = rt.localAgentsEndpoint('local-agents', {})
   const p2 = rt.localAgentsEndpoint('local-agents', {})
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(calls, 3, 'concurrent callers reuse the single in-flight probe')
 
-  // Refresh while the old probe is still in flight starts a fresh probe; late old result must not overwrite it.
-  nextResult = true
-  const refreshed = await rt.localAgentsEndpoint('local-agent-refresh', {})
-  assert.equal(refreshed.detected[0].signedIn, true)
-  assert.equal(calls, 4)
+  const refreshPromise = rt.localAgentsEndpoint('local-agent-refresh', {})
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(calls, 4, 'refresh starts a superseding probe')
 
+  // First probe settles BEFORE refresh completes: p1/p2 must wait for the superseding refresh rather than returning null.
   releaseFirst(false)
-  await Promise.all([p1, p2])
+  await new Promise(resolve => setTimeout(resolve, 20))
+  releaseRefresh(true)
+  const [r1, r2, refreshed] = await Promise.all([p1, p2, refreshPromise])
+  assert.equal(devinOf(refreshed), true)
+  assert.equal(devinOf(r1), true, 'superseded caller waits for refresh result instead of returning null')
+  assert.equal(devinOf(r2), true)
+
+  // Stale pre-refresh probe resolving AFTER refresh still cannot clobber refreshed state.
+  let releaseSlow
+  gates.push(new Promise((resolve) => { releaseSlow = resolve }))
+  clock += 65_000
+  const staleCall = rt.localAgentsEndpoint('local-agents', {})
+  await new Promise(resolve => setTimeout(resolve, 20))
+  nextResult = true
+  const fastRefresh = await rt.localAgentsEndpoint('local-agent-refresh', {})
+  assert.equal(devinOf(fastRefresh), true)
+  releaseSlow(false)
+  await staleCall
   const after = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(after.detected[0].signedIn, true, 'stale pre-refresh probe cannot clobber refreshed state')
+  assert.equal(devinOf(after), true, 'late pre-refresh probe cannot overwrite refreshed state')
 
   // A probe rejection degrades that entry to null instead of failing the endpoint.
-  gate = Promise.reject(new Error('probe crashed'))
+  gates.push(Promise.reject(new Error('probe crashed')))
   const degraded = await rt.localAgentsEndpoint('local-agent-refresh', {})
-  assert.equal(degraded.detected[0].signedIn, null)
+  assert.equal(devinOf(degraded), null)
 })

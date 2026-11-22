@@ -19,14 +19,14 @@ const CLIS = {
   'devin-cli': {
     name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login',
     // `devin auth status` fetches remote team settings and can time out offline;
-    // `devin auth logout` deletes credentials.toml, which requires `windsurf_api_key`.
+    // `devin auth logout` deletes credentials.toml, which requires top-level `windsurf_api_key`.
     signedIn: {
       args: ['auth', 'status'],
       fallback: {
         platformFile: {
           win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['devin', 'credentials.toml'] },
           default: { env: 'XDG_DATA_HOME', base: ['.local', 'share'], path: ['devin', 'credentials.toml'] },
-          match: /^[ \t]*windsurf_api_key[ \t]*=[ \t]*(?:"[ \t]*[^\s"\r\n][^"\r\n]*"|'[ \t]*[^\s'\r\n][^'\r\n]*')[ \t]*(?:#[^\r\n]*)?\r?$/mu,
+          tomlStrings: ['windsurf_api_key'],
         },
       },
     },
@@ -35,18 +35,22 @@ const CLIS = {
   'codex-cli': { name: 'Codex CLI', kind: 'codex', command: 'codex', args: ['app-server', '--listen', 'stdio://'], version: ['--version'], signIn: 'codex login', signedIn: { args: ['login', 'status'] } },
   'cursor-cli': {
     name: 'Cursor CLI', kind: 'acp', command: 'cursor-agent', args: ['acp'], version: ['--version'], signIn: 'cursor-agent login',
-    // `cursor-agent status` validates over the network; fall back to Cursor's
-    // macOS Keychain item (metadata only) or auth.json file store if inconclusive.
+    // `cursor-agent status` validates over the network and requires either both OAuth
+    // tokens (access + refresh) or an API key; fall back to macOS Keychain metadata
+    // or auth.json with the same contract if the status call is inconclusive.
     signedIn: {
       args: ['status'],
       fallback: {
-        macKeychain: { service: 'cursor-access-token', account: 'cursor-user' },
+        macKeychain: { services: ['cursor-access-token', 'cursor-refresh-token'], account: 'cursor-user' },
         fallback: {
-          platformFile: {
-            darwin: { path: ['.cursor', 'auth.json'] },
-            win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['Cursor', 'auth.json'] },
-            default: { env: 'XDG_CONFIG_HOME', base: ['.config'], path: ['cursor', 'auth.json'] },
-            any: [['accessToken'], ['refreshToken'], ['apiKey']],
+          macKeychain: { service: 'cursor-api-key', account: 'cursor-user' },
+          fallback: {
+            platformFile: {
+              darwin: { path: ['.cursor', 'auth.json'] },
+              win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['Cursor', 'auth.json'] },
+              default: { env: 'XDG_CONFIG_HOME', base: ['.config'], path: ['cursor', 'auth.json'] },
+              stringGroups: [[['accessToken'], ['refreshToken']], [['apiKey']]],
+            },
           },
         },
       },
