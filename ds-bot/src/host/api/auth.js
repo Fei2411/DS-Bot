@@ -486,6 +486,22 @@ export function createApiAuth(rt) {
   }
 
   async function authenticate(req) {
+    const originCheck = checkRequestOrigin(req)
+    if (!originCheck.ok) return originCheck
+    if (QUERY_SECRET_RE.test(String(req.url ?? ''))) {
+      return { ok: false, status: 401, code: 'api/token-in-query', message: 'Send the API token in the Authorization header, never in URL query parameters' }
+    }
+    const raw = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : ''
+    if (!raw.startsWith('Bearer ')) return { ok: false, status: 401, code: 'api/unauthorized', message: 'Missing Bearer token' }
+    const presented = raw.slice(7).trim()
+    const modern = presented.startsWith(TOKEN_PREFIX)
+    const rest = presented.slice(TOKEN_PREFIX.length)
+    const separator = rest.indexOf('_')
+    if (/\s/.test(presented) || (modern
+      ? separator <= 0 || separator === rest.length - 1
+      : !presented.startsWith('dsb_') || presented.length <= 4)) {
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+    }
     const now = Date.now()
     for (const [address, attempts] of authAttempts) {
       const live = attempts.filter(at => now - at < AUTH_WINDOW_MS)
@@ -494,13 +510,16 @@ export function createApiAuth(rt) {
     }
     const address = req.socket?.remoteAddress ?? 'unknown'
     const attempts = authAttempts.get(address) ?? []
-    if (attempts.length >= AUTH_FAILURE_LIMIT || (!authAttempts.has(address) && authAttempts.size >= AUTH_CACHE_LIMIT)) {
+    if (attempts.length >= AUTH_FAILURE_LIMIT) {
       return { ok: false, status: 429, code: 'api/auth-rate-limited', message: 'Too many failed authentication attempts', details: { retryAfterMs: Math.max(1, AUTH_WINDOW_MS - (now - (attempts[0] ?? now))) } }
+    }
+    if (!authAttempts.has(address) && authAttempts.size >= AUTH_CACHE_LIMIT) {
+      authAttempts.delete(authAttempts.keys().next().value)
     }
     attempts.push(now)
     authAttempts.set(address, attempts)
-    const result = await authenticateToken(req)
-    if (result.ok) {
+    const { failedSecret, ...result } = await authenticateToken(req)
+    if (!failedSecret) {
       const current = authAttempts.get(address)
       const index = current?.indexOf(now) ?? -1
       if (index >= 0) current.splice(index, 1)
@@ -548,7 +567,7 @@ export function createApiAuth(rt) {
       }
     }
     if (entry === undefined) {
-      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token' }
+      return { ok: false, status: 401, code: 'api/unauthorized', message: 'Invalid API token', failedSecret: true }
     }
     const current = tokens.find(item => item.keyId === entry.keyId)
     if (!current || tokenFingerprint(current) !== tokenFingerprint(entry)) {

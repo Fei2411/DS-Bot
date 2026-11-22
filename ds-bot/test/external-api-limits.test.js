@@ -102,6 +102,37 @@ test('failed-auth attempts are bounded before scrypt and isolated per remote add
   assert.equal((await auth.authenticate(req(created.token, 'attacker'))).ok, true)
 })
 
+test('unauthenticated browser traffic never consumes the failed-secret budget', async t => {
+  const { auth, created, req } = authHarness(t)
+  for (let i = 0; i < 20; i += 1) {
+    for (const token of ['', 'garbage', 'dsb_', 'dsb_live_no-secret', 'dsb_live_id_']) {
+      assert.equal((await auth.authenticate(req(token))).status, 401)
+    }
+    const missing = req()
+    delete missing.headers.authorization
+    assert.equal((await auth.authenticate(missing)).status, 401)
+    const origin = req()
+    origin.headers.origin = 'https://attacker.example'
+    assert.equal((await auth.authenticate(origin)).status, 403)
+    const host = req()
+    host.headers.host = '127.attacker.example'
+    assert.equal((await auth.authenticate(host)).status, 403)
+  }
+  assert.equal((await auth.authenticate(req(created.token))).ok, true)
+})
+
+test('a full failed-auth address table evicts its oldest entry', async t => {
+  const { auth, created, req } = authHarness(t)
+  for (let i = 0; i < 1024; i += 1) {
+    assert.equal((await auth.authenticate(req('dsb_unknown', `address-${i}`))).status, 401)
+  }
+  assert.equal((await auth.authenticate(req(created.token, 'new-address'))).ok, true)
+  for (let i = 0; i < 10; i += 1) {
+    assert.equal((await auth.authenticate(req('dsb_unknown', 'address-0'))).status, 401)
+  }
+  assert.equal((await auth.authenticate(req(created.token, 'address-0'))).status, 429)
+})
+
 test('legacy raw sha256 tokens still verify asynchronously', async t => {
   const { auth, home, req } = authHarness(t)
   const token = 'dsb_legacy_test'
