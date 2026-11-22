@@ -317,3 +317,31 @@ test('a folded parallel part keeps its place in time among the earlier parts', a
   await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
   assert.deepEqual(saved(home).bots.w1.segments, [{ sessionId: 'w4', endedAt: 5 }, { sessionId: 'w3', endedAt: 5 }, { sessionId: 'w1', endedAt: 10 }])
 })
+
+// A withdrawn part the user opens again before it is retired is the Bot's chat from
+// then on: it keeps its turn and its reminders, and is not archived under the user.
+test('a withdrawn parallel part opened again before it is retired stays the Bot chat', async (t) => {
+  let failing = true
+  const archived = []
+  const { home, call, rt } = await team(t, [], LEGACY, undefined, {
+    before: (registry) => {
+      const archive = registry.archiveSession.bind(registry)
+      registry.archiveSession = async (id, options) => {
+        if (failing) throw new Error('busy disk')
+        archived.push(String(id))
+        return archive(id, options)
+      }
+    },
+  })
+  await call('state')
+  await rt.retireParts()
+  assert.equal(rt.isRetiring('w3'), true)
+  failing = false
+  assert.equal(await rt.switchPart('w1', 'w3'), true)
+  await rt.retireParts()
+  assert.equal(rt.chatOf('w1'), 'w3')
+  assert.equal(rt.isRetiring('w3'), false)
+  assert.equal(archived.includes('w3'), false)
+  assert.equal(archived.includes('w2'), true)
+  await until(() => saved(home).retiredParts === undefined && saved(home).bots.w1.sessionId === 'w3')
+})

@@ -345,6 +345,20 @@ export function install(rt) {
   let waitingForSchedules
   // A part waiting to be retired may still run a turn, so it is not complete yet.
   const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
+  const dropRetired = (match) => {
+    if (!Array.isArray(state.retiredParts)) return
+    state.retiredParts = state.retiredParts.filter(entry => !match(entry))
+    if (state.retiredParts.length === 0) delete state.retiredParts
+  }
+  // The user opens a withdrawn part again: it becomes the Bot's one chat, so it keeps
+  // its turn and its reminders. Resolves once a retirement already under way is done,
+  // so the part is not archived after it has been reopened.
+  const keepRetiredPart = async (sessionId) => {
+    if (!isRetiring(sessionId)) return false
+    dropRetired(entry => entry?.sessionId === sessionId)
+    await retiring
+    return true
+  }
   // How long retirement waits for DSH's schedule service, so no part is archived with
   // its reminders still on it.
   const scheduleDeadline = Date.now() + 10_000
@@ -362,20 +376,21 @@ export function install(rt) {
       for (const entry of [...state.retiredParts]) {
         if (stopped) return
         const sessionId = sessionIdOf(entry?.sessionId)
+        // A part the user opened again is the Bot's chat now (keepRetiredPart), so it stays.
+        const kept = () => !(state.retiredParts ?? []).includes(entry)
         try {
-          if (sessionId !== undefined) {
+          if (sessionId !== undefined && !kept()) {
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
             if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
-            await registry.archiveSession(sessionId, { stopActivity: true })
+            if (!kept() && chatOf(entry.botId) !== sessionId) await registry.archiveSession(sessionId, { stopActivity: true })
           }
-          state.retiredParts = state.retiredParts.filter(item => item !== entry)
+          dropRetired(item => item === entry)
         } catch (error) {
           warn('ds-bot: withdrawn parallel part %s not retired yet: %s', sessionId, error)
         }
       }
-      if (state.retiredParts.length === 0) delete state.retiredParts
       await save().catch(error => warn('ds-bot: saving the retired parallel parts failed: %s', error))
     })().finally(() => { retiring = undefined })
     return retiring
@@ -738,7 +753,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, keepRetiredPart, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
