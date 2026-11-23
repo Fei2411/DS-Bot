@@ -340,6 +340,19 @@ test('an attached Session or Agent cannot use a cold listing and matching witnes
   }
 })
 
+test('a context that refuses an uninjected service does not lose the recorded selection', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const { rt, selected } = bench({ services: storedSessions({ g1: { selection: route } }) })
+  rt.state.sessionModelSelections = { g1: route }
+  // cordis throws on a service property the plugin did not inject; the cold-read
+  // shortcut must read them through the safe lookup instead.
+  for (const name of ['sessions', 'agents']) {
+    Object.defineProperty(rt.ctx, name, { configurable: true, get() { throw new Error(`cannot get property "${name}" without inject`) } })
+  }
+  await rt.selectSessionModel('g1', route)
+  assert.deepEqual(selected, [])
+})
+
 test('a provider registering after fallback selection cannot reuse its stale checkpoint', async () => {
   const route = { provider: 'late', model: 'a' }
   const { rt, selected, providers } = bench({

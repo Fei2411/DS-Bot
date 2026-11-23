@@ -418,7 +418,9 @@ export function install(rt) {
       if (cache?.cachedSnapshot === undefined) return undefined
       const record = (await listedSessions())?.get(sessionId)
       if (record === undefined || !record.persisted || record.live) return undefined
-      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
+      // Read through serviceOf: a plain `ctx.sessions` / `ctx.agents` getter throws
+      // outside an injected context, which would drop every Session to a resume.
+      if (serviceOf(ctx, 'sessions')?.get?.(sessionId) !== undefined || serviceOf(ctx, 'agents')?.get?.(sessionId) !== undefined) return undefined
       const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
       return selection?.next ?? selection?.lastUsed ?? undefined
     } catch (error) {
