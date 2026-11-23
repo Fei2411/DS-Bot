@@ -902,3 +902,29 @@ test('a queued post_to_group by the primary Main Bot does not suppress standalon
   const stopAlert = host.agentOf('a').calls.find(call => text(call).includes('goal stopped'))
   assert.match(text(stopAlert), /\[Group chat "Lab" · goal stopped\]/)
 })
+
+test('post_to_group report still includes completed goal summary if user clears the goal into pastGoals before round end (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  await host.tool('post_to_group', { group: 'Lab', message: '完成发布目标并归档' }, 'a')
+  const post = host.agentOf('r2').calls.shift()
+  const round = host.round('g-clear', { content: post.content, source: post.source }, 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 1)
+  host.begin('lb')
+  await host.tool('group_goal', { action: 'start', title: 'Clear Race', objective: 'Deliver cleanly', acceptance: 'all green', stages: oneStage }, 'lb')
+  await host.tool('group_goal', { action: 'pass', evidence: 'ok' }, 'lb')
+  await host.tool('group_goal', { action: 'complete', evidence: 'npm test 100%', summary: 'archived before round end' }, 'lb')
+  // User clears the completed goal banner while Writer's turn is still wrapping up.
+  const goalId = host.rt.roomOf('r2').goal.id
+  assert.equal((await host.call('goal-control', { roomId: 'r2', goalId, action: 'clear' })).ok, true)
+  assert.equal(host.rt.roomOf('r2').goal, undefined)
+  host.finish('lb', '[PASS]')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const msg = text(host.agentOf('a').calls[0])
+  assert.match(msg, /Goal "Clear Race" completed\./)
+  assert.match(msg, /Summary: archived before round end/)
+  assert.match(msg, /Evidence: npm test 100%/)
+  assert.doesNotMatch(msg, /Nobody replied/)
+})

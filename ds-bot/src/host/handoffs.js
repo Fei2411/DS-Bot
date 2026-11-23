@@ -9,6 +9,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
+import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { headOf } from './text.js'
 import { ownChatSessions, threadCurrentOfPart } from './threads.js'
 
@@ -110,14 +111,10 @@ export function install(rt) {
   // `fromPart`: the part of the sender's own chat it wrote from, which its answer goes
   // back to when that is a background part. `imOrigin`: the IM chat that asked the
   // sender for this work, kept out of public views and Session logs.
-  const sameImOrigin = (a, b) => (a === undefined && b === undefined)
-    || (a !== undefined && b !== undefined
-      && a.connId === b.connId && a.chatKey === b.chatKey
-      && a.senderId === b.senderId && a.binding === b.binding)
-
   function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart, imOrigin }) {
     const above = parent === undefined ? undefined : works()[parent]
-    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(fromPart ? { fromPart } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), ...(imOrigin ? { imOrigin } : {}), open: [], results: [], at: Date.now() }
+    const cleanOrigin = normalizeImOrigin(imOrigin)
+    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(fromPart ? { fromPart } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), ...(cleanOrigin ? { imOrigin: cleanOrigin } : {}), open: [], results: [], at: Date.now() }
     if (above !== undefined) above.open.push(id)
     save()
   }
@@ -141,7 +138,9 @@ export function install(rt) {
       }
       return
     }
-    if (!sameImOrigin(work.imOrigin, nextImOrigin)) {
+    const cleanNext = normalizeImOrigin(nextImOrigin)
+    if (work.imOrigin === undefined && cleanNext === undefined) return
+    if (!sameImOrigin(work.imOrigin, cleanNext)) {
       delete work.imOrigin
       work.imOriginMixed = true
       save()
@@ -156,21 +155,14 @@ export function install(rt) {
   const imReplyOrigins = () => (state.imReplyOrigins ??= {})
   function rememberImReplyOrigin(id, imOrigin) {
     const isMixed = imOrigin?.mixed === true
-    if (typeof id !== 'string' || id === '' || (!isMixed && (imOrigin?.connId === undefined || imOrigin?.chatKey === undefined))) return
+    const cleanOrigin = isMixed ? undefined : normalizeImOrigin(imOrigin)
+    if (typeof id !== 'string' || id === '' || (!isMixed && cleanOrigin === undefined)) return
     const map = imReplyOrigins()
     const now = Date.now()
     for (const [key, entry] of Object.entries(map)) {
       if (now - (entry?.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) delete map[key]
     }
-    map[id] = isMixed
-      ? { mixed: true, at: now }
-      : {
-          connId: imOrigin.connId,
-          chatKey: imOrigin.chatKey,
-          ...(imOrigin.senderId !== undefined ? { senderId: imOrigin.senderId } : {}),
-          ...(imOrigin.binding !== undefined ? { binding: imOrigin.binding } : {}),
-          at: now,
-        }
+    map[id] = isMixed ? { mixed: true, at: now } : { ...cleanOrigin, at: now }
     const keys = Object.keys(map)
     if (keys.length > IM_REPLY_ORIGINS_KEPT) {
       for (const old of keys.sort((a, b) => (map[a].at ?? 0) - (map[b].at ?? 0)).slice(0, keys.length - IM_REPLY_ORIGINS_KEPT)) delete map[old]

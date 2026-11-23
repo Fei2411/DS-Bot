@@ -24,14 +24,14 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, LATE_ANSWER, MESSAGE_INLINE_MAX, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
+import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, reminderPrompts, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { REPLY_ELISION, parseReplies, relayRange } from '../shared/group-replies.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { searchGroupBook } from './group-search.js'
-import { threadCurrentOfPart } from './threads.js'
+import { createRoomReports } from './room-reports.js'
 import { failureLine } from './turns.js'
 import { parseBook } from './ledger.js'
 
@@ -1080,290 +1080,44 @@ export function install(rt) {
       saveSoon()
     }
   }
-
-  // Persisted group report-back watchers (`state.roomReports`): a post_to_group call
-  // that wants the outcome back waits until the group work it triggered truly finishes
-  // (long replies past 15s, approvals, group background tasks, intra-group batches and
-  // relays, and any active group_goal), then delivers once to the caller's conversation.
-  const reports = () => (rt.state.roomReports ??= {})
-  // Follow-up relays queued on a room's own Session and not yet taken into roomInbox.
-  const queuedRelays = new Map()
-  // Late member replies/failures mid-async-post before postToRoom queues their follow-up.
-  const inFlightLate = new Map()
-  // Bounded set of exchangeId / reportId values cancelled by stopRoomWork so even a
-  // relay already claimed out of the room Session inbox cannot resurrect a stopped report.
-  const STOPPED_RELAYS_KEPT = 200
-  const stoppedRelays = new Set()
-  const rememberStoppedRelay = (id) => {
-    if (typeof id !== 'string' || id === '') return
-    stoppedRelays.add(id)
-    if (stoppedRelays.size > STOPPED_RELAYS_KEPT) stoppedRelays.delete(stoppedRelays.values().next().value)
-  }
-  const isStoppedRelay = post => post?.goal !== 'draft'
-    && ((typeof post?.exchangeId === 'string' && stoppedRelays.has(post.exchangeId))
-      || (typeof post?.reportId === 'string' && stoppedRelays.has(post.reportId)))
-  const isBotPendingPost = post => post !== undefined && ((post.botId !== undefined && post.stopped !== true) || post.goal === 'nudge' || post.goal === 'resume')
-  const sameImOrigin = (a, b) => a === b || (a !== undefined && b !== undefined
-    && a.connId === b.connId && a.chatKey === b.chatKey
-    && a.senderId === b.senderId && a.binding === b.binding)
-  // Unrelated local Web input or a conflicting Bot post entering a room while an IM-origin
-  // report is pending taints the report's IM origin so unrelated replies and local approvals
-  // never leak back to the IM chat.
-  const taintRoomReportOrigins = (roomId, incomingOrigin, { excludeReportId } = {}) => {
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId || report.id === excludeReportId) continue
-      if (report.imOrigin === undefined) continue
-      if (!sameImOrigin(report.imOrigin, incomingOrigin)) {
-        delete report.imOrigin
-        report.imOriginMixed = true
-        changed = true
-      }
-    }
-    if (changed) saveSoon()
-  }
-  const noteRoomRelayQueued = (roomId, exchangeId) => {
-    if (typeof roomId !== 'string' || typeof exchangeId !== 'string' || exchangeId === '') return
-    let set = queuedRelays.get(roomId)
-    if (set === undefined) queuedRelays.set(roomId, set = new Set())
-    set.add(exchangeId)
-  }
-  const roomRelayTaken = (roomId, exchangeId) => {
-    const set = queuedRelays.get(roomId)
-    if (set === undefined) return
-    set.delete(exchangeId)
-    if (set.size === 0) queuedRelays.delete(roomId)
-  }
-  const enterLate = (roomId) => inFlightLate.set(roomId, (inFlightLate.get(roomId) ?? 0) + 1)
-  const leaveLate = (roomId) => {
-    const next = (inFlightLate.get(roomId) ?? 1) - 1
-    if (next <= 0) inFlightLate.delete(roomId)
-    else inFlightLate.set(roomId, next)
-  }
-  const dropRoomReport = (id) => {
-    if (id === undefined || reports()[id] === undefined) return
-    delete reports()[id]
-    saveSoon()
-  }
-  // Only already-tracking non-scoped reports carry whole-room outcomes (such as group_goal
-  // completion); a queued post or a mid-round scoped post targeting a subset of members must
-  // not suppress standalone goal notifications to the primary Main Bot.
-  const hasRoomReportFor = (roomId, botId) => Object.values(reports())
-    .some(report => report.roomId === roomId && report.botId === botId && report.status === 'tracking' && !Array.isArray(report.ids))
-  const roomReportImOrigin = (roomId, targetBotId) => {
-    const active = Object.values(reports()).filter(report => report.roomId === roomId && rt.botOf(report.botId) !== undefined)
-    if (active.length === 0) return undefined
-    const first = active[0].imOrigin
-    if (first === undefined) return undefined
-    for (const report of active) {
-      const origin = report.imOrigin
-      if (origin === undefined || origin.connId !== first.connId || origin.chatKey !== first.chatKey
-        || origin.senderId !== first.senderId || origin.binding !== first.binding) {
-        return undefined
-      }
-    }
-    if (targetBotId !== undefined && !active.some(report => !Array.isArray(report.ids) || report.ids.includes(targetBotId))) {
-      return undefined
-    }
-    return first
-  }
   const nextRoomSeq = room => (typeof room?.seq === 'number' ? room.seq + 1 : 1)
-  const settleQueuedReportInRound = (room, postExtra, { paused = false } = {}) => {
-    if (postExtra.reportBack !== true) return
-    const id = postExtra.reportId ?? postExtra.sub
-    const existing = id === undefined ? undefined : reports()[id]
-    if (existing !== undefined) {
-      let changed = false
-      if (paused && existing.paused !== true) {
-        existing.paused = true
-        changed = true
-      }
-      if (existing.status === 'queued') {
-        existing.status = 'tracking'
-        existing.fromSeq = nextRoomSeq(room)
-        existing.ids = []
-        changed = true
-      }
-      if (changed) saveSoon()
-    } else if (paused && postExtra.botId !== undefined) {
-      const nextId = id ?? randomUUID()
-      reports()[nextId] = {
-        id: nextId,
-        roomId: room.id,
-        botId: postExtra.botId,
-        name: postExtra.name ?? rt.botOf(postExtra.botId)?.name ?? 'Bot',
-        status: 'tracking',
-        fromSeq: nextRoomSeq(room),
-        ids: [],
-        paused: true,
-        passed: [],
-        failed: [],
-        at: Date.now(),
-        ...(postExtra.sub ? { sub: postExtra.sub } : {}),
-        ...(postExtra.fromRoomId ? { fromRoomId: postExtra.fromRoomId } : {}),
-        ...(postExtra.fromPart ? { fromPart: postExtra.fromPart } : {}),
-      }
-      saveSoon()
-    }
-  }
-  const expandScopedReports = (roomId, callerId, callees) => {
-    if (callerId === undefined || callees.length === 0) return
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId || report.status !== 'tracking' || !Array.isArray(report.ids)) continue
-      if (!report.ids.includes(callerId)) continue
-      for (const peer of callees) {
-        if (!report.ids.includes(peer.id)) {
-          report.ids.push(peer.id)
-          changed = true
-        }
-      }
-    }
-    if (changed) saveSoon()
-  }
-  const memberBusyForReport = (room, botId, ignoreTaskId) => {
-    if (activeInRoom(room, botId, ignoreTaskId)) return true
-    const sessionId = room.sessions?.[botId]
-    if (sessionId !== undefined) {
-      if (rt.live.get(sessionId)?.retrying === true) return true
-      if (rt.waitsForApproval?.(sessionId) === true) return true
-    }
-    return [...(rt.switchJobs?.() ?? [])].some(job => job.roomId === room.id && job.botId === botId)
-  }
-  const waitingForUser = (room, botId) => {
-    const sid = room.sessions?.[botId]
-    return sid !== undefined && (rt.state.questions?.[sid] !== undefined || rt.state.views?.[sid] !== undefined)
-  }
-  // A batch whose only remaining pending members are blocked on user answer cards
-  // (`ask_user` / interactive `show_view`), or held open solely by the waiting background
-  // task that sent this report (`ignoreTaskId`), is not blocking this report.
-  const batchMemberBusy = (room, id, ignoreTaskId, ignoreBotId) => {
-    if (waitingForUser(room, id)) return false
-    if (ignoreTaskId !== undefined && id === ignoreBotId && !memberBusyForReport(room, id, ignoreTaskId)) return false
-    return true
-  }
-  const batchActivelyBusy = (room, batch, ignoreTaskId, ignoreBotId) => (batch.pending.length === 0 && !batch.answered)
-    || batch.pending.some(id => batchMemberBusy(room, id, ignoreTaskId, ignoreBotId))
-  const isReportBusy = (room, report, { startup = false } = {}) => {
-    if (report.status !== 'tracking') {
-      if (!startup) return true
-      if ((queuedRelays.get(room.id)?.size ?? 0) > 0 || (rt.roomInbox.get(room.id)?.length ?? 0) > 0) return true
-      if (runningRound(room.id) !== undefined || finalizing.has(room.id)) return true
-      return false
-    }
-    if (runningRound(room.id) !== undefined || finalizing.has(room.id)) return true
-    if ((inFlightLate.get(room.id) ?? 0) > 0) return true
-    if ((laterPosts.get(room.id) ?? []).some(isBotPendingPost)) return true
-    if ((rt.roomInbox.get(room.id) ?? []).some(isBotPendingPost)) return true
-    if ((queuedRelays.get(room.id)?.size ?? 0) > 0) return true
-    if (Array.isArray(report.ids)) {
-      if (report.ids.some(id => room.members.includes(id) && memberBusyForReport(room, id, report.fromTaskId))) return true
-      if (Object.values(batches()).some(batch => batch.roomId === room.id
-        && (report.ids.includes(batch.by) || batch.pending.some(id => report.ids.includes(id)))
-        && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
-      return false
-    }
-    if (room.members.some(id => memberBusyForReport(room, id, report.fromTaskId))) return true
-    if (Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
-    if (room.goal?.status === 'active' && room.goal.idle !== true) return true
-    return false
-  }
-  const recordRoundOnReports = (room, round, { aborted = false } = {}) => {
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== room.id || report.status !== 'tracking') continue
-      const names = Array.isArray(report.ids) ? report.ids.map(id => rt.botOf(id)?.name).filter(Boolean) : undefined
-      const passed = names === undefined ? round.passed : round.passed.filter(name => names.includes(name))
-      const failed = names === undefined ? round.failed : round.failed.filter(name => names.includes(name))
-      for (const name of passed) {
-        if (!(report.passed ??= []).includes(name)) {
-          report.passed.push(name)
-          changed = true
-        }
-      }
-      for (const name of failed) {
-        if (!(report.failed ??= []).includes(name)) {
-          report.failed.push(name)
-          changed = true
-        }
-      }
-      if (aborted && report.stopped !== true) {
-        report.stopped = true
-        changed = true
-      }
-    }
-    if (changed) saveSoon()
-  }
-  async function settleRoomReports(roomId, { startup = false } = {}) {
-    if (rt.readOnly?.() !== undefined) return
-    const ready = []
-    let pruned = false
-    for (const [id, report] of Object.entries(reports())) {
-      if (roomId !== undefined && report.roomId !== roomId) continue
-      if (rt.botOf(report.botId) === undefined) {
-        delete reports()[id]
-        pruned = true
-        continue
-      }
-      const room = rt.roomOf(report.roomId)
-      if (room === undefined) {
-        delete reports()[id]
-        pruned = true
-        ready.push({ room: { id: report.roomId, name: 'a group chat' }, report, deleted: true })
-        continue
-      }
-      if (isReportBusy(room, report, { startup })) continue
-      const neverStarted = report.status !== 'tracking' || report.neverStarted === true
-      delete reports()[id]
-      pruned = true
-      ready.push({ room, report, deleted: false, neverStarted })
-    }
-    if (pruned) saveSoon()
-    for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
-  }
-  async function forgetRoomReports(room) {
-    queuedRelays.delete(room.id)
-    inFlightLate.delete(room.id)
-    const dropped = []
-    for (const [id, report] of Object.entries(reports())) {
-      if (report.roomId !== room.id) continue
-      delete reports()[id]
-      dropped.push(report)
-    }
-    if (dropped.length === 0) return
-    saveSoon()
-    for (const report of dropped) await deliverRoomReport(room, report, { deleted: true })
-  }
-  async function forgetBotRoomReports(botId, touchedRooms = []) {
-    let pruned = false
-    for (const [id, report] of Object.entries(reports())) {
-      if (report.botId !== botId) continue
-      delete reports()[id]
-      pruned = true
-    }
-    if (pruned) saveSoon()
-    for (const room of touchedRooms) {
-      dropMemberFromBatch(room, botId)
-      await settleRoomReports(room.id)
-    }
-  }
-  function roomRelayDiscarded(source, sessionId) {
-    if (typeof source?.roomId !== 'string') return
-    const room = rt.roomOf(source.roomId)
-    // Ignore removals from an earlier part or while the group's own Session is moving parts.
-    if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
-    if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
-    if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
-    roomRelayTaken(source.roomId, source.exchangeId)
-    if (source.batchEnd && source.batch) closeBatch(source.batch)
-    if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
-      reports()[source.reportId].neverStarted = true
-      reports()[source.reportId].stopped = true
-      reports()[source.reportId].status = 'tracking'
-      saveSoon()
-    }
-    void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
-  }
+  const roomReports = createRoomReports(rt, {
+    batches,
+    closeBatch,
+    dropMemberFromBatch: (room, botId) => dropMemberFromBatch(room, botId),
+    activeInRoom,
+    runningRound: roomId => runningRound(roomId),
+    isFinalizing: roomId => finalizing.has(roomId),
+    laterPostsOf: roomId => laterPosts.get(roomId) ?? [],
+    bookOf,
+    ensureRoomLog,
+    rowOf,
+    saveSoon,
+    nextRoomSeq,
+  })
+  const {
+    rememberStoppedRelay,
+    isStoppedRelay,
+    isBotPendingPost,
+    noteRoomRelayQueued,
+    isRelayQueued,
+    roomRelayTaken,
+    enterLate,
+    leaveLate,
+    dropRoomReport,
+    noteRoomUserOrigin,
+    applyIncomingOrigin,
+    snapshotOriginState,
+    restoreOriginState,
+    registerQueuedReport,
+    trackRoundReport,
+    trackScopedReport,
+    settleQueuedReportInRound,
+    expandScopedReports,
+    recordRoundOnReports,
+    settleRoomReports,
+    stopRoomReports,
+  } = roomReports
   const recordResult = (key, name, seq) => {
     const batch = key === undefined ? undefined : batches()[key]
     if (batch === undefined) return
@@ -1656,7 +1410,7 @@ export function install(rt) {
     if (round.kickoff) return
     const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
     if (lines.length === 0) return
-    taintRoomReportOrigins(room.id, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
+    noteRoomUserOrigin(room, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
     unpauseRoomIdle(room)
     round.userMessage = true
     rt.goalUserMessage?.(room.id)
@@ -2003,7 +1757,7 @@ export function install(rt) {
       }
       if (post.botId !== undefined) continue
       // The user's message, as one the round takes in from the Session's inbox.
-      taintRoomReportOrigins(room.id, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
+      noteRoomUserOrigin(room, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
       say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
       unpauseRoomIdle(room)
@@ -2094,7 +1848,7 @@ export function install(rt) {
     }
     await rt.save()
     if (posts.some(userPost)) {
-      taintRoomReportOrigins(room.id, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
+      noteRoomUserOrigin(room, rt.captureImOrigin?.(rt.sessionOfRoom(room)))
       rt.goalUserMessage?.(room.id)
     }
     // An event post, and a member post that calls nobody, never pick the speakers
@@ -2105,29 +1859,8 @@ export function install(rt) {
     let reportsOpened = false
     for (const post of open) {
       if (!post.reportBack || !rt.botOf(post.botId)) continue
-      const id = post.reportId ?? post.sub ?? randomUUID()
-      const existing = reports()[id]
       const afterSeq = post._afterSeq ?? (typeof post.logged === 'number' ? post.logged + 1 : startSeq)
-      if (existing !== undefined) {
-        existing.status = 'tracking'
-        existing.fromSeq = afterSeq
-      } else {
-        reports()[id] = {
-          id,
-          roomId: room.id,
-          botId: post.botId,
-          name: post.name ?? rt.botOf(post.botId)?.name ?? 'Bot',
-          status: 'tracking',
-          fromSeq: afterSeq,
-          passed: [],
-          failed: [],
-          at: Date.now(),
-          ...(post.sub ? { sub: post.sub } : {}),
-          ...(post.fromTaskId ? { fromTaskId: post.fromTaskId } : {}),
-          ...(post.fromRoomId ? { fromRoomId: post.fromRoomId } : {}),
-          ...(post.fromPart ? { fromPart: post.fromPart } : {}),
-        }
-      }
+      trackRoundReport(room, post, afterSeq)
       reportsOpened = true
     }
     if (reportsOpened) saveSoon()
@@ -2450,32 +2183,7 @@ export function install(rt) {
     if (wake !== undefined) giveResults(round, extra.askedBy, wake)
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {
-      const id = extra.reportId ?? extra.sub ?? randomUUID()
-      const existing = reports()[id]
-      const ids = speakers.map(peer => peer.id)
-      if (existing !== undefined) {
-        existing.status = 'tracking'
-        existing.fromSeq = room.seq + 1
-        existing.ids = ids
-      } else {
-        reports()[id] = {
-          id,
-          roomId: room.id,
-          botId: sender.id,
-          name: sender.name,
-          status: 'tracking',
-          fromSeq: room.seq + 1,
-          ids,
-          passed: [],
-          failed: [],
-          at: Date.now(),
-          ...(extra.sub ? { sub: extra.sub } : {}),
-          ...(extra.fromTaskId ? { fromTaskId: extra.fromTaskId } : {}),
-          ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}),
-          ...(extra.fromPart ? { fromPart: extra.fromPart } : {}),
-        }
-      }
-      saveSoon()
+      trackScopedReport(room, sender, extra, speakers.map(peer => peer.id))
     }
     return true
   }
@@ -2492,43 +2200,13 @@ export function install(rt) {
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
       && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
     const openingBotPost = postExtra.late !== true && postExtra.progress !== true && !noticeOnly
-    const existingMixed = openingBotPost && imOrigin !== undefined && Object.values(reports())
-      .some(other => other.roomId === room.id && other.id !== postExtra.reportId
-        && (other.imOriginMixed === true || !sameImOrigin(other.imOrigin, imOrigin)))
-    const roomWorking = running !== undefined || finalizing.has(room.id)
-      || (queuedRelays.get(room.id)?.size ?? 0) > 0
-      || (rt.roomInbox.get(room.id)?.length ?? 0) > 0
-      || (laterPosts.get(room.id) ?? []).some(isBotPendingPost)
-      || room.members.some(id => memberBusyForReport(room, id))
-      || Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch))
-    const runningUnrelated = openingBotPost && imOrigin !== undefined && roomWorking
-      && !sameImOrigin(rt.captureImOrigin?.(rt.sessionOfRoom(room)), imOrigin)
-      && !sameImOrigin(roomReportImOrigin(room.id), imOrigin)
-    if (openingBotPost) taintRoomReportOrigins(room.id, postOrigin, { excludeReportId: postExtra.reportId })
-    if (postExtra.reportBack === true) {
-      const reportId = postExtra.reportId ?? postExtra.sub ?? randomUUID()
-      postExtra.reportId = reportId
-      const tainted = imOrigin !== undefined && (existingMixed || runningUnrelated)
-      reports()[reportId] = {
-        id: reportId,
-        roomId: room.id,
-        botId: sender.id,
-        name: sender.name,
-        status: 'queued',
-        fromSeq: nextRoomSeq(room),
-        passed: [],
-        failed: [],
-        at: Date.now(),
-        ...(postExtra.sub ? { sub: postExtra.sub } : {}),
-        ...(postExtra.fromTaskId ? { fromTaskId: postExtra.fromTaskId } : {}),
-        ...(postExtra.fromRoomId ? { fromRoomId: postExtra.fromRoomId } : {}),
-        ...(postExtra.fromPart ? { fromPart: postExtra.fromPart } : {}),
-        ...(imOrigin && !tainted ? { imOrigin } : {}),
-        ...(tainted ? { imOriginMixed: true } : {}),
-      }
-      saveSoon()
-    }
     if (running !== undefined) {
+      const { tainted } = openingBotPost
+        ? applyIncomingOrigin(room, postOrigin, { excludeReportId: postExtra.reportId, wasWorking: true })
+        : { tainted: false }
+      if (postExtra.reportBack === true) {
+        registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
+      }
       if (postExtra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
         running.failed.push(sender.name)
@@ -2547,20 +2225,50 @@ export function install(rt) {
       await rt.save()
       return
     }
+    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     const exchangeId = randomUUID()
     const tracksRelay = postExtra.reportBack === true
       || (!noticeOnly && (text !== '' || files.length > 0 || openingSpeakers(room, { ...postExtra, botId: sender.id, name: sender.name, text }).length > 0))
+    const snapshot = openingBotPost ? snapshotOriginState(room.id) : undefined
+    const { tainted } = openingBotPost
+      ? applyIncomingOrigin(room, postOrigin, { excludeReportId: postExtra.reportId })
+      : { tainted: false }
+    if (postExtra.reportBack === true) {
+      registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
+    }
     if (tracksRelay) noteRoomRelayQueued(room.id, exchangeId)
+    let enqueued = false
     try {
-      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
-      agent.followup(createUserMessage({
+      const msg = createUserMessage({
         content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
         source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId, senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...postExtra },
-      }))
+      })
+      agent.followup(msg)
+      enqueued = true
       await ctx.sessions.flush(agent.session)
     } catch (error) {
+      let withdrawn = !enqueued
+      if (!withdrawn) {
+        const lanes = [agent.inbox?.nextStep, agent.inbox?.nextTurn]
+        let matchedInInbox = false
+        if (typeof agent.inbox?.remove === 'function') {
+          for (const lane of lanes) {
+            for (const item of Array.from(lane ?? [])) {
+              if (item?.source?.exchangeId === exchangeId) {
+                matchedInInbox = true
+                if (agent.inbox.remove(item.id) === true) withdrawn = true
+              }
+            }
+          }
+        }
+        // Only fall back when the relay was never claimed by user/message (`isRelayQueued`).
+        if (!matchedInInbox && lanes.every(lane => (lane?.length ?? 0) === 0) && (!tracksRelay || isRelayQueued(room.id, exchangeId))) {
+          withdrawn = true
+        }
+      }
       if (tracksRelay) roomRelayTaken(room.id, exchangeId)
-      if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
+      if (postExtra.reportId !== undefined && withdrawn) dropRoomReport(postExtra.reportId)
+      if (snapshot !== undefined && withdrawn) restoreOriginState(room.id, snapshot)
       throw error
     }
   }
@@ -2831,28 +2539,12 @@ export function install(rt) {
     const keptInbox = cancelPending(rt.roomInbox.get(room.id) ?? [])
     if (keptInbox.length > 0) rt.roomInbox.set(room.id, keptInbox)
     else rt.roomInbox.delete(room.id)
-    for (const exchangeId of queuedRelays.get(room.id) ?? []) rememberStoppedRelay(exchangeId)
-    queuedRelays.delete(room.id)
     // Close any already-empty unanswered batch on this room whose terminal wake relay
     // is being cancelled by stopRoomWork, so reports are never stranded after Stop All.
     for (const batch of Object.values(batches())) {
       if (batch.roomId === room.id && batch.pending.length === 0) closeBatch(batch.key)
     }
-    let marked = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== room.id) continue
-      if (report.status === 'queued') {
-        rememberStoppedRelay(report.id)
-        report.neverStarted = true
-        report.status = 'tracking'
-        marked = true
-      }
-      if (report.stopped !== true) {
-        report.stopped = true
-        marked = true
-      }
-    }
-    if (marked) saveSoon()
+    stopRoomReports(room.id)
     // Withdraw matching queued Bot/goal follow-ups from the group's own Session inbox
     // so stopped posts never start later (user messages and goal drafts stay intact).
     try {
@@ -2881,15 +2573,6 @@ export function install(rt) {
   Object.assign(rt, {
     workingInRoom: workingIn,
     roomBatchPending: roomId => Object.values(batches()).some(batch => batch.roomId === roomId && batch.pending.length > 0),
-    noteRoomRelayQueued,
-    roomRelayTaken,
-    roomRelayDiscarded,
-    dropRoomReport,
-    hasRoomReportFor,
-    roomReportImOrigin,
-    settleRoomReports,
-    forgetRoomReports,
-    forgetBotRoomReports,
     reconcileStoppedRoomTask: async (roomId, botId) => {
       const room = rt.roomOf(roomId)
       const member = rt.botOf(botId)
@@ -2961,101 +2644,6 @@ export function install(rt) {
     await ctx.sessions.flush(agent.session)
   }
   rt.greetRoom = greetRoom
-
-  async function deliverRoomReport(room, report, { deleted = false, neverStarted = false } = {}) {
-    const bot = rt.botOf(report.botId)
-    if (bot === undefined) return
-    let text
-    if (deleted) {
-      text = `Group "${room.name}" was deleted before it finished.`
-    } else if (neverStarted || report.neverStarted === true) {
-      text = report.stopped === true
-        ? `Work in "${room.name}" was stopped before your post started.`
-        : `Your post in "${room.name}" did not start before DS Bot restarted.`
-    } else {
-      ensureRoomLog(room)
-      const from = report.fromSeq ?? (room.seq + 1)
-      // Read the room book directly instead of groupRows: late member replies are logged
-      // with `session: true` (so the group chat does not draw them twice), and must still
-      // be included in the report to the poster, while user lines and other opening posts stay out.
-      const allRows = rt.ledger.range(bookOf(room.id), from, room.seq)
-        .filter(record => record.openingPost !== true && !(record.session === true && record.botId === undefined))
-        .map(rowOf)
-        .filter(Boolean)
-      const rows = Array.isArray(report.ids) ? allRows.filter(row => report.ids.includes(row.botId)) : allRows
-      const lines = rows.filter(row => row.kind === undefined).map(row => `${row.name}: ${row.text}`)
-      const repliedNames = new Set(rows.filter(row => row.kind === undefined).map(row => row.name))
-      const passed = [...new Set(report.passed ?? [])].filter(name => !repliedNames.has(name))
-      const failedRows = rows.filter(row => row.kind === 'failed')
-      const failedNames = [...new Set([...(report.failed ?? []), ...failedRows.map(row => row.name).filter(Boolean)])]
-      const waitingCards = (Array.isArray(report.ids) ? report.ids : room.members)
-        .filter(id => waitingForUser(room, id))
-        .map(id => rt.botOf(id)?.name)
-        .filter(Boolean)
-      const goal = !Array.isArray(report.ids) ? room.goal : undefined
-      const goalLine = goal === undefined ? ''
-        : goal.status === 'complete' && (goal.endedAt ?? 0) >= report.at
-          ? `Goal "${goal.title}" completed.\nSummary: ${goal.summary}\nEvidence: ${goal.evidence}`
-          : goal.status === 'stopped' && (goal.endedAt ?? 0) >= report.at
-            ? `Goal "${goal.title}" was stopped${goal.reason ? `: ${goal.reason}` : ''}.`
-            : goal.status === 'paused'
-              ? `Goal "${goal.title}" is paused; waiting for the user in "${room.name}".`
-              : goal.status === 'drafting' || (goal.status === 'active' && goal.idle === true)
-                ? `Goal "${goal.title}" is waiting for input from the user in "${room.name}".`
-                : ''
-      const pausedLine = report.paused === true || (!Array.isArray(report.ids) && room.idlePaused !== undefined)
-        ? `Paused in "${room.name}": members went back and forth without making progress; waiting for the user there.`
-        : ''
-      const stoppedLine = report.stopped === true && !(goal?.status === 'stopped' && (goal.endedAt ?? 0) >= report.at)
-        ? `Work in "${room.name}" was stopped before finishing.`
-        : ''
-      const failedLine = failedNames.length > 0
-        ? `Could not answer because their model call failed: ${failedNames.map((name) => {
-            const row = failedRows.findLast(item => item.name === name)
-            return row ? `${name} (${failureLine({ code: row.code, status: row.status, message: row.text })})` : name
-          }).join(', ')}.`
-        : ''
-      text = [
-        goalLine,
-        lines.length > 0 ? `Replies to your post (oldest first):\n${lines.join('\n')}` : (goalLine === '' && waitingCards.length === 0 && stoppedLine === '' && pausedLine === '' ? 'Nobody replied to your post.' : ''),
-        waitingCards.length > 0 ? `Waiting for the user's answer in "${room.name}": ${waitingCards.join(', ')}.` : '',
-        pausedLine,
-        stoppedLine,
-        passed.length > 0 ? `Stayed silent: ${passed.join(', ')}.` : '',
-        failedLine,
-      ].filter(Boolean).join('\n\n') || 'Nobody replied to your post.'
-    }
-    // Replies the poster waited for go on with the work it posted for.
-    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text)
-    // The wait may already have been given up: the replies still reach the poster,
-    // marked as the late answer they are, and open no work.
-    const late = work === undefined && report.sub !== undefined ? rt.abandonedWork?.(report.sub) : undefined
-    const rawBody = late === undefined ? text : LATE_ANSWER + text
-    const long = rawBody.length > MESSAGE_INLINE_MAX ? await rt.attachLong?.(rawBody, `Group report from ${room.name}.txt`) : undefined
-    const body = long?.text ?? rawBody
-    const reportKey = report.sub ?? report.id
-    // The report goes back to the conversation the post was written from: its
-    // Session in that group when the post came from one, or the current part of
-    // that own-chat thread, else the own chat.
-    const back = rt.roomOf(report.fromRoomId)?.sessions?.[report.botId]
-    const part = back === undefined && report.fromPart !== undefined ? threadCurrentOfPart(bot, report.fromPart) : undefined
-    const target = back ?? part
-    // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
-    const replyOrigin = report.imOriginMixed === true ? { mixed: true } : report.imOrigin
-    if (replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)) {
-      rt.rememberImReplyOrigin?.(reportKey, replyOrigin)
-    }
-    await rt.deliver({
-      toId: report.botId,
-      ...(target ? { sessionId: target } : {}),
-      role: 'report',
-      roomId: room.id,
-      text: body,
-      ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
-      replyTo: reportKey,
-      ...(work ? { work } : {}),
-    }).catch(error => rt.warn('ds-bot: group report to %s failed: %s', report.name, error))
-  }
 
   // A group chat's own Session never consults the model: models drift from "only call
   // group_relay" (they message one member directly when the user names it), so the

@@ -3396,3 +3396,56 @@ test('scoped mid-round post_to_group expands report.ids when memberTurn wakes th
   assert.match(report, /Chief: 群内总结：测试通过，可以合入。/)
   assert.doesNotMatch(report, /Writer 完成无关文档/)
 })
+
+test('startup settleRoomReports keeps queued reports still present in roomAgent.inbox and settles once after the round runs (#1894)', async (t) => {
+  const host = await start(t)
+  const roomAgent = host.agentOf('r1')
+  roomAgent.inbox = { nextStep: [], nextTurn: [] }
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 重载前排队的消息' }, 'a')
+  const queuedPost = host.takePost()
+  const reportId = queuedPost.source.reportId
+  // Simulate plugin reload: in-memory queuedRelays was cleared, while DSH still holds the message in roomAgent.inbox.
+  rt.roomRelayTaken('r1', queuedPost.source.exchangeId)
+  roomAgent.inbox.nextTurn.push({ id: 'live-q1', ...queuedPost })
+
+  await rt.settleRoomReports(undefined, { startup: true })
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'startup settle must not falsely fail a relay still queued in DSH roomAgent.inbox')
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+
+  // Now DSH drains the inbox and runs the real round -> Chief receives the real reply exactly once.
+  roomAgent.inbox.nextTurn.length = 0
+  const round = host.round('c-reload', queuedPost)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '重载后正常完成。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /Writer: 重载后正常完成。/)
+  assert.doesNotMatch(text(host.agentOf('a').calls[0]), /did not start before DS Bot restarted/)
+
+  // Contrast: if roomAgent.inbox is empty after restart, startup settle reports did-not-start cleanly.
+  rt.state.roomReports['rep-lost'] = { id: 'rep-lost', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => host.agentOf('a').calls.length === 2)
+  assert.match(text(host.agentOf('a').calls[1]), /did not start before DS Bot restarted/)
+})
+
+test('stopping an individual working member via stopMemberWork reports stopped instead of nobody replied (#1894)', async (t) => {
+  const host = await start(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 帮我跑长时间构建' }, 'a')
+  const post = host.takePost()
+  const round = host.round('c-stop-member', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+
+  // User clicks Stop on Writer alone in Group Details before Writer writes any reply.
+  assert.equal(await rt.stopMemberWork('r1', 'b'), true)
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Stopped before finishing: Writer\./)
+  assert.doesNotMatch(report, /Nobody replied/)
+  assert.doesNotMatch(report, /Stayed silent: Writer/)
+})
