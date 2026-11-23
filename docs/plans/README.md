@@ -60,6 +60,7 @@
 |---|---|
 | [Bot 浏览器、联网搜索与密钥](2026-10-08-browser-and-secrets.md) | 隔离浏览器面板与 Cookie/localStorage 导入、`auto` 搜索、密钥卡与出站脱敏 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 可选交互式浏览器后端（`refs` / `script` / `task`）、每 Bot 独立 Profile、动作预授权与用户接管 |
+| [Bot 插件体系与面板](2026-11-22-bot-plugins.md) | DS Bot 统一插件运行时、互斥槽位、按 Bot 开关、独立插件面板、可替换浏览器插件与插件收录仓库目录 |
 | [电脑操控](2026-11-04-computer-use.md) | 按 Bot 四档权限、应用授权与禁碰清单、应用/前台租约与顶部指示条 |
 | [连接器](2026-11-04-connectors.md) | 通用连接器引擎、OAuth 浏览器登录、自定义 MCP 服务器与邮箱集成 |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | `secrets.json` 可选 scrypt + AES-256-GCM 口令加密与无人值守解锁 |

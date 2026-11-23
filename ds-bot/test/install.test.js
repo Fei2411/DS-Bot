@@ -117,6 +117,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on session/event',
     'on agent/created',
     'effect ds-bot: capabilities',
+    'effect ds-bot: plugins',
     'on agent/status',
     'effect ds-bot: learning',
     'on tools/pre-execute',

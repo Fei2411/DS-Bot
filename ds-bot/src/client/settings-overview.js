@@ -171,6 +171,9 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
     h(Tile, { icon: icons.capabilities, title: t('Tools'), onOpen: () => actions.openSettings('computer'), value: capabilities.length, unit: t('capabilities') },
       roster.browser ? h(Chip, null, t('Browser')) : null,
       roster.computer?.enabled ? h(Chip, null, t('Computer use')) : null,
+      (roster.plugins?.installedCount ?? 0) > 0
+        ? h(Chip, { tone: roster.plugins?.pendingRestart ? 'warn' : null }, t('Plugins'))
+        : null,
       secrets.length > 0 ? h(Chip, null, t('Secrets {count}', { count: secrets.length })) : null),
     h(Tile, {
       icon: icons.usage, title: t('Last 7 days'), onOpen: () => actions.openSettings('usage'),

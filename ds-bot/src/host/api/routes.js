@@ -17,7 +17,7 @@ const UPLOAD_BYTES_PER_TOKEN = 128 * 1024 * 1024
 const GLOBAL_STREAM_BUFFER = 500
 const SSE_KEEPALIVE_MS = 20_000
 const BOT_FIELDS = new Set(['name', 'role', 'instructions', 'color', 'avatar', 'model', 'effort'])
-const GROUP_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove'])
+const GROUP_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove', 'avatar'])
 
 function safeFields(body, allowed) {
   for (const field of Object.keys(body)) {
@@ -766,6 +766,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       const room = await rt.createRoom({
         members,
         name: body.name,
+        avatar: body.avatar,
         section: body.section,
         sectionId: body.sectionId,
         ...(typeof body.admin === 'string' ? { admin: body.admin } : {}),

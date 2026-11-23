@@ -9,7 +9,7 @@ import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
 import { disk } from '../src/copy-tree.mjs'
-import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, sessionDirs, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -18,6 +18,91 @@ const write = (path, text) => {
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 // The import's stage folders in a data location.
 const staged = to => readdirSync(to).filter(name => /^\.import-\d+$/u.test(name))
+
+function oldSessionDirs(from, ids) {
+  const root = join(from, 'sessions')
+  const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const found = []
+  const missing = []
+  for (const id of ids) {
+    const group = groups.find(name => existsSync(join(root, name, id)))
+    if (group === undefined) missing.push(id)
+    else found.push({ id, group })
+  }
+  return { found, missing }
+}
+
+describe('sessionDirs', () => {
+  let root
+  before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-session-index-')) })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('skips impossible probes in a large batch', async (t) => {
+    const from = join(root, 'probes')
+    for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    const ids = Array.from({ length: 1000 }, (_, i) => `s${i}`)
+    for (const id of ids) mkdirSync(join(from, 'sessions', 'g63', id))
+    let probes = 0
+    t.mock.method(disk, 'existsSync', path => { probes++; return existsSync(path) })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-probes')
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+    if (process.platform !== 'win32') assert.ok(probes <= 1001, `${probes} probes`)
+  })
+
+  test('matches native lookup for duplicates, links, case, Unicode and unusual ids', () => {
+    const from = join(root, 'equivalence')
+    for (const group of ['a', 'b', 'c']) mkdirSync(join(from, 'sessions', group), { recursive: true })
+    for (const [group, id] of [['a', 'shared'], ['b', 'shared'], ['b', 'Case'], ['c', 'é'], ['a', 'K']]) {
+      mkdirSync(join(from, 'sessions', group, id))
+    }
+    symlinkSync(join(from, 'sessions', 'a', 'shared'), join(from, 'sessions', 'b', 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(join(from, 'absent'), join(from, 'sessions', 'a', 'broken'), process.platform === 'win32' ? 'junction' : 'dir')
+    const ids = ['shared', 'missing', 'shared', 'linked', 'broken', 'case', 'é', 'é', 'k', '', '.', '..', 'b/shared', 'a\\shared', 'nul\0id']
+    assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
+    assert.deepEqual(sessionDirs(from, Array.from({ length: 20 }, () => ids).flat()), oldSessionDirs(from, Array.from({ length: 20 }, () => ids).flat()))
+    assert.deepEqual(sessionDirs(from, []), { found: [], missing: [] })
+    assert.deepEqual(sessionDirs(join(root, 'absent'), ids), oldSessionDirs(join(root, 'absent'), ids))
+  })
+
+  test('probes groups whose listing fails', async (t) => {
+    const from = join(root, 'unreadable')
+    mkdirSync(join(from, 'sessions', 'group', 'present'), { recursive: true })
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      if (path === join(from, 'sessions', 'group')) throw new Error('unreadable')
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-unreadable')
+    const ids = Array(512).fill('present').concat('missing')
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+  })
+
+  test('keeps the full probe for small batches without listing groups', async (t) => {
+    const from = join(root, 'small')
+    for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      assert.equal(path, join(from, 'sessions'))
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-small')
+    const ids = Array(8).fill('missing')
+    assert.deepEqual(discover(from, ids), { found: [], missing: ids })
+  })
+
+  test('matches the frozen discovery on deterministic randomized trees', () => {
+    let seed = 1950
+    const random = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n }
+    for (let round = 0; round < 8; round++) {
+      const from = join(root, `random-${round}`)
+      for (let g = 0; g < 16; g++) {
+        const group = join(from, 'sessions', `g${g}`)
+        mkdirSync(group, { recursive: true })
+        for (let i = 0; i < 30; i++) mkdirSync(join(group, `s${random(100)}`), { recursive: true })
+      }
+      const ids = Array.from({ length: 200 }, () => `s${random(130)}`)
+      assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
+    }
+  })
+})
 
 function treeHash(dir) {
   const hash = createHash('sha256')
@@ -521,6 +606,44 @@ describe('finding the team', () => {
 
   test('names each Session of the team once', () => {
     assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'session-r1', 'session-g', 'session-gone', 'session-g0'])
+  })
+
+  test('names running and settled task Sessions and their earlier parts once', () => {
+    assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks: [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }, { sessionId: 'task-running' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ] } } }), ['bot', 'task-running', 'task-running-old', 'task-settled', 'task-settled-old'])
+  })
+
+  test('ignores absent, empty and malformed tasks and task parts', () => {
+    assert.deepEqual(sessionIdsOf({}), [])
+    for (const tasks of [undefined, null, {}, [], [null, {}, { sessionId: '', segments: null }, { sessionId: 42, segments: {} }, { segments: [null, {}, { sessionId: false }] }]]) {
+      assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks } } }), ['bot'])
+    }
+  })
+
+  test('copies background-task Session directories for import and the check', async () => {
+    const taskRoot = join(root, 'background-tasks')
+    const taskFrom = oldHome(taskRoot)
+    const team = readJson(join(taskFrom, 'bot', 'state.json'))
+    team.bots['session-a'].tasks = [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ]
+    write(join(taskFrom, 'bot', 'state.json'), JSON.stringify(team))
+    const taskIds = ['task-running', 'task-running-old', 'task-settled', 'task-settled-old']
+    for (const id of taskIds) write(join(taskFrom, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), id)
+    const oldTree = treeHash(taskFrom)
+    const check = join(taskRoot, 'check')
+    const ids = await copySessions(taskFrom, team, check)
+    const { to, workspace } = newHome(taskRoot)
+    const summary = await importTeam({ from: taskFrom, to, workspace, profile: 'desktop' })
+    assert.equal(summary.sessions, TEAM_SESSIONS.length + taskIds.length)
+    for (const id of taskIds) {
+      assert.ok(ids.includes(id))
+      for (const home of [check, to]) assert.equal(readFileSync(join(home, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), 'utf8'), id)
+    }
+    assert.equal(treeHash(taskFrom), oldTree)
   })
 
   test('names the own Session of every group, so an imported group can be opened', () => {

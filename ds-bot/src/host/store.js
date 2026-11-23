@@ -21,7 +21,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let storeReady = false
   let writing = Promise.resolve()
@@ -122,6 +122,25 @@ export function install(rt) {
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
     if (state.computer === null || typeof state.computer !== 'object' || Array.isArray(state.computer)) state.computer = {}
+    // `plugins` stores slot selections, per-Bot plugin toggles, custom entries, and registry sources.
+    if (state.plugins === null || typeof state.plugins !== 'object' || Array.isArray(state.plugins)) {
+      state.plugins = { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }
+    } else {
+      if (state.plugins.slots === null || typeof state.plugins.slots !== 'object' || Array.isArray(state.plugins.slots)) state.plugins.slots = {}
+      if (state.plugins.enabled === null || typeof state.plugins.enabled !== 'object' || Array.isArray(state.plugins.enabled)) state.plugins.enabled = {}
+      if (state.plugins.offFor === null || typeof state.plugins.offFor !== 'object' || Array.isArray(state.plugins.offFor)) state.plugins.offFor = {}
+      if (state.plugins.custom === null || typeof state.plugins.custom !== 'object' || Array.isArray(state.plugins.custom)) state.plugins.custom = {}
+      if (state.plugins.snapshots === null || typeof state.plugins.snapshots !== 'object' || Array.isArray(state.plugins.snapshots)) state.plugins.snapshots = {}
+      if (!Array.isArray(state.plugins.sources)) state.plugins.sources = []
+      if (state.plugins.knownPrefixes === null || typeof state.plugins.knownPrefixes !== 'object' || Array.isArray(state.plugins.knownPrefixes)) state.plugins.knownPrefixes = {}
+    }
+    // Migrate legacy `state.browser.active` if present and no slot value is saved yet.
+    if (!state.plugins.slots.browser && typeof state.browser?.active === 'string' && state.browser.active.trim()) {
+      const legacyActive = state.browser.active.trim()
+      state.plugins.slots.browser = ['readonly', 'refs', 'script', 'task'].includes(legacyActive)
+        ? `builtin:${legacyActive}`
+        : legacyActive
+    }
     let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
@@ -291,6 +310,18 @@ export function install(rt) {
     for (const [key, batch] of Object.entries(state.roomBatches)) {
       if (!Array.isArray(batch?.pending) || !Array.isArray(batch.done) || !Array.isArray(batch.results) || batch.key !== key) delete state.roomBatches[key]
     }
+    // Pending group report-back watchers (groups.js); malformed entries are dropped.
+    if (state.roomReports === null || typeof state.roomReports !== 'object' || Array.isArray(state.roomReports)) state.roomReports = {}
+    for (const [key, report] of Object.entries(state.roomReports)) {
+      if (!report || typeof report !== 'object' || report.id !== key || typeof report.roomId !== 'string' || typeof report.botId !== 'string') delete state.roomReports[key]
+    }
+    // IM return origins for dispatched Bot/group replies (handoffs.js / im/index.js).
+    if (state.imReplyOrigins === null || typeof state.imReplyOrigins !== 'object' || Array.isArray(state.imReplyOrigins)) state.imReplyOrigins = {}
+    for (const [key, origin] of Object.entries(state.imReplyOrigins)) {
+      const validOrigin = origin && typeof origin === 'object'
+        && (origin.mixed === true || (typeof origin.connId === 'string' && typeof origin.chatKey === 'string'))
+      if (!validOrigin) delete state.imReplyOrigins[key]
+    }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
     // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
@@ -369,6 +400,7 @@ export function install(rt) {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
     rt.onApiStoreSync?.()
+    void rt.onPluginsStoreSync?.()
   }
   const syncReadOnly = () => {
     if (storeReady && adopting === undefined && (stuck !== undefined || holder !== undefined) && stamp() !== seen) {

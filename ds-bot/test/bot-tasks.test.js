@@ -228,6 +228,22 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   assert.deepEqual(events.map(e => e.type), ['task.started', 'task.completed'])
 })
 
+test('API group tasks do not inherit an IM dispatch approval route', async t => {
+  const env = await startEnv({ team: makeTeam({ rooms: {
+    r1: { id: 'r1', name: 'Team', members: ['a', 'b'], sessionId: 'room-1', sessions: { a: 'room-a', b: 'room-b' }, createdAt: 1 },
+  } }) })
+  t.after(env.stop)
+  let captured = 0
+  env.rt.captureImOrigin = () => undefined
+  env.rt.roomReportImOrigin = () => { captured += 1; return { connId: 'im-connection', chatKey: 'im-chat' } }
+  env.rt.desiredModel = async () => 'deepseek/model'
+  const task = await env.rt.startTask('room-a', { title: 'API group work', brief: 'Separate output' }, undefined, { api: true })
+  assert.equal(task.origin, 'api')
+  assert.equal(task.imOrigin, undefined)
+  assert.equal(task.dispatchApprovalOrigin, undefined)
+  assert.equal(captured, 0)
+})
+
 test('API tasks do not inherit an IM claim or report into its foreground turn', async t => {
   const env = await startEnv()
   t.after(env.stop)

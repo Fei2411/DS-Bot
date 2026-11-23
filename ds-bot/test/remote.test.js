@@ -166,6 +166,33 @@ test('channelCall and subscribeFeed mirror HTTP channel and SSE feed', async (t)
   assert.deepEqual(events[1], { event: 'notice', data: { seq: 1, kind: 'message', text: 'hi' } })
 })
 
+test('Remote feed subscriptions replay active replies after hello without HTTP listeners', async (t) => {
+  const { rt, ctx, stop } = startHost()
+  t.after(stop)
+  await rt.channelCall('state', {})
+  rt.chatOwners.set('s1', 'b1')
+  const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+  const emit = frame => onStream({ agent: { id: 's1' }, frame: { attemptId: 'active', ...frame } })
+  emit({ type: 'start', turn: 1 })
+  const empty = []
+  rt.subscribeFeed((event, data) => empty.push({ event, data }))()
+  assert.deepEqual(empty.map(item => item.event), ['hello', 'stream'])
+  assert.equal(empty[1].data.phase, 'start')
+  emit({ type: 'chunk', chunk: { type: 'text-delta', text: 'In flight' } })
+  const events = []
+  rt.subscribeFeed((event, data) => events.push({ event, data }))()
+  const target = { botId: 'b1', sessionId: 's1', attemptId: 'active' }
+  assert.equal(events[0].event, 'hello')
+  assert.deepEqual(events.slice(1), [
+    { event: 'stream', data: { ...target, phase: 'start' } },
+    { event: 'stream', data: { ...target, text: 'In flight' } },
+  ])
+  emit({ type: 'end', outcome: { kind: 'abandoned' } })
+  const ended = []
+  rt.subscribeFeed((event, data) => ended.push({ event, data }))()
+  assert.deepEqual(ended.map(item => item.event), ['hello'])
+})
+
 test('feedEvents strips undefined, preserves order, and cleans up on abort or stopSignal', async () => {
   let active = true
   let push

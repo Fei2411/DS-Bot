@@ -270,6 +270,44 @@ for (const main of [false, true]) {
   }
 }
 
+test("an upgraded team's Main Bot keeps team-admin while an ordinary Bot's Agent is live", async (t) => {
+  const team = structuredClone(TEAM)
+  for (const bot of Object.values(team.bots)) {
+    delete bot.sessionId
+    delete bot.segments
+    Object.assign(bot, { capabilities: [], packs: [] })
+  }
+  const host = start(team)
+  t.after(host.stop)
+  await host.call('state', {})
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  await mountAgentLoopTestDependencies(root)
+  const offered = new Map()
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream(options) {
+      offered.set(String(options.sessionId), options.tools.map(tool => tool.name).filter(name => BUILTIN_PACKS['team-admin'].tools.includes(name)))
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['role-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  root.on('session/event', host.ctx.listeners.get('session/event').find(listener => listener.name === 'freezeBuiltinPacks'))
+  const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
+  const agents = {}
+  for (const id of ['a', 'b']) {
+    agents[id] = await root.agentLoop.create(SessionId(id), { provider: 'role-test', model: 'test' })
+    await created({ agent: agents[id] })
+  }
+  for (const id of ['a', 'b']) {
+    agents[id].followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }))
+    await agents[id].whenIdle()
+  }
+  assert.deepEqual(offered.get('a').toSorted(), [...BUILTIN_PACKS['team-admin'].tools].sort())
+  assert.deepEqual(offered.get('b'), [])
+})
+
 test('team tools retry without a step, without registering successful tools twice', async (t) => {
   const host = start()
   t.after(host.stop)

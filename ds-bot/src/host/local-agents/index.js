@@ -124,6 +124,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
       if (record !== undefined) Object.assign(record, patch)
     },
     presetFor: sessionId => presetOf(rt, sessionId),
+    freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)

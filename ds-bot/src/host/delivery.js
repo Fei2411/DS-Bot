@@ -15,13 +15,15 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, asker } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note, deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, asker } = {}) => {
+    const label = note ?? 'new message'
+    const reportLabel = note ?? 'replies to your post'
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
     // A wait the user gave up reads as its own thing: the other Bot never answered.
     if (abandoned) return `[Waiting given up · ${fromName} did not hand back this work; go on with the work it was for${goesOn}]`
     if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
-    if (deferred && role === 'report') return `[Group chat "${roomName}" · replies to your post · you read them during your last task; go on with the work they are for now${goesOn}]`
+    if (deferred && role === 'report') return `[Group chat "${roomName}" · ${reportLabel} · you read them during your last task; go on with the work they are for now${goesOn}]`
     if (deferred && role === 'task-report') return `[Background task report · you read it during your last task; go on with the work it is for now${goesOn}]`
     if (deferred && role !== 'room') return `[Message from ${fromName} · you read it during your last task; answer it now]`
     if (retried && role !== 'room') return '[Your last reply wrote a tool call as text, so nothing ran]'
@@ -31,17 +33,17 @@ export function install(rt) {
     if (resent && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted before it could reach you]`
     if (role === 'reply') return `[Reply from ${fromName}${goesOn}]`
     if (role === 'stopped') return `[Stopped by ${fromName}]`
-    if (role === 'room') return `[Group chat "${roomName}" · ${note}]`
-    if (role === 'report') return `[Group chat "${roomName}" · replies to your post${goesOn}]`
+    if (role === 'room') return `[Group chat "${roomName}" · ${label}]`
+    if (role === 'report') return `[Group chat "${roomName}" · ${reportLabel}${goesOn}]`
     if (role === 'kickoff') return '[Bot team setup]'
     if (role === 'continue') return '[Retry after a failed turn]'
     // The editor can be the user or a Bot (its own tool call, or a Main Bot's):
     // the header stays neutral about who changed the profile.
     if (role === 'update') return '[Your profile was updated — follow the latest version]'
     if (role === 'secret') return '[Secret card]'
-    if (role === 'task') return `[Background task · ${note}]`
-    if (role === 'task-followup') return `[Follow-up from your own chat · ${note}]`
-    if (role === 'task-report') return `[Background task report · ${note}${goesOn}]`
+    if (role === 'task') return `[Background task · ${label}]`
+    if (role === 'task-followup') return `[Follow-up from your own chat · ${label}]`
+    if (role === 'task-report') return `[Background task report · ${label}${goesOn}]`
     if (audience === 'user') return `[Message from ${fromName} · the user sees your reply here]`
     return `[Message from ${fromName}]`
   }

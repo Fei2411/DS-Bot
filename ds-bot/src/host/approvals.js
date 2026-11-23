@@ -31,7 +31,7 @@ export function install(rt) {
     if (botId === undefined) return next()
     const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.title
     const id = randomUUID()
-    const roomId = owner?.roomId ?? taskOwner?.roomId
+    const roomId = owner?.roomId ?? taskOwner?.roomId ?? (taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.roomId)
     const entry = {
       id,
       sessionId,

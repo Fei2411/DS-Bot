@@ -26,6 +26,8 @@
   "exports": {
     ".": "./plugin.js",
     "./client": "./client.js",
+    "./plugin-sdk": "./src/host/plugins/sdk.js",
+    "./browser-provider": "./src/host/plugins/sdk.js",
     "./web-search": "./web-search.js",
     "./package.json": "./package.json"
   },
@@ -34,6 +36,9 @@
     "plugin.js",
     "index.js",
     "src/host/",
+    "src/client/agent-logos.js",
+    "src/client/agent-routes.js",
+    "src/client/inks.js",
     "src/shared/",
     "src/office/",
     "client.js",

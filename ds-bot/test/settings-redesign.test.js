@@ -213,7 +213,7 @@ const withGlobals = async (fn) => {
   }
 }
 
-test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain parts under anchors for every legacy deep link', async () => {
+test('SettingsDialog opens on Overview, lists 10 nav groups, and scrolls domain parts under anchors for every legacy deep link', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
   await withGlobals(async () => {
     const harness = makeStatefulReact()
@@ -247,7 +247,7 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
     assert.equal(textOf(findAll(home, n => n.type === 'h2')[0]), 'Overview')
     const nav = findAll(home, n => n.type === 'nav' && n.props?.className === 'bt-settings-nav')[0]
     const labels = findAll(nav, n => n.props?.className === 'bt-settings-label').map(textOf)
-    assert.deepEqual(labels, ['Overview', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Usage', 'About DS Bot'])
+    assert.deepEqual(labels, ['Overview', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Plugins', 'Usage', 'About DS Bot'])
     // Team shows its count; About shows an update when one is out.
     assert.equal(textOf(findAll(nav, n => n.props?.className === 'bt-settings-count')[0]), '2')
     assert.equal(textOf(findAll(nav, n => n.props?.className === 'bt-settings-chip')[0]), 'Update')
