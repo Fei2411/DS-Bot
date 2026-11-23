@@ -1,9 +1,19 @@
+import { createFcmForwarder, loadFcmServiceAccount } from './push.ts'
 import { startRelayServer } from './server.ts'
 
 const env = process.env
-const number = (name: string): number | undefined => env[name] === undefined ? undefined : Number(env[name])
+const number = (name: string): number | undefined => {
+  if (env[name] === undefined || env[name] === '') return undefined
+  const parsed = Number(env[name])
+  return Number.isFinite(parsed) ? parsed : undefined
+}
 const ttlDays = number('DSBOT_LINK_DEVICE_TTL_DAYS')
 const mbPerHour = number('DSBOT_LINK_MAX_MB_PER_HOUR')
+const fcmRaw = env.DSBOT_LINK_FCM_SERVICE_ACCOUNT?.trim()
+const pushForwarder = fcmRaw ? createFcmForwarder(loadFcmServiceAccount(fcmRaw, env.DSBOT_LINK_FCM_PROJECT_ID)) : undefined
+const allowedPushHosts = env.DSBOT_LINK_FCM_ALLOWED_HOSTS === undefined
+  ? undefined
+  : env.DSBOT_LINK_FCM_ALLOWED_HOSTS.split(',').map(s => s.trim()).filter(Boolean)
 
 const server = await startRelayServer({
   port: Number(env.PORT ?? 8787),
@@ -17,6 +27,9 @@ const server = await startRelayServer({
   maxNewDevicesPerHour: number('DSBOT_LINK_MAX_NEW_DEVICES_PER_HOUR'),
   maxBytesPerHour: mbPerHour === undefined ? undefined : mbPerHour * 1024 * 1024,
   deviceTtlMs: ttlDays === undefined ? undefined : ttlDays * 86_400_000,
+  pushForwarder,
+  maxPushesPerHour: number('DSBOT_LINK_MAX_PUSHES_PER_HOUR'),
+  allowedPushHosts,
 })
 console.log(`DS Bot link Server: ${server.url}`)
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -91,12 +91,12 @@ async function start(t, room, services, extraRooms) {
     emit(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: reply }] } })
     emit(sessionId, 'turn/end', { turn: turns.get(sessionId), reason: { kind: 'completed' } })
   }
-  const round = (callId, message) => {
-    emit('r1', 'user/message', message)
+  const round = (callId, message, roomId = 'r1') => {
+    emit(roomId, 'user/message', message)
     let result
     const stop = new AbortController()
     t.after(() => stop.abort())
-    void tool('group_relay', {}, 'r1', { callId, signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
+    void tool('group_relay', {}, roomId, { callId, signal: stop.signal }).then(async (value) => { result = await afterRound(rt, roomId, value) })
     const read = () => result
     return read
   }
@@ -782,4 +782,123 @@ test('concurrent and admin-interleaved goalSettled calls stop at the idle limit 
   for (let i = 0; i < 4; i += 1) await host.rt.goalSettled(room)
   assert.equal(nudges().length, 6)
   assert.equal(goal(host).idle, true)
+})
+
+test('standalone group_goal completion and stop report back to the primary Main Bot without self-echo (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'tests pass', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Release', objective: 'Ship v1', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+  await host.tool('group_goal', { action: 'pass', evidence: 'ok' }, 'lb')
+  await host.tool('group_goal', { action: 'complete', evidence: 'npm test 100%', summary: 'v1 shipped cleanly' }, 'lb')
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const doneMsg = text(host.agentOf('a').calls[0])
+  assert.match(doneMsg, /^\[Group chat "Lab" · goal complete\]/)
+  assert.match(doneMsg, /v1 shipped cleanly/)
+  assert.match(doneMsg, /npm test 100%/)
+
+  // Panel stop also notifies the primary Main Bot.
+  await host.call('goal-control', { roomId: 'r2', goalId: host.rt.roomOf('r2').goal.id, action: 'clear' })
+  await host.tool('group_goal', { action: 'start', title: 'Hotfix', objective: 'Fix crash', acceptance: 'no crash', stages: oneStage }, 'lb')
+  assert.equal((await host.call('goal-control', { roomId: 'r2', goalId: host.rt.roomOf('r2').goal.id, action: 'stop' })).ok, true)
+  await settle(() => host.agentOf('a').calls.length === 2)
+  const stopMsg = text(host.agentOf('a').calls[1])
+  assert.match(stopMsg, /^\[Group chat "Lab" · goal stopped\]/)
+  assert.match(stopMsg, /Stopped by the user/)
+
+  // Main Bot stopping the goal directly from its own chat does not echo back to itself.
+  await host.call('goal-control', { roomId: 'r2', goalId: host.rt.roomOf('r2').goal.id, action: 'clear' })
+  await host.tool('group_goal', { action: 'start', group: 'Lab', title: 'Own', objective: 'Check', acceptance: 'done', stages: oneStage }, 'a')
+  await host.tool('group_goal', { action: 'stop', group: 'Lab', reason: 'not needed' }, 'a')
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 2, 'Main Bot calling stop from its own chat must not self-echo')
+})
+
+test('post_to_group waits until an active group_goal completes and reports once without duplicating (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Build', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'run tests' }] }]
+  await host.tool('post_to_group', { group: 'Lab', message: '帮我达成发布目标' }, 'a')
+  const post = host.agentOf('r2').calls.shift()
+  const round1 = host.round('g1', { content: post.content, source: post.source }, 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 1)
+  host.begin('lb')
+  await host.tool('group_goal', { action: 'start', title: 'Ship v2', objective: 'Deliver v2', acceptance: 'all green', stages: oneStage }, 'lb')
+  host.finish('lb', '@Tester 跑一下全量验证')
+  await settle(() => host.agentOf('lc').calls.length === 1)
+  host.begin('lc')
+  host.finish('lc', '验证全绿！')
+  // Round 1 ends with goal still active (admin has not passed/completed yet); goalDrive queues a goal check.
+  await settle(() => round1() !== undefined)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'Chief must not receive premature report while goal is still active')
+
+  // Admin receives goal check, passes and completes the goal.
+  await settle(() => host.agentOf('r2').calls.length === 1)
+  const checkPost = host.agentOf('r2').calls.shift()
+  const round2 = host.round('g2', { content: checkPost.content, source: checkPost.source }, 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 2)
+  host.begin('lb')
+  await host.tool('group_goal', { action: 'pass', evidence: 'all tests green' }, 'lb')
+  await host.tool('group_goal', { action: 'complete', evidence: 'all tests green', summary: 'v2 released' }, 'lb')
+  host.finish('lb', '目标已完成，v2 已发布。')
+  await settle(() => round2() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 1, 'Chief must receive exactly one combined report, not a duplicate')
+  const msg = text(host.agentOf('a').calls[0])
+  assert.match(msg, /Goal "Ship v2" completed\./)
+  assert.match(msg, /Summary: v2 released/)
+  assert.match(msg, /Writer: 目标已完成，v2 已发布。/)
+})
+
+test('a scoped mid-round post_to_group by the primary Main Bot does not suppress standalone group_goal outcome alert (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Scoped Goal', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+
+  // Start a running round in Lab so Main Bot's post_to_group becomes a scoped mid-round report (ids: ['c']).
+  const round = host.round('g1', host.say('@Writer 看一下', 'r2'), 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 1)
+  host.begin('lb')
+  await host.tool('post_to_group', { group: 'Lab', message: '@Tester 顺便查下版本号' }, 'a')
+  const scopedReport = Object.values(host.rt.state.roomReports).find(r => r.roomId === 'r2')
+  assert.deepEqual(scopedReport?.ids, ['c'])
+  assert.equal(host.rt.hasRoomReportFor('r2', 'a'), false, 'scoped report must not suppress standalone goal alert')
+
+  // Admin completes the goal while the scoped report is still active -> Main Bot still gets the goal complete alert!
+  await host.tool('group_goal', { action: 'pass', evidence: 'ok' }, 'lb')
+  await host.tool('group_goal', { action: 'complete', evidence: 'tests green', summary: 'Scoped Goal shipped' }, 'lb')
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('goal complete')))
+  const goalAlert = host.agentOf('a').calls.find(call => text(call).includes('goal complete'))
+  assert.match(text(goalAlert), /\[Group chat "Lab" · goal complete\]/)
+  assert.match(text(goalAlert), /Scoped Goal shipped/)
+
+  // Finishing the round then delivers the scoped report cleanly as well.
+  await settle(() => host.agentOf('lc').calls.length === 1)
+  host.begin('lc')
+  host.finish('lc', '版本号是 1.2.3。')
+  host.finish('lb', '目标完成。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('版本号是 1.2.3')))
+})
+
+test('a queued post_to_group by the primary Main Bot does not suppress standalone group_goal outcome alert (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Queued Goal', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+
+  // Main Bot queues a post_to_group (still status: 'queued', not yet tracking).
+  await host.tool('post_to_group', { group: 'Lab', message: '@Tester 顺便看一下' }, 'a')
+  const queued = Object.values(host.rt.state.roomReports).find(r => r.roomId === 'r2')
+  assert.equal(queued?.status, 'queued')
+  assert.equal(host.rt.hasRoomReportFor('r2', 'a'), false, 'queued report must not suppress standalone goal alert')
+
+  // Stopping the goal via panel still sends the standalone goal stopped alert to Main Bot.
+  assert.equal((await host.call('goal-control', { roomId: 'r2', goalId: host.rt.roomOf('r2').goal.id, action: 'stop' })).ok, true)
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('goal stopped')))
+  const stopAlert = host.agentOf('a').calls.find(call => text(call).includes('goal stopped'))
+  assert.match(text(stopAlert), /\[Group chat "Lab" · goal stopped\]/)
 })

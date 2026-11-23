@@ -10,8 +10,8 @@ import {
   MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
 } from '../src/host/memory.js'
-import { fitWindow, promptEntry } from '../src/host/memory-entries.js'
-import { rankEntries } from '../src/host/memory-search.js'
+import { fitWindow, promptEntry, wordsOf } from '../src/host/memory-entries.js'
+import { entryWords, rankEntries } from '../src/host/memory-search.js'
 import { estimateTokens } from '../src/host/text.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
@@ -1888,6 +1888,23 @@ test('a running conversation learns of memory changes as a message, and its prom
   assert.ok(existsSync(join(home, 'memory', 'snapshots', 'b2.seen')))
 })
 
+test('a running conversation retries an unreadable memory journal on the next step', async (t) => {
+  const { ctx, home, read, warnings, stop } = start()
+  t.after(() => stop())
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  mkdirSync(journalPath)
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  assert.ok(warnings.some(line => line.includes('memory update for Writer not read') && line.includes('EISDIR')))
+
+  rmSync(journalPath, { recursive: true })
+  const time = new Date(Date.parse(read('snapshots', 'b2.seen')) + 1).toISOString()
+  const row = { id: 'team-change', time, scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Ships on Friday' }
+  writeFileSync(journalPath, `${JSON.stringify(row)}\n`)
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to team memory by the user: Ships on Friday/)
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+})
+
 test('a topic entry and another group stay out of the memory update', async (t) => {
   const { ctx, tool, section, stop } = start()
   t.after(() => stop())
@@ -2227,6 +2244,61 @@ test('bot_recall search reads a file again only once it has changed, and still f
   assert.doesNotMatch(await search(), /\[\[release\]\]/)
   mkdirSync(join(memory, 'bots', 'b2', 'broken.md'))
   assert.match(await search(), /^Memory file .*broken\.md could not be read \(EISDIR\)\. DS Bot leaves it as it is/)
+})
+
+test('memory ranking matches the original scores and stable ordering', () => {
+  const K1 = 1.2
+  const B = 0.75
+  function oldRankEntries(entries, query) {
+    const asked = wordsOf(query)
+    if (asked.size === 0) return []
+    const docs = entries.map(entry => ({ entry, words: entry.words ?? entryWords(entry) }))
+    const average = docs.reduce((sum, doc) => sum + doc.words.size, 0) / Math.max(docs.length, 1)
+    const seenIn = new Map()
+    for (const doc of docs) for (const word of doc.words) if (asked.has(word)) seenIn.set(word, (seenIn.get(word) ?? 0) + 1)
+    const idf = word => Math.log(1 + (docs.length - seenIn.get(word) + 0.5) / (seenIn.get(word) + 0.5))
+    return docs.flatMap((doc) => {
+      const hits = [...doc.words].filter(word => asked.has(word))
+      if (hits.length === 0) return []
+      const norm = K1 * (1 - B + B * doc.words.size / Math.max(average, 1))
+      const score = hits.reduce((sum, word) => sum + idf(word) * (K1 + 1) / (1 + norm), 0)
+      return [{ entry: doc.entry, score, hits: hits.length, covers: hits.length / doc.words.size }]
+    }).sort((a, b) => b.score - a.score)
+  }
+  const vocabulary = ['ships', 'friday', 'launch', 'release', '上海', '旅行', '喜欢', '茶叶']
+  let seed = 42
+  const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0)
+  const entries = Array.from({ length: 240 }, (_, id) => {
+    const text = Array.from({ length: 1 + (next() >>> 8) % 16 }, () => vocabulary[(next() >>> 8) % vocabulary.length]).join(' ')
+    const entry = { id, text, file: { topic: vocabulary[(next() >>> 8) % vocabulary.length] } }
+    if (id % 2 === 0) entry.words = entryWords(entry)
+    return entry
+  })
+  entries.push({ text: 'ships friday' }, { text: 'ships friday' }, { text: 'unrelated' }, { text: '' })
+  for (const query of ['', '!!!', 'missing', 'ships friday', '上海 旅行', 'release 茶叶 friday', vocabulary.join(' ')]) {
+    assert.deepEqual(rankEntries(entries, query), oldRankEntries(entries, query), query)
+    assert.deepEqual(rankEntries([], query), [])
+  }
+  const tied = rankEntries(entries.slice(-4), 'ships friday')
+  assert.deepEqual(tied.map(hit => hit.entry), entries.slice(-4, -2))
+})
+
+test('memory ranking iterates each cached word set once per query', () => {
+  class CountedWords extends Set {
+    iterations = 0;
+    [Symbol.iterator]() {
+      this.iterations += 1
+      return super[Symbol.iterator]()
+    }
+  }
+  const entries = ['ships friday', 'unrelated', ''].map(text => ({ text, words: new CountedWords(wordsOf(text)) }))
+  for (const query of ['ships friday', '上海']) {
+    rankEntries(entries, query)
+    for (const entry of entries) {
+      assert.equal(entry.words.iterations, 1)
+      entry.words.iterations = 0
+    }
+  }
 })
 
 test('bot_recall puts the entry that matches best first', () => {

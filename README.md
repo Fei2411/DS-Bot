@@ -62,6 +62,8 @@ The easiest way to set up other bots and group chats is to just talk to your Mai
 - **Tools**: Computer use · Browser · Capabilities · Secrets
 - **Usage** & **About DS Bot** (includes **Feedback**)
 
+In the standalone desktop app, you can use your ChatGPT plan for bot models without an OpenAI API key. Under **Settings → Models → Providers**, open **OpenAI** (or select it under **Add a provider → Known provider**) and choose **Sign in with ChatGPT**. This requires OS-backed secure storage. See [Models](ds-bot/README.md#models) for how to enable plan usage and choose a model.
+
 > **Note on web search**: DS Bot selects its `auto` search provider for the whole profile. If you disable `web-search-auto`, select another registered search provider in that profile too. See [Web search](ds-bot/README.md#web-search) and the [recovery steps](docs/known-issues.md#web-search-fails-everywhere-after-turning-off-web-search-auto).
 
 ## Features
@@ -78,9 +80,13 @@ Your foreground chat stays responsive while a bot works: slow shell commands mov
 
 The Main Bot is your chief. It has elevated rights to create and manage other bots and group chats (only you delete bots or change Main Bot status). A new team starts with a Main Bot named **Chief**—talk to it whenever you want to build out your team or ask how something works.
 
+You can rename Chief or change its avatar in **Settings → Team → Bots** without changing its Main Bot role.
+
 ### Group chats
 
 Every group chat has an admin that answers your messages by default and delegates to members with `@Name`, keeping multi-bot costs under control. You can also `@` any member directly, or use **+ → Reference a chat** to attach another chat as context.
+
+Select a group in **Settings → Team → Group chats** to set or remove its avatar. Without a photo, the group shows its members’ avatars.
 
 Members mentioned together run in parallel, report progress, and share a group memory, working folder, shared task board (`group_task`), and shared todo list (`group_todo`). For larger projects, a group can run a **Goal** (`/goal`): the admin aligns with you on completion criteria, splits the work into stages, and verifies evidence before moving on.
 

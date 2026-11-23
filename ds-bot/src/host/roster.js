@@ -3,7 +3,9 @@
 import { openSessions } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
+import { agentAvatar } from '../client/agent-routes.js'
+import { cleanAvatarImage } from './avatar.js'
+import { ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -14,6 +16,11 @@ const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
 // The first Main Bot's greeting when the user wrote before it had a model that works.
 const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote to you before your model could answer; their message above has no answer yet. Answer it now, and say in one short sentence that you run their Bot team.'
+
+function cleanRoomAvatar(input) {
+  if (input === undefined || input === null) return input
+  return { image: cleanAvatarImage(input.image) }
+}
 
 function cleanBrowserGrants(input) {
   if (input === null) return null
@@ -99,14 +106,17 @@ export function install(rt) {
     return sessionId
   }
 
-  function cleanAvatar(input) {
+  function cleanAvatar(input, { previousImage, engine } = {}) {
     if (input === null || typeof input !== 'object') return undefined
     const avatar = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
-    if (typeof input.image === 'string') {
-      if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
-      if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
-      avatar.image = input.image
+    if (input.image != null) {
+      // Existing photos may predate raster validation. Keeping the same image isn't an upload.
+      const unchanged = typeof input.image === 'string' && input.image === previousImage
+      // Compare with the client's fixed badge, not a caller-supplied SVG template.
+      const badge = engine !== undefined && typeof input.image === 'string' && input.image.startsWith('data:image/svg+xml;base64,')
+        && input.image === agentAvatar(engine)?.image
+      avatar.image = unchanged || badge ? input.image : cleanAvatarImage(input.image)
     }
     return Object.keys(avatar).length > 0 ? avatar : undefined
   }
@@ -191,9 +201,9 @@ export function install(rt) {
   }
 
   async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
-    const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
+    const cleanAvatarValue = cleanAvatar(avatar, { engine: model ? rt.localAgentBadge?.(modelRef) : undefined })
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
@@ -353,16 +363,24 @@ export function install(rt) {
     if (bot === undefined) throw new Error('Unknown Bot')
     if (bot.private === true) throw new Error(`${bot.name} is private, so it cannot be copied`)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
+    const model = served ? bot.model : undefined
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    let avatar
+    try {
+      avatar = cleanAvatar(bot.avatar, { engine: rt.localAgentBadge?.(model) })
+    } catch {
+      // A legacy photo can stay on its original Bot but can't be added to a new one.
+      avatar = { shape: bot.avatar?.shape }
+    }
     // No await from here to createBot's check, so two copies at once get different names.
     return createBot({
       name: freshName(`${bot.name} copy`),
       role: bot.role,
       instructions: bot.instructions,
       color: bot.color,
-      avatar: bot.avatar,
-      model: served ? bot.model : undefined,
+      avatar,
+      model,
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
@@ -405,6 +423,10 @@ export function install(rt) {
     const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
     if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
     if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
+    const avatar = cleanAvatar(patch.avatar, {
+      previousImage: bot.avatar?.image,
+      engine: engineChanged ? rt.localAgentBadge?.(modelRef) : undefined,
+    })
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
@@ -440,7 +462,6 @@ export function install(rt) {
       else if (isColor(currentColor(patch.color))) bot.color = currentColor(patch.color)
     }
     if (patch.avatar !== undefined) {
-      const avatar = cleanAvatar(patch.avatar)
       if (avatar) bot.avatar = avatar
       else delete bot.avatar
     }
@@ -642,7 +663,7 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, section, sectionId } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, avatar, notice, mode, admin, createdBy, section, sectionId } = {}) {
     const members = [...new Set(memberIds)].filter(id => liveBot(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
@@ -650,10 +671,11 @@ export function install(rt) {
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     if (section !== undefined || sectionId !== undefined) resolveSectionInput({ section, sectionId }, { allowCreate: false })
-    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }))
+    const photo = cleanRoomAvatar(avatar)
+    return holdName('room', custom, () => buildRoom({ members, custom, avatar: photo, notice, mode, adminId, createdBy, section, sectionId }))
   }
 
-  async function buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }) {
+  async function buildRoom({ members, custom, avatar, notice, mode, adminId, createdBy, section, sectionId }) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays; like a member's it moves to a fresh part
     // in the group's folder once the group has one (parts.js).
@@ -670,6 +692,7 @@ export function install(rt) {
         id,
         name,
         ...(custom ? { named: true } : {}),
+        ...(avatar ? { avatar } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         members: live,
         admin: lead,
@@ -743,6 +766,7 @@ export function install(rt) {
     const asked = rt.roomOf(id)
     if (asked === undefined) throw new Error('Unknown group chat')
     planRoomChange(asked, patch, actorId)
+    const avatar = cleanRoomAvatar(patch.avatar)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
     const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
@@ -774,6 +798,11 @@ export function install(rt) {
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
+    }
+    if (avatar !== undefined && avatar?.image !== room.avatar?.image) {
+      if (avatar === null) delete room.avatar
+      else room.avatar = avatar
+      changes.push(avatar === null ? 'removed the avatar' : 'updated the avatar')
     }
     // Members' group conversations move on to the folder at their next turn there;
     // the group's own Session moves the same way, now when it is idle.
@@ -842,6 +871,7 @@ export function install(rt) {
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
+    void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
@@ -992,6 +1022,8 @@ export function install(rt) {
         rt.dropGroupSession(room, id)
         touched.push(room)
       }
+      await rt.forgetBotRoomReports?.(id, touched)
+        .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
       await followMemberNames(touched)
       await rt.forgetBotSecrets(id)
       const archivePath = await archived

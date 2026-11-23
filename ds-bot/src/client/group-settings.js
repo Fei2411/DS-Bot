@@ -1,9 +1,9 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { PlusIcon, ChevronRightIcon } from './icons.js'
+import { PlusIcon, ChevronRightIcon, PencilIcon } from './icons.js'
 import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
-import { Card, Row, InlineText, SwitchRow } from './bot-settings.js'
-import { Segmented } from './motion.js'
+import { AvatarEditor, Card, Row, InlineText, SwitchRow } from './bot-settings.js'
+import { Segmented, useLinger } from './motion.js'
 import { FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
 import { t } from './i18n.js'
@@ -66,6 +66,9 @@ export function GroupTodos({ room, actions }) {
 // members and admin, its permissions, its sidebar place, and deleting it. The user may
 // change all of it; the host enforces what Bots may change.
 export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
+  const [editing, setEditing] = useState(false)
+  const [editorShown, editorLeaving] = useLinger(editing, 120)
+  const closeEditor = useCallback(() => setEditing(false), [])
   const [adding, setAdding] = useState(false)
   const [confirming, setConfirming] = useState(false)
   useEffect(() => {
@@ -86,7 +89,11 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
   }
   return h('div', { className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
-      h(RoomAvatar, { room, roster, size: 64 }),
+      h('div', { className: 'bt-avatar-anchor' },
+        h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit group avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
+          h(RoomAvatar, { room, roster, size: 64 }),
+          h('span', { className: 'bt-avatar-pencil', 'aria-hidden': true }, h(PencilIcon))),
+        editorShown ? h(AvatarEditor, { room, actions, run, onClose: closeEditor, leaving: editorLeaving }) : null),
       h('div', { className: 'bt-bs-who' },
         h('span', { className: 'bt-bs-name' }, room.name),
         h('span', { className: 'bt-bs-sub' }, roomSubtitle(room, roster)))),

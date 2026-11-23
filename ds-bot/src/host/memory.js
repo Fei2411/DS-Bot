@@ -93,6 +93,7 @@ export function install(rt) {
     Object.assign(rt, {
       memoryEnabled: false,
       renewMemory: () => {},
+      freshMemoryView: () => undefined,
       archiveBotMemory: async () => {},
       archiveGroupMemory: async () => {},
       memoryEndpoint: async () => { throw new Error('Memory is turned off on this host') },
@@ -366,13 +367,13 @@ export function install(rt) {
   }
   function readTail(path) {
     if (tailsRead.has(path)) return
-    tailsRead.add(path)
     for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
       try {
         const row = JSON.parse(line)
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
       } catch { /* a line cut by the tail, or half-written */ }
     }
+    tailsRead.add(path)
   }
 
   // Whether anything but a tidy changed a memory after a time.
@@ -941,6 +942,41 @@ export function install(rt) {
     seenTimes.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
     try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
+  }
+  // Current authorized memory view for a Session whose working context is being
+  // rebuilt (such as a local CLI whose saved session could not be resumed), so
+  // bounded replay never resurrects deleted entries from an older frozen snapshot.
+  function freshMemoryView(sessionId) {
+    if (sessionId === undefined) return undefined
+    const bot = rt.botOf(rt.selfOf(sessionId))
+    if (bot === undefined) return undefined
+    const pending = pendingChange()
+    if (pending.pending === true || pending.failed === true) return undefined
+    const path = snapshotPath(sessionId)
+    const previous = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
+    const readAt = new Date().toISOString()
+    const own = memorySection(bot)
+    if (own.failed) return undefined
+    const roomId = roomIdOf(sessionId)
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    let group
+    if (member) {
+      const readGroup = groupSection(roomId, bot)
+      if (readGroup.failed) return undefined
+      group = readGroup.text
+    }
+    if (rt.readOnly() === undefined) {
+      try {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(`${path}.tmp`, own.text, 'utf8')
+        renameSync(`${path}.tmp`, path)
+        markSeen(sessionId, readAt)
+      } catch (error) {
+        rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
+      }
+    }
+    frozen.set(sessionId, own.text)
+    return { previous: previous || undefined, own: own.text, ...(group === undefined ? {} : { group }) }
   }
 
   ctx.effect(() => ctx.systemPrompt.section({
@@ -1893,7 +1929,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
+    memoryEnabled: true, renewMemory, freshMemoryView, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
     memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }
