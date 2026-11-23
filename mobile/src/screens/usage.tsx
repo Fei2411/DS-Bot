@@ -249,6 +249,7 @@ export function TeamUsage({ navigation }: any) {
         <Totals report={report} range={range} />
         <UsageChart report={chart?.report ?? report} range={range} series={chartSeries} by={by} onBy={setBy} />
         <Ranking title={t('Bots')} entries={rankUsage(report.owners).filter(([id]) => report.bots.has(id))} total={report.total.total} series={ownerSeries} />
+        {rankUsage(report.owners).some(([id]) => !report.bots.has(id)) ? <Ranking title={t('Other')} entries={rankUsage(report.owners).filter(([id]) => !report.bots.has(id))} total={report.total.total} series={ownerSeries} /> : null}
         <Ranking title={t('Models')} entries={rankUsage(report.models)} total={report.total.total} series={modelSeries} />
         <Activity view={view} />
       </> : null}
