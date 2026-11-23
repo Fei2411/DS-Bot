@@ -5,6 +5,7 @@
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
@@ -13,9 +14,12 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 // A window belongs to the model, not to the Session that reported it, and the model
 // card reads it from resolveModel rather than from the Session's own figures.
 const windowKey = (route, model) => `${route}\u0000${model}`
-// The replay window when a CLI session is new or its resume failed.
+// The replay window when a CLI session is new or its resume failed: 12 recent user/assistant
+// turns (not counting tool results or memory snapshots) within a 24 KB cap.
 const REPLAY_MESSAGES = 12
+const REPLAY_TOTAL_MAX = 36
 const REPLAY_BYTES = 24 * 1024
+const REPLAY_LINE_MAX = 2_000
 const IDLE_CLOSE_MS = 10 * 60_000
 const APPROVE_TOOL = 'approve_agent_action'
 // A CLI that answers its compaction command first and condenses after (Devin) says
@@ -35,19 +39,20 @@ function titleChunk(text) {
   ]
 }
 
-// A compaction request neither: a deterministic digest of the messages.
+// A compaction request neither: a deterministic digest of the newest messages.
 function digestChunks(messages) {
   const lines = []
   let used = 0
-  for (const message of messages ?? []) {
+  for (const message of [...(messages ?? [])].reverse()) {
+    if (message?.role === 'system') continue
     const text = textOf(message.content).replace(/\s+/g, ' ').trim()
     if (text === '') continue
     const line = `${message.role}: ${text.slice(0, 300)}`
-    if (used + line.length > 8 * 1024) break
+    if (lines.length > 0 && used + line.length > 8 * 1024) break
     lines.push(line)
     used += line.length
   }
-  const text = `[Earlier conversation, condensed]\n${lines.join('\n')}`
+  const text = `[Earlier conversation, condensed]\n${lines.reverse().join('\n')}`
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text },
@@ -462,28 +467,40 @@ export class LocalAgentAdapter extends LlmAdapter {
     const mode = cliMode(live.spec.kind, preset)
     const instructions = system === '' ? undefined : system
 
-    const freshCli = live.cliSessionId === undefined
+    const priorCliId = live.cliSessionId
+    const freshCli = priorCliId === undefined
+    let resumeDropped = false
     if (live.engineSession === undefined) {
       const openArgs = {
         cwd,
         mcp,
-        resumeId: live.cliSessionId,
+        resumeId: priorCliId,
         mode,
         preset,
         model: options.model,
         defaultEffort: live.defaultEffort,
         effort: live.effort,
         // Codex carries the team instructions as developer config on a new
-        // thread; Claude gets them appended at spawn; ACP reads them in the
-        // first prompt below.
-        instructions: live.spec.kind === 'codex' && freshCli ? instructions : undefined,
+        // thread (including when thread/resume falls back to thread/start;
+        // thread/resume itself ignores `instructions`); Claude gets them
+        // appended at spawn; ACP reads them in the first prompt below.
+        instructions: live.spec.kind === 'codex' ? instructions : undefined,
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
-      // in the meantime, or a resume that fails would erase it.
+      // in the meantime, or a resume that fails would erase it. If ACP or Codex
+      // could not resume and opened a fresh session instead, replay conversation
+      // history and team instructions rather than sending only the latest delta.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      if (!freshCli && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
+        resumeDropped = true
+        live.context = live.context?.size === undefined ? undefined : { size: live.context.size }
+        live.compactions = 0
+        live.promptHash = undefined
+        this.deps.rt?.warn?.('local-agents: %s did not resume session %s for %s (opened %s); replaying conversation history', live.spec.kind, priorCliId, sessionId, reportedId ?? 'new')
+      }
       if (reportedId !== undefined) live.cliSessionId = reportedId
       if (live.spec.kind === 'acp') {
         if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
@@ -515,15 +532,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
 
+    const startedFreshCli = freshCli || resumeDropped
+    const needsReplay = fresh || resumeDropped
     const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
     const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
-    let promptBlocks = fresh
+    let promptBlocks = needsReplay
       ? await renderReplay(messages, system, resolveImage)
       : await renderDelta(contextText, remaining, resolveImage)
-    let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
+    let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !freshCli && live.promptHash !== promptHash) {
+    if (instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -560,9 +579,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
-      if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
+      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) live.promptHash = promptHash
     }
-    if (live.spec.kind === 'acp' && freshCli && promptBlocks.length === 0 && instructions !== undefined) {
+    if (live.spec.kind === 'acp' && startedFreshCli && promptBlocks.length === 0 && instructions !== undefined) {
       await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
@@ -1123,7 +1142,27 @@ function mergeTextBlocks(blocks) {
   return out
 }
 
-async function blocksOfMessage(message, { maxText, resolveImage }) {
+const REPLAY_ARG_KEYS = ['path', 'file_path', 'file', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'task', 'topic']
+
+function briefToolCall(block) {
+  const name = typeof block?.name === 'string' ? block.name : 'tool'
+  let args = block?.arguments ?? block?.input
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { args = undefined }
+  }
+  if (args !== null && typeof args === 'object') {
+    for (const key of REPLAY_ARG_KEYS) {
+      const value = args[key]
+      if (typeof value === 'string' && value.trim() !== '') {
+        const clean = value.replace(/\s+/g, ' ').trim()
+        return `[tool: ${name}(${clean.length > 100 ? `${clean.slice(0, 100)}…` : clean})]`
+      }
+    }
+  }
+  return `[tool: ${name}]`
+}
+
+async function blocksOfMessage(message, { maxText, resolveImage, includeToolCalls = false }) {
   const raw = Array.isArray(message.content) ? message.content : []
   const out = []
   let textParts = []
@@ -1138,6 +1177,11 @@ async function blocksOfMessage(message, { maxText, resolveImage }) {
       const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
       if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
       textParts.push(piece)
+    } else if (includeToolCalls && block?.type === 'tool-call') {
+      const note = briefToolCall(block)
+      const piece = textLeft === Infinity ? note : note.slice(0, textLeft)
+      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      if (piece !== '') textParts.push(piece)
     } else if (block?.type === 'image') {
       flushText()
       out.push(await resolveImage(block))
@@ -1157,24 +1201,31 @@ async function renderDelta(contextText, remaining, resolveImage) {
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text and images, newest first, always with the latest input
-// and the handoff a new part opens with, both word for word.
+// recent messages rendered as text and images, newest first, always with the latest input,
+// memory snapshots, and the handoff a new part opens with, word for word.
 async function renderReplay(messages, system, resolveImage) {
   const picked = []
   let used = 0
+  let conversationCount = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
   let full = false
   for (const message of [...body].reverse()) {
-    const whole = message === latest || message.source?.handoff === true
+    const sourceKind = message.source?.kind
+    if (message !== latest && sourceKind === 'runtime-context') continue
+    const whole = message === latest
+      || message.source?.handoff === true
+      || sourceKind === GROUP_MEMORY_SOURCE
+      || sourceKind === MEMORY_UPDATE_SOURCE
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
-    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, 2_000))
+    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
     if (!whole) {
-      full ||= picked.length >= REPLAY_MESSAGES || used + approxLen > REPLAY_BYTES
+      full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
       if (full) continue
     }
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
+    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
+    if (blocks.length === 0 && !whole) continue
     const entry = blocks.length > 0 && blocks[0].type === 'text'
       ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
       : blocks.length > 0
@@ -1182,6 +1233,9 @@ async function renderReplay(messages, system, resolveImage) {
         : [{ type: 'text', text: `${prefix} ` }]
     picked.unshift(entry)
     used += approxLen
+    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== MEMORY_UPDATE_SOURCE) {
+      conversationCount += 1
+    }
   }
   if (picked.length === 0) return []
   const head = system === '' ? '' : `The team instructions for this conversation:\n${system}\n\n`

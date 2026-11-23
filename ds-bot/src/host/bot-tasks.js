@@ -19,11 +19,12 @@ import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
 const TITLE_MAX = 80
+const MOVED_PROMPT_MAX = 2000
 const BRIEF_KEPT = 500
 const SUMMARY_MAX = 300
 const REPORT_MAX = 4000
-const CONTEXT_FALLBACK_MAX = 4000
-const CONTEXT_FALLBACK_ITEMS = 8
+const CONTEXT_FALLBACK_MAX = 8000
+const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -167,11 +168,14 @@ export function install(rt) {
     const lines = []
     for (const event of events) {
       if (event.type === 'user/message') {
+        const source = event.data?.source
+        if (source?.kind === 'runtime-context') continue
+        if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
         const text = textOf(event.data?.message?.content ?? event.data?.content ?? []).trim()
-        if (text !== '') lines.push(`User: ${oneLine(text, 500)}`)
+        if (text !== '') lines.push(`User: ${oneLine(text, 1000)}`)
       } else if (event.type === 'assistant/message') {
         const text = textOf(event.data?.message?.content ?? []).trim()
-        if (text !== '' && text !== HANDOFF_ACK) lines.push(`Assistant: ${oneLine(text, 500)}`)
+        if (text !== '' && text !== HANDOFF_ACK) lines.push(`Assistant: ${oneLine(text, 1000)}`)
       }
     }
     if (lines.length === 0) return ''
@@ -716,20 +720,21 @@ export function install(rt) {
     return typeof entry.since === 'number' && Date.now() - entry.since >= waitMs
   }
 
-  // Derives a short human-readable task title from the currently running foreground turn,
+  // Extracts the bounded user prompt from the currently running foreground turn,
   // preferring `source.kind === 'user'` messages inside the current turn.
-  const titleFromRunningTurn = (session, entry) => {
+  const promptFromRunningTurn = (session, entry) => {
     const events = session?.snapshotEvents?.() ?? []
     const lastStart = events.findLastIndex(ev => ev.type === 'turn/start')
     const currentTurn = lastStart === -1 ? events : events.slice(lastStart)
     const extract = (ev) => textOf(ev?.data?.message?.content ?? ev?.data?.content ?? '')
       .replace(/^\[[^\r\n]*\]\r?\n?/, '')
       .trim()
+    const clipPrompt = (raw) => (raw.length > MOVED_PROMPT_MAX ? `${raw.slice(0, MOVED_PROMPT_MAX)}…` : raw)
     for (let i = currentTurn.length - 1; i >= 0; i -= 1) {
       const ev = currentTurn[i]
       if (ev?.type === 'user/message' && ev.data?.source?.kind === 'user') {
         const raw = extract(ev)
-        if (raw !== '') return oneLine(raw, TITLE_MAX)
+        if (raw !== '') return clipPrompt(raw)
       }
     }
     for (let i = currentTurn.length - 1; i >= 0; i -= 1) {
@@ -737,19 +742,25 @@ export function install(rt) {
       if (ev?.type !== 'user/message') continue
       if (ev.data?.source?.kind === SOURCE_KIND && ev.data.source.role === 'task-handoff') continue
       const raw = extract(ev)
-      if (raw !== '') return oneLine(raw, TITLE_MAX)
+      if (raw !== '') return clipPrompt(raw)
     }
     if (lastStart > 0) {
       for (let i = lastStart - 1; i >= 0; i -= 1) {
         const ev = events[i]
         if (ev?.type === 'user/message' && ev.data?.source?.kind === 'user') {
           const raw = extract(ev)
-          if (raw !== '') return oneLine(raw, TITLE_MAX)
+          if (raw !== '') return clipPrompt(raw)
         }
       }
     }
-    if (entry?.info?.senderName) return oneLine(`Request from ${entry.info.senderName}`, TITLE_MAX)
-    return 'Background task'
+    if (entry?.info?.senderName) return `Request from ${entry.info.senderName}`
+    return ''
+  }
+
+  // Derives a short human-readable task title from the currently running foreground turn.
+  const titleFromRunningTurn = (session, entry) => {
+    const raw = promptFromRunningTurn(session, entry)
+    return raw !== '' ? oneLine(raw, TITLE_MAX) : 'Background task'
   }
 
   const transferIdOf = (item) => {
@@ -925,6 +936,7 @@ export function install(rt) {
     const isBotHandoff = (info?.role === 'request' && info.audience !== 'user')
       || (activeWork !== undefined && rt.ownsWork?.(bot.id, activeWork))
     const origin = isBotHandoff ? 'bot-handoff' : 'fg-handoff'
+    const movedPrompt = isBotHandoff ? '' : promptFromRunningTurn(oldAgent?.session, entry)
     const title = titleFromRunningTurn(oldAgent?.session, entry)
     const startSeq = (() => {
       const events = oldAgent?.session?.snapshotEvents?.() ?? []
@@ -1020,6 +1032,24 @@ export function install(rt) {
         || hasOpenOutgoingWorks(bot, task)
 
       if (!stillRunning && isActiveTask(task)) {
+        // When the new foreground could not fork history (e.g. first turn, workdir change,
+        // or local CLI), still carry recent context so the fresh foreground is not blank.
+        if (!forked && origin === 'fg-handoff') {
+          const contextNote = fallbackContextSummary(oldSid)
+          if (contextNote !== '') {
+            try {
+              const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) just finished in the background; its result is being delivered next.${contextNote}`
+              await rt.ensureCapabilities(newSid)
+              const freshAgent = await rt.resolveAgent(newSid)
+              freshAgent.inject?.(createUserMessage({
+                content: [{ type: 'text', text: notice }],
+                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+              }))
+            } catch (error) {
+              rt.warn('ds-bot: injecting fallback context on %s failed: %s', newSid, error)
+            }
+          }
+        }
         const events = oldAgent?.session?.snapshotEvents?.() ?? []
         const lastEnd = events.findLast(ev => ev?.type === 'turn/end')
         const endReason = lastEnd?.data?.reason
@@ -1032,7 +1062,10 @@ export function install(rt) {
         // background and is still running (never leak hidden Bot-to-Bot work).
         try {
           const contextNote = forked ? '' : fallbackContextSummary(oldSid)
-          const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes.${contextNote}`
+          const movedPromptBlock = movedPrompt !== '' && movedPrompt.length > task.title.length
+            ? `\nMoved request: ${movedPrompt}`
+            : ''
+          const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes. Use task_send(task: "${task.id}", ...) if the user's next message corrects or redirects that work.${movedPromptBlock}${contextNote}`
           await rt.ensureCapabilities(newSid)
           const freshAgent = await rt.resolveAgent(newSid)
           freshAgent.inject?.(createUserMessage({

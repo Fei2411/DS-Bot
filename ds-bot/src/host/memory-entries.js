@@ -267,18 +267,10 @@ export function reviewEntries(home, team, budget = REVIEW_MEMORY_MAX, about = ''
   return { numbered: [...main, ...topics.filter(entry => shown.has(entry))], left: topics.length - shown.size }
 }
 
-// The memory review's answer: {"changes": […]}, perhaps in a code fence. `changes`
-// are the well-formed ones; `leftOut` the rest, so a malformed change does not
-// take the whole answer down — it is set aside and said, and the well-formed ones
-// are saved. Anything else is no answer: the review says so and moves on — the
-// same lines are not read again.
-export function parseReview(text) {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end <= start) return undefined
+function parseReviewJson(candidate) {
   let value
   try {
-    value = JSON.parse(text.slice(start, end + 1))
+    value = JSON.parse(candidate)
   } catch {
     return undefined
   }
@@ -287,6 +279,56 @@ export function parseReview(text) {
   const leftOut = []
   for (const change of value.changes) (wellFormed(change) ? changes : leftOut).push(change)
   return { changes, leftOut }
+}
+
+// The memory review's answer: {"changes": […]}, perhaps in a code fence or surrounded
+// by prose that may contain braces. `changes` are the well-formed ones; `leftOut` the
+// rest, so a malformed change does not take the whole answer down — it is set aside
+// and said, and the well-formed ones are saved. Anything else is no answer: the review
+// says so and moves on — the same lines are not read again.
+export function parseReview(text) {
+  const raw = String(text ?? '')
+  for (const match of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    const parsed = parseReviewJson(match[1].trim())
+    if (parsed !== undefined) return parsed
+  }
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start === -1 || end <= start) return undefined
+  const direct = parseReviewJson(raw.slice(start, end + 1))
+  if (direct !== undefined) return direct
+  // Fallback: scan balanced brace objects from last to first in case surrounding prose
+  // contains stray `{...}` tokens before or after the JSON payload.
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let objStart = -1
+  const objects = []
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') {
+      if (depth === 0) objStart = i
+      depth += 1
+    } else if (ch === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && objStart !== -1) {
+        objects.push(raw.slice(objStart, i + 1))
+        objStart = -1
+      }
+    }
+  }
+  for (const candidate of objects.reverse()) {
+    const parsed = parseReviewJson(candidate)
+    if (parsed !== undefined) return parsed
+  }
+  return undefined
 }
 const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false

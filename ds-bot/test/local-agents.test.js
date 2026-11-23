@@ -2362,3 +2362,112 @@ test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', (
     { type: 'text', text: 'done', turnId: 'u1' },
   ])
 })
+
+test('acp: when session/load fails and falls back to session/new, adapter replays history and instructions and resets stale context', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-resume-drop-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const messages = [
+    system('sys', 'You are Kai. Team memory: user prefers pnpm.'),
+    user('m1', 'Earlier task: fix auth token refresh'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Checked src/auth.js and found the expiry check.' }] },
+  ]
+  const first = makeAdapter({ records })
+  try {
+    await collect(first.stream(options('s1', messages)))
+  } finally {
+    await first.dispose()
+  }
+  const priorId = records.s1.cliSessionId
+  assert.ok(priorId?.startsWith('acp-'))
+  // Simulate stale compaction count / context from the previous CLI session.
+  records.s1 = { ...records.s1, compactions: 3, context: { used: 140_000, size: 200_000 } }
+
+  const warnings = []
+  const second = makeAdapter({
+    records,
+    acpArgs: ['--fail-load', '--record', record],
+    rt: { warn: (...args) => warnings.push(args.join(' ')) },
+  })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [...messages, user('m2', 'Now update the test too')])))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /The team instructions for this conversation:\nYou are Kai\. Team memory: user prefers pnpm\./)
+  assert.match(promptText, /The conversation so far \(oldest first\):/)
+  assert.match(promptText, /User: Earlier task: fix auth token refresh/)
+  assert.match(promptText, /You: Checked src\/auth\.js and found the expiry check\./)
+  assert.match(promptText, /User: Now update the test too/)
+  assert.equal(records.s1.handedId, 'm2')
+  assert.equal(records.s1.compactions ?? 0, 0)
+  assert.ok(warnings.some(line => line.includes('did not resume session')), warnings.join('\n'))
+})
+
+test('codex: when thread/resume fails and falls back to thread/start, adapter sends developerInstructions and replays history', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-resume-drop-')), 'params.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const messages = [
+    system('sys', 'You are Kai. Team memory: always run lint.'),
+    user('m1', 'We are refactoring src/cache.js'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Proposed option A and option B.' }] },
+  ]
+  const first = makeAdapter({ records, codexArgs: ['--record', record] })
+  try {
+    await collect(first.stream(options('s1', messages, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  } finally {
+    await first.dispose()
+  }
+  const priorThreadId = records.s1.cliSessionId
+  assert.ok(priorThreadId)
+
+  const second = makeAdapter({ records, codexArgs: ['--fail-resume', '--record', record] })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [...messages, user('m2', 'Go with option B')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const starts = calls.filter(call => call.method === 'thread/start')
+  const resumes = calls.filter(call => call.method === 'thread/resume')
+  const turns = calls.filter(call => call.method === 'turn/start')
+  assert.equal(resumes.length, 1, 'must attempt thread/resume first')
+  assert.equal(starts.length, 2, 'must fall back to a new thread/start')
+  assert.equal(starts[1].params.developerInstructions, 'You are Kai. Team memory: always run lint.', 'fallback thread/start must carry developerInstructions')
+  const secondInput = turns.at(-1).params.input.map(block => block.text ?? '').join('\n')
+  assert.match(secondInput, /The conversation so far \(oldest first\):/)
+  assert.match(secondInput, /We are refactoring src\/cache\.js/)
+  assert.match(secondInput, /Proposed option A and option B\./)
+  assert.match(secondInput, /Go with option B/)
+  assert.equal(records.s1.handedId, 'm2')
+})
+
+test('replay keeps full group memory snapshot and assistant tool-call markers, and digest keeps newest messages', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-replay-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  const longGroupMem = `## Group memory\n${'Remember project milestone detail. '.repeat(120)}TAIL_MARKER`
+  assert.ok(longGroupMem.length > 3_500)
+  const msgs = [
+    system('sys', 'You are Kai.'),
+    { id: 'gm', role: 'user', content: [{ type: 'text', text: longGroupMem }], source: { kind: 'ds-bot-group-memory' } },
+    user('u1', 'Inspect auth.js'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'tool-call', id: 'tc1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
+    toolResult('t1', 'tc1', 'file contents here'),
+    { id: 'clock', role: 'user', content: [{ type: 'text', text: 'Current time: 10:00' }], source: { kind: 'runtime-context' } },
+    user('u2', 'What did we read?'),
+  ]
+  const out = await collect(adapter.stream(options('s1', msgs)))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /TAIL_MARKER/, 'group memory snapshot must not be clipped at 2,000 chars')
+  assert.match(promptText, /\[tool: read_file\(src\/auth\.js\)\]/, 'assistant tool calls must appear in replay')
+  assert.doesNotMatch(promptText, /Current time: 10:00/, 'stale runtime-context clock messages should not waste replay budget')
+
+  const many = Array.from({ length: 60 }, (_, i) => user(`d${i}`, `msg-${i} ${'x'.repeat(250)}`))
+  const digest = await collect(adapter.stream(options('s2', many, { purpose: 'compaction' })))
+  assert.match(digest.text, /msg-59/, 'compaction digest must keep newest messages')
+  assert.doesNotMatch(digest.text, /msg-0 /, 'compaction digest should drop oldest messages past 8KB budget')
+})

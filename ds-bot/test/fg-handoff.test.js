@@ -811,3 +811,49 @@ test('fg-handoff snapshots inheritedSegments so foreground rollover never shifts
   bot.segments = []
   assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
 })
+
+test('fg-handoff carries bounded moved prompt + task_send hint, and injects fallback context when !forked finishes mid-handoff', async (t) => {
+  // 1) Long running turn prompt (> 80 chars) is carried in [Background task notice] with task_send guidance.
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  const longPrompt = 'Please audit all authentication middleware files across packages/auth and packages/api, list every token validation edge case, and propose a migration plan.'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: longPrompt }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Skip packages/api for now' }] })
+  const freshSid = env.rt.botOf('a').sessionId
+  const notice = env.agentMap.get(freshSid).injected[0]?.content?.[0]?.text ?? ''
+  assert.match(notice, /Moved request: Please audit all authentication middleware files/)
+  assert.match(notice, /Use task_send\(task: "/)
+
+  // 2) When fork is unavailable (!forked) AND the moved turn finishes during forkForegroundPart,
+  //    the fresh foreground still receives fallbackContextSummary instead of starting blank.
+  let releaseFork
+  const env2 = await startEnv({
+    forkImpl: async () => new Promise((_, reject) => {
+      releaseFork = () => reject(new Error('fork unavailable'))
+    }),
+  })
+  t.after(env2.stop)
+  const dm2 = env2.agentMap.get('dm-a')
+  dm2.status = 'running'
+  await env2.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Context from turn 1: target repo is ds-bot' }] })
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  await env2.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Working on ds-bot.' }] } })
+  await env2.emit('dm-a', 'tool/call', { callId: 'tc2', name: 'bash', arguments: '{}' })
+
+  const pending = env2.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'What repo are we in?' }] })
+  await waitFor(() => typeof releaseFork === 'function')
+  // Turn finishes BEFORE fork falls back to fresh session.
+  dm2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork()
+  await pending
+  const fresh2 = env2.agentMap.get(env2.rt.botOf('a').sessionId)
+  const injected2 = fresh2.injected.map(m => m.content?.[0]?.text ?? '').join('\n')
+  assert.match(injected2, /\[Recent context from your own chat\]/, 'non-forked fresh foreground must still get fallback context even if moved turn finished mid-handoff')
+  assert.match(injected2, /target repo is ds-bot/)
+})

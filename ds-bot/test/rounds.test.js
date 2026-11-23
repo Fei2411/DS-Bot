@@ -1693,3 +1693,32 @@ test('a stopped notice during a round closing drain still logs into the draining
   assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
   assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
 })
+
+test('roomPrompt explicitly tells a member how many earlier unread group messages were omitted', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const live = rt.roomOf(room.id)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  // Seed 30 unseen earlier messages for Writer before the current round.
+  ;(live.seen ??= {})[writer.id] = 0
+  live.log = Array.from({ length: 30 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `Earlier group note ${index + 1}`,
+    time: 1000 + index,
+  }))
+  live.seq = 30
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer summarize everything we missed'))
+  const running = relay(room.id, 'relay-omitted')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+  const promptText = turn.message.content[0].text
+  // 30 earlier unread + 1 current = 31 total unseen; ROOM_DELTA_MAX=24 drops 7, then ROOM_EARLIER_MAX=8 drops 15 more -> 22 omitted!
+  assert.match(promptText, /\(22 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Got it, checking read_group_chat.', 1)
+  await running
+})

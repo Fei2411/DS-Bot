@@ -872,11 +872,17 @@ export function install(rt) {
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
       .map(bot => `${bot.name}${rt.isAdminOf(room, bot.id) ? ' (admin)' : ''}`)
     const leads = rt.isAdminOf(room, member.id)
-    const lines = unseenLines(room, member.id)
-    const earlier = lines.filter(line => line.seq < round.startSeq).slice(-ROOM_EARLIER_MAX)
+    const since = room.seen[member.id] ?? 0
+    const allUnseen = room.log.filter(line => line.seq > since && line.botId !== member.id)
+    const lines = allUnseen.slice(-ROOM_DELTA_MAX)
+    const droppedByDelta = Math.max(0, allUnseen.length - lines.length)
+    const earlierAll = lines.filter(line => line.seq < round.startSeq)
+    const earlier = earlierAll.slice(-ROOM_EARLIER_MAX)
+    const droppedByEarlier = Math.max(0, earlierAll.length - earlier.length)
+    const omittedCount = droppedByDelta + droppedByEarlier
     const current = lines.filter(line => line.seq >= round.startSeq)
     const owed = results.filter(result => ![...earlier, ...current].some(line => line.seq === result.seq))
-    const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
+    const spokeThisRound = since >= round.startSeq
     const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
@@ -885,12 +891,17 @@ export function install(rt) {
     const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
     const working = workingIn(room).filter(item => item.bot.id !== member.id && !answering.has(item.bot.id))
       .map(item => ({ ...item, unread: unreadCount(room, item.bot.id) }))
+    const omittedNotice = omittedCount > 0
+      ? `(${omittedCount} earlier unread group message${omittedCount === 1 ? '' : 's'} not shown here; use read_group_chat to read them.)`
+      : ''
     const text = [
       members,
       notice,
       goal,
       leads ? adminNote(room) : '',
-      earlier.length ? `Earlier in the group, before this round (context only):\n${transcript(earlier, memberText(room))}` : '',
+      earlier.length
+        ? `Earlier in the group, before this round (context only):\n${omittedNotice ? `${omittedNotice}\n` : ''}${transcript(earlier, memberText(room))}`
+        : omittedNotice,
       owed.length ? `Results of the work you asked for that the lines here leave out (oldest first):\n${owed.map(result => (result.line
         ? transcript([result.line], memberText(room))
         : `[${result.name}'s result, message #${result.seq}, is not available here; read_group_chat with seq ${result.seq} reads it]`)).join('\n')}` : '',

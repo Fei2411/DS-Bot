@@ -22,7 +22,7 @@
 // `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
 // and refuses any other, as it does.
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
@@ -41,6 +41,12 @@ const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
 const rejectMcp = process.argv.includes('--reject-mcp')
 const noHttpMcp = process.argv.includes('--no-http-mcp')
 const failFirstInit = process.argv.includes('--fail-first-init')
+const failLoad = process.argv.includes('--fail-load')
+const recordAt = process.argv.indexOf('--record')
+const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
+const record = (method, params) => {
+  if (recordPath !== undefined) appendFileSync(recordPath, `${JSON.stringify({ method, params })}\n`)
+}
 let initCount = 0
 const authRequired = process.argv.includes('--auth-required')
 const noImage = process.argv.includes('--no-image')
@@ -365,6 +371,7 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/load': {
+        if (failLoad) { fail(id, 'session not found'); break }
         const servers = params.mcpServers ?? []
         if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
         if (rejectHttpMcp && servers.some(entry => entry.type === 'http')) { fail(id, 'Invalid params: http mcp unsupported'); break }
@@ -419,6 +426,7 @@ process.stdin.on('data', (chunk) => {
         else { sessions.get(params.sessionId).model = params.modelId; saveSaved(); reply(id, {}) }
         break
       case 'session/prompt':
+        record('session/prompt', params)
         if (lateCancelReply) {
           const session = sessions.get(params.sessionId)
           if (session?.pendingPrompt !== undefined) {

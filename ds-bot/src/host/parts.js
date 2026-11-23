@@ -20,7 +20,7 @@ import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
-import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
+import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
@@ -153,6 +153,11 @@ export function historyEntry(event, group) {
   if (event.type === 'user/message' && source?.kind === REPLY_KIND) {
     return { answer: false, who: 'user', text: replyText(textOf(event.data.content)), keepAnswers: true }
   }
+  if (event.type === 'user/message' && source?.kind === 'schedule') {
+    const prompts = reminderPrompts(textOf(event.data.content))
+    const text = prompts.length > 0 ? `[Scheduled reminder] ${prompts.join(' · ')}` : textOf(event.data.content)
+    return text === '' ? undefined : { answer: false, who: 'bot', text, keepAnswers: true }
+  }
   if (event.type !== 'user/message' || (source?.kind !== 'user' && source?.kind !== SOURCE_KIND)) return undefined
   const text = textOf(event.data.content)
   const ours = source.kind === SOURCE_KIND
@@ -181,6 +186,8 @@ export function install(rt) {
   const RECENT_LINE_MAX = 4_000
   const LIST_TOKENS = config.handoffListTokens ?? 4_096
   const LIST_LINE_MAX = 400
+  const TOOL_TRAIL_MAX = 18
+  const TOOL_TRAIL_TOKENS = 1_500
   const HANDOFF_READ_MS = 60_000
   const NOTE_MAX_TOKENS = 8_192
   // A note cut off at the output limit is asked again with more room, up to what
@@ -433,6 +440,68 @@ export function install(rt) {
       yield* kept
       if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who }
     }
+    // If paging stopped before reaching the initiating user message (for instance a long
+    // tool turn hit the page limit), flush the replies already read instead of dropping them.
+    if (answers.length > 0) yield* answers
+  }
+
+  const TOOL_TRAIL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
+  const TOOL_ARG_KEYS = ['path', 'file_path', 'file', 'target', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'task', 'topic', 'dir', 'cwd', 'title']
+  const redactText = text => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(String(text ?? '')) : String(text ?? ''))
+
+  function toolArgSummary(rawArgs) {
+    let args = rawArgs
+    if (typeof args === 'string') {
+      try { args = JSON.parse(args) } catch { return redactText(args).replace(/\s+/g, ' ').trim().slice(0, 120) }
+    }
+    if (args === null || typeof args !== 'object') return ''
+    for (const key of TOOL_ARG_KEYS) {
+      const val = args[key]
+      if (typeof val === 'string' && val.trim() !== '') {
+        const clean = redactText(val).replace(/\s+/g, ' ').trim()
+        return clean.length > 120 ? `${clean.slice(0, 120)}…` : clean
+      }
+    }
+    return ''
+  }
+
+  // Concise, redacted trail of the most recent tool calls and outcomes in a part,
+  // oldest first within budget, so checkpoints and handoffs retain file paths, commands,
+  // and errors even when tool-call messages themselves are condensed or left behind.
+  async function recentToolActivity(sessionId, { maxCalls = TOOL_TRAIL_MAX, maxTokens = TOOL_TRAIL_TOKENS, pages = 4 } = {}) {
+    if (maxCalls <= 0 || maxTokens <= 0) return []
+    const results = new Map()
+    const entries = []
+    let used = 0
+    try {
+      for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), pages)) {
+        if (event.type === 'tool/result') {
+          const message = event.data?.message
+          const callId = message?.toolCallId
+          if (typeof callId === 'string' && !results.has(callId)) {
+            const failed = message.ok === false || message.isError === true
+            const detail = failed ? redactText(textOf(message.content)).replace(/\s+/g, ' ').trim().slice(0, 120) : ''
+            results.set(callId, failed ? (detail ? `error: ${detail}` : 'error') : 'ok')
+          }
+          continue
+        }
+        if (event.type !== 'tool/call') continue
+        const name = event.data?.name
+        if (typeof name !== 'string' || TOOL_TRAIL_SKIP.has(name)) continue
+        const arg = toolArgSummary(event.data?.arguments)
+        const outcome = typeof event.data?.callId === 'string' ? results.get(event.data.callId) : undefined
+        const head = arg === '' ? name : `${name}(${arg})`
+        const line = `- [${clock(event.time)}] ${head}${outcome === undefined ? '' : ` -> ${outcome}`}`
+        const cost = estimateTokens(line)
+        if (entries.length > 0 && used + cost > maxTokens) break
+        entries.push(line)
+        used += cost
+        if (entries.length >= maxCalls) break
+      }
+    } catch {
+      return entries.reverse()
+    }
+    return entries.reverse()
   }
 
   // What a fresh part carries of the part that ends, read newest first: the latest
@@ -478,9 +547,10 @@ export function install(rt) {
       complete = false
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
+    const tools = await recentToolActivity(sessionId, { maxTokens: Math.min(TOOL_TRAIL_TOKENS, Math.max(0, Math.floor(budget / 4))) })
     // `whole`: every message of the part is in `recent`.
     complete &&= read.complete === true
-    return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, complete, whole: complete && !full }
+    return { recent: recent.reverse(), earlier: earlier.reverse(), tools, unlisted, complete, whole: complete && !full }
   }
 
   // The note's sections, in order. A note without all of them is not used.
@@ -535,15 +605,14 @@ export function install(rt) {
   // more output room; a request error or an abort ends the attempts there.
   async function noteThrough(session, header, messages, route, base, signal) {
     const { effort, limit } = await notePlan(route)
-    return noteAttempts(session, route, base, async (prompt, attempt) => {
+    return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false } = {}) => {
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
       const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
         messages: [...messages, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-        toolHistory: session.toolHistory(),
-        ...(header.tools ? { tools: [...header.tools] } : {}),
+        ...(withoutTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
         maxTokens,
         sessionId: session.id,
         purpose: 'compaction',
@@ -556,29 +625,51 @@ export function install(rt) {
     })
   }
 
+  function isUsablePartialNote(note, missing) {
+    if (note === '') return false
+    if (NOTE_SECTIONS.length - missing.length >= 4) return true
+    const headings = note.split('\n').filter(line => /^#{1,4}\s+\S/.test(line)).length
+    return headings >= 4 && note.length >= 120
+  }
+
   // The attempts at a note, each asked through `request`: a cut-off note, or one
-  // without every section, is asked for again once.
+  // without every section, is asked for again once. If the final attempt still omits
+  // some headings but wrote a substantial, non-truncated note, keep the best partial
+  // note instead of discarding it back to an older part's stale note.
   async function noteAttempts(session, route, base, request) {
     let retry
     let problem
+    let withoutTools = false
+    let bestPartial
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
-      const { text, finish, usage } = await request(prompt, attempt)
+      const { text, finish, usage } = await request(prompt, attempt, { withoutTools })
       const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
         problem = 'it was cut off at the output limit'
         retry = NOTE_RETRY_SHORTER
-      } else if (note === '') {
-        problem = 'it was empty'
-        retry = undefined
+      } else if (note === '' || finish === 'tool-calls') {
+        problem = finish === 'tool-calls' ? 'it tried to call a tool instead of writing text' : 'it was empty'
+        withoutTools = true
+        retry = finish === 'tool-calls' ? 'Output the handoff note as plain Markdown text only, without calling any tools.' : undefined
       } else if (missing.length > 0) {
+        if (isUsablePartialNote(note, missing)) {
+          const score = NOTE_SECTIONS.length - missing.length
+          if (bestPartial === undefined || score > bestPartial.score || (score === bestPartial.score && note.length > bestPartial.note.length)) {
+            bestPartial = { note, attempts: attempt, finish, usage, missing, score }
+          }
+        }
         problem = `it lacked ${missing.join(', ')}`
         retry = noteRetryMissing(missing)
       } else {
         return { note, attempts: attempt, finish, usage }
       }
       rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish, usage?.outputTokens ?? 'unknown')
+    }
+    if (bestPartial !== undefined) {
+      rt.warn('ds-bot: using partial handoff note for %s on %s/%s (missing %s) rather than discarding it', session.id, route.provider, route.model, bestPartial.missing.join(', '))
+      return { note: bestPartial.note, attempts: NOTE_ATTEMPTS, finish: bestPartial.finish, usage: bestPartial.usage }
     }
     return { problem }
   }
@@ -611,29 +702,61 @@ export function install(rt) {
 
   // The messages to the Bot in this part, newest kept first within the budget, as a
   // checkpoint carries them. Read from the saved record, so messages an earlier
-  // checkpoint condensed are there too.
-  async function keptMessages(sessionId, { budget, group, number }) {
+  // checkpoint condensed are there too. When `includeRecent` is true (the backend did
+  // not retain a multi-message verbatim tail on the surface), half the budget keeps
+  // the latest user+Bot exchanges verbatim plus a compact recent tool trail so active
+  // work does not lose immediate context.
+  async function checkpointContext(sessionId, { budget, group, number, includeRecent = false, tailText = '' }) {
+    const recent = []
     const kept = []
-    let used = 0
+    const recentBudget = includeRecent ? Math.floor(budget * 0.5) : 0
+    const toolBudget = includeRecent ? Math.min(TOOL_TRAIL_TOKENS, Math.floor(budget * 0.15)) : 0
+    const keptBudget = Math.max(0, budget - recentBudget - toolBudget)
+    let recentUsed = 0
+    let recentFull = !includeRecent
+    let keptUsed = 0
     let more = false
-    const read = { continue: () => kept.length === 0 }
+    let skippedTail = false
+    const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
+    const read = { continue: () => recent.length === 0 && kept.length === 0 }
     for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
+      // Skip duplicating the single assistant reply DSH already kept verbatim right
+      // after the checkpoint on the surface.
+      if (includeRecent && !skippedTail && tailText !== '' && line.who === 'you' && line.text === `You: ${tailText}`) {
+        skippedTail = true
+        continue
+      }
+      if (!recentFull) {
+        const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
+        const cost = estimateTokens(text)
+        if (recent.length === 0 || recentUsed + cost <= recentBudget) {
+          recent.push(text)
+          recentUsed += cost
+          if (read.capped) {
+            more = true
+            break
+          }
+          continue
+        }
+        recentFull = true
+      }
       if (line.who === 'you') continue
-      const text = `${group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
+      const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
       const cost = estimateTokens(text)
-      if (kept.length > 0 && used + cost > budget) {
+      if ((kept.length > 0 || recent.length > 0) && keptUsed + cost > keptBudget) {
         more = true
         break
       }
       kept.push(text)
-      used += cost
+      keptUsed += cost
       if (read.capped) {
         more = true
         break
       }
     }
     more ||= read.complete !== true
-    return { kept: kept.reverse(), more }
+    const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: toolBudget }) : []
+    return { recent: recent.reverse(), tools, kept: kept.reverse(), more }
   }
 
   // DS Bot's summary for a Bot Session, in place of the backend's. Like the backend's
@@ -647,6 +770,7 @@ export function install(rt) {
     // of the Bot's own replies.
     const maxTokens = route.maxTokens
     const head = input.messages
+    const forSwitch = switchRanges.has(session.id)
     // DSH compares against these selected nodes' route prices, not the attachment
     // references' structural estimates. Snapshot before the summary request runs.
     const range = switchRanges.get(session.id)
@@ -664,34 +788,51 @@ export function install(rt) {
     const number = place === undefined ? 1
       : place.roomId === undefined ? partsOfThread(place.botId, session.id).length
         : partsOf(undefined, place.roomId).length
-    const { kept, more } = await keptMessages(session.id, {
+    const tailText = tail.length === 1 && tail[0]?.role === 'assistant' ? textOf(tail[0].content).trim() : ''
+    const { recent, tools, kept, more } = await checkpointContext(session.id, {
       budget: Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4)),
       group: place?.roomId !== undefined,
       number,
+      includeRecent: !forSwitch && tail.length <= 1,
+      tailText,
     })
-    const checkpoint = (summary, kept, more) => checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    const checkpoint = (summary, kept, more, recent = [], tools = []) => checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more, recent, tools })
     let summary = written?.summary ?? NO_SUMMARY
-    let text = checkpoint(summary, kept, more)
-    if (switchRanges.has(session.id)) {
-      const meter = ctx.get('tokenMeter')
-      // DSH prepends the system prompt to the summarizer input, but does not replace
-      // it. Reserve 112 tokens for its three-block checkpoint framing and headroom.
+    let shownMore = more
+    let text = checkpoint(summary, kept, shownMore, recent, tools)
+    const meter = ctx.get('tokenMeter')
+    if (typeof meter?.estimateMessage === 'function') {
+      // DSH rejects any checkpoint whose framed size is not strictly smaller than the
+      // replaced region (`summary is not smaller than the shadowed content`). Reserve
+      // 112 tokens for its three-block checkpoint framing and headroom.
       const replacedTokens = rangeTokens ?? input.messages.filter(message => message.role !== 'system')
         .reduce((total, message) => total + meter.estimateMessage(message), 0)
       const budget = Math.floor(replacedTokens * 0.95) - 112
-      const cost = text => meter.estimateMessage(createUserMessage({ content: [{ type: 'text', text }] }))
+      const cost = value => meter.estimateMessage(createUserMessage({ content: [{ type: 'text', text: value }] }))
       while (kept.length > 0 && cost(text) > budget) {
         kept.shift()
-        text = checkpoint(summary, kept, true)
+        shownMore = true
+        text = checkpoint(summary, kept, shownMore, recent, tools)
       }
-      while (summary.length > 0 && cost(text) > budget) {
-        summary = summary.slice(0, Math.floor(summary.length * 0.75)).trimEnd()
-        text = checkpoint(summary, [], true)
+      while (tools.length > 0 && cost(text) > budget) {
+        tools.shift()
+        text = checkpoint(summary, kept, shownMore, recent, tools)
       }
-      if (cost(text) > budget) {
-        const minimal = 'Earlier context: read_own_chat.'
-        const marked = `[Checkpoint ${checkpointCount(input.messages) + 1}] ${minimal}`
-        text = cost(marked) <= budget ? marked : minimal
+      while (recent.length > 0 && cost(text) > budget) {
+        recent.shift()
+        shownMore = true
+        text = checkpoint(summary, kept, shownMore, recent, tools)
+      }
+      if (forSwitch) {
+        while (summary.length > 0 && cost(text) > budget) {
+          summary = summary.slice(0, Math.floor(summary.length * 0.75)).trimEnd()
+          text = checkpoint(summary, [], true)
+        }
+        if (cost(text) > budget) {
+          const minimal = 'Earlier context: read_own_chat.'
+          const marked = `[Checkpoint ${checkpointCount(input.messages) + 1}] ${minimal}`
+          text = cost(marked) <= budget ? marked : minimal
+        }
       }
     }
     return {
@@ -705,6 +846,35 @@ export function install(rt) {
     }
   }
 
+  // Plain-text fallback messages used only when switching to a smaller-window model
+  // whose first summary attempt overflowed on the full history.
+  function compactSwitchTranscript(messages, prompt) {
+    const system = messages.filter(message => message?.role === 'system')
+    const body = messages.filter(message => message?.role !== 'system').slice(-24)
+    const lines = []
+    let chars = 0
+    for (const message of [...body].reverse()) {
+      const text = textOf(message?.content).replace(/\s+/g, ' ').trim()
+      if (text === '') continue
+      const label = message.role === 'assistant' ? 'Assistant' : message.role === 'tool' ? 'Tool' : 'User'
+      const piece = `${label}: ${text.slice(0, 1_500)}`
+      if (lines.length > 0 && chars + piece.length > 24_000) break
+      lines.push(piece)
+      chars += piece.length
+    }
+    const transcript = lines.reverse().join('\n')
+    return [
+      ...system,
+      { role: 'user', content: [{ type: 'text', text: `${transcript ? `Recent conversation excerpt (oldest first):\n${transcript}\n\n` : ''}${prompt}` }] },
+    ]
+  }
+
+  const isSizeError = (error) => {
+    const code = error?.code ?? error?.failure?.code
+    const message = String(error?.message ?? error ?? '')
+    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
+  }
+
   // The summary request itself. The Session's own route answers it, as it always has. A
   // range DSH condenses for a model switch is different: the route the Session used last
   // is the one being switched away from, and the switch can be because of that route (a
@@ -714,39 +884,66 @@ export function install(rt) {
   // leave the Bot on the model the user is trying to leave.
   async function summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal }) {
     const forSwitch = switchRanges.has(session.id)
-    const routes = [{ provider: route.provider, model: route.model, ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}) }]
+    const routes = [{ provider: route.provider, model: route.model }]
     if (forSwitch) {
       const bot = rt.selfOf(session.id) === undefined ? undefined : rt.botOf(rt.selfOf(session.id))
       const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
       const wanted = splitRef(ref)
       if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
     }
+    const callOnce = async (one, { withoutTools = false, trimmed = false } = {}) => {
+      const { effort } = await notePlan(one)
+      const fullMessages = [...head, ...tail, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
+      const callOptions = {
+        provider: one.provider,
+        model: one.model,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
+        messages: trimmed ? compactSwitchTranscript([...head, ...tail], prompt) : fullMessages,
+        ...(withoutTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        sessionId: session.id,
+        purpose: 'compaction',
+        signal,
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
+      const finish = assembler.finish
+      if (finish.kind === 'error' || finish.kind === 'aborted') {
+        const err = new Error(finish.failure?.message ?? finish.kind)
+        if (finish.failure?.code !== undefined) err.code = finish.failure.code
+        if (finish.failure?.status !== undefined) err.status = finish.failure.status
+        throw err
+      }
+      if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
+      const rawOutput = assembler.blocks()
+      const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+      return { summary, rawOutput, finish: finish.kind, usage: assembler.usage }
+    }
     let last
-    for (const one of routes) {
+    for (let index = 0; index < routes.length; index += 1) {
+      const one = routes[index]
       try {
-        const callOptions = {
-          ...one,
-          messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-          toolHistory: session.toolHistory(),
-          ...(input.tools ? { tools: [...input.tools] } : {}),
-          ...(maxTokens !== undefined ? { maxTokens } : {}),
-          sessionId: session.id,
-          purpose: 'compaction',
-          signal,
+        let res = await callOnce(one)
+        if ((res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
+          res = await callOnce(one, { withoutTools: true })
         }
-        const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
-        const finish = assembler.finish
-        if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-        if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
-        const rawOutput = assembler.blocks()
-        const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
-        if (summary === '') throw new Error('the checkpoint was empty')
-        return { summary, rawOutput, provider: one.provider, model: one.model, usage: assembler.usage }
+        if (res.summary === '') throw new Error('the checkpoint was empty')
+        return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
       } catch (error) {
+        let failure = error
+        if (forSwitch && index > 0 && !signal?.aborted && isSizeError(failure)) {
+          try {
+            const res = await callOnce(one, { withoutTools: true, trimmed: true })
+            if (res.summary !== '') {
+              return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
+            }
+          } catch (trimmedError) {
+            failure = trimmedError
+          }
+        }
         // A cancelled request is the caller's own decision, not a route that cannot answer.
-        if (!forSwitch || signal?.aborted) throw error
-        last = error
-        rt.warn('ds-bot: no checkpoint from %s/%s for %s: %s', one.provider, one.model, session.id, error?.message ?? error)
+        if (!forSwitch || signal?.aborted) throw failure
+        last = failure
+        rt.warn('ds-bot: no checkpoint from %s/%s for %s: %s', one.provider, one.model, session.id, failure?.message ?? failure)
       }
     }
     rt.warn('ds-bot: the checkpoint for %s carries no summary; the switch goes ahead without one: %s', session.id, last?.message ?? last)
@@ -762,9 +959,9 @@ export function install(rt) {
     if (!own?.provider || !own?.model) return undefined
     const group = placeOf(agent.id)?.roomId !== undefined
     const lines = []
-    // Two pages is already more than STEWARD_LINES asks for; the default limit would
-    // scan thousands of messages, and each decide then allocated gigabytes.
-    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: 2 })) {
+    // Scan up to HISTORY_SCAN_PAGES so a long tool-heavy turn still reaches the user's
+    // request, while normal turns stop on page 1 as soon as STEWARD_LINES are collected.
+    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES })) {
       lines.push({ who: line.who, text: line.who === 'you' || line.who === 'user' ? line.text.replace(/^(?:You|User): /, '') : line.text })
       if (lines.length >= STEWARD_LINES) break
     }
@@ -809,10 +1006,11 @@ export function install(rt) {
   }
 
   // Condenses the part through its own backend. `inTurn`: before a step of a running
-  // turn, through the backend's overflow path, which condenses all but the latest
-  // node; otherwise as an idle maintenance pass. True when the part ended up below
-  // the check line, false when it did not (it then moves on), undefined when a turn
-  // got in first (the part is checked again when that turn ends).
+  // turn, retains a balanced recent verbatim tail (~16% of the usable window, capped
+  // below the check line) via compactRegion before falling back to context-overflow;
+  // otherwise runs as an idle maintenance pass whose checkpoint carries recent
+  // verbatim exchanges and tool activity. True when the part ended up below the check
+  // line, false when it did not (it then moves on), undefined when a turn got in first.
   async function condense(agent, lines, { inTurn, signal }) {
     if (localPart(agent.session)) return condenseLocal(agent, lines, signal)
     const engine = engineOf(agent)
@@ -822,9 +1020,30 @@ export function install(rt) {
     try {
       // Through the service itself, past DS Bot's own wrapper: only a call on the
       // service gives the engine its own context, with the services it injects.
-      const result = inTurn
-        ? await engine.compactIfNeeded(agent, 'context-overflow', signal)
-        : await engine.compactNow(agent, AbortSignal.timeout(NOTE_TIMEOUT_MS))
+      let result = null
+      if (inTurn) {
+        const retainTokens = Math.min(Math.floor(lines.usable * 0.16), Math.floor(lines.check * 0.35))
+        const range = typeof engine.compactRegion === 'function'
+          ? selectRetainedRange(agent.session, measureOf(agent.session), retainTokens)
+          : null
+        if (range !== null) {
+          try {
+            result = await engine.compactRegion(range.start, range.end, agent, signal)
+          } catch (regionError) {
+            if (signal?.aborted) throw regionError
+            rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, regionError)
+            result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
+          }
+          const afterRetained = tokensOf(agent.session)
+          if (result !== null && afterRetained !== undefined && afterRetained >= lines.check) {
+            result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
+          }
+        } else {
+          result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
+        }
+      } else {
+        result = await engine.compactNow(agent, AbortSignal.timeout(NOTE_TIMEOUT_MS))
+      }
       if (result === null) return false
     } catch (error) {
       if (!inTurn && (error?.code === 'busy' || error?.code === 'cancelled')) return undefined
@@ -908,7 +1127,7 @@ export function install(rt) {
           : cutoff ? 'the previous part kept being cut off at the output limit'
             : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
               : 'the previous part grew long'
-    const { recent, earlier, unlisted, complete } = lines
+    const { recent, earlier, tools = [], unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
       ...(!complete ? ['(Older messages were not carried; the full record stays saved.)'] : []),
@@ -929,6 +1148,11 @@ export function install(rt) {
         `## Messages to you in part ${number - 1}, before the latest ones (oldest first)`,
         ...earlier,
         ...omitted,
+      ]),
+      ...(tools.length === 0 ? [] : [
+        '',
+        '## Recent tool activity (oldest first)',
+        ...tools,
       ]),
       '',
       '## Latest messages (oldest first)',
@@ -1317,7 +1541,7 @@ export function install(rt) {
     const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
     const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
+    const readLines = () => (job.bare ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
