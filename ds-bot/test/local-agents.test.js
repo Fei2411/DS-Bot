@@ -953,6 +953,42 @@ test('the adapter\'s MCP server lists the current turn\'s tools (#1061)', async 
   }
 })
 
+test('cached MCP names stay bound to the same mounted service', async (t) => {
+  const suffix = 'list_items_' + 'long_name_'.repeat(5)
+  const catalog = server => ['list_items', suffix].map(name => ({
+    name: `mcp__${server}__${name}`,
+    parameters: { type: 'object', properties: { query: { anyOf: [{ type: 'null' }, { type: 'string' }] } }, required: ['query'] },
+  }))
+  let mounted = catalog('alpha')
+  const calls = []
+  const mcp = new LoopbackMcp(() => mounted, async ({ name }) => {
+    calls.push(name)
+    return { text: 'ok' }
+  })
+  await mcp.listen()
+  t.after(() => mcp.close())
+  const request = (method, params) => fetch(mcp.url, {
+    method: 'POST', headers: { authorization: `Bearer ${mcp.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  })
+  const list = async () => (await (await request('tools/list')).json()).result.tools
+  const call = async name => {
+    const response = await request('tools/call', { name, arguments: {} })
+    return JSON.parse((await response.text()).trim().slice('data: '.length)).result
+  }
+  const first = await list()
+  assert.ok(first.every(tool => tool.name.length <= 52))
+  assert.equal(first[0].inputSchema.required, undefined)
+  assert.equal(first[0].inputSchema.properties.query.type, 'string')
+  for (const tool of first) assert.equal((await call(tool.name)).isError, false)
+  mounted = catalog('beta')
+  for (const tool of first) assert.equal((await call(tool.name)).isError, true)
+  const second = await list()
+  assert.notDeepEqual(second.map(tool => tool.name), first.map(tool => tool.name))
+  for (const tool of second) assert.equal((await call(tool.name)).isError, false)
+  assert.deepEqual(calls, [...catalog('alpha'), ...catalog('beta')].map(tool => tool.name))
+})
+
 test('flattenSchema removes unions, refs and const', () => {
   const flat = flattenSchema({ type: 'object', $defs: { a: { type: 'string' } }, properties: { p: { $ref: '#/$defs/a' }, q: { const: 'x' }, r: { oneOf: [{ type: 'null' }, { type: 'number' }] } } })
   assert.equal(flat.$defs, undefined)
@@ -1388,6 +1424,7 @@ test('LoopbackMcp answers JSON-RPC notifications with 202 and an empty body', as
     assert.equal(await res.text(), '')
   }
 })
+
 
 test('acp exposes per-model thought_level efforts, maps Antigravity presets, and switches/restores them per turn', async (t) => {
   let currentPreset = 'workspace-write'

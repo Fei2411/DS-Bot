@@ -26,7 +26,7 @@ test('the reported union property is collapsed to its first non-null branch, wit
     title: 'Sort Order',
   })
   assert.equal(plain.type, 'object')
-  assert.deepEqual(plain.required, ['sort_order'])
+  assert.equal(plain.required, undefined)
   // The schema given in is never changed: another provider may still be using it.
   assert.ok(Array.isArray(REPORTED.properties.sort_order.oneOf))
   assert.deepEqual(REPORTED.properties.sort_order.enum, ['ASC', 'DESC', null])
@@ -69,6 +69,16 @@ test('nested arrays of objects are typed at every level', () => {
 test('a nullable union keeps the type of its non-null branch and loses the null enum entry', () => {
   const plain = plainToolSchema({ type: 'object', properties: { tag: { anyOf: [{ type: 'null' }, { type: 'integer' }], enum: [1, null] } } })
   assert.deepEqual(plain.properties.tag, { type: 'integer', enum: [1] })
+})
+
+test('nullable properties are removed from required after union flattening', () => {
+  const plain = plainToolSchema({ type: 'object', properties: {
+    optional: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    required: { type: 'string' },
+    mixed: { type: ['string', 'integer', 'null'] },
+  }, required: ['optional', 'required', 'mixed'] })
+  assert.deepEqual(plain.required, ['required'])
+  assert.deepEqual(plain.properties.mixed.type, ['string', 'integer'])
 })
 
 test('refs and const are removed, as the local agent bridge already did', () => {
