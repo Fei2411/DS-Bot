@@ -710,6 +710,19 @@ test('a Bot on a fallback is moved back at the next sync once its provider canno
   assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:custom/x'])
 })
 
+test('an outage read by two catalogs at once is logged once', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  await Promise.all([rt.catalog({ fresh: true }), rt.catalog({ fresh: true })])
+  assert.equal(warnings.length, 1)
+})
+
 test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
   const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
   const listModels = rt.ctx.llm.listModels

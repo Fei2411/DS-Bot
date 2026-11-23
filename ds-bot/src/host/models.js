@@ -134,6 +134,8 @@ export function install(rt) {
   // The providers whose models could not be listed at the last catalog read: what
   // they serve is unknown, which is not the same as serving nothing.
   let unlisted = new Set()
+  // The outages already logged: one line each, however many reads meet it.
+  const warned = new Set()
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
   // HOSTED_ENGINE_ROUTE it is remembered with the models its provider served then,
@@ -219,9 +221,11 @@ export function install(rt) {
       let models = []
       try { models = await service.listModels(provider.id) } catch (error) {
         failed.add(provider.id)
-        if (!unlisted.has(provider.id)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
+        if (!warned.has(provider.id)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
+        warned.add(provider.id)
         continue
       }
+      warned.delete(provider.id)
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
