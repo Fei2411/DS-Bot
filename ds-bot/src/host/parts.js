@@ -15,7 +15,7 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
+import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
@@ -587,7 +587,9 @@ export function install(rt) {
   ].join('\n')
   const HANDOFF_PROMPT = handoffPrompt('Your conversation is long')
   const FOLDER_PROMPT = handoffPrompt('Your working folder changed')
-  const NOTE_RETRY_SHORTER = 'Your last note was cut off at the output limit, so it was not used. Write the whole note again, shorter: at most about 1,000 words. Keep every heading; drop detail before you drop facts.'
+  const NOTE_RETRY_SHORTER = 'Your last note was cut off at the output limit, so it was not used. Write the whole note again, shorter: at most about 800 words, with minimal internal thinking/reasoning and terse bullets only. Keep every heading; drop detail before you drop facts.'
+  const CHECKPOINT_RETRY_SHORTER = 'Your last checkpoint summary was cut off at the output limit. Write it again, much shorter (at most about 500 words): keep thinking minimal, skip prose, use terse bullets only, and keep exact identifiers, decisions, and remaining work.'
+  const CHECKPOINT_PARTIAL_MIN = 200
   const noteRetryMissing = missing => `Your last note lacked these headings, so it was not used: ${missing.map(name => `"## ${name}"`).join(', ')}. Write the whole note again with every heading exactly as given, in English.`
   const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
     .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
@@ -602,22 +604,136 @@ export function install(rt) {
     const effort = efforts.length === 0 ? undefined
       : efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
     const limit = route.maxTokens ?? info?.defaultMaxTokens ?? NOTE_RETRY_MAX_TOKENS
-    return { effort, limit }
+    const window = Number.isInteger(info?.context?.contextWindow) && info.context.contextWindow > 0
+      ? info.context.contextWindow : undefined
+    return { effort, limit, window }
+  }
+
+  const PI_CHARS_PER_TOKEN = 3.5
+  const PI_SAFETY_TOKENS = 4_608
+  const isSizeError = (error) => {
+    const code = error?.code ?? error?.failure?.code
+    const message = String(error?.message ?? error ?? '')
+    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
+  }
+
+  function clipHeadTail(text, maxChars) {
+    if (text.length <= maxChars) return text
+    if (maxChars <= 80) return text.slice(0, maxChars)
+    const marker = '\n[… middle omitted to fit summary budget …]\n'
+    const keep = Math.max(20, maxChars - marker.length)
+    const head = Math.ceil(keep * 0.6)
+    const tail = keep - head
+    return `${text.slice(0, head)}${marker}${text.slice(text.length - tail)}`
+  }
+
+  // Builds a valid DSH text message whose assistant source carries provider/model without
+  // stale replayState (required by real dsh-llm-pi-ai and dsh-llm-deepseek adapters).
+  function makeTextMessage(role, text, route, source) {
+    if (role === 'assistant') {
+      return createAssistantMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          provider: source?.provider ?? route?.provider ?? 'unknown',
+          model: source?.model ?? route?.model ?? 'unknown',
+        },
+      })
+    }
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  }
+
+  // Ensures a retry after max-tokens or context overflow leaves real output room under
+  // adapters (such as pi-ai) that clamp max_tokens to `contextWindow - estimatedInput - 4096`.
+  function fitHistoryForOutput(stripped, { route, window, targetOutput, prompt, minimalSystem }) {
+    if (!Number.isInteger(window) || window <= 0) return stripped
+    const msgTokens = (message) => {
+      const content = Array.isArray(message?.content) ? message.content : []
+      let chars = 0
+      for (const block of content) chars += block?.type === 'text' ? String(block.text ?? '').length : 4_800
+      return Math.ceil(chars / PI_CHARS_PER_TOKEN) + 8
+    }
+    const systemMsgs = stripped.filter(message => message?.role === 'system')
+    const bodyMsgs = stripped.filter(message => message?.role !== 'system')
+    const promptTokens = Math.ceil(String(prompt ?? '').length / PI_CHARS_PER_TOKEN) + 16
+    const desiredOutput = Math.min(targetOutput ?? NOTE_MAX_TOKENS, Math.max(2_048, Math.floor(window * 0.25)))
+    const systemTokens = systemMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
+    const bodyTokens = bodyMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
+    if (systemTokens + bodyTokens + promptTokens + desiredOutput + PI_SAFETY_TOKENS <= window) return stripped
+
+    let keptSystem = systemMsgs
+    let usedSystem = systemTokens
+    if (window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS < 3_000) {
+      keptSystem = [createSystemMessage(minimalSystem)]
+      usedSystem = msgTokens(keptSystem[0])
+    }
+    const bodyBudget = Math.max(1_000, window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS)
+    const asText = (message, maxTokens) => {
+      const role = message.role === 'assistant' ? 'assistant' : 'user'
+      const raw = (Array.isArray(message.content) ? message.content : [])
+        .map(block => (block?.type === 'text' ? String(block.text ?? '') : '[non-text attachment omitted]'))
+        .join('\n').trim()
+      if (raw === '') return undefined
+      const maxChars = Math.max(200, Math.floor((maxTokens - 8) * PI_CHARS_PER_TOKEN))
+      const text = clipHeadTail(raw, maxChars)
+      return { role, source: message.source, text, tokens: Math.ceil(text.length / PI_CHARS_PER_TOKEN) + 8 }
+    }
+    const keptHead = []
+    let remaining = bodyBudget
+    let tailStop = 0
+    if (bodyMsgs.length >= 2) {
+      const first = asText(bodyMsgs[0], Math.max(400, Math.floor(bodyBudget * 0.3)))
+      if (first !== undefined && first.tokens <= remaining) {
+        keptHead.push(first)
+        remaining -= first.tokens
+        tailStop = 1
+      }
+    }
+    const keptTail = []
+    let omitted = false
+    const perMessageCap = Math.max(400, Math.floor(bodyBudget * 0.5))
+    for (let index = bodyMsgs.length - 1; index >= tailStop; index -= 1) {
+      if (keptTail.length > 0 && remaining < 200) {
+        omitted = true
+        break
+      }
+      const cap = keptTail.length === 0 ? Math.max(400, remaining) : Math.min(perMessageCap, remaining)
+      const entry = asText(bodyMsgs[index], cap)
+      if (entry === undefined) continue
+      if (keptTail.length > 0 && entry.tokens > remaining) {
+        omitted = true
+        break
+      }
+      keptTail.push(entry)
+      remaining -= entry.tokens
+    }
+    const merged = []
+    const pushMerged = (role, text, source) => {
+      const prev = merged.at(-1)
+      if (prev !== undefined && prev.role === role) {
+        merged[merged.length - 1] = makeTextMessage(role, `${prev.content[0].text}\n\n${text}`, route, source ?? prev.source)
+      } else {
+        merged.push(makeTextMessage(role, text, route, source))
+      }
+    }
+    for (const item of keptHead) pushMerged(item.role, item.text, item.source)
+    if (omitted) pushMerged('user', '[… earlier middle messages omitted to preserve summary output room …]')
+    for (const item of keptTail.reverse()) pushMerged(item.role, item.text, item.source)
+    return [...keptSystem, ...merged]
   }
 
   // Converts tool-call blocks and role:'tool' messages into plain text blocks so a
   // no-tools retry never sends raw tool_use/tool_result blocks without tool schemas
   // (which Anthropic Messages API and Bedrock reject with HTTP 400).
-  function stripToolBlocks(messages) {
+  function stripToolBlocks(messages, route) {
     const out = []
-    const pushText = (role, text) => {
+    const pushText = (role, text, source) => {
       const clean = text.trim()
       if (clean === '') return
       const prev = out.at(-1)
       if (prev !== undefined && prev.role === role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
-        out[out.length - 1] = { role, content: [{ type: 'text', text: `${prev.content.map(block => block.text).join('\n')}\n\n${clean}` }] }
+        out[out.length - 1] = makeTextMessage(role, `${prev.content.map(block => block.text).join('\n')}\n\n${clean}`, route, source ?? prev.source)
       } else {
-        out.push({ role, content: [{ type: 'text', text: clean }] })
+        out.push(makeTextMessage(role, clean, route, source))
       }
     }
     for (const message of messages ?? []) {
@@ -638,7 +754,9 @@ export function install(rt) {
         if (text !== '' || raw.some(block => block?.type === 'image')) {
           const prev = out.at(-1)
           if (raw.every(block => block?.type === 'text') && prev !== undefined && prev.role === message.role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
-            pushText(message.role, text)
+            pushText(message.role, text, message.source)
+          } else if (message.role === 'assistant' && raw.every(block => block?.type === 'text') && message.source === undefined) {
+            out.push(makeTextMessage('assistant', text, route))
           } else {
             out.push(message)
           }
@@ -659,7 +777,7 @@ export function install(rt) {
           pieces.push(body === '' ? label : `${label}: ${clip(body, 2_000, 'truncated')}`)
         }
       }
-      pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'))
+      pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'), message.source)
     }
     return out
   }
@@ -669,16 +787,20 @@ export function install(rt) {
   // Session. A cut-off note, or one without every section, is asked for again once with
   // more output room; a request error or an abort ends the attempts there.
   async function noteThrough(session, header, messages, route, base, signal) {
-    const { effort, limit } = await notePlan(route)
-    return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false } = {}) => {
+    const { effort, limit, window } = await notePlan(route)
+    return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false, compactInput = false } = {}) => {
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
-      const history = withoutTools ? stripToolBlocks(messages) : messages
+      const dropTools = withoutTools || compactInput
+      const stripped = dropTools ? stripToolBlocks(messages, route) : messages
+      const history = compactInput
+        ? fitHistoryForOutput(stripped, { route, window, targetOutput: maxTokens, prompt, minimalSystem: 'You are writing a concise internal handoff note for this conversation.' })
+        : stripped
       const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
         messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-        ...(withoutTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
+        ...(dropTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
         maxTokens,
         sessionId: session.id,
         purpose: 'compaction',
@@ -686,7 +808,12 @@ export function install(rt) {
       }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
-      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+      if (finish.kind === 'error' || finish.kind === 'aborted') {
+        const err = new Error(finish.failure?.message ?? finish.kind)
+        if (finish.failure?.code !== undefined) err.code = finish.failure.code
+        if (finish.failure?.status !== undefined) err.status = finish.failure.status
+        throw err
+      }
       return { text: assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim(), finish: finish.kind, usage: assembler.usage }
     })
   }
@@ -705,19 +832,46 @@ export function install(rt) {
 
   // The attempts at a note, each asked through `request`: a cut-off note, or one
   // without every section, is asked for again once. If the final attempt still omits
-  // some headings but wrote a substantial, non-truncated note, keep the best partial
-  // note instead of discarding it back to an older part's stale note.
+  // some headings — or even hit the output limit after writing a substantial set of
+  // canonical sections — keep the best usable partial note (preferring a non-truncated
+  // one) instead of discarding it back to an older part's stale note.
   async function noteAttempts(session, route, base, request) {
     let retry
     let problem
     let withoutTools = false
+    let compactInput = false
     let bestPartial
+    let bestTruncated
+    const recordBest = (current, candidate) => (
+      current === undefined || candidate.score > current.score || (candidate.score === current.score && candidate.note.length > current.note.length)
+        ? candidate : current
+    )
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
-      const { text, finish, usage } = await request(prompt, attempt, { withoutTools })
+      let text
+      let finish
+      let usage
+      try {
+        ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, compactInput }))
+      } catch (error) {
+        if (attempt < NOTE_ATTEMPTS && !compactInput && isSizeError(error)) {
+          compactInput = true
+          withoutTools = true
+          problem = 'the conversation was too large for a full-prefix note'
+          retry = NOTE_RETRY_SHORTER
+          rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
+          continue
+        }
+        throw error
+      }
       const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
+        if (isUsablePartialNote(note, missing)) {
+          bestTruncated = recordBest(bestTruncated, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
+        }
+        compactInput = true
+        withoutTools = true
         problem = 'it was cut off at the output limit'
         retry = NOTE_RETRY_SHORTER
       } else if (finish === 'tool-calls') {
@@ -729,10 +883,7 @@ export function install(rt) {
         retry = undefined
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
-          const score = NOTE_SECTIONS.length - missing.length
-          if (bestPartial === undefined || score > bestPartial.score || (score === bestPartial.score && note.length > bestPartial.note.length)) {
-            bestPartial = { note, attempts: attempt, finish, usage, missing, score }
-          }
+          bestPartial = recordBest(bestPartial, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
         }
         problem = `it lacked ${missing.join(', ')}`
         retry = noteRetryMissing(missing)
@@ -741,9 +892,13 @@ export function install(rt) {
       }
       rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish, usage?.outputTokens ?? 'unknown')
     }
-    if (bestPartial !== undefined) {
-      rt.warn('ds-bot: using partial handoff note for %s on %s/%s (missing %s) rather than discarding it', session.id, route.provider, route.model, bestPartial.missing.join(', '))
-      return { note: bestPartial.note, attempts: NOTE_ATTEMPTS, finish: bestPartial.finish, usage: bestPartial.usage }
+    const fallback = bestPartial ?? bestTruncated
+    if (fallback !== undefined) {
+      const why = bestPartial !== undefined
+        ? `missing ${fallback.missing.join(', ')}`
+        : `cut off at output limit${fallback.missing.length > 0 ? `, missing ${fallback.missing.join(', ')}` : ''}`
+      rt.warn('ds-bot: using partial handoff note for %s on %s/%s (%s) rather than discarding it', session.id, route.provider, route.model, why)
+      return { note: fallback.note, attempts: NOTE_ATTEMPTS, finish: fallback.finish, usage: fallback.usage }
     }
     return { problem }
   }
@@ -943,12 +1098,6 @@ export function install(rt) {
     ]
   }
 
-  const isSizeError = (error) => {
-    const code = error?.code ?? error?.failure?.code
-    const message = String(error?.message ?? error ?? '')
-    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
-  }
-
   // The summary request itself. The Session's own route answers it, as it always has. A
   // range DSH condenses for a model switch is different: the route the Session used last
   // is the one being switched away from, and the switch can be because of that route (a
@@ -965,17 +1114,25 @@ export function install(rt) {
       const wanted = splitRef(ref)
       if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
     }
-    const callOnce = async (one, { withoutTools = false, trimmed = false } = {}) => {
-      const { effort } = await notePlan(one)
-      const baseHistory = withoutTools && !trimmed ? stripToolBlocks([...head, ...tail]) : [...head, ...tail]
-      const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
+    const callOnce = async (one, { withoutTools = false, compactInput = false, trimmed = false, shorter = false } = {}) => {
+      const { effort, limit, window } = await notePlan({ ...one, ...(maxTokens === undefined ? {} : { maxTokens }) })
+      const retryBudget = maxTokens === undefined ? limit : Math.min(Math.max(maxTokens, NOTE_RETRY_MAX_TOKENS), limit)
+      const callMaxTokens = shorter ? retryBudget : maxTokens
+      const dropTools = withoutTools || compactInput
+      const retryPrompt = shorter ? `${prompt}\n\n${CHECKPOINT_RETRY_SHORTER}` : prompt
+      const effectivePrompt = dropTools ? `${retryPrompt}\n\nOutput only the summary as plain text, without calling any tools.` : retryPrompt
+      const stripped = dropTools && !trimmed ? stripToolBlocks([...head, ...tail], one) : [...head, ...tail]
+      const baseHistory = compactInput && !trimmed
+        ? fitHistoryForOutput(stripped, { route: one, window, targetOutput: callMaxTokens ?? limit, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
+        : stripped
+      const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }]
       const callOptions = {
         provider: one.provider,
         model: one.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: trimmed ? compactSwitchTranscript([...head, ...tail], prompt) : fullMessages,
-        ...(withoutTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
-        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        messages: trimmed ? compactSwitchTranscript([...head, ...tail], retryPrompt) : fullMessages,
+        ...(dropTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
+        ...(callMaxTokens !== undefined ? { maxTokens: callMaxTokens } : {}),
         sessionId: session.id,
         purpose: 'compaction',
         signal,
@@ -988,7 +1145,6 @@ export function install(rt) {
         if (finish.failure?.status !== undefined) err.status = finish.failure.status
         throw err
       }
-      if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
       const rawOutput = assembler.blocks()
       const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
       return { summary, rawOutput, finish: finish.kind, usage: assembler.usage }
@@ -997,18 +1153,41 @@ export function install(rt) {
     for (let index = 0; index < routes.length; index += 1) {
       const one = routes[index]
       try {
-        let res = await callOnce(one)
-        if ((res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
-          res = await callOnce(one, { withoutTools: true })
+        let withoutTools = false
+        let bestTruncated
+        const rememberTruncated = (candidate) => {
+          if (candidate?.finish !== 'max-tokens' || candidate.summary.length < CHECKPOINT_PARTIAL_MIN) return
+          if (bestTruncated === undefined || candidate.summary.length > bestTruncated.summary.length) bestTruncated = candidate
         }
-        if (res.summary === '') throw new Error('the checkpoint was empty')
-        return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
+        let res = await callOnce(one)
+        if (res.finish !== 'max-tokens' && (res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
+          withoutTools = true
+          res = await callOnce(one, { withoutTools })
+        }
+        if (res.finish === 'max-tokens') {
+          rememberTruncated(res)
+          rt.warn('ds-bot: checkpoint summary for %s on %s/%s was cut off at output limit (output %s tokens, %d chars); retrying shorter without tools', session.id, one.provider, one.model, res.usage?.outputTokens ?? 'unknown', res.summary.length)
+          withoutTools = true
+          res = await callOnce(one, { withoutTools, compactInput: true, shorter: true })
+          rememberTruncated(res)
+        }
+        if (res.finish !== 'max-tokens' && res.summary !== '') {
+          return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
+        }
+        if (bestTruncated !== undefined) {
+          rt.warn('ds-bot: using truncated checkpoint summary for %s on %s/%s (%d chars) after shorter retry still hit output limit', session.id, one.provider, one.model, bestTruncated.summary.length)
+          return { summary: bestTruncated.summary, rawOutput: bestTruncated.rawOutput, provider: one.provider, model: one.model, usage: bestTruncated.usage }
+        }
+        if (res.finish === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
+        throw new Error('the checkpoint was empty')
       } catch (error) {
         let failure = error
-        if (forSwitch && index > 0 && !signal?.aborted && isSizeError(failure)) {
+        if (!signal?.aborted && isSizeError(failure)) {
           try {
-            const res = await callOnce(one, { withoutTools: true, trimmed: true })
-            if (res.summary !== '') {
+            const res = forSwitch && index > 0
+              ? await callOnce(one, { withoutTools: true, trimmed: true })
+              : await callOnce(one, { withoutTools: true, compactInput: true, shorter: true })
+            if ((res.finish !== 'max-tokens' && res.summary !== '') || (res.finish === 'max-tokens' && res.summary.length >= CHECKPOINT_PARTIAL_MIN)) {
               return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
             }
           } catch (trimmedError) {
@@ -1046,16 +1225,15 @@ export function install(rt) {
     // A part on a local agent CLI asks its own CLI and model, in a one-off session.
     if (local) return parseDecision(await rt.localAgentAsk(agent.id, { system: STEWARD_SYSTEM, prompt: request, signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS) }))
     const route = own
-    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
+    const { effort, limit } = await notePlan(route)
     // The decision needs no long thinking.
-    const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
     const callOptions = {
       provider: route.provider,
       model: route.model,
-      ...(off ? { reasoningEffort: 'off' } : {}),
+      ...(effort === undefined ? {} : { reasoningEffort: effort }),
       system: STEWARD_SYSTEM,
       messages: rt.tagUsage([{ role: 'user', content: [{ type: 'text', text: request }] }], { sessionId: agent.id, kind: 'compaction' }),
-      maxTokens: STEWARD_MAX_TOKENS,
+      maxTokens: Math.min(STEWARD_MAX_TOKENS, limit),
       sessionId: session.id,
       purpose: 'compaction',
       signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS),
@@ -1081,16 +1259,19 @@ export function install(rt) {
   }
 
   // Condenses the part through its own backend. `inTurn`: before a step of a running
-  // turn, retains a balanced recent verbatim tail (~16% of the usable window, capped
-  // below the check line) via compactRegion before falling back to context-overflow;
-  // otherwise runs as an idle maintenance pass whose checkpoint carries recent
-  // verbatim exchanges and tool activity. True when the part ended up below the check
+  // turn past the hard line, retains a balanced recent verbatim tail (~16% of the usable
+  // window, capped below the check line) via compactRegion and only falls back to
+  // context-overflow when still at or above the hard line; otherwise runs as an idle
+  // maintenance pass targeting below the check line, whose checkpoint carries recent
+  // verbatim exchanges and tool activity. True when the part ended up below its target
   // line, false when it did not (it then moves on), undefined when a turn got in first.
   async function condense(agent, lines, { inTurn, signal }) {
     if (localPart(agent.session)) return condenseLocal(agent, lines, signal)
     const engine = engineOf(agent)
     const before = tokensOf(agent.session)
     const sessionId = agent.session.id
+    const target = inTurn ? lines.hard : lines.check
+    const formatError = error => (error?.cause ? `${error} (cause: ${error.cause?.message ?? error.cause})` : error)
     condensing.add(sessionId)
     try {
       // Through the service itself, past DS Bot's own wrapper: only a call on the
@@ -1108,16 +1289,16 @@ export function install(rt) {
           } catch (regionError) {
             if (signal?.aborted) throw regionError
             fellBack = true
-            rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, regionError)
+            rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, formatError(regionError))
             result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
           }
           const afterRetained = tokensOf(agent.session)
-          if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= lines.check) {
+          if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= target) {
             try {
               result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
             } catch (followUpError) {
               if (signal?.aborted) throw followUpError
-              rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, followUpError)
+              rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, formatError(followUpError))
             }
           }
         } else {
@@ -1129,7 +1310,7 @@ export function install(rt) {
       if (result === null) return false
     } catch (error) {
       if (!inTurn && (error?.code === 'busy' || error?.code === 'cancelled')) return undefined
-      rt.warn('ds-bot: condensing %s failed: %s', agent.id, error)
+      rt.warn('ds-bot: condensing %s failed: %s', agent.id, formatError(error))
       return false
     } finally {
       condensing.delete(sessionId)
@@ -1139,7 +1320,7 @@ export function install(rt) {
     const after = tokensOf(agent.session) ?? before
     partBase.set(agent.id, after)
     ctx.logger.info('ds-bot: %s condensed from %d to %d tokens (check line %d, hard line %d)', agent.id, before ?? -1, after ?? -1, lines.check, lines.hard)
-    return after < lines.check
+    return after < target
   }
 
   // A part on a local agent CLI condenses through the CLI's own compaction. Undefined

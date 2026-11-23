@@ -200,34 +200,36 @@ test('mid-turn condense uses compactRegion with retained tail instead of wiping 
     const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
     adopt({ agent })
     const preStep = ctx.listeners.get('agent/pre-step').find(listener => /adoptCompaction/.test(String(listener)))
-    await preStep({ agent, step: 2, messages: [], signal: new AbortController().signal }, async () => 'continued')
-    return { calls, renewed, condensedLogged }
+    const stepResult = await preStep({ agent, step: 2, messages: [], signal: new AbortController().signal }, async () => 'continued')
+    return { calls, renewed, condensedLogged, stepResult }
   }
 
-  // 1) Retained-tail compactRegion runs: usable=96k -> retainTokens=15,360, so nodes 5+6 (10k)
-  //    plus paired turn 2 (nodes 3+4) stay verbatim while older prefix seq 1..2 is compacted.
+  // 1) Retained-tail compactRegion runs: usable=96k, check=76.8k, hard=91.2k -> shrinking
+  //    to 80k (still >= check, but safely < hard) keeps the retained tail intact and lets the
+  //    active turn continue on the same part without clobbering it via context-overflow!
   const retained = await runCase({
-    onRegion: (setTokens) => { setTokens(35_000); return { ok: true } },
+    onRegion: (setTokens) => { setTokens(80_000); return { ok: true } },
     onOverflow: (setTokens) => { setTokens(30_000); return { ok: true } },
   })
   assert.deepEqual(retained.calls.region, [[1, 2]], 'mid-turn condense must compact older prefix via compactRegion while retaining recent turns')
-  assert.deepEqual(retained.calls.overflow, [], 'context-overflow must not run when retained-tail compaction succeeded below check line')
+  assert.deepEqual(retained.calls.overflow, [], 'context-overflow must not clobber retained tail once mid-turn tokens drop below hard line')
+  assert.equal(retained.stepResult, 'continued', 'active turn must continue on same part when mid-turn condense drops below hard line')
   assert.equal(retained.renewed, 1)
 
   // 2) If compactRegion throws a shrink error, condense falls back to context-overflow ONCE
-  //    (never running context-overflow twice even when tokens stay >= check line).
+  //    (never running context-overflow twice even when tokens stay >= hard line).
   const fallback = await runCase({
     onRegion: () => { throw new Error('replacement did not shrink') },
-    onOverflow: (setTokens) => { setTokens(85_000); return { ok: true } },
+    onOverflow: (setTokens) => { setTokens(93_000); return { ok: true } },
   })
   assert.deepEqual(fallback.calls.region, [[1, 2]])
   assert.deepEqual(fallback.calls.overflow, ['context-overflow'], 'fallback context-overflow must not run twice in a row')
   assert.equal(fallback.renewed, 1)
 
-  // 3) If compactRegion commits (leaving tokens >= check) and follow-up context-overflow throws,
+  // 3) If compactRegion commits (leaving tokens >= hard) and follow-up context-overflow throws,
   //    renewMemory/partBase still runs because the retained-tail compaction already mutated the session.
   const followUpFail = await runCase({
-    onRegion: (setTokens) => { setTokens(80_000); return { ok: true } },
+    onRegion: (setTokens) => { setTokens(92_000); return { ok: true } },
     onOverflow: () => { throw new Error('follow-up overflow failed') },
   })
   assert.deepEqual(followUpFail.calls.region, [[1, 2]])
@@ -957,4 +959,419 @@ test('freshMemoryView rebuilds current authorized memory snapshot and advances s
   const delta = decision.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.ok(delta, 'memory edit after freshMemoryView must still emit a memory-update delta')
   assert.match(delta.content[0].text, /Use pnpm workspaces/)
+})
+
+test('summaryThrough retries shorter on max-tokens, keeps substantial truncated summary, and rejects tiny fragments', async (t) => {
+  const runSummary = async ({ replies, defaultMaxTokens = 4_096, routeMaxTokens }) => {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-ckpt-maxtok-'))
+    writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+    const llmCalls = []
+    const checkpoints = []
+    const queue = [...replies]
+    const compaction = {
+      async compactIfNeeded() { return null },
+      async compactNow(agent, signal) {
+        checkpoints.push(await this.summarize({
+          messages: [
+            { role: 'system', content: [{ type: 'text', text: 'sys' }] },
+            { role: 'user', content: [{ type: 'text', text: 'Audit details. '.repeat(300) }] },
+          ],
+          tools: [{ name: 'read_file' }],
+        }, agent, signal))
+        return { ok: true }
+      },
+      async compactRegion() { return { ok: true } },
+      async summarize() { return { summary: [] } },
+    }
+    const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 85_000 }) } } })
+    Object.assign(ctx, {
+      llm: {
+        listProviders: () => [{ id: 'custom', name: 'Custom' }],
+        listModels: async () => [{ id: 'flash' }],
+        resolveModelInfo: async () => ({ context: { contextWindow: 40_000 }, defaultMaxTokens }),
+        stream(options) {
+          llmCalls.push(options)
+          return makeStream(queue.shift())()
+        },
+      },
+      sessions: { messageProjections: [] },
+      sessionController: {
+        resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+        page: async () => ({ records: [], hasMore: false }),
+      },
+      workspaceRegistry: { archiveSession: async () => {} },
+    })
+    createRuntime(ctx, { home })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+    const agent = {
+      id: 'b2',
+      status: 'idle',
+      session: {
+        id: 'b2',
+        seq: 1,
+        requestHeader: () => ({ config: { provider: 'custom', model: 'flash', ...(routeMaxTokens === undefined ? {} : { maxTokens: routeMaxTokens }) } }),
+        deriveMessages: () => [],
+        toolHistory: () => [],
+      },
+    }
+    const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+    adopt({ agent })
+    const originalNow = compaction[Symbol.for('ds-bot/compaction')].compactNow
+    await originalNow.call(compaction, agent, new AbortController().signal)
+    return { llmCalls, checkpointText: checkpoints[0].summary[0].text }
+  }
+
+  // 1) First attempt hits max-tokens -> retries once shorter and succeeds cleanly.
+  const recovered = await runSummary({
+    replies: [
+      { text: 'Cut off early', kind: 'max-tokens' },
+      { text: '- Done: batch 1 & 2 audited\n- Decision: Option B\n- Next: batch 3', kind: 'stop' },
+    ],
+    defaultMaxTokens: 8_192,
+  })
+  assert.equal(recovered.llmCalls.length, 2, 'must retry once shorter after max-tokens')
+  assert.match(recovered.llmCalls[1].messages.at(-1).content[0].text, /much shorter.*thinking minimal/i)
+  assert.equal(recovered.llmCalls[1].maxTokens, 8_192, 'shorter retry must respect declared defaultMaxTokens')
+  assert.match(recovered.checkpointText, /Decision: Option B/)
+
+  // 2) Both attempts hit max-tokens, but attempt 1 wrote a substantial summary (>= 200 chars) -> keep longest substantial summary!
+  const substantialA = [
+    '- Done: audited batch1.md (ISSUE_B1_REFUND_OVERFLOW), batch2.md (ISSUE_B2_JWT_SKEW, OWNER_NAME LinWei), and batch3.md (ISSUE_B3_RACE_LOCK, CUTOVER_DATE 2026-12-15).',
+    '- Decision: chose Option B (versioned optimistic lock); never drop table billing_ledger.',
+    '- Next: await batches 4 and 5 from user.',
+  ].join('\n')
+  const keptTruncated = await runSummary({
+    replies: [
+      { text: substantialA, kind: 'max-tokens' },
+      { text: 'Short cut', kind: 'max-tokens' },
+    ],
+    routeMaxTokens: 4_096,
+  })
+  assert.equal(keptTruncated.llmCalls.length, 2)
+  assert.equal(keptTruncated.llmCalls[1].maxTokens, 4_096, 'shorter retry must stay inside explicit route.maxTokens')
+  assert.match(keptTruncated.checkpointText, /ISSUE_B1_REFUND_OVERFLOW/)
+  assert.match(keptTruncated.checkpointText, /Option B/)
+
+  // 3) Both attempts hit max-tokens with tiny fragments (< 200 chars) -> still rejects so garbage is never committed.
+  await assert.rejects(
+    () => runSummary({
+      replies: [
+        { text: 'Tiny cut', kind: 'max-tokens' },
+        { text: 'Still tiny', kind: 'max-tokens' },
+      ],
+    }),
+    /cut off at the output limit/,
+  )
+})
+
+test('noteAttempts keeps substantial truncated partial note when retries hit max-tokens, prefers non-truncated partial, and askSteward lowers reasoning effort', async (t) => {
+  const runNote = async (replies, info = {}) => {
+    const warnings = []
+    const requests = []
+    const queue = [...replies]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000_000 }) } } })
+    ctx.logger = { warn: (fmt, ...a) => warnings.push(`${fmt} ${a.join(' ')}`), info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async (provider, model) => info[`${provider}/${model}`] ?? {},
+      stream(options) {
+        requests.push(options)
+        return makeStream(queue.shift())()
+      },
+    }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'custom/flash', segments: [] }
+    const messages = [
+      { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Continue AUD-7710' }], source: { kind: 'user' } },
+      { id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'Audited batch 1-4.' }] },
+    ]
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'custom', model: 'flash' } }),
+      deriveMessages: () => messages,
+      toolHistory: () => [],
+    }
+    const followed = []
+    const agent = {
+      id: 's1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(new AbortController().signal),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: msg => followed.push(msg),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle', whenIdle: async () => {}, runMaintenance: async job => job(new AbortController().signal),
+      inbox: { nextStep: [], nextTurn: [] }, followup: msg => followed.push(msg), send: async () => {},
+    }
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: (fmt, ...a) => warnings.push(`${fmt} ${a.join(' ')}`),
+      async save() {}, async load() {}, readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: () => undefined, selfOf: () => 'b1', isMain: () => false,
+      chatOf: () => 's1', sessionOfRoom: () => undefined, isBotSession: id => ['s1', 's2'].includes(id),
+      isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s1', 'b1']]), groupOwners: new Map(), pastOwners: new Map(), roomOwners: new Map(),
+      teamTools: [], live: new Map(), groupSessionsOf: () => [], unreadOf: () => [], clock: () => 'now',
+      partsOf: () => [], partLines: async function* () {}, eventsBackwards: async function* () {},
+      historyEntry: () => undefined, displayItems: async () => [], earlierPage: async () => ({}), chatPage: async () => ({}),
+      followFolder: async () => {}, heldBack: () => [],
+      resolveAgent: async id => (id === 's2' ? fresh : agent), createSession: async () => 's2',
+      desiredModel: async subject => subject.model, desiredEffort: async () => undefined,
+      selectSessionModel: async () => {}, applyModel: async () => {}, applyPermission: async () => {},
+      ensureCapabilities: async () => {}, renewMemory: () => {}, moveSchedules: async () => {},
+      sessionTitle: { rename: async () => {} }, deliver: async () => {}, teamFolder: () => '/tmp/team',
+      workDirOf: () => '/tmp/team', isFolder: async () => true, uiLanguage: () => 'en', roomProgress: new Map(),
+      defaultModel: async () => undefined,
+    }
+    installParts(rt)
+    ctx.emit('agent/status', { agent, status: 'idle' })
+    for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) await new Promise(r => setTimeout(r, 10))
+    return { bot, requests, warnings, packageText: followed.map(m => m?.content?.map?.(b => b.text).join('') ?? '').join('\n') }
+  }
+
+  const fiveSectionCut = [
+    '## Goals\n- Complete the AUD-7710 ledger audit across all 6 workspace batches.',
+    '## Constraints and preferences\n- Never drop table `billing_ledger`.',
+    '## Progress\n- Done: batch1.md through batch4.md audited.',
+    '## Decisions\n- Chose Option B (versioned optimistic lock) over Option A.',
+    '## Facts to keep\n- OWNER_NAME: LinWei, CUTOVER_DATE: 2026-12-15, ISSUE_B1_REFUND_OVERFLOW',
+  ].join('\n\n')
+
+  // 1) Both attempts hit max-tokens, but attempt 1 wrote 5 canonical sections -> keep it instead of discarding!
+  const kept = await runNote([
+    { text: fiveSectionCut, kind: 'max-tokens' },
+    { text: '## Goals\n- truncated tiny', kind: 'max-tokens' },
+  ])
+  assert.equal(kept.bot.sessionId, 's2')
+  assert.equal(kept.requests.length, 2)
+  assert.match(kept.requests[1].messages.at(-1).content[0].text, /minimal internal thinking/i)
+  assert.match(kept.packageText, /ISSUE_B1_REFUND_OVERFLOW/)
+  assert.match(kept.packageText, /versioned optimistic lock/)
+  assert.doesNotMatch(kept.packageText, /put this note together without the model/)
+
+  // 2) Attempt 1 truncated (5 sections), attempt 2 non-truncated partial (4 sections) -> non-truncated partial wins!
+  const fourSectionClean = [
+    '## Goals\n- Clean partial goal for AUD-7710 audit completion.',
+    '## Constraints and preferences\n- Never drop table `billing_ledger`.',
+    '## Progress\n- Done: clean partial progress record.',
+    '## Decisions\n- Selected Option B cleanly.',
+  ].join('\n\n')
+  const preferClean = await runNote([
+    { text: fiveSectionCut, kind: 'max-tokens' },
+    { text: fourSectionClean, kind: 'stop' },
+  ])
+  assert.equal(preferClean.bot.sessionId, 's2')
+  assert.match(preferClean.packageText, /Clean partial goal for AUD-7710/)
+
+  // 3) askSteward picks lowest reasoning effort ('minimal' when 'off' is absent) and caps maxTokens to route limit;
+  //    condense logs wrapped error.cause so root cause is never hidden.
+  const home = mkdtempSync(join(tmpdir(), 'dsb-steward-cause-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const stewardReqs = []
+  const warnLogs = []
+  const compaction = {
+    async compactIfNeeded() { return null },
+    async compactNow() {
+      const err = new Error('manual compaction could not produce a smaller summary', { cause: new Error('the checkpoint was cut off at the output limit') })
+      throw err
+    },
+    async compactRegion() { return { ok: true } },
+    async summarize() { return { summary: [] } },
+  }
+  const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 30_000 }) } } })
+  ctx.logger = { warn: (fmt, ...a) => warnLogs.push([fmt, ...a].join(' ')), info: () => {} }
+  Object.assign(ctx, {
+    llm: {
+      listProviders: () => [{ id: 'custom', name: 'Custom' }],
+      listModels: async () => [{ id: 'small' }],
+      resolveModelInfo: async () => ({
+        context: { contextWindow: 40_000 },
+        defaultMaxTokens: 2_048,
+        reasoning: { efforts: [{ id: 'minimal' }, { id: 'high' }] },
+      }),
+      stream(options) {
+        stewardReqs.push(options)
+        return makeStream({ text: JSON.stringify({ action: 'compact', reason: 'still working' }) })()
+      },
+    },
+    sessions: { messageProjections: [] },
+    sessionController: {
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+      page: async () => ({ records: [], hasMore: false }),
+    },
+    workspaceRegistry: { archiveSession: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home, checkRatio: 0.5 })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const origWarn = rt.warn
+  rt.warn = (fmt, ...a) => { warnLogs.push([fmt, ...a].join(' ')); origWarn?.(fmt, ...a) }
+
+  const agent = {
+    id: 'b2', status: 'idle', inbox: { nextStep: [], nextTurn: [] },
+    whenIdle: async () => {}, runMaintenance: async job => job(new AbortController().signal),
+    session: {
+      id: 'b2', seq: 1, header: { cwd: home },
+      requestHeader: () => ({ config: { provider: 'custom', model: 'small' } }),
+      deriveMessages: () => [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      toolHistory: () => [],
+    },
+  }
+  const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+  adopt({ agent })
+  ctx.emit('agent/status', { agent, status: 'idle' })
+  for (let i = 0; i < 100 && !warnLogs.some(l => l.includes('cause: the checkpoint was cut off')); i += 1) {
+    await new Promise(r => setTimeout(r, 15))
+  }
+  assert.ok(stewardReqs.length >= 1, 'askSteward must have run')
+  assert.equal(stewardReqs[0].reasoningEffort, 'minimal', 'askSteward must pick lowest declared reasoning effort when off is unavailable')
+  assert.equal(stewardReqs[0].maxTokens, 2_048, 'askSteward must cap maxTokens to route/model limit')
+  assert.ok(warnLogs.some(l => l.includes('cause: the checkpoint was cut off at the output limit')), `condense warning must include error.cause: ${warnLogs.join(' | ')}`)
+})
+
+test('max-tokens and overflow retries shrink input to leave output headroom under pi-ai context clamping', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-headroom-fit-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+
+  const hugeSystem = 'System rules and tool docs. '.repeat(1_600) // ~12.8k pi-tokens
+  const hugeToolOut = 'Bulk audit file line. '.repeat(2_000) // ~12.5k pi-tokens each
+  const llmCalls = []
+  const checkpoints = []
+  const compaction = {
+    async compactIfNeeded() { return null },
+    async compactNow(agent, signal) {
+      checkpoints.push(await this.summarize({
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: hugeSystem }] },
+          { role: 'user', content: [{ type: 'text', text: '[Handoff · part 1] Keep ticket AUD-7710 and rule never drop billing_ledger.' }] },
+          { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'batch1.md' } }] },
+          { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: hugeToolOut }] },
+          { role: 'assistant', content: [{ type: 'text', text: 'Middle analysis. '.repeat(2_500) }] },
+          { role: 'user', content: [{ type: 'text', text: 'Latest user turn: verify CUTOVER_DATE 2026-12-15.' }] },
+        ],
+        tools: [{ name: 'read_file' }, { name: 'bash' }],
+      }, agent, signal))
+      return { ok: true }
+    },
+    async compactRegion() { return { ok: true } },
+    async summarize() { return { summary: [] } },
+  }
+  const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 38_000 }) } } })
+  const estPiTokens = msgs => msgs.reduce((sum, m) => sum + Math.ceil((m.content ?? []).map(b => b.text ?? '').join('').length / 3.5) + 8, 0)
+  Object.assign(ctx, {
+    llm: {
+      listProviders: () => [{ id: 'custom', name: 'Custom' }],
+      listModels: async () => [{ id: 'flash' }],
+      resolveModelInfo: async () => ({ context: { contextWindow: 40_000 }, defaultMaxTokens: 8_192 }),
+      stream(options) {
+        llmCalls.push(options)
+        // Simulate pi-ai clampMaxTokensToContext(40000, context, 8192) -> returns max-tokens with 0 chars when input leaves < 4096 room!
+        const est = estPiTokens(options.messages) + (options.tools ? 8_000 : 0)
+        const avail = 40_000 - est - 4_096
+        if (avail < 2_048) return makeStream({ text: '', kind: 'max-tokens' })()
+        return makeStream({ text: '- Ticket AUD-7710; never drop billing_ledger; CUTOVER_DATE 2026-12-15.' })()
+      },
+    },
+    sessions: { messageProjections: [] },
+    sessionController: {
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+      page: async () => ({ records: [], hasMore: false }),
+    },
+    workspaceRegistry: { archiveSession: async () => {} },
+  })
+  createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  const agent = {
+    id: 'b2', status: 'idle',
+    session: {
+      id: 'b2', seq: 1,
+      requestHeader: () => ({ config: { provider: 'custom', model: 'flash' } }),
+      deriveMessages: () => [],
+      toolHistory: () => [],
+    },
+  }
+  const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+  adopt({ agent })
+  const originalNow = compaction[Symbol.for('ds-bot/compaction')].compactNow
+  await originalNow.call(compaction, agent, new AbortController().signal)
+
+  assert.equal(llmCalls.length, 2, 'must recover in 2nd attempt after pi-ai clamped 1st attempt to max-tokens')
+  assert.equal(llmCalls[1].tools, undefined, 'retry after max-tokens must drop tools to free context window')
+  for (const msg of llmCalls[1].messages) {
+    if (msg.role === 'assistant') {
+      assert.equal(msg.source?.kind, 'model', 'synthetic/rewritten assistant message must carry DSH model source')
+      assert.equal(typeof msg.source?.provider, 'string')
+      assert.equal(typeof msg.source?.model, 'string')
+      assert.equal(msg.source?.replayState, undefined, 'rewritten assistant message must omit stale replayState')
+    }
+  }
+  const retryEst = estPiTokens(llmCalls[1].messages)
+  assert.ok(40_000 - retryEst - 4_096 >= 8_192, `retry input (${retryEst} pi-tokens) must leave >= 8192 output tokens under pi-ai safety clamp`)
+  const retryJoined = llmCalls[1].messages.map(m => (m.content ?? []).map(b => b.text ?? '').join('')).join('\n')
+  assert.match(retryJoined, /AUD-7710/, 'trimmed retry must keep earlier handoff/head context')
+  assert.match(retryJoined, /2026-12-15/, 'trimmed retry must keep newest user context')
+  assert.match(checkpoints[0].summary[0].text, /AUD-7710/)
+
+  // Also test noteThrough recovering from CONTEXT_WINDOW_EXCEEDED via compacted history on attempt 2.
+  const noteCalls = []
+  const noteCtx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000_000 }) } } })
+  noteCtx.logger = { warn: () => {}, info: () => {} }
+  noteCtx.sessions = { flush: async () => {} }
+  noteCtx.workspaceRegistry = { archiveSession: async () => {} }
+  noteCtx.llm = {
+    resolveModelInfo: async () => ({ context: { contextWindow: 20_000 }, defaultMaxTokens: 4_096 }),
+    stream(options) {
+      noteCalls.push(options)
+      const est = estPiTokens(options.messages) + (options.tools ? 8_000 : 0)
+      if (est > 12_000) return makeStream({ error: Object.assign(new Error('prompt too long'), { code: 'CONTEXT_WINDOW_EXCEEDED' }) })()
+      const sections = ['Goals', 'Constraints and preferences', 'Progress', 'Decisions', 'Facts to keep', 'Open threads', 'Next step', 'Where to look']
+      return makeStream({ text: sections.map(s => `## ${s}\n- Preserved AUD-7710`).join('\n\n') })()
+    },
+  }
+  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'custom/small', segments: [] }
+  const bigSessionMsgs = [
+    { role: 'system', content: [{ type: 'text', text: hugeSystem }] },
+    { role: 'user', content: [{ type: 'text', text: 'Task AUD-7710' }] },
+    { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'a.md' } }] },
+    { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: hugeToolOut }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Finished audit for AUD-7710.' }] },
+  ]
+  const s1 = { id: 's1', header: { cwd: '/tmp/t' }, requestHeader: () => ({ config: { provider: 'custom', model: 'small' }, tools: [{ name: 'read_file' }] }), deriveMessages: () => bigSessionMsgs, toolHistory: () => [] }
+  const followed = []
+  const a1 = { id: 's1', session: s1, status: 'idle', whenIdle: async () => {}, runMaintenance: async fn => fn(new AbortController().signal), inbox: { nextStep: [], nextTurn: [] }, followup: m => followed.push(m), send: async () => {} }
+  const a2 = { id: 's2', session: { id: 's2', header: { cwd: '/tmp/t' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] }, status: 'idle', whenIdle: async () => {}, runMaintenance: async fn => fn(new AbortController().signal), inbox: { nextStep: [], nextTurn: [] }, followup: m => followed.push(m), send: async () => {} }
+  const nrt = {
+    ctx: noteCtx, home: '/unused', config: {},
+    state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+    warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+    botOf: id => nrt.state.bots[id], roomOf: () => undefined, selfOf: () => 'b1', isMain: () => false,
+    chatOf: () => 's1', sessionOfRoom: () => undefined, isBotSession: id => ['s1', 's2'].includes(id),
+    isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+    chatOwners: new Map([['s1', 'b1']]), groupOwners: new Map(), pastOwners: new Map(), roomOwners: new Map(),
+    teamTools: [], live: new Map(), groupSessionsOf: () => [], unreadOf: () => [], clock: () => 'now',
+    partsOf: () => [], partLines: async function* () {}, eventsBackwards: async function* () {},
+    historyEntry: () => undefined, displayItems: async () => [], earlierPage: async () => ({}), chatPage: async () => ({}),
+    followFolder: async () => {}, heldBack: () => [],
+    resolveAgent: async id => (id === 's2' ? a2 : a1), createSession: async () => 's2',
+    desiredModel: async subject => subject.model, desiredEffort: async () => undefined,
+    selectSessionModel: async () => {}, applyModel: async () => {}, applyPermission: async () => {},
+    ensureCapabilities: async () => {}, renewMemory: () => {}, moveSchedules: async () => {},
+    sessionTitle: { rename: async () => {} }, deliver: async () => {}, teamFolder: () => '/tmp/t',
+    workDirOf: () => '/tmp/t', isFolder: async () => true, uiLanguage: () => 'en', roomProgress: new Map(),
+    defaultModel: async () => undefined,
+  }
+  installParts(nrt)
+  noteCtx.emit('agent/status', { agent: a1, status: 'idle' })
+  for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) await new Promise(r => setTimeout(r, 10))
+  assert.equal(bot.sessionId, 's2')
+  assert.equal(noteCalls.length, 2, 'noteThrough must retry with compacted history after input overflow')
+  assert.equal(noteCalls[1].tools, undefined)
+  assert.ok(estPiTokens(noteCalls[1].messages) <= 12_000, 'tiny-window retry must shrink system prompt + history to fit output budget')
+  assert.match(followed.map(m => m.content?.[0]?.text ?? '').join('\n'), /Preserved AUD-7710/)
 })
