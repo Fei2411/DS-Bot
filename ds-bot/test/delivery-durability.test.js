@@ -631,6 +631,8 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
   const fgCallsBeforeCancel = host3.agents.get('dm-c').calls.length
   await host3.tool('cancel_work', { target: 'Reviewer', reason: 'no longer needed' }, 'dm-a')
   await settle(() => (host3.agents.get(bgTask.sessionId)?.calls.some(([k, m]) => k === 'inject' && m.source?.role === 'cancelled')), 2000, 'cancel_work must target background task session')
+  assert.equal(host3.agents.get('dm-c').calls.length, fgCallsBeforeCancel, 'cancel_work on background task must NOT pollute foreground chat')
+
   // 4) parts.js:handOnHeld restores pendingSilent via putBackSilentNotes if forward fails, then succeeds on retry!
   let failForward = true
   const host4 = await startHost(t, {
