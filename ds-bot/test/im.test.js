@@ -4671,4 +4671,19 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'tainted group report must never leak mixed local replies to IM')
+
+  // 5) Even when no round is running (>15s late local Web work on Writer), a new IM post_to_group into
+  //    that busy room is created tainted so the Web member's approvals/replies never leak to IM.
+  s.emitEvent('gb', 'turn/start', { turn: 1 })
+  await dm(s, 'u1', '再让 Ops 群看下状态')
+  const req2 = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 3 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: '再让 Ops 群看下状态' }] })
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 看下状态' }, 'a')
+  const lateReportId = s.agentOf('r1').lastFollowup.source.reportId
+  assert.equal(s.rt.state.roomReports[lateReportId].imOrigin, undefined)
+  assert.equal(s.rt.state.roomReports[lateReportId].imOriginMixed, true)
+  assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined)
+  s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  s.emitEvent('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 })

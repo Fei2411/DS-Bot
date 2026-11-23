@@ -3333,6 +3333,8 @@ test('group background task delegating to its own group via post_to_group settle
   }]
   rt.chatOwners.set('bt-self-1', 'b')
   rt.taskOwners.set('bt-self-1', { botId: 'b', taskId: 'task-self-1', roomId: 'r1' })
+  // Also simulate the realistic parent roomBatch held open while Writer's background task runs.
+  rt.state.roomBatches['b-parent'] = { key: 'b-parent', roomId: 'r1', by: 'a', pending: ['b'], done: [], doneIds: [], results: [], worked: true, answered: false, at: Date.now() }
 
   await host.tool('post_to_group', { group: 'Ops', message: '@Tester 帮我复核一下' }, 'bt-self-1')
   const post = host.takePost()

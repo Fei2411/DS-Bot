@@ -1235,10 +1235,15 @@ export function install(rt) {
     return sid !== undefined && (rt.state.questions?.[sid] !== undefined || rt.state.views?.[sid] !== undefined)
   }
   // A batch whose only remaining pending members are blocked on user answer cards
-  // (`ask_user` / interactive `show_view`) is waiting on the user, not actively working;
-  // let the report deliver the waiting-for-answer status while keeping the batch intact.
-  const batchActivelyBusy = (room, batch) => (batch.pending.length === 0 && !batch.answered)
-    || batch.pending.some(id => !waitingForUser(room, id))
+  // (`ask_user` / interactive `show_view`), or held open solely by the waiting background
+  // task that sent this report (`ignoreTaskId`), is not blocking this report.
+  const batchMemberBusy = (room, id, ignoreTaskId, ignoreBotId) => {
+    if (waitingForUser(room, id)) return false
+    if (ignoreTaskId !== undefined && id === ignoreBotId && !memberBusyForReport(room, id, ignoreTaskId)) return false
+    return true
+  }
+  const batchActivelyBusy = (room, batch, ignoreTaskId, ignoreBotId) => (batch.pending.length === 0 && !batch.answered)
+    || batch.pending.some(id => batchMemberBusy(room, id, ignoreTaskId, ignoreBotId))
   const isReportBusy = (room, report, { startup = false } = {}) => {
     if (report.status !== 'tracking') {
       if (!startup) return true
@@ -1255,11 +1260,11 @@ export function install(rt) {
       if (report.ids.some(id => room.members.includes(id) && memberBusyForReport(room, id, report.fromTaskId))) return true
       if (Object.values(batches()).some(batch => batch.roomId === room.id
         && (report.ids.includes(batch.by) || batch.pending.some(id => report.ids.includes(id)))
-        && batchActivelyBusy(room, batch))) return true
+        && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
       return false
     }
     if (room.members.some(id => memberBusyForReport(room, id, report.fromTaskId))) return true
-    if (Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch))) return true
+    if (Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
     if (room.goal?.status === 'active' && room.goal.idle !== true) return true
     return false
   }
@@ -2489,7 +2494,10 @@ export function install(rt) {
     const existingMixed = openingBotPost && imOrigin !== undefined && Object.values(reports())
       .some(other => other.roomId === room.id && other.id !== postExtra.reportId
         && (other.imOriginMixed === true || !sameImOrigin(other.imOrigin, imOrigin)))
-    const runningUnrelated = openingBotPost && imOrigin !== undefined && running !== undefined
+    const roomWorking = running !== undefined || finalizing.has(room.id)
+      || room.members.some(id => memberBusyForReport(room, id))
+      || Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch))
+    const runningUnrelated = openingBotPost && imOrigin !== undefined && roomWorking
       && !sameImOrigin(rt.captureImOrigin?.(rt.sessionOfRoom(room)), imOrigin)
       && !sameImOrigin(roomReportImOrigin(room.id), imOrigin)
     if (openingBotPost) taintRoomReportOrigins(room.id, imOrigin, { excludeReportId: postExtra.reportId })
