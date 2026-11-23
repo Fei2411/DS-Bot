@@ -326,7 +326,8 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
   await originalNow.call(compaction, agent, new AbortController().signal)
 
   assert.equal(llmCalls.length, 2, 'must retry once without tools when first attempt returns tool-calls')
-  assert.equal(llmCalls[0].reasoningEffort, 'off', 'checkpoint summary must lower reasoningEffort instead of inheriting high')
+  assert.equal(llmCalls[0].reasoningEffort, 'high', 'checkpoint attempt 1 must preserve route reasoningEffort for KV prefix cache reuse')
+  assert.equal(llmCalls[1].reasoningEffort, 'off', 'withoutTools retry lowers reasoningEffort since tools were stripped')
   assert.ok(Array.isArray(llmCalls[0].tools) && llmCalls[0].tools.length === 1)
   assert.equal(llmCalls[1].tools, undefined, 'retry must omit tools')
   assert.equal(frozenInputMessages[1].content[0].text, 'Current time: 10:00', 'stripToolBlocks must not mutate frozen DSH input messages')
@@ -858,7 +859,7 @@ test('real DSH BasicCompactionEngine: idle compactNow commits checkpoint carryin
 
   const ckptCall = calls.find(c => c.kind === 'checkpoint')
   assert.ok(ckptCall, 'real idle checkpoint must run')
-  assert.equal(ckptCall.reasoningEffort, 'off', 'real checkpoint must lower reasoning effort from high to off')
+  assert.equal(ckptCall.reasoningEffort, 'high', 'real checkpoint attempt 1 must preserve route reasoningEffort for KV prefix cache reuse')
 
   // Verify the actual committed surface derived by real DSH!
   const derived = agent.session.deriveMessages()
