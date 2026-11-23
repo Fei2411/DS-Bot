@@ -241,14 +241,16 @@ export class AcpEngine {
     }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
-    if (session.promptTurn?.cancelled) return
-    // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
-    if (method === '_cognition.ai/compaction') {
-      session.push({ type: 'compaction', status: compactionStatus(params?.status) })
+    const update = params?.update ?? {}
+    // Some agents finish the prompt before they report native compaction.
+    if (method === '_cognition.ai/compaction' || (method === 'session/update' && update.sessionUpdate === 'compaction_update')) {
+      if (session.promptTurn?.cancelled && !session.finishCancelledCompact) return
+      const status = compactionStatus(method === 'session/update' ? update.status : params.status)
+      session.push({ type: 'compaction', status })
+      if (status !== 'started') session.finishCancelledCompact?.(true)
       return
     }
-    if (method !== 'session/update') return
-    const update = params?.update ?? {}
+    if (method !== 'session/update' || session.promptTurn?.cancelled) return
     switch (update.sessionUpdate) {
       case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
       case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
@@ -293,7 +295,6 @@ export class AcpEngine {
         }
         break
       }
-      case 'compaction_update': session.push({ type: 'compaction', status: compactionStatus(update.status) }); break
       default: break
     }
   }
@@ -593,14 +594,35 @@ export class AcpEngine {
 
   // The agent's own compaction, through the command it lists for it. False when it
   // lists none: it then condenses only on its own.
-  compact(session) {
+  compact(session, effort, signal) {
     const worker = this.workerOf(session)
-    if (worker !== undefined && worker !== this) return worker.compact(session)
+    if (worker !== undefined && worker !== this) return worker.compact(session, effort, signal)
     // A loaded session may list nothing again: what this CLI listed last stands in.
     const listed = this.commands.get(session.acpSessionId) ?? [...this.commands.values()].at(-1) ?? []
     if (!listed.includes('compact')) return false
-    this.prompt(session, [{ type: 'text', text: '/compact' }], {}).catch(() => {})
-    return true
+    return this.prompt(session, [{ type: 'text', text: '/compact' }], { effort, signal })
+  }
+
+  // A cancel notification has no reply. The original prompt settling is our
+  // confirmation; an unresponsive session must be detached before input resumes.
+  async cancelCompact(session, request) {
+    const worker = this.workerOf(session)
+    if (worker !== undefined && worker !== this) return worker.cancelCompact(session, request)
+    const running = session.running
+    const nativeEnd = Promise.withResolvers()
+    session.finishCancelledCompact = nativeEnd.resolve
+    this.cancel(session)
+    let timer
+    try {
+      return await Promise.race([
+        request.then(() => running || nativeEnd.promise, () => true),
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), this.cancelAckTimeoutMs) }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      delete session.finishCancelledCompact
+      if (session.promptTurn?.cancelled) session.promptTurn.controller.abort()
+    }
   }
 
   // A one-off session leaves the agent's list when it is done.

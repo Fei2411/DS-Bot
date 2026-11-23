@@ -913,18 +913,33 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // The CLI's own compaction of a Session's CLI session: 'done', or 'unsupported'
   // when the CLI offers no way to ask for one (it then condenses only on its own).
-  async compact(sessionId, signal) {
+  async compact(sessionId, signal, effort) {
     return this.maintain(sessionId, signal, async (live) => {
       live.state = 'running'
       // Devin says "Context compacted" after the compaction ends, when no prompt runs.
       live.mute = true
-      const sent = live.engine.compact?.(live.engineSession) === true
-      if (!sent) {
+      const request = live.engine.compact?.(live.engineSession, effort ?? live.effort, signal)
+      if (!request) {
         live.state = 'idle'
         return 'unsupported'
       }
-      this.meter(live, await this.collect(live, () => this.take(live), signal, { compaction: true }))
-      return 'done'
+      try {
+        const [result] = await Promise.all([this.collect(live, () => this.take(live), signal, { compaction: true }), request])
+        this.meter(live, result)
+        return 'done'
+      } finally {
+        if (signal?.aborted && live.spec.kind === 'acp') {
+          const confirmed = await live.engine.cancelCompact(live.engineSession, request)
+          live.state = 'idle'
+          if (!confirmed) {
+            // A shared ACP process can outlive this Bot. Open a new ACP session
+            // and replay this part, so old notifications cannot reach new input.
+            this.deps.saveRecord(sessionId, { route: live.route, model: live.model, cwd: live.cwd, effort: live.effort })
+            await this.closeLive(live, { idle: true })
+            this.deps.rt?.warn?.('local-agents: retired an unconfirmed ACP compaction for %s', sessionId)
+          }
+        }
+      }
     })
   }
 

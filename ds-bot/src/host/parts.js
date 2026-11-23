@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { isAcpRoute } from './local-agents/engines.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
@@ -304,6 +305,10 @@ export function install(rt) {
   const adoptedEngines = new Set()
   // Sessions DS Bot itself is condensing right now.
   const condensing = new Set()
+  // An idle local-agent compaction can be interrupted by a newly queued user
+  // message. The ACP prompt must observe this signal before the next turn claims
+  // the inbox, otherwise maintenance holds the session queue indefinitely.
+  const localCompactionCancels = new Map()
   // The range of a Bot Session DSH is condensing for a model switch, where the route the
   // Session used last is the one being switched away from.
   const switchRanges = new Map()
@@ -380,6 +385,10 @@ export function install(rt) {
     adoptedEngines.clear()
   }, 'ds-bot: Bot compaction')
   ctx.on('agent/created', ({ agent }) => { adoptCompaction(agent) })
+  ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+    const cancel = localCompactionCancels.get(agent.id)
+    if (cancel && agent.inbox.nextTurn.some(input => input.id === message.id)) cancel.abort()
+  })
 
   // A Bot's own chat, or its Session in one group, or the group's own Session
   // (`botId === undefined`), as numbered parts, oldest first; the last one is
@@ -1151,17 +1160,26 @@ export function install(rt) {
     const before = sizeOf(agent.session)
     let result
     let requested
+    const config = agent.session.requestHeader?.()?.config
+    const cancel = isAcpRoute(config?.provider) ? new AbortController() : undefined
+    if (cancel) {
+      if (agent.inbox.nextTurn.length) return undefined
+      localCompactionCancels.set(agent.id, cancel)
+    }
     try {
       // Under the agent's maintenance, so no turn starts on the CLI session meanwhile.
       result = await agent.runMaintenance(held => {
-        requested = AbortSignal.any([held, signal ?? AbortSignal.timeout(NOTE_TIMEOUT_MS)])
-        return rt.localAgentCompact(agent.id, requested)
+        const signals = [held, signal ?? AbortSignal.timeout(NOTE_TIMEOUT_MS)]
+        if (cancel) signals.push(cancel.signal)
+        requested = AbortSignal.any(signals)
+        return rt.localAgentCompact(agent.id, requested, config?.reasoningEffort)
       })
     } catch (error) {
       if (requested === undefined || requested.aborted || ['LOCAL_AGENT_BUSY', 'busy', 'cancelled'].includes(error?.code)) return undefined
       rt.warn('ds-bot: the local agent of %s did not condense: %s', agent.id, error)
       return false
     } finally {
+      if (localCompactionCancels.get(agent.id) === cancel) localCompactionCancels.delete(agent.id)
       cliCompactions.set(agent.id, rt.localAgentContext?.(agent.id)?.compactions ?? 0)
     }
     if (result === 'unsupported') {

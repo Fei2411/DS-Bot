@@ -338,7 +338,7 @@ process.stdin.on('data', (chunk) => {
         if (server?.command !== undefined && (server.type !== undefined || !Array.isArray(server.env))) {
           fail(id, 'Invalid params: McpServerStdio malformed'); break
         }
-        const defaultThought = String(params.cwd ?? '').includes('low-ws') ? 'low' : 'medium'
+        const defaultThought = process.argv.includes('--high-default') ? 'high' : String(params.cwd ?? '').includes('low-ws') ? 'low' : 'medium'
         const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: defaultThought, ...(legacyModels ? { model: 'legacy-std' } : {}) }
         if (server !== undefined) {
           session.mcp = server.command !== undefined
