@@ -180,16 +180,25 @@ for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq:
   })
 }
 
-test('state and live feed keep question and view routing metadata private', async (t) => {
+test('state and live feed keep question, view, roomReport and imReplyOrigin routing metadata private', async (t) => {
   const imOrigin = { connId: 'private-connection', chatKey: 'private-chat', binding: 'room:r1' }
   const question = { id: 'q1', question: 'Which?', options: [{ label: 'A' }] }
   const view = { id: 'v1', title: 'Proceed?', view: { type: 'confirm', id: 'go' } }
-  const { call, stop, routes } = start({ team: { ...TEAM, questions: { m1c: { ...question, imOrigin } }, views: { b2: { ...view, imOrigin } } } })
+  const { call, stop, routes } = start({
+    team: {
+      ...TEAM,
+      questions: { m1c: { ...question, imOrigin } },
+      views: { b2: { ...view, imOrigin } },
+      roomReports: { rep1: { id: 'rep1', roomId: 'r1', botId: 'm1', name: 'Main', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: 1, imOrigin } },
+      imReplyOrigins: { ex1: { ...imOrigin, at: Date.now() } },
+    },
+  })
   t.after(stop)
   const state = await call('state')
   assert.deepEqual(state.value.questions.m1c, question)
   assert.deepEqual(state.value.views.b2, view)
   assert.ok(!JSON.stringify(state).includes('imOrigin'))
+  assert.ok(!JSON.stringify(state).includes('private-connection'))
   const abort = new AbortController()
   t.after(() => abort.abort())
   const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal }))
@@ -197,6 +206,7 @@ test('state and live feed keep question and view routing metadata private', asyn
   const hello = await next()
   assert.equal(hello.event, 'hello')
   assert.ok(!JSON.stringify(hello).includes('imOrigin'))
+  assert.ok(!JSON.stringify(hello).includes('private-connection'))
   const changed = await call('set-prefs', { motion: 'lively' })
   assert.ok(!JSON.stringify(changed).includes('imOrigin'))
   const revision = await next()

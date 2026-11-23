@@ -35,6 +35,13 @@ const photoFetching = new Set<string>()
 
 export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
 export type FeedHandler = (event: string, data: any) => void
+export interface TeamLinkHooks {
+  keepAliveInBackground?: () => boolean
+  onConnected?: (hello: Hello, call: (endpoint: string, payload?: unknown) => Promise<unknown>) => void
+  onDisconnected?: () => void
+  loadCursor?: () => Promise<{ boot: string; seq: number } | null>
+  onCursor?: (boot: string, seq: number) => void
+}
 
 export function rejected(error: unknown): boolean {
   const code = (error as { code?: unknown })?.code
@@ -46,7 +53,9 @@ export function reconnectDelayMs(hadLink: boolean, failStreak: number): number {
 }
 
 // Keeps the link up and the team state fresh. `call` runs one /api/bot endpoint.
-export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
+export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, hooks?: TeamLinkHooks) {
+  const hooksRef = useRef(hooks)
+  hooksRef.current = hooks
   const [team, setTeam] = useState<TeamState | null>(null)
   const [online, setOnline] = useState(false)
   // The encrypted link is up (calls can go), before the handshake says the computer is current.
@@ -187,7 +196,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         reading = false
         if (!stopped && clientRef.current === client) {
           if (again) { again = false; void poll() }
-          else later(() => void poll(), POLL_MS)
+          else if (AppState.currentState !== 'background') later(() => void poll(), POLL_MS)
         } else {
           again = false
         }
@@ -207,7 +216,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         // this app. The team read goes out with it, not after it: each is a round
         // trip through the relay.
         void poll()
-        const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
+        const [helloResult, persisted] = await Promise.all([
+          callBot<Hello>(client, 'hello', {}).catch(() => null),
+          hooksRef.current?.loadCursor?.().catch(() => null) ?? Promise.resolve(null),
+        ])
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
           if (activeClient === client) activeClient = undefined
@@ -224,30 +236,70 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setHello(helloResult)
         setOnline(true)
         setError(null)
+        hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client, endpoint, payload))
+        // Seed memory cursor from persisted cursor so notices already delivered via offline
+        // push or periodic sync are not replayed as duplicates.
+        if (persisted !== null && persisted !== undefined) {
+          noticeCursor.connect(persisted)
+        }
         const { sameBoot, since } = noticeCursor.connect(helloResult)
+        let catchingUp = true
+        const bufferedLiveNotices: unknown[] = []
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
-          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
+          if (event === 'notice') {
+            if (catchingUp) {
+              bufferedLiveNotices.push(data)
+              return
+            }
+            if (!noticeCursor.acceptLive(helloResult.boot, data)) return
+            if (AppState.currentState === 'active' && typeof data?.seq === 'number') {
+              hooksRef.current?.onCursor?.(helloResult.boot, data.seq)
+            }
+          }
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
+        const queryBoot = persisted !== null && persisted !== undefined ? persisted.boot : helloResult.boot
+        const querySince = persisted !== null && persisted !== undefined ? persisted.seq : since
+        void callBot(client, 'notices', { boot: queryBoot, since: querySince }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
-          if (reset) void poll()
-          else {
-            if (replay.length > 0) void poll()
-            for (const entry of replay) {
-              for (const handler of feedHandlers.current) handler('notice', entry)
-            }
+          const typed = answer as NoticeCursorAnswer
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
+          const nextBoot = typeof typed.boot === 'string' && typed.boot.length > 0 ? typed.boot : helloResult.boot
+          let maxSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
+          const toEmit = reset && persisted !== null && persisted !== undefined && Array.isArray(typed.notices)
+            ? typed.notices
+            : replay
+          if (reset || toEmit.length > 0) void poll()
+          for (const entry of toEmit) {
+            for (const handler of feedHandlers.current) handler('notice', entry)
           }
-        }).catch(() => {})
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift() as { seq?: unknown }
+            if (!noticeCursor.acceptLive(nextBoot, entry)) continue
+            if (typeof entry?.seq === 'number' && entry.seq > maxSeq) maxSeq = entry.seq
+            for (const handler of feedHandlers.current) handler('notice', entry)
+          }
+          catchingUp = false
+          if (AppState.currentState === 'active' || persisted === null || persisted === undefined) {
+            hooksRef.current?.onCursor?.(nextBoot, maxSeq)
+          }
+        }).catch(() => {
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift()
+            if (!noticeCursor.acceptLive(helloResult.boot, entry)) continue
+            for (const handler of feedHandlers.current) handler('notice', entry)
+          }
+          catchingUp = false
+        })
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return
           activeClient = undefined
           clientRef.current = undefined
           setOnline(false)
           setLinked(false)
+          hooksRef.current?.onDisconnected?.()
           clearTimeout(timer)
           scheduleReconnect()
         })
@@ -262,7 +314,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     }
     void connect()
     const foreground = AppState.addEventListener('change', status => {
-      if (status !== 'active') { clearTimeout(timer); return }
+      if (status !== 'active') {
+        if (hooksRef.current?.keepAliveInBackground?.() !== true) clearTimeout(timer)
+        return
+      }
       failStreak = 0
       const client = clientRef.current
       if (client === undefined) { clearTimeout(timer); void connect(); return }

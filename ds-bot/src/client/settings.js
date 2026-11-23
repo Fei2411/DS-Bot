@@ -20,6 +20,7 @@ import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { DeepSeekServicesPage } from './services-settings.js'
 import { BrowserPage } from './browser-settings.js'
+import { PluginsPage } from './plugins-page.js'
 import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
@@ -74,6 +75,7 @@ const NAV_GROUPS = [
     pages: [['computer', 'Computer use'], ['browser', 'Browser'], ['capabilities', 'Capabilities'], ['secrets', 'Secrets']],
     section: 'main',
   },
+  { id: 'plugins', label: 'Plugins', icon: 'plugins', pages: [['plugins', 'Plugins']], section: 'main' },
   { id: 'usage', label: 'Usage', icon: 'usage', pages: [['usage', 'Usage']], section: 'main' },
   {
     id: 'about',
@@ -88,7 +90,7 @@ const NAV_GROUPS = [
 const GROUP_ALIASES = { team: 'bots', connect: 'connectors', tools: 'computer', guide: 'overview' }
 
 // DSH sections DS Bot's own pages already hold.
-const MERGED_SECTIONS = new Set(['general', 'models'])
+const MERGED_SECTIONS = new Set(['general', 'models', 'plugins'])
 // DSH General rows placed in Appearance or Basics; the rest go under Advanced.
 const LOOK_ITEMS = ['appearance', 'font-size']
 const BASIC_ITEMS = ['language', 'composer-enter']
@@ -97,7 +99,7 @@ export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== ''
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -568,11 +570,14 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   })).filter(group => group.pages.length > 0), [hasProviders, hasServices])
 
   const extra = dshPages(dsh)
-  const resolvedPage = GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page)
+  const legacyEnginePlugins = page === 'dsh' && id === 'plugins' && hasSection(dsh, 'plugins')
+  const resolvedPage = legacyEnginePlugins ? 'plugins' : (GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page))
   // A DSH page is `dsh` with its section id; one no longer registered falls back to Overview.
   const section = resolvedPage === 'dsh' ? extra.find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
   const advanced = resolvedPage === 'models' && id === 'advanced' && hasSection(dsh, 'models')
+  // DSH's Plugins page (e.g. Web Search API, Automation tasks & engine plugin switches), one level into Plugins.
+  const enginePlugins = (legacyEnginePlugins || (resolvedPage === 'plugins' && id === 'dsh')) && hasSection(dsh, 'plugins')
   const validPage = groups.some(group => group.pages.some(([key]) => key === resolvedPage))
   const shown = section ? 'dsh' : validPage ? resolvedPage : 'overview'
   // A Bot or group deleted while its form is open leaves its page on the list.
@@ -580,11 +585,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const room = shown === 'groups' && id ? roster.roomsById[id] : undefined
   const activeGroup = section ? null : groups.find(group => group.pages.some(([key]) => key === shown)) ?? groups[0]
   const usageFocus = shown === 'usage' && id ? id : null
-  const depth = bot || room || advanced ? 1 : 0
+  const depth = bot || room || advanced || enginePlugins ? 1 : 0
   const atHome = shown === 'overview'
-  const label = section ? section.label : advanced ? t('Advanced settings') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
+  const label = section ? section.label : advanced ? t('Advanced settings') : enginePlugins ? t('Engine plugins') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
   // Phone width: the rail hides and Overview lists the pages, so each page leads back there.
-  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : narrowNav && !atHome ? t('Settings') : null
+  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : enginePlugins ? t('Back to Plugins') : narrowNav && !atHome ? t('Settings') : null
   const goBack = () => actions.openSettings(depth > 0 || usageFocus ? shown : 'overview')
   const navKey = section ? `dsh:${section.id}` : activeGroup.id
   const nav = useGlide(navKey, { axis: 'y' })
@@ -722,6 +727,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (groupId === 'models' && (needsModel || keyMissing)) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Needs your attention') })
     if (groupId === 'connect' && phoneConnected) return h('span', { className: 'bt-settings-dot', 'data-tone': 'ok', role: 'img', 'aria-label': t('Phone online') })
     if (groupId === 'team' && (roster.bots?.length ?? 0) > 0) return h('span', { className: 'bt-settings-count' }, roster.bots.length)
+    if (groupId === 'plugins' && roster.plugins?.pendingRestart) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Restart required') })
     if (groupId === 'about' && update.available) return h('span', { className: 'bt-settings-chip' }, t('Update'))
     return null
   }
@@ -763,7 +769,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       // A preset opens the page afresh each time search offers it.
       case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
-      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
+      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null })
       case 'bots': return h(BotsPage, { roster, actions, run, startCreating: shown === 'bots' && id === 'new' })
       case 'groups': return h(GroupsPage, { roster, actions, run })
       case 'schedules': return h(SchedulesPage, { key: request('schedules')?.key ?? 'schedules', roster, actions, start: request('schedules')?.id })
@@ -806,11 +812,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
         shown === 'appearance' ? h(AppearancePage, { roster, actions, run, dsh }) : null,
+        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
+        enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
         section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
         bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
         room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
-        !parts && !atHome && !bot && !room && !advanced && !section && !['general', 'appearance', 'usage'].includes(shown) ? partPage(shown) : null))
+        !parts && !atHome && !bot && !room && !advanced && !enginePlugins && !section && !['general', 'appearance', 'plugins', 'usage'].includes(shown) ? partPage(shown) : null))
   }
 
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
