@@ -1375,3 +1375,211 @@ test('max-tokens and overflow retries shrink input to leave output headroom unde
   assert.ok(estPiTokens(noteCalls[1].messages) <= 12_000, 'tiny-window retry must shrink system prompt + history to fit output budget')
   assert.match(followed.map(m => m.content?.[0]?.text ?? '').join('\n'), /Preserved AUD-7710/)
 })
+
+test('retries strip frozen reasoning blocks, cap huge defaultMaxTokens, avoid duplicate compact retries, and preserve bestTruncated on retry error', async (t) => {
+  const estPiTokensWithReasoning = msgs => msgs.reduce((sum, m) => sum + Math.ceil((m.content ?? []).reduce((chars, b) => chars + (b.type === 'text' || b.type === 'reasoning' ? String(b.text ?? '').length : 4_800), 0) / 3.5) + 8, 0)
+
+  // 1) Frozen [reasoning (40k chars), text] assistant messages (with replayState and with missing source)
+  //    plus defaultMaxTokens=128_000: retry strips reasoning, guarantees valid model source without replayState,
+  //    leaves full output room, and caps shorter-retry maxTokens <= 16_384 & <= window*0.25.
+  {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-reasoning-cap-'))
+    writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+    const llmCalls = []
+    const checkpoints = []
+    const hugeReasoning = 'Internal chain of thought step. '.repeat(1_300) // ~41.6k chars (~11.9k pi-tokens)
+    const frozenMsgs = deepFreeze([
+      { role: 'system', content: [{ type: 'text', text: 'System prompt. '.repeat(800) }] },
+      { role: 'user', content: [{ type: 'text', text: 'Track ticket RSN-5501' }] },
+      {
+        role: 'assistant',
+        source: { kind: 'model', provider: 'custom', model: 'reasoner', replayState: { response: { api: 'openai-completions' }, blocks: [{ type: 'reasoning' }, { type: 'text' }] } },
+        content: [{ type: 'reasoning', text: hugeReasoning }, { type: 'text', text: 'Analyzed RSN-5501 step 1.' }],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'Continue RSN-5501' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'reasoning', text: hugeReasoning }, { type: 'text', text: 'Completed RSN-5501 step 2.' }],
+      },
+    ])
+    const compaction = {
+      async compactIfNeeded() { return null },
+      async compactNow(agent, signal) {
+        checkpoints.push(await this.summarize({ messages: frozenMsgs, tools: [{ name: 'read_file' }] }, agent, signal))
+        return { ok: true }
+      },
+      async compactRegion() { return { ok: true } },
+      async summarize() { return { summary: [] } },
+    }
+    const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 35_000 }) } } })
+    Object.assign(ctx, {
+      llm: {
+        listProviders: () => [{ id: 'custom', name: 'Custom' }],
+        listModels: async () => [{ id: 'reasoner' }],
+        resolveModelInfo: async () => ({ context: { contextWindow: 40_000 }, defaultMaxTokens: 128_000 }),
+        stream(options) {
+          llmCalls.push(options)
+          if (llmCalls.length === 1) return makeStream({ text: '', kind: 'max-tokens' })()
+          return makeStream({ text: '- RSN-5501 steps 1 and 2 done.' })()
+        },
+      },
+      sessions: { messageProjections: [] },
+      sessionController: {
+        resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+        page: async () => ({ records: [], hasMore: false }),
+      },
+      workspaceRegistry: { archiveSession: async () => {} },
+    })
+    createRuntime(ctx, { home })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+    const agent = {
+      id: 'b2', status: 'idle',
+      session: {
+        id: 'b2', seq: 1,
+        requestHeader: () => ({ config: { provider: 'custom', model: 'reasoner' } }),
+        deriveMessages: () => [],
+        toolHistory: () => [],
+      },
+    }
+    const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+    adopt({ agent })
+    await compaction[Symbol.for('ds-bot/compaction')].compactNow.call(compaction, agent, new AbortController().signal)
+
+    assert.equal(llmCalls.length, 2)
+    assert.equal(llmCalls[1].maxTokens, 10_000, 'shorter retry must cap 128k defaultMaxTokens to min(16384, floor(window*0.25))')
+    for (const msg of llmCalls[1].messages) {
+      assert.equal((msg.content ?? []).some(b => b.type === 'reasoning'), false, 'retry must strip historical reasoning blocks')
+      const joined = (msg.content ?? []).map(b => b.text ?? '').join('')
+      assert.doesNotMatch(joined, /\[non-text attachment omitted\]/, 'reasoning blocks must not turn into attachment placeholders')
+      if (msg.role === 'assistant') {
+        assert.equal(msg.source?.kind, 'model')
+        assert.equal(msg.source?.replayState, undefined)
+      }
+    }
+    assert.ok(40_000 - estPiTokensWithReasoning(llmCalls[1].messages) - 4_096 >= 10_000, 'stripped retry must leave full output headroom under pi-ai math')
+    assert.match(checkpoints[0].summary[0].text, /RSN-5501/)
+  }
+
+  // 2) Attempt 1 returns substantial max-tokens summary (>=200 chars), Attempt 2 (compactInput)
+  //    throws isSizeError -> must NOT duplicate identical compactInput request, and MUST return Attempt 1's bestTruncated!
+  {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-best-trunc-err-'))
+    writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+    const llmCalls = []
+    const checkpoints = []
+    const substantial = [
+      '- Ticket ERR-9921: audited ledger write path and confirmed optimistic version CAS is required.',
+      '- Decisions: chose Option B (versioned CAS with 3 retries); rejected exclusive table lock.',
+      '- Remaining: verify batch4.md and batch5.md before sign-off.',
+    ].join('\n')
+    const compaction = {
+      async compactIfNeeded() { return null },
+      async compactNow(agent, signal) {
+        checkpoints.push(await this.summarize({
+          messages: [
+            { role: 'system', content: [{ type: 'text', text: 'sys' }] },
+            { role: 'user', content: [{ type: 'text', text: 'Work '.repeat(400) }] },
+          ],
+          tools: [{ name: 'read_file' }],
+        }, agent, signal))
+        return { ok: true }
+      },
+      async compactRegion() { return { ok: true } },
+      async summarize() { return { summary: [] } },
+    }
+    const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 50_000 }) } } })
+    Object.assign(ctx, {
+      llm: {
+        listProviders: () => [{ id: 'custom', name: 'Custom' }],
+        listModels: async () => [{ id: 'm1' }],
+        resolveModelInfo: async () => ({}),
+        stream(options) {
+          llmCalls.push(options)
+          if (llmCalls.length === 1) return makeStream({ text: substantial, kind: 'max-tokens' })()
+          return makeStream({ error: Object.assign(new Error('413 payload too large'), { status: 413 }) })()
+        },
+      },
+      sessions: { messageProjections: [] },
+      sessionController: {
+        resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+        page: async () => ({ records: [], hasMore: false }),
+      },
+      workspaceRegistry: { archiveSession: async () => {} },
+    })
+    createRuntime(ctx, { home })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+    const agent = {
+      id: 'b2', status: 'idle',
+      session: {
+        id: 'b2', seq: 1,
+        requestHeader: () => ({ config: { provider: 'custom', model: 'm1' } }),
+        deriveMessages: () => [],
+        toolHistory: () => [],
+      },
+    }
+    const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+    adopt({ agent })
+    await compaction[Symbol.for('ds-bot/compaction')].compactNow.call(compaction, agent, new AbortController().signal)
+
+    assert.equal(llmCalls.length, 2, 'must not send a duplicate identical compactInput retry after max-tokens retry already failed with isSizeError')
+    assert.match(checkpoints[0].summary[0].text, /ERR-9921/, 'must preserve substantial truncated summary from attempt 1 when retry throws')
+  }
+
+  // 3) Model-switch compaction switching to target route (index > 0) must not inherit old route's huge maxTokens.
+  {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-switch-maxtok-'))
+    const team = { ...TEAM, bots: { ...TEAM.bots, b2: { ...TEAM.bots.b2, model: 'small/mini' } } }
+    writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+    const llmCalls = []
+    const compaction = {
+      async compactIfNeeded() { return null },
+      async compactNow() { return null },
+      async compactRegion(_s, _e, agent, signal) {
+        await this.summarize({ messages: [{ role: 'user', content: [{ type: 'text', text: 'History '.repeat(200) }] }] }, agent, signal)
+      },
+      async summarize() { return { summary: [] } },
+    }
+    const ctx = fakeContext({ services: { compaction, tokenMeter: { ...meter, measure: () => ({ totalTokens: 50_000 }) } } })
+    Object.assign(ctx, {
+      llm: {
+        listProviders: () => [{ id: 'old', name: 'Old' }, { id: 'small', name: 'Small' }],
+        listModels: async () => [{ id: 'mini' }],
+        resolveModelInfo: async (provider) => (provider === 'small' ? { context: { contextWindow: 32_000 }, defaultMaxTokens: 4_096 } : { context: { contextWindow: 200_000 }, defaultMaxTokens: 64_000 }),
+        stream(options) {
+          llmCalls.push(options)
+          if (options.provider === 'old') return makeStream({ error: new Error('quota exhausted') })()
+          return makeStream({ text: '- Compacted on small/mini.' })()
+        },
+      },
+      sessions: { messageProjections: [] },
+      sessionController: {
+        resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+        page: async () => ({ records: [], hasMore: false }),
+      },
+      workspaceRegistry: { archiveSession: async () => {} },
+    })
+    const rt = createRuntime(ctx, { home })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+    rt.desiredModel = async () => 'small/mini'
+
+    const agent = {
+      id: 'b2',
+      session: {
+        id: 'b2', seq: 1,
+        requestHeader: () => ({ config: { provider: 'old', model: 'big', maxTokens: 64_000 } }),
+        deriveMessages: () => [],
+        toolHistory: () => [],
+      },
+    }
+    const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+    adopt({ agent })
+    await compaction.compactRegion(1, 2, agent, new AbortController().signal)
+
+    assert.equal(llmCalls.length, 2)
+    assert.equal(llmCalls[0].maxTokens, 64_000)
+    assert.equal(llmCalls[1].provider, 'small')
+    assert.equal(llmCalls[1].maxTokens, undefined, 'target route on model switch must not inherit old route maxTokens')
+  }
+})

@@ -649,13 +649,15 @@ export function install(rt) {
     const msgTokens = (message) => {
       const content = Array.isArray(message?.content) ? message.content : []
       let chars = 0
-      for (const block of content) chars += block?.type === 'text' ? String(block.text ?? '').length : 4_800
+      for (const block of content) {
+        chars += block?.type === 'text' || block?.type === 'reasoning' ? String(block.text ?? '').length : 4_800
+      }
       return Math.ceil(chars / PI_CHARS_PER_TOKEN) + 8
     }
     const systemMsgs = stripped.filter(message => message?.role === 'system')
     const bodyMsgs = stripped.filter(message => message?.role !== 'system')
     const promptTokens = Math.ceil(String(prompt ?? '').length / PI_CHARS_PER_TOKEN) + 16
-    const desiredOutput = Math.min(targetOutput ?? NOTE_MAX_TOKENS, Math.max(2_048, Math.floor(window * 0.25)))
+    const desiredOutput = Math.min(targetOutput ?? NOTE_MAX_TOKENS, Math.max(512, Math.floor(window * 0.25)))
     const systemTokens = systemMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
     const bodyTokens = bodyMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
     if (systemTokens + bodyTokens + promptTokens + desiredOutput + PI_SAFETY_TOKENS <= window) return stripped
@@ -666,10 +668,11 @@ export function install(rt) {
       keptSystem = [createSystemMessage(minimalSystem)]
       usedSystem = msgTokens(keptSystem[0])
     }
-    const bodyBudget = Math.max(1_000, window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS)
+    const bodyBudget = Math.max(256, window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS)
     const asText = (message, maxTokens) => {
       const role = message.role === 'assistant' ? 'assistant' : 'user'
       const raw = (Array.isArray(message.content) ? message.content : [])
+        .filter(block => block?.type !== 'reasoning')
         .map(block => (block?.type === 'text' ? String(block.text ?? '') : '[non-text attachment omitted]'))
         .join('\n').trim()
       if (raw === '') return undefined
@@ -748,8 +751,8 @@ export function install(rt) {
         continue
       }
       const raw = Array.isArray(message?.content) ? message.content : []
-      const hasToolBlock = raw.some(block => block?.type === 'tool-call' || block?.type === 'tool-result')
-      if (!hasToolBlock) {
+      const hasStrippableBlock = raw.some(block => block?.type === 'tool-call' || block?.type === 'tool-result' || block?.type === 'reasoning')
+      if (!hasStrippableBlock) {
         const text = textOf(raw)
         if (text !== '' || raw.some(block => block?.type === 'image')) {
           const prev = out.at(-1)
@@ -815,7 +818,7 @@ export function install(rt) {
         throw err
       }
       return { text: assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim(), finish: finish.kind, usage: assembler.usage }
-    })
+    }, { signal, canCompact: true })
   }
 
   // Requires at least half the canonical handoff sections AND non-trivial body text
@@ -835,7 +838,7 @@ export function install(rt) {
   // some headings — or even hit the output limit after writing a substantial set of
   // canonical sections — keep the best usable partial note (preferring a non-truncated
   // one) instead of discarding it back to an older part's stale note.
-  async function noteAttempts(session, route, base, request) {
+  async function noteAttempts(session, route, base, request, { signal, canCompact = true } = {}) {
     let retry
     let problem
     let withoutTools = false
@@ -854,7 +857,7 @@ export function install(rt) {
       try {
         ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, compactInput }))
       } catch (error) {
-        if (attempt < NOTE_ATTEMPTS && !compactInput && isSizeError(error)) {
+        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
           compactInput = true
           withoutTools = true
           problem = 'the conversation was too large for a full-prefix note'
@@ -908,7 +911,8 @@ export function install(rt) {
   async function writeLocalNote(agent, signal, { folder = false } = {}) {
     const route = agent.session.requestHeader()?.config ?? {}
     const written = await noteAttempts(agent.session, route, folder ? FOLDER_PROMPT : HANDOFF_PROMPT,
-      async prompt => ({ text: String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim(), finish: 'stop' }))
+      async prompt => ({ text: String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim(), finish: 'stop' }),
+      { signal, canCompact: false })
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
     throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
   }
@@ -1114,16 +1118,17 @@ export function install(rt) {
       const wanted = splitRef(ref)
       if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
     }
-    const callOnce = async (one, { withoutTools = false, compactInput = false, trimmed = false, shorter = false } = {}) => {
-      const { effort, limit, window } = await notePlan({ ...one, ...(maxTokens === undefined ? {} : { maxTokens }) })
-      const retryBudget = maxTokens === undefined ? limit : Math.min(Math.max(maxTokens, NOTE_RETRY_MAX_TOKENS), limit)
-      const callMaxTokens = shorter ? retryBudget : maxTokens
+    const callOnce = async (one, { routeMaxTokens, withoutTools = false, compactInput = false, trimmed = false, shorter = false } = {}) => {
+      const { effort, limit, window } = await notePlan({ ...one, ...(routeMaxTokens === undefined ? {} : { maxTokens: routeMaxTokens }) })
+      const windowCap = Number.isInteger(window) && window > 0 ? Math.max(512, Math.floor(window * 0.25)) : NOTE_RETRY_MAX_TOKENS
+      const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, limit, windowCap)
+      const callMaxTokens = shorter ? retryBudget : routeMaxTokens
       const dropTools = withoutTools || compactInput
       const retryPrompt = shorter ? `${prompt}\n\n${CHECKPOINT_RETRY_SHORTER}` : prompt
       const effectivePrompt = dropTools ? `${retryPrompt}\n\nOutput only the summary as plain text, without calling any tools.` : retryPrompt
       const stripped = dropTools && !trimmed ? stripToolBlocks([...head, ...tail], one) : [...head, ...tail]
       const baseHistory = compactInput && !trimmed
-        ? fitHistoryForOutput(stripped, { route: one, window, targetOutput: callMaxTokens ?? limit, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
+        ? fitHistoryForOutput(stripped, { route: one, window, targetOutput: callMaxTokens ?? retryBudget, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
         : stripped
       const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }]
       const callOptions = {
@@ -1152,23 +1157,26 @@ export function install(rt) {
     let last
     for (let index = 0; index < routes.length; index += 1) {
       const one = routes[index]
+      const routeMaxTokens = index === 0 ? maxTokens : undefined
+      let bestTruncated
+      let compacted = false
+      const rememberTruncated = (candidate) => {
+        if (candidate?.finish !== 'max-tokens' || candidate.summary.length < CHECKPOINT_PARTIAL_MIN) return
+        if (bestTruncated === undefined || candidate.summary.length > bestTruncated.summary.length) bestTruncated = candidate
+      }
       try {
         let withoutTools = false
-        let bestTruncated
-        const rememberTruncated = (candidate) => {
-          if (candidate?.finish !== 'max-tokens' || candidate.summary.length < CHECKPOINT_PARTIAL_MIN) return
-          if (bestTruncated === undefined || candidate.summary.length > bestTruncated.summary.length) bestTruncated = candidate
-        }
-        let res = await callOnce(one)
+        let res = await callOnce(one, { routeMaxTokens })
         if (res.finish !== 'max-tokens' && (res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
           withoutTools = true
-          res = await callOnce(one, { withoutTools })
+          res = await callOnce(one, { routeMaxTokens, withoutTools })
         }
         if (res.finish === 'max-tokens') {
           rememberTruncated(res)
           rt.warn('ds-bot: checkpoint summary for %s on %s/%s was cut off at output limit (output %s tokens, %d chars); retrying shorter without tools', session.id, one.provider, one.model, res.usage?.outputTokens ?? 'unknown', res.summary.length)
           withoutTools = true
-          res = await callOnce(one, { withoutTools, compactInput: true, shorter: true })
+          compacted = true
+          res = await callOnce(one, { routeMaxTokens, withoutTools, compactInput: true, shorter: true })
           rememberTruncated(res)
         }
         if (res.finish !== 'max-tokens' && res.summary !== '') {
@@ -1182,17 +1190,22 @@ export function install(rt) {
         throw new Error('the checkpoint was empty')
       } catch (error) {
         let failure = error
-        if (!signal?.aborted && isSizeError(failure)) {
+        if (!signal?.aborted && isSizeError(failure) && (!compacted || (forSwitch && index > 0))) {
           try {
             const res = forSwitch && index > 0
-              ? await callOnce(one, { withoutTools: true, trimmed: true })
-              : await callOnce(one, { withoutTools: true, compactInput: true, shorter: true })
-            if ((res.finish !== 'max-tokens' && res.summary !== '') || (res.finish === 'max-tokens' && res.summary.length >= CHECKPOINT_PARTIAL_MIN)) {
+              ? await callOnce(one, { routeMaxTokens, withoutTools: true, trimmed: true })
+              : await callOnce(one, { routeMaxTokens, withoutTools: true, compactInput: true, shorter: true })
+            rememberTruncated(res)
+            if (res.finish !== 'max-tokens' && res.summary !== '') {
               return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
             }
           } catch (trimmedError) {
             failure = trimmedError
           }
+        }
+        if (!signal?.aborted && bestTruncated !== undefined) {
+          rt.warn('ds-bot: using truncated checkpoint summary for %s on %s/%s (%d chars) after retry failed: %s', session.id, one.provider, one.model, bestTruncated.summary.length, failure?.message ?? failure)
+          return { summary: bestTruncated.summary, rawOutput: bestTruncated.rawOutput, provider: one.provider, model: one.model, usage: bestTruncated.usage }
         }
         // A cancelled request is the caller's own decision, not a route that cannot answer.
         if (!forSwitch || signal?.aborted) throw failure
