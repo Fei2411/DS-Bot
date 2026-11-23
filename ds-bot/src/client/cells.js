@@ -745,6 +745,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
           bot: poster, text: file ? stripLongNote(text) : text, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
           claims: source.claims,
           changes: source.changes,
+          files: source.delivered,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }
