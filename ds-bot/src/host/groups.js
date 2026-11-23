@@ -1100,7 +1100,6 @@ export function install(rt) {
     isStoppedRelay,
     isBotPendingPost,
     noteRoomRelayQueued,
-    isRelayQueued,
     roomRelayTaken,
     enterLate,
     leaveLate,
@@ -2201,6 +2200,7 @@ export function install(rt) {
       && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
     const openingBotPost = postExtra.late !== true && postExtra.progress !== true && !noticeOnly
     if (running !== undefined) {
+      if (openingBotPost) rt.taintRoomImOrigin?.(room.id, postOrigin)
       const { tainted } = openingBotPost
         ? applyIncomingOrigin(room, postOrigin, { excludeReportId: postExtra.reportId, wasWorking: true })
         : { tainted: false }
@@ -2230,45 +2230,43 @@ export function install(rt) {
     const tracksRelay = postExtra.reportBack === true
       || (!noticeOnly && (text !== '' || files.length > 0 || openingSpeakers(room, { ...postExtra, botId: sender.id, name: sender.name, text }).length > 0))
     const snapshot = openingBotPost ? snapshotOriginState(room.id) : undefined
-    const { tainted } = openingBotPost
+    const originUpdate = openingBotPost
       ? applyIncomingOrigin(room, postOrigin, { excludeReportId: postExtra.reportId })
-      : { tainted: false }
+      : { tainted: false, version: undefined }
     if (postExtra.reportBack === true) {
-      registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
+      registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && originUpdate.tainted })
     }
-    if (tracksRelay) noteRoomRelayQueued(room.id, exchangeId)
+    if (tracksRelay) noteRoomRelayQueued(room.id, exchangeId, postExtra.reportId)
     let enqueued = false
     try {
       const msg = createUserMessage({
         content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
-        source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId, senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...postExtra },
+        source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId, senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...(openingBotPost ? { openingPost: true } : {}), ...postExtra },
       })
       agent.followup(msg)
       enqueued = true
       await ctx.sessions.flush(agent.session)
     } catch (error) {
+      // Only treat the post as withdrawn if followup never ran or we explicitly removed
+      // the still-unclaimed entry from agent.inbox. When an idle DSH agent synchronously
+      // claimed the message before flush failed, fail closed so taint and tracking stay intact.
       let withdrawn = !enqueued
-      if (!withdrawn) {
-        const lanes = [agent.inbox?.nextStep, agent.inbox?.nextTurn]
-        let matchedInInbox = false
-        if (typeof agent.inbox?.remove === 'function') {
-          for (const lane of lanes) {
-            for (const item of Array.from(lane ?? [])) {
-              if (item?.source?.exchangeId === exchangeId) {
-                matchedInInbox = true
-                if (agent.inbox.remove(item.id) === true) withdrawn = true
-              }
+      if (!withdrawn && typeof agent.inbox?.remove === 'function') {
+        for (const lane of [agent.inbox.nextStep, agent.inbox.nextTurn]) {
+          for (const item of Array.from(lane ?? [])) {
+            if (item?.source?.exchangeId === exchangeId && agent.inbox.remove(item.id) === true) {
+              withdrawn = true
             }
           }
         }
-        // Only fall back when the relay was never claimed by user/message (`isRelayQueued`).
-        if (!matchedInInbox && lanes.every(lane => (lane?.length ?? 0) === 0) && (!tracksRelay || isRelayQueued(room.id, exchangeId))) {
-          withdrawn = true
-        }
       }
-      if (tracksRelay) roomRelayTaken(room.id, exchangeId)
-      if (postExtra.reportId !== undefined && withdrawn) dropRoomReport(postExtra.reportId)
-      if (snapshot !== undefined && withdrawn) restoreOriginState(room.id, snapshot)
+      if (withdrawn) {
+        if (tracksRelay) roomRelayTaken(room.id, exchangeId)
+        if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
+        if (snapshot !== undefined) restoreOriginState(room.id, snapshot, originUpdate.version)
+      } else if (error && typeof error === 'object') {
+        error.delivered = true
+      }
       throw error
     }
   }

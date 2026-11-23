@@ -927,4 +927,18 @@ test('post_to_group report still includes completed goal summary if user clears 
   assert.match(msg, /Summary: archived before round end/)
   assert.match(msg, /Evidence: npm test 100%/)
   assert.doesNotMatch(msg, /Nobody replied/)
+
+  // Negative check: an older goal in pastGoals (endedAt < report.at) must NOT be attached to a later post_to_group report.
+  host.rt.roomOf('r2').pastGoals[0].endedAt = Date.now() - 10_000
+  await host.tool('post_to_group', { group: 'Lab', message: '@Writer 简单问个问题' }, 'a')
+  const post2 = host.agentOf('r2').calls.shift()
+  const round2 = host.round('g-after-clear', { content: post2.content, source: post2.source }, 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 2)
+  host.begin('lb')
+  host.finish('lb', '好的，知道了。')
+  await settle(() => round2() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 2)
+  const msg2 = text(host.agentOf('a').calls[1])
+  assert.match(msg2, /Writer: 好的，知道了。/)
+  assert.doesNotMatch(msg2, /Goal "Clear Race"/, 'past goal that ended before the new report must not be recycled')
 })

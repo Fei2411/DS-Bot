@@ -699,6 +699,47 @@ export function install(rt) {
   const clearImOrigin = (sessionId) => {
     resetOrigin(sessionId)
     detachHeldOrigin(sessionId)
+    const room = rt.roomOf(sessionId)
+    if (room !== undefined) roomWebRounds.delete(room.id)
+  }
+  const clearRoomWebRound = (roomId) => {
+    if (roomId !== undefined) roomWebRounds.delete(roomId)
+  }
+  const taintRoomImOrigin = (roomId, incomingOrigin) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    const live = origins.get(roomSid)
+    if (live !== undefined) {
+      if (!sameImChat(live, incomingOrigin)) dropOrigin(roomSid)
+    } else {
+      roomWebRounds.add(room.id)
+    }
+  }
+  const hasActiveWebWork = (room, excludeSessionId) => {
+    if (room === undefined) return false
+    if (rt.roomActive?.(room.id) === true) return true
+    if (!roomWebRounds.has(room.id)) return false
+    const excludeBotId = excludeSessionId === undefined ? undefined : rt.groupOwners.get(excludeSessionId)?.botId
+    const hasNonImRoomTask = (botId) => (rt.botOf(botId)?.tasks ?? [])
+      .some(task => task && task.roomId === room.id && ['running', 'waiting_work', 'waiting_approval'].includes(task.status) && task.imOrigin === undefined)
+    const roomMidTurn = rt.live.get(rt.sessionOfRoom(room))?.turn !== undefined
+    const working = (roomMidTurn && (rt.roomInbox?.get(room.id)?.length ?? 0) > 0)
+      || rt.roomBatchPending?.(room.id) === true
+      || (rt.workingInRoom?.(room) ?? []).some((entry) => {
+        const id = entry.bot?.id
+        if (id === undefined || id === excludeBotId) return false
+        const sid = room.sessions?.[id]
+        const liveTurn = sid !== undefined && (rt.live.get(sid)?.turn !== undefined || rt.live.get(sid)?.retrying === true)
+        const liveSub = sid !== undefined && rt.hasSubagents?.(sid) === true
+        return liveTurn || liveSub || hasNonImRoomTask(id)
+      })
+      || (excludeSessionId !== undefined && (rt.hasSubagents?.(excludeSessionId) === true || (excludeBotId !== undefined && hasNonImRoomTask(excludeBotId))))
+      || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && id !== excludeSessionId
+        && (rt.live.get(id)?.turn !== undefined || rt.live.get(id)?.retrying === true))
+      || [...(rt.switchJobs?.() ?? [])].some(job => job.roomId === room.id && job.botId !== excludeBotId)
+    if (!working) roomWebRounds.delete(room.id)
+    return working
   }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
@@ -744,13 +785,18 @@ export function install(rt) {
     const owner = rt.groupOwners.get(sessionId)
     if (owner === undefined || saved === undefined) return
     const room = rt.roomOf(owner.roomId)
-    const roomSid = room?.sessionId ?? owner.roomId
-    if (originFromSaved(saved) === undefined) {
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    if (originFromSaved(saved) === undefined || saved.binding !== `room:${room.id}`) {
+      dropOrigin(roomSid)
+      return
+    }
+    if (nonImTurn.has(sessionId)) {
       dropOrigin(roomSid)
       return
     }
     const live = origins.get(roomSid)
-    if (live === undefined && !mixed.has(roomSid) && rt.roomActive?.(owner.roomId) !== true) {
+    if (live === undefined && !mixed.has(roomSid) && !hasActiveWebWork(room, sessionId)) {
       claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
     } else if (live !== undefined && !sameImChat(live, saved)) {
       dropOrigin(roomSid)
@@ -1998,18 +2044,6 @@ export function install(rt) {
     }
     return sameImOrigin(launch, origins.get(sessionId)) && originOf(sessionId) !== undefined
   }
-  const hasActiveWebWork = (room, excludeSessionId) => {
-    if (room === undefined) return false
-    if (rt.roomActive?.(room.id) === true) return true
-    if (!roomWebRounds.has(room.id)) return false
-    const excludeBotId = excludeSessionId === undefined ? undefined : rt.groupOwners.get(excludeSessionId)?.botId
-    const working = (rt.workingInRoom?.(room) ?? []).some(entry => entry.bot?.id !== excludeBotId)
-      || (excludeSessionId !== undefined && (rt.hasSubagents?.(excludeSessionId) === true || (excludeBotId !== undefined && rt.hasRoomTasks?.(room.id, excludeBotId) === true)))
-      || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && id !== excludeSessionId && rt.live.get(id)?.turn !== undefined)
-      || [...(rt.switchJobs?.() ?? [])].some(job => job.roomId === room.id && job.botId !== excludeBotId)
-    if (!working) roomWebRounds.delete(room.id)
-    return working
-  }
   // Shared saved-origin restoration for background task reports and IM dispatch returns
   // (`reply` / `report`). Never lets an async return retroactively claim a turn that began
   // with non-IM input, and never re-arms a group while a live Web round or late Web member
@@ -2036,8 +2070,14 @@ export function install(rt) {
           // A different IM chat currently owns the room; mix so neither chat sees the other's report.
           dropOrigin(roomSid)
         }
-      } else if (saved !== undefined || origins.has(roomSid) || (dropWhenUnsaved && hasActiveWebWork(room, sessionId))) {
-        dropOrigin(roomSid)
+      } else {
+        if (!origins.has(roomSid)) {
+          nonImTurn.add(sessionId)
+          roomWebRounds.add(room.id)
+        }
+        if (saved !== undefined || origins.has(roomSid) || (dropWhenUnsaved && hasActiveWebWork(room, sessionId))) {
+          dropOrigin(roomSid)
+        }
       }
       return
     }
@@ -2046,6 +2086,7 @@ export function install(rt) {
       && originFromSaved(saved) !== undefined
       && (!requireBinding || (ownerBotId !== undefined && saved.binding === `bot:${ownerBotId}`))
     if (!valid || nonImTurn.has(sessionId)) {
+      if (!valid && !origins.has(sessionId)) nonImTurn.add(sessionId)
       if (nonImTurn.has(sessionId) || saved !== undefined || dropWhenUnsaved) dropOrigin(sessionId)
       return
     }
@@ -2101,7 +2142,10 @@ export function install(rt) {
         // previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
         const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
-        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
+        const isOpeningPost = source?.kind === SOURCE_KIND && source.role === 'post' && source.openingPost === true
+        const continuesRoomWork = typeof imOrigin === 'string' || isTaskReport
+          || (source?.kind === SOURCE_KIND && source.role === 'post' && !isOpeningPost)
+        if (pendingReset.delete(session.id) && !continuesRoomWork) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
@@ -2161,11 +2205,25 @@ export function install(rt) {
           // non-IM input must not be retroactively claimed by an async dispatch or task return.
           const room = rt.roomOf(session.id)
           if (room !== undefined) {
-            if (!origins.has(session.id) && (source?.kind === 'user' || (source?.kind === SOURCE_KIND && source.role === 'post' && rt.roomReportImOrigin?.(room.id) === undefined))) {
+            if (isOpeningPost) {
+              // An external post_to_group delivers via roomReports, never via the room's
+              // direct IM group claim: drop any live group claim and mark non-group activity.
+              if (origins.has(session.id)) dropOrigin(session.id)
+              roomWebRounds.add(room.id)
+            } else if (!origins.has(session.id)) {
               roomWebRounds.add(room.id)
             }
-          } else if (!origins.has(session.id)) {
-            nonImTurn.add(session.id)
+          } else {
+            const memberOwner = rt.groupOwners.get(session.id)
+            if (memberOwner !== undefined) {
+              const memberRoom = rt.roomOf(memberOwner.roomId)
+              const memberRoomSid = memberRoom === undefined ? undefined : rt.sessionOfRoom(memberRoom)
+              const imGroupCall = source?.kind === SOURCE_KIND && source.role === 'room'
+                && memberRoomSid !== undefined && origins.has(memberRoomSid) && !mixed.has(memberRoomSid)
+              if (!imGroupCall) nonImTurn.add(session.id)
+            } else if (!origins.has(session.id)) {
+              nonImTurn.add(session.id)
+            }
           }
         }
       }
@@ -2262,5 +2320,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin })
 }

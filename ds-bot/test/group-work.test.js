@@ -3408,27 +3408,63 @@ test('startup settleRoomReports keeps queued reports still present in roomAgent.
   rt.roomRelayTaken('r1', queuedPost.source.exchangeId)
   roomAgent.inbox.nextTurn.push({ id: 'live-q1', ...queuedPost })
 
+  // 1) Room has BOTH surviving report A (in roomAgent.inbox) AND vanished report B (not in inbox):
+  //    startup must preserve A AND settle vanished B in the same pass without letting A hide B!
+  rt.state.roomReports['rep-vanished'] = { id: 'rep-vanished', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
   await rt.settleRoomReports(undefined, { startup: true })
-  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
-  assert.equal(host.agentOf('a').calls.length, 0, 'startup settle must not falsely fail a relay still queued in DSH roomAgent.inbox')
-  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /did not start before DS Bot restarted/, 'vanished sibling report must settle even while another relay survives in inbox')
+  assert.equal(rt.state.roomReports['rep-vanished'], undefined)
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued', 'surviving relay must stay queued')
 
-  // Now DSH drains the inbox and runs the real round -> Chief receives the real reply exactly once.
+  // 2) Now DSH drains the inbox and runs the real round -> Chief receives the real reply for A once.
   roomAgent.inbox.nextTurn.length = 0
   const round = host.round('c-reload', queuedPost)
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
   host.finish('gb', '重载后正常完成。')
   await settle(() => round() !== undefined)
-  await settle(() => host.agentOf('a').calls.length === 1)
-  assert.match(text(host.agentOf('a').calls[0]), /Writer: 重载后正常完成。/)
-  assert.doesNotMatch(text(host.agentOf('a').calls[0]), /did not start before DS Bot restarted/)
-
-  // Contrast: if roomAgent.inbox is empty after restart, startup settle reports did-not-start cleanly.
-  rt.state.roomReports['rep-lost'] = { id: 'rep-lost', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
-  await rt.settleRoomReports(undefined, { startup: true })
   await settle(() => host.agentOf('a').calls.length === 2)
-  assert.match(text(host.agentOf('a').calls[1]), /did not start before DS Bot restarted/)
+  assert.match(text(host.agentOf('a').calls[1]), /Writer: 重载后正常完成。/)
+  assert.doesNotMatch(text(host.agentOf('a').calls[1]), /did not start before DS Bot restarted/)
+
+  // 3) Plugin reload AFTER user/message was already emitted (old plugin's roomInbox was lost):
+  //    startup must NOT strand the report forever.
+  roomAgent.status = 'running'
+  roomAgent.session = {
+    id: 'r1',
+    snapshotEvents: () => [
+      { type: 'turn/start', data: { turn: 5 } },
+      { type: 'user/message', data: { source: { kind: 'bot', role: 'post', reportId: 'rep-after-um' } } },
+    ],
+  }
+  rt.state.roomReports['rep-after-um'] = { id: 'rep-after-um', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 3, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => host.agentOf('a').calls.length === 3)
+  assert.match(text(host.agentOf('a').calls[2]), /did not start before DS Bot restarted/)
+  assert.equal(rt.state.roomReports['rep-after-um'], undefined)
+
+  // 4) Plugin reload DURING DSH preStep window (status: 'running', turn/start emitted, NO user/message yet):
+  //    startup holds the report until the turn settles, then automatically re-checks via whenIdle().
+  let releasePreStep
+  roomAgent.status = 'running'
+  roomAgent.session = {
+    id: 'r1',
+    snapshotEvents: () => [{ type: 'turn/start', data: { turn: 6 } }],
+  }
+  roomAgent.whenIdle = () => new Promise((resolve) => { releasePreStep = resolve })
+  rt.state.roomReports['rep-prestep'] = { id: 'rep-prestep', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 3, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 3, 'preStep window must hold queued report until turn finishes')
+  assert.equal(rt.state.roomReports['rep-prestep']?.status, 'queued')
+
+  // If the preStep turn belonged to something else and ends without claiming rep-prestep, whenIdle recheck settles it!
+  roomAgent.status = 'idle'
+  releasePreStep()
+  await settle(() => host.agentOf('a').calls.length === 4)
+  assert.match(text(host.agentOf('a').calls[3]), /did not start before DS Bot restarted/)
+  assert.equal(rt.state.roomReports['rep-prestep'], undefined)
 })
 
 test('stopping an individual working member via stopMemberWork reports stopped instead of nobody replied (#1894)', async (t) => {
