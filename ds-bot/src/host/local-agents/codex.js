@@ -186,8 +186,10 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, ephemeral }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, ephemeral }) {
     const peer = await this.ensure()
+    const prior = this.threads.get(dshSessionId)
+    const created = prior === undefined || prior.dead
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
     // Codex 0.166 reads `ThreadStartParams` from the top level and takes the MCP
@@ -210,6 +212,10 @@ export class CodexEngine {
         return thread
       } catch {
         thread.threadId = undefined
+        if (resumeOnly) {
+          if (created && this.threads.get(dshSessionId) === thread) this.threads.delete(dshSessionId)
+          throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+        }
       }
     }
     const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions

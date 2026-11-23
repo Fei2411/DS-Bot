@@ -415,7 +415,7 @@ export class AcpEngine {
   }
 
   // Resumes an ACP session across the same MCP transport fallback ladder as newSession.
-  async loadSession(peer, { cwd, mcp, resumeId }) {
+  async loadSession(peer, { cwd, mcp, resumeId, resumeOnly = false }) {
     const modes = this.mcpModes(mcp)
     for (let i = 0; i < modes.length; i++) {
       const mode = modes[i]
@@ -426,7 +426,10 @@ export class AcpEngine {
       } catch (error) {
         const text = String(error?.message ?? error)
         if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
-        if (i === modes.length - 1) return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        if (i === modes.length - 1) {
+          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        }
       }
     }
   }
@@ -434,14 +437,14 @@ export class AcpEngine {
   // A new or resumed ACP session for one DS Bot Session.
   async open(dshSessionId, openArgs) {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
-    const { cwd, mcp, resumeId, preset, model } = openArgs
+    const { cwd, mcp, resumeId, resumeOnly = false, preset, model } = openArgs
     const peer = await this.ensure()
     const prior = this.sessions.get(dshSessionId)
     const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
-        ? await this.loadSession(peer, { cwd, mcp, resumeId })
+        ? await this.loadSession(peer, { cwd, mcp, resumeId, resumeOnly })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
       session.resumed = loaded

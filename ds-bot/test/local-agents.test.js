@@ -2508,9 +2508,11 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   assert.match(promptText, /Memory update #29:/, 'newest memory updates must be kept')
   assert.doesNotMatch(promptText, /Memory update #0:/, 'old memory updates must be bounded instead of growing replay without limit')
 
-  // Maintenance (`note()`) on a dropped resume must fail instead of asking a blank CLI session for a handoff note,
+  // Maintenance (`note()`) on a dropped resume must fail without creating an orphan blank CLI session,
   // and must clean up both the live entry and the spawned engine session/process without leaking.
-  const third = makeAdapter({ records, acpArgs: ['--fail-load'] })
+  const maintAcpRecord = join(mkdtempSync(join(tmpdir(), 'dsb-acp-maint-fail-')), 'rpc.jsonl')
+  t.after(() => rmSync(dirname(maintAcpRecord), { recursive: true, force: true }))
+  const third = makeAdapter({ records, acpArgs: ['--fail-load', '--record', maintAcpRecord] })
   t.after(() => third.dispose())
   await assert.rejects(
     () => third.note('s1', 'Write a handoff note', AbortSignal.timeout(5_000)),
@@ -2518,6 +2520,9 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   )
   assert.equal(third.live.size, 0, 'failed maintenance resume must remove live entry')
   assert.equal(third._spawned[0].sessions.size, 0, 'failed maintenance resume must forget engine session')
+  const maintAcpCalls = readFileSync(maintAcpRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(maintAcpCalls.filter(call => call.method === 'session/load').length, 1, 'maintenance must attempt session/load')
+  assert.equal(maintAcpCalls.filter(call => call.method === 'session/new').length, 0, 'failed maintenance resume must not spawn an orphan session/new')
 
   // When freshMemoryView is available on a dropped CLI resume, replay refreshes the
   // authorized memory snapshot instead of replaying a bounded suffix of deltas over a
@@ -2577,4 +2582,20 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   const fallbackStart = codexCalls.filter(call => call.method === 'thread/start').at(-1)
   assert.doesNotMatch(fallbackStart.params.developerInstructions, /Deploy to staging/, 'fallback Codex thread/start developerInstructions must not carry deleted memory')
   assert.ok(fallbackStart.params.developerInstructions.includes('Keep literal $& and $$100 intact'), 'fallback Codex developerInstructions must carry refreshed memory literally')
+
+  // Codex maintenance (`note()`) on a failed resume must reject without calling thread/start
+  // (no orphan blank thread created) and clean up live + engine thread entries.
+  const maintCodexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-codex-maint-fail-')), 'rpc.jsonl')
+  t.after(() => rmSync(dirname(maintCodexRecord), { recursive: true, force: true }))
+  const codexMaint = makeAdapter({ records: codexRecords, codexArgs: ['--fail-resume', '--record', maintCodexRecord] })
+  t.after(() => codexMaint.dispose())
+  await assert.rejects(
+    () => codexMaint.note('c1', 'Write a handoff note', AbortSignal.timeout(5_000)),
+    /could not be resumed/,
+  )
+  assert.equal(codexMaint.live.size, 0, 'failed Codex maintenance resume must remove live entry')
+  assert.equal(codexMaint._spawned[0].threads.size, 0, 'failed Codex maintenance resume must forget engine thread')
+  const maintCodexCalls = readFileSync(maintCodexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(maintCodexCalls.filter(call => call.method === 'thread/resume').length, 1, 'Codex maintenance must attempt thread/resume')
+  assert.equal(maintCodexCalls.filter(call => call.method === 'thread/start').length, 0, 'failed Codex maintenance resume must not spawn an orphan thread/start')
 })
