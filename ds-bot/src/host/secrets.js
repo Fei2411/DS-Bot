@@ -706,6 +706,7 @@ export function install(rt) {
       })
       trimRequests(list)
       await rt.save()
+      rt.cardShown?.(id, 'secret', name)
       exec.concludeTurn?.()
       return secret
         ? `The card asking the user to let you use ${name} is on screen. A note arrives when the user answers; you will not see the value.`

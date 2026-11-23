@@ -53,8 +53,9 @@ export const CAPABILITIES = [
   'markdown-image',
   'file-download-chunks',
   'write-state',
+  'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -222,6 +223,12 @@ export function install(rt) {
     const room = rt.roomOf(entry.roomId)
     botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
   }
+  rt.learningProposed = (proposal) => {
+    if (!proposal?.botId) return
+    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
+    const sessionId = rt.chatOf?.(proposal.botId)
+    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
+  }
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -249,7 +256,18 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const seenHolds = new Map()
+  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
+    liveChanged()
+    if (hold === null || hold?.callId === undefined) {
+      seenHolds.delete(botId)
+      return
+    }
+    if (seenHolds.get(botId) === hold.callId) return
+    seenHolds.set(botId, hold.callId)
+    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
+    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
+  })
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
