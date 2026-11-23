@@ -6,7 +6,6 @@ import { deviceIdFor, fromBase64Url, toBase64Url } from './keys.ts'
 
 export const PUSH_ENVELOPE_VERSION = 1
 export const MAX_PUSH_ENDPOINT_LENGTH = 1024
-export const MAX_PUSH_TOKEN_LENGTH = 512
 export const MAX_SEALED_PUSH_CHARS = 4096
 
 const PUSH_SEAL_VERSION = 2
@@ -129,8 +128,8 @@ function parseIpv6(raw: string): number[] | null {
 
 function isPublicIpv6(groups: number[]): boolean {
   const [g0, g1, g2, g3, g4, g5, g6, g7] = groups
-  // :: (unspecified) and ::1 (loopback)
-  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0 && (g7 === 0 || g7 === 1)) {
+  // ::/96 — covers :: (unspecified), ::1 (loopback), and deprecated IPv4-compatible ::a.b.c.d
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
     return false
   }
   // ::ffff:0:0/96 (IPv4-mapped) or ::ffff:0:0:0/96 (IPv4-translated)
@@ -142,7 +141,11 @@ function isPublicIpv6(groups: number[]): boolean {
     return isPublicIpv4([(g6 >> 8) & 0xff, g6 & 0xff, (g7 >> 8) & 0xff, g7 & 0xff])
   }
   if (g0 === 0x0100 && g1 === 0 && g2 === 0 && g3 === 0) return false // 100::/64 discard
+  if (g0 === 0x2001 && g1 === 0x0000) return false // 2001::/32 Teredo
+  if (g0 === 0x2001 && g1 === 0x0002 && g2 === 0) return false // 2001:2::/48 benchmarking
+  if (g0 === 0x2001 && ((g1 & 0xfff0) === 0x0010 || (g1 & 0xfff0) === 0x0020)) return false // 2001:10::/28, 2001:20::/28 ORCHID
   if (g0 === 0x2001 && g1 === 0x0db8) return false // 2001:db8::/32 documentation
+  if (g0 === 0x2002) return false // 2002::/16 6to4 (embeds IPv4)
   if ((g0 & 0xfe00) === 0xfc00) return false // fc00::/7 ULA
   if ((g0 & 0xffc0) === 0xfe80) return false // fe80::/10 link-local
   if ((g0 & 0xffc0) === 0xfec0) return false // fec0::/10 deprecated site-local
@@ -193,13 +196,6 @@ export function isValidPushEndpoint(endpoint: unknown, options: { allowLoopbackH
   // Reject bare single-label intranet hostnames without a public DNS suffix.
   if (!host.includes('.')) return false
   return true
-}
-
-export function isValidPushToken(token: unknown): token is string {
-  return typeof token === 'string'
-    && token.length > 0
-    && token.length <= MAX_PUSH_TOKEN_LENGTH
-    && !/\s/u.test(token)
 }
 
 /**

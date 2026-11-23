@@ -21,8 +21,6 @@ var controlFrameTypes = [
   "connect.rejected",
   "secure.handshake",
   "relay",
-  "push.notify",
-  "push.result",
   "ping",
   "pong",
   "error"
@@ -7694,11 +7692,9 @@ async function waitForRelayCapacity(socket, wireBytes = 0) {
 
 // src/host.ts
 var RELAY_CAPABILITY = "transport.relay";
-var PUSH_FCM_CAPABILITY = "push.fcm";
 var MAX_CALLS_PER_TUNNEL = 32;
 var MAX_EMIT_PENDING = 64;
 var SERVER_SILENCE_MS = 75e3;
-var PUSH_TIMEOUT_MS = 1e4;
 var TunnelError = class extends Error {
   code;
   constructor(code, message) {
@@ -7711,8 +7707,6 @@ var HostLink = class {
   tunnels = /* @__PURE__ */ new Map();
   socket;
   limits = {};
-  serverCapabilities = [];
-  pendingPushes = /* @__PURE__ */ new Map();
   running = false;
   loopDone;
   wake;
@@ -7764,30 +7758,6 @@ var HostLink = class {
   /** Phones with a finished handshake. */
   connectedDevices() {
     return [...this.tunnels.values()].filter((tunnel) => tunnel.stage === "ready").map((tunnel) => tunnel.deviceId);
-  }
-  /** Capabilities the connected Relay Server advertised in hello.ack. */
-  capabilities() {
-    return [...this.serverCapabilities];
-  }
-  /** Asks the Relay Server to forward an opaque encrypted FCM wakeup for an offline phone. */
-  sendPush(payload) {
-    if (this.socket?.readyState !== 1) return Promise.resolve({ ok: false, code: "OFFLINE" });
-    if (!this.serverCapabilities.includes(PUSH_FCM_CAPABILITY)) return Promise.resolve({ ok: false, code: "UNSUPPORTED" });
-    const requestId = globalThis.crypto.randomUUID();
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingPushes.delete(requestId);
-        resolve({ ok: false, code: "TIMEOUT" });
-      }, PUSH_TIMEOUT_MS);
-      this.pendingPushes.set(requestId, { resolve, timer });
-      try {
-        this.sendControl("push.notify", { ...payload, requestId });
-      } catch {
-        clearTimeout(timer);
-        this.pendingPushes.delete(requestId);
-        resolve({ ok: false, code: "SEND_FAILED" });
-      }
-    });
   }
   /** Ends every link of a device, for example when the user removes it. */
   disconnect(deviceId) {
@@ -7856,7 +7826,7 @@ var HostLink = class {
           identityKey: this.options.identity.publicKey,
           accessToken: this.options.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: [RELAY_CAPABILITY, PUSH_FCM_CAPABILITY]
+          capabilities: [RELAY_CAPABILITY]
         });
       };
       socket.onmessage = (event) => {
@@ -7901,31 +7871,15 @@ var HostLink = class {
   }
   acceptHello(payload) {
     if (payload.protocol !== PROTOCOL_VERSION) throw new Error("The Server chose an unsupported protocol.");
-    const negotiated = acceptNegotiatedCapabilities([RELAY_CAPABILITY, PUSH_FCM_CAPABILITY], payload.capabilities);
-    if (!negotiated.includes(RELAY_CAPABILITY)) {
+    if (!acceptNegotiatedCapabilities([RELAY_CAPABILITY], payload.capabilities).includes(RELAY_CAPABILITY)) {
       throw new Error("The Server does not relay.");
     }
-    this.serverCapabilities = negotiated;
     this.limits = { maxControlFrameBytes: payload.maxControlFrameBytes, maxRelayFrameBytes: payload.maxRelayFrameBytes };
   }
   handleFrame(frame) {
     const payload = frame.payload;
     if (frame.type === "ping") {
       this.sendControl("pong", payload);
-      return;
-    }
-    if (frame.type === "push.result") {
-      const result = payload;
-      const pending = typeof result.requestId === "string" ? this.pendingPushes.get(result.requestId) : void 0;
-      if (pending !== void 0) {
-        clearTimeout(pending.timer);
-        this.pendingPushes.delete(result.requestId);
-        pending.resolve({
-          ok: result.ok === true,
-          ...result.gone === true ? { gone: true } : {},
-          ...typeof result.code === "string" ? { code: result.code } : {}
-        });
-      }
       return;
     }
     if (frame.type === "connect.incoming") {
@@ -8087,12 +8041,6 @@ var HostLink = class {
     }
   }
   dropAll() {
-    this.serverCapabilities = [];
-    for (const [id, pending] of this.pendingPushes) {
-      clearTimeout(pending.timer);
-      pending.resolve({ ok: false, code: "OFFLINE" });
-      this.pendingPushes.delete(id);
-    }
     for (const tunnel of [...this.tunnels.values()]) this.dropTunnel(tunnel, void 0);
   }
   sendControl(type, payload) {
@@ -8798,7 +8746,6 @@ var hkdf = (hash, ikm, salt, info, length) => expand(hash, extract(hash, ikm, sa
 // src/push.ts
 var PUSH_ENVELOPE_VERSION = 1;
 var MAX_PUSH_ENDPOINT_LENGTH = 1024;
-var MAX_PUSH_TOKEN_LENGTH = 512;
 var MAX_SEALED_PUSH_CHARS = 4096;
 var PUSH_SEAL_VERSION = 2;
 var X25519_KEY_BYTES = 32;
@@ -8884,7 +8831,7 @@ function parseIpv6(raw) {
 }
 function isPublicIpv6(groups) {
   const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
-  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0 && (g7 === 0 || g7 === 1)) {
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
     return false;
   }
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && (g4 === 0 && g5 === 65535 || g4 === 65535 && g5 === 0)) {
@@ -8894,7 +8841,11 @@ function isPublicIpv6(groups) {
     return isPublicIpv4([g6 >> 8 & 255, g6 & 255, g7 >> 8 & 255, g7 & 255]);
   }
   if (g0 === 256 && g1 === 0 && g2 === 0 && g3 === 0) return false;
+  if (g0 === 8193 && g1 === 0) return false;
+  if (g0 === 8193 && g1 === 2 && g2 === 0) return false;
+  if (g0 === 8193 && ((g1 & 65520) === 16 || (g1 & 65520) === 32)) return false;
   if (g0 === 8193 && g1 === 3512) return false;
+  if (g0 === 8194) return false;
   if ((g0 & 65024) === 64512) return false;
   if ((g0 & 65472) === 65152) return false;
   if ((g0 & 65472) === 65216) return false;
@@ -8935,9 +8886,6 @@ function isValidPushEndpoint(endpoint, options = {}) {
   }
   if (!host.includes(".")) return false;
   return true;
-}
-function isValidPushToken(token) {
-  return typeof token === "string" && token.length > 0 && token.length <= MAX_PUSH_TOKEN_LENGTH && !/\s/u.test(token);
 }
 function sealPushEnvelope(hostPrivateKey, hostPublicKey, recipientPublicKey, payload, ephemeralPrivateKey) {
   const hostPriv = fromBase64Url(hostPrivateKey);
@@ -9435,6 +9383,11 @@ var RpcClient = class {
   }
   onClose(handler) {
     this.closeHandlers.add(handler);
+    if (this.closeNotified) {
+      queueMicrotask(() => {
+        if (this.closeHandlers.has(handler)) handler();
+      });
+    }
     return () => this.closeHandlers.delete(handler);
   }
   getStats() {
@@ -9649,7 +9602,6 @@ export {
   LINK_PATH,
   MAX_CONTROL_FRAME_BYTES,
   MAX_PUSH_ENDPOINT_LENGTH,
-  MAX_PUSH_TOKEN_LENGTH,
   MAX_RELAY_BYTES_PER_SECOND,
   MAX_RELAY_FRAMES_PER_SECOND,
   MAX_RELAY_FRAME_BYTES,
@@ -9684,7 +9636,6 @@ export {
   isPublicIpAddress,
   isUrgentNoticeKind,
   isValidPushEndpoint,
-  isValidPushToken,
   messageTypes,
   openPushEnvelope,
   pairingUri,
