@@ -75,17 +75,39 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
   // DSH's public surface API, keeping the original log for the transcript.
+  // Track the highest checked seq per Session so subsequent steps skip already-verified nodes.
+  // Surface replacements splice higher seqs in place (incrementing replaceGeneration), so the
+  // O(1) fast path requires both tail stability and an unchanged replaceGeneration.
+  const checkedState = new WeakMap()
   const offPreStep = ctx.on?.('agent/pre-step', async ({ agent }, next) => {
     if (disposed) return next()
     const session = agent.session
+    const nodes = session.surface?.nodes ?? []
+    if (nodes.length === 0) return next()
+    const prev = checkedState.get(session)
+    const replaceGen = session.surface?.replaceGeneration
+    const lastSeq = nodes.at(-1)
+    if (
+      prev !== undefined
+      && typeof replaceGen === 'number'
+      && prev.replaceGen === replaceGen
+      && prev.nodesLen === nodes.length
+      && prev.lastSeq === lastSeq
+    ) return next()
+    const through = prev?.through ?? -1
     let changed = false
-    for (const seq of session.surface?.nodes ?? []) {
+    let highest = through
+    let skippedUnowned = false
+    const snapshot = nodes.slice()
+    for (const seq of snapshot) {
+      if (seq <= through) continue
+      if (seq > highest) highest = seq
       const event = session.eventAt(seq)
       if (event.type !== 'tool/result') continue
       if (!event.sourceEventSeqs?.some(source => names.has(session.eventAt(source)?.data?.name))) continue
       const message = session.deriveEventMessage(event)
       if (!message.content.some(block => block.type === 'image' && !block.attachment && typeof block.data === 'string')) continue
-      if (!await keyOf({ agent })) continue
+      if (!await keyOf({ agent })) { skippedUnowned = true; continue }
       const content = []
       for (const block of message.content) {
         if (block.type !== 'image' || block.attachment || typeof block.data !== 'string') { content.push(block); continue }
@@ -94,10 +116,20 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
           ? { type: 'image', attachment: saved.attachment, ...(block.offloaded ? { offloaded: true } : {}) }
           : { type: 'text', text: saved.text.trim() })
       }
-      session.append('tool/result', { ...event.data, message: { ...message, content } }, {
+      const replacement = session.append('tool/result', { ...event.data, message: { ...message, content } }, {
         surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq],
       })
+      if (typeof replacement?.seq === 'number' && replacement.seq > highest) highest = replacement.seq
       changed = true
+    }
+    if (!skippedUnowned) {
+      const updated = session.surface?.nodes ?? nodes
+      checkedState.set(session, {
+        through: highest,
+        replaceGen: session.surface?.replaceGeneration,
+        nodesLen: updated.length,
+        lastSeq: updated.at(-1),
+      })
     }
     if (changed) await ctx.sessions.flush(session)
     return next()

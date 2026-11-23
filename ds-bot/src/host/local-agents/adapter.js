@@ -412,6 +412,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       yield* digestChunks(options.messages)
       return
     }
+    if (options.purpose === 'aside') {
+      throw new LlmError('aside requests must not run on a live local-agent session', 'INVALID_REQUEST')
+    }
     const sessionId = options.sessionId
     if (sessionId === undefined) throw new LlmError('a local agent request needs a session', 'INVALID_REQUEST')
     const preset = this.deps.presetFor(sessionId)
