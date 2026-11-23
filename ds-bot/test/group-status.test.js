@@ -427,6 +427,7 @@ test('recorded Devin ACP team MCP sequence stays team work and starts no grace; 
   const engine = new AcpEngine('local-devin-cli', { name: 'Devin' }, { findExecutable: () => undefined })
   const session = engine.sessionFor('gb')
   session.acpSessionId = 'acp-1'
+  session.running = true
   session.push = event => host.rt.noteLocalAgentEvent('gb', event)
 
   // Recorded Devin ACP shape: server identity arrives in _meta['cognition.ai/toolName']
@@ -474,6 +475,7 @@ test('recorded Cursor ACP anonymous MCP placeholder defers counting until provid
   const engine = new AcpEngine('local-cursor-cli', { name: 'Cursor' }, { findExecutable: () => undefined })
   const session = engine.sessionFor('gb')
   session.acpSessionId = 'acp-1'
+  session.running = true
   session.push = event => host.rt.noteLocalAgentEvent('gb', event)
 
   // Recorded Cursor ACP team MCP sequence: placeholder opens empty, then names dsbot.
