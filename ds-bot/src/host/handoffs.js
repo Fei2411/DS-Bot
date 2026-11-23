@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { isAckLikeText, LATE_ANSWER, PAIR_LOOP_TTL_MS, TEXT_KEPT, WORK_ASK_BACK_LIMIT, WORK_REWORK_CHECKPOINT } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { headOf } from './text.js'
-import { ownChatSessions, threadCurrentOfPart } from './threads.js'
+import { isActiveTask, ownChatSessions, threadCurrentOfPart, threadOfPart } from './threads.js'
 
 const own = (obj, key) => (obj != null && typeof key === 'string' && Object.hasOwn(obj, key) ? obj[key] : undefined)
 const safeKey = key => typeof key === 'string' && key !== '' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype'
@@ -352,34 +352,77 @@ export function install(rt) {
     return snapshot
   }
 
-  // Wakes a waiting parent work when one of its delegated children is cancelled or stopped
-  // externally (by the user, a Main Bot, or stop_bot), so the parent never hangs forever.
-  function notifyParentCancelled(snapshot, { reason = '', by, byLabel = 'the user' } = {}) {
-    if (snapshot?.parent === undefined) return Promise.resolve(false)
+  // Owner Bot of a work node: the delegated worker `to`, or for a task sub-work (`child`),
+  // the Bot running that background task (`from`).
+  const ownerBotOfWork = work => work?.to ?? (work?.child !== undefined ? work.from : undefined)
+  // Upstream Bot that originally requested a work node, walking past internal task wrappers.
+  const rootAsker = (work) => {
+    const seen = new Set()
+    let cur = work
+    while (cur !== undefined && cur.to === undefined && cur.child !== undefined && cur.parent !== undefined && !seen.has(cur.parent)) {
+      seen.add(cur.parent)
+      cur = own(works(), cur.parent)
+    }
+    return cur?.from
+  }
+
+  // Wakes a waiting parent work (or an active background task thread) when one of its
+  // delegated children is cancelled or stopped externally, so it never hangs forever.
+  function notifyParentCancelled(snapshot, { reason = '', by, bySession, byLabel = 'the user' } = {}) {
+    const targetName = rt.botOf(snapshot?.to)?.name ?? snapshot?.name ?? 'the teammate'
+    const label = snapshot?.ref ? ` #${snapshot.ref}` : ''
+    const why = reason.trim()
+    const summary = `Delegated work${label} to ${targetName} was cancelled by ${byLabel}${why ? ` (${why})` : ''}. Continue with your own work without waiting for ${targetName}.`
+    if (snapshot?.parent === undefined) {
+      const callerBot = snapshot?.from === undefined ? undefined : rt.botOf(snapshot.from)
+      const taskThread = callerBot !== undefined && snapshot.fromPart !== undefined ? threadOfPart(callerBot, snapshot.fromPart) : undefined
+      const task = taskThread?.thread === 'task' ? callerBot.tasks?.[taskThread.index] : undefined
+      if (task === undefined || !isActiveTask(task)) return Promise.resolve(false)
+      const targetSession = threadCurrentOfPart(callerBot, snapshot.fromPart) ?? task.sessionId
+      if (by === callerBot.id && targetSession !== undefined && bySession === targetSession && rt.live?.get(targetSession)?.turn !== undefined) {
+        return Promise.resolve(false)
+      }
+      return rt.deliver({
+        fromId: rt.botOf(snapshot.to)?.id,
+        fromName: targetName,
+        toId: callerBot.id,
+        ...(targetSession ? { sessionId: targetSession } : {}),
+        text: summary,
+        role: 'reply',
+        replyTo: snapshot.id,
+        ...(snapshot.ref ? { workRef: snapshot.ref } : {}),
+        recordExchange: false,
+        exchangeId: randomUUID(),
+      }).then(() => true, (error) => {
+        rt.warn('ds-bot: task continuation after cancel failed: %s', error)
+        return false
+      })
+    }
     const parent = own(works(), snapshot.parent)
-    if (parent === undefined || parent.to === undefined) return Promise.resolve(false)
-    const parentBot = rt.botOf(parent.to)
+    const parentBotId = ownerBotOfWork(parent)
+    if (parent === undefined || parentBotId === undefined) return Promise.resolve(false)
+    const parentBot = rt.botOf(parentBotId)
     if (parentBot === undefined) return Promise.resolve(false)
-    const backRoom = rt.roomOf(snapshot.fromRoom)?.sessions?.[parent.to]
+    const backRoom = rt.roomOf(snapshot.fromRoom)?.sessions?.[parentBotId]
     const targetSession = backRoom
       ?? (snapshot.fromPart ? threadCurrentOfPart(parentBot, snapshot.fromPart) : undefined)
       ?? (parent.toSession ? threadCurrentOfPart(parentBot, parent.toSession) : undefined)
-      ?? rt.chatOf(parent.to)
-    // If the parent Bot itself cancelled this child while actively running the parent turn,
+      ?? rt.chatOf(parentBotId)
+    // If the parent Bot itself cancelled this child while actively running the same turn,
     // its current turn already knows and will finish the parent naturally when the turn ends.
-    if (by === parent.to && targetSession !== undefined && rt.workOf?.(rt.live?.get(targetSession)?.info) === snapshot.parent) {
-      return Promise.resolve(false)
-    }
-    const targetName = rt.botOf(snapshot.to)?.name ?? snapshot.name ?? 'the teammate'
-    const label = snapshot.ref ? ` #${snapshot.ref}` : ''
-    const why = reason.trim()
-    const summary = `Delegated work${label} to ${targetName} was cancelled by ${byLabel}${why ? ` (${why})` : ''}. Continue with your own work without waiting for ${targetName}.`
+    const targetLive = targetSession === undefined ? undefined : rt.live?.get(targetSession)
+    const sameTurn = by === parentBotId && targetLive?.turn !== undefined && (
+      bySession !== undefined
+        ? bySession === targetSession
+        : rt.workOf?.(targetLive.info) === snapshot.parent
+    )
+    if (sameTurn) return Promise.resolve(false)
     parent.results = [...(parent.results ?? []), { id: snapshot.id, name: targetName, text: headOf(summary, TEXT_KEPT), cancelled: true, at: Date.now() }]
     save()
     return rt.deliver({
       fromId: rt.botOf(snapshot.to)?.id,
       fromName: targetName,
-      toId: parent.to,
+      toId: parentBotId,
       ...(targetSession ? { sessionId: targetSession } : {}),
       text: summary,
       role: 'reply',
@@ -493,15 +536,20 @@ export function install(rt) {
   function closeWork(id, name, text, extra = {}) {
     const work = own(works(), id)
     if (work === undefined) return undefined
+    const workWorked = work.worked === true || extra?.worked === true
+    const { worked: _worked, ...storedExtra } = extra ?? {}
     delete works()[id]
     rememberClosed(id, { id, ref: work.ref, from: work.from, to: work.to, status: 'closed', at: Date.now() })
     // What it still waits for comes back to it alone.
     for (const child of Object.values(works())) if (child.parent === id) delete child.parent
     const above = own(works(), work.parent)
     if (above !== undefined) {
+      // Propagate real work progress up the delegation tree so coordinating Bots
+      // that delegate to workers executing real tools are not paused as idle loops.
+      if (workWorked) above.worked = true
       // The whole result goes into a file of its own before the team file names it.
       const file = keepResult(id, text)
-      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(work.child ? { child: work.child } : {}), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}), at: Date.now(), ...extra })
+      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(work.child ? { child: work.child } : {}), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}), at: Date.now(), ...storedExtra })
       whole.set(id, text)
     }
     for (const result of work.results ?? []) whole.delete(result.id)
@@ -657,9 +705,20 @@ export function install(rt) {
   // The works their Bots wait on, outside a turn that does them (`busy`): each with what
   // it handed on that has not come back yet. One that came back waits only to be read.
   const held = busy => Object.entries(works())
-    .filter(([id, work]) => work.to !== undefined && work.open.length > 0 && !busy.has(id))
+    .filter(([id, work]) => ownerBotOfWork(work) !== undefined && work.open.length > 0 && !busy.has(id))
     .map(([id, work]) => ({ id, work, out: work.open.map(childId => ({ id: childId, work: own(works(), childId) })).filter(child => child.work !== undefined) }))
-  const busyWith = sessionIds => new Set(sessionIds.map(sessionId => rt.live.get(sessionId)).filter(entry => entry?.turn !== undefined).map(entry => workOf(entry.info)).filter(Boolean))
+  const busyWith = sessionIds => {
+    const active = new Set()
+    for (const sessionId of sessionIds) {
+      const entry = rt.live.get(sessionId)
+      if (entry?.turn === undefined) continue
+      const primary = workOf(entry.info)
+      if (primary) active.add(primary)
+      const taskWork = rt.taskBySession?.(sessionId)?.task?.workId
+      if (taskWork) active.add(taskWork)
+    }
+    return active
+  }
 
   // Per Bot, the Bots and groups it waits for, and the Bots it does that work for.
   function waitingView() {
@@ -667,12 +726,14 @@ export function install(rt) {
     const add = (list, id) => { if (id !== undefined && !list.includes(id)) list.push(id) }
     for (const { work, out } of held(busyWith([...rt.live.keys()]))) {
       if (out.length === 0) continue
-      const entry = view[work.to] ??= { bots: [], rooms: [], for: [], waits: [] }
+      const owner = ownerBotOfWork(work)
+      const entry = view[owner] ??= { bots: [], rooms: [], for: [], waits: [] }
       for (const { id, work: child } of out) {
         add(child.room ? entry.rooms : entry.bots, child.room ?? child.to)
         entry.waits.push({ id, ...(child.room ? { room: child.room, name: rt.roomOf(child.room)?.name } : { to: child.to, name: nameOf(child.to) ?? child.name }) })
       }
-      add(entry.for, work.from)
+      const asker = rootAsker(work)
+      if (asker !== owner) add(entry.for, asker)
     }
     return view
   }
@@ -721,13 +782,13 @@ export function install(rt) {
     const origin = workImOrigin(id)
     if (origin !== undefined) rememberImReplyOrigin(id, origin)
     if (reason === 'gone') rt.dropRoomReport?.(id)
-    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(parent.to !== undefined ? { waiting: parent.to } : {}) })
+    const waitingBot = ownerBotOfWork(parent)
+    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(waitingBot !== undefined ? { waiting: waitingBot } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
     parent.open = parent.open.filter(other => other !== id)
     save()
     // The Bot that waited goes on with its work now, the same way a reply brings it back.
-    const waitingBot = parent.to
     if (waitingBot !== undefined && rt.botOf(waitingBot) !== undefined) {
       const said = reason === 'gone'
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
@@ -782,21 +843,28 @@ export function install(rt) {
   }, 'ds-bot: lost hand-offs')
 
   // A deleted Bot answers no more work and waits for none.
-  function forgetBot(botId) {
+  function forgetBot(botId, { onOutgoing } = {}) {
     resetBotLoops(botId)
     const waiting = Object.entries(works()).filter(([, work]) => work.to === botId && work.state !== 'paused').map(([id]) => askedBy(id))
+    const outgoing = []
     for (const [id, work] of Object.entries(works())) {
       if (work.to === botId && work.state === 'paused') {
         const parent = work.parent === undefined ? undefined : own(works(), work.parent)
-        if (parent !== undefined && parent.to !== botId && parent.open.includes(id)) {
+        if (parent !== undefined && ownerBotOfWork(parent) !== botId && parent.open.includes(id)) {
           abandonWork(id, 'gone')
         } else {
           dropWork(id)
         }
       } else if (work.from === botId && work.to !== botId) {
-        dropWork(id)
+        if (typeof onOutgoing === 'function') {
+          const snapshot = cancelWork(id, { by: botId, reason: 'The calling Bot was deleted.' })
+          if (snapshot !== undefined) outgoing.push(snapshot)
+        } else {
+          dropWork(id)
+        }
       }
     }
+    if (typeof onOutgoing === 'function') onOutgoing(outgoing)
     return waiting
   }
 
@@ -837,8 +905,9 @@ export function install(rt) {
       lines.push(`working ${place(sessionId)} ${minutes(entry.since ?? Date.now())}${forWhom(sessionId, entry.info)}${doing(entry)}`)
     }
     for (const { work, out } of held(busyWith(running))) {
-      if (work.to !== botId) continue
-      const forName = nameOf(work.from) ? `, for ${nameOf(work.from)}` : ''
+      if (ownerBotOfWork(work) !== botId) continue
+      const asker = rootAsker(work)
+      const forName = asker !== botId && nameOf(asker) ? `, for ${nameOf(asker)}` : ''
       const on = [...new Set(out.map(({ work: child }) => (child.room ? `group "${rt.roomOf(child.room)?.name ?? 'a group'}"` : child.name ?? nameOf(child.to) ?? 'a teammate')))]
       lines.push(on.length > 0 ? `waiting for ${on.join(' and ')} to hand back work${forName}` : `about to go on with work${forName}, whose results came back`)
     }

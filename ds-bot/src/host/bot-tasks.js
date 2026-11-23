@@ -24,10 +24,44 @@ const BRIEF_KEPT = 500
 const SUMMARY_MAX = 300
 const REPORT_MAX = 4000
 const CONTEXT_FALLBACK_MAX = 8000
+const CONTEXT_FALLBACK_NOTE_MIN = 5000
 const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+// Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
+// bodies so bot.tasks[] does not duplicate historical handoff notes in state.json.
+const slimSegments = (bot) => (bot?.segments ?? [])
+  .filter(seg => typeof seg?.sessionId === 'string' && seg.sessionId !== '')
+  .map(seg => ({
+    sessionId: seg.sessionId,
+    ...(seg.endedAt !== undefined ? { endedAt: seg.endedAt } : {}),
+  }))
+const cleanStructuredNote = (raw, { handoff = false } = {}) => {
+  let text = String(raw ?? '').replace(/\r\n?/g, '\n').trim()
+  if (text === '') return ''
+  if (handoff) {
+    const firstLine = text.split('\n', 1)[0] ?? ''
+    const noteAt = text.indexOf('\n## Handoff note')
+    if (noteAt !== -1) {
+      const rest = text.slice(noteAt + 1).trim()
+      text = firstLine.startsWith('[Handoff') ? `${firstLine}\n${rest}` : rest
+    }
+  }
+  return text
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+const clipStructuredNote = (text, max) => {
+  if (text.length <= max) return text
+  const slice = text.slice(0, Math.max(0, max - 1))
+  const nl = slice.lastIndexOf('\n')
+  const cut = nl >= Math.floor(max * 0.6) ? slice.slice(0, nl) : slice
+  return `${cut.trimEnd()}…`
+}
 const newId = () => `k_${randomBytes(3).toString('hex')}`
 const safeFileName = id => `${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}.txt`
 
@@ -161,24 +195,45 @@ export function install(rt) {
 
   // Builds a bounded recent-context note when the task could not fork directly
   // (e.g. first turn with no turn/end, different workdir, or local CLI agent).
+  // Preserves the latest [Handoff] or [Checkpoint] structured note with headings
+  // intact instead of flattening and clipping it to 1,000 characters.
   const fallbackContextSummary = (fromSessionId) => {
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const events = sourceAgent?.session?.snapshotEvents?.() ?? []
     if (events.length === 0) return ''
+    let latestNote = ''
+    let shadowedEnd = -1
+    for (const event of events) {
+      if (event.type === 'compaction/summary') {
+        const cleaned = cleanStructuredNote(event.data?.summary)
+        if (cleaned !== '') latestNote = cleaned
+        if (Number.isInteger(event.data?.shadowedRange?.end) && event.data.shadowedRange.end > shadowedEnd) {
+          shadowedEnd = event.data.shadowedRange.end
+        }
+      } else if (event.type === 'user/message' && event.data?.source?.kind === SOURCE_KIND && event.data.source.handoff === true) {
+        const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
+        const cleaned = cleanStructuredNote(raw, { handoff: true })
+        if (cleaned !== '') latestNote = cleaned
+      }
+    }
     const lines = []
     for (const event of events) {
+      if (shadowedEnd >= 0 && Number.isInteger(event.seq) && event.seq <= shadowedEnd) continue
       if (event.type === 'user/message') {
         const source = event.data?.source
         if (source?.kind === 'runtime-context') continue
-        if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
-        const text = textOf(event.data?.message?.content ?? event.data?.content ?? []).trim()
+        if (source?.kind === SOURCE_KIND && (source.handoff === true || source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
+        const text = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
         if (text !== '') lines.push(`User: ${oneLine(text, 1000)}`)
       } else if (event.type === 'assistant/message') {
         const text = textOf(event.data?.message?.content ?? []).trim()
         if (text !== '' && text !== HANDOFF_ACK) lines.push(`Assistant: ${oneLine(text, 1000)}`)
       }
     }
-    if (lines.length === 0) return ''
+    if (latestNote === '' && lines.length === 0) return ''
+    const tailBudget = latestNote === ''
+      ? CONTEXT_FALLBACK_MAX
+      : Math.max(0, CONTEXT_FALLBACK_MAX - Math.min(latestNote.length, CONTEXT_FALLBACK_NOTE_MIN) - 2)
     const selected = []
     let chars = 0
     let truncated = false
@@ -186,22 +241,36 @@ export function install(rt) {
     for (let i = tail.length - 1; i >= 0; i -= 1) {
       const line = tail[i]
       const extra = selected.length === 0 ? line.length : line.length + 1
-      if (selected.length > 0 && chars + extra > CONTEXT_FALLBACK_MAX) {
+      if (tailBudget === 0) {
         truncated = true
         break
       }
-      const kept = selected.length === 0 && line.length > CONTEXT_FALLBACK_MAX
-        ? `${line.slice(0, CONTEXT_FALLBACK_MAX)}…`
+      if (selected.length > 0 && chars + extra > tailBudget) {
+        truncated = true
+        break
+      }
+      const kept = selected.length === 0 && line.length > tailBudget
+        ? `${line.slice(0, tailBudget)}…`
         : line
       selected.push(kept)
       chars += selected.length === 1 ? kept.length : kept.length + 1
     }
     truncated ||= lines.length > CONTEXT_FALLBACK_ITEMS
-    const body = selected.reverse().join('\n')
-    const clipped = truncated ? `…\n${body}` : body
+    const tailBody = selected.reverse().join('\n')
+    const clippedTail = tailBody === '' ? '' : (truncated ? `…\n${tailBody}` : tailBody)
+    let body
+    if (latestNote !== '') {
+      const noteBudget = clippedTail === ''
+        ? CONTEXT_FALLBACK_MAX
+        : Math.max(CONTEXT_FALLBACK_NOTE_MIN, CONTEXT_FALLBACK_MAX - clippedTail.length - 2)
+      const keptNote = clipStructuredNote(latestNote, noteBudget)
+      body = clippedTail === '' ? keptNote : `${keptNote}\n\n${clippedTail}`
+    } else {
+      body = clippedTail
+    }
     const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
     const label = room !== undefined ? `group "${room.name}"` : 'your own chat'
-    return `\n\n[Recent context from ${label}]\n${clipped}`
+    return `\n\n[Recent context from ${label}]\n${body}`
   }
 
   const lastReplyOf = (session, workDir) => {
@@ -449,6 +518,7 @@ export function install(rt) {
     const linkWork = parentWork !== undefined && rt.ownsWork?.(bot.id, parentWork)
     const taskWorkId = linkWork ? `task:${id}` : undefined
 
+    const inherited = room === undefined ? slimSegments(bot) : []
     const baseTask = {
       id,
       title: name,
@@ -458,6 +528,7 @@ export function install(rt) {
       startedAt: now,
       updatedAt: now,
       ...(room !== undefined ? { roomId: room.id } : {}),
+      ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
       ...(taskWorkId !== undefined ? { workId: taskWorkId, parentWorkId: parentWork } : {}),
       ...(imOrigin !== undefined ? { imOrigin } : {}),
       ...(dispatchApprovalOrigin !== undefined ? { dispatchApprovalOrigin } : {}),
@@ -465,7 +536,7 @@ export function install(rt) {
 
     const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir })
     if (taskWorkId !== undefined) {
-      rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, name: `task "${name}"`, child: id })
+      rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
     if (room !== undefined) rt.workRoomTurn?.(fromSessionId, 'task')
 
@@ -571,6 +642,10 @@ export function install(rt) {
   }
 
   const hasInboxInput = agent => Boolean(agent?.inbox?.nextStep?.length || agent?.inbox?.nextTurn?.length)
+  // Pending non-opening deliveries (follow-ups, deferred peer requests, answers, replies)
+  // still queued for a task session after a turn finishes. Excludes the opening `role: 'task'`
+  // prompt itself, which already started the completed turn.
+  const hasPendingTaskUnread = sessionId => (rt.unreadOf?.(sessionId) ?? []).some(args => args?.role !== 'task')
 
   // Settles a task whose turn ended while the plugin was reloading (durable log).
   async function reconcileEndedTask(sessionId, ended) {
@@ -733,7 +808,7 @@ export function install(rt) {
   // Determines whether a Bot's foreground chat is busy enough to move its running turn
   // intact into `bot.tasks[]` (or spawn a peer-Bot background task) rather than doing
   // a fast mid-model steer cut. Disabled for local CLI agents in v1.
-  function shouldMoveForeground(bot, sessionId) {
+  function shouldMoveForeground(bot, sessionId, { forPeer = false } = {}) {
     if (bot === undefined || sessionId === undefined || rt.readOnly?.() !== undefined) return false
     if (sessionId !== rt.chatOf(bot.id)) return false
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
@@ -743,6 +818,9 @@ export function install(rt) {
     if (handoffing.get(bot.id)?.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
     if (entry?.turn === undefined || entry.cut !== undefined) return false
+    // A hidden peer-Bot work turn on foreground must hand off immediately on user input
+    // instead of falling through to steer.js STEER_CUT (which would leak the user's reply).
+    if (!forPeer && rt.isHiddenBotWorkTurn?.(bot.id, entry.info)) return true
     if ((entry.toolCount ?? 0) > 0 || (entry.calls?.size ?? 0) > 0) return true
     if ((rt.runningJobs?.(sessionId)?.length ?? 0) > 0) return true
     const waitMs = rt.backgroundWaitMs?.() ?? 5000
@@ -962,8 +1040,7 @@ export function install(rt) {
     recordPendingTransfers(seededMessages, { botId: bot.id })
     const info = entry?.info
     const activeWork = rt.workOf?.(info)
-    const isBotHandoff = (info?.role === 'request' && info.audience !== 'user')
-      || (activeWork !== undefined && rt.ownsWork?.(bot.id, activeWork))
+    const isBotHandoff = rt.isHiddenBotWorkTurn?.(bot.id, info) === true
     const origin = isBotHandoff ? 'bot-handoff' : 'fg-handoff'
     const movedPrompt = isBotHandoff ? '' : promptFromRunningTurn(oldAgent?.session, entry)
     const title = titleFromRunningTurn(oldAgent?.session, entry)
@@ -1009,6 +1086,7 @@ export function install(rt) {
         return currentSid ?? newSid
       }
       const now = Date.now()
+      const inherited = slimSegments(bot)
       const task = {
         id: newId(),
         title,
@@ -1017,7 +1095,7 @@ export function install(rt) {
         sessionId: oldSid,
         segments: [],
         startSeq,
-        ...(bot.segments?.length ? { inheritedSegments: bot.segments.map(seg => ({ ...seg })) } : {}),
+        ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
         origin,
         status: rt.waitsForApproval?.(oldSid) ? 'waiting_approval' : 'running',
         startedAt: entry?.since ?? now,
@@ -1029,6 +1107,9 @@ export function install(rt) {
       bot.sessionId = newSid
       rt.chatOwners.set(newSid, bot.id)
       rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
+      if (isBotHandoff && activeWork !== undefined) {
+        rt.setWorkTargetSession?.(activeWork, oldSid, task.id)
+      }
       record.committed = true
       record.newSid = newSid
       // Clear live IM origin on the moved background session so it never streams raw lines
@@ -1056,9 +1137,13 @@ export function install(rt) {
       // reason so failed/stopped/max-tokens turns settle with the right status.
       const stillRunning = rt.live.get(oldSid)?.turn !== undefined
         || oldAgent?.status === 'running'
+        || hasInboxInput(oldAgent)
+        || hasPendingTaskUnread(oldSid)
         || (rt.runningJobs?.(oldSid)?.length ?? 0) > 0
         || rt.waitsForApproval?.(oldSid)
         || hasOpenOutgoingWorks(bot, task)
+        || isAwaitingHandoffInput(task)
+        || (origin === 'bot-handoff' && activeWork !== undefined && rt.live.get(oldSid)?.lastAskedBackWork === activeWork)
 
       if (!stillRunning) {
         // When the new foreground could not fork history (e.g. first turn, workdir change,
@@ -1134,12 +1219,13 @@ export function install(rt) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
+    const inherited = slimSegments(target)
     const baseTask = {
       id,
       title,
       brief: oneLine(text, BRIEF_KEPT),
       from: fromSessionId,
-      ...(target.segments?.length ? { inheritedSegments: target.segments.map(seg => ({ ...seg })) } : {}),
+      ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
       origin: 'bot-handoff',
       exchangeId,
       status: 'running',
@@ -1166,9 +1252,11 @@ export function install(rt) {
         ...(workRef ? { workRef } : {}),
       })
     } catch (error) {
-      rt.forgetDelivery?.(exchangeId)
-      if (!reuseWork) rt.dropWork?.(exchangeId)
-      await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false })
+      if (error?.delivered !== true) {
+        rt.forgetDelivery?.(exchangeId)
+        if (!reuseWork) rt.dropWork?.(exchangeId)
+        await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false })
+      }
       throw error
     }
     emitTaskEvent('task.started', target, task, { origin: 'bot-handoff' })
@@ -1235,7 +1323,26 @@ export function install(rt) {
     // synchronously in FIFO order and move the busy turn intact into `bot.tasks[]`.
     const botId = rt.chatOwners.get(id)
     const bot = botId === undefined ? undefined : rt.botOf(botId)
-    if (!shouldMoveForeground(bot, id)) return
+    if (!shouldMoveForeground(bot, id)) {
+      // When foreground handoff is unavailable (e.g. local CLI Bot) while a hidden
+      // peer-Bot turn is running, demote user `next-step` steers to `next-turn` so the
+      // user's message never injects into or leaks out of the hidden peer-Bot turn.
+      const liveEntry = rt.live.get(id)
+      if (bot !== undefined && target === 'next-step' && liveEntry?.turn !== undefined
+        && rt.isHiddenBotWorkTurn?.(bot.id, liveEntry.info) && agent?.inbox?.remove !== undefined) {
+        if (agent.inbox.remove(msg.id)) {
+          clearSteeredAt()
+          skipInterceptIds.add(msg.id)
+          try {
+            if (typeof agent.send === 'function') agent.send(msg, 'next-turn', true)
+            else agent.followup?.(msg)
+          } finally {
+            skipInterceptIds.delete(msg.id)
+          }
+        }
+      }
+      return
+    }
     if (agent?.inbox?.remove === undefined) return
     const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
     if (!agent.inbox.remove(msg.id)) {
@@ -1304,6 +1411,9 @@ export function install(rt) {
     if (said === HANDOFF_ACK || delivering.has(task.id)) return
     const currentLive = rt.live.get(task.sessionId)
     if (currentLive?.turn !== undefined || currentLive?.retrying === true) return
+    const currentAgent = ctx.get('agents')?.get(task.sessionId)
+    if (hasInboxInput(currentAgent) || hasPendingTaskUnread(task.sessionId)) return
+    if ((currentLive?.joined?.length ?? 0) > 0 || (currentLive?.later?.length ?? 0) > 0) return
     // 6. Still waiting on background shell jobs inside this task.
     if ((rt.runningJobs?.(task.sessionId)?.length ?? 0) > 0) return
     // 7. Still waiting on an approval card.
@@ -1316,7 +1426,8 @@ export function install(rt) {
       return
     }
     // 8. Still waiting on outgoing Bot-to-Bot / group report-back works or ask_back input.
-    if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)) {
+    if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)
+      || (task.origin === 'bot-handoff' && task.exchangeId !== undefined && currentLive?.lastAskedBackWork === task.exchangeId)) {
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'
         task.updatedAt = Date.now()
