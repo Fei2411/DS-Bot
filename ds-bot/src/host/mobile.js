@@ -130,7 +130,7 @@ export function roomItems(events, rowsOf = () => []) {
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
         // A post a running round logged shows inside that round; a member's late failure,
         // picked-up work, stopped work or finished work is an event of the round it opens.
-        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
+        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,

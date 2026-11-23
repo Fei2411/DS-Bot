@@ -109,13 +109,18 @@ export const USER_UI_TOOLS = new Set([
 
 // Short wrap-up / acknowledgement / standby texts used to detect ACK-of-ACK ping-pong
 // immediately (on bounce #1) while allowing substantive multi-step pure-LLM work.
-const ACK_LIKE_TEXT = /^(?:(?:收到|好的|好|明白|了解|知道了|嗯|行|没问题|谢谢|感谢|辛苦|辛苦了|收工|待命|完|完毕|完毕了|静默|无待办|没有待办|不用回|不用再回|无需回复|已收到|已收工|已待命|已知悉|ok|okay|got\s+it|roger|ack|acknowledged|noted|thanks|thank\s+you|done|all\s+set|standing\s+by|standby|no\s+action|no\s+reply|wrapped\s+up|good\s+to\s+go)(?:[，,。.!！、；;：:\s]|我已?|我也?|已?|没有|不用|无需|继续|先|就|这边|这里|一切|全部|都)*){1,8}$/i
+// Uses two flat, non-nested O(n) scans to guarantee zero catastrophic backtracking.
+const ACK_CORE_TOKEN = /(?:收到|好的|好|明白|明白了|了解|了解了|知道了|没问题|谢谢|多谢|感谢|辛苦了|辛苦|收工|待命|完毕了|完毕|完|静默|无待办|没有待办|不用再回|不用回|无需回复|已知悉|\b(?:okay|ok|got\s+it|roger|acknowledged|ack|noted|thank\s+you|thanks|done|all\s+set|standing\s+by|standby|no\s+action|no\s+reply|wrapped\s+up|good\s+to\s+go)\b)/gi
+const ACK_FILLER_TOKEN = /(?:我也|我已|我|这边|这里|一切|全部|继续|没有|不用|无需|待办|嗯|行|已|先|就|都|[，,。.!！、；;：:~～\s]+)/gi
 export const isAckLikeText = text => {
   const trimmed = String(text ?? '').trim()
   if (trimmed === '' || trimmed.length > 140) return false
   if (isSilentTurnText(trimmed)) return true
-  const compact = trimmed.replace(/\s+/g, ' ')
-  return ACK_LIKE_TEXT.test(compact)
+  ACK_CORE_TOKEN.lastIndex = 0
+  if (!ACK_CORE_TOKEN.test(trimmed)) return false
+  ACK_CORE_TOKEN.lastIndex = 0
+  const stripped = trimmed.replace(ACK_CORE_TOKEN, ' ').replace(ACK_FILLER_TOKEN, '')
+  return stripped === ''
 }
 
 // Max ask_back clarification rounds on one delegated work before pausing for the user.

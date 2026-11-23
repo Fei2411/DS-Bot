@@ -7,9 +7,11 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { afterRound } from './relay-rows.js'
 import { fakeContext } from './fake-ctx.js'
-import { isSilentTurnText, isWorkTool, PAIR_LOOP_TTL_MS, SOURCE_KIND } from '../src/host/constants.js'
+import { isAckLikeText, isSilentTurnText, isWorkTool, PAIR_LOOP_TTL_MS, SOURCE_KIND } from '../src/host/constants.js'
 import { isRelayContext, stripHeader } from '../src/client/text.js'
 import { BROWSER_ALLOWED } from '../src/shared/browser-endpoints.js'
+import { roomItems } from '../src/host/mobile.js'
+import { extractGroupSessionLines } from '../src/host/groups.js'
 
 const textOf = content => (Array.isArray(content) ? content.map(block => block.text ?? '').join('\n') : String(content ?? ''))
 const textBlock = text => [{ type: 'text', text }]
@@ -945,4 +947,65 @@ test('P0 #3: reload reconciliation keeps need_input work open instead of prematu
   assert.equal(rt.workStateOf('w-need'), 'need_input')
   assert.equal(agents.get('a')?.calls.length ?? 0, 0, 'Chief must NOT get premature closing reply on reload while need_input')
   assert.equal(agents.get('b')?.calls.length ?? 0, 0, 'Writer must NOT be resent silent notes or cancelled work on reload')
+})
+
+test('re-review fixes: linear-time isAckLikeText, no duplicate deferred ask_back/answer, mobile/backfill resumedPause skip, silent isRelayContext', async (t) => {
+  const { agentOf, emit, tool, stop } = await start()
+  t.after(stop)
+
+  // 1) isAckLikeText is O(n) with zero ReDoS backtracking and accurate classification.
+  assert.equal(isAckLikeText('好，收工待命，没有待办。'), true)
+  assert.equal(isAckLikeText('ok, got it, thanks!'), true)
+  assert.equal(isAckLikeText('book a flight'), false)
+  assert.equal(isAckLikeText('我我我我'), false)
+  const started = performance.now()
+  assert.equal(isAckLikeText(`收到${'我'.repeat(120)}X`), false)
+  assert.ok(performance.now() - started < 50, 'isAckLikeText must finish in linear time without backtracking')
+
+  // 2a) Mid-turn ask_back answered during the same turn must NOT re-deliver a duplicate deferred ask_back at turn/end.
+  await tool('delegate_work', { to: 'Writer', goal: 'prepare release notes' }, 'a')
+  const req1 = agentOf('b').calls.at(-1)[1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: req1.content, source: req1.source })
+  await tool('ask_back', { question: '是否包含内部修复？' }, 'b')
+  const askMsg = agentOf('a').calls.at(-1)[1]
+
+  emit('a', 'turn/start', { turn: 1 })
+  emit('a', 'user/message', { content: textBlock('用户在和 Chief 聊别的'), source: { kind: 'user' } })
+  emit('a', 'user/message', { content: askMsg.content, source: askMsg.source })
+  // Chief answers the ask_back mid-turn before turn 1 ends!
+  await tool('answer_work', { answer: '只列公开变更。' }, 'a')
+  const aCallsBeforeEnd = agentOf('a').calls.length
+  emit('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  const dupDeferredAsk = agentOf('a').calls.slice(aCallsBeforeEnd).filter(([, m]) => m.source?.role === 'ask_back' && m.source?.deferred === true)
+  assert.equal(dupDeferredAsk.length, 0, 'already-answered ask_back must NOT re-deliver as deferred at turn/end')
+
+  // 2b) Same-work answer steered into Writer's active turn must NOT re-deliver as deferred at turn/end.
+  const ansMsg = agentOf('b').calls.at(-1)[1]
+  assert.equal(ansMsg.source.role, 'answer')
+  emit('b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
+  emit('b', 'assistant/message', assistantText('发布说明已按公开变更整理完毕。'))
+  const bCallsBeforeEnd = agentOf('b').calls.length
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  const dupDeferredAns = agentOf('b').calls.slice(bCallsBeforeEnd).filter(([, m]) => m.source?.role === 'answer' && m.source?.deferred === true)
+  assert.equal(dupDeferredAns.length, 0, 'same-work answer already consumed in turn must NOT re-deliver as deferred')
+
+  // 3) Mobile roomItems & group log backfill both skip source.resumedPause === true.
+  const resumedEvt = {
+    type: 'user/message',
+    seq: 42,
+    time: 1000,
+    data: {
+      content: textBlock('[Group chat · user continued paused calls]'),
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: 'ex-rp', roomId: 'r1', quiet: true, resumedPause: true },
+    },
+  }
+  assert.deepEqual(roomItems([resumedEvt], {}, () => undefined).items, [], 'mobile roomItems must skip resumedPause')
+  assert.deepEqual(extractGroupSessionLines([resumedEvt], () => undefined), [], 'extractGroupSessionLines must skip resumedPause')
+
+  // 4) isRelayContext excludes silent stop/note/cancel notices so they never render inside an unrelated turn.
+  assert.equal(isRelayContext({ source: { kind: 'bot', role: 'stopped', silent: true, senderSessionId: 'a' } }), false)
+  assert.equal(isRelayContext({ source: { kind: 'bot', role: 'stopped', senderSessionId: 'a' } }), true)
 })

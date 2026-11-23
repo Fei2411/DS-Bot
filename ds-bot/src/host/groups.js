@@ -297,7 +297,7 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
         const text = prompts.length > 0 ? prompts.join('\n') : textOf(content)
         lines.push({ who: 'User', text, ...time })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
-        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
+        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const raw = textOf(content).replace(POST_HEADER, '')
         const text = [raw, ...files.map(fileLine)].filter(Boolean).join('\n')
         const botId = source.senderSessionId

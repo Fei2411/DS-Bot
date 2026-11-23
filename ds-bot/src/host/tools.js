@@ -908,6 +908,16 @@ export function install(rt) {
         const agent = await rt.resolveAgent(sessionId)
         agent.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })
       }
+      if (cancelledSnapshots.length > 0) {
+        const cancelledIds = new Set(cancelledSnapshots.map(item => item.id))
+        const chat = rt.chatOf(target.id)
+        const chatAgent = await rt.resolveAgent(chat).catch(() => undefined)
+        for (const message of [...(chatAgent?.inbox?.nextStep ?? []), ...(chatAgent?.inbox?.nextTurn ?? [])]) {
+          if (cancelledIds.has(message?.source?.exchangeId) || cancelledIds.has(message?.source?.work) || cancelledIds.has(message?.source?.askWork)) {
+            chatAgent.inbox?.remove?.(message.id)
+          }
+        }
+      }
       for (const snapshot of cancelledSnapshots) {
         await rt.notifyParentCancelled?.(snapshot, { reason: why, by: sender.id, byLabel: sender.name })
       }

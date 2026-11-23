@@ -18020,7 +18020,7 @@ var RELAY_ROLES = /* @__PURE__ */ new Set(["request", "reply", "stopped", "ask_b
 var isRelayContext = (data) => {
   const source = data?.source;
   if (source === null || typeof source !== "object" || source.kind !== "bot" || source.handoff === true) return false;
-  if (source.deferred === true || source.resumed === true || source.retried === true) return false;
+  if (source.deferred === true || source.resumed === true || source.retried === true || source.silent === true) return false;
   return RELAY_ROLES.has(source.role) && typeof source.senderSessionId === "string";
 };
 var stepShows = (step) => (step?.blocks ?? []).some((block) => {

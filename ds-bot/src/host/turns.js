@@ -153,7 +153,7 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   if (typeof source.exchangeId === 'string' && source.exchangeId !== '' && rt.closedWorkOf?.(source.exchangeId)?.status === 'cancelled') {
     return false
   }
-  const workBeforeClose = typeof source.exchangeId === 'string' ? rt.state?.works?.[source.exchangeId] : undefined
+  const workBeforeClose = typeof source.exchangeId === 'string' && Object.hasOwn(rt.state?.works ?? {}, source.exchangeId) ? rt.state.works[source.exchangeId] : undefined
   const workRef = source.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(source.exchangeId)
   const workWorked = workBeforeClose?.worked === true || options.worked === true
   const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
@@ -1277,9 +1277,12 @@ export function install(rt) {
             entry.pendingText = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
           }
           else if (!opened) claimTrigger(id, entry, source)
-          else if (source.role === 'ask_back' || source.role === 'answer' || (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source))) {
-            // An ask_back, answer, or result for other work informs this turn and comes
-            // back in a turn of its own once this one ends, so busy callers/workers never drop it.
+          else if (source.role === 'ask_back'
+            || (source.role === 'answer' && source.work !== rt.workOf?.(entry.info))
+            || (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source))) {
+            // An ask_back, answer for another work, or result for other work informs this
+            // turn and comes back in a turn of its own once this one ends, so busy callers
+            // or workers never drop it without re-delivering an already-consumed same-work answer.
             entry.later = [...(entry.later ?? []), { info: source, text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '') }]
           } else if ((expectsReply(source) || source.role === 'room') && !answersUser(source)
             && source.exchangeId !== entry.info?.exchangeId
@@ -1443,8 +1446,8 @@ export function install(rt) {
         queueMicrotask(() => void rt.flushSilentNotes?.(id))
         for (const result of later) {
           const refWork = result.info.askWork ?? result.info.work
-          if (refWork !== undefined && (result.info.role === 'ask_back' || result.info.role === 'answer')
-            && rt.closedWorkOf?.(refWork)?.status === 'cancelled') continue
+          if (result.info.role === 'ask_back' && refWork !== undefined && rt.workStateOf?.(refWork) !== 'need_input') continue
+          if (result.info.role === 'answer' && refWork !== undefined && rt.workStateOf?.(refWork) !== 'open') continue
           const targetSessionId = laterTarget(id)
           if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
