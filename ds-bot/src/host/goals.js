@@ -609,6 +609,8 @@ export function install(rt) {
     }
     if (action === 'resume') {
       if (goal.status !== 'paused') return { error: wrongState(room, goal, 'resume', 'paused') }
+      const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
+      if (admin === undefined) return { error: 'This group has no admin. Set one in the group settings first.' }
       const result = resumeGoal(room, 'user')
       rt.clearRoomIdleStreak?.(room.id)
       announce(room, result.reply)
@@ -822,7 +824,7 @@ export function install(rt) {
           ? `Only ${admin.name}, the admin of "${room.name}", or a Main Bot changes its goal. Tell the admin in the group.`
           : `Only a Main Bot changes the goal of "${room.name}".`
       }
-      if ((action === 'draft' || action === 'start') && admin === undefined) {
+      if ((action === 'draft' || action === 'start' || action === 'resume') && admin === undefined) {
         return `"${room.name}" has no admin, and a goal needs one to run it. Set an admin with update_group first.`
       }
       const of = memberOf(room)
@@ -877,6 +879,7 @@ export function install(rt) {
           // Inside the target group, keep the caller running while stopping other members,
           // waiting slots, and queued relays; outside it, stop the whole room's active work.
           const fromInsideTargetRoom = rt.groupOwners.get(exec.agent?.id)?.roomId === room.id
+            || rt.taskOwners?.get(exec.agent?.id)?.roomId === room.id
           post = fromInsideTargetRoom
             ? async () => {
               if (rt.stopOtherRoomWork !== undefined) await rt.stopOtherRoomWork(room.id, self)

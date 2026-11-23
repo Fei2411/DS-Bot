@@ -3881,6 +3881,63 @@ test('groupSearch works cold on unmigrated rooms, read_group_chat uses excerpt f
   assert.match(older, /#1 User: history line 1/)
   assert.match(older, /#5 User: history line 5/)
   assert.doesNotMatch(older, /Older messages exist/)
+
+  // 4) Exact-30-row boundary backfill: ledger keeps seqs 3..32 (30 rows) while seqs 1..2 live only
+  //    in the group Session history -> before_seq: 33 must still backfill so hasMore is true!
+  const sessionEvents32 = Array.from({ length: 32 }, (_, idx) => ({
+    seq: idx + 1,
+    type: 'user/message',
+    time: 1000 + idx + 1,
+    data: { source: { kind: 'user' }, content: [{ type: 'text', text: `legacy line ${idx + 1}` }] },
+  }))
+  const kept30 = Array.from({ length: 30 }, (_, idx) => ({
+    seq: idx + 3, who: 'User', text: `legacy line ${idx + 3}`, time: 1000 + idx + 3,
+  }))
+  const host3 = await start(t, { log: kept30, seq: 32 })
+  host3.ctx.sessionController.page = async () => ({
+    records: sessionEvents32.map(event => ({ event })),
+    hasMore: false,
+  })
+  const boundaryPage = await host3.tool('read_group_chat', { group: 'Ops', before_seq: 33 }, 'a')
+  assert.match(boundaryPage, /#3 User: legacy line 3/)
+  assert.match(boundaryPage, /#32 User: legacy line 32/)
+  assert.match(boundaryPage, /Older messages exist; pass before_seq: 3 to read earlier/, 'exact 30-row page must still backfill to detect older messages')
+  const recoveredTail = await host3.tool('read_group_chat', { group: 'Ops', before_seq: 3 }, 'a')
+  assert.match(recoveredTail, /#1 User: legacy line 1/)
+  assert.match(recoveredTail, /#2 User: legacy line 2/)
+
+  // 5) Sparse SHOWN_ONLY (working) rows before_seq backfill: ledger starts at seq 5 (seqs 1..4 in
+  //    Session history) with 20 working rows + 15 real rows in seqs 5..39 -> before_seq: 40 must
+  //    backfill from seq 0 and include recovered #1..#4 in the returned page.
+  const sparseSessionEvents = [
+    ...Array.from({ length: 4 }, (_, idx) => ({
+      seq: idx + 1,
+      type: 'user/message',
+      time: 2000 + idx + 1,
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: `early sparse ${idx + 1}` }] },
+    })),
+    ...Array.from({ length: 15 }, (_, idx) => ({
+      seq: idx + 5,
+      type: 'user/message',
+      time: 2000 + idx + 5,
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: `kept sparse ${idx + 1}` }] },
+    })),
+  ]
+  const sparseKept = Array.from({ length: 15 }, (_, idx) => ({
+    seq: idx + 5, who: 'User', text: `kept sparse ${idx + 1}`, time: 2000 + idx + 5,
+  }))
+  const host4 = await start(t, { log: sparseKept, seq: 19 })
+  // Append 20 working (SHOWN_ONLY) rows at seqs 20..39 into the ledger.
+  const r4 = rt.roomOf('r1')
+  for (let i = 0; i < 20; i += 1) rt.logRoom(r4, { who: 'Writer', botId: 'b', kind: 'working' })
+  host4.ctx.sessionController.page = async () => ({
+    records: sparseSessionEvents.map(event => ({ event })),
+    hasMore: false,
+  })
+  const sparsePage = await host4.tool('read_group_chat', { group: 'Ops', before_seq: 40 }, 'a')
+  assert.match(sparsePage, /#1 User: early sparse 1/, 'sparse working rows must not skip backfill of seqs 1..4')
+  assert.match(sparsePage, /#4 User: early sparse 4/)
+  assert.match(sparsePage, /#19 User: kept sparse 15/)
 })
 
 test('delegate_work callInGroup uses mention boundary check so @Bob2 does not suppress @Bob prefix', async (t) => {

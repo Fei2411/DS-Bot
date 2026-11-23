@@ -2300,8 +2300,8 @@ export function install(rt) {
           return collected
         }
         let collected = collectBefore()
-        if (collected.length < ROOM_READ_MAX && before > 1) {
-          await backfillGroupLog(room.id, Math.max(0, before - ROOM_READ_MAX - 1)).catch(() => {})
+        if (collected.length <= ROOM_READ_MAX && before > 1) {
+          await backfillGroupLog(room.id, 0).catch(() => {})
           collected = collectBefore()
         }
         const hasMore = collected.length > ROOM_READ_MAX
@@ -2313,7 +2313,16 @@ export function install(rt) {
       }
       const lines = room.log.slice(-ROOM_READ_MAX)
       if (lines.length === 0) return `"${room.name}" has no messages yet.`
-      const hasEarlier = lines[0].seq > 1 && rt.ledger.records(bookOf(room.id)).some(record => memberLine(record) && Number.isInteger(record.seq) && record.seq < lines[0].seq)
+      let oldestLedgerSeq
+      let hasEarlierLedger = false
+      if (lines[0].seq > 1) {
+        for (const record of rt.ledger.records(bookOf(room.id))) {
+          if (!Number.isInteger(record.seq)) continue
+          if (oldestLedgerSeq === undefined || record.seq < oldestLedgerSeq) oldestLedgerSeq = record.seq
+          if (record.seq < lines[0].seq && memberLine(record)) hasEarlierLedger = true
+        }
+      }
+      const hasEarlier = lines[0].seq > 1 && (hasEarlierLedger || (oldestLedgerSeq !== undefined && oldestLedgerSeq > 1))
       const footer = hasEarlier ? `\n(Showing messages #${lines[0].seq}–#${lines.at(-1).seq}; pass before_seq: ${lines[0].seq} to read earlier.)` : ''
       return `Latest in "${room.name}" (oldest first):\n${transcript(lines, short)}${footer}`
     },
@@ -2767,8 +2776,16 @@ export function install(rt) {
     }
     const others = room.members.filter(id => id !== keepBotId)
     const results = await Promise.allSettled(others.map(id => stopMemberWork(room.id, id)))
+    let stopped = false
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        if (result.value === true) stopped = true
+      } else {
+        rt.warn('ds-bot: stopping work in %s failed: %s', room.name, result.reason)
+      }
+    }
     await cancelRoomQueues(room)
-    return results.some(result => result.status === 'fulfilled' && result.value === true)
+    return stopped
   }
   rt.stopOtherRoomWork = stopOtherRoomWork
 

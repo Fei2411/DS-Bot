@@ -972,6 +972,15 @@ test('removing a member annotates its open goal tasks, clearing or deleting the 
   await settle(() => host.agentOf('a').calls.length === 1)
   assert.deepEqual(host.rt.state.roomReports ?? {}, {})
 
+  // Both goal-control('resume') and group_goal(action: 'resume') refuse while room.admin === null.
+  const panelRefused = await host.call('goal-control', { roomId: 'r2', goalId: r2.goal.id, action: 'resume' })
+  assert.equal(panelRefused.ok, false)
+  assert.match(panelRefused.error.message, /no admin/i)
+  assert.equal(r2.goal.status, 'paused')
+  const toolRefused = await host.tool('group_goal', { group: 'Lab', action: 'resume' }, 'a')
+  assert.match(toolRefused, /has no admin/i)
+  assert.equal(r2.goal.status, 'paused')
+
   // 3) Re-assign admin, resume goal, then delete the admin Bot -> auto-pauses with "admin was deleted".
   await host.rt.updateRoom('r2', { admin: 'b' })
   await host.tool('group_goal', { action: 'resume' }, 'lb')

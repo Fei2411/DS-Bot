@@ -7,35 +7,48 @@ const MAX_TRACKED_SESSIONS = 256
 
 export function install(rt) {
   const { ctx } = rt
-  // Per-session ring buffer of announced workspace/changes events keyed by turn number,
-  // preventing a fast subsequent turn from clobbering the preceding turn's change summary.
-  const byTurn = new Map()
-  const turns = new Map()
+  // Per-session LRU ring buffer tracking live observed turns (`seen`), latest turn number,
+  // and announced `workspace/changes` seqs keyed by turn. Tracking `seen` prevents live
+  // unchanged turns from triggering an unnecessary `sessionController.page()` I/O call while
+  // still allowing cold/forgotten/evicted turns to fall back to the session log.
+  const sessions = new Map()
 
-  const touchSession = (map, sessionId, value) => {
-    if (map.has(sessionId)) map.delete(sessionId)
-    map.set(sessionId, value)
-    if (map.size > MAX_TRACKED_SESSIONS) {
-      const oldest = map.keys().next().value
-      map.delete(oldest)
-      if (map === byTurn) turns.delete(oldest)
-      else byTurn.delete(oldest)
+  const touch = (sessionId) => {
+    let entry = sessions.get(sessionId)
+    if (entry !== undefined) {
+      sessions.delete(sessionId)
+    } else {
+      entry = { latestTurn: undefined, changes: new Map(), seen: new Set() }
     }
+    sessions.set(sessionId, entry)
+    if (sessions.size > MAX_TRACKED_SESSIONS) sessions.delete(sessions.keys().next().value)
+    return entry
   }
 
   const recordTurnChange = (sessionId, turn, seq) => {
-    const map = byTurn.get(sessionId) ?? new Map()
-    if (map.has(turn)) map.delete(turn)
-    map.set(turn, seq)
-    while (map.size > MAX_TURNS_PER_SESSION) map.delete(map.keys().next().value)
-    touchSession(byTurn, sessionId, map)
+    const entry = touch(sessionId)
+    if (entry.changes.has(turn)) entry.changes.delete(turn)
+    entry.changes.set(turn, seq)
+    while (entry.changes.size > MAX_TURNS_PER_SESSION) entry.changes.delete(entry.changes.keys().next().value)
+  }
+
+  const recordSeenTurn = (sessionId, turn) => {
+    const entry = touch(sessionId)
+    if (entry.seen.has(turn)) entry.seen.delete(turn)
+    entry.seen.add(turn)
+    while (entry.seen.size > MAX_TURNS_PER_SESSION) entry.seen.delete(entry.seen.values().next().value)
   }
 
   // The turn each Session announced, from the live event. Cheap, and it covers a turn
   // whose page has not been read since.
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'turn/start' || event?.type === 'turn/end') {
-      if (Number.isInteger(event.data?.turn)) touchSession(turns, session.id, event.data.turn)
+      const turn = event.data?.turn
+      if (Number.isInteger(turn)) {
+        const entry = touch(session.id)
+        entry.latestTurn = turn
+        if (event.type === 'turn/end') recordSeenTurn(session.id, turn)
+      }
     }
     if (event?.type !== EVENT || !Number.isInteger(event.seq)) return
     const turn = event.data?.turn
@@ -45,13 +58,14 @@ export function install(rt) {
 
   const service = () => rt.ctx.get?.('workspaceChanges')
 
-  // The announced turn, from the per-turn ring buffer or, on a cache miss (e.g. after
-  // reload or when workspace/changes landed out-of-order), from the tail of its log.
+  // The announced turn, from the per-turn ring buffer or, on a genuine cache miss (cold
+  // session after reload, evicted turn, or forgotten session), from the tail of its log.
   async function announcedTurn(sessionId, targetTurn) {
-    const knownMap = byTurn.get(sessionId)
+    const entry = sessions.get(sessionId)
     if (Number.isInteger(targetTurn)) {
-      const seq = knownMap?.get(targetTurn)
+      const seq = entry?.changes.get(targetTurn)
       if (seq !== undefined) return { seq, turn: targetTurn }
+      if (entry?.seen.has(targetTurn)) return undefined
       try {
         const page = await ctx.sessionController.page({ address: { kind: 'session', sessionId }, maxMessages: PAGE_EVENTS }, AbortSignal.timeout(4000))
         const events = page.records.map(record => record.event)
@@ -60,20 +74,22 @@ export function install(rt) {
           recordTurnChange(sessionId, targetTurn, event.seq)
           return { seq: event.seq, turn: targetTurn }
         }
+        if (events.some(item => item.type === 'turn/end' && item.data?.turn === targetTurn)) {
+          recordSeenTurn(sessionId, targetTurn)
+        }
         return undefined
       } catch {
         return undefined
       }
     }
-    if (turns.has(sessionId)) {
-      const latestTurn = turns.get(sessionId)
-      const seq = knownMap?.get(latestTurn)
-      return seq === undefined ? undefined : { seq, turn: latestTurn }
+    if (entry?.latestTurn !== undefined) {
+      const seq = entry.changes.get(entry.latestTurn)
+      return seq === undefined ? undefined : { seq, turn: entry.latestTurn }
     }
-    if (knownMap !== undefined && knownMap.size > 0) {
+    if (entry !== undefined && entry.changes.size > 0) {
       let lastTurn
       let lastSeq
-      for (const [turn, seq] of knownMap) {
+      for (const [turn, seq] of entry.changes) {
         lastTurn = turn
         lastSeq = seq
       }
@@ -138,8 +154,7 @@ export function install(rt) {
 
   const forgetSessionChanges = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
-    byTurn.delete(sessionId)
-    turns.delete(sessionId)
+    sessions.delete(sessionId)
   }
 
   rt.turnChanges = turnChanges
