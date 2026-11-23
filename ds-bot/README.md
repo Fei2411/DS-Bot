@@ -17,7 +17,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
   |---|---|
   | You | Everything |
   | Main Bot (there can be more than one) | Create Bots, change other Bots and manage every group; only the user deletes Bots |
-  | Group admin | Manage its own group only (name, avatar, notice, members, reply mode) |
+  | Group admin | Manage its own group only (name, notice, members, reply mode) |
   | Member | Speak in the group, `@` another member, and post into its groups from outside them |
 
 - **Long chats stay inside the model's window**: dsh's own compaction never runs on a Bot's Session. When a turn ends past the check line (a share of the model's context window), a small separate model call, the context steward, reads the latest messages of the chat and decides once. If the work is still under way, the chat is condensed in place into a checkpoint: a handoff summary plus your recent messages word for word. If the work has reached a stopping point, the Bot writes a handoff note and continues in a new part. Either way you still see one chat, with no marker. Earlier parts and condensed messages stay searchable in a full-text index (`node:sqlite` FTS5) through `read_own_chat`.

@@ -52,13 +52,13 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 **设置**默认打开**概览**总控台，汇总待处理事项、团队卡片、近 7 天用量与各功能区入口；按 `⌘K` / `Ctrl+K`（或点顶部搜索栏）可直接搜到任意设置项、Bot、群聊或模型。各大类在一页内滚动并附顶部锚点：
 
 - **通用**与**外观**（实时预览、8 种界面语言、主题、布局与动效）
-- **模型**：提供方 · 本地智能体 · Bot 模型 · DeepSeek 服务
+- **模型**：服务商 · 本地智能体 · Bot 模型 · DeepSeek 服务
 - **团队**：Bot · 群聊 · 定时任务
 - **连接**：连接器 · IM · 手机 · MCP 访问
 - **工具**：电脑操控 · 浏览器 · 能力 · 密钥
 - **用量**与**关于 DS Bot**（含**反馈**）
 
-在独立桌面应用中，可以用 ChatGPT 套餐为 Bot 提供模型，无需 OpenAI API 密钥。在**设置 → 模型 → 提供方**展开 **OpenAI**（或通过**添加服务商 → 常用服务商**选择它），然后选择**使用 ChatGPT 登录**。这需要系统提供的安全存储。如何启用套餐用量并选择模型，见[模型说明](ds-bot/README.md#models)。
+在独立桌面应用中，可以用 ChatGPT 套餐为 Bot 提供模型，无需 OpenAI API 密钥。在**设置 → 模型 → 服务商**展开 **OpenAI**（或通过**添加服务商 → 常用服务商**选择它），然后选择**使用 ChatGPT 登录**。这需要系统提供的安全存储。如何启用套餐用量并选择模型，见[模型说明](ds-bot/README.md#models)。
 
 > **网页搜索提示**：DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，须同时为该 profile 指定另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉web-search-auto后所有会话的网页搜索都失败)。
 
@@ -120,7 +120,7 @@ Main Bot 是你的团队总管，拥有创建和修改其他 Bot、管理群聊�
 ### 联网搜索与 DeepSeek 服务
 
 - **联网搜索**：`auto` 搜索坚持使用发起会话自己的模型路由与 Key（绝不借用其他路由的 Key），支持同源 DeepSeek 官方 Search API，不可用时回退至无 Key 搜索。如需所有模型统一使用官方 Search / Fetch API，可在 **插件 → 网页搜索** 打开 **Use the new Web Search API**。
-- **DeepSeek 服务**（**设置 → 模型 → DeepSeek 服务**）：在 **设置 → 模型 → 提供方** 配好 DeepSeek API Key 后，可为任意主模型单独开启文档/图片识别（`read_document`）、DeepSeek 朗读与 DeepSeek 听写。各项默认关闭，按自己的 API Key 用量计费。
+- **DeepSeek 服务**（**设置 → 模型 → DeepSeek 服务**）：在 **设置 → 模型 → 服务商** 配好 DeepSeek API Key 后，可为任意主模型单独开启文档/图片识别（`read_document`）、DeepSeek 朗读与 DeepSeek 听写。各项默认关闭，按自己的 API Key 用量计费。
 
 ### Office 文件
 
