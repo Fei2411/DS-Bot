@@ -1,20 +1,25 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, AppState, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from '../storage'
 import { onPrefsChange, readPrefs } from '../store.ts'
 import { canBackOpenDrawer } from './drawer-back.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
+import { useAppUpdate } from '../team/app-update-store.ts'
+import { clearChatNotifications, deliverSystemNotice } from '../team/notification-bridge.ts'
+import { ALL_NOTICE_KINDS, formatNoticeNotification, type NoticeEntry, type OpenChatLink } from '../team/notifications.ts'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { FishLogo, GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
+import { AppUpdate } from '../screens/AppUpdate.tsx'
 import { ChatView, prefetchChat } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
+import { NotificationsSettings } from '../screens/NotificationsSettings.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
 import { BotDetails, BotEdit, NewBot, NewGroup, GroupDetails, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
@@ -34,6 +39,7 @@ const LAST_KEY = 'dsbot.lastChat'
 function DrawerContent() {
   const { p } = useTheme()
   const { team, call, refresh, hello } = useTeam()
+  const appUpdate = useAppUpdate()
   const insets = useSafeAreaInsets()
   const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const drawer = useDrawer()
@@ -134,6 +140,9 @@ function DrawerContent() {
       <View style={[styles.foot, { paddingBottom: insets.bottom + 8 }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <GearIcon size={18} color={p.ink2} />
+          {Platform.OS === 'android' && (appUpdate.hasUpdate || appUpdate.phase === 'ready') ? (
+            <View style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} />
+          ) : null}
         </Pressable>
       </View>
     </View>
@@ -253,6 +262,8 @@ function SettingsSheet() {
     <Sheet>
       <SettingsStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: p.main }, animation: Platform.OS === 'android' ? 'slide_from_right' : 'default' }}>
         <SettingsStack.Screen name="SettingsHome" component={SettingsHome} />
+        <SettingsStack.Screen name="NotificationsSettings" component={NotificationsSettings} />
+        <SettingsStack.Screen name="AppUpdate" component={AppUpdate} />
         <SettingsStack.Screen name="Computers" component={Computers} />
         <SettingsStack.Screen name="Secrets" component={Secrets} />
         <SettingsStack.Screen name="Providers" component={Providers} />
@@ -268,41 +279,69 @@ function SettingsSheet() {
   )
 }
 
-const NOTICE_BANNER_KINDS = new Set(['question', 'approval', 'message', 'group', 'done'])
-
 // A notice that lands while the app is open shows as a banner at the top when
-// it belongs to another chat; a tap opens that chat.
+// it belongs to another chat; while backgrounded on Android it posts a native
+// system notification. Opening a chat clears any system notification for it.
 function NoticeBanner() {
   const { p } = useTheme()
-  const { team, onFeed } = useTeam()
+  const { team, computer, hello, onFeed } = useTeam()
   const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const insets = useSafeAreaInsets()
   const [notice, setNotice] = useState<{ text: string; target: ChatTarget; seq: number } | null>(null)
   const banners = useRef(true)
   const fallbackRef = useRef<string | undefined>(undefined)
+  const hostIdRef = useRef<string>('')
+  const hostNameRef = useRef<string | undefined>(undefined)
+  const bootRef = useRef<string | undefined>(undefined)
   fallbackRef.current = (team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0])?.id
+  hostIdRef.current = computer?.hostDeviceId ?? ''
+  hostNameRef.current = computer?.name
+  bootRef.current = hello?.boot
   useEffect(() => {
     const read = () => void readPrefs().then(prefs => { banners.current = prefs.banners !== 'off' })
     read()
     return onPrefsChange(read)
   }, [])
   useEffect(() => {
+    const clearActive = () => {
+      if (AppState.currentState !== 'active') return
+      const active = activeChatTarget(navigation.getState(), fallbackRef.current)
+      void clearChatNotifications(hostIdRef.current, active)
+    }
+    clearActive()
+    const offNav = navigation.addListener('state', clearActive)
+    const offApp = AppState.addEventListener('change', next => { if (next === 'active') clearActive() })
+    return () => { offNav(); offApp.remove() }
+  }, [navigation])
+  useEffect(() => {
     if (onFeed === undefined) return
     let seq = 0
     return onFeed((event, data) => {
-      if (event !== 'notice' || !NOTICE_BANNER_KINDS.has(String(data?.kind ?? '')) || !banners.current) return
-      const target: ChatTarget = data.roomId !== undefined && data.roomId !== null
-        ? { kind: 'room', id: data.roomId }
-        : { kind: 'bot', id: data.botId ?? '' }
+      if (event !== 'notice' || !ALL_NOTICE_KINDS.has(String(data?.kind ?? ''))) return
+      const entry = data as NoticeEntry
+      const target: ChatTarget = entry.roomId !== undefined && entry.roomId !== null && entry.roomId !== ''
+        ? { kind: 'room', id: entry.roomId }
+        : { kind: 'bot', id: entry.botId ?? '' }
       if (!target.id) return
-      // The chat on screen already shows its own messages and cards.
       const active = activeChatTarget(navigation.getState(), fallbackRef.current)
+      if (AppState.currentState !== 'active') {
+        // link.ts already advanced the persisted notice cursor for live events, so
+        // skip duplicate cursor checks here.
+        void deliverSystemNotice(entry, {
+          hostId: hostIdRef.current,
+          hostName: hostNameRef.current,
+          boot: bootRef.current,
+          activeChat: active,
+          appActive: false,
+          dedupe: false,
+        })
+        return
+      }
+      if (!banners.current) return
+      // The chat on screen already shows its own messages and cards.
       if (active?.kind === target.kind && active.id === target.id) return
-      const body = typeof data.text === 'string' && data.text.length > 0
-        ? data.text
-        : data.kind === 'done' ? t('Finished') : t('New reply')
-      const head = data.title ?? data.name
-      const text = head !== undefined && head !== '' ? `${head}：${body}` : body
+      const copy = formatNoticeNotification(entry, { preview: true })
+      const text = copy.title && copy.title !== 'DS Bot' ? `${copy.title}：${copy.body}` : copy.body
       const mine = ++seq
       setNotice({ text, target, seq: mine })
       setTimeout(() => setNotice(current => (current?.seq === mine ? null : current)), 8000)
@@ -350,7 +389,7 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
   )
 }
 
-export default function ShellB() {
+export default function ShellB({ openLink, onOpenLinkHandled }: { openLink?: OpenChatLink | null; onOpenLinkHandled?: () => void } = {}) {
   const { p } = useTheme()
   const width = Math.min(Dimensions.get('window').width * 0.85, 340)
   // Render the navigator only once the saved chat is known, so it can start on it.
@@ -374,11 +413,23 @@ export default function ShellB() {
     update()
     return navigation.addListener('state', update)
   }, [navigation])
+  useEffect(() => {
+    if (saved === undefined || !openLink) return
+    if (openLink.kind === 'needs') {
+      navigation.navigate('Needs')
+    } else if (openLink.id) {
+      openChat(navigation, { kind: openLink.kind, id: openLink.id })
+    }
+    onOpenLinkHandled?.()
+  }, [saved, openLink, navigation, onOpenLinkHandled])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
+  const initialTarget = openLink && (openLink.kind === 'bot' || openLink.kind === 'room') && openLink.id
+    ? { kind: openLink.kind, id: openLink.id }
+    : saved
   return (
     <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'} backOpens={() => canBackOpenDrawer(navigation.getState())}>
       <ErrorBoundary>
-        <Inner initial={saved} />
+        <Inner initial={initialTarget} />
       </ErrorBoundary>
     </Drawer>
   )

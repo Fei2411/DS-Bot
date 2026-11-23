@@ -35,6 +35,12 @@ const photoFetching = new Set<string>()
 
 export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
 export type FeedHandler = (event: string, data: any) => void
+export interface TeamLinkHooks {
+  keepAliveInBackground?: () => boolean
+  onConnected?: (hello: Hello, call: (endpoint: string, payload?: unknown) => Promise<unknown>) => void
+  onDisconnected?: () => void
+  onCursor?: (boot: string, seq: number) => void
+}
 
 export function rejected(error: unknown): boolean {
   const code = (error as { code?: unknown })?.code
@@ -46,7 +52,9 @@ export function reconnectDelayMs(hadLink: boolean, failStreak: number): number {
 }
 
 // Keeps the link up and the team state fresh. `call` runs one /api/bot endpoint.
-export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
+export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, hooks?: TeamLinkHooks) {
+  const hooksRef = useRef(hooks)
+  hooksRef.current = hooks
   const [team, setTeam] = useState<TeamState | null>(null)
   const [online, setOnline] = useState(false)
   // The encrypted link is up (calls can go), before the handshake says the computer is current.
@@ -187,7 +195,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         reading = false
         if (!stopped && clientRef.current === client) {
           if (again) { again = false; void poll() }
-          else later(() => void poll(), POLL_MS)
+          else if (AppState.currentState !== 'background') later(() => void poll(), POLL_MS)
         } else {
           again = false
         }
@@ -224,16 +232,25 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setHello(helloResult)
         setOnline(true)
         setError(null)
+        hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client, endpoint, payload))
         const { sameBoot, since } = noticeCursor.connect(helloResult)
+        hooksRef.current?.onCursor?.(helloResult.boot, helloResult.seq)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
-          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
+          if (event === 'notice') {
+            if (!noticeCursor.acceptLive(helloResult.boot, data)) return
+            if (typeof data?.seq === 'number') hooksRef.current?.onCursor?.(helloResult.boot, data.seq)
+          }
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
         void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
+          const typed = answer as NoticeCursorAnswer
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
+          const nextBoot = typeof typed.boot === 'string' ? typed.boot : helloResult.boot
+          const nextSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
+          hooksRef.current?.onCursor?.(nextBoot, nextSeq)
           if (reset) void poll()
           else {
             if (replay.length > 0) void poll()
@@ -248,6 +265,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
           clientRef.current = undefined
           setOnline(false)
           setLinked(false)
+          hooksRef.current?.onDisconnected?.()
           clearTimeout(timer)
           scheduleReconnect()
         })
@@ -262,7 +280,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     }
     void connect()
     const foreground = AppState.addEventListener('change', status => {
-      if (status !== 'active') { clearTimeout(timer); return }
+      if (status !== 'active') {
+        if (hooksRef.current?.keepAliveInBackground?.() !== true) clearTimeout(timer)
+        return
+      }
       failStreak = 0
       const client = clientRef.current
       if (client === undefined) { clearTimeout(timer); void connect(); return }
