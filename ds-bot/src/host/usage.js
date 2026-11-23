@@ -489,6 +489,7 @@ export function install(rt) {
             cut += 1
             return
           }
+          if (address.kind === 'subagent' && error?.code === 'subagent/catalog-diagnostic' && error.details?.reason === 'unsupported') return
           if (unreadable.has(sessionId)) return
           unreadable.add(sessionId)
           failed.push([sessionId, error])
