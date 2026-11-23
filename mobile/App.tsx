@@ -1,15 +1,20 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Platform, Text, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, AppState, Linking, Platform, Text, useColorScheme, View } from 'react-native'
 import { takePairingFragment } from './src/team/pair-fragment.ts'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { listComputers, loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
+import { startAppUpdateMonitor } from './src/team/app-update-store.ts'
+import { stopHeadlessKeepalive } from './src/team/background-task.ts'
 import { errorText } from './src/team/link.ts'
+import { applyBackgroundDeliveryPrefs } from './src/team/notification-bridge.ts'
+import { parseOpenChatUrl, type OpenChatLink } from './src/team/notifications.ts'
+import { setNativeUiState } from './src/team/notifications-native'
 import { loadSeen } from './src/team/seen.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { ErrorBoundary } from './src/ui/error-boundary.tsx'
@@ -56,7 +61,7 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 // The navigator lives inside the palette provider so its container theme can
 // follow the computer's theme instead of flashing the default white.
-function ThemedShell({ lang }: { lang?: string }) {
+function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; openLink?: OpenChatLink | null; onOpenLinkHandled?: () => void }) {
   const dark = useDark()
   // A language change re-mounts the navigator so every screen reads the new
   // strings; the saved navigation state keeps the user where they were.
@@ -79,17 +84,17 @@ function ThemedShell({ lang }: { lang?: string }) {
     <ThemeContext.Provider value={value}>
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
         <ErrorBoundary>
-          <ShellB />
+          <ShellB openLink={openLink} onOpenLinkHandled={onOpenLinkHandled} />
         </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>
   )
 }
 
-function Linked({ computer, identity, lang }: { computer: SavedComputer; identity: PhoneIdentity; lang?: string }) {
+function Linked({ computer, identity, lang, openLink, onOpenLinkHandled }: { computer: SavedComputer; identity: PhoneIdentity; lang?: string; openLink?: OpenChatLink | null; onOpenLinkHandled?: () => void }) {
   return (
     <TeamProvider computer={computer} identity={identity}>
-      <ThemedShell lang={lang} />
+      <ThemedShell lang={lang} openLink={openLink} onOpenLinkHandled={onOpenLinkHandled} />
     </TeamProvider>
   )
 }
@@ -101,28 +106,92 @@ function Boot({ lang }: { lang?: string }) {
   const [bootError, setBootError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [offer, setOffer] = useState<string | null>(null)
+  const [openLink, setOpenLink] = useState<OpenChatLink | null>(null)
   const [seenReady, setSeenReady] = useState(false)
+  const uiReadyRef = useRef<Promise<unknown>>(Promise.resolve())
 
   useEffect(() => {
+    let active = true
     void loadSeen().finally(() => setSeenReady(true))
-    if (DEMO) return
-    Promise.all([loadIdentity(), loadComputer()])
-      .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null) })
-      .catch(failure => setBootError(errorText(failure)))
-  }, [])
+    let appSub: { remove(): void } | undefined
+    if (Platform.OS === 'android') {
+      stopHeadlessKeepalive()
+      const syncUiState = (state: string | null | undefined) => setNativeUiState(true, state !== 'background' && state !== 'inactive').catch(() => {})
+      uiReadyRef.current = syncUiState(AppState.currentState)
+      appSub = AppState.addEventListener('change', next => { void syncUiState(next) })
+    }
+    const stopUpdater = startAppUpdateMonitor()
+    const applyDeepLink = async (url?: string | null) => {
+      if (!url) return false
+      if (url.startsWith('dsbot://pair')) {
+        if (active) { setOffer(url); setAdding(true) }
+        return true
+      }
+      const target = parseOpenChatUrl(url)
+      if (target === null) return false
+      if (!DEMO && target.hostId) {
+        const { computers } = await listComputers()
+        const matched = computers.find(item => item.hostDeviceId === target.hostId)
+        if (matched === undefined) return false
+        await setActiveComputer(matched.hostDeviceId)
+        if (active) {
+          setAdding(false)
+          setComputer(matched)
+          setOpenLink(target)
+        }
+        return true
+      }
+      if (active) {
+        setAdding(false)
+        setOpenLink(target)
+      }
+      return true
+    }
 
-  // A pairing link opened from the system camera arrives on whatever screen is showing.
-  useEffect(() => {
-    const open = (url?: string | null) => { if (url?.startsWith('dsbot://pair')) { setOffer(url); setAdding(true) } }
     if (Platform.OS === 'web') {
       const uri = takePairingFragment(window.location, window.history)
       if (uri !== undefined) { setOffer(uri); setAdding(true) }
-      return
     }
-    void Linking.getInitialURL().then(open)
-    const subscription = Linking.addEventListener('url', event => open(event.url))
-    return () => subscription.remove()
+
+    if (!DEMO) {
+      Promise.all([
+        loadIdentity(),
+        Platform.OS === 'web' ? Promise.resolve(null) : Linking.getInitialURL().catch(() => null),
+      ])
+        .then(async ([nextIdentity, initialUrl]) => {
+          if (!active) return
+          setIdentity(nextIdentity)
+          const handledHost = initialUrl ? await applyDeepLink(initialUrl) : false
+          if (!active) return
+          if (!handledHost || !parseOpenChatUrl(initialUrl)?.hostId) {
+            const saved = await loadComputer()
+            if (active) setComputer(saved ?? null)
+          }
+        })
+        .catch(failure => { if (active) setBootError(errorText(failure)) })
+    } else if (Platform.OS !== 'web') {
+      void Linking.getInitialURL().then(url => applyDeepLink(url)).catch(() => {})
+    }
+
+    const urlSub = Platform.OS === 'web'
+      ? undefined
+      : Linking.addEventListener('url', event => { void applyDeepLink(event.url) })
+
+    return () => {
+      active = false
+      stopUpdater()
+      appSub?.remove()
+      urlSub?.remove()
+      if (Platform.OS === 'android') void setNativeUiState(false, false)
+    }
   }, [])
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    if (DEMO || computer !== undefined) {
+      void uiReadyRef.current.then(() => applyBackgroundDeliveryPrefs(computer?.name))
+    }
+  }, [computer])
 
   const actions = useMemo<ComputerActions>(() => ({
     add: () => setAdding(true),
@@ -130,14 +199,15 @@ function Boot({ lang }: { lang?: string }) {
     reload: () => void loadComputer().then(next => setComputer(next ?? null)),
   }), [])
   const paired = useCallback((next: SavedComputer) => { setAdding(false); setOffer(null); setComputer(next) }, [])
+  const clearOpenLink = useCallback(() => setOpenLink(null), [])
 
   if (DEMO && lang !== undefined && seenReady) {
-    return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell lang={lang} /></DemoProvider></ComputersCtx.Provider>
+    return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell lang={lang} openLink={openLink} onOpenLinkHandled={clearOpenLink} /></DemoProvider></ComputersCtx.Provider>
   }
   if (bootError !== null) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><Text style={{ color: p.danger }}>{bootError}</Text></View>
   if (identity === null || computer === undefined || lang === undefined || !seenReady) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
   if (computer === null || adding) return <ThemeProvider><Pair identity={identity} offer={offer} onPaired={paired} onCancel={computer !== null ? () => { setAdding(false); setOffer(null) } : undefined} /></ThemeProvider>
-  return <ComputersCtx.Provider value={actions}><Linked computer={computer} identity={identity} lang={lang} /></ComputersCtx.Provider>
+  return <ComputersCtx.Provider value={actions}><Linked computer={computer} identity={identity} lang={lang} openLink={openLink} onOpenLinkHandled={clearOpenLink} /></ComputersCtx.Provider>
 }
 
 export default function App() {
