@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import fs from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -186,6 +188,202 @@ async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], appr
 }
 
 const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'task_start', signal: AbortSignal.timeout(10_000) })
+
+const settledTasks = count => Array.from({ length: count }, (_, n) => ({
+  id: `old-task-${n}`, title: `Old task ${n}`, origin: 'user', status: 'completed',
+  sessionId: `old-session-${n}`, startedAt: n + 1, updatedAt: n + 2, endedAt: n + 2,
+}))
+
+test('pruning after a task stops archives only its oldest retired task’s exclusive parts', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(50)
+  team.bots.a.segments = [{ sessionId: 'foreground-history' }]
+  team.bots.a.tasks[0].segments = ['exclusive-history', 'foreground-history', 'inherited', 'agent-session', 'dm-b']
+    .map(sessionId => ({ sessionId }))
+  team.bots.a.tasks[0].inheritedSegments = [{ sessionId: 'inherited' }]
+  team.bots.a.tasks[0].reportFile = 'old-task-0.txt'
+  team.agents.plain = { id: 'plain', name: 'DSH', sessions: ['agent-session'] }
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const report = join(env.home, 'task-reports', 'old-task-0.txt')
+  mkdirSync(join(env.home, 'task-reports'))
+  writeFileSync(report, 'Archived task report')
+  const archive = env.ctx.workspaceRegistry.archiveSession
+  env.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    const onDisk = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+    assert.ok(onDisk.retiredTasks.some(entry => entry.sessionIds.includes(id)))
+    assert.ok(existsSync(report))
+    await archive(id, options)
+  }
+  await env.tool('task_start').execute({ title: 'Current task', brief: 'Check simulated output' }, execOf(env.agentMap.get('dm-a')))
+  const task = env.rt.botOf('a').tasks.at(-1)
+  assert.equal((await env.callApi('bot-stop-task', { botId: 'a', taskId: task.id })).ok, true)
+  assert.equal(env.rt.botOf('a').tasks.length, 50)
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), ['old-session-0', 'exclusive-history'])
+  assert.equal(existsSync(report), false)
+})
+
+test('unfinished work keeps a task readable and the retirement record retries only unfinished parts', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(51)
+  team.bots.a.tasks[0].segments = [{ sessionId: 'second-part' }]
+  team.bots.a.tasks[0].reportFile = 'old-task-0.txt'
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const report = join(env.home, 'task-reports', 'old-task-0.txt')
+  mkdirSync(join(env.home, 'task-reports'))
+  writeFileSync(report, 'Keep the report until both parts are archived')
+  env.agentMap.set('old-session-0', { status: 'running' })
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(env.rt.botOf('a').tasks.length, 51)
+  const archive = env.ctx.workspaceRegistry.archiveSession
+  env.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    if (id === 'second-part') throw new Error('Temporary archive failure')
+    await archive(id, options)
+  }
+  env.agentMap.delete('old-session-0')
+  await env.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), ['old-session-0'])
+  const journal = JSON.parse(readFileSync(env.rt.statePath, 'utf8')).retiredTasks
+  assert.deepEqual(journal[0].sessionIds, ['second-part'])
+  assert.equal(existsSync(report), true)
+  env.ctx.workspaceRegistry.archiveSession = archive
+  await env.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), ['old-session-0', 'second-part'])
+  assert.deepEqual(JSON.parse(readFileSync(env.rt.statePath, 'utf8')).retiredTasks, [])
+  assert.equal(existsSync(report), false)
+})
+
+test('a host with an unusable write lock still prunes and removes old reports', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(52)
+  for (const task of team.bots.a.tasks) task.reportFile = `${task.id}.txt`
+  const originalWrite = fs.writeFileSync
+  const patch = t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+    if (typeof file === 'string' && file.endsWith('state.lock')) throw Object.assign(new Error('Lock unavailable'), { code: 'EACCES' })
+    return originalWrite(file, ...args)
+  })
+  syncBuiltinESMExports()
+  let env
+  try {
+    env = await startEnv({ team })
+  } finally {
+    patch.mock.restore()
+    syncBuiltinESMExports()
+  }
+  t.after(env.stop)
+  const dir = join(env.home, 'task-reports')
+  mkdirSync(dir)
+  for (const task of team.bots.a.tasks) writeFileSync(join(dir, task.reportFile), 'Task report')
+  await env.rt.reconcileTasksAfterRestart()
+  const saved = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+  assert.equal(saved.bots.a.tasks.length, 50)
+  assert.equal(saved.retiredTasks, undefined)
+  assert.deepEqual(env.archivedSessions, [])
+  assert.equal(existsSync(join(dir, 'old-task-0.txt')), false)
+  assert.equal(existsSync(join(dir, 'old-task-1.txt')), false)
+  assert.equal(existsSync(join(dir, 'old-task-2.txt')), true)
+})
+
+test('active and paused reminders move before the former foreground Session can archive', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(51)
+  team.bots.a.tasks[0].origin = 'fg-handoff'
+  const reminders = ['active', 'paused'].map(status => ({ id: status, status, target: { kind: 'session', sessionId: 'old-session-0' } }))
+  let failPaused = true
+  const schedule = {
+    catalog: async () => reminders,
+    edit: async ({ id, patch }) => {
+      if (id === 'paused' && failPaused) throw new Error('Temporary schedule failure')
+      reminders.find(item => item.id === id).target = patch.target
+    },
+  }
+  const env = await startEnv({ team, services: { schedule } })
+  t.after(env.stop)
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(reminders[0].target.sessionId, 'dm-a')
+  assert.equal(reminders[1].target.sessionId, 'old-session-0')
+  assert.deepEqual(env.archivedSessions, [])
+  failPaused = false
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(reminders[1].target.sessionId, 'dm-a')
+  assert.equal(reminders[1].status, 'paused')
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), ['old-session-0'])
+})
+
+test('pruning a group task keeps its reminder in the group member chat', async (t) => {
+  const team = makeTeam({ rooms: { r: { id: 'r', name: 'Room', members: ['a'], sessions: { a: 'room-a' } } } })
+  team.bots.a.tasks = settledTasks(51)
+  team.bots.a.tasks[0].roomId = 'r'
+  const reminder = { id: 'reminder', status: 'active', target: { kind: 'session', sessionId: 'old-session-0' } }
+  const schedule = {
+    catalog: async () => [reminder],
+    edit: async ({ patch }) => { reminder.target = patch.target },
+  }
+  const env = await startEnv({ team, services: { schedule } })
+  t.after(env.stop)
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(reminder.target.sessionId, 'room-a')
+  assert.deepEqual(env.archivedSessions, [{ sid: 'old-session-0', opts: undefined }])
+})
+
+test('a task archive whose completion cannot be saved keeps its report and is retryable', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(51)
+  team.bots.a.tasks[0].reportFile = 'old-task-0.txt'
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const report = join(env.home, 'task-reports', 'old-task-0.txt')
+  mkdirSync(join(env.home, 'task-reports'))
+  writeFileSync(report, 'Keep this when a write fails')
+  const save = env.rt.save
+  env.rt.save = async (opts) => {
+    if (opts?.required && env.rt.state.retiredTasks?.some(entry => entry.sessionIds.length === 0)) throw new Error('Disk write failed')
+    await save(opts)
+  }
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(existsSync(report), true)
+  const disk = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+  assert.deepEqual(disk.retiredTasks[0].sessionIds, ['old-session-0'])
+  const reopened = await startEnv({ team: disk })
+  t.after(reopened.stop)
+  await reopened.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(reopened.archivedSessions.map(item => item.sid), ['old-session-0'])
+  assert.deepEqual(JSON.parse(readFileSync(reopened.rt.statePath, 'utf8')).retiredTasks, [])
+})
+
+test('the earliest task can finish last and keep its complete report and IM origin until the report is read', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(51)
+  const oldest = team.bots.a.tasks[0]
+  oldest.status = 'running'
+  oldest.imOrigin = { connId: 'fake-connection', chatKey: 'fake-chat', senderId: 'fake-sender' }
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const fullText = 'Complete result '.repeat(300)
+  const agent = await env.rt.resolveAgent(oldest.sessionId)
+  agent.status = 'running'
+  await env.emit(oldest.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(oldest.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: fullText }] } })
+  await env.emit(oldest.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  agent.status = 'idle'
+  await waitFor(() => env.rt.hasPendingTaskReport(oldest.id))
+  const stored = env.rt.taskById(oldest.id)?.task
+  assert.equal(stored.status, 'completed')
+  assert.deepEqual(stored.imOrigin, oldest.imOrigin)
+  assert.equal(readFileSync(join(env.home, 'task-reports', stored.reportFile), 'utf8'), fullText.trim())
+  assert.equal(env.archivedSessions.length, 0)
+  const report = env.agentMap.get('dm-a').followups.find(message => message.source?.taskId === oldest.id)
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { source: report.source, message: report })
+  await env.rt.reconcileTasksAfterRestart()
+  assert.ok(env.rt.taskById(oldest.id), 'the report is still being processed')
+  await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  env.ctx.emit('agent/status', { agent: env.agentMap.get('dm-a'), status: 'idle' })
+  await waitFor(() => env.archivedSessions.length > 0)
+  assert.equal(env.rt.taskById(oldest.id), undefined)
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [oldest.sessionId])
+})
 
 test('task_start forks foreground chat, delivers via rt.deliver, and settles completed task out of chatOwners', async (t) => {
   const env = await startEnv()

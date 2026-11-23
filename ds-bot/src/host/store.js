@@ -672,10 +672,16 @@ export function install(rt) {
     })
   }
 
+  const teamWriteAccess = () => {
+    if (stopped || readOnly() !== undefined) return undefined
+    if (lockBroken) return 'unlocked'
+    return lock.owns() ? 'locked' : undefined
+  }
+
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -854,6 +860,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

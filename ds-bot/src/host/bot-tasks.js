@@ -14,7 +14,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT } from './const
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
-import { activeTasksOf, isActiveTask, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { activeTasksOf, isActiveTask, retiredTaskSessionIds, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
@@ -131,20 +131,155 @@ export function install(rt) {
     try { return readFileSync(join(reportsDir, file), 'utf8') } catch { return undefined }
   }
   const dropReportFile = (file) => {
-    if (typeof file !== 'string' || !/^[A-Za-z0-9_-]+\.txt$/.test(file) || rt.readOnly?.() !== undefined) return
-    try { rmSync(join(reportsDir, file), { force: true }) } catch {}
+    if (typeof file !== 'string' || !/^[A-Za-z0-9_-]+\.txt$/.test(file)) return true
+    if (rt.readOnly?.() !== undefined) return false
+    try {
+      rmSync(join(reportsDir, file), { force: true })
+      return true
+    } catch {
+      return false
+    }
   }
 
-  const pruneSettledTasks = (bot) => {
-    const list = tasksOf(bot)
-    const settled = list.filter(task => !isActiveTask(task))
-    if (settled.length <= MAX_SETTLED_TASKS) return
-    const dropCount = settled.length - MAX_SETTLED_TASKS
-    const toDrop = new Set(settled.slice(0, dropCount).map(task => task.id))
-    for (const task of settled.slice(0, dropCount)) {
-      dropReportFile(task.reportFile)
+  const hasInboxInput = agent => Boolean(agent?.inbox?.nextStep?.length || agent?.inbox?.nextTurn?.length)
+  const sessionBusy = (id) => {
+    const agent = ctx.get('agents')?.get(id)
+    return agent?.status === 'running' || hasInboxInput(agent) || rt.live.get(id)?.turn !== undefined
+      || rt.hasPendingRecovery(id) || rt.isSwitchingPart?.(id) || state.switching?.[id] !== undefined
+      || (rt.runningJobs?.(id)?.length ?? 0) > 0
+  }
+
+  const hasSessionOwner = id => rt.botOf(id) !== undefined || rt.agentOf(id) !== undefined
+    || rt.chatOwners.has(id) || rt.pastOwners.has(id) || rt.groupOwners.has(id) || rt.roomOwners.has(id)
+  const isInherited = id => Object.values(state.bots).some(bot => tasksOf(bot).some(task =>
+      task.from === id || task.inheritedSegments?.some(segment => segment.sessionId === id)))
+
+  const retiredTasks = () => Array.isArray(state.retiredTasks) ? state.retiredTasks : []
+  const pendingHandoff = botId => Array.isArray(state.pendingHandoffInputs)
+    && state.pendingHandoffInputs.some(item => item?.botId === botId)
+  const reportPending = (taskId) => {
+    const report = info => info?.role === 'task-report' && info.taskId === taskId
+    return rt.hasPendingTaskReport(taskId) || [...rt.live.values()].some(entry =>
+      report(entry.info) || report(entry.pending) || report(entry.carry?.info)
+      || entry.later?.some(item => report(item.info)) || entry.carry?.later?.some(item => report(item.info)))
+  }
+
+  const retirementTarget = ({ botId, roomId }) => {
+    if (rt.botOf(botId) === undefined) return undefined
+    if (roomId === undefined) return rt.chatOf(botId)
+    const room = rt.roomOf(roomId)
+    return room?.members.includes(botId) ? room.sessions?.[botId] : undefined
+  }
+
+  function pruneSettledTasks(bot, keepSessions, queueArchive) {
+    const settled = tasksOf(bot).filter(task => !isActiveTask(task))
+    const excess = settled.length - MAX_SETTLED_TASKS
+    if (excess <= 0) return []
+    const dropped = new Set()
+    for (const task of settled.slice(0, excess)) {
+      const ids = taskSessionIds(task)
+      if (settling.has(task.id) || delivering.has(task.id) || reportPending(task.id)
+        || hasOpenOutgoingWorks(bot, task) || ids.some(id => keepSessions.has(id) || sessionBusy(id))
+        || (task.origin === 'fg-handoff' && (handoffing.has(bot.id) || pendingHandoff(bot.id)))) continue
+      if (queueArchive) {
+        const inherited = new Set((task.inheritedSegments ?? []).map(segment => segment.sessionId))
+        const sessionIds = ids.filter(id => id !== task.from && !inherited.has(id))
+        state.retiredTasks = [...retiredTasks(), { botId: bot.id, roomId: task.roomId, sessionIds, reportFile: task.reportFile }]
+      }
+      // The logs can outlive both the task and the Bot. Preserve ownership for the
+      // privacy checks, including if the user turns privacy on after pruning.
+      bot.retiredTaskSessions = [...new Set([...retiredTaskSessionIds(bot), ...ids])]
+      dropped.add(task)
     }
-    bot.tasks = list.filter(task => !toDrop.has(task.id))
+    if (dropped.size > 0) bot.tasks = tasksOf(bot).filter(task => !dropped.has(task))
+    return [...dropped]
+  }
+
+  let retirement = Promise.resolve()
+  let retirementStopped = false
+  const writeAccess = () => retirementStopped || rt.readOnly() !== undefined ? undefined : rt.teamWriteAccess()
+  const ownsRetirement = () => writeAccess() === 'locked'
+
+  async function updateRetirement(entry, next) {
+    const before = retiredTasks()
+    const after = before.flatMap(item => item === entry ? (next === undefined ? [] : [next]) : [item])
+    state.retiredTasks = after
+    try {
+      await rt.save({ required: true })
+    } catch (error) {
+      if (state.retiredTasks === after) state.retiredTasks = before
+      throw error
+    }
+  }
+
+  function retireTasks(bots = [], keepSessions = new Set()) {
+    retirement = retirement.then(async () => {
+      const access = writeAccess()
+      if (access === undefined) return
+      const pruned = bots.filter(bot => rt.botOf(bot.id) === bot)
+        .flatMap(bot => pruneSettledTasks(bot, keepSessions, access === 'locked'))
+      const pending = retiredTasks().slice()
+      if (pruned.length === 0 && (access !== 'locked' || pending.length === 0)) return
+      await rt.save({ required: true })
+      if (access === 'unlocked') {
+        // On a filesystem without usable locks, retain the old list and report
+        // cleanup. Only a locked host can commit to touching the DSH Sessions.
+        if (writeAccess() === 'unlocked') for (const task of pruned) dropReportFile(task.reportFile)
+        return
+      }
+      for (const entry of pending) {
+        const current = () => ownsRetirement() && retiredTasks().includes(entry)
+        if (!current()) return
+        const remaining = []
+        for (const id of entry.sessionIds) {
+          if (!current()) return
+          if (hasSessionOwner(id)) continue
+          if (keepSessions.has(id) || sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)) {
+            remaining.push(id)
+            continue
+          }
+          try {
+            const target = retirementTarget(entry)
+            if (target !== undefined) await rt.moveSchedules(id, target)
+            if (!current()) return
+            if (hasSessionOwner(id)) continue
+            if (sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)
+              || retirementTarget(entry) !== target) {
+              remaining.push(id)
+              continue
+            }
+            await ctx.workspaceRegistry.archiveSession(id)
+          } catch (error) {
+            if (error?.name === 'WorkspaceUnknownSessionError' && error.sessionId === id) continue
+            remaining.push(id)
+            rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
+          }
+        }
+        if (!current()) return
+        if (remaining.length > 0 && remaining.length === entry.sessionIds.length) continue
+        let completed = entry
+        if (entry.sessionIds.length > 0) {
+          completed = { ...entry, sessionIds: remaining }
+          await updateRetirement(entry, completed)
+        }
+        if (remaining.length > 0 || !ownsRetirement() || !retiredTasks().includes(completed)) continue
+        // An empty entry records completed archiving before removing the report.
+        // If the host stops between these writes, cleanup can be tried again.
+        if (dropReportFile(completed.reportFile)) await updateRetirement(completed, undefined)
+      }
+    }).catch(error => rt.warn('ds-bot: retiring background task Sessions failed: %s', error))
+    return retirement
+  }
+
+  function stopRetiringTasks() {
+    retirementStopped = true
+    return retirement
+  }
+
+  function retireSettledTasksAfterIdle(sessionId) {
+    const bot = rt.botOf(rt.selfOf(sessionId))
+    if (tasksOf(bot).filter(task => !isActiveTask(task)).length > MAX_SETTLED_TASKS) void retireTasks([bot])
+    else if (retiredTasks().some(entry => entry.sessionIds.includes(sessionId))) void retireTasks()
   }
 
   // Checks whether any outgoing Bot-to-Bot or group report-back work originated from
@@ -252,6 +387,7 @@ export function install(rt) {
   async function settleTask(bot, task, outcome, { text = '', error, notifyForeground = true } = {}) {
     if (settling.has(task.id) || !isActiveTask(task)) return
     settling.add(task.id)
+    let settled = false
     try {
       const now = Date.now()
       task.status = outcome
@@ -282,8 +418,8 @@ export function install(rt) {
         parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, resultSummary)
       }
 
-      pruneSettledTasks(bot)
       await rt.save()
+      settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
         ...(task.error ? { error: task.error } : {}),
@@ -369,8 +505,12 @@ export function install(rt) {
         }
         throw error
       }
+    } catch (error) {
+      settled = false
+      throw error
     } finally {
       settling.delete(task.id)
+      if (settled) await retireTasks([bot])
     }
   }
 
@@ -570,8 +710,6 @@ export function install(rt) {
     }
   }
 
-  const hasInboxInput = agent => Boolean(agent?.inbox?.nextStep?.length || agent?.inbox?.nextTurn?.length)
-
   // Settles a task whose turn ended while the plugin was reloading (durable log).
   async function reconcileEndedTask(sessionId, ended) {
     if (rt.readOnly?.() !== undefined) return false
@@ -708,6 +846,7 @@ export function install(rt) {
         }
       }
     }
+    await retireTasks(Object.values(state.bots), keep)
   }
 
   // Approval state bridge: mark task as waiting_approval while an approval card is open.
@@ -1509,6 +1648,9 @@ export function install(rt) {
     forgetBotTasks,
     reconcileEndedTask,
     reconcileTasksAfterRestart,
+    retireTasks,
+    stopRetiringTasks,
+    retireSettledTasksAfterIdle,
     onTaskEvent,
   })
 }

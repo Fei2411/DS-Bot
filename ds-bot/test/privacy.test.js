@@ -256,6 +256,27 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
+test('pruned private task history stays protected after reloading state and deleting its Bot', async (t) => {
+  const { rt, run, state, stop } = await start()
+  t.after(stop)
+  const bot = rt.botOf(P)
+  bot.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `task-${n}`, sessionId: `retired-private-${n}`, status: 'completed',
+  }))
+  bot.tasks[0].segments = [{ sessionId: 'retired-private-earlier' }]
+  await rt.reconcileTasksAfterRestart()
+  const saved = state().bots[P]
+  assert.equal(saved.tasks.length, 50)
+  assert.deepEqual(saved.retiredTaskSessions, ['retired-private-0', 'retired-private-earlier'])
+  rt.state.bots[P] = saved
+  const ids = { session_ids: saved.retiredTaskSessions }
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.deepEqual(await run('session_search', ids, P), { ran: true })
+  await rt.deleteBot(P)
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.ok(ids.session_ids.every(id => state().privateArchives[0].sessionIds.includes(id)))
+})
+
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
   const { run, root, dsh, home, diary, team, project, stop } = await start()
   t.after(stop)

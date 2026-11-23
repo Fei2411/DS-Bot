@@ -98,6 +98,7 @@ export function install(rt) {
     service = own
     sub.effect(() => () => { if (service === own) service = null }, 'ds-bot: schedule service')
     void rt.retireParts?.()
+    void rt.retireTasks?.()
   }
   if (typeof ctx.inject === 'function') ctx.inject(['schedule'], attach)
   else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })

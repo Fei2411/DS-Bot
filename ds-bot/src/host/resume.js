@@ -141,6 +141,7 @@ export function install(rt) {
 
   // What the last run left; read before this run notes anything.
   let interrupted = readNotes(file)
+  let recoveringTurns = interrupted.turns
 
   /** @type {Record<string, {botId:string, roomId?:string, since:number, trigger?:any, approval?:{tool:string, reason:string}, resumed?:boolean}>} */
   let turns = {}
@@ -254,6 +255,10 @@ export function install(rt) {
   rt.unreadOf = sessionId => (queued[sessionId] ?? []).map(item => item.args)
   rt.forgetDelivery = forgetQueued
   rt.forgetWorkDeliveries = forgetWorkDeliveries
+  rt.hasPendingRecovery = sessionId => Object.hasOwn(recoveringTurns, sessionId) || Object.hasOwn(turns, sessionId)
+    || (queued[sessionId]?.length ?? 0) > 0
+  rt.hasPendingTaskReport = taskId => Object.values(queued).some(list => Array.isArray(list)
+    && list.some(item => item?.args?.role === 'task-report' && item.args.taskId === taskId))
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
@@ -808,6 +813,7 @@ export function install(rt) {
     }
     // Reconcile orphaned background tasks before settling room batches so a zombie
     // group task does not keep `hasRoomTasks` true and mask a stuck batch.
+    recoveringTurns = {}
     await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()

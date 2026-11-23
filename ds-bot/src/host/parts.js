@@ -2145,6 +2145,7 @@ export function install(rt) {
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') rt.retireSettledTasksAfterIdle?.(agent.id)
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
       void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
