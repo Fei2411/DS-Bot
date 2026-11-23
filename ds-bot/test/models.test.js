@@ -740,6 +740,32 @@ test('a provider removed during its outage is logged again when it comes back fa
   assert.equal(warnings.length, 2)
 })
 
+test('an outage is logged once though an older catalog read ends after it began', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listModels = rt.ctx.llm.listModels
+  let release
+  let reading
+  const read = new Promise((resolve) => { reading = resolve })
+  rt.missingKeys = () => {
+    rt.missingKeys = async () => new Set()
+    reading()
+    return new Promise((resolve) => { release = () => resolve(new Set()) })
+  }
+  const older = rt.catalog({ fresh: true })
+  await read
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  release()
+  await older
+  await rt.catalog({ fresh: true })
+  assert.equal(warnings.length, 1)
+})
+
 test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
   const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
   const listModels = rt.ctx.llm.listModels

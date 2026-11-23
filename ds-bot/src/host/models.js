@@ -215,7 +215,10 @@ export function install(rt) {
     if (service === undefined) return answerable(catalogCache.value)
     const entries = []
     const failed = new Set()
-    for (const provider of service.listProviders()) {
+    const providers = service.listProviders()
+    // An outage ends where it is seen to: a read that ends later may have listed earlier.
+    for (const id of warned) if (!providers.some(provider => provider.id === id)) warned.delete(id)
+    for (const provider of providers) {
       // A local-agent route owned by another adapter is not offered by DS Bot.
       if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
@@ -225,6 +228,7 @@ export function install(rt) {
         warned.add(provider.id)
         continue
       }
+      warned.delete(provider.id)
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
@@ -251,7 +255,6 @@ export function install(rt) {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
-    for (const id of warned) if (!failed.has(id)) warned.delete(id)
     // A provider that stops or starts being listed changes what its Bots are to run on,
     // though everyone else is served the same models: the next sync runs. The failures
     // change with the entries they belong to, never ahead of them.
