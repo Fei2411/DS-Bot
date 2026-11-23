@@ -723,6 +723,23 @@ test('an outage read by two catalogs at once is logged once', async () => {
   assert.equal(warnings.length, 1)
 })
 
+test('a provider removed during its outage is logged again when it comes back failing', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const { listModels, listProviders } = rt.ctx.llm
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  rt.ctx.llm.listProviders = () => listProviders().filter(provider => provider.id !== 'deepseek')
+  await rt.catalog({ fresh: true })
+  rt.ctx.llm.listProviders = listProviders
+  await rt.catalog({ fresh: true })
+  assert.equal(warnings.length, 2)
+})
+
 test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
   const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
   const listModels = rt.ctx.llm.listModels
