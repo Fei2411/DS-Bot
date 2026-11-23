@@ -29,7 +29,22 @@ export function rankEntries(entries, query) {
   }).sort((a, b) => b.score - a.score)
 }
 
-// What the turn's first step brings along: only what shares enough with what was said.
+// What the turn's first step brings along: only what shares enough signal with what was said,
+// without disqualifying informative multi-clause CJK or English entries via raw doc length.
 const AUTO_MIN_HITS = 2
 const AUTO_MIN_COVER = 0.3
-export const pickRecalled = (ranked, max) => ranked.filter(hit => hit.hits >= AUTO_MIN_HITS && hit.covers >= AUTO_MIN_COVER).slice(0, max)
+const AUTO_MIN_QUERY_COVER = 0.35
+const AUTO_MIN_MULTI_HITS = 3
+const AUTO_MIN_MULTI_SCORE = 2.5
+const AUTO_HIGH_SCORE = 4.0
+
+export function pickRecalled(ranked, max, query) {
+  const askedSize = query === undefined ? 0 : wordsOf(query).size
+  return ranked.filter((hit) => {
+    if (hit.hits < AUTO_MIN_HITS) return false
+    if (hit.covers >= AUTO_MIN_COVER) return true
+    if (askedSize > 0 && hit.hits / askedSize >= AUTO_MIN_QUERY_COVER) return true
+    if (hit.hits >= AUTO_MIN_MULTI_HITS && hit.score >= AUTO_MIN_MULTI_SCORE) return true
+    return hit.score >= AUTO_HIGH_SCORE
+  }).slice(0, max)
+}

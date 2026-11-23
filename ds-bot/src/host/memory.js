@@ -26,16 +26,18 @@
 // anyway), freezes it anew.
 import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
-import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, rename, truncate, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { REPLY_KIND } from './constants.js'
 import { openSessions } from './threads.js'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
+import { linesFor } from './steward.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
 import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
@@ -77,6 +79,11 @@ function providerFailure(failure) {
 const SUMMARY_TEXT_MAX = 8_000
 const ASK_TEXT_MAX = 2_000
 const ASK_CHANGES_MAX = 20
+// Bounded prompt budgets for panel summary and panel Q&A so large multi-topic memories
+// never overflow the keeper's context window.
+const PANEL_MEMORY_MIN = 8_000
+const PANEL_MEMORY_DEFAULT = 24_000
+const PANEL_MEMORY_MAX = 48_000
 // A write the tools refused, and a write that broke. The code says which, so
 // nothing has to read the message to know what happened.
 const REFUSED = 'memory/refused'
@@ -247,13 +254,31 @@ export function install(rt) {
 
   const writeStep = (path, text) => ({ action: 'write', path: relativePath(root, path), text })
   const removeStep = path => ({ action: 'remove', path: relativePath(root, path) })
+  const appendStep = (path, text, offset) => ({ action: 'append', path: relativePath(root, path), text, offset })
+  const truncateStep = (path, offset) => ({ action: 'truncate', path: relativePath(root, path), offset })
 
-  // The files of a change, in the order they are written.
+  // The files of a change, in the order they are written. Every action is idempotent so
+  // recovering an interrupted change produces the exact same bytes on disk.
   async function applySteps(steps) {
     for (const step of steps) {
       const path = inside(root, step.path)
-      if (step.action === 'remove') await unlink(path).catch(error => { if (error?.code !== 'ENOENT') throw error })
-      else await writeText(path, step.text)
+      if (step.action === 'remove') {
+        await unlink(path).catch(error => { if (error?.code !== 'ENOENT') throw error })
+      } else if (step.action === 'append') {
+        await mkdir(dirname(path), { recursive: true })
+        const size = statSync(path, { throwIfNoEntry: false })?.size ?? 0
+        if (size > step.offset) await truncate(path, step.offset)
+        await appendFile(path, step.text, 'utf8')
+      } else if (step.action === 'truncate') {
+        if (step.offset === 0) {
+          await unlink(path).catch(error => { if (error?.code !== 'ENOENT') throw error })
+        } else {
+          const size = statSync(path, { throwIfNoEntry: false })?.size ?? 0
+          if (size > step.offset) await truncate(path, step.offset)
+        }
+      } else {
+        await writeText(path, step.text)
+      }
     }
   }
 
@@ -365,9 +390,39 @@ export function install(rt) {
     recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
     if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
   }
+  // Reads at most `maxBytes` from the end of a change log without loading the full file.
+  // When starting past byte 0, skips through the first newline so UTF-8 characters and
+  // the leading partial line are never torn.
+  function readTailText(path, maxBytes) {
+    let fd
+    try {
+      fd = openSync(path, 'r')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return ''
+      unreadable(path, error)
+    }
+    try {
+      const size = fstatSync(fd).size
+      const start = Math.max(0, size - maxBytes)
+      const bytes = Buffer.alloc(size - start)
+      for (let at = 0; at < bytes.length;) {
+        const read = readSync(fd, bytes, at, bytes.length - at, start + at)
+        if (read === 0) break
+        at += read
+      }
+      if (start === 0) return bytes.toString('utf8')
+      const nl = bytes.indexOf(0x0a)
+      return nl === -1 ? '' : bytes.subarray(nl + 1).toString('utf8')
+    } catch (error) {
+      unreadable(path, error)
+    } finally {
+      closeSync(fd)
+    }
+  }
+
   function readTail(path) {
     if (tailsRead.has(path)) return
-    for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
+    for (const line of readTailText(path, RECENT_TAIL_CHARS).split('\n')) {
       try {
         const row = JSON.parse(line)
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
@@ -764,35 +819,78 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The prompt section, frozen per Session.
 
-  // What a Bot's model leaves room for, from the last time it was asked.
+  // What a Bot's model leaves room for, from the last time it was asked (keyed per model
+  // ref so switching models takes effect immediately).
   const windows = new Map()
   const windowAsked = new Map()
-  async function noteWindow(bot) {
-    if (Date.now() - (windowAsked.get(bot.id) ?? 0) < WINDOW_ASK_MS) return
-    windowAsked.set(bot.id, Date.now())
-    const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
+  async function noteWindow(bot, sessionId) {
+    const localSize = sessionId === undefined ? undefined : rt.localAgentContext?.(sessionId)?.size
+    if (typeof localSize === 'number' && localSize > 0) {
+      windows.set(bot.id, linesFor({ window: localSize }).usable)
+      return
+    }
+    const route = await modelFor(bot).catch(() => undefined)
+    if (route === undefined) return
+    const cacheKey = `${bot.id}:${route.provider}/${route.model}`
+    if (Date.now() - (windowAsked.get(cacheKey) ?? 0) < WINDOW_ASK_MS && windows.has(cacheKey)) {
+      windows.set(bot.id, windows.get(cacheKey))
+      return
+    }
+    windowAsked.set(cacheKey, Date.now())
+    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     const size = info?.context?.contextWindow
-    if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
+    if (typeof size === 'number' && size > 0) {
+      const usable = linesFor({ window: size, reserve: info.defaultMaxTokens }).usable
+      windows.set(cacheKey, usable)
+      windows.set(bot.id, usable)
+    }
   }
+  const windowUsable = bot => windows.get(bot.id)
   const windowTokens = (bot) => {
     const usable = windows.get(bot.id)
     return usable === undefined ? undefined : Math.floor(usable * WINDOW_SHARE)
   }
+  const OMITTED_ENTRIES_MARK = 'more entries are saved here; bot_recall finds them.'
   function shownEntries(file, topics, budget) {
     const day = today()
     const entries = file.entries.filter(entry => !isExpired(entry, day))
-    const omitted = count => `(${count} more entries are saved here; bot_recall finds them.)`
-    let { shown, left } = fitWindow(entries, budget, estimateTokens)
-    if (left > 0) ({ shown, left } = fitWindow(entries, budget - estimateTokens(omitted(entries.length)), estimateTokens))
+    const omitted = count => `(${count} ${OMITTED_ENTRIES_MARK})`
+    const omittedTopics = count => `(${count} more ${count === 1 ? 'topic is' : 'topics are'} saved here; call bot_recall with no arguments to list them.)`
+    if (budget === undefined) {
+      const lines = entries.length > 0 ? entries.map(promptEntry) : ['(nothing saved yet)']
+      return [...lines, ...topics]
+    }
+    // Reserve a compact slice of the resident budget for topic links so a full MEMORY.md
+    // never drops every [[topic]] pointer silently.
+    const topicsTotal = topics.reduce((sum, line) => sum + estimateTokens(line) + 1, 0)
+    const topicReserve = topics.length === 0 ? 0 : Math.min(topicsTotal, Math.floor(budget * 0.25))
+    const entryBudget = Math.max(0, budget - topicReserve)
+    let { shown, left } = fitWindow(entries, entryBudget, estimateTokens)
+    if (left > 0) ({ shown, left } = fitWindow(entries, Math.max(0, entryBudget - estimateTokens(omitted(entries.length))), estimateTokens))
     const lines = shown.map(promptEntry)
     if (left > 0) lines.push(omitted(left))
     if (entries.length === 0) lines.push('(nothing saved yet)')
-    let used = lines.reduce((sum, line) => sum + estimateTokens(line), 0)
-    for (const line of topics) {
-      const cost = estimateTokens(line)
-      if (budget !== undefined && used + cost > budget) break
-      lines.push(line)
-      used += cost
+    // Unused entry budget flows back to topics; verify exact joined token cost stays within
+    // budget, falling back to bare `Topic [[name]]` when an `about` note is too long.
+    let shownTopics = 0
+    for (let i = 0; i < topics.length; i += 1) {
+      const full = topics[i]
+      const bare = full.replace(/: .+$/, '')
+      const rest = topics.length - (i + 1)
+      const tail = rest > 0 ? [omittedTopics(rest)] : []
+      const picked = estimateTokens([...lines, full, ...tail].join('\n')) <= budget
+        ? full
+        : bare !== full && estimateTokens([...lines, bare, ...tail].join('\n')) <= budget
+          ? bare
+          : undefined
+      if (picked === undefined) break
+      lines.push(picked)
+      shownTopics += 1
+    }
+    const leftTopics = topics.length - shownTopics
+    if (leftTopics > 0) {
+      const note = omittedTopics(leftTopics)
+      if (estimateTokens([...lines, note].join('\n')) <= budget) lines.push(note)
     }
     return lines
   }
@@ -998,45 +1096,113 @@ export function install(rt) {
     const roomId = roomIdOf(agent.id)
     const bot = rt.botOf(rt.selfOf(agent.id))
     if (bot === undefined) return decision
-    await noteWindow(bot)
+    await noteWindow(bot, agent.id)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
     const front = []
     const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
     if (snapshot !== undefined) front.push(snapshot)
     const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
     if (update !== undefined) front.push(update)
-    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front)
     if (recalled !== undefined) front.push(recalled)
     return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
   })
 
-  // Topic entries that share enough with what was just said, once per conversation part.
-  // MEMORY.md is in view already. Off when the user turns it off.
+  // Topic entries (plus any MEMORY.md entries omitted by the 2% prompt cap) that share
+  // enough with what was just said, once per conversation part. Off when the user turns it off.
   const isRecalled = message => message?.source?.kind === MEMORY_RECALL_SOURCE
-  const SAID = new Set(['user', 'schedule', 'bot'])
-  function autoRecall(agent, bot, roomId, decision) {
+  const isRecallTrigger = (message) => {
+    if (message?.role !== 'user') return false
+    const kind = message.source?.kind
+    if (kind === 'user' || kind === 'schedule' || kind === REPLY_KIND) return true
+    if (kind !== 'bot') return false
+    if (message.source?.handoff === true) return false
+    return message.source?.role !== 'kickoff' && message.source?.role !== 'task-handoff'
+  }
+  const GROUP_ROUND_START = /This round so far[^\n]*:\n/g
+  const GROUP_ROUND_END = /\n\n(?:Still at work on |Members answer this message |Called together with you:|Also in this round:|Write your reply)/
+  function recallQueryOf(message, { group = false } = {}) {
+    let raw = textOf(message.content)
+    if (raw.trim() === '') return ''
+    if (message.source?.kind === REPLY_KIND) {
+      try {
+        const parsed = JSON.parse(raw)
+        const parts = []
+        for (const q of parsed?.questions ?? []) if (typeof q?.question === 'string') parts.push(q.question)
+        for (const a of parsed?.answers ?? []) {
+          if (Array.isArray(a?.selected)) parts.push(...a.selected)
+          if (typeof a?.custom === 'string') parts.push(a.custom)
+        }
+        if (parts.length > 0) raw = parts.join(' ')
+      } catch { /* plain text reply */ }
+    }
+    if (group) {
+      let last
+      for (const match of raw.matchAll(GROUP_ROUND_START)) last = match
+      if (last !== undefined) {
+        const tail = raw.slice(last.index + last[0].length)
+        const end = GROUP_ROUND_END.exec(tail)
+        raw = (end === null ? tail : tail.slice(0, end.index)).trim()
+      }
+    }
+    if (raw.length <= AUTO_RECALL_QUERY_MAX) return raw
+    const head = Math.ceil(AUTO_RECALL_QUERY_MAX * 0.6)
+    const tail = AUTO_RECALL_QUERY_MAX - head
+    return `${raw.slice(0, head)}\n${raw.slice(-tail)}`
+  }
+  const mainEntries = (scope) => {
+    const dir = dirOf(scope)
+    const main = parsedFile(dir, undefined, mainCache.get(dir))
+    if (main === undefined) mainCache.delete(dir)
+    else mainCache.set(dir, main)
+    return main?.entries ?? []
+  }
+  function omittedMainEntries(scope, bot, snapText) {
+    if (typeof snapText !== 'string' || !snapText.includes(OMITTED_ENTRIES_MARK)) return []
+    const tag = tagOf(scope, bot.id)
+    return mainEntries(scope)
+      .filter((entry) => {
+        const id = entryId(entry)
+        return !snapText.includes(`[${id}]`) && !snapText.includes(`[${id} · `)
+      })
+      .map(entry => ({ ...entry, tag }))
+  }
+  function autoRecall(agent, bot, roomId, decision, front = []) {
     if (state.prefs.memoryAutoRecall === false) return undefined
-    const said = decision.messages.findLast(message => message?.role === 'user' && SAID.has(message.source?.kind))
-    const query = said === undefined ? '' : textOf(said.content).slice(0, AUTO_RECALL_QUERY_MAX)
+    const said = decision.messages.findLast(isRecallTrigger)
+    const query = said === undefined ? '' : recallQueryOf(said, { group: roomId !== undefined })
     if (query.trim() === '') return undefined
     let history = []
     try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
     const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
     const own = ownScope(bot.id)
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
-    let topicEntries
+    let candidates
     try {
-      topicEntries = scopes.flatMap(scope => recallEntries(scope).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+      candidates = scopes.flatMap(scope => recallEntries(scope).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+      // Also surface MEMORY.md entries that were omitted by the 2% resident window cap.
+      const ownSnap = frozen.get(agent.id) ?? (existsSync(snapshotPath(agent.id)) ? sectionRead(snapshotPath(agent.id)).text : windowTokens(bot) !== undefined ? sectionFor(agent.id) : '')
+      if (ownSnap.includes(OMITTED_ENTRIES_MARK)) {
+        const splitAt = ownSnap.indexOf('## Team memory')
+        const ownPart = splitAt === -1 ? ownSnap : ownSnap.slice(0, splitAt)
+        const teamPart = splitAt === -1 ? '' : ownSnap.slice(splitAt)
+        candidates.push(...omittedMainEntries(own, bot, ownPart), ...omittedMainEntries(TEAM, bot, teamPart))
+      }
+      if (roomId !== undefined) {
+        const groupMsg = [...history, ...front, ...decision.messages].findLast(isGroupMemory)
+        const groupSnap = groupMsg === undefined ? '' : textOf(groupMsg.content)
+        if (groupSnap.includes(OMITTED_ENTRIES_MARK)) candidates.push(...omittedMainEntries(groupScope(roomId), bot, groupSnap))
+      }
     } catch (error) {
       rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
     const day = today()
-    const open = topicEntries.filter(entry => !isExpired(entry, day) && !shown.has(entryId(entry)))
+    const open = candidates.filter(entry => !isExpired(entry, day) && !shown.has(entryId(entry)))
     const picked = []
     let used = 0
-    for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
-      const line = `- (${entry.tag} · ${entry.file.topic}) ${promptEntry(entry).slice(2)}`
+    for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX, query)) {
+      const line = `- (${entry.tag} · ${entry.file.topic ?? MAIN}) ${promptEntry(entry).slice(2)}`
       if (used + line.length > AUTO_RECALL_TEXT_MAX) break
       used += line.length
       picked.push({ line, id: entryId(entry) })
@@ -1304,49 +1470,69 @@ export function install(rt) {
       }
       if (wantsTopic) {
         const topic = cleanTopic(args.topic)
-        for (const { scope, label, files } of loaded) {
-          const file = files.find(item => item.topic === topic)
-          if (file !== undefined) return `Topic [[${topic}]] in ${label} (${sizeNote(file, scope)}):\n${file.content.trim() || '(empty)'}`
+        const matches = loaded
+          .map(item => ({ ...item, file: item.files.find(entry => entry.topic === topic) }))
+          .filter(item => item.file !== undefined)
+        if (matches.length > 0) {
+          // Inside a group chat without an explicit scope, prefer the group's topic first
+          // (matching bot_remember/bot_forget) and always name any other matching scopes.
+          const explicitScope = args.scope !== undefined && String(args.scope).trim() !== ''
+          const ordered = !explicitScope && caller.roomId !== undefined
+            ? [...matches.filter(item => item.scope.kind === 'group'), ...matches.filter(item => item.scope.kind !== 'group')]
+            : matches
+          const [primary, ...others] = ordered
+          const scopeArg = item => (item.scope.kind === 'bot' ? (item.scope.botId === self ? 'own' : item.tag) : item.scope.kind)
+          const also = others.length > 0
+            ? `\n\n(Also found topic [[${topic}]] in ${others.map(item => `${item.label} (scope "${scopeArg(item)}")`).join(', ')}.)`
+            : ''
+          return `Topic [[${topic}]] in ${primary.label} (${sizeNote(primary.file, primary.scope)}):\n${primary.file.content.trim() || '(empty)'}${also}`
         }
         const known = loaded.flatMap(({ tag, files }) => files.filter(file => file.topic).map(file => `[[${file.topic}]] (${tag})`))
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
       }
+      const day = today()
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
+      const formatRecallLine = (tag, file, entry) => `[${where(tag, file)}] ${formatEntry(entry.text, entry.meta).slice(2)}${isExpired(entry, day) ? ' [expired]' : ''}`
       if (!searching) {
         return loaded.map(({ scope, tag, label, files }) => {
           const [main, ...topics] = files
           return [
             `${capital(label)}: ${MAIN} has ${main.entries.length} entries (${sizeNote(main, scope)})${topics.length > 0 ? `; topics ${topics.map(file => `[[${file.topic}]] (${file.entries.length})`).join(', ')}` : '; no topics'}.`,
-            ...main.entries.map(entry => `[${where(tag, main)}] ${formatEntry(entry.text, entry.meta).slice(2)}`),
+            ...main.entries.map(entry => formatRecallLine(tag, main, entry)),
           ].join('\n')
         }).join('\n\n')
       }
       // The cap is on the user's own words, each counted once, so a long phrase's
-      // pairs do not push its end or later words out. A run of Han characters has
-      // no spaces to split on: the word itself is a term, so an entry holding the
-      // whole phrase outranks one holding only its parts; its character pairs
-      // stand for the words inside it, and a Latin part of a mixed word is a
-      // term too.
+      // pairs do not push its end or later words out. Full-corpus BM25 IDF is computed
+      // across every entry in the caller's visible scopes so rare domain terms outrank
+      // frequent filler bigrams, while active entries always precede expired ones.
       const words = [...new Set(squash(query).split(' ').filter(Boolean))].slice(0, QUERY_TERMS_MAX)
-      const terms = [...new Set(words.flatMap((word) => {
-        if (!/[\u4e00-\u9fff]/.test(word)) return [word]
+      const groups = words.map((word) => {
+        if (!/[\u4e00-\u9fff]/.test(word)) return { word, terms: [word] }
         const parts = new Set(word.match(/[a-z0-9]+/g) ?? [])
         for (const run of word.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) parts.add(run.slice(at, at + 2))
-        return [word, ...parts]
-      }))]
-      const scored = loaded.flatMap(({ tag, entries }) => entries.map((entry) => {
+        return { word, terms: [...new Set([word, ...parts])] }
+      })
+      const allLoaded = loaded.flatMap(({ tag, entries }) => entries.map(entry => ({ entry, tag })))
+      const scores = new Map(rankEntries(allLoaded.map(item => item.entry), query).map(hit => [hit.entry, hit.score]))
+      const scored = allLoaded.map(({ entry, tag }) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
-        return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
-      })).filter(hit => hit.count > 0)
-      const every = scored.filter(hit => hit.count === terms.length)
-      const scores = new Map(rankEntries(scored.map(hit => hit.entry), query).map(hit => [hit.entry, hit.score]))
-      const hits = (every.length > 0 ? every : scored).sort((a, b) => b.count - a.count || (scores.get(b.entry) ?? 0) - (scores.get(a.entry) ?? 0)).slice(0, RECALL_MAX)
+        const exactWords = groups.filter(group => hay.includes(group.word)).length
+        const matchedGroups = groups.filter(group => group.terms.some(term => hay.includes(term))).length
+        const termCount = groups.reduce((sum, group) => sum + group.terms.filter(term => hay.includes(term)).length, 0)
+        const bm25 = scores.get(entry) ?? 0
+        return { entry, tag, exactWords, matchedGroups, termCount, bm25, expired: isExpired(entry, day) }
+      }).filter(hit => hit.termCount > 0 || hit.bm25 > 0)
+      const every = scored.filter(hit => hit.exactWords === groups.length)
+      const hits = (every.length > 0 ? every : scored)
+        .sort((a, b) => Number(a.expired) - Number(b.expired) || b.exactWords - a.exactWords || b.matchedGroups - a.matchedGroups || b.bm25 - a.bm25 || b.termCount - a.termCount)
+        .slice(0, RECALL_MAX)
       const names = loaded.map(item => item.label)
       const labels = names.length > 2 ? `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}` : names.join(' and ')
       if (hits.length === 0) return `Nothing in ${labels} mentions "${query}". read_own_chat searches what was said.`
       return [
         every.length > 0 ? `Entries with "${query}" in ${labels}:` : `No entry has all of "${query}"; entries with the most of these words:`,
-        ...hits.map(({ entry, tag }) => `[${where(tag, entry.file)}] ${formatEntry(entry.text, entry.meta).slice(2)}`),
+        ...hits.map(({ entry, tag }) => formatRecallLine(tag, entry.file, entry)),
       ].join('\n')
     },
   }))
@@ -1467,7 +1653,76 @@ export function install(rt) {
     } catch { /* none yet */ }
     return undefined
   }
-  const linesFor = files => allEntries(files).map(entry => `- ${entry.file.topic ? `[[${entry.file.topic}]] ` : ''}${entry.text}`)
+  const formatSummaryLine = entry => `- ${entry.file.topic ? `[[${entry.file.topic}]] ` : ''}${entry.text}`
+  const activeLinesFor = (files, day) => allEntries(files).filter(entry => !isExpired(entry, day)).map(formatSummaryLine)
+
+  async function panelBudget(keeper) {
+    if (keeper !== undefined) await noteWindow(keeper).catch(() => {})
+    const usable = keeper === undefined ? undefined : windowUsable(keeper)
+    if (usable === undefined) return PANEL_MEMORY_DEFAULT
+    return Math.min(PANEL_MEMORY_MAX, Math.max(PANEL_MEMORY_MIN, Math.floor(usable * 0.25)))
+  }
+
+  // Fits MEMORY.md first, then takes newest entries round-robin across topics so every
+  // topic is represented inside the keeper's summary prompt budget.
+  function boundedSummaryLines(files, budget, day) {
+    const main = allEntries(files.slice(0, 1)).filter(entry => !isExpired(entry, day))
+    const topicBuckets = files.slice(1).map(file => file.entries
+      .filter(entry => !isExpired(entry, day))
+      .map(entry => ({ ...entry, file }))
+      .sort((a, b) => String(b.meta?.added ?? '').localeCompare(String(a.meta?.added ?? ''))))
+      .filter(bucket => bucket.length > 0)
+    const picked = []
+    let used = 0
+    for (const entry of main) {
+      const line = formatSummaryLine(entry)
+      if (picked.length > 0 && used + line.length > budget) continue
+      picked.push(line)
+      used += line.length
+    }
+    const totalTopic = topicBuckets.reduce((sum, bucket) => sum + bucket.length, 0)
+    let keptTopic = 0
+    let progressed = true
+    while (progressed) {
+      progressed = false
+      for (const bucket of topicBuckets) {
+        const entry = bucket.shift()
+        if (entry === undefined) continue
+        const line = formatSummaryLine(entry)
+        if (picked.length > 0 && used + line.length > budget) continue
+        picked.push(line)
+        used += line.length
+        keptTopic += 1
+        progressed = true
+      }
+    }
+    const omitted = totalTopic - keptTopic
+    if (omitted > 0) picked.push(`(${omitted} older topic entries omitted)`)
+    return picked
+  }
+
+  // Ranks topic entries by word overlap with the user's panel question (then newest) so
+  // memoryAsk stays within budget while prioritizing entries the user is asking about.
+  function boundedAskEntries(loadedScopes, question, budget) {
+    const main = []
+    const topics = []
+    for (const [tag, files] of loadedScopes) {
+      for (const entry of allEntries(files.slice(0, 1))) main.push({ ...entry, scope: tag })
+      for (const entry of allEntries(files.slice(1))) topics.push({ ...entry, scope: tag })
+    }
+    let used = main.reduce((sum, entry) => sum + entry.text.length, 0)
+    const asked = wordsOf(question)
+    const shared = entry => [...wordsOf(`${entry.text} ${entry.file.topic ?? ''}`)].filter(word => asked.has(word)).length
+    const ordered = topics.map((entry, at) => ({ entry, at, score: shared(entry) }))
+      .sort((a, b) => b.score - a.score || String(b.entry.meta?.added ?? '').localeCompare(String(a.entry.meta?.added ?? '')) || a.at - b.at)
+    const kept = new Set()
+    for (const { entry } of ordered) {
+      if (used + entry.text.length > budget) continue
+      used += entry.text.length
+      kept.add(entry)
+    }
+    return { numbered: [...main, ...topics.filter(entry => kept.has(entry))], left: topics.length - kept.size }
+  }
 
   // What a panel is about: a Bot (`botId`) or a group chat (`roomId`), the memory it
   // shows by tag, and the keeper, whose model writes the summary and answers. A group
@@ -1485,13 +1740,19 @@ export function install(rt) {
   const panelBody = panel => (panel.group ? { roomId: panel.id } : { botId: panel.id })
   const panelLabel = (panel, scope) => (scope.kind === 'team' ? 'the team memory' : panel.group ? 'the group memory' : `${panel.name}'s memory`)
 
-  function startSummary(panel, loaded, language, hash) {
+  function startSummary(panel, loaded, language, hash, day) {
     const { keeper } = panel
     const model = keeper.model
-    const request = panel.group
-      ? groupSummaryRequest({ name: panel.name, lines: linesFor(loaded.group), language })
-      : summaryRequest({ name: panel.name, own: linesFor(loaded.own), team: linesFor(loaded.team), language })
     const job = (async () => {
+      const budget = await panelBudget(keeper)
+      const request = panel.group
+        ? groupSummaryRequest({ name: panel.name, lines: boundedSummaryLines(loaded.group, budget, day), language })
+        : summaryRequest({
+            name: panel.name,
+            own: boundedSummaryLines(loaded.own, Math.ceil(budget * 0.7), day),
+            team: boundedSummaryLines(loaded.team, Math.floor(budget * 0.3), day),
+            language,
+          })
       const text = await botShot(keeper, SUMMARY_SYSTEM, request, panel.tag)
       const value = { hash, text: text.slice(0, SUMMARY_TEXT_MAX), at: Date.now() }
       summaries.set(panel.id, value)
@@ -1509,22 +1770,24 @@ export function install(rt) {
   // retrying on every poll.
   async function memoryView(body) {
     const panel = panelOf(body)
+    const day = today()
     const loaded = await settled(() => Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, loadScope(scope)])))
     const entries = Object.entries(loaded).flatMap(([tag, files]) => panelEntries(files, tag))
+    const activeCount = entries.filter(entry => !entry.expired).length
     const language = languageNow()
-    const hash = createHash('sha256').update(JSON.stringify([language, ...Object.values(loaded).map(linesFor)])).digest('hex')
+    const hash = createHash('sha256').update(JSON.stringify([language, ...Object.values(loaded).map(files => activeLinesFor(files, day))])).digest('hex')
     const saved = savedSummary(panel.id)
     const prior = summaryFailures.get(panel.id)
     const failed = prior?.hash === hash && prior.model === panel.keeper?.model ? prior : undefined
     const wanted = body.regenerate === true || (body.summarize === true && saved?.hash !== hash && failed === undefined)
-    if (wanted && entries.length > 0 && panel.keeper !== undefined && !summarizing.has(panel.id)) startSummary(panel, loaded, language, hash)
+    if (wanted && activeCount > 0 && panel.keeper !== undefined && !summarizing.has(panel.id)) startSummary(panel, loaded, language, hash, day)
     return {
       ...panelBody(panel),
       entries,
       sizes: Object.fromEntries(Object.entries(loaded).map(([tag, files]) => [tag, bodySize(files[0])])),
       limits: { ...MEMORY_LIMITS, ...Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, mainLimit(scope)])) },
-      summary: entries.length > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
-      fresh: entries.length === 0 || saved?.hash === hash,
+      summary: activeCount > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
+      fresh: activeCount === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
       tidy: tidyView(panel.scopes),
       keys: Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, scopeKey(scope)])),
@@ -1541,8 +1804,10 @@ export function install(rt) {
     if (panel.keeper === undefined) throw new Error('No Bot is left in this group chat')
     const text = String(body.text ?? '').trim().slice(0, ASK_TEXT_MAX)
     if (text === '') throw new Error('Type a question or a change first')
-    const numbered = await settled(() => Object.entries(panel.scopes).flatMap(([tag, scope]) => allEntries(loadScope(scope)).map(entry => ({ ...entry, scope: tag }))))
-    const answer = parseAsk(await botShot(panel.keeper, askSystem(panel.group), askRequest({ name: panel.name, group: panel.group, numbered, language: languageNow(), text }), panel.tag))
+    const budget = await panelBudget(panel.keeper)
+    const loadedScopes = await settled(() => Object.entries(panel.scopes).map(([tag, scope]) => [tag, loadScope(scope)]))
+    const { numbered, left } = boundedAskEntries(loadedScopes, text, budget)
+    const answer = parseAsk(await botShot(panel.keeper, askSystem(panel.group), askRequest({ name: panel.name, group: panel.group, numbered, left, language: languageNow(), text }), panel.tag))
     const meta = { source: 'memory panel', by: 'user', added: today() }
     const home = panel.group ? 'group' : 'own'
     const changes = []
@@ -1735,19 +2000,118 @@ export function install(rt) {
     return rows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
   }
 
+  // Reads a change log backwards in bounded 64 KB byte chunks so paging history never
+  // loads a large append-only journal synchronously into memory.
+  function* reverseJournalChunks(path, chunkBytes = JOURNAL_TAIL_BYTES) {
+    let fd
+    try {
+      fd = openSync(path, 'r')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return
+      unreadable(path, error)
+    }
+    try {
+      let pos = fstatSync(fd).size
+      let tail = Buffer.alloc(0)
+      while (pos > 0) {
+        const readSize = Math.min(chunkBytes, pos)
+        pos -= readSize
+        const buf = Buffer.alloc(readSize)
+        for (let at = 0; at < readSize;) {
+          const got = readSync(fd, buf, at, readSize - at, pos + at)
+          if (got === 0) break
+          at += got
+        }
+        const combined = tail.length > 0 ? Buffer.concat([buf, tail]) : buf
+        const rows = []
+        let end = combined.length
+        while (end > 0) {
+          const nl = combined.lastIndexOf(0x0a, end - 1)
+          if (nl === -1) break
+          const lineBuf = combined.subarray(nl + 1, end)
+          end = nl
+          if (lineBuf.length === 0) continue
+          try {
+            const row = JSON.parse(lineBuf.toString('utf8'))
+            if (row !== null && typeof row === 'object') rows.push(row)
+          } catch { /* half-written or foreign line */ }
+        }
+        tail = combined.subarray(0, end)
+        if (pos === 0 && tail.length > 0) {
+          try {
+            const row = JSON.parse(tail.toString('utf8'))
+            if (row !== null && typeof row === 'object') rows.push(row)
+          } catch { /* half-written or foreign line */ }
+          tail = Buffer.alloc(0)
+        }
+        if (rows.length > 0) yield rows
+      }
+    } finally {
+      closeSync(fd)
+    }
+  }
+
   const HISTORY_PAGE = 50
 
   async function memoryHistory(body) {
     const panel = panelOf(body)
-    const rows = await settled(() => ownerRows(panel))
-    const undone = new Set(rows.map(row => row.restored).filter(id => typeof id === 'string'))
-    const newest = rows.filter(row => row.op === 'add' || row.op === 'remove' || row.op === 'replace').reverse()
-    let slice = newest
-    if (body.before !== undefined && body.before !== null) {
-      const at = newest.findIndex(row => row.id === body.before)
-      slice = at === -1 ? [] : newest.slice(at + 1)
-    }
-    const page = slice.slice(0, HISTORY_PAGE)
+    const before = body.before !== undefined && body.before !== null ? body.before : undefined
+    const { page, hasMore, undone } = await settled(() => {
+      const keys = new Set(Object.values(panel.scopes).map(scopeKey))
+      const seenUndone = new Set()
+      const collected = []
+      let order = 0
+      const streams = journalPathsOf(panel).map(path => ({ iter: reverseJournalChunks(path), done: false, minTime: undefined }))
+      const sortCollected = () => collected.sort((a, b) => String(b.row.time ?? '').localeCompare(String(a.row.time ?? '')) || a.order - b.order)
+      const sliceAfterBefore = () => {
+        if (before === undefined) return collected
+        const at = collected.findIndex(item => item.row.id === before)
+        return at === -1 ? undefined : collected.slice(at + 1)
+      }
+      try {
+        for (;;) {
+          const active = streams.filter(stream => !stream.done)
+          if (active.length === 0) break
+          const slice = sliceAfterBefore()
+          if (slice !== undefined && slice.length > HISTORY_PAGE) {
+            const cutoff = String(slice[HISTORY_PAGE].row.time ?? '')
+            if (active.every(stream => stream.minTime !== undefined && stream.minTime <= cutoff)) break
+          }
+          // Pull the next 64 KB chunk from whichever active log has the highest watermark.
+          const nextStream = active.reduce((best, stream) => (
+            best.minTime === undefined ? best
+              : stream.minTime === undefined ? stream
+                : stream.minTime > best.minTime ? stream : best
+          ))
+          const step = nextStream.iter.next()
+          if (step.done) {
+            nextStream.done = true
+            continue
+          }
+          let chunkMin = nextStream.minTime
+          for (const row of step.value) {
+            const time = String(row.time ?? '')
+            if (time !== '' && (chunkMin === undefined || time < chunkMin)) chunkMin = time
+            if (!keys.has(row.scope)) continue
+            if (typeof row.restored === 'string') seenUndone.add(row.restored)
+            if (row.op === 'add' || row.op === 'remove' || row.op === 'replace') {
+              collected.push({ row, order: order++ })
+            }
+          }
+          if (chunkMin !== undefined) nextStream.minTime = chunkMin
+          sortCollected()
+        }
+      } finally {
+        for (const stream of streams) stream.iter.return?.()
+      }
+      sortCollected()
+      const slice = sliceAfterBefore() ?? []
+      return {
+        page: slice.slice(0, HISTORY_PAGE).map(item => item.row),
+        hasMore: slice.length > HISTORY_PAGE,
+        undone: seenUndone,
+      }
+    })
     return {
       rows: page.map(row => ({
         id: row.id,
@@ -1758,7 +2122,7 @@ export function install(rt) {
         by: row.actor === 'user' ? 'user' : String(row.actorName ?? row.actor ?? ''),
         restored: undone.has(row.id),
       })),
-      more: slice.length > HISTORY_PAGE ? page.at(-1).id : null,
+      more: hasMore ? page.at(-1).id : null,
     }
   }
   // The entry lines a file still has exactly as a row recorded them; restoring on
@@ -1905,7 +2269,7 @@ export function install(rt) {
 
   const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
-  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
+  const { tidyView, undoTidy, tidyNow, tidyTick } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
 
   async function memoryTidyUndo(body) {
     const panel = panelOf(body)
@@ -1930,6 +2294,6 @@ export function install(rt) {
 
   Object.assign(rt, {
     memoryEnabled: true, renewMemory, freshMemoryView, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
-    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
+    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow, tidyMemoryTick: tidyTick,
   })
 }

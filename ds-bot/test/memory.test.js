@@ -2406,7 +2406,10 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
   await rt.tidyMemoryNow('bot:b2')
   assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from your memory by the memory review: Fact number 3/)
   assert.equal(requests.length, 1)
-  assert.doesNotMatch(requests[0].messages[0].content[0].text, /Keep this forever|Over now/)
+  const tidyPrompt = requests[0].messages[0].content[0].text
+  assert.doesNotMatch(tidyPrompt, /Over now/)
+  assert.doesNotMatch(tidyPrompt, /\[\d+\][^\n]*Keep this forever/)
+  assert.match(tidyPrompt, /Pinned entries \(read-only context; never change or reference these\):\n- \(MEMORY\.md · pinned\) Keep this forever/)
   const main = read('bots', 'b2', 'MEMORY.md')
   assert.match(main, /- Facts one and two \[id: a000;.*merged: a000 a001/)
   assert.doesNotMatch(main, /Fact number 2 |Fact number 3 |Fact number 4 |Over now/)
