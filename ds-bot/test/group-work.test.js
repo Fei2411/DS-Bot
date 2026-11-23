@@ -3819,11 +3819,12 @@ test('stopRoomRound and stopRoomWork during a partially-completed parallel batch
 
     await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
     host.begin('gb')
-    host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w' })
+    host.emit('gb', 'tool/call', { callId: 'call-w', name: 'pwsh', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'call-w', name: 'pwsh', isError: false, content: [] })
     host.finish('gb', 'Writer finished the build')
 
     host.begin('gc')
-    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.worked === true && b.pending.includes('c')))
 
     const stopped = await host.call('stop-room-work', { roomId: 'r1' })
     assert.equal(stopped.ok, true)
@@ -3846,11 +3847,12 @@ test('stopRoomRound and stopRoomWork during a partially-completed parallel batch
 
     await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
     host.begin('gb')
-    host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w-direct' })
+    host.emit('gb', 'tool/call', { callId: 'call-w-direct', name: 'pwsh', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'call-w-direct', name: 'pwsh', isError: false, content: [] })
     host.finish('gb', 'Writer finished the build')
 
     host.begin('gc')
-    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.worked === true && b.pending.includes('c')))
 
     assert.equal(rt.stopRoomRound('r1'), true)
     host.emit('gc', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
@@ -3873,10 +3875,11 @@ test('deleting a room mid-round with a partially-completed parallel batch closes
 
   await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
   host.begin('gb')
-  host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w2' })
+  host.emit('gb', 'tool/call', { callId: 'call-w2', name: 'pwsh', arguments: '{}' })
+  host.emit('gb', 'tool/result', { callId: 'call-w2', name: 'pwsh', isError: false, content: [] })
   host.finish('gb', 'Writer finished before deletion')
   host.begin('gc')
-  await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+  await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.worked === true && b.pending.includes('c')))
 
   await rt.deleteRoom('r1')
   await settle(() => first() !== undefined)
