@@ -185,7 +185,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    // Codex warm-resumes a loaded thread with its old MCP address (#2110).
+    // Let closing this bridge stop its app-server without stopping other Sessions.
+    const engine = spec.kind === 'codex' ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
       record,

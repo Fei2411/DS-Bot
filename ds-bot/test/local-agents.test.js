@@ -519,6 +519,31 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   assert.match(out.thinking, /▸/)
 })
 
+test('codex app-server: idle resume reconnects team tools without disturbing another conversation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records })
+  t.after(() => adapter.dispose())
+  const listTools = async (sessionId, ...ids) => (await collect(adapter.stream(options(
+    sessionId, ids.map(id => user(id, 'list-team-tools')), { provider: 'local-codex-cli' },
+  )))).text
+  assert.equal(await listTools('a', 'm1'), 'message_bot')
+  assert.equal(await listTools('b', 'm1'), 'message_bot')
+  const a = adapter.live.get('a')
+  const b = adapter.live.get('b')
+  const threadId = records.a.cliSessionId
+  const aProcess = a.engine.child
+  const bProcess = b.engine.child
+
+  await adapter.closeLive(a, { idle: true })
+  assert.equal(a.mcp.server.listening, false)
+  assert.equal(await listTools('a', 'm1', 'm2'), 'message_bot')
+  assert.ok(aProcess.exitCode !== null || aProcess.signalCode !== null)
+  assert.equal(records.a.cliSessionId, threadId)
+  assert.equal(adapter.live.get('a').engineSession.resumed, true)
+  assert.equal(await listTools('b', 'm1', 'm2'), 'message_bot')
+  assert.equal(adapter.live.get('b').engine.child, bProcess)
+})
+
 // #1144: Codex 0.166 reads ThreadStartParams at the top level and the MCP servers from
 // `config`; keys it does not know are dropped silently. With the old snake_case shape
 // the team tools never registered and the permission preset never applied.
