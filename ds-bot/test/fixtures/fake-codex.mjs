@@ -16,6 +16,8 @@
 // activity items first: a test can then tell whether the one text event reached
 // the client. `--record <file>` appends the params of thread/start and thread/resume,
 // so a test can check the shape the client sent without a model call.
+import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
@@ -99,6 +101,17 @@ function runTurn(thread, turnId, text, effort, images = []) {
     notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
     return
   }
+  if (text.includes('show-shell-env')) {
+    const probe = spawnSync(process.execPath, ['-e', `console.log(JSON.stringify({
+      granted: process.env.DSH_SECRET_ENV_PROBE === 'scoped-test-value',
+      inherited: process.env.DSH_SECRET_ENV_PROBE === 'unscoped-test-value',
+      internal: process.env.DSH_CODEX_INTERNAL_PROBE !== undefined,
+    }))`], { encoding: 'utf8' })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: probe.stdout.trim() } })
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
   if (!textOnly) {
     notice('item/started', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
     notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
@@ -167,7 +180,7 @@ process.stdin.on('data', (chunk) => {
         record('thread/start', params)
         const extra = unknownField(params, THREAD_START)
         if (extra !== undefined) { replyError(id, extra); break }
-        const thread = { id: `thr-${++nextId}`, params }
+        const thread = { id: randomUUID(), params }
         threads.set(thread.id, thread)
         reply(id, { thread: { id: thread.id } })
         break

@@ -1,6 +1,6 @@
 // The Codex app-server engine: `codex app-server --listen stdio://`, one
-// JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
-// threads; turns stream item notifications back.
+// JSON-RPC process multiplexing threads, or a dedicated process for a Session
+// with secrets. DS Bot Sessions map to threads; turns stream notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 

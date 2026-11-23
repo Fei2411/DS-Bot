@@ -4,6 +4,7 @@
 // adapter turns each request into a prompt for the CLI session the Session is
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
@@ -166,6 +167,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
     const route = options.provider
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
+    const secrets = spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
     if (live !== undefined && !live.dead && live.route === route) {
       // An agent CLI can exit between the spawn and its first message (a failed
       // sign-in, for one): the cached bridge is dead, so the next call starts a
@@ -178,16 +182,21 @@ export class LocalAgentAdapter extends LlmAdapter {
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
       }
-      // A CLI takes its model and permission mode when its session opens. Another
-      // model or preset reopens the same CLI session as soon as no turn runs in it.
-      if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
+      // A CLI takes its model and permission mode when its session opens. A
+      // changed secret set also requires replacing the process, even mid-turn.
+      if (isDeepStrictEqual(live.secrets, secrets)) {
+        if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
+      } else if (live.state !== 'idle') {
+        void this.stopTurn(live, 'secret access changed for this conversation')
+      }
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
-    const spec = engineOf(route, this.deps.customAgents())
-    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    // All threads of an app-server share its process environment.
+    const engine = Object.keys(secrets).length === 0
+      ? this.engine(route)
+      : this.deps.spawnEngine(spec.kind, route, { ...spec, env: { ...spec.env, ...secrets } })
     live = {
-      sessionId, route, spec, engine, dead: false,
+      sessionId, route, spec, engine, secrets, dead: false,
       record,
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
@@ -944,6 +953,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = live === undefined ? this.deps.record(sessionId) : undefined
     if (live === undefined && record?.cliSessionId === undefined) throw new LlmError('this conversation has no session of its local agent yet', 'LOCAL_AGENT_ERROR')
+    if (live?.spec.kind === 'codex' && live.state === 'idle' && live.pending.size === 0) {
+      live = await this.liveFor({ sessionId, provider: live.route, model: live.model }, live.preset)
+    }
     let opened = false
     if (live === undefined || live.engineSession === undefined || live.engineSession.dead === true) {
       live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model }, this.deps.presetFor(sessionId))

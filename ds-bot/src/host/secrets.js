@@ -795,7 +795,7 @@ export function install(rt) {
     return llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
   })
 
-  function resolveEnv(execution, declaredKeys) {
+  function resolveEnv(botForSession, declaredKeys, command = '') {
     if (rt.hasLoaded?.() === false) void rt.load()
     if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) {
       if (loaded === null || fileStamp() !== seenStamp || (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false)) {
@@ -803,13 +803,12 @@ export function install(rt) {
         loaded = Promise.resolve()
       }
     }
-    let botId = resolveBotId(execution)
+    let botId = botForSession()
     if (botId === undefined && rt.readOnly() !== undefined) {
       rt.syncReadOnly?.()
-      botId = resolveBotId(execution)
+      botId = botForSession()
     }
     if (rt.botOf(botId) === undefined) return {}
-    const command = typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''
     const values = {}
     let used = false
     for (const secret of secrets.values()) {
@@ -845,7 +844,8 @@ export function install(rt) {
         unregister = sub.shellEnv.register({
           name: 'ds-bot-secrets',
           variables,
-          resolve: execution => resolveEnv(execution, declaredKeys),
+          resolve: execution => resolveEnv(() => resolveBotId(execution), declaredKeys,
+            typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''),
         })
       } catch (error) {
         declared = ''
@@ -880,6 +880,7 @@ export function install(rt) {
     secretStoreStatus,
     secretValue: name => secrets.get(name)?.value,
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
+    secretEnvForSession: sessionId => resolveEnv(() => blocked === undefined && !store.locked ? rt.selfOf(sessionId) : undefined),
     secretEndpoint,
     forgetBotSecrets,
     loadSecrets,

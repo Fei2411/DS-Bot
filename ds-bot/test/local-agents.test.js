@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -35,6 +35,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     attachments,
     fs,
     freshMemoryView,
+    secretEnvForSession,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -517,6 +518,34 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+test('codex gives only the authorized session its shell secret and drops it after revocation', async (t) => {
+  const inherited = { DSH_SECRET_ENV_PROBE: process.env.DSH_SECRET_ENV_PROBE, DSH_CODEX_INTERNAL_PROBE: process.env.DSH_CODEX_INTERNAL_PROBE }
+  t.after(() => {
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  process.env.DSH_SECRET_ENV_PROBE = 'unscoped-test-value'
+  process.env.DSH_CODEX_INTERNAL_PROBE = 'host-test-value'
+  let granted = true
+  const adapter = makeAdapter({
+    secretEnvForSession: sessionId => granted && sessionId === 'authorized' ? { DSH_SECRET_ENV_PROBE: 'scoped-test-value' } : {},
+  })
+  t.after(() => adapter.dispose())
+  const probe = async (sessionId, messageId) => {
+    const out = await collect(adapter.stream(options(sessionId, [user(messageId, 'show-shell-env')], { provider: 'local-codex-cli' })))
+    return JSON.parse(out.text)
+  }
+  assert.deepEqual(await probe('denied', 'm1'), { granted: false, inherited: false, internal: false })
+  assert.deepEqual(await probe('authorized', 'm2'), { granted: true, inherited: false, internal: false })
+  assert.deepEqual(await probe('another', 'm3'), { granted: false, inherited: false, internal: false })
+  granted = false
+  const note = await adapter.note('authorized', 'show-shell-env', AbortSignal.timeout(5_000))
+  assert.deepEqual(JSON.parse(note), { granted: false, inherited: false, internal: false })
+  assert.deepEqual(await probe('authorized', 'm4'), { granted: false, inherited: false, internal: false })
 })
 
 // #1144: Codex 0.166 reads ThreadStartParams at the top level and the MCP servers from

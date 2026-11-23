@@ -206,6 +206,9 @@ test('a Bot outside the scope gets an allow card, and allowing resolves it', asy
   let [request] = (await bench.view()).secretRequests.b2
   assert.equal((await bench.call('secret-set', { requestId: request.id, value, scope: 'bot' })).value.scope.join(), 'b2')
   assert.deepEqual(bench.env('c3'), {})
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_DEMO_TOKEN: value })
+  assert.deepEqual(rt.secretEnvForSession('c3'), {})
+  assert.deepEqual(rt.secretEnvForSession('not-a-bot'), {})
 
   // Coder asks too, while a second Writer card would be superseded by the first answer.
   const asked = await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'build' }, 'c3')

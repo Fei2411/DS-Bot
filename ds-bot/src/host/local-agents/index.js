@@ -110,6 +110,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     customAgents,
     findExecutable,
     spawnEngine,
+    secretEnvForSession: sessionId => rt.secretEnvForSession?.(sessionId),
     usedModels: route => usedRefs().map(ref => splitRef(ref)).filter(used => used?.provider === route).map(used => used.model),
     record: sessionId => store().sessions[sessionId],
     saveRecord: (sessionId, record) => {
