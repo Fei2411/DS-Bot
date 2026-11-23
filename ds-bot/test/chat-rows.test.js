@@ -183,6 +183,20 @@ test('a group post carries claims both live and in earlier chat rows', () => {
   assert.deepEqual(earlier.props.claims, claims)
 })
 
+// #975: a member's late reply is drawn by the trigger cell, so the refs its post
+// carries have to reach GroupMessage there too, or the desktop shows no Save.
+test('a late group post passes its delivered refs to the message that draws it (#975)', () => {
+  const delivered = [{ name: 'report.pdf', sessionId: 'gb', seq: 4, index: 0 }]
+  const source = { kind: 'bot', role: 'post', senderSessionId: 'b', delivered }
+  const team = { ...roster, roomsById: { g: { id: 'g' } }, exchangeTurns: {} }
+  const live = TriggerCell({
+    node: { data: { source, turn: 1, time: 1, content: [{ type: 'text', text: 'Here is the report' }] } },
+    sessionId: 'g', useRoster: pick => pick(team), useSessions: pick => pick({ byId: {} }),
+    useTurnClock: pick => pick({}), useUi: pick => pick({}), actions: {},
+  })
+  assert.deepEqual(live.props.files, delivered)
+})
+
 // #975: the files a member's turn delivered ride its group row, merged when the turn's
 // messages stack, once per file even when the post and its late echo name the same ref.
 test('delivered files of one turn stack onto its block, once per file', () => {

@@ -578,7 +578,7 @@ test('turnDeliverables skips open and failed turns and reads back to the turn st
   host.history.gb = [
     { seq: 1, type: 'turn/start', data: { turn: 1 } },
     { seq: 2, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/old.md' }] } },
-    { seq: 3, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+    { seq: 3, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
     { seq: 4, type: 'turn/start', data: { turn: 2 } },
   ]
   assert.equal(await rt.turnDeliverables('gb'), undefined)
@@ -588,7 +588,7 @@ test('turnDeliverables skips open and failed turns and reads back to the turn st
   const long = [{ seq: 1, type: 'turn/start', data: { turn: 1 } },
     { seq: 2, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/a.md' }, { path: '/tmp/b.md' }] } }]
   for (let seq = 3; seq <= 200; seq += 1) long.push({ seq, type: 'tool/call', data: { turn: 1, callId: `k${seq}`, name: 'read', arguments: '{}' } })
-  long.push({ seq: 201, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } })
+  long.push({ seq: 201, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
   host.history.gb = long
   const files = await rt.turnDeliverables('gb')
   assert.deepEqual(files, [
