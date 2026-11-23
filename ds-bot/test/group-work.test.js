@@ -3396,3 +3396,178 @@ test('scoped mid-round post_to_group expands report.ids when memberTurn wakes th
   assert.match(report, /Chief: 群内总结：测试通过，可以合入。/)
   assert.doesNotMatch(report, /Writer 完成无关文档/)
 })
+
+test('startup settleRoomReports keeps queued reports still present in roomAgent.inbox and settles once after the round runs (#1894)', async (t) => {
+  const host = await start(t)
+  const roomAgent = host.agentOf('r1')
+  roomAgent.inbox = { nextStep: [], nextTurn: [] }
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 重载前排队的消息' }, 'a')
+  const queuedPost = host.takePost()
+  const reportId = queuedPost.source.reportId
+  // Simulate plugin reload: in-memory queuedRelays was cleared, while DSH still holds the message in roomAgent.inbox.
+  rt.roomRelayTaken('r1', queuedPost.source.exchangeId)
+  roomAgent.inbox.nextTurn.push({ id: 'live-q1', ...queuedPost })
+
+  // 1) Room has BOTH surviving report A (in roomAgent.inbox) AND vanished report B (not in inbox):
+  //    startup must preserve A AND settle vanished B in the same pass without letting A hide B!
+  rt.state.roomReports['rep-vanished'] = { id: 'rep-vanished', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /did not start before DS Bot restarted/, 'vanished sibling report must settle even while another relay survives in inbox')
+  assert.equal(rt.state.roomReports['rep-vanished'], undefined)
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued', 'surviving relay must stay queued')
+
+  // 2) Now DSH drains the inbox and runs the real round -> Chief receives the real reply for A once.
+  roomAgent.inbox.nextTurn.length = 0
+  const round = host.round('c-reload', queuedPost)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '重载后正常完成。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 2)
+  assert.match(text(host.agentOf('a').calls[1]), /Writer: 重载后正常完成。/)
+  assert.doesNotMatch(text(host.agentOf('a').calls[1]), /did not start before DS Bot restarted/)
+
+  // 3) Plugin reload AFTER user/message was already emitted (old plugin's roomInbox was lost):
+  //    startup must NOT strand the report forever.
+  roomAgent.status = 'running'
+  roomAgent.session = {
+    id: 'r1',
+    snapshotEvents: () => [
+      { type: 'turn/start', data: { turn: 5 } },
+      { type: 'user/message', data: { source: { kind: 'bot', role: 'post', reportId: 'rep-after-um' } } },
+    ],
+  }
+  rt.state.roomReports['rep-after-um'] = { id: 'rep-after-um', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 3, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => host.agentOf('a').calls.length === 3)
+  assert.match(text(host.agentOf('a').calls[2]), /did not start before DS Bot restarted/)
+  assert.equal(rt.state.roomReports['rep-after-um'], undefined)
+
+  // 4) Plugin reload DURING DSH preStep window (status: 'running', turn/start emitted, NO user/message yet):
+  //    startup holds the report until the turn settles, then automatically re-checks via whenIdle().
+  let releasePreStep
+  roomAgent.status = 'running'
+  roomAgent.session = {
+    id: 'r1',
+    snapshotEvents: () => [{ type: 'turn/start', data: { turn: 6 } }],
+  }
+  roomAgent.whenIdle = () => new Promise((resolve) => { releasePreStep = resolve })
+  rt.state.roomReports['rep-prestep'] = { id: 'rep-prestep', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 3, passed: [], failed: [], at: Date.now() }
+  await rt.settleRoomReports(undefined, { startup: true })
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 3, 'preStep window must hold queued report until turn finishes')
+  assert.equal(rt.state.roomReports['rep-prestep']?.status, 'queued')
+
+  // If the preStep turn belonged to something else and ends without claiming rep-prestep, whenIdle recheck settles it!
+  roomAgent.status = 'idle'
+  releasePreStep()
+  await settle(() => host.agentOf('a').calls.length === 4)
+  assert.match(text(host.agentOf('a').calls[3]), /did not start before DS Bot restarted/)
+  assert.equal(rt.state.roomReports['rep-prestep'], undefined)
+})
+
+test('stopping an individual working member via stopMemberWork reports stopped instead of nobody replied (#1894)', async (t) => {
+  const host = await start(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 帮我跑长时间构建' }, 'a')
+  const post = host.takePost()
+  const round = host.round('c-stop-member', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+
+  // User clicks Stop on Writer alone in Group Details before Writer writes any reply.
+  assert.equal(await rt.stopMemberWork('r1', 'b'), true)
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Stopped before finishing: Writer\./)
+  assert.doesNotMatch(report, /Nobody replied/)
+  assert.doesNotMatch(report, /Stayed silent: Writer/)
+})
+
+test('startup settleRoomReports does not re-insert a relay consumed while resolving another room (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const opsAgent = host.agentOf('r1')
+  opsAgent.inbox = { nextStep: [], nextTurn: [] }
+  const labAgent = host.agentOf('r2')
+  labAgent.inbox = { nextStep: [], nextTurn: [] }
+
+  // Queue a live post on r1 (Ops), then clear in-memory queuedRelays to simulate reload.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 启动并发恢复测试' }, 'a')
+  const opsPost = host.takePost()
+  rt.roomRelayTaken('r1', opsPost.source.exchangeId)
+  opsAgent.inbox.nextTurn.push({ id: 'live-ops-1', ...opsPost })
+
+  // Add a second queued report on r2 (Lab) whose resolveAgent pauses mid-startup loop.
+  rt.state.roomReports['rep-lab-missing'] = { id: 'rep-lab-missing', roomId: 'r2', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 1, passed: [], failed: [], at: Date.now() }
+  let releaseLabResolve
+  const origResolve = rt.resolveAgent
+  rt.resolveAgent = async (sid) => {
+    if (sid === 'r2') await new Promise((resolve) => { releaseLabResolve = resolve })
+    return origResolve(sid)
+  }
+
+  const startupPromise = rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => releaseLabResolve !== undefined)
+
+  // While startup awaits Lab's resolveAgent, Ops consumes its recovered relay and finishes its round!
+  opsAgent.inbox.nextTurn.length = 0
+  const opsRound = host.round('c-ops-race', opsPost)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '并发恢复后正常完成。')
+  await settle(() => opsRound() !== undefined)
+
+  // Now release Lab's resolveAgent and finish startup. Ops's report must NOT be blocked by a stale re-inserted relay!
+  rt.resolveAgent = origResolve
+  releaseLabResolve()
+  await startupPromise
+  await settle(() => host.agentOf('a').calls.length === 2)
+  const texts = host.agentOf('a').calls.map(text)
+  assert.ok(texts.some(msg => msg.includes('Writer: 并发恢复后正常完成。')), 'Ops report must settle cleanly instead of hanging on a stale re-inserted relay')
+  assert.ok(texts.some(msg => msg.includes('did not start before DS Bot restarted')), 'Lab vanished report must still settle')
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('startup settleRoomReports preserves a queued report deferred into laterPosts during finalizing (#1894)', async (t) => {
+  const host = await start(t)
+  let releaseFinalizing
+  const gate = new Promise((resolve) => { releaseFinalizing = resolve })
+  const origDrive = rt.goalDrive
+  rt.goalDrive = async (...args) => { await gate; return origDrive?.(...args) }
+
+  // Run Round 1 and hold it in finalizing.
+  const first = host.round('c-fin-1', host.say('@Writer 先完成第一轮'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '第一轮结束。')
+  await settle(() => rt.roomActive('r1') && [...rt.roomProgress.values()].every(round => round.roomId !== 'r1'))
+
+  // While r1 is finalizing, Chief posts with report_back: true and saved imOrigin, and group_relay moves it to laterPosts.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 延迟进入下一轮的任务' }, 'a')
+  const deferredPost = host.takePost()
+  const reportId = deferredPost.source.reportId
+  const savedOrigin = { connId: 'c1', chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' }
+  rt.state.roomReports[reportId].imOrigin = savedOrigin
+  host.emit('r1', 'user/message', deferredPost)
+  await host.tool('group_relay', {}, 'r1', { callId: 'c-fin-2', signal: new AbortController().signal })
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+
+  // Startup reconciliation runs while the post sits in laterPosts -> must preserve report & imOrigin!
+  await rt.settleRoomReports(undefined, { startup: true })
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'deferred post in laterPosts must not falsely fail as never-started')
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+  assert.deepEqual(rt.state.roomReports[reportId]?.imOrigin, savedOrigin)
+
+  // Release finalizing -> Round 2 starts from laterPosts -> Tester answers -> Chief gets the real report!
+  releaseFinalizing()
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '延迟任务已完成。')
+  await settle(() => first() !== undefined && host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /Tester: 延迟任务已完成。/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})

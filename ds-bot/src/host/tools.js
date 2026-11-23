@@ -908,8 +908,10 @@ export function install(rt) {
         // from, so the report comes back there instead of the own chat.
         await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
-        if (sub !== undefined) rt.dropWork(sub)
-        if (reportId !== undefined) rt.dropRoomReport?.(reportId)
+        if (failure?.delivered !== true) {
+          if (sub !== undefined) rt.dropWork(sub)
+          if (reportId !== undefined) rt.dropRoomReport?.(reportId)
+        }
         return `Could not post in "${room.name}": ${failure.message}`
       }
       if (member && named.length === 0) return `Posted in "${room.name}", where the user and its members read it. Nobody answers it: your post only calls the members you name with @Name.`
