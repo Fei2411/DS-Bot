@@ -131,26 +131,6 @@ export function install(rt) {
   // A model service that cannot be read means the host is going away.
   const llm = () => closing ? undefined : serviceOf(ctx, 'llm')
   let catalogCache = { at: 0, value: [] }
-  // The providers whose models could not be listed at the last catalog read: what
-  // they serve is unknown, which is not the same as serving nothing.
-  let unlisted = new Set()
-  // Catalog reads overlap, and each takes its turn by when it began: `kept` is the
-  // read whose catalog is cached, `roster` the providers the newest read began with,
-  // each with the first read to see it since it was last absent, `listings` what the
-  // newest read to list each of them found. A read that began earlier never undoes
-  // what a later one found.
-  let reads = 0
-  let kept = 0
-  let roster = new Map()
-  const listings = new Map()
-  // Whether this read is the first to meet the provider's outage: one line is logged.
-  const listed = (id, read, failing) => {
-    const last = listings.get(id)
-    // A read from before the provider was last absent listed another registration.
-    if (!(roster.get(id) <= read) || last?.read > read) return false
-    listings.set(id, { read, failing })
-    return failing && last?.failing !== true
-  }
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
   // HOSTED_ENGINE_ROUTE it is remembered with the models its provider served then,
@@ -223,28 +203,26 @@ export function install(rt) {
   // A provider's model list can change in DSH settings without any event, so a picker
   // that is about to be used asks for a `fresh` one. Entries for models a Bot uses
   // also carry their `reasoning`, so the picker can offer thinking levels.
-  async function catalog({ fresh = false } = {}) {
-    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return answerable(catalogCache.value)
+  const catalog = async options => (await listedCatalog(options)).entries
+  // The catalog with the providers whose models could not be listed by the read it
+  // came from: what those serve is unknown, which is not the same as serving nothing.
+  async function listedCatalog({ fresh = false } = {}) {
+    const kept = () => ({ entries: answerable(catalogCache.value), failed: catalogCache.failed ?? new Set() })
+    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return kept()
     // The host is gone: the last answer stands, and no service is read again.
     const service = llm()
-    if (service === undefined) return answerable(catalogCache.value)
+    if (service === undefined) return kept()
     const entries = []
     const failed = new Set()
-    const providers = service.listProviders()
-    const read = ++reads
-    // A provider that is gone has no outage: one that comes back failing is logged again.
-    roster = new Map(providers.map(provider => [provider.id, roster.get(provider.id) ?? read]))
-    for (const id of listings.keys()) if (!roster.has(id)) listings.delete(id)
-    for (const provider of providers) {
+    for (const provider of service.listProviders()) {
       // A local-agent route owned by another adapter is not offered by DS Bot.
       if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
       try { models = await service.listModels(provider.id) } catch (error) {
         failed.add(provider.id)
-        if (listed(provider.id, read, true)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
+        rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
         continue
       }
-      listed(provider.id, read, false)
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
@@ -258,7 +236,7 @@ export function install(rt) {
     }
     // The host was disposed while the models were listed: keep the answer, skip the
     // work that would read other services.
-    if (llm() === undefined) return answerable(entries)
+    if (llm() === undefined) return { entries: answerable(entries), failed }
     // DSH serves a provider's models whether or not its key is set; without one, every
     // turn on them fails.
     const missing = await rt.missingKeys?.([...new Set(entries.map(entry => entry.provider))]) ?? new Set()
@@ -271,17 +249,12 @@ export function install(rt) {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
-    // A read that began before the one kept answers with the kept catalog: its own
-    // entries would be judged against failures that are not theirs.
-    if (read < kept) return answerable(catalogCache.value)
-    kept = read
     // A provider that stops or starts being listed changes what its Bots are to run on,
-    // though everyone else is served the same models: the next sync runs. The failures
-    // change with the entries they belong to, never ahead of them.
+    // though everyone else is served the same models: the next sync runs.
+    const unlisted = catalogCache.failed ?? new Set()
     if (unlisted.size !== failed.size || [...unlisted].some(id => !failed.has(id))) syncedKey = undefined
-    unlisted = failed
-    catalogCache = { at: Date.now(), value: entries }
-    return answerable(entries)
+    catalogCache = { at: Date.now(), value: entries, failed }
+    return { entries: answerable(entries), failed }
   }
 
   // The profile default model of DSH as set, served or not, and able to answer.
@@ -382,9 +355,9 @@ export function install(rt) {
   async function desiredModel(bot) {
     if (!bot.model) return undefined
     if (isLocal(bot.model)) return bot.model
-    const entries = await catalog()
+    const { entries, failed } = await listedCatalog()
     if (entries.some(entry => entry.ref === bot.model)) return bot.model
-    if (unlisted.has(splitRef(bot.model).provider) && !refused.has(bot.model)) return bot.model
+    if (failed.has(splitRef(bot.model).provider) && !refused.has(bot.model)) return bot.model
     return usableOf(entries).some(entry => entry.ref === bot.appliedModel) ? bot.appliedModel : pickDefault(entries)
   }
 
