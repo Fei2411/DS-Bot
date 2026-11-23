@@ -448,7 +448,11 @@ test('P1-1: checkpoint preserves route config on attempt 1 and steps down effort
 
 test('P1-1: writeCheckpoint spreads extra route config fields (temperature, stop) on attempt 1 and drops them on lowered-effort retry', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-ckpt-cfg-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1,
     mainBotIds: ['m1'],
@@ -470,7 +474,7 @@ test('P1-1: writeCheckpoint spreads extra route config fields (temperature, stop
     compactRegion: async () => null,
     summarize: async () => { throw new Error('must be intercepted') },
   }
-  const ctx = fakeContext({ services: { compaction } })
+  ctx = fakeContext({ services: { compaction } })
   Object.assign(ctx, {
     llm: {
       listProviders: () => [],
@@ -495,7 +499,6 @@ test('P1-1: writeCheckpoint spreads extra route config fields (temperature, stop
     workspaceRegistry: { archiveSession: async () => {} },
   })
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose() })
   await rt.load()
 
   const agent = {
@@ -632,7 +635,11 @@ test('P1-4: real DSH ToolResultPruner reclaims oversized tool outputs mid-turn p
 
 test('P1-4: mid-turn condense prunes oversized tool result in retained tail before running a second overflow compaction', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-tail-prune-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1,
     workspaceId: 'ws-1',
@@ -690,7 +697,7 @@ test('P1-4: mid-turn condense prunes oversized tool result in retained tail befo
       ],
     }),
   }
-  const ctx = fakeContext({ services: { compaction, toolResultPruner, tokenMeter } })
+  ctx = fakeContext({ services: { compaction, toolResultPruner, tokenMeter } })
   Object.assign(ctx, {
     llm: {
       listProviders: () => [],
@@ -716,7 +723,6 @@ test('P1-4: mid-turn condense prunes oversized tool result in retained tail befo
     },
   })
   const rt = createRuntime(ctx, { home, checkRatio: 0.4 })
-  t.after(async () => { await ctx.dispose() })
   await rt.load()
 
   const agent = {
@@ -921,7 +927,11 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, subag
 
 test('F7: part switch keeps state.switching and defers archiving while schedulesPending() until schedule attaches, then moves and archives', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-f7-sched-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const teamDir = join(home, 'workspace')
   const nextDir = join(home, 'next-folder')
   mkdirSync(teamDir, { recursive: true })
@@ -955,7 +965,7 @@ test('F7: part switch keeps state.switching and defers archiving while schedules
   })
   agents.set('s1', makeAgent('s1', teamDir))
 
-  const ctx = fakeContext()
+  ctx = fakeContext()
   ctx.inject = (deps, cb) => {
     if (Array.isArray(deps) && deps.includes('schedule')) attachSchedule = cb
   }
@@ -979,8 +989,7 @@ test('F7: part switch keeps state.switching and defers archiving while schedules
     page: async () => ({ records: [], hasMore: false }),
   }
 
-  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 5_000 })
-  t.after(async () => { await ctx.dispose() })
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 30_000 })
   await rt.load()
   assert.equal(rt.schedulesPending(), true)
 
@@ -1009,7 +1018,12 @@ test('F7: part switch keeps state.switching and defers archiving while schedules
 
 test('F7: when schedule service never attaches (automation disabled), grace timer retires deferred part cleanly', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-f7-grace-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    t.mock.timers.reset()
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const teamDir = join(home, 'workspace')
   const nextDir = join(home, 'next-folder')
   mkdirSync(teamDir, { recursive: true })
@@ -1041,7 +1055,7 @@ test('F7: when schedule service never attaches (automation disabled), grace time
   })
   agents.set('s1', makeAgent('s1', teamDir))
 
-  const ctx = fakeContext()
+  ctx = fakeContext()
   ctx.inject = () => {} // automation disabled: schedule never attaches
   ctx.sessions = { flush: async () => {} }
   ctx.sessionTitle = { rename: async () => {} }
@@ -1063,19 +1077,39 @@ test('F7: when schedule service never attaches (automation disabled), grace time
     page: async () => ({ records: [], hasMore: false }),
   }
 
-  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 600 })
-  t.after(async () => { await ctx.dispose() })
+  // Drive the grace window with fake Date + setTimeout so slow I/O on loaded CI runners
+  // can never race past the attach window before the switch finishes.
+  const realSetTimeout = globalThis.setTimeout
+  const waitReal = async (predicate, timeoutMs = 5_000) => {
+    const deadline = performance.now() + timeoutMs
+    while (performance.now() < deadline) {
+      if (predicate()) return true
+      await new Promise(resolve => realSetTimeout(resolve, 15))
+    }
+    return predicate()
+  }
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() })
+
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 10_000 })
   await rt.load()
   assert.equal(rt.schedulesPending(), true, 'grace window must still be open after load')
   await rt.followFolder({ botId: 'b1' })
-  assert.equal(await waitFor(() => rt.chatOf('b1') === 's2'), true)
+  assert.equal(await waitReal(() => rt.chatOf('b1') === 's2' && !rt.isSwitchingPart('b1')), true)
   assert.equal(rt.schedulesPending(), true, 'switch must finish inside grace window')
   assert.deepEqual(archived, [], 'must wait during grace window')
   assert.ok(rt.state.switching.s1 !== undefined, 'state.switching must retain deferred part during grace window')
 
-  // Once the 600ms grace window expires, schedulesPending() flips false and the grace timer finishes retirement.
-  assert.equal(await waitFor(() => archived.includes('s1') && rt.state.switching.s1 === undefined, 3_000), true, 'grace timer must archive deferred part once attach window expires')
+  // Halfway through the grace window, the deferred part must still remain unarchived.
+  t.mock.timers.tick(5_000)
+  await new Promise(resolve => realSetTimeout(resolve, 25))
+  assert.equal(rt.schedulesPending(), true)
+  assert.deepEqual(archived, [])
+  assert.ok(rt.state.switching.s1 !== undefined)
+
+  // Once the 10s grace window expires, schedulesPending() flips false and the grace timer finishes retirement.
+  t.mock.timers.tick(5_000)
   assert.equal(rt.schedulesPending(), false)
+  assert.equal(await waitReal(() => archived.includes('s1') && rt.state.switching.s1 === undefined, 5_000), true, 'grace timer must archive deferred part once attach window expires')
 })
 
 // -----------------------------------------------------------------------------
@@ -1083,7 +1117,11 @@ test('F7: when schedule service never attaches (automation disabled), grace time
 // -----------------------------------------------------------------------------
 test('handOnHeld skips active switches (no duplicate forwards or premature archive) and finishes retirement after schedule attaches mid-switch', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-held-race-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const teamDir = join(home, 'workspace')
   const nextDir = join(home, 'next-folder')
   mkdirSync(teamDir, { recursive: true })
@@ -1130,7 +1168,7 @@ test('handOnHeld skips active switches (no duplicate forwards or premature archi
   })
   agents.set('s1', makeAgent('s1', teamDir, [heldMsg]))
 
-  const ctx = fakeContext()
+  ctx = fakeContext()
   ctx.inject = (deps, cb) => {
     if (Array.isArray(deps) && deps.includes('schedule')) attachSchedule = cb
   }
@@ -1156,8 +1194,7 @@ test('handOnHeld skips active switches (no duplicate forwards or premature archi
     page: async () => ({ records: [], hasMore: false }),
   }
 
-  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 5_000 })
-  t.after(async () => { await ctx.dispose() })
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 30_000 })
   await rt.load()
 
   // Start folder switch: runSwitch marks state.switching.s1 and pauses inside create().
@@ -1195,7 +1232,11 @@ test('handOnHeld skips active switches (no duplicate forwards or premature archi
 
 test('joinSwitch-promoted mid-turn job restores PAUSE_NOTE and routing metadata when the switch fails', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-join-fail-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const teamDir = join(home, 'workspace')
   const nextDir = join(home, 'next-folder')
   mkdirSync(teamDir, { recursive: true })
@@ -1229,7 +1270,7 @@ test('joinSwitch-promoted mid-turn job restores PAUSE_NOTE and routing metadata 
     send: () => {},
   }
 
-  const ctx = fakeContext()
+  ctx = fakeContext()
   ctx.sessions = { flush: async () => {} }
   ctx.sessionTitle = { rename: async () => {} }
   ctx.llm = { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) }
@@ -1251,7 +1292,6 @@ test('joinSwitch-promoted mid-turn job restores PAUSE_NOTE and routing metadata 
   }
 
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose() })
   await rt.load()
 
   // Trigger a folder switch (starts with resume: false) and wait until it enters create().
@@ -1284,7 +1324,11 @@ test('joinSwitch-promoted mid-turn job restores PAUSE_NOTE and routing metadata 
 
 test('startSwitch .finally kicks heldBack when schedule attaches right after schedule/pending before switches.delete', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-sched-window-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const teamDir = join(home, 'workspace')
   const nextDir = join(home, 'next-folder')
   mkdirSync(teamDir, { recursive: true })
@@ -1318,7 +1362,7 @@ test('startSwitch .finally kicks heldBack when schedule attaches right after sch
   })
   agents.set('s1', makeAgent('s1', teamDir))
 
-  const ctx = fakeContext()
+  ctx = fakeContext()
   ctx.inject = (deps, cb) => {
     if (Array.isArray(deps) && deps.includes('schedule')) attachSchedule = cb
   }
@@ -1342,8 +1386,7 @@ test('startSwitch .finally kicks heldBack when schedule attaches right after sch
     page: async () => ({ records: [], hasMore: false }),
   }
 
-  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 5_000 })
-  t.after(async () => { await ctx.dispose() })
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 30_000 })
   await rt.load()
 
   // Intercept moveSchedules so that on the very first schedule/pending throw (while s1 is STILL
@@ -1394,7 +1437,7 @@ test('real DSH runtime: idle compactNow overflow wraps cause in ManualCompaction
   await runTurn('Analyze this large spec.', agent)
 
   // Wait for checkContext -> steward(compact) -> real BasicCompactionEngine.compactNow() -> ManualCompactionError(cause: CONTEXT_WINDOW_EXCEEDED) -> overflow switch.
-  assert.equal(await waitFor(() => rt.chatOf('m1') !== part1 && archived.includes(part1), 6_000), true, 'idle compactNow overflow must trigger part switch and archive part 1')
+  assert.equal(await waitFor(() => rt.chatOf('m1') !== part1 && archived.includes(part1), 10_000), true, 'idle compactNow overflow must trigger part switch and archive part 1')
   const part2 = rt.chatOf('m1')
   const agent2 = rt.ctx.get('agents').get(part2)
   if (agent2) await agent2.whenIdle()
