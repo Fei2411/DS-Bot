@@ -174,26 +174,59 @@ function withoutBlankEdges(text) {
 // Plain markdown chunks at a byte-pair limit: paragraphs and lines first, a
 // hard cut at the limit for one over-long run. For platforms that take
 // markdown as-is (Discord, QQ, WeCom, DingTalk, Slack has its own converter).
-export function chunkMarkdown(markdown, limit) {
+export function chunkMarkdown(markdown, limit, { unit = 'code-point' } = {}) {
   const chunks = []
   // Trim before cutting, so the first chunk cannot open and the last cannot close on
   // a blank line. A message that is only whitespace has nothing to send: it returns
   // no chunk, the same as an empty string.
   let rest = withoutBlankEdges(String(markdown ?? ''))
   if (rest.trim() === '') return chunks
+  // What is left has to fit the budget the caller asked for: code points, or UTF-16
+  // units as well when the platform counts those.
+  const fits = (text) => points(text) <= limit && (unit !== 'utf16' || text.length <= limit)
   while (rest !== '') {
-    if (points(rest) <= limit) { chunks.push(rest); break }
-    let at = limit
+    if (fits(rest)) { chunks.push(rest); break }
+    // `limit` counts code points while `slice` and `lastIndexOf` count UTF-16 units, so
+    // the cut index has to be converted: taken straight from the limit it lands one unit
+    // early for every astral character before it, which splits an emoji in half. A
+    // platform that counts units instead (Discord) gets a cut measured in them.
+    let at = unit === 'utf16' ? unitsWithin(rest, limit) : codeUnitIndex(rest, limit)
+    // The halfway mark of the same budget, in the same units: a separator early in the
+    // budget is not worth preferring over a cut that uses it.
+    const half = codeUnitIndex(rest, Math.floor(limit / 2))
     const newline = rest.lastIndexOf('\n', at)
-    if (newline > limit / 2) at = newline
+    if (newline > half) at = newline
     else {
       const space = rest.lastIndexOf(' ', at)
-      if (space > limit / 2) at = space
+      if (space > half) at = space
     }
     chunks.push(rest.slice(0, at))
     rest = rest.slice(at).replace(/^\s+/, '')
   }
   return chunks
+}
+
+// The UTF-16 index of the `count`th code point of `text` (its length when it holds fewer).
+function codeUnitIndex(text, count) {
+  let at = 0
+  for (let seen = 0; seen < count && at < text.length; seen += 1) {
+    at += text.codePointAt(at) > 0xffff ? 2 : 1
+  }
+  return at
+}
+
+// The longest prefix of `text` that fits in `limit` UTF-16 units and ends on a whole
+// code point, for a platform that counts units rather than characters.
+function unitsWithin(text, limit) {
+  let at = 0
+  let used = 0
+  while (at < text.length) {
+    const width = text.codePointAt(at) > 0xffff ? 2 : 1
+    if (used + width > limit) break
+    used += width
+    at += width
+  }
+  return at
 }
 
 export function chunkTelegram(markdown, limit = 4096) {
