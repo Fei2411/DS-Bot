@@ -85,25 +85,43 @@ test('ordinary Bot prompts never direct calls to team-admin tools', (t) => {
   for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(prompt('main').includes(name), name)
 })
 
-test('role-dependent prompt guidance stays frozen until the next turn in both directions', (t) => {
+test('Main guidance stays frozen through a demotion until the next turn', (t) => {
   const ctx = fakeContext()
   t.after(() => ctx.dispose())
-  let main = false
+  let main = true
   const rt = { ctx, selfOf: id => id, botOf: () => ({ name: 'Writer' }), roomOf: () => undefined, isMain: () => main, isBotSession: () => true }
   installBuiltinPacks(rt)
   install(rt)
   const prompt = () => ctx.sections.get('bot-identity').text({ agent: { id: 'worker' } })
   const emit = type => ctx.listeners.get('session/event')[0]({ id: 'worker' }, { type })
-  for (const initial of [false, true]) {
-    main = initial
-    emit('turn/start')
-    const before = prompt()
-    main = !initial
-    assert.equal(prompt(), before)
-    emit('turn/end')
-    emit('turn/start')
-    assert.notEqual(prompt(), before)
-    assert.equal(prompt().includes('create_bot'), !initial)
-    emit('turn/end')
-  }
+  emit('turn/start')
+  const before = prompt()
+  assert.ok(before.includes('create_bot'))
+  main = false
+  assert.equal(prompt(), before)
+  emit('turn/end')
+  emit('turn/start')
+  assert.ok(!prompt().includes('create_bot'))
+})
+
+test('a Main role that resolves after turn start is not held back for the turn (#2127)', (t) => {
+  const ctx = fakeContext()
+  t.after(() => ctx.dispose())
+  let main = false
+  const rt = { ctx, selfOf: id => id, botOf: () => ({ name: 'Chief' }), roomOf: () => undefined, isMain: () => main, isBotSession: () => true }
+  installBuiltinPacks(rt)
+  install(rt)
+  const prompt = () => ctx.sections.get('bot-identity').text({ agent: { id: 'chief' } })
+  const emit = type => ctx.listeners.get('session/event')[0]({ id: 'chief' }, { type })
+  const filter = ctx.listeners.get('llm/stream').find(fn => fn.name === 'filterBuiltinTools')
+  ctx.llm.stream = options => options
+  const tools = BUILTIN_PACKS['team-admin'].tools.map(name => ({ name }))
+  const offered = () => filter({ sessionId: 'chief', tools }, () => ({ tools })).tools.map(tool => tool.name)
+  emit('turn/start')
+  assert.deepEqual(offered(), [])
+  main = true
+  assert.equal(rt.isMainForTurn('chief'), true)
+  assert.deepEqual(rt.hiddenBuiltinTools('chief'), new Set())
+  assert.deepEqual(offered(), BUILTIN_PACKS['team-admin'].tools)
+  assert.ok(prompt().includes('create_bot'))
 })

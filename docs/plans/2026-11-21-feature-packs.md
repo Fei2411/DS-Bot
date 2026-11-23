@@ -34,7 +34,7 @@
 - `builtin-packs.js` 定义内置工具分包与角色默认策略，经 `llm/stream` 瀑布流过滤最终工具数组。
 - 当前落地的内置包为 `team-admin`，仅包含真正 Main Bot 专用的 4 个工具：`create_bot`、`stop_bot`、`create_group`、`delete_group`（普通 Bot 默认关闭，每步请求减少约 744 cl100k 代理 token；Main Bot 默认常驻）。
 - `update_bot`（自改设置）、`update_group`（群管理员管本群）、`list_bot_models`（查看可用模型）对所有 Bot 保持可见，调用时权限校验照旧。
-- 角色在 `turn/start` 同步取快照并在 `turn/end` 清理，确保单轮内工具数组稳定、不因中途升降级破坏前缀缓存。
+- 角色在 `turn/start` 同步取快照并在 `turn/end` 清理：只冻结 Main 角色，轮中降级到下一轮才生效，单轮内工具数组不因降级变动；普通角色不冻结、按实时角色判定，避免轮开始时角色尚未解析成 Main 就整轮隐藏 team-admin（#2127），代价是轮中升级会让当轮工具数组变化一次。
 
 ## 不做什么
 

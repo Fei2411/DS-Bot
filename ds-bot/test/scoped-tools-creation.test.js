@@ -251,7 +251,7 @@ function attachHostBuiltinFilters(root, host) {
 
 for (const main of [false, true]) {
   for (const group of [false, true]) {
-    test(`real DSH ${group ? 'group' : 'own-chat'} turn freezes team-admin during ${main ? 'demotion' : 'promotion'}`, async (t) => {
+    test(`real DSH ${group ? 'group' : 'own-chat'} turn ${main ? 'freezes team-admin during demotion' : 'offers team-admin right after promotion'}`, async (t) => {
       const team = structuredClone(TEAM)
       team.rooms.r1.sessions = { a: 'ga', b: 'gb' }
       const host = start(team)
@@ -292,7 +292,7 @@ for (const main of [false, true]) {
       await agent.whenIdle()
       assert.equal(seen.length, 3)
       for (const [index, tools] of seen.entries()) {
-        for (const name of BUILTIN_PACKS['team-admin'].tools) assert.equal(tools.includes(name), index < 2 ? main : !main, `${name} at request ${index}`)
+        for (const name of BUILTIN_PACKS['team-admin'].tools) assert.equal(tools.includes(name), main ? index < 2 : index > 0, `${name} at request ${index}`)
         for (const name of ['update_bot', 'update_group', 'list_bot_models']) assert.ok(tools.includes(name), `${name} stays available at request ${index}`)
         assert.ok(tools.includes('list_bots'))
         assert.ok(tools.includes('save_capability'))
