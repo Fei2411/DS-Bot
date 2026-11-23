@@ -19,33 +19,37 @@ export interface UsageReport {
   previous: number
   owners: Map<number, UsageSum>
   models: Map<number, UsageSum>
+  bots: Set<number>
 }
 export const usageRanges = RANGES as { id: string; unit: string; count: number; stride: number }[]
 export type UsageRange = typeof usageRanges[number]
 
 // Share the desktop's wall-clock buckets, comparison window and cache accounting.
-const sumUsage = summarize as unknown as (view: UsageView, range: UsageRange, keep: undefined, series: (row: UsageRow) => number) => UsageReport
+const sumUsage = summarize as unknown as (view: UsageView, range: UsageRange, keep: undefined, series: (row: UsageRow) => number) => Omit<UsageReport, 'bots'>
 export function usageReport(view: UsageView, range: UsageRange, by: 'bot' | 'model'): UsageReport {
-  return sumUsage(view, range, undefined, row => row[by === 'bot' ? 1 : 2])
+  const bots = new Set(view.owners.flatMap((owner, id) => ['bot', 'agent'].includes(owner.kind) ? [id] : []))
+  return { ...sumUsage(view, range, undefined, row => row[by === 'bot' ? 1 : 2]), bots }
 }
 
 export const rankUsage = (sums: Map<number, UsageSum>) => [...sums].filter(([, sum]) => sum.total > 0).sort((a, b) => b[1].total - a[1].total)
 
 // Like web, keep a busy team's chart readable without dropping smaller series.
 export function usageChart(report: UsageReport, by: 'bot' | 'model', limit = 7) {
-  const ranked = rankUsage(by === 'bot' ? report.owners : report.models)
+  const ranked = rankUsage(by === 'bot' ? report.owners : report.models).filter(([id]) => by === 'model' || report.bots.has(id))
   const ids = ranked.slice(0, limit).map(([id]) => id)
-  if (ranked.length <= limit) return { report, ids }
+  const other = by === 'bot' && rankUsage(report.owners).some(([id]) => !report.bots.has(id))
+  const more = ranked.length > limit
+  if (!more && !other) return { report, ids }
   const shown = new Set(ids)
   const buckets = report.buckets.map(bucket => {
     const stacks = new Map<number, number>()
     for (const [id, value] of bucket.stacks) {
-      const key = shown.has(id) ? id : -1
+      const key = by === 'bot' && !report.bots.has(id) ? -2 : shown.has(id) ? id : -1
       stacks.set(key, (stacks.get(key) ?? 0) + value)
     }
     return { ...bucket, stacks }
   })
-  return { report: { ...report, buckets }, ids: [...ids, -1] }
+  return { report: { ...report, buckets }, ids: [...ids, ...(more ? [-1] : []), ...(other ? [-2] : [])] }
 }
 
 export function usageActivity(view: UsageView) {

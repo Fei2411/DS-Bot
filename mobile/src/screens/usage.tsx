@@ -219,7 +219,8 @@ export function TeamUsage({ navigation }: any) {
   const modelSeries: Series[] = (view?.models ?? []).map((model, id) => ({ id, name: model.name || model.model || t('Unknown model'), sub: model.providerName ?? model.provider, color: inkColor(MODEL_INKS[id % MODEL_INKS.length], dark) }))
   const chart = useMemo(() => report ? usageChart(report, by) : null, [report, by])
   const chartSeries = (chart?.ids ?? []).map(id => id === -1
-    ? { id, name: t(by === 'bot' ? 'More Bots' : 'More models'), color: p.ink3 }
+    ? { id, name: t(by === 'bot' ? 'More Bots' : 'More models'), color: p.ink2 }
+    : id === -2 ? { id, name: t('Other'), color: p.ink3 }
     : (by === 'bot' ? ownerSeries : modelSeries)[id]).filter((item): item is Series => item !== undefined)
   const refresh = () => { setRefreshing(true); setReload(value => value + 1) }
   return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>
@@ -247,7 +248,7 @@ export function TeamUsage({ navigation }: any) {
         {view.scanning ? <Text accessibilityLiveRegion="polite" style={[typeScale.caption, { color: p.ink2 }]}>{t('Still reading older chats; totals may grow.')}</Text> : null}
         <Totals report={report} range={range} />
         <UsageChart report={chart?.report ?? report} range={range} series={chartSeries} by={by} onBy={setBy} />
-        <Ranking title={t('Bots')} entries={rankUsage(report.owners)} total={report.total.total} series={ownerSeries} />
+        <Ranking title={t('Bots')} entries={rankUsage(report.owners).filter(([id]) => report.bots.has(id))} total={report.total.total} series={ownerSeries} />
         <Ranking title={t('Models')} entries={rankUsage(report.models)} total={report.total.total} series={modelSeries} />
         <Activity view={view} />
       </> : null}

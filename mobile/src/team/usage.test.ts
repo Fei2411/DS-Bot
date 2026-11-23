@@ -66,6 +66,23 @@ test('busy charts group smaller series without losing tokens or changing the ran
   assert.equal(usageChart(original, 'bot', 10).report, original)
 })
 
+test('Bot charts keep group and standalone usage separate from smaller Bots, like web', () => {
+  const source = demoUsage(Array.from({ length: 8 }, (_, id) => ({ id: String(id), name: `Bot ${id}` })), new Date(2026, 10, 23, 12))
+  source.owners[1].kind = 'agent'
+  source.owners.push({ key: 'room', kind: 'room' }, { key: 'outside', kind: 'other' })
+  source.rows = source.owners.map((_, id) => ['2026-11-23 12', id, 0, 0, id === 8 ? 50 : id === 9 ? 20000 : 1000 - id * 100, 0, 0, 0, 1])
+  const report = usageReport(source, range('24h'), 'bot')
+  assert.equal(report.bots.size, 8)
+  const chart = usageChart(report, 'bot')
+  assert.deepEqual(chart.ids, [0, 1, 2, 3, 4, 5, 6, -1, -2])
+  const bucket = chart.report.buckets.at(-1)!
+  assert.equal(bucket.stacks.get(-1), 300)
+  assert.equal(bucket.stacks.get(-2), 20050)
+  assert.equal([...bucket.stacks.values()].reduce((sum, value) => sum + value, 0), bucket.sum.total)
+  assert.deepEqual(usageChart(report, 'bot', 10).ids, [0, 1, 2, 3, 4, 5, 6, 7, -2])
+  assert.deepEqual(usageChart(usageReport(source, range('24h'), 'model'), 'model').ids, [0])
+})
+
 test('activity ignores future and out-of-year rows and places wall-clock days in Monday-first weeks', () => {
   const source = view()
   source.rows = [
