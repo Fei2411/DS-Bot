@@ -1869,6 +1869,9 @@ export function install(rt) {
       onWork,
     )
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
+    // Set when the turn's answer is its presented files alone: that is a posted result,
+    // so the goal gate below counts it the same as written text.
+    let postedFilesOnly = false
     // Tool-only turns can finish without assistant text; their changes still belong here.
     const changes = await rt.turnChanges?.(session.id)
     const bgRunning = rt.hasSubagents?.(session.id) === true || rt.hasRoomTasks?.(room.id, member.id) === true
@@ -1922,6 +1925,7 @@ export function install(rt) {
       const delivered = typeof reply === 'string' ? await turnFiles(now?.id ?? session.id) : undefined
       if (delivered !== undefined) {
         slot.status = 'posted'
+        postedFilesOnly = true
         posted.push(postInRound(room, member, '', Date.now() - startedAt, undefined, changes, delivered))
       } else {
         slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
@@ -1938,7 +1942,7 @@ export function install(rt) {
       }
     }
     // A result the admin asked for reports its goal task; a failed model call puts it back.
-    if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
+    if (slot.status === 'posted' && slot.by === room.admin && (final !== undefined || postedFilesOnly)) rt.goalTaskReported?.(room.id, member.id)
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     // Yielding to work, approval or an unanswered turn keeps the task pending.
     if (['posted', 'passed', 'failed', 'left', 'cancelled'].includes(slot.status)) {
@@ -2585,7 +2589,11 @@ export function install(rt) {
       const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       // A post that is only the files a turn presented still tells the group's model what
       // landed: an empty post would read as a lost message (#975).
+      // This echo is parsed for calls like any post text: a file named "notes @Writer.md"
+      // must not call Writer, so '@' is neutralized in the names (the cards keep the real
+      // names; this text only tells the model what landed).
       const presented = (postExtra.delivered ?? []).map(file => file?.name).filter(name => typeof name === 'string' && name !== '')
+        .map(name => name.replaceAll('@', '＠'))
       const modelText = text === '' && presented.length > 0 ? `[Presented files: ${presented.join(', ')}]` : text
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${modelText}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
@@ -2633,16 +2641,21 @@ export function install(rt) {
       }
       const batch = batchOfTurn(room.id, member.id, info)
       const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? batch?.by)
+      // What the turn changed and the files it presented are read up front: the batch
+      // bookkeeping and the goal gate below count presented files as a result, the same
+      // as shown text, so a file-only reply still finishes its batch for the caller (#975).
+      const changes = await rt.turnChanges?.(sessionId)
+      const delivered = await rt.turnDeliverables?.(sessionId)
       // The admin asked for this result: its goal task is reported at once, even
       // while the other members of the batch still work.
-      if (askedBy === room.admin && (!isPass(text) || shown)) rt.goalTaskReported?.(room.id, member.id)
+      if (askedBy === room.admin && (!isPass(text) || shown || delivered !== undefined)) rt.goalTaskReported?.(room.id, member.id)
       const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.filter(bot => bot.id !== member.id)
       expandScopedReports(room.id, member.id, named)
       let waitingPeers = false
       let batchDoneBefore = false
       if (batch !== undefined) {
         if (named.length > 0) batch.answered = true
-        if (!isPass(text) || shown) {
+        if (!isPass(text) || shown || delivered !== undefined) {
           batch.done.push(member.name)
           ;(batch.doneIds ??= []).push(member.id)
         }
@@ -2655,11 +2668,6 @@ export function install(rt) {
       const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }) }
       const session = await rt.resolveAgent(sessionId).then(agent => agent?.session, () => undefined)
       const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0, named.length > 0)
-      // What this turn changed in the member's folder, so the group can open the review from
-      // the same row. Read before posting: the review needs the turn that just ended.
-      const changes = await rt.turnChanges?.(sessionId)
-      // The files the turn presented ride the same rows, as saveable refs (#975).
-      const delivered = await rt.turnDeliverables?.(sessionId)
       const moved = extra => (changes === undefined && delivered === undefined ? extra
         : { ...extra, ...(changes === undefined ? {} : { changes }), ...(delivered === undefined ? {} : { delivered }) })
       const post = (body, extra) => postToRoom(room, member, body, { late: true, ...moved(extra), ...inBatch, ...(claims === undefined ? {} : { claims }) })
@@ -2682,7 +2690,7 @@ export function install(rt) {
         else if (changes !== undefined) await lateDone({ quiet: true })
         return
       }
-      const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined
+      const done = isPass(text) && (shown || batchDoneBefore || delivered !== undefined) && askedBy !== undefined
       if (isPass(text) && !done) {
         if (batch !== undefined) closeBatch(batch.key)
         if (delivered !== undefined) await post('')
