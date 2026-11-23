@@ -588,6 +588,7 @@ export function install(rt) {
       const store = data()
       if (stuck !== undefined) return 0
       let made = 0
+      let succeeded = 0
       let failed = 0
       for (const [botId, pendingSessions] of Object.entries(store.pending)) {
         if (stopped) break
@@ -606,6 +607,7 @@ export function install(rt) {
           const lines = read.flatMap(entry => entry.lines)
           const proposal = lines.length === 0 ? undefined : await reviewSkill(bot, lines)
           if (stopped) return made
+          if (lines.length > 0) succeeded += 1
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
             rt.learningProposed?.(proposal)
@@ -676,6 +678,7 @@ export function install(rt) {
             if (lines.length === 0) continue
             const proposal = await reviewAgents(bot, folder, current, lines)
             if (stopped) return made
+            succeeded += 1
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
               rt.learningProposed?.(proposal)
@@ -693,11 +696,11 @@ export function install(rt) {
         }
       }
       if (!stopped) {
-        if (failed === 0) {
+        if (succeeded === 0 && failed > 0) {
+          failedRunUntil = Date.now() + settings.retryMs
+        } else {
           store.lastRun = Date.now()
           failedRunUntil = 0
-        } else {
-          failedRunUntil = Date.now() + settings.retryMs
         }
       }
       pruneSettled(store)

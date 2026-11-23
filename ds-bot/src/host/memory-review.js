@@ -23,10 +23,11 @@ const REVIEW_USER_LINE_MAX = 3_000
 const REVIEW_OTHER_LINE_MAX = 800
 const REVIEW_PASSES_MAX = 4
 const GROUP_WAIT_MAX = 20
+const GROUP_WAIT_POLL_MAX_MS = 2_000
 
 export function installReview(rt, memory) {
   const { ctx, config } = rt
-  const { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow } = memory
+  const { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf } = memory
 
   const cursorsPath = join(root, 'reviewed.json')
   /** @type {Record<string, number> | undefined} */
@@ -78,7 +79,8 @@ export function installReview(rt, memory) {
     }
     const parts = rt.partsOfThread(bot.id, sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
-    const ownTaskId = taskId ?? (rt.taskOwners?.get(sessionId)?.roomId === undefined ? rt.taskOwners?.get(sessionId)?.taskId : undefined)
+    const ownerTask = taskOwnerOf?.(sessionId) ?? rt.taskOwners?.get(sessionId)
+    const ownTaskId = taskId ?? (ownerTask?.roomId === undefined ? ownerTask?.taskId : undefined)
     return {
       through,
       more,
@@ -172,12 +174,9 @@ export function installReview(rt, memory) {
     const done = []
     const counts = () => ({ kept: done.length, changed: done.filter(result => result.changed).length })
     let failed
-    const targetMatch = (target) => {
-      const id = entryId(target)
-      if (target.meta?.id !== undefined) return id
-      const sameId = numbered.filter(item => item.scope === target.scope && entryId(item) === id)
-      return sameId.length === 1 ? id : target.text
-    }
+    // Exact-identity match so review edits/removals never pass bare hex IDs through
+    // fuzzy user-facing `matchEntries` (avoiding exact-text or whole-word collisions).
+    const targetMatch = target => ({ id: entryId(target), text: target.text, hasMetaId: target.meta?.id !== undefined })
     // A removal frees room and an edit names an entry as it reads now, so both go
     // before what is new.
     const order = change => ({ remove: 0, edit: 1 })[String(change?.op)] ?? 2
@@ -260,9 +259,10 @@ export function installReview(rt, memory) {
 
   // What a Session's turn gives the review: its Bot's own chat, or its group with a
   // copy of the group's log as of now. `key` is where the review keeps its place.
-  // Check taskOwners before chatOwners so group background tasks route to the group.
+  // Check task ownership before chatOwners/pastOwners so both active and settled
+  // background tasks keep their room routing and taskId.
   const reviewOf = (sessionId) => {
-    const taskOwner = rt.taskOwners?.get(sessionId)
+    const taskOwner = taskOwnerOf?.(sessionId) ?? rt.taskOwners?.get(sessionId)
     if (taskOwner !== undefined) {
       if (taskOwner.roomId !== undefined) {
         const room = rt.roomOf(taskOwner.roomId)
@@ -511,6 +511,7 @@ export function installReview(rt, memory) {
 
   if (reviewOn) {
     const delay = config.memoryReviewDelayMs ?? REVIEW_DELAY_MS
+    const groupWaitBase = config.memoryReviewGroupWaitMs ?? Math.max(delay, 50)
     const catchupDelay = config.memoryReviewCatchupDelayMs ?? REVIEW_CATCHUP_DELAY_MS
     // What each running turn gave when it began: a member removed from its group
     // mid-turn leaves a Session that no longer has one when it ends.
@@ -531,11 +532,11 @@ export function installReview(rt, memory) {
         if (stopped) return
         if (merged.roomId !== undefined && groupBusy(merged.roomId)) {
           if (groupMembersActive(merged.roomId)) return
-          if (waitTries < GROUP_WAIT_MAX) {
-            const live = rt.roomOf(merged.roomId)
-            const refreshed = live === undefined ? merged : { ...merged, room: joinLogs(merged.room, live) }
-            scheduleReview(refreshed, Math.max(delay, 50), waitTries + 1)
-          }
+          const live = rt.roomOf(merged.roomId)
+          if (live === undefined) return
+          const refreshed = { ...merged, room: joinLogs(merged.room, live) }
+          const pollMs = Math.min(groupWaitBase * (waitTries < GROUP_WAIT_MAX ? 1 : 2), GROUP_WAIT_POLL_MAX_MS)
+          scheduleReview(refreshed, pollMs, waitTries + 1)
           return
         }
         queueReview(merged)
@@ -559,7 +560,12 @@ export function installReview(rt, memory) {
       activeSessions.delete(id)
       const started = turnOwners.get(id)
       turnOwners.delete(id)
-      const seen = reviewOf(id) ?? started
+      const liveSeen = reviewOf(id)
+      const seen = liveSeen === undefined
+        ? started
+        : (liveSeen.taskId === undefined && started?.taskId !== undefined && liveSeen.key === started.key
+            ? { ...liveSeen, taskId: started.taskId }
+            : liveSeen)
       if (seen === undefined) return
       clearReviewTimer(seen.key)
       if (seen.roomId !== undefined && groupMembersActive(seen.roomId)) return
@@ -576,6 +582,7 @@ export function installReview(rt, memory) {
         if (stopped) return
         if (typeof room.seq !== 'number' || room.seq <= 0) continue
         const key = `group:${room.id}`
+        if (reviewTimers.has(key) || reviewQueue.has(key)) continue
         if ((saved[key] ?? 0) >= room.seq || groupBusy(room.id)) continue
         queueReview({ key, roomId: room.id, room: roomCopy(room) })
       }
@@ -588,11 +595,15 @@ export function installReview(rt, memory) {
         for (const sid of candidates) {
           if (stopped || sid === undefined || activeSessions.has(sid)) continue
           const key = `chat:${sid}`
-          const resolved = await ctx.sessionController?.resolveAgent?.(sid).catch(() => undefined)
-          const seq = resolved?.agent?.session?.seq
-          if (typeof seq !== 'number' || seq <= 0) continue
+          if (reviewTimers.has(key) || reviewQueue.has(key)) continue
+          const agent = rt.resolveAgent !== undefined
+            ? await rt.resolveAgent(sid).catch(() => undefined)
+            : (await ctx.sessionController?.resolveAgent?.(sid).catch(() => undefined))?.agent
+          // DSH session.seq is the next seq to assign (lastEventSeq + 1).
+          const seq = agent?.session?.seq
+          if (typeof seq !== 'number' || seq <= 1) continue
           const cursor = saved[key]
-          if (cursor !== undefined && seq <= cursor) continue
+          if (cursor !== undefined && seq - 1 <= cursor) continue
           queueReview({ key, sessionId: sid, botId: bot.id })
         }
       }

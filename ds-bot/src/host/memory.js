@@ -372,7 +372,8 @@ export function install(rt) {
 
   // Recent changes, for the memory updates a running conversation gets.
   const recentRows = []
-  /** @type {Map<string, {size: bigint, mtimeNs: bigint}>} */
+  let recentRowsEvicted = false
+  /** @type {Map<string, {ino: bigint, offset: number, size: bigint, mtimeNs: bigint, truncated: boolean, minTime: string | undefined}>} */
   const tailsRead = new Map()
   const rememberRow = (row) => {
     if (recentRows.some(known => known.id === row.id)) return
@@ -380,14 +381,18 @@ export function install(rt) {
     if (Number.isFinite(ms) && ms <= Date.now() + 60_000) lastPublishMs = Math.max(lastPublishMs, ms)
     recentRows.push(row)
     recentRows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
-    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+    if (recentRows.length > RECENT_ROWS_MAX) {
+      recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+      recentRowsEvicted = true
+    }
   }
-  function readBytesFrom(path, offset, length) {
+  function readBufferFrom(path, offset, length) {
+    if (length <= 0) return Buffer.alloc(0)
     let fd
     try {
       fd = openSync(path, 'r')
     } catch (error) {
-      if (error?.code === 'ENOENT') return ''
+      if (error?.code === 'ENOENT') return undefined
       unreadable(path, error)
     }
     try {
@@ -398,7 +403,7 @@ export function install(rt) {
         if (read === 0) break
         at += read
       }
-      return buf.subarray(0, at).toString('utf8')
+      return buf.subarray(0, at)
     } catch (error) {
       unreadable(path, error)
     } finally {
@@ -418,29 +423,63 @@ export function install(rt) {
     }
     if (stat.isDirectory()) unreadable(path, Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'EISDIR' }))
     const prev = tailsRead.get(path)
-    if (prev !== undefined && prev.size === stat.size && prev.mtimeNs === stat.mtimeNs) return
+    if (prev !== undefined && prev.ino === stat.ino && prev.size === stat.size && prev.mtimeNs === stat.mtimeNs) return
     const size = Number(stat.size)
-    let text
-    if (prev !== undefined && stat.size > prev.size) {
-      const from = Number(prev.size)
-      text = readBytesFrom(path, from, size - from)
+    const sameFile = prev !== undefined && prev.ino === stat.ino && size >= prev.offset
+    let start
+    let truncated
+    let minTime
+    if (sameFile && size - prev.offset <= RECENT_TAIL_CHARS) {
+      start = prev.offset
+      truncated = prev.truncated
+      minTime = prev.minTime
     } else {
-      const start = Math.max(0, size - RECENT_TAIL_CHARS)
-      const raw = readBytesFrom(path, start, size - start)
-      if (start === 0) text = raw
-      else {
-        const nl = raw.indexOf('\n')
-        text = nl === -1 ? '' : raw.slice(nl + 1)
-      }
+      start = Math.max(0, size - RECENT_TAIL_CHARS)
+      truncated = start > 0
+      minTime = undefined
     }
-    for (const line of text.split('\n')) {
-      if (line === '') continue
+    const buf = readBufferFrom(path, start, size - start)
+    if (buf === undefined) {
+      tailsRead.delete(path)
+      return
+    }
+    let sliceStart = 0
+    if (start > 0 && !sameFile) {
+      const firstNl = buf.indexOf(0x0a)
+      sliceStart = firstNl === -1 ? buf.length : firstNl + 1
+    } else if (start > 0 && size - prev.offset > RECENT_TAIL_CHARS) {
+      const firstNl = buf.indexOf(0x0a)
+      sliceStart = firstNl === -1 ? buf.length : firstNl + 1
+    }
+    const lastNl = buf.lastIndexOf(0x0a)
+    const parseLine = (line) => {
+      if (line === '') return
       try {
         const row = JSON.parse(line)
-        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+        if (typeof row?.id === 'string' && typeof row.time === 'string') {
+          rememberRow(row)
+          if (minTime === undefined || row.time < minTime) minTime = row.time
+        }
       } catch { /* a line cut by the tail, or half-written */ }
     }
-    tailsRead.set(path, { size: stat.size, mtimeNs: stat.mtimeNs })
+    if (lastNl >= sliceStart) {
+      for (const line of buf.subarray(sliceStart, lastNl).toString('utf8').split('\n')) parseLine(line)
+    }
+    // Peek any unterminated trailing bytes without advancing `offset` past them:
+    // a complete line missing `\n` is observed immediately, while a partial concurrent
+    // append will be re-read from `offset` once its writer finishes the line.
+    const trailStart = lastNl >= sliceStart ? lastNl + 1 : sliceStart
+    if (trailStart < buf.length) parseLine(buf.subarray(trailStart).toString('utf8'))
+    const nextOffset = lastNl >= sliceStart ? start + lastNl + 1 : start
+    tailsRead.set(path, { ino: stat.ino, offset: nextOffset, size: stat.size, mtimeNs: stat.mtimeNs, truncated, minTime })
+  }
+  const needsFullScan = (paths, earliestNeeded) => {
+    if (recentRowsEvicted && (recentRows.length === 0 || earliestNeeded <= recentRows[0].time)) return true
+    for (const path of paths) {
+      const state = tailsRead.get(path)
+      if (state?.truncated === true && (state.minTime === undefined || earliestNeeded <= state.minTime)) return true
+    }
+    return false
   }
 
   // Read paths for a Bot's journals: includes legacy per-Bot journal.jsonl read-only
@@ -741,12 +780,29 @@ export function install(rt) {
   }
 
   // `topic` narrows where to look; undefined looks in every file of the scope.
+  // `wanted` may be a user-facing query string (fuzzy `matchEntries`) or an exact-identity
+  // target `{ id, text, hasMetaId }` from internal callers like `applyReview`.
   function findOne(files, topic, wanted, label) {
     const pool = topic === undefined ? files : files.filter(file => file.topic === topic)
     const missing = message => Object.assign(new Error(message), { code: NO_MATCH })
     if (topic !== undefined && pool.length === 0) throw missing(`${capital(label)} has no topic [[${topic}]].`)
-    const found = matchEntries(allEntries(pool), wanted)
-    const shown = String(wanted ?? '').slice(0, 80)
+    const entries = allEntries(pool)
+    let found
+    let shown
+    if (wanted !== null && typeof wanted === 'object') {
+      const targetId = typeof wanted.id === 'string' ? wanted.id.toLowerCase() : undefined
+      const targetText = typeof wanted.text === 'string' ? squash(wanted.text) : undefined
+      found = entries.filter(entry =>
+        (targetId === undefined || entryId(entry) === targetId)
+        && (targetText === undefined || squash(entry.text) === targetText))
+      if (found.length === 0 && targetId !== undefined && wanted.hasMetaId === true) {
+        found = entries.filter(entry => entry.meta?.id === targetId)
+      }
+      shown = String(wanted.text ?? wanted.id ?? '').slice(0, 80)
+    } else {
+      found = matchEntries(entries, wanted)
+      shown = String(wanted ?? '').slice(0, 80)
+    }
     if (found.length === 0) throw missing(`No entry in ${label}${topic ? ` (topic [[${topic}]])` : ''} matches "${shown}". bot_recall shows what is saved.`)
     if (found.length > 1) throw missing(`"${shown}" matches ${found.length} entries in ${label}; quote more of the one you mean:\n${found.slice(0, 8).map(entry => `- ${entry.text} (${fileName(entry.file)})`).join('\n')}`)
     return found[0]
@@ -992,12 +1048,22 @@ export function install(rt) {
   const seenAtIds = new Map()
   /** @type {Map<string, {time: string, ids: Set<string>}>} */
   const groupSeen = new Map()
+  const RENAME_BUSY = new Set(['EPERM', 'EACCES', 'EBUSY'])
+  const SYNC_WAIT = new Int32Array(new SharedArrayBuffer(4))
   function writeFileAtomicSync(path, text) {
     mkdirSync(dirname(path), { recursive: true })
     const temp = join(dirname(path), `.${basename(path).slice(0, 32)}.${process.pid}.${randomUUID()}.tmp`)
     try {
       writeFileSync(temp, text, 'utf8')
-      renameSync(temp, path)
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          renameSync(temp, path)
+          return
+        } catch (error) {
+          if (process.platform !== 'win32' || attempt >= 5 || !RENAME_BUSY.has(error?.code)) throw error
+          Atomics.wait(SYNC_WAIT, 0, 0, 20 * attempt)
+        }
+      }
     } catch (error) {
       try { unlinkSync(temp) } catch { /* ignore */ }
       throw error
@@ -1114,6 +1180,8 @@ export function install(rt) {
     for (const sid of rt.groupOwners?.keys?.() ?? []) keep(sid)
     for (const sid of rt.roomOwners?.keys?.() ?? []) keep(sid)
     for (const sid of rt.taskOwners?.keys?.() ?? []) keep(sid)
+    for (const sid of rt.live?.keys?.() ?? []) keep(sid)
+    for (const entry of state.retiredParts ?? []) keep(entry?.sessionId)
     for (const bot of Object.values(state.bots)) {
       keep(bot.id)
       keep(rt.chatOf(bot.id))
@@ -1341,7 +1409,7 @@ export function install(rt) {
       }
     }
     const earliestNeeded = gCursor !== undefined && gCursor.time < baseCursor.time ? gCursor.time : baseCursor.time
-    const rows = recentRows.length >= RECENT_ROWS_MAX && recentRows.length > 0 && earliestNeeded < recentRows[0].time
+    const rows = needsFullScan(paths, earliestNeeded)
       ? allRowsFrom(paths)
       : recentRows
     const matched = rows.filter((row) => {
@@ -1417,10 +1485,30 @@ export function install(rt) {
     return bot === undefined ? undefined : { bot, sessionId, roomId: roomIdOf(sessionId) }
   }
 
+  // Resolves background task ownership for active tasks, recently settled tasks
+  // (moved to pastOwners by settleTask -> rt.save() before agent/status: idle), and
+  // archived task segments so source anchors and review routing never lose taskId.
+  function taskOwnerOf(sessionId) {
+    const active = rt.taskOwners?.get(sessionId)
+    if (active !== undefined) return active
+    const past = rt.pastOwners?.get(sessionId)
+    const bot = past?.botId === undefined ? undefined : rt.botOf(past.botId)
+    for (const task of bot?.tasks ?? []) {
+      if (task?.sessionId === sessionId || task?.segments?.some(segment => segment?.sessionId === sessionId)) {
+        return {
+          botId: bot.id,
+          taskId: task.id,
+          ...(typeof task.roomId === 'string' && task.roomId !== '' ? { roomId: task.roomId } : {}),
+        }
+      }
+    }
+    return undefined
+  }
+
   // Where the caller learned it: the anchor of the latest message to it in this part,
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
-    const taskOwner = rt.taskOwners?.get(sessionId)
+    const taskOwner = taskOwnerOf(sessionId)
     const owner = rt.groupOwners.get(sessionId) ?? (taskOwner?.roomId !== undefined ? taskOwner : undefined)
     if (owner !== undefined) {
       const room = rt.roomOf(owner.roomId)
@@ -2194,7 +2282,7 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf })
 
   const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
 

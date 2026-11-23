@@ -1,8 +1,8 @@
 // Real-runtime contract tests for memory scope isolation, durability & restore,
 // causal delta watermarks, group review coordination, topic/entry invariants,
-// learning durability, and operational hygiene (PR-6).
+// learning durability, and operational hygiene.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -150,12 +150,18 @@ test('P0-3: group background task reviews into group memory (never Bot private m
   assert.match(read('groups', 'r1', 'MEMORY.md'), /Group launch deadline is Friday/)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false, 'group task must NEVER write into Bot own memory')
 
-  // Own-chat background task reviews into own memory with `task <id> #<seq>` anchor (not broken `part N`).
+  // Own-chat background task: simulate real host settleTask order where status='completed' +
+  // rt.save() moves the session to pastOwners BEFORE agent/status: idle fires.
+  ctx.emit('agent/status', { agent: { id: 'task-own-1' }, status: 'running' })
+  rt.botOf('b2').tasks[1].status = 'completed'
+  await rt.save()
+  assert.equal(rt.taskOwners.get('task-own-1'), undefined, 'settled task moved out of taskOwners')
+  assert.equal(rt.pastOwners.get('task-own-1')?.botId, 'b2', 'settled task indexed in pastOwners')
   ctx.emit('agent/status', { agent: { id: 'task-own-1' }, status: 'idle' })
   await reviewed(call)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /Own task preference saved \[id: [0-9a-f]{4}; source: task to1 #40;/)
 
-  // Explicit bot_remember from own-chat background task also records task anchor.
+  // Explicit bot_remember from a settled/past task session also resolves the task anchor.
   await tool('bot_remember', { text: 'Explicit own-task note' }, 'task-own-1')
   assert.match(read('bots', 'b2', 'MEMORY.md'), /Explicit own-task note \[id: [0-9a-f]{4}; source: task to1 #40;/)
 })
@@ -263,11 +269,26 @@ test('P0-4: memoryRestore into empty MEMORY.md uses # Memory (not # undefined) a
   const res2 = await call('memory-restore', { botId: 'b3', id: removeRow2.id })
   assert.equal(res2.ok, true, JSON.stringify(res2))
   assert.match(read('bots', 'b3', 'earlier.md'), /Archived alpha fact to restore/, 'restored entry in earlier.md must survive makeRoom')
+
+  // 3. Restoring a removed resident MEMORY.md entry while MEMORY.md is full triggers real makeRoom
+  //    overflow into earlier.md while keeping both the restored entry and the overflowed older entry.
+  const removedMain = await tool('bot_forget', { entry: 'Extra resident line' }, 'b3')
+  assert.match(removedMain, /Removed/)
+  await tool('bot_remember', { text: `Refill resident cap ${'r'.repeat(240)}` }, 'b3')
+  const hist3 = (await call('memory-history', { botId: 'b3' })).value.rows
+  const removeRow3 = hist3.find(row => row.op === 'remove' && row.text.includes('Extra resident line'))
+  assert.ok(removeRow3)
+  const res3 = await call('memory-restore', { botId: 'b3', id: removeRow3.id })
+  assert.equal(res3.ok, true, JSON.stringify(res3))
+  assert.match(read('bots', 'b3', 'MEMORY.md'), /Extra resident line/, 'restored resident entry lands in MEMORY.md')
+  assert.match(read('bots', 'b3', 'earlier.md'), /Resident entry 1/, 'oldest resident entry overflows cleanly into earlier.md')
+  assert.match(read('bots', 'b3', 'earlier.md'), /Archived alpha fact to restore/, 'prior earlier.md entry remains intact')
 })
 
 test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended rows, guards pending groupSnapshot, and deduplicates compacted group refresh', async (t) => {
   const { ctx, home, tool, section, read, stop } = start({ config: { memoryReview: false } })
-  t.after(() => stop())
+  let stoppedFirst = false
+  t.after(() => (stoppedFirst ? undefined : stop()))
 
   // Prime b2 snapshot and verify two externally appended rows with the EXACT SAME millisecond timestamp both deliver.
   section('b2')
@@ -326,6 +347,7 @@ test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended ro
   assert.ok(nextUpd.source?.groupWatermark?.time, 'group update carries persisted groupWatermark')
 
   // Across a host restart (cold in-memory groupSeen), epsilon must NOT be re-delivered.
+  stoppedFirst = true
   await stop({ keep: true })
   const restarted = start({ home, config: { memoryReview: false } })
   t.after(() => restarted.stop())
@@ -376,6 +398,63 @@ test('P0-4: read-only host promotion observes external journal writes and surviv
   const step = await runPreStep(ctx, 'b2')
   const upd = step.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(upd), /External host critical team rule/)
+})
+
+test('P0-4: readTail recovers >512KB (<2000 rows) truncation, split partial appends, and atomic inode replacement', async (t) => {
+  // 1. >512 KB journal with ONLY 700 rows (< RECENT_ROWS_MAX = 2,000): unseen row before 512 KB tail must still deliver.
+  const bigHome = mkdtempSync(join(tmpdir(), 'ds-bot-mem-big-'))
+  writeFileSync(join(bigHome, 'state.json'), JSON.stringify(TEAM))
+  const rBig = start({ home: bigHome, config: { memoryReview: false } })
+  let stoppedBig = false
+  t.after(() => (stoppedBig ? undefined : rBig.stop()))
+  await rBig.call('state', {})
+  rBig.section('b2')
+  const bigJournal = join(bigHome, 'memory', 'journal.jsonl')
+  mkdirSync(join(bigHome, 'memory'), { recursive: true })
+  const tBase = Date.now() + 1_000
+  const bigRows = [
+    JSON.stringify({ id: 'big-target', time: new Date(tBase).toISOString(), scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Crucial pre-tail team fact' }),
+    ...Array.from({ length: 700 }, (_, i) => JSON.stringify({
+      id: `big-pad-${i}`,
+      time: new Date(tBase + 10 + i).toISOString(),
+      scope: 'bot:b3',
+      op: 'add',
+      file: 'MEMORY.md',
+      actor: 'b3',
+      actorName: 'Coder',
+      after: `- Large payload ${i} ${'x'.repeat(780)}`,
+    })),
+  ]
+  writeFileSync(bigJournal, `${bigRows.join('\n')}\n`)
+  // Restart so readTail starts cold on the >512 KB (<2,000 rows) journal.
+  stoppedBig = true
+  await rBig.stop({ keep: true })
+  const rBig2 = start({ home: bigHome, config: { memoryReview: false } })
+  t.after(() => rBig2.stop())
+  await rBig2.call('state', {})
+  const bigStep = await runPreStep(rBig2.ctx, 'b2')
+  const bigUpd = bigStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
+  assert.match(textOf(bigUpd), /Crucial pre-tail team fact/, 'unseen row before 512 KB tail must trigger full scan even with <2000 rows')
+
+  // 2. Split / half-written append: reading mid-line must NOT advance offset past the partial line.
+  const splitLine = `${JSON.stringify({ id: 'split-1', time: new Date(tBase + 5_000).toISOString(), scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Split append completed rule' })}\n`
+  const cut = Math.floor(splitLine.length / 2)
+  appendFileSync(bigJournal, splitLine.slice(0, cut))
+  const midStep = await runPreStep(rBig2.ctx, 'b2')
+  assert.equal(midStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update'), undefined, 'partial append must not emit broken update')
+  appendFileSync(bigJournal, splitLine.slice(cut))
+  const doneStep = await runPreStep(rBig2.ctx, 'b2')
+  const doneUpd = doneStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
+  assert.match(textOf(doneUpd), /Split append completed rule/, 'completed split line must deliver on the very next step')
+
+  // 3. Atomic file replacement (new inode) resets offset and delivers new rows cleanly.
+  const replacedTmp = `${bigJournal}.swap`
+  const swapRow = JSON.stringify({ id: 'swap-1', time: new Date(tBase + 10_000).toISOString(), scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Atomic inode swap rule' })
+  writeFileSync(replacedTmp, `${readFileSync(bigJournal, 'utf8')}${swapRow}\n`)
+  renameSync(replacedTmp, bigJournal)
+  const swapStep = await runPreStep(rBig2.ctx, 'b2')
+  const swapUpd = swapStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
+  assert.match(textOf(swapUpd), /Atomic inode swap rule/, 'atomic journal replacement must be observed via inode check')
 })
 
 // ---------------------------------------------------------------------------
@@ -510,7 +589,58 @@ test('P1-5 + G-10: group review fails closed on ledger errors, retries malformed
   assert.equal(rGroup.requests.length, 1)
   assert.match(rGroup.read('groups', 'r1', 'MEMORY.md'), /Whole-round group fact/)
 
-  // 4. applyReview targets entries with bracket suffixes via entryId(target) and overflowed caps at exactly 4 passes.
+  // 4. Group debounce waits past GROUP_WAIT_MAX while rt.roomActive(roomId) stays true (never drops the review).
+  let activeRound = true
+  let activeChecks = 0
+  const rLongRound = start({
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'Long finalizing round fact' }] })],
+    config: { memoryReviewDelayMs: 5, memoryReviewGroupWaitMs: 10 },
+  })
+  t.after(() => rLongRound.stop())
+  await rLongRound.call('state', {})
+  rLongRound.rt.roomActive = (roomId) => {
+    if (roomId !== 'r1') return false
+    activeChecks += 1
+    if (activeChecks > 24) activeRound = false
+    return activeRound
+  }
+  rLongRound.ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'running' })
+  rLongRound.ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
+  await reviewed(rLongRound.call)
+  assert.ok(activeChecks > 24, `expected polling past GROUP_WAIT_MAX (>20), saw ${activeChecks}`)
+  assert.equal(rLongRound.requests.length, 1, 'group review must still run once after roomActive clears past GROUP_WAIT_MAX')
+  assert.match(rLongRound.read('groups', 'r1', 'MEMORY.md'), /Long finalizing round fact/)
+
+  // 5. applyReview uses exact-identity matching so exact-text-equals-ID (`cafe`) never deletes the
+  //    wrong entry and whole-word ID collisions (`2026`) never silently drop edits/removals.
+  const rExact = start({
+    replies: [JSON.stringify({
+      changes: [
+        { op: 'remove', entry: 1 },
+        { op: 'edit', entry: 3, text: 'Ship daily summaries' },
+      ],
+    })],
+  })
+  t.after(() => rExact.stop())
+  mkdirSync(join(rExact.home, 'memory', 'bots', 'b2'), { recursive: true })
+  writeFileSync(join(rExact.home, 'memory', 'bots', 'b2', 'MEMORY.md'), [
+    '# Memory',
+    '',
+    '- User prefers dark mode [id: cafe; added: 2026-01-01]',
+    '- cafe [id: 9999; added: 2026-01-02]',
+    '- Ship weekly summaries [id: 2026; added: 2026-01-03]',
+    '- Launch target is 2026 [id: 8888; added: 2026-01-04]',
+    '',
+    '## Index',
+    '',
+  ].join('\n'))
+  await rExact.call('state', {})
+  rExact.ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(rExact.call)
+  const afterExact = parseMemory(rExact.read('bots', 'b2', 'MEMORY.md')).entries.map(e => e.text)
+  assert.deepEqual(afterExact, ['cafe', 'Ship daily summaries', 'Launch target is 2026'], 'exact-identity targetMatch must delete entry 1 (not literal "cafe") and edit id:2026 cleanly')
+
+  // 6. applyReview targets entries with bracket suffixes via exact identity and overflowed caps at exactly 4 passes.
   let pass = 0
   const rPasses = start({
     replies: () => {
@@ -536,16 +666,39 @@ test('P1-5 + G-10: group review fails closed on ledger errors, retries malformed
   assert.match(rPasses.read('bots', 'b2', 'MEMORY.md'), /Redis pool \[timeout: 60\]/)
   assert.equal(rPasses.requests.length, 4, 'overflowed passes must stop at REVIEW_PASSES_MAX = 4, not 5')
 
-  // 5. Startup catch-up reviews unreviewed lines after restart without waiting for a new agent/status event.
+  // 7. Startup catch-up reviews unreviewed lines after restart, AND skips already-reviewed Bots
+  //    with 0 page() calls (respecting DSH session.seq === lastSeq + 1).
   const rCatchup = start({
     replies: () => JSON.stringify({ changes: [{ op: 'add', text: 'Caught up on startup' }] }),
     config: { memoryReviewCatchupDelayMs: 20 },
   })
-  t.after(() => rCatchup.stop())
-  for (let i = 0; i < 60 && rCatchup.requests.length === 0; i += 1) await settle(20)
+  let stoppedCatchup = false
+  t.after(() => (stoppedCatchup ? undefined : rCatchup.stop()))
+  // Wait for group:r1 + all 3 Bots (m1, b2, b3) to complete startup catch-up.
+  for (let i = 0; i < 100 && rCatchup.requests.length < 4; i += 1) await settle(20)
   await reviewed(rCatchup.call)
-  assert.ok(rCatchup.requests.length >= 1, 'startup catch-up must review unreviewed conversations after restart')
+  assert.equal(rCatchup.requests.length, 4, 'startup catch-up must review the group and all 3 unreviewed Bots')
   assert.match(rCatchup.read('groups', 'r1', 'MEMORY.md'), /Caught up on startup/)
+
+  // Restart on the same up-to-date home: catchUp must skip all reviewed Bots with 0 page() calls.
+  stoppedCatchup = true
+  await rCatchup.stop({ keep: true })
+  let pageCalls = 0
+  const rCaughtUp = start({
+    home: rCatchup.home,
+    replies: () => JSON.stringify({ changes: [] }),
+    config: { memoryReviewCatchupDelayMs: 20 },
+  })
+  t.after(() => rCaughtUp.stop())
+  const origPage = rCaughtUp.ctx.sessionController.page
+  rCaughtUp.ctx.sessionController.page = async (args) => {
+    pageCalls += 1
+    return origPage(args)
+  }
+  await settle(80)
+  assert.equal(rCaughtUp.rt.memoryReviews(), 0, 'no review should be queued when all Bots are up-to-date')
+  assert.equal(pageCalls, 0, 'up-to-date Bots (session.seq - 1 <= cursor) must trigger 0 page() calls on startup catch-up')
+  assert.equal(rCaughtUp.requests.length, 0)
 })
 
 // ---------------------------------------------------------------------------
