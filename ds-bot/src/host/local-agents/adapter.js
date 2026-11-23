@@ -551,7 +551,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       })()
       if (live.spec.kind === 'claude' && instructions !== undefined) live.promptHash = promptHash
       else if (live.spec.kind === 'codex' && (freshCli || resumeDropped) && instructions !== undefined) live.promptHash = promptHash
-      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, model: options.model }))
       // Claude reports its session id with `system/init`, after start() resolved:
       // the record above has no id yet, so persist it when it lands or the next
       // host has nothing to resume and the conversation starts over.
@@ -560,7 +560,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         void pendingId.then((id) => {
           if (id === undefined || live.dead) return
           live.cliSessionId = id
-          this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+          this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, model: options.model }))
         })
       }
     }
@@ -974,6 +974,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       cwd,
       mcp: undefined,
       resumeId: priorCliId,
+      resumeOnly: priorCliId !== undefined,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
       model: live.model,
