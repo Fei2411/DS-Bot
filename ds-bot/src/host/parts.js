@@ -15,6 +15,7 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
 import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
@@ -1915,13 +1916,13 @@ export function install(rt) {
         const replies = range === undefined
           ? (preview === undefined ? null : rt.groupRelayReplies(partId, preview)) ?? parseReplies(text).replies
           : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
-        for (const { reply, texts, time, duration, claims, changes } of stackReplies(replies)) {
+        for (const { reply, texts, time, duration, claims, changes, files } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...(files === undefined ? {} : { files }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1952,6 +1953,8 @@ export function install(rt) {
           name: source.senderName ?? null,
           ...(source.claims === undefined ? {} : { claims: source.claims }),
           ...(source.changes === undefined ? {} : { changes: source.changes }),
+          // The refs of the files the member's turn presented ride its post (#975).
+          ...(Array.isArray(source.delivered) && source.delivered.length > 0 ? { files: source.delivered } : {}),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
           time: event.time,
@@ -1981,6 +1984,74 @@ export function install(rt) {
       ]
     }
     return items
+  }
+
+  // The files the turn that last ended in a Session presented, as refs the file-download
+  // endpoint resolves, in the shape the delivered-file rows carry. A member's group row
+  // carries them, so the group chat can save what its members delivered the way their
+  // own chat rows do (#975). The scan walks back to the turn's start, so a long turn's
+  // cards are not lost. Undefined when the last turn has not ended, or ended stopped or
+  // failed: looking past it would hang an earlier turn's files on the next reply.
+  const DELIVER_PAGE = 80
+  async function turnDeliverables(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '') return undefined
+    try {
+      const files = []
+      const seen = new Set()
+      let ended // the turn whose accepted turn/end the tail holds
+      let beforeSeq
+      for (let scan = 0; scan < HISTORY_SCAN_PAGES; scan += 1) {
+        const page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId },
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+          maxMessages: DELIVER_PAGE,
+        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const events = page.records.map(record => record.event)
+        if (ended === undefined) {
+          const lastStart = events.findLast(event => event?.type === 'turn/start')
+          const lastEnd = events.findLast(event => event?.type === 'turn/end')
+          if (lastEnd === undefined) {
+            // No turn ended in this Session yet; keep walking back while there is more.
+            if (page.hasMore === true && lastStart === undefined) {
+              beforeSeq = events[0]?.seq
+              if (beforeSeq !== undefined) continue
+            }
+            return undefined
+          }
+          // A turn that started after the last end is still open: nothing to deliver.
+          if (lastStart !== undefined && lastStart.data?.turn > lastEnd.data?.turn) return undefined
+          const kind = lastEnd.data?.reason?.kind
+          if (kind !== undefined && kind !== 'stop') return undefined
+          if (!Number.isInteger(lastEnd.data?.turn)) return undefined
+          ended = lastEnd.data.turn
+        }
+        let starts = false
+        for (const event of events) {
+          if (event?.type === 'turn/start' && event.data?.turn === ended) starts = true
+          if (event?.type !== 'deliverables/presented' || event.data?.turn !== ended) continue
+          const presented = Array.isArray(event.data.files) ? event.data.files.filter(file => typeof file?.path === 'string') : []
+          for (const [index, file] of presented.entries()) {
+            const key = `${event.seq}:${index}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            // A file inside the app's own data can never be saved (file-download refuses
+            // it), so it gets no card; the size rides the ref while the file is still
+            // there, and the download re-checks the file before it serves it.
+            const realPath = await rt.real?.(file.path) ?? file.path
+            if (realPath !== undefined && await rt.inData?.(realPath) === true) continue
+            const info = await stat(realPath ?? file.path).catch(() => undefined)
+            files.push({ name: String(file.path).split(/[\\/]/).pop() || 'file', sessionId, seq: event.seq, index, ...(info?.isFile() === true ? { bytes: info.size } : {}) })
+          }
+        }
+        if (starts || page.hasMore !== true) break
+        beforeSeq = events[0]?.seq
+        if (beforeSeq === undefined) break
+      }
+      files.sort((a, b) => a.seq - b.seq || a.index - b.index)
+      return files.length > 0 ? files : undefined
+    } catch {
+      return undefined
+    }
   }
 
   async function partPage(parts, index, cursor, steps = false, options = {}) {
@@ -2315,5 +2386,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, turnDeliverables, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
