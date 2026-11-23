@@ -2425,7 +2425,7 @@ export function install(rt) {
         continue
       }
       if (event.type === 'assistant/message') {
-        if (hidden.has(event.data?.turn)) continue
+        if (hidden.has(event.data?.turn ?? turn)) continue
         // One entry per text block: the chat shows each block in a bubble of its own.
         // Suppress silent [PASS]/stub replies on Bot-triggered own-chat turns immediately
         // (before turn/end records exchangeTurns) so live feed and sidebar preview never flash [PASS].

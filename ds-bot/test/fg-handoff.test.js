@@ -874,3 +874,51 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   assert.match(injected3, /MSG_14_START/, 'newest message must survive >8KB fallback truncation')
   assert.doesNotMatch(injected3, /MSG_1_START/, 'oldest messages past 8KB should be dropped before newest ones')
 })
+
+test('fg-handoff fork preserves inherited exchangeTurns and closedCards without hiding the new turn', async (t) => {
+  const env = await startEnv({
+    forkImpl: async () => ({ sessionId: 'fork-keep-hidden' }),
+  })
+  t.after(env.stop)
+
+  const dmA = env.agentMap.get('dm-a')
+  // Turn 1: visible user turn with a closed ask_user card.
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Check config' }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'ask-1', name: 'ask_user', arguments: '{"question":"Format?"}' })
+  await env.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } })
+  await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  env.rt.state.closedCards['dm-a'] = { 'ask-1': { status: 'answered', answer: 'Markdown' } }
+
+  // Turn 2: hidden Bot-to-Bot [PASS] turn (marked in exchangeTurns).
+  await env.emit('dm-a', 'turn/start', { turn: 2 })
+  await env.emit('dm-a', 'assistant/message', { turn: 2, message: { role: 'assistant', content: [{ type: 'text', text: '[PASS]' }] } })
+  await env.emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  env.rt.state.exchangeTurns['dm-a'] = [2, 3]
+
+  // Turn 3: currently running turn (e.g. bot-handoff / busy turn) when user interrupts.
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 3 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Run long benchmark' }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'ask-running', name: 'ask_user', arguments: '{"question":"Running?"}' })
+  env.rt.state.closedCards['dm-a']['ask-running'] = { status: 'dismissed' }
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Cancel benchmark' }] })
+  const forkedSid = env.rt.botOf('a').sessionId
+  assert.equal(forkedSid, 'fork-keep-hidden')
+  assert.deepEqual(env.rt.state.exchangeTurns[forkedSid], [2], 'forked foreground must inherit completed hidden turn 2 without carrying running turn 3')
+  assert.deepEqual(Object.keys(env.rt.state.closedCards[forkedSid] ?? {}), ['ask-1'], 'forked foreground must carry closed cards from completed turns only')
+
+  // displayItems on the forked session must NOT leak the hidden [PASS] turn 2.
+  const forkedEvents = [
+    { type: 'turn/start', seq: 1, data: { turn: 1 } },
+    { type: 'assistant/message', seq: 2, time: 100, data: { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } } },
+    { type: 'turn/end', seq: 3, data: { turn: 1 } },
+    { type: 'turn/start', seq: 4, data: { turn: 2 } },
+    { type: 'assistant/message', seq: 5, time: 200, data: { message: { role: 'assistant', content: [{ type: 'text', text: '[PASS]' }] } } },
+    { type: 'turn/end', seq: 6, data: { turn: 2 } },
+  ]
+  const items = env.rt.displayItems(forkedSid, forkedEvents, null, undefined, {})
+  assert.equal(items.some(item => item.text === '[PASS]'), false, 'hidden turn 2 must stay hidden on forked foreground even when assistant/message omits data.turn')
+  assert.equal(items.some(item => item.text === 'Done.'), true)
+})
