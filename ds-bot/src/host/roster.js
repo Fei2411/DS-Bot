@@ -1022,6 +1022,8 @@ export function install(rt) {
         rt.dropGroupSession(room, id)
         touched.push(room)
       }
+      await rt.forgetBotRoomReports?.(id, touched)
+        .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
       await followMemberNames(touched)
       await rt.forgetBotSecrets(id)
       const archivePath = await archived

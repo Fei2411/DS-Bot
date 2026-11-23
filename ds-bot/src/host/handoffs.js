@@ -122,7 +122,12 @@ export function install(rt) {
     save()
   }
 
-  const workImOrigin = id => works()[id]?.imOrigin
+  const workImOrigin = (id) => {
+    const work = works()[id]
+    if (work === undefined) return undefined
+    if (work.imOriginMixed === true) return { mixed: true }
+    return work.imOrigin
+  }
 
   // Merging a second unread request into an open work keeps the IM origin only when both
   // requests come from the same IM chat; mixing Web and IM or two IM chats clears it.
@@ -150,19 +155,22 @@ export function install(rt) {
   const IM_REPLY_ORIGIN_TTL_MS = 24 * 60 * 60_000
   const imReplyOrigins = () => (state.imReplyOrigins ??= {})
   function rememberImReplyOrigin(id, imOrigin) {
-    if (typeof id !== 'string' || id === '' || imOrigin?.connId === undefined || imOrigin?.chatKey === undefined) return
+    const isMixed = imOrigin?.mixed === true
+    if (typeof id !== 'string' || id === '' || (!isMixed && (imOrigin?.connId === undefined || imOrigin?.chatKey === undefined))) return
     const map = imReplyOrigins()
     const now = Date.now()
     for (const [key, entry] of Object.entries(map)) {
       if (now - (entry?.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) delete map[key]
     }
-    map[id] = {
-      connId: imOrigin.connId,
-      chatKey: imOrigin.chatKey,
-      ...(imOrigin.senderId !== undefined ? { senderId: imOrigin.senderId } : {}),
-      ...(imOrigin.binding !== undefined ? { binding: imOrigin.binding } : {}),
-      at: now,
-    }
+    map[id] = isMixed
+      ? { mixed: true, at: now }
+      : {
+          connId: imOrigin.connId,
+          chatKey: imOrigin.chatKey,
+          ...(imOrigin.senderId !== undefined ? { senderId: imOrigin.senderId } : {}),
+          ...(imOrigin.binding !== undefined ? { binding: imOrigin.binding } : {}),
+          at: now,
+        }
     const keys = Object.keys(map)
     if (keys.length > IM_REPLY_ORIGINS_KEPT) {
       for (const old of keys.sort((a, b) => (map[a].at ?? 0) - (map[b].at ?? 0)).slice(0, keys.length - IM_REPLY_ORIGINS_KEPT)) delete map[old]
@@ -411,7 +419,9 @@ export function install(rt) {
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
       : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
-    if (work.imOrigin !== undefined) rememberImReplyOrigin(id, work.imOrigin)
+    const origin = workImOrigin(id)
+    if (origin !== undefined) rememberImReplyOrigin(id, origin)
+    if (reason === 'gone') rt.dropRoomReport?.(id)
     rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(parent.to !== undefined ? { waiting: parent.to } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.

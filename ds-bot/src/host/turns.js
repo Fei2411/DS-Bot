@@ -1393,6 +1393,9 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) {
           rt.dropRoomStepEcho?.(id)
+          if (suppressedSubagent && !steerCut && rt.groupOwners.has(id)) {
+            void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(error => rt.warn('ds-bot: group report settle in %s failed: %s', id, error))
+          }
           break
         }
         for (const result of later) {
@@ -1467,6 +1470,13 @@ export function install(rt) {
         const retry = (wroteCall || promisedOnly) && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
         entry.retrying = retry
         if (retry) {
+          const onRetryFailed = (label, error) => {
+            entry.retrying = false
+            rt.warn(label, id, error)
+            if (rt.groupOwners.has(id)) {
+              void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(err => rt.warn('ds-bot: group report settle in %s failed: %s', id, err))
+            }
+          }
           if (promisedOnly) {
             const opening = stripWrittenCalls(lastText ?? '')
             if (opening !== '') {
@@ -1474,9 +1484,9 @@ export function install(rt) {
               void rt.roomStepText?.(id, info, opening, !shown)?.catch(() => {})
             }
             roomWaiters.get(info.exchangeId)?.touch()
-            void retryPromisedWork(id, info).catch(error => rt.warn('ds-bot: asking %s to run its promised work failed: %s', id, error))
+            void retryPromisedWork(id, info).catch(error => onRetryFailed('ds-bot: asking %s to run its promised work failed: %s', error))
           } else {
-            void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
+            void retryWrittenCall(id, info).catch(error => onRetryFailed('ds-bot: asking %s to run its written tool call failed: %s', error))
           }
         }
         const replyText = () => {

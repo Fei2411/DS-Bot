@@ -3043,4 +3043,150 @@ test('stopping, deleting, or restarting a group settles pending roomReports inst
   await settle(() => host3.agentOf('a').calls.length === 1)
   assert.match(text(host3.agentOf('a').calls[0]), /Writer: 重启前已写好的结论。/)
   assert.deepEqual(rt.state.roomReports ?? {}, {})
+
+  // 4) Restart reconciliation of a persisted queued report reports never-started and never dumps seq 1..N history.
+  const oldLog = [
+    { seq: 1, who: 'User', text: '旧问题' },
+    { seq: 2, who: 'Writer', botId: 'b', text: '不该泄露的旧历史回答。' },
+  ]
+  const queuedOnly = { repQ: { id: 'repQ', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', passed: [], failed: [], at: 1 } }
+  const host4 = await start(t, { log: oldLog, seq: 2 }, undefined, undefined, undefined, undefined, { roomReports: queuedOnly })
+  await rt.settleRoomReports(undefined, { startup: true })
+  await settle(() => host4.agentOf('a').calls.length === 1)
+  const queuedMsg = text(host4.agentOf('a').calls[0])
+  assert.match(queuedMsg, /did not start before DS Bot restarted/)
+  assert.doesNotMatch(queuedMsg, /不该泄露的旧历史回答/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('ordinary member post_to_group without @mention stays quiet and rejects report_back: true (#1894)', async (t) => {
+  const host = await start(t)
+  const quiet = await host.tool('post_to_group', { group: 'Ops', message: '同步一下进展，无需回复' }, 'b')
+  assert.match(quiet, /Nobody answers it/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+  host.agentOf('r1').calls.length = 0
+  const refused = await host.tool('post_to_group', { group: 'Ops', message: '同步一下进展', report_back: true }, 'b')
+  assert.match(refused, /Nobody would answer/)
+  assert.equal(host.agentOf('r1').calls.length, 0, 'refused report_back: true post must not be posted')
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('stop-room-work with active group_goal and queued report settles cleanly without hanging (#1894)', async (t) => {
+  const host = await start(t)
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Writer', task: 'build' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Ship v3', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'ga'), /Started\./)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 帮我跑一下' }, 'a')
+  assert.equal(Object.values(rt.state.roomReports).length, 1)
+  assert.equal(Object.values(rt.state.roomReports)[0].status, 'queued')
+
+  // Stopping the group via channel endpoint sets goal.idle and settles even queued reports.
+  assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).ok, true)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /stopped before your post started/)
+  assert.equal(rt.roomOf('r1').goal.idle, true)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('mid-round post_to_group held by idlePaused reports paused instead of hanging or saying nobody replied (#1894)', async (t) => {
+  const { host, first } = await busyRound(t)
+  const room = rt.roomOf('r1')
+  room.idlePaused = { at: Date.now(), count: 3, limit: 3, by: 'Writer', pending: [] }
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 收到，待命' }, 'a')
+  assert.equal(host.agentOf('gc').calls.length, 0, 'idle status post must be held while idlePaused')
+  host.finish('gb', '整理好了。')
+  await settle(() => first() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const msg = text(host.agentOf('a').calls[0])
+  assert.match(msg, /Paused in "Ops"/)
+  assert.doesNotMatch(msg, /Nobody replied/)
+})
+
+test('deleting a working group member settles pending roomReports cleanly (#1894)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 跑个耗时检查' }, 'a')
+  const round = host.round('c1', host.takePost())
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => round() !== undefined)
+  assert.equal(host.agentOf('a').calls.length, 0)
+
+  assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('scoped mid-round post_to_group expands report.ids when called member starts a new round via progress @mention (#1894)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { host, first } = await busyRound(t)
+  // Chief posts mid-round calling Tester ('c') -> scoped report with ids: ['c'].
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 核对并找同事复核' }, 'a')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 'k-c', name: 'pwsh', arguments: '{}' })
+  // First round moves on past Writer + Tester; Writer finishes.
+  host.finish('gb', 'Writer 完成无关任务。')
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  assert.equal(host.agentOf('a').calls.length, 0, 'scoped report must wait for Tester')
+
+  // While no round is running, Tester sends a progress post calling Writer ('b') -> runRoundFrom expands report.ids!
+  await rt.roomStepText('gc', {}, '@Writer 帮我复核一下结果')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const progressPost = host.takePost()
+  const round2 = host.round('c2', progressPost)
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k-b2', name: 'pwsh', arguments: '{}' })
+  // Round 2 moves on past Writer (>15s); Tester finishes while Writer is still working on the expanded call.
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => round2() !== undefined)
+  host.emit('gc', 'tool/result', { callId: 'k-c' })
+  host.finish('gc', '已交 Writer 复核。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const testerLate = host.takePost()
+  const round2b = host.round('c2b', testerLate)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => round2b() !== undefined)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'expanded scoped report must wait for Writer')
+
+  host.emit('gb', 'tool/result', { callId: 'k-b2' })
+  host.finish('gb', '复核通过，数据一致。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const latePost = host.takePost()
+  const round3 = host.round('c3', latePost)
+  // Writer was called by Tester -> round3 wakes Tester with Writer's review.
+  await settle(() => host.agentOf('gc').calls.length === 2)
+  host.begin('gc')
+  host.finish('gc', '收到复核结果，全部通过。')
+  await settle(() => round3() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Writer: 复核通过，数据一致。/)
+  assert.match(report, /Tester: 收到复核结果，全部通过。/)
+})
+
+test('concurrent post_to_group posts do not leak the second opening post as a reply to the first (#1894)', async (t) => {
+  const host = await start(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 第一个任务' }, 'a')
+  const firstPost = host.takePost()
+  const round = host.round('c1', firstPost)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  // Second post arrives while the first round is still running.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 第二个并发任务', report_back: false }, 'a')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gb', '第一个任务完成。')
+  host.finish('gc', '第二个任务完成。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Writer: 第一个任务完成。/)
+  assert.doesNotMatch(report, /第二个并发任务/, 'second opening post must not appear as a reply to the first report')
 })

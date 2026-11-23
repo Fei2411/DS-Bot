@@ -4266,6 +4266,15 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })
 
+const waitFor = async (fn, ms = 2000) => {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    if (fn()) return
+    await delay(10)
+  }
+  assert.ok(fn(), 'timed out waiting for condition')
+}
+
 test('IM-origin message_bot dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -4292,7 +4301,7 @@ test('IM-origin message_bot dispatch returns the summary reply to the originatin
   s.emitEvent('b', 'user/message', { source: sentToB.source, content: sentToB.content })
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '构建全绿。' }] } })
   s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === dispatchId)
   const replyToA = s.agentOf('a').lastFollowup
   assert.equal(replyToA.source.role, 'reply')
   assert.equal(replyToA.source.replyTo, dispatchId)
@@ -4302,7 +4311,7 @@ test('IM-origin message_bot dispatch returns the summary reply to the originatin
   s.emitEvent('a', 'user/message', { source: replyToA.source, content: replyToA.content })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Writer 回报：构建全绿。' }] } })
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.length === 1)
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'Writer 回报：构建全绿。']])
 
   // 3) Web-initiated message_bot reply never leaks to IM.
@@ -4317,7 +4326,7 @@ test('IM-origin message_bot dispatch returns the summary reply to the originatin
   s.emitEvent('b', 'user/message', { source: webDispatch.source, content: webDispatch.content })
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'web secret' }] } })
   s.emitEvent('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === webDispatch.source.exchangeId)
   const webReply = s.agentOf('a').lastFollowup
   s.emitEvent('a', 'turn/start', { turn: 4 })
   s.emitEvent('a', 'user/message', { source: webReply.source, content: webReply.content })
@@ -4361,19 +4370,52 @@ test('IM-origin post_to_group routes group approval and final report back to the
   s.fake.sent.length = 0
 
   // 2) A group approval raised while Ops has an unambiguous IM report reaches dm-u1.
+  // Answering it (by number or button) must NEVER claim an active unrelated Web turn on Chief.
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'private web question' }] })
   const askApproval = s.ctx.listeners.get('approval/request')[0]
   const approvalPromise = askApproval({ agent: { session: { id: 'gb' } }, toolName: 'bash', reason: 'run deploy' }, () => 'from-dsh')
-  await s.flush()
-  assert.equal(s.fake.sent.length, 1, 'unambiguous IM-origin group report should forward approval card to dm-u1')
+  await waitFor(() => s.fake.sent.length === 1)
   assert.equal(s.fake.sent[0].chat.key, 'dm-u1')
   assert.match(s.fake.sent[0].text, /bash/)
-  // Reply "1" in dm-u1 approves it.
+  // Reply "1" in dm-u1 approves it without claiming Chief's running Web turn.
   await dm(s, 'u1', '1')
   assert.equal(await approvalPromise, 'allowed-once')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Private web secret answer' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'answering a dispatched group approval in DM must never leak Chief active Web turn to DM')
 
-  // 3) Adding a conflicting non-IM report on Ops clears roomReportImOrigin so approvals do not leak.
+  // 2b) Reconnect diffCards resends a pending group approval card via approvalOrigin, and button click also avoids claiming a Web turn.
+  one.enabled = false
+  await s.rt.save()
+  const approvalPromise2 = askApproval({ agent: { session: { id: 'gb' } }, toolName: 'write', reason: 'update config' }, () => 'from-dsh')
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0, 'disabled connection sends nothing')
+  one.enabled = true
+  await s.rt.save()
+  await waitFor(() => s.fake.sent.length === 1)
+  assert.equal(s.fake.sent[0].chat.key, 'dm-u1')
+  assert.match(s.fake.sent[0].text, /write/)
+  const approvalId2 = s.rt.approvalsView()[0].id
+  s.emitEvent('a', 'turn/start', { turn: 3 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'another private web turn' }] })
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId2}:allow`, messageId: 1 })
+  assert.equal(await approvalPromise2, 'allowed-once')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Second private web secret' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'clicking approval button for dispatched group must not leak Chief Web turn')
+
+  // 3) Scoped report and conflicting non-IM report guards on roomReportImOrigin.
+  s.rt.state.roomReports[reportId].ids = ['b']
+  assert.deepEqual(s.rt.roomReportImOrigin('r1', 'b'), { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
+  assert.equal(s.rt.roomReportImOrigin('r1', 'a'), undefined, 'scoped report must not route approvals for members outside report.ids')
+  delete s.rt.state.roomReports[reportId].ids
   s.rt.state.roomReports['web-rep'] = { id: 'web-rep', roomId: 'r1', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now() }
-  assert.equal(s.rt.roomReportImOrigin('r1'), undefined, 'mixed Web + IM reports must not expose an IM origin for approvals')
+  assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined, 'mixed Web + IM reports must not expose an IM origin for approvals')
   delete s.rt.state.roomReports['web-rep']
 
   // 4) Group settles and delivers report to Chief -> Chief's summary routes back to dm-u1.
@@ -4386,10 +4428,130 @@ test('IM-origin post_to_group routes group approval and final report back to the
   assert.equal(reportMsg.source.role, 'report')
   assert.equal(reportMsg.source.replyTo, reportId)
   s.fake.sent.length = 0
-  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'turn/start', { turn: 4 })
   s.emitEvent('a', 'user/message', { source: reportMsg.source, content: reportMsg.content })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Ops 群已部署完成，服务健康。' }] } })
-  s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  s.emitEvent('a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  await waitFor(() => s.fake.sent.length === 1)
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'Ops 群已部署完成，服务健康。']])
+})
+
+test('IM-bound group post_to_group fallback to Bot own chat after member removal never leaks to original IM group (#1836, #1894)', async (t) => {
+  const seed = TEAM()
+  seed.bots.c = { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 }
+  seed.rooms.r1.sessions = { a: 'ga', b: 'gb' }
+  seed.rooms.r2 = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'everyone', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0 }
+  const s = await start({ seed })
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'Ops IM', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  s.rt.groupOwners.set('gb', { botId: 'b', roomId: 'r1' })
+  s.rt.groupOwners.set('lc', { botId: 'c', roomId: 'r2' })
+  const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+
+  // User u1 speaks in IM group g1 -> r1 owns IM origin bound to room:r1.
+  await gm(s, 'u1', '让 Lab 群跑一下检查')
+  s.imTurn('r1')
+  // Writer ('b') inside r1 calls post_to_group to Lab ('r2').
+  await tool('post_to_group', { group: 'Lab', message: '@Tester 跑检查' }, 'gb')
+  const postMsg = s.agentOf('r2').lastFollowup
+  const reportId = postMsg.source.reportId
+  assert.equal(s.rt.state.roomReports[reportId].fromRoomId, 'r1')
+  assert.equal(s.rt.state.roomReports[reportId].imOrigin.binding, 'room:r1')
+
+  // Writer is removed from r1 before Lab settles -> report falls back to Writer's own chat ('b').
+  delete s.rt.roomOf('r1').sessions.b
+  s.rt.roomOf('r1').members = ['a']
+  s.rt.state.roomReports[reportId].status = 'tracking'
+  s.rt.state.roomReports[reportId].fromSeq = 1
+  s.rt.roomRelayTaken('r2', postMsg.source.exchangeId)
+  s.rt.logRoom(s.rt.roomOf('r2'), { who: 'Tester', botId: 'c', text: '检查通过。' })
+  await s.rt.settleRoomReports('r2')
+  const fallbackMsg = s.agentOf('b').lastFollowup
+  assert.equal(fallbackMsg.source.role, 'report')
+  assert.equal(s.rt.imReplyOrigin(reportId), undefined, 'fallback to own chat must not remember room:r1 IM origin')
+
+  // Defense-in-depth: even if a stale room:r1 origin entry exists, own chat must reject binding mismatch.
+  s.rt.rememberImReplyOrigin(reportId, { connId: one.id, chatKey: 'g1', senderId: 'u1', binding: 'room:r1' })
+  s.fake.sent.length = 0
+  s.emitEvent('b', 'turn/start', { turn: 1 })
+  s.emitEvent('b', 'user/message', { source: fallbackMsg.source, content: fallbackMsg.content })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Writer private own-chat note' }] } })
+  s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'own-chat turn with room:r1 reply origin must never leak to IM group g1')
+})
+
+test('merged Web + IM message_bot work stores mixed marker and drops IM origin when coalesced into an active IM turn (#1836)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+
+  // Wire Writer's fake inbox so unread queued/steered messages can be merged like real DSH.
+  const writer = s.agentOf('b')
+  let msgSeq = 0
+  writer.inbox = {
+    nextStep: [],
+    nextTurn: [],
+    remove(id) {
+      for (const lane of [this.nextStep, this.nextTurn]) {
+        const idx = lane.findIndex(item => item.id === id)
+        if (idx !== -1) { lane.splice(idx, 1); return true }
+      }
+      return false
+    },
+  }
+  writer.steer = function (message) {
+    const entry = { ...message, id: `m${++msgSeq}` }
+    this.lastFollowup = entry
+    this.followed = (this.followed ?? 0) + 1
+    this.inbox.nextStep.push(entry)
+  }
+  writer.followup = function (message) {
+    const entry = { ...message, id: `m${++msgSeq}` }
+    this.lastFollowup = entry
+    this.followed = (this.followed ?? 0) + 1
+    this.inbox.nextTurn.push(entry)
+  }
+
+  // 1) IM DM turn dispatches message_bot to Writer ('b').
+  await dm(s, 'u1', '让 Writer 查状态')
+  const req1 = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req1 }, content: [{ type: 'text', text: '让 Writer 查状态' }] })
+  await tool('message_bot', { to: 'Writer', message: 'IM 查状态' }, 'a')
+  const firstSent = s.agentOf('b').lastFollowup
+  const dispatchId = firstSent.source.exchangeId
+  s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 2) Before Writer reads it, a Web turn sends another message_bot to Writer -> merges into the same work and marks imOriginMixed.
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web private check' }] })
+  await tool('message_bot', { to: 'Writer', message: 'Web 私密内容' }, 'a')
+  assert.deepEqual(s.rt.workImOrigin(dispatchId), { mixed: true })
+  s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  // 3) Writer answers the merged work -> imReplyOrigins records { mixed: true }.
+  const mergedSent = s.agentOf('b').lastFollowup
+  s.emitEvent('b', 'turn/start', { turn: 1 })
+  s.emitEvent('b', 'user/message', { source: mergedSent.source, content: mergedSent.content })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '包含 Web 私密内容的合并答复' }] } })
+  s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === dispatchId)
+  const mixedReply = s.agentOf('a').lastFollowup
+  assert.equal(s.rt.imReplyOrigin(dispatchId)?.mixed, true)
+
+  // 4) Even if the mixed reply coalesces into an active IM DM turn on Chief, dropOrigin prevents any leak to dm-u1.
+  s.fake.sent.length = 0
+  await dm(s, 'u1', '顺便问一下别的')
+  const req2 = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 3 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: '顺便问一下别的' }] })
+  s.emitEvent('a', 'user/message', { source: mixedReply.source, content: mixedReply.content })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: '合并后的含私密回复' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'mixed-origin dispatch reply coalesced into an IM turn must drop origin and withhold IM send')
 })

@@ -677,6 +677,7 @@ export function install(rt) {
     goal.revision += 1
     goal.updatedAt = Date.now()
     void rt.save().catch(() => {})
+    void rt.settleRoomReports?.(roomId).catch(() => {})
   }
 
   // A user post in the room — its own message or a goal draft — brings the goal

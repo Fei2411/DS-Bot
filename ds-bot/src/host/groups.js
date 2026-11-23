@@ -1113,9 +1113,13 @@ export function install(rt) {
     delete reports()[id]
     saveSoon()
   }
-  const hasRoomReportFor = (roomId, botId) => Object.values(reports()).some(report => report.roomId === roomId && report.botId === botId)
-  const roomReportImOrigin = (roomId) => {
-    const active = Object.values(reports()).filter(report => report.roomId === roomId)
+  // Only non-scoped reports carry whole-room outcomes (such as group_goal completion);
+  // a mid-round scoped post targeting a subset of members must not suppress standalone
+  // goal notifications to the primary Main Bot.
+  const hasRoomReportFor = (roomId, botId) => Object.values(reports())
+    .some(report => report.roomId === roomId && report.botId === botId && !Array.isArray(report.ids))
+  const roomReportImOrigin = (roomId, targetBotId) => {
+    const active = Object.values(reports()).filter(report => report.roomId === roomId && rt.botOf(report.botId) !== undefined)
     if (active.length === 0) return undefined
     const first = active[0].imOrigin
     if (first === undefined) return undefined
@@ -1126,7 +1130,43 @@ export function install(rt) {
         return undefined
       }
     }
+    if (targetBotId !== undefined && !active.some(report => !Array.isArray(report.ids) || report.ids.includes(targetBotId))) {
+      return undefined
+    }
     return first
+  }
+  const settleQueuedReportInRound = (room, postExtra, { paused = false } = {}) => {
+    if (postExtra.reportBack !== true) return
+    const id = postExtra.reportId ?? postExtra.sub
+    const existing = id === undefined ? undefined : reports()[id]
+    if (existing !== undefined) {
+      if (paused) existing.paused = true
+      if (existing.status === 'queued') {
+        existing.status = 'tracking'
+        existing.fromSeq = room.seq + 1
+        existing.ids = []
+      }
+      saveSoon()
+    } else if (paused && postExtra.botId !== undefined) {
+      const nextId = id ?? randomUUID()
+      reports()[nextId] = {
+        id: nextId,
+        roomId: room.id,
+        botId: postExtra.botId,
+        name: postExtra.name ?? rt.botOf(postExtra.botId)?.name ?? 'Bot',
+        status: 'tracking',
+        fromSeq: room.seq + 1,
+        ids: [],
+        paused: true,
+        passed: [],
+        failed: [],
+        at: Date.now(),
+        ...(postExtra.sub ? { sub: postExtra.sub } : {}),
+        ...(postExtra.fromRoomId ? { fromRoomId: postExtra.fromRoomId } : {}),
+        ...(postExtra.fromPart ? { fromPart: postExtra.fromPart } : {}),
+      }
+      saveSoon()
+    }
   }
   const expandScopedReports = (roomId, callerId, callees) => {
     if (callerId === undefined || callees.length === 0) return
@@ -1220,12 +1260,13 @@ export function install(rt) {
         continue
       }
       if (isReportBusy(room, report, { startup })) continue
+      const neverStarted = report.status !== 'tracking' || report.neverStarted === true
       delete reports()[id]
       pruned = true
-      ready.push({ room, report, deleted: false })
+      ready.push({ room, report, deleted: false, neverStarted })
     }
     if (pruned) saveSoon()
-    for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted })
+    for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
   }
   async function forgetRoomReports(room) {
     queuedRelays.delete(room.id)
@@ -1239,6 +1280,30 @@ export function install(rt) {
     if (dropped.length === 0) return
     saveSoon()
     for (const report of dropped) await deliverRoomReport(room, report, { deleted: true })
+  }
+  async function forgetBotRoomReports(botId, touchedRooms = []) {
+    let pruned = false
+    for (const [id, report] of Object.entries(reports())) {
+      if (report.botId !== botId) continue
+      delete reports()[id]
+      pruned = true
+    }
+    if (pruned) saveSoon()
+    for (const room of touchedRooms) {
+      dropMemberFromBatch(room, botId)
+      await settleRoomReports(room.id)
+    }
+  }
+  function roomRelayDiscarded(source) {
+    if (typeof source?.roomId !== 'string') return
+    roomRelayTaken(source.roomId, source.exchangeId)
+    if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
+      reports()[source.reportId].neverStarted = true
+      reports()[source.reportId].stopped = true
+      reports()[source.reportId].status = 'tracking'
+      saveSoon()
+    }
+    void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
   }
   const recordResult = (key, name, seq) => {
     const batch = key === undefined ? undefined : batches()[key]
@@ -1867,10 +1932,11 @@ export function install(rt) {
         if (post.failed !== undefined) round.failed.push(sender.name)
         else if (post.resumed || post.stopped || post.done) say(room, { who: sender.name, botId: sender.id, kind: post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed', text: '', ...(post.changes === undefined ? {} : { changes: post.changes }) })
         else {
-          say(room, { who: sender.name, botId: sender.id, text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true })
+          say(room, { who: sender.name, botId: sender.id, text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
           if (post.batch !== undefined && text !== '') recordResult(post.batch, sender.name, room.seq)
         }
         callPost(room, round, sender, post.text ?? '', post)
+        settleQueuedReportInRound(room, post)
         if (post.batchEnd) closeBatch(post.batch)
         continue
       }
@@ -1957,6 +2023,7 @@ export function install(rt) {
         ...(post.changes === undefined ? {} : { changes: post.changes }),
         // The group's own Session shows the message; a goal draft's trigger it hides.
         ...(post.goal === 'draft' ? {} : { session: true }),
+        ...(post.botId !== undefined && post.late !== true && post.progress !== true ? { openingPost: true } : {}),
       })
       post._afterSeq = room.seq + 1
       if (post.batch !== undefined && text !== '') recordResult(post.batch, who, room.seq)
@@ -2021,6 +2088,7 @@ export function install(rt) {
     const openingBatchKey = opener.botId !== undefined && calledByOpener.length > 0 ? registerBatch(room.id, opener.botId, calledByOpener) : undefined
     // The admin's own post that opens a round hands goal tasks the same way a call does.
     if (rt.isAdminOf(room, opener.botId)) for (const member of calledByOpener) rt.goalTaskWorking?.(room.id, member.id)
+    if (opener.botId !== undefined && speakers.length > 0) expandScopedReports(room.id, opener.botId, speakers)
     // The admin alone with the user's message: when it passes, the round ends with
     // nothing said, and the group says so once.
     const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
@@ -2298,7 +2366,10 @@ export function install(rt) {
     const idlePost = !extra.done && extra.progress !== true && extra.late !== true && isIdleRelayText(text, everyone, [])
     if (!idlePost) clearIdleStreak(room)
     const opened = openingCall(room, post)
-    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, { named, all: (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).all === true })) return true
+    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, { named, all: (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).all === true })) {
+      settleQueuedReportInRound(room, post, { paused: true })
+      return true
+    }
     const { speakers, ordered } = opened
     if (speakers.length === 0) return false
     const by = speakers.filter(peer => named.includes(peer))
@@ -2357,6 +2428,7 @@ export function install(rt) {
         botId: sender.id,
         name: sender.name,
         status: 'queued',
+        fromSeq: room.seq + 1,
         passed: [],
         failed: [],
         at: Date.now(),
@@ -2379,16 +2451,12 @@ export function install(rt) {
         say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
+        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
         if (postExtra.batch !== undefined && line !== '') recordResult(postExtra.batch, sender.name, room.seq)
       }
       callPost(room, running, sender, text, postExtra)
       // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
-      if (postExtra.reportBack === true && reports()[postExtra.reportId]?.status === 'queued') {
-        reports()[postExtra.reportId].status = 'tracking'
-        reports()[postExtra.reportId].fromSeq = room.seq + 1
-        reports()[postExtra.reportId].ids = []
-      }
+      settleQueuedReportInRound(room, postExtra)
       if (postExtra.batchEnd) closeBatch(postExtra.batch)
       await rt.save()
       return
@@ -2657,10 +2725,18 @@ export function install(rt) {
     if (round) await attempt(async () => rt.stopRoomRound(room.id))
     let stopped = false
     for (const botId of room.members) stopped = (await attempt(() => stopMemberWork(room.id, botId))) || stopped
+    rt.goalUserStopped?.(room.id)
+    laterPosts.delete(room.id)
     queuedRelays.delete(room.id)
     let marked = false
     for (const report of Object.values(reports())) {
-      if (report.roomId === room.id && report.status === 'tracking' && report.stopped !== true) {
+      if (report.roomId !== room.id) continue
+      if (report.status === 'queued') {
+        report.neverStarted = true
+        report.status = 'tracking'
+        marked = true
+      }
+      if (report.stopped !== true) {
         report.stopped = true
         marked = true
       }
@@ -2676,11 +2752,13 @@ export function install(rt) {
     roomBatchPending: roomId => Object.values(batches()).some(batch => batch.roomId === roomId && batch.pending.length > 0),
     noteRoomRelayQueued,
     roomRelayTaken,
+    roomRelayDiscarded,
     dropRoomReport,
     hasRoomReportFor,
     roomReportImOrigin,
     settleRoomReports,
     forgetRoomReports,
+    forgetBotRoomReports,
     reconcileStoppedRoomTask: async (roomId, botId) => {
       const room = rt.roomOf(roomId)
       const member = rt.botOf(botId)
@@ -2753,20 +2831,24 @@ export function install(rt) {
   }
   rt.greetRoom = greetRoom
 
-  async function deliverRoomReport(room, report, { deleted = false } = {}) {
+  async function deliverRoomReport(room, report, { deleted = false, neverStarted = false } = {}) {
     const bot = rt.botOf(report.botId)
     if (bot === undefined) return
     let text
     if (deleted) {
       text = `Group "${room.name}" was deleted before it finished.`
+    } else if (neverStarted || report.neverStarted === true) {
+      text = report.stopped === true
+        ? `Work in "${room.name}" was stopped before your post started.`
+        : `Your post in "${room.name}" did not start before DS Bot restarted.`
     } else {
       ensureRoomLog(room)
-      const from = report.fromSeq ?? 1
+      const from = report.fromSeq ?? (room.seq + 1)
       // Read the room book directly instead of groupRows: late member replies are logged
       // with `session: true` (so the group chat does not draw them twice), and must still
-      // be included in the report to the poster.
+      // be included in the report to the poster, while user lines and other opening posts stay out.
       const allRows = rt.ledger.range(bookOf(room.id), from, room.seq)
-        .filter(record => !(record.session === true && record.botId === undefined))
+        .filter(record => record.openingPost !== true && !(record.session === true && record.botId === undefined))
         .map(rowOf)
         .filter(Boolean)
       const rows = Array.isArray(report.ids) ? allRows.filter(row => report.ids.includes(row.botId)) : allRows
@@ -2793,7 +2875,7 @@ export function install(rt) {
               : goal.status === 'drafting' || (goal.status === 'active' && goal.idle === true)
                 ? `Goal "${goal.title}" is waiting for input from the user in "${room.name}".`
                 : ''
-      const pausedLine = !Array.isArray(report.ids) && room.idlePaused !== undefined
+      const pausedLine = report.paused === true || (!Array.isArray(report.ids) && room.idlePaused !== undefined)
         ? `Paused in "${room.name}": members went back and forth without making progress; waiting for the user there.`
         : ''
       const stoppedLine = report.stopped === true && !(goal?.status === 'stopped' && (goal.endedAt ?? 0) >= report.at)
@@ -2824,13 +2906,16 @@ export function install(rt) {
     const long = rawBody.length > MESSAGE_INLINE_MAX ? await rt.attachLong?.(rawBody, `Group report from ${room.name}.txt`) : undefined
     const body = long?.text ?? rawBody
     const reportKey = report.sub ?? report.id
-    if (report.imOrigin !== undefined) rt.rememberImReplyOrigin?.(reportKey, report.imOrigin)
     // The report goes back to the conversation the post was written from: its
     // Session in that group when the post came from one, or the current part of
     // that own-chat thread, else the own chat.
     const back = rt.roomOf(report.fromRoomId)?.sessions?.[report.botId]
     const part = back === undefined && report.fromPart !== undefined ? threadCurrentOfPart(bot, report.fromPart) : undefined
     const target = back ?? part
+    // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
+    if (report.imOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)) {
+      rt.rememberImReplyOrigin?.(reportKey, report.imOrigin)
+    }
     await rt.deliver({
       toId: report.botId,
       ...(target ? { sessionId: target } : {}),

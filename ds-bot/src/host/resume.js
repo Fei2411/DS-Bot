@@ -236,7 +236,11 @@ export function install(rt) {
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
   ctx.on('agent/inbox/discarded', ({ message } = {}) => {
-    if (message?.source?.kind === SOURCE_KIND && message.source.exchangeId) forgetQueued(message.source.exchangeId)
+    const source = message?.source
+    if (source?.kind === SOURCE_KIND && source.exchangeId) forgetQueued(source.exchangeId)
+    if (source?.kind === SOURCE_KIND && (source.role === 'post' || source.role === 'goal') && typeof source.roomId === 'string') {
+      rt.roomRelayDiscarded?.(source)
+    }
   })
   // Exchanges a turn took up since this start, until the resends are done, so a resend
   // never repeats one.

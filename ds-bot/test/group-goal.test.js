@@ -851,3 +851,35 @@ test('post_to_group waits until an active group_goal completes and reports once 
   assert.match(msg, /Summary: v2 released/)
   assert.match(msg, /Writer: 目标已完成，v2 已发布。/)
 })
+
+test('a scoped mid-round post_to_group by the primary Main Bot does not suppress standalone group_goal outcome alert (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Scoped Goal', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+
+  // Start a running round in Lab so Main Bot's post_to_group becomes a scoped mid-round report (ids: ['c']).
+  const round = host.round('g1', host.say('@Writer 看一下', 'r2'), 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 1)
+  host.begin('lb')
+  await host.tool('post_to_group', { group: 'Lab', message: '@Tester 顺便查下版本号' }, 'a')
+  const scopedReport = Object.values(host.rt.state.roomReports).find(r => r.roomId === 'r2')
+  assert.deepEqual(scopedReport?.ids, ['c'])
+  assert.equal(host.rt.hasRoomReportFor('r2', 'a'), false, 'scoped report must not suppress standalone goal alert')
+
+  // Admin completes the goal while the scoped report is still active -> Main Bot still gets the goal complete alert!
+  await host.tool('group_goal', { action: 'pass', evidence: 'ok' }, 'lb')
+  await host.tool('group_goal', { action: 'complete', evidence: 'tests green', summary: 'Scoped Goal shipped' }, 'lb')
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('goal complete')))
+  const goalAlert = host.agentOf('a').calls.find(call => text(call).includes('goal complete'))
+  assert.match(text(goalAlert), /\[Group chat "Lab" · goal complete\]/)
+  assert.match(text(goalAlert), /Scoped Goal shipped/)
+
+  // Finishing the round then delivers the scoped report cleanly as well.
+  await settle(() => host.agentOf('lc').calls.length === 1)
+  host.begin('lc')
+  host.finish('lc', '版本号是 1.2.3。')
+  host.finish('lb', '目标完成。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('版本号是 1.2.3')))
+})

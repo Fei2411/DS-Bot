@@ -1481,6 +1481,7 @@ export function install(rt) {
           engineRetry.delete(agent.id)
           // The folder may have changed again while the switch ran.
           void followFolder(job)
+          if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
           return
         }
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
@@ -1511,6 +1512,7 @@ export function install(rt) {
         })
         if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
+        if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
       })
       // A state write that fails here (full disk, a file another program holds, a lost lock)
       // must not end up as an unhandled rejection, which stops the whole host.

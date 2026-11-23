@@ -318,7 +318,9 @@ export function install(rt) {
     // IM return origins for dispatched Bot/group replies (handoffs.js / im/index.js).
     if (state.imReplyOrigins === null || typeof state.imReplyOrigins !== 'object' || Array.isArray(state.imReplyOrigins)) state.imReplyOrigins = {}
     for (const [key, origin] of Object.entries(state.imReplyOrigins)) {
-      if (!origin || typeof origin !== 'object' || typeof origin.connId !== 'string' || typeof origin.chatKey !== 'string') delete state.imReplyOrigins[key]
+      const validOrigin = origin && typeof origin === 'object'
+        && (origin.mixed === true || (typeof origin.connId === 'string' && typeof origin.chatKey === 'string'))
+      if (!validOrigin) delete state.imReplyOrigins[key]
     }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
