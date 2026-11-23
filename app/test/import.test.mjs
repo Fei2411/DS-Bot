@@ -78,14 +78,38 @@ describe('sessionDirs', () => {
 
   test('keeps the full probe for small batches without listing groups', async (t) => {
     const from = join(root, 'small')
+    const sessions = join(from, 'sessions')
     for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    const listings = []
     t.mock.method(disk, 'readdirSync', (path, ...args) => {
-      assert.equal(path, join(from, 'sessions'))
+      listings.push(path)
       return readdirSync(path, ...args)
     })
     const { sessionDirs: discover } = await import('../src/import.mjs?session-small')
     const ids = Array(8).fill('missing')
     assert.deepEqual(discover(from, ids), { found: [], missing: ids })
+    assert.deepEqual(listings, [sessions])
+  })
+
+  test('does not list later groups when the first group finds every Session', async (t) => {
+    const from = join(root, 'first-group')
+    const sessions = join(from, 'sessions')
+    for (let i = 0; i < 16; i++) mkdirSync(join(sessions, `g${i}`), { recursive: true })
+    const first = join(sessions, readdirSync(sessions)[0])
+    const ids = Array.from({ length: 64 }, (_, i) => `s${i}`)
+    for (const id of ids) mkdirSync(join(first, id))
+    const listings = []
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      listings.push(path)
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-first')
+    const threshold = ids.slice(0, 32)
+    assert.deepEqual(discover(from, threshold), oldSessionDirs(from, threshold))
+    assert.deepEqual(listings, [sessions])
+    listings.length = 0
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+    assert.deepEqual(listings, process.platform === 'win32' ? [sessions] : [sessions, first])
   })
 
   test('matches the frozen discovery on deterministic randomized trees', () => {
