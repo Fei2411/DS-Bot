@@ -1042,7 +1042,9 @@ export function install(rt) {
       // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
       // back into the user's chat after an fg-handoff or bot-handoff fork.
       if (forked) {
-        const forkedEvents = ctx.get('agents')?.get(newSid)?.session?.snapshotEvents?.() ?? []
+        const forkedEvents = ctx.get('agents')?.get(newSid)?.session?.snapshotEvents?.()
+          ?? ctx.sessions?.get?.(newSid)?.snapshotEvents?.()
+          ?? []
         let inheritedTurns = priorTurns
         let inheritedCallIds = priorCallIds
         const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0
