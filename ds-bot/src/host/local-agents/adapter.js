@@ -392,7 +392,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.pending.set(dshCallId, { name, mcpCallId: callId, resolve })
         live.push({ type: 'call', name, args, dshCallId })
       })
-    })
+    }, { fitTools: live.spec?.kind === 'acp', warn: this.deps.rt?.warn })
     await mcp.listen()
     live.mcp = mcp
     return mcp

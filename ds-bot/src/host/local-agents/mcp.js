@@ -7,6 +7,38 @@ import { randomBytes, randomUUID } from 'node:crypto'
 
 const PROTOCOL_VERSION = '2025-03-26'
 const KEEPALIVE_MS = 20_000
+const ACP_TOOL_BYTES = 1_800
+
+// Visit JSON Schema locations only. Literals in enum, examples and default
+// can themselves contain fields named "description" or "properties".
+function trimDescriptions(schema, limit) {
+  if (!schema || typeof schema !== 'object') return
+  if (typeof schema.description === 'string') {
+    if (limit === 0) delete schema.description
+    else schema.description = schema.description.slice(0, limit)
+  }
+  for (const key of ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']) {
+    for (const child of Object.values(schema[key] ?? {})) trimDescriptions(child, limit)
+  }
+  for (const key of ['items', 'prefixItems', 'additionalItems', 'contains', 'propertyNames', 'additionalProperties',
+    'unevaluatedProperties', 'unevaluatedItems', 'not', 'if', 'then', 'else', 'allOf', 'anyOf', 'oneOf']) {
+    const child = schema[key]
+    if (Array.isArray(child)) child.forEach(node => trimDescriptions(node, limit))
+    else trimDescriptions(child, limit)
+  }
+}
+
+function fitToolForAcp(tool) {
+  const fits = entry => Buffer.byteLength(JSON.stringify(entry)) <= ACP_TOOL_BYTES
+  if (fits(tool)) return tool
+  const entry = { ...tool, inputSchema: structuredClone(tool.inputSchema) }
+  for (const [summary, detail] of [[360, 100], [120, 0], [0, 0]]) {
+    entry.description = entry.description.slice(0, summary)
+    trimDescriptions(entry.inputSchema, detail)
+    if (fits(entry)) return entry
+  }
+  return undefined
+}
 
 // Several CLIs refuse schemas with unions, refs or const, so every schema is
 // flattened to plain JSON Schema before tools/list.
@@ -22,7 +54,14 @@ export function flattenSchema(node) {
       if (first !== undefined) Object.assign(out, flattenSchema(first))
       continue
     }
-    out[key] = flattenSchema(value)
+    if (key === 'properties' || key === 'patternProperties' || key === 'dependentSchemas') {
+      out[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, flattenSchema(child)]))
+    } else if (['items', 'prefixItems', 'additionalItems', 'additionalProperties', 'contains', 'not', 'if', 'then', 'else',
+      'propertyNames', 'unevaluatedProperties', 'unevaluatedItems'].includes(key)) {
+      out[key] = flattenSchema(value)
+    } else {
+      out[key] = value
+    }
   }
   return out
 }
@@ -30,10 +69,12 @@ export function flattenSchema(node) {
 export class LoopbackMcp {
   // onCall(name, args) -> Promise<{text, isError}> runs while the adapter waits
   // for the DSH result; it resolves when the tool call settles.
-  constructor(tools, onCall) {
+  constructor(tools, onCall, { fitTools = false, warn } = {}) {
     this.token = randomBytes(32).toString('hex')
     this.tools = tools
     this.onCall = onCall
+    this.fitTools = fitTools
+    this.warn = warn
     this.calls = new Map()
     this.server = createServer((request, response) => void this.serve(request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500)
@@ -86,14 +127,26 @@ export class LoopbackMcp {
     response.end(JSON.stringify(Array.isArray(message) ? replies : replies[0]))
   }
 
+  definitionFor(tool) {
+    const entry = { name: tool.name, description: tool.description ?? '', inputSchema: flattenSchema(tool.parameters ?? { type: 'object', properties: {} }) }
+    return this.fitTools ? fitToolForAcp(entry) : entry
+  }
+
   answer({ id, method, params }) {
     switch (method) {
       case 'initialize':
         return { jsonrpc: '2.0', id, result: { protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'ds-bot', version: '1' } } }
       case 'ping':
         return { jsonrpc: '2.0', id, result: {} }
-      case 'tools/list':
-        return { jsonrpc: '2.0', id, result: { tools: this.tools().map(tool => ({ name: tool.name, description: tool.description ?? '', inputSchema: flattenSchema(tool.parameters ?? { type: 'object', properties: {} }) })) } }
+      case 'tools/list': {
+        const tools = []
+        for (const tool of this.tools()) {
+          const fitted = this.definitionFor(tool)
+          if (fitted) tools.push(fitted)
+          else this.warn?.('Skipping %s: its ACP tool definition exceeds %d bytes without descriptions', tool.name, ACP_TOOL_BYTES)
+        }
+        return { jsonrpc: '2.0', id, result: { tools } }
+      }
       default:
         return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } }
     }
@@ -127,6 +180,13 @@ export class LoopbackMcp {
     }, KEEPALIVE_MS)
     timer.unref?.()
     this.calls.set(callId, entry)
+    if (this.fitTools) {
+      const tool = this.tools().find(candidate => candidate.name === params?.name)
+      if (!tool || !this.definitionFor(tool)) {
+        entry.settle({ isError: true, text: 'Tool unavailable on this ACP session' })
+        return
+      }
+    }
     this.onCall({ name: params?.name, arguments: params?.arguments ?? {}, callId })
       .then(entry.settle, error => entry.settle({ isError: true, text: error?.message ?? String(error) }))
   }

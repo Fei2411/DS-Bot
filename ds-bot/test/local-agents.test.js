@@ -1389,6 +1389,32 @@ test('LoopbackMcp answers JSON-RPC notifications with 202 and an empty body', as
   }
 })
 
+test('only ACP trims schema descriptions and omits definitions that cannot fit intact', () => {
+  const literal = { description: '数据'.repeat(55), const: 'literal', properties: { description: 'literal' } }
+  const parameters = { type: 'object', required: ['description', 'enum'], properties: {
+    description: { type: 'string', description: '说明'.repeat(800) },
+    enum: { enum: [literal], default: literal, examples: [literal] },
+  } }
+  const catalog = [
+    { name: 'acme_list_items', description: '介绍'.repeat(500), parameters },
+    { name: 'too_large', parameters: { type: 'string', enum: ['大'.repeat(700)] } },
+  ]
+  const warnings = []
+  const list = fitTools => new LoopbackMcp(() => catalog, undefined, {
+    fitTools, warn: (...args) => warnings.push(args),
+  }).answer({ method: 'tools/list' }).result.tools
+  const full = list(false)
+  const fitted = list(true)
+  assert.deepEqual(full.map(tool => tool.name), ['acme_list_items', 'too_large'])
+  assert.deepEqual(full[0].inputSchema, parameters)
+  assert.deepEqual(fitted.map(tool => tool.name), ['acme_list_items'])
+  assert.ok(Buffer.byteLength(JSON.stringify(fitted[0])) <= 1800)
+  assert.deepEqual(fitted[0].inputSchema.required, parameters.required)
+  assert.deepEqual(fitted[0].inputSchema.properties.enum, parameters.properties.enum)
+  assert.equal(fitted[0].inputSchema.properties.description.type, 'string')
+  assert.equal(warnings[0][1], 'too_large')
+})
+
 test('acp exposes per-model thought_level efforts, maps Antigravity presets, and switches/restores them per turn', async (t) => {
   let currentPreset = 'workspace-write'
   const adapter = makeAdapter({ acpArgs: ['--agy-modes', '--thought-levels'], preset: () => currentPreset })
