@@ -31645,6 +31645,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
           time: data.time,
           claims: source.claims,
           changes: source.changes,
+          files: source.delivered,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : void 0
         });
       }
