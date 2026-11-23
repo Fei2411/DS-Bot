@@ -2427,6 +2427,51 @@ async function batchInBackground(t, services) {
   return { host, relay }
 }
 
+for (const slowReader of ['turnChanges', 'turnDeliverables']) {
+  test(`parallel late replies wait for a deferred ${slowReader} read and wake the caller once`, async (t) => {
+    const { host } = await batchInBackground(t)
+    const original = rt[slowReader]
+    let release
+    let reading = false
+    const blocked = new Promise(resolve => { release = resolve })
+    t.after(() => release())
+    rt[slowReader] = async (...args) => {
+      if (args[0] === 'gb') {
+        reading = true
+        await blocked
+      }
+      return original?.(...args)
+    }
+    host.emit('gb', 'tool/result', { callId: 'k1' })
+    host.finish('gb', 'WRITER-RESULT')
+    await settle(() => reading)
+    host.emit('gc', 'tool/result', { callId: 'k2' })
+    host.finish('gc', 'TESTER-RESULT')
+    await settle(() => true)
+    assert.ok(host.agentOf('r1').calls.every(post => post.source.quiet === true), 'no terminal post while a result is still being read')
+    assert.equal(host.agentOf('ga').calls.length, 1)
+    release()
+    await settle(() => host.agentOf('r1').calls.length === 2)
+    const early = host.takePost()
+    assert.equal(early.source.quiet, true)
+    assert.equal(early.source.batchEnd, undefined)
+    const earlyRound = host.round('slow-read-early', early)
+    await settle(() => earlyRound() !== undefined)
+    assert.equal(host.agentOf('ga').calls.length, 1)
+    const last = host.takePost()
+    assert.equal(last.source.batchEnd, true)
+    assert.equal(last.source.askedBy, 'a')
+    const finalRound = host.round('slow-read-final', last)
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    const synth = host.begin('ga')
+    assert.match(text(synth), /WRITER-RESULT/)
+    assert.match(text(synth), /TESTER-RESULT/)
+    host.finish('ga', 'Both results received.')
+    await settle(() => finalRound() !== undefined)
+    assert.equal(host.agentOf('ga').calls.length, 2, 'one continuation for the complete batch')
+  })
+}
+
 // Codex on the change line: inside a parallel batch, a change-only completion line must not
 // wake the caller early. It carries `quiet`, the same as an early text result; the batch
 // end still wakes the caller exactly once.
