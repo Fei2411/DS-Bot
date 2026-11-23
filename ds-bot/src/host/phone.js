@@ -7,11 +7,25 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
+import {
+  DeviceRegistry,
+  HostLink,
+  LINK_PATH,
+  deviceIdFor,
+  generateKeyPair,
+  isUrgentNoticeKind,
+  isValidPushEndpoint,
+  isValidPushToken,
+  pairingUri,
+  randomToken,
+  sealPushEnvelope,
+} from '../../link.js'
 import { BROWSER_ALLOWED } from '../shared/browser-endpoints.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
+const MAX_PUSH_QUEUE = 16
+const PUSH_TIMEOUT_MS = 5_000
 export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
 export { BROWSER_ALLOWED }
 
@@ -46,6 +60,126 @@ export function install(rt) {
   let serve = null
   let pairing = null
   let blocked
+  let readyCount = 0
+  const pushQueues = new Map()
+  const pushDraining = new Set()
+  let pushAbort = new AbortController()
+
+  const hasPushDevices = () => registry?.list().some(entry => entry.kind === 'phone' && entry.push !== undefined) === true
+
+  const clearPushQueue = (deviceId) => {
+    pushQueues.delete(deviceId)
+  }
+
+  const deliverPush = async (device, notice, urgency, signal) => {
+    const hostIdentity = identity()
+    const boot = rt.noticeCursor?.()?.boot
+    const envelope = sealPushEnvelope(device.identityKey, hostIdentity.deviceId, {
+      hostName: hostname(),
+      ...(typeof boot === 'string' ? { boot } : {}),
+      notice,
+    })
+    if (device.push.kind === 'unifiedpush') {
+      const fetchFn = rt.pushFetch ?? globalThis.fetch
+      if (typeof fetchFn !== 'function') return
+      const response = await fetchFn(device.push.endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ttl: '86400',
+          urgency,
+        },
+        body: JSON.stringify(envelope),
+        redirect: 'error',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(PUSH_TIMEOUT_MS)]),
+      })
+      if (response.status === 404 || response.status === 410) {
+        registry?.setPush(device.deviceId, undefined)
+        clearPushQueue(device.deviceId)
+        reconcileFeed()
+      }
+      return
+    }
+    if (device.push.kind === 'fcm' && link !== null) {
+      const res = await link.sendPush({
+        targetDeviceId: device.deviceId,
+        kind: 'fcm',
+        token: device.push.token,
+        urgency,
+        envelope,
+      })
+      if (res.gone === true) {
+        registry?.setPush(device.deviceId, undefined)
+        clearPushQueue(device.deviceId)
+        reconcileFeed()
+      }
+    }
+  }
+
+  const drainPushQueue = (deviceId) => {
+    if (pushDraining.has(deviceId)) return
+    pushDraining.add(deviceId)
+    void (async () => {
+      try {
+        while (true) {
+          const queue = pushQueues.get(deviceId)
+          if (!queue || queue.length === 0) {
+            pushQueues.delete(deviceId)
+            return
+          }
+          const item = queue.shift()
+          const current = registry?.list().find(entry => entry.deviceId === deviceId)
+          if (current?.push === undefined || link === null) {
+            pushQueues.delete(deviceId)
+            return
+          }
+          const connectedNow = new Set(link.connectedDevices())
+          if (connectedNow.has(deviceId)) continue
+          try {
+            await deliverPush(current, item.notice, item.urgency, pushAbort.signal)
+          } catch {
+            /* offline push is best-effort; notices endpoint catches up on reconnect */
+          }
+        }
+      } finally {
+        pushDraining.delete(deviceId)
+      }
+    })()
+  }
+
+  const enqueueOfflinePushes = (notice) => {
+    if (link === null || notice === null || typeof notice !== 'object') return
+    const connectedNow = new Set(link.connectedDevices())
+    const urgency = isUrgentNoticeKind(notice.kind) ? 'high' : 'normal'
+    for (const device of registry?.list() ?? []) {
+      if (device.kind !== 'phone' || device.push === undefined || connectedNow.has(device.deviceId)) continue
+      let queue = pushQueues.get(device.deviceId)
+      if (queue === undefined) {
+        queue = []
+        pushQueues.set(device.deviceId, queue)
+      }
+      if (queue.length >= MAX_PUSH_QUEUE) {
+        const dropIndex = queue.findIndex(entry => entry.urgency !== 'high')
+        queue.splice(dropIndex >= 0 ? dropIndex : 0, 1)
+      }
+      queue.push({ notice, urgency })
+      drainPushQueue(device.deviceId)
+    }
+  }
+
+  const reconcileFeed = () => {
+    const running = link
+    const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
+    if (wantFeed && feedUntap === null) {
+      feedUntap = rt.feedTap((event, payload) => {
+        if (readyCount > 0) running.emit(event, event === 'live' ? remoteState(payload) : payload)
+        if (event === 'notice') enqueueOfflinePushes(payload)
+      })
+    } else if (!wantFeed && feedUntap !== null) {
+      feedUntap()
+      feedUntap = null
+    }
+  }
 
   const read = () => {
     if (data !== undefined) return data
@@ -92,6 +226,33 @@ export function install(rt) {
       : undefined
     const denied = remoteAccessError(device, endpoint) ?? agentMediaError(device, endpoint, params?.payload)
     if (denied !== undefined) return { ok: false, error: denied }
+    if (endpoint === 'push-register') {
+      const payload = params?.payload ?? {}
+      const kind = payload?.kind
+      if (kind === 'unifiedpush') {
+        if (!isValidPushEndpoint(payload?.endpoint, { allowLoopbackHttp: rt.pushAllowLoopbackHttp === true })) {
+          return { ok: false, error: { code: 'bot/invalid', message: 'Push endpoint must be a valid https:// URL', details: {} } }
+        }
+        registry.setPush(device.deviceId, { kind: 'unifiedpush', endpoint: payload.endpoint, updatedAt: Date.now() })
+        reconcileFeed()
+        return { ok: true, value: { registered: true, kind: 'unifiedpush', relayFcm: link?.capabilities?.().includes('push.fcm') === true } }
+      }
+      if (kind === 'fcm') {
+        if (!isValidPushToken(payload?.token)) {
+          return { ok: false, error: { code: 'bot/invalid', message: 'Push token is invalid', details: {} } }
+        }
+        registry.setPush(device.deviceId, { kind: 'fcm', token: payload.token, updatedAt: Date.now() })
+        reconcileFeed()
+        return { ok: true, value: { registered: true, kind: 'fcm', relayFcm: link?.capabilities?.().includes('push.fcm') === true } }
+      }
+      return { ok: false, error: { code: 'bot/invalid', message: 'Push kind must be unifiedpush or fcm', details: {} } }
+    }
+    if (endpoint === 'push-unregister') {
+      registry.setPush(device.deviceId, undefined)
+      clearPushQueue(device.deviceId)
+      reconcileFeed()
+      return { ok: true, value: { registered: false } }
+    }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const answer = await serve(endpoint, params?.payload ?? null, signal)
@@ -104,6 +265,10 @@ export function install(rt) {
   const stop = () => {
     const running = link
     link = null
+    readyCount = 0
+    pushAbort.abort()
+    pushAbort = new AbortController()
+    pushQueues.clear()
     feedUntap?.()
     feedUntap = null
     return running?.stop()
@@ -125,20 +290,16 @@ export function install(rt) {
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
       handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
-      // Feed events ride the link instead of SSE, but only while a phone is
-      // actually ready to hear them — no tunnel, no feed work on the host.
+      // Feed events ride the link while a phone is connected, and also when an
+      // offline phone has an E2E push subscription registered.
       onReadyCount: count => {
-        if (count > 0 && feedUntap === null) {
-          const running = link
-          feedUntap = rt.feedTap((event, data) => running.emit(event, event === 'live' ? remoteState(data) : data))
-        } else if (count === 0 && feedUntap !== null) {
-          feedUntap()
-          feedUntap = null
-        }
+        readyCount = count
+        reconcileFeed()
       },
     })
     linkServer = serverUrl()
     link.start()
+    reconcileFeed()
   }
 
   rt.phoneView = () => {
@@ -151,7 +312,14 @@ export function install(rt) {
       on: data.on === true,
       status: link?.status ?? 'off',
       ...(reason === undefined ? {} : { error: reason }),
-      phones: registry.list().map(({ deviceId, name, pairedAt, kind }) => ({ id: deviceId, name, pairedAt, kind, connected: connected.has(deviceId) })),
+      phones: registry.list().map(({ deviceId, name, pairedAt, kind, push }) => ({
+        id: deviceId,
+        name,
+        pairedAt,
+        kind,
+        connected: connected.has(deviceId),
+        ...(push !== undefined ? { push: { kind: push.kind } } : {}),
+      })),
       pairing,
     }
   }
@@ -189,7 +357,9 @@ export function install(rt) {
       case 'phone-remove': {
         const id = String(body.id ?? '')
         if (!registry.revoke(id)) throw invalid('This phone is not paired')
+        clearPushQueue(id)
         link?.disconnect(id)
+        reconcileFeed()
         break
       }
       default:
