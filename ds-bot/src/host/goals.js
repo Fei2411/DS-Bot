@@ -517,12 +517,40 @@ export function install(rt) {
   // A goal message into the room's own Session, which relays it as a new round:
   // the user's draft request, a resume after the user continues, or an idle nudge.
   async function queueGoalRelay(room, goal, text, senderName = 'You') {
-    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
-    agent.followup(createUserMessage({
-      content: [{ type: 'text', text }],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId: randomUUID(), senderName, roomId: room.id },
-    }))
-    await ctx.sessions.flush(agent.session)
+    const exchangeId = randomUUID()
+    rt.noteRoomRelayQueued?.(room.id, exchangeId)
+    try {
+      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId, senderName, roomId: room.id },
+      }))
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      rt.roomRelayTaken?.(room.id, exchangeId)
+      throw error
+    }
+  }
+
+  // When a group goal finishes or stops without a pending post_to_group report already
+  // delivering to the primary Main Bot, send a short outcome report to that Main Bot's
+  // own chat so it can inform the user (#1894).
+  function notifyMainGoalOutcome(room, goal, { by, fromOwnChat = false, skip = false } = {}) {
+    if (skip || (goal.status !== 'complete' && goal.status !== 'stopped')) return
+    const mainBotId = rt.state?.mainBotIds?.[0]
+    if (mainBotId === undefined || rt.botOf(mainBotId) === undefined) return
+    if (fromOwnChat && by === mainBotId) return
+    if (rt.hasRoomReportFor?.(room.id, mainBotId) === true) return
+    const text = goal.status === 'complete'
+      ? `Goal "${goal.title}" in "${room.name}" is complete.\nSummary: ${goal.summary}\nEvidence: ${goal.evidence}\nTell the user the outcome if it matters to them.`
+      : `Goal "${goal.title}" in "${room.name}" was stopped${goal.reason ? `: ${goal.reason}` : ''}.\nTell the user if it matters to them.`
+    void rt.deliver({
+      toId: mainBotId,
+      role: 'report',
+      roomId: room.id,
+      note: goal.status === 'complete' ? 'goal complete' : 'goal stopped',
+      text,
+    }).catch(error => rt.warn('ds-bot: goal outcome report for %s failed: %s', room.name, error))
   }
 
   // goal-draft { roomId, text }: the user's one-line ask opens a drafting goal.
@@ -558,6 +586,7 @@ export function install(rt) {
       announce(room, result.reply)
       await rt.save()
       if (body.stopWork === true) await rt.stopRoomWork(room.id)
+      else void rt.settleRoomReports?.(room.id).catch(() => {})
       return {}
     }
     if (action === 'resume') {
@@ -570,10 +599,13 @@ export function install(rt) {
     }
     if (action === 'stop') {
       if (!['drafting', 'active', 'paused'].includes(goal.status)) return { error: wrongState(room, goal, 'stop', 'drafting, active or paused') }
+      const mainBotId = rt.state?.mainBotIds?.[0]
+      const mainWaiting = mainBotId !== undefined && rt.hasRoomReportFor?.(room.id, mainBotId) === true
       const result = stopGoal(room, 'Stopped by the user', 'user')
       announce(room, result.reply)
       await rt.save()
       await rt.stopRoomWork(room.id)
+      notifyMainGoalOutcome(room, result.goal, { by: 'user', skip: mainWaiting })
       return {}
     }
     if (action === 'clear') {
@@ -790,9 +822,18 @@ export function install(rt) {
           return `Unknown action ${action}.`
       }
       if (result.error !== undefined) return result.error
+      const mainBotId = rt.state?.mainBotIds?.[0]
+      const mainWaiting = mainBotId !== undefined && rt.hasRoomReportFor?.(room.id, mainBotId) === true
+      const fromOwnChat = !rt.groupOwners.has(exec.agent?.id) && !rt.taskOwners?.has(exec.agent?.id)
       if (result.reply !== undefined) announce(room, result.reply)
       await rt.save()
       if (post !== undefined) await post()
+      if (action === 'complete' || action === 'stop') {
+        notifyMainGoalOutcome(room, result.goal, { by: self, fromOwnChat, skip: mainWaiting })
+      }
+      if (action === 'complete' || action === 'stop' || action === 'pause') {
+        void rt.settleRoomReports?.(room.id).catch(() => {})
+      }
       const ledger = goalLedger(room, member)
       return next === '' ? ledger : `${ledger}\n${next}`
     },

@@ -2005,10 +2005,12 @@ export function install(rt) {
       } else {
         const imOrigin = source?.imOrigin
         const rpcId = source?.rpcId
-        // A late member result, part-switch handoff, or task report continues the work the chat asked for;
-        // any other first message starts a fresh turn, which clears the previous turn's origin.
+        // A late member result, part-switch handoff, task report, or dispatch return continues
+        // the work the chat asked for; any other first message starts a fresh turn, which
+        // clears the previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
-        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
+        const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
+        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || isDispatchReturn || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
@@ -2056,6 +2058,33 @@ export function install(rt) {
             if (saved !== undefined) dropOrigin(session.id)
           } else {
             claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          }
+        } else if (isDispatchReturn) {
+          // Restore the originating IM chat when a Bot reply or group report returns for
+          // work dispatched from an IM turn (#1836, #1894), with the same pairing, binding
+          // and anti-mix checks as task-report.
+          const saved = rt.imReplyOrigin?.(source.replyTo)
+          if (saved !== undefined) {
+            const owner = rt.groupOwners.get(session.id)
+            if (owner !== undefined) {
+              const room = rt.roomOf(owner.roomId)
+              const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+              if (roomSid !== undefined && originFromSaved(saved) !== undefined && saved.binding === `room:${room.id}`) {
+                const live = origins.get(roomSid)
+                const activeRound = rt.roomActive?.(room.id) === true
+                if (live === undefined && !activeRound && !mixed.has(roomSid)) {
+                  claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+                } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+                  dropOrigin(roomSid)
+                }
+              } else if (roomSid !== undefined) {
+                dropOrigin(roomSid)
+              }
+            } else if (originFromSaved(saved) === undefined) {
+              dropOrigin(session.id)
+            } else {
+              claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+            }
           }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
@@ -2129,7 +2158,7 @@ export function install(rt) {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
         const origin = data.taskId !== undefined
           ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
-          : originOf(sessionId)
+          : originOf(sessionId) ?? (data.roomId !== undefined ? originFromSaved(rt.roomReportImOrigin?.(data.roomId)) : undefined)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined

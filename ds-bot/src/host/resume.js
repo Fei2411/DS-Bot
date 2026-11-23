@@ -764,6 +764,7 @@ export function install(rt) {
     await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()
+    await rt.settleRoomReports?.(undefined, { startup: true })
   }
 
   ctx.effect(() => {
@@ -774,6 +775,7 @@ export function install(rt) {
       : setTimeout(() => void rt.load()
         .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
         .then(() => rt.settleRoomBatches?.())
+        .then(() => rt.settleRoomReports?.(undefined, { startup: true }))
         .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
     timer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.
