@@ -823,7 +823,7 @@ test('G-05: group own Session preserves configured room.workDir and only falls b
 // -----------------------------------------------------------------------------
 // F7: Unified isWakingSource in HANDOFF_ACK & forward(), plus schedulesPending()
 // -----------------------------------------------------------------------------
-test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or subagent-settled, and forward() wakes them', async (t) => {
+test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, subagent-settled, or agent-message, handles null source, and forward() wakes them', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-f7-sources-'))
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
 
@@ -834,8 +834,8 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or su
     id: 's-cur',
     session: { id: 's-cur' },
     inbox: { nextStep: [], nextTurn: [] },
-    followup: msg => calls.push(['followup', msg.source?.kind]),
-    inject: msg => calls.push(['inject', msg.source?.kind]),
+    followup: msg => calls.push(['followup', msg.source?.kind ?? null]),
+    inject: msg => calls.push(['inject', msg.source?.kind ?? null]),
   }
   const rt = {
     ctx,
@@ -869,7 +869,7 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or su
   const llmStream = ctx.listeners.get('llm/stream').at(-1)
   const handoffMsg = { role: 'user', content: [{ type: 'text', text: '[Handoff · part 2]' }], source: { kind: SOURCE_KIND, handoff: true, resume: false } }
 
-  for (const kind of [REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled']) {
+  for (const kind of [REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled', 'agent-message']) {
     let realCalled = false
     await llmStream({
       sessionId: 's-cur',
@@ -878,14 +878,14 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or su
     assert.equal(realCalled, true, `bare HANDOFF_ACK must NOT swallow source.kind=${kind}`)
   }
 
-  // Non-waking sources (time-context, silent note) paired with a bare handoff still get HANDOFF_ACK.
-  for (const extraSource of [{ kind: 'time-context' }, { kind: SOURCE_KIND, role: 'note', silent: true }]) {
+  // Non-waking sources (time-context, silent note, null) paired with a bare handoff still get HANDOFF_ACK without throwing.
+  for (const extraSource of [{ kind: 'time-context' }, { kind: SOURCE_KIND, role: 'note', silent: true }, null]) {
     let realCalled = false
     const stream = llmStream({
       sessionId: 's-cur',
       messages: [handoffMsg, { role: 'user', content: [{ type: 'text', text: 'ctx' }], source: extraSource }],
     }, () => { realCalled = true; return 'real-stream' })
-    assert.equal(realCalled, false, `bare handoff with ${extraSource.kind} must still short-circuit`)
+    assert.equal(realCalled, false, `bare handoff with ${extraSource?.kind ?? 'null'} must still short-circuit`)
     let ack = ''
     for await (const chunk of stream) if (chunk.type === 'text-delta') ack += chunk.text
     assert.equal(ack, HANDOFF_ACK)
@@ -901,7 +901,9 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or su
       createUserMessage({ content: [{ type: 'text', text: 'ans' }], source: { kind: REPLY_KIND } }),
       createUserMessage({ content: [{ type: 'text', text: 'job' }], source: { kind: 'tool-jobs' } }),
       createUserMessage({ content: [{ type: 'text', text: 'sub' }], source: { kind: 'subagent-settled' } }),
+      createUserMessage({ content: [{ type: 'text', text: 'relay' }], source: { kind: 'agent-message', form: 'relay', senderSessionId: 'sub-1' } }),
       createUserMessage({ content: [{ type: 'text', text: 'clk' }], source: { kind: 'time-context' } }),
+      { role: 'user', content: [{ type: 'text', text: 'null-src' }], source: null },
     ],
     signal: AbortSignal.timeout(5_000),
   }, async () => 'next')
@@ -911,7 +913,9 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, or su
     ['followup', REPLY_KIND],
     ['followup', 'tool-jobs'],
     ['followup', 'subagent-settled'],
+    ['followup', 'agent-message'],
     ['inject', 'time-context'],
+    ['inject', null],
   ])
 })
 
@@ -1059,14 +1063,398 @@ test('F7: when schedule service never attaches (automation disabled), grace time
     page: async () => ({ records: [], hasMore: false }),
   }
 
-  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 60 })
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 600 })
   t.after(async () => { await ctx.dispose() })
   await rt.load()
+  assert.equal(rt.schedulesPending(), true, 'grace window must still be open after load')
   await rt.followFolder({ botId: 'b1' })
   assert.equal(await waitFor(() => rt.chatOf('b1') === 's2'), true)
+  assert.equal(rt.schedulesPending(), true, 'switch must finish inside grace window')
   assert.deepEqual(archived, [], 'must wait during grace window')
+  assert.ok(rt.state.switching.s1 !== undefined, 'state.switching must retain deferred part during grace window')
 
-  // Once the 60ms grace window expires, schedulesPending() flips false and the grace timer finishes retirement.
-  assert.equal(await waitFor(() => archived.includes('s1') && rt.state.switching.s1 === undefined, 2_000), true, 'grace timer must archive deferred part once attach window expires')
+  // Once the 600ms grace window expires, schedulesPending() flips false and the grace timer finishes retirement.
+  assert.equal(await waitFor(() => archived.includes('s1') && rt.state.switching.s1 === undefined, 3_000), true, 'grace timer must archive deferred part once attach window expires')
   assert.equal(rt.schedulesPending(), false)
+})
+
+// -----------------------------------------------------------------------------
+// Review regression coverage: concurrency, joinSwitch failure, real-DSH overflow & busy
+// -----------------------------------------------------------------------------
+test('handOnHeld skips active switches (no duplicate forwards or premature archive) and finishes retirement after schedule attaches mid-switch', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-held-race-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const teamDir = join(home, 'workspace')
+  const nextDir = join(home, 'next-folder')
+  mkdirSync(teamDir, { recursive: true })
+  mkdirSync(nextDir, { recursive: true })
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    revision: 1,
+    bots: { b1: { id: 'b1', name: 'Chief', sessionId: 's1', createdAt: 1, workDir: nextDir } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+
+  let attachSchedule
+  let releaseCreate
+  const createPaused = new Promise(resolve => { releaseCreate = resolve })
+  let createReached
+  const atCreate = new Promise(resolve => { createReached = resolve })
+
+  const archived = []
+  const moved = []
+  const wakes = []
+  const forwarded = []
+  const agents = new Map()
+  const heldMsg = createUserMessage({ id: 'm-held', content: [{ type: 'text', text: 'held user message' }], source: { kind: 'user' } })
+  const makeAgent = (id, cwd, initialHeld = []) => ({
+    id,
+    status: 'idle',
+    session: { id, seq: 0, header: { cwd }, requestHeader: () => ({ config: {} }), deriveMessages: () => [] },
+    inbox: {
+      nextStep: [],
+      nextTurn: [...initialHeld],
+      remove(msgId) { this.nextTurn = this.nextTurn.filter(m => m.id !== msgId) },
+      prepend(target, msg) { (target === 'next-turn' ? this.nextTurn : this.nextStep).unshift(msg) },
+    },
+    whenIdle: async () => {},
+    runMaintenance: async fn => fn(AbortSignal.timeout(5_000)),
+    followup: msg => forwarded.push([id, msg.content?.[0]?.text]),
+    inject: () => {},
+    send: msg => wakes.push([id, msg.content?.[0]?.text]),
+  })
+  agents.set('s1', makeAgent('s1', teamDir, [heldMsg]))
+
+  const ctx = fakeContext()
+  ctx.inject = (deps, cb) => {
+    if (Array.isArray(deps) && deps.includes('schedule')) attachSchedule = cb
+  }
+  ctx.sessions = { flush: async () => {} }
+  ctx.sessionTitle = { rename: async () => {} }
+  ctx.llm = { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) }
+  ctx.workspaceRegistry = {
+    get: () => ({ id: 'w1', path: teamDir }),
+    list: () => [{ id: 'w1', path: teamDir }],
+    resolveByPath: async () => ({ id: 'w1', path: teamDir }),
+    create: async path => ({ id: 'w2', path }),
+    archiveSession: async id => { archived.push(id) },
+  }
+  ctx.sessionController = {
+    create: async ({ cwd }) => {
+      createReached()
+      await createPaused
+      agents.set('s2', makeAgent('s2', cwd ?? nextDir))
+      return { sessionId: 's2' }
+    },
+    resolveAgent: async id => ({ agent: agents.get(id) }),
+    selectModel: async () => {},
+    page: async () => ({ records: [], hasMore: false }),
+  }
+
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 5_000 })
+  t.after(async () => { await ctx.dispose() })
+  await rt.load()
+
+  // Start folder switch: runSwitch marks state.switching.s1 and pauses inside create().
+  const switchPromise = rt.followFolder({ botId: 'b1' })
+  await atCreate
+  assert.ok(rt.state.switching.s1 !== undefined, 'active switch must mark state.switching.s1')
+
+  // Fire heldBack() directly while switch is still active: must skip s1 completely.
+  await rt.heldBack()
+  assert.deepEqual(wakes, [], 'handOnHeld must not wake a session with an active switch')
+  assert.deepEqual(archived, [], 'handOnHeld must not archive an actively switching session')
+  assert.ok(rt.state.switching.s1 !== undefined, 'handOnHeld must preserve state.switching for active switch')
+
+  // Now attach schedule while switch is still paused inside create().
+  attachSchedule({
+    schedule: {
+      catalog: async () => [{ id: 'task-race', status: 'active', target: { kind: 'session', sessionId: 's1' } }],
+      edit: async req => { moved.push([req.id, req.patch?.target?.sessionId]); return { id: req.id } },
+      list: async () => [],
+    },
+    effect: () => {},
+  })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(wakes, [], 'attach()->heldBack() must not wake s1 mid-switch')
+  assert.deepEqual(archived, [], 'attach()->heldBack() must not archive s1 mid-switch')
+
+  // Release create(): the active switch finishes cleanly, forwards heldMsg ONCE, moves schedule, archives s1.
+  releaseCreate()
+  await switchPromise
+  assert.equal(await waitFor(() => archived.includes('s1') && rt.state.switching.s1 === undefined), true)
+  const userForwards = forwarded.filter(([sid, text]) => sid === 's2' && text === 'held user message')
+  assert.equal(userForwards.length, 1, 'held user message must be forwarded exactly once without duplication')
+  assert.deepEqual(moved, [['task-race', 's2']])
+})
+
+test('joinSwitch-promoted mid-turn job restores PAUSE_NOTE and routing metadata when the switch fails', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-join-fail-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const teamDir = join(home, 'workspace')
+  const nextDir = join(home, 'next-folder')
+  mkdirSync(teamDir, { recursive: true })
+  mkdirSync(nextDir, { recursive: true })
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    revision: 1,
+    bots: { b1: { id: 'b1', name: 'Chief', sessionId: 's1', createdAt: 1, workDir: nextDir } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+
+  let failCreate
+  const createPaused = new Promise((_, reject) => { failCreate = reject })
+  let atCreateResolve
+  const atCreate = new Promise(resolve => { atCreateResolve = resolve })
+  const forwarded = []
+  const s1 = {
+    id: 's1',
+    status: 'idle',
+    session: { id: 's1', seq: 0, header: { cwd: teamDir }, requestHeader: () => ({ config: {} }), deriveMessages: () => [] },
+    inbox: { nextStep: [], nextTurn: [], remove() {}, prepend() {} },
+    whenIdle: async () => {},
+    runMaintenance: async fn => fn(AbortSignal.timeout(5_000)),
+    followup: msg => forwarded.push(msg),
+    inject: msg => forwarded.push(msg),
+    send: () => {},
+  }
+
+  const ctx = fakeContext()
+  ctx.sessions = { flush: async () => {} }
+  ctx.sessionTitle = { rename: async () => {} }
+  ctx.llm = { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) }
+  ctx.workspaceRegistry = {
+    get: () => ({ id: 'w1', path: teamDir }),
+    list: () => [{ id: 'w1', path: teamDir }],
+    resolveByPath: async () => ({ id: 'w1', path: teamDir }),
+    create: async path => ({ id: 'w2', path }),
+    archiveSession: async () => {},
+  }
+  ctx.sessionController = {
+    create: async () => {
+      atCreateResolve()
+      return createPaused
+    },
+    resolveAgent: async () => ({ agent: s1 }),
+    selectModel: async () => {},
+    page: async () => ({ records: [], hasMore: false }),
+  }
+
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose() })
+  await rt.load()
+
+  // Trigger a folder switch (starts with resume: false) and wait until it enters create().
+  const switchPromise = rt.followFolder({ botId: 'b1' })
+  await atCreate
+
+  // Simulate an in-flight mid-turn step 2 joining the active switch job -> promotes job.resume = true.
+  const entry = rt.liveOf('s1')
+  entry.info = { kind: SOURCE_KIND, form: 'relay', role: 'ask', exchangeId: 'ex-join-fail', senderName: 'Peer' }
+  entry.joined = ['ex-joined-1']
+  const preStep = ctx.listeners.get('agent/pre-step').find(fn => /joinSwitch/.test(String(fn)))
+  assert.ok(preStep, 'parts agent/pre-step listener must exist')
+  const decision = await preStep({
+    agent: s1,
+    step: 2,
+    messages: [],
+    signal: AbortSignal.timeout(5_000),
+  }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal(decision.kind, 'reject')
+
+  // Fail create() so !job.moved: .finally() must check job.resume (not stale closure resume) and restore PAUSE_NOTE.
+  failCreate(new Error('disk full'))
+  await switchPromise
+  assert.equal(await waitFor(() => forwarded.length > 0), true, 'failed promoted switch must forward PAUSE_NOTE back to session')
+  const pause = forwarded.find(m => (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn for a context check'))
+  assert.ok(pause, 'PAUSE_NOTE must be forwarded for joinSwitch-promoted job')
+  assert.equal(pause.source?.exchangeId, 'ex-join-fail')
+  assert.deepEqual(pause.source?.joined, ['ex-joined-1'])
+})
+
+test('startSwitch .finally kicks heldBack when schedule attaches right after schedule/pending before switches.delete', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-sched-window-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const teamDir = join(home, 'workspace')
+  const nextDir = join(home, 'next-folder')
+  mkdirSync(teamDir, { recursive: true })
+  mkdirSync(nextDir, { recursive: true })
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    revision: 1,
+    bots: { b1: { id: 'b1', name: 'Chief', sessionId: 's1', createdAt: 1, workDir: nextDir } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+
+  let attachSchedule
+  const archived = []
+  const moved = []
+  const agents = new Map()
+  const makeAgent = (id, cwd) => ({
+    id,
+    status: 'idle',
+    session: { id, seq: 0, header: { cwd }, requestHeader: () => ({ config: {} }), deriveMessages: () => [] },
+    inbox: { nextStep: [], nextTurn: [], remove() {}, prepend() {} },
+    whenIdle: async () => {},
+    runMaintenance: async fn => fn(AbortSignal.timeout(5_000)),
+    followup: () => {},
+    inject: () => {},
+    send: () => {},
+  })
+  agents.set('s1', makeAgent('s1', teamDir))
+
+  const ctx = fakeContext()
+  ctx.inject = (deps, cb) => {
+    if (Array.isArray(deps) && deps.includes('schedule')) attachSchedule = cb
+  }
+  ctx.sessions = { flush: async () => {} }
+  ctx.sessionTitle = { rename: async () => {} }
+  ctx.llm = { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) }
+  ctx.workspaceRegistry = {
+    get: () => ({ id: 'w1', path: teamDir }),
+    list: () => [{ id: 'w1', path: teamDir }],
+    resolveByPath: async () => ({ id: 'w1', path: teamDir }),
+    create: async path => ({ id: 'w2', path }),
+    archiveSession: async id => { archived.push(id) },
+  }
+  ctx.sessionController = {
+    create: async ({ cwd }) => {
+      agents.set('s2', makeAgent('s2', cwd ?? nextDir))
+      return { sessionId: 's2' }
+    },
+    resolveAgent: async id => ({ agent: agents.get(id) }),
+    selectModel: async () => {},
+    page: async () => ({ records: [], hasMore: false }),
+  }
+
+  const rt = createRuntime(ctx, { home, scheduleAttachWaitMs: 5_000 })
+  t.after(async () => { await ctx.dispose() })
+  await rt.load()
+
+  // Intercept moveSchedules so that on the very first schedule/pending throw (while s1 is STILL
+  // inside `switches`), attachSchedule fires immediately — simulating the exact race window where
+  // attach()->heldBack() skips s1 and only startSwitch's .finally() follow-up kick can retire it.
+  const realMoveSchedules = rt.moveSchedules
+  let firedMidThrow = false
+  rt.moveSchedules = async (...args) => {
+    try {
+      return await realMoveSchedules(...args)
+    } catch (error) {
+      if (error?.code === 'schedule/pending' && !firedMidThrow) {
+        firedMidThrow = true
+        attachSchedule({
+          schedule: {
+            catalog: async () => [{ id: 'task-win', status: 'active', target: { kind: 'session', sessionId: 's1' } }],
+            edit: async req => { moved.push([req.id, req.patch?.target?.sessionId]); return { id: req.id } },
+            list: async () => [],
+          },
+          effect: () => {},
+        })
+      }
+      throw error
+    }
+  }
+
+  await rt.followFolder({ botId: 'b1' })
+  assert.equal(await waitFor(() => firedMidThrow, 3_000), true, 'moveSchedules must throw schedule/pending and trigger mid-switch attach')
+  assert.equal(await waitFor(() => archived.includes('s1') && rt.state.switching.s1 === undefined, 3_000), true, 'startSwitch .finally() must kick heldBack() so s1 is not stranded')
+  assert.deepEqual(moved, [['task-win', 's2']])
+})
+
+test('real DSH runtime: idle compactNow overflow wraps cause in ManualCompactionError, isSizeError unwraps it and switches with 0 writeNote calls', async (t) => {
+  const { rt, agent, calls, archived, runTurn } = await bootRealDshBot(t, {
+    contextWindow: 30_000,
+    defaultMaxTokens: 2_000,
+    checkRatio: 0.5,
+    withPruner: false,
+    onTurn: async (step) => {
+      if (step === 1) return { text: 'Initial answer.', usage: { inputTokens: 16_000, outputTokens: 200 } }
+      return { text: 'Continued on fresh part.', usage: { inputTokens: 1_500, outputTokens: 100 } }
+    },
+    onSteward: async () => ({ text: JSON.stringify({ action: 'compact', reason: 'condense' }) }),
+    onCheckpoint: async () => ({ error: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long for the model' } }),
+  })
+
+  const part1 = rt.chatOf('m1')
+  await runTurn('Analyze this large spec.', agent)
+
+  // Wait for checkContext -> steward(compact) -> real BasicCompactionEngine.compactNow() -> ManualCompactionError(cause: CONTEXT_WINDOW_EXCEEDED) -> overflow switch.
+  assert.equal(await waitFor(() => rt.chatOf('m1') !== part1 && archived.includes(part1), 6_000), true, 'idle compactNow overflow must trigger part switch and archive part 1')
+  const part2 = rt.chatOf('m1')
+  const agent2 = rt.ctx.get('agents').get(part2)
+  if (agent2) await agent2.whenIdle()
+  const segment = rt.botOf('m1').segments.find(seg => seg.sessionId === part1)
+  assert.ok(segment, 'part 1 must be archived in segments')
+  assert.equal(segment.fallback, 'overflow', 'isSizeError must unwrap ManualCompactionError.cause and mark fallback as overflow')
+  assert.equal(calls.filter(c => c.kind === 'note').length, 0, 'overflow switch must NOT invoke redundant writeNote LLM call')
+})
+
+test('real DSH runtime: pruneToolResults returns busy quietly without steward call when ReactLoopAgent is in maintenance', async (t) => {
+  const warnings = []
+  let holdMaintenance
+  const maintenanceHeld = new Promise(resolve => { holdMaintenance = resolve })
+  let releaseMaintenance
+  const maintenanceGate = new Promise(resolve => { releaseMaintenance = resolve })
+
+  const { rt, agent, calls, runTurn } = await bootRealDshBot(t, {
+    contextWindow: 20_000,
+    defaultMaxTokens: 2_000,
+    checkRatio: 0.5,
+    withPruner: true,
+    prunerConfig: { thresholdChars: 100, headChars: 20, tailChars: 20 },
+    toolExecute: async () => 'DATA '.repeat(600),
+    onTurn: async (step) => {
+      if (step === 1) return { toolCall: { id: 'tc-maint', name: 'inspect_file', args: { path: 'big.log' } }, usage: { inputTokens: 4_000, outputTokens: 50 } }
+      return { text: 'Inspected.', usage: { inputTokens: 12_000, outputTokens: 100 } }
+    },
+  })
+
+  const origWarn = rt.warn
+  rt.warn = (...args) => { warnings.push(args.map(String).join(' ')); return origWarn?.(...args) }
+
+  const part1 = rt.chatOf('m1')
+
+  // Acquire real DSH maintenance lock in a prepend `agent/status` listener right when the turn
+  // becomes idle, BEFORE parts.js's `agent/status` listener invokes checkContext(agent).
+  // Real ReactLoopAgent.runMaintenance() synchronously enters phase.kind === 'maintenance'
+  // (leaving agent.status === 'idle') and rejects concurrent runMaintenance with a plain Error.
+  let lockStarted = false
+  let maintenancePromise
+  rt.ctx.on('agent/status', ({ agent: a, status }, next) => {
+    if (!lockStarted && a.id === part1 && status === 'idle' && calls.filter(c => c.kind === 'turn').length >= 2) {
+      lockStarted = true
+      maintenancePromise = a.runMaintenance(async () => {
+        holdMaintenance()
+        await maintenanceGate
+      })
+    }
+    return next()
+  }, { prepend: true })
+
+  await runTurn('Inspect big.log', agent)
+  await maintenanceHeld
+  // Give checkContext time to hit runMaintenance while phase.kind === 'maintenance' (agent.status === 'idle').
+  await new Promise(resolve => setTimeout(resolve, 150))
+  assert.equal(agent.status, 'idle', 'real DSH agent.status stays idle during maintenance')
+  assert.equal(calls.filter(c => c.kind === 'steward').length, 0, 'checkContext must bail out on maintenance contention without calling steward')
+  assert.equal(warnings.some(w => w.includes('pruning tool results')), false, 'synchronous runMaintenance busy rejection must not emit spurious warning')
+
+  releaseMaintenance()
+  await maintenancePromise
+  await agent.whenIdle()
 })

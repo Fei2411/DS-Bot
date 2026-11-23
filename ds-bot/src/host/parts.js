@@ -961,9 +961,20 @@ export function install(rt) {
   }
 
   const isSizeError = (error) => {
-    const code = error?.code ?? error?.failure?.code
-    const message = String(error?.message ?? error ?? '')
-    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      const message = String(current?.message ?? current?.failure?.message ?? current ?? '')
+      if (code === OVERFLOW || status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
   }
 
   // The summary request itself. The Session's own route answers it, as it always has. A
@@ -982,7 +993,7 @@ export function install(rt) {
       const wanted = splitRef(ref)
       if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push({ ...wanted, sameRoute: false })
     }
-    const callOnce = async (one, { withoutTools = false, trimmed = false, lowerEffort = false } = {}) => {
+    const callOnce = async (one, { withoutTools = false, trimmed = false, lowerEffort = false, plannedEffort } = {}) => {
       const keepPrefix = one.sameRoute === true && !withoutTools && !trimmed && !lowerEffort
       const baseHistory = withoutTools && !trimmed ? stripToolBlocks([...head, ...tail]) : [...head, ...tail]
       const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
@@ -1002,7 +1013,7 @@ export function install(rt) {
           signal,
         }
       } else {
-        const { effort } = await notePlan(one)
+        const effort = plannedEffort !== undefined ? plannedEffort : (await notePlan(one)).effort
         callOptions = {
           provider: one.provider,
           model: one.model,
@@ -1033,7 +1044,10 @@ export function install(rt) {
       try {
         let res = await callOnce(one)
         if (res.finish === 'max-tokens' && one.sameRoute === true) {
-          res = await callOnce(one, { lowerEffort: true })
+          const { effort } = await notePlan(one)
+          if (effort !== undefined && effort !== one.reasoningEffort) {
+            res = await callOnce(one, { lowerEffort: true, plannedEffort: effort })
+          }
         }
         if (res.finish === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
         if ((res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
@@ -1124,6 +1138,7 @@ export function install(rt) {
   // the line. Reclaims oversized tool outputs without spending LLM tokens or losing dialogue.
   async function pruneToolResults(agent, { inTurn = false } = {}) {
     if (localPart(agent.session)) return { pruned: 0 }
+    if (!inTurn && !isAgentIdle(agent)) return { busy: true, pruned: 0 }
     const pruner = ctx.get?.('agentPresets')?.serviceFor?.(agent, 'toolResultPruner') ?? ctx.get?.('toolResultPruner')
     if (typeof pruner?.pruneSession !== 'function') return { pruned: 0 }
     const run = async () => {
@@ -1136,14 +1151,20 @@ export function install(rt) {
       ctx.logger.info('ds-bot: pruned %d oversized tool result(s) in %s (%d -> %d tokens, %d chars removed)', count, agent.id, before ?? -1, after ?? -1, outcome.charsRemoved ?? 0)
       return { pruned: count, before, after }
     }
+    let entered = false
+    let maintenanceSignal
     try {
       if (inTurn) return await run()
       return await agent.runMaintenance(async (signal) => {
+        entered = true
+        maintenanceSignal = signal
         if (signal?.aborted) return { busy: true, pruned: 0 }
         return run()
       })
     } catch (error) {
-      if (!inTurn && (error?.code === 'busy' || error?.code === 'cancelled')) return { busy: true, pruned: 0 }
+      if (!inTurn && (!entered || maintenanceSignal?.aborted || error?.code === 'busy' || error?.code === 'cancelled')) {
+        return { busy: true, pruned: 0 }
+      }
       rt.warn('ds-bot: pruning tool results for %s failed: %s', agent.id, error)
       return { pruned: 0 }
     }
@@ -1431,10 +1452,10 @@ export function install(rt) {
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
-  const WAKING_KINDS = new Set(['user', REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled'])
+  const WAKING_KINDS = new Set(['user', REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled', 'agent-message'])
   const isSilentSource = source => source?.kind === SOURCE_KIND
     && (source?.silent === true || ['note', 'cancelled', 'stopped'].includes(source?.role))
-  const isWakingSource = source => source !== undefined
+  const isWakingSource = source => source != null
     && (WAKING_KINDS.has(source.kind) || (source.kind === SOURCE_KIND && !isSilentSource(source)))
   const isSilentRelay = message => isSilentSource(message?.source)
   const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
@@ -1528,16 +1549,28 @@ export function install(rt) {
   // The start timer and a direct call can overlap on a slow start; both share one pass,
   // so kept input is handed on once.
   let heldBackRun
+  let heldBackAgain = false
   function heldBack() {
-    heldBackRun ??= handOnHeld().finally(() => { heldBackRun = undefined })
+    if (heldBackRun !== undefined) {
+      heldBackAgain = true
+      return heldBackRun
+    }
+    heldBackRun = (async () => {
+      do {
+        heldBackAgain = false
+        await handOnHeld()
+      } while (heldBackAgain)
+    })().finally(() => { heldBackRun = undefined })
     return heldBackRun
   }
   async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
+      if (switches.has(sessionId)) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
+        if (switches.has(sessionId)) continue
         const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
@@ -1593,6 +1626,9 @@ export function install(rt) {
           noteFailures.delete(agent.id)
           folderRetry.delete(agent.id)
           engineRetry.delete(agent.id)
+          if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
+            void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+          }
           // The folder may have changed again while the switch ran.
           void followFolder(job)
           if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -1605,7 +1641,7 @@ export function install(rt) {
         // input this part kept, so it is added once.
         const back = job.carry.splice(0)
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
+        if (job.resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
             content: [{ type: 'text', text: PAUSE_NOTE }],
@@ -1659,6 +1695,7 @@ export function install(rt) {
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
+        if (error?.code === 'schedule/pending') job.schedulePending = true
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
@@ -1887,7 +1924,7 @@ export function install(rt) {
   // another model step, and a turn carried through a steer cut keeps its reject, since
   // a completed turn reads as answered.
   const takeOverStep = (agent, payload) => {
-    const entry = rt.liveOf?.(agent.id) ?? rt.live?.get(agent.id)
+    const entry = rt.live?.get(agent.id)
     if (entry !== undefined) entry.switched = true
     return payload.step === 1 && entry?.carried !== true
       ? { kind: 'enter', messages: [] }
@@ -1899,7 +1936,7 @@ export function install(rt) {
   // with the turn's routing state so in-flight work is never dropped behind HANDOFF_ACK.
   const joinSwitch = (agent, job, payload) => {
     job.carry.push(...payload.messages)
-    const entry = rt.liveOf?.(agent.id) ?? rt.live?.get(agent.id)
+    const entry = rt.live?.get(agent.id)
     if (payload.step > 1 || entry?.carried === true) {
       job.resume = true
       if (job.info === undefined && entry?.info !== undefined) job.info = entry.info

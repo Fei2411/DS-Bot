@@ -236,7 +236,7 @@ test('mid-turn condense uses compactRegion with retained tail instead of wiping 
   assert.equal(followUpFail.condensedLogged, 1, 'already-committed compactRegion must still finish partBase/log even if follow-up overflow fails')
 })
 
-test('idle writeCheckpoint lowers reasoning effort, retries without tools on tool-call output, and keeps recent replies + redacted tool trail without duplicating tail', async (t) => {
+test('idle writeCheckpoint preserves reasoning effort on attempt 1, retries without tools at lower effort on tool-call output, and keeps recent replies + redacted tool trail without duplicating tail', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-idle-ckpt-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
 
