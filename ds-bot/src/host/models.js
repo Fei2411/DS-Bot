@@ -233,6 +233,9 @@ export function install(rt) {
         })
       }
     }
+    // A provider listed again may no longer serve what its Bots kept, though everyone
+    // else is served the same models: the next sync runs.
+    if ([...unlisted].some(id => !failed.has(id))) syncedKey = undefined
     unlisted = failed
     // The host was disposed while the models were listed: keep the answer, skip the
     // work that would read other services.

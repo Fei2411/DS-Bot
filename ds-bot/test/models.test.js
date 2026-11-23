@@ -674,6 +674,26 @@ test('a group\'s own Session follows the team default when it changes, and a fai
   assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
 })
 
+// A listing that fails and one that succeeds without the model serve the same models
+// to everyone else, but ask for different selections of that Bot.
+test('a Bot whose provider is listed again without its model is moved at the next sync', async () => {
+  const { rt, selected, providers } = bench({ providers: { custom: ['x'], stepfun: ['step-5'] } })
+  rt.state.bots = { b1: { id: 'b1', model: 'custom/x', appliedModel: 'custom/x' } }
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'custom') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), [])
+  rt.ctx.llm.listModels = listModels
+  providers.custom = []
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:stepfun/step-5'])
+})
+
 test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
   const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
   rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
