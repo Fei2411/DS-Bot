@@ -9,6 +9,9 @@ import { join } from 'node:path'
 import { format } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, modelsFromProbe, usageOf } from '../src/host/local-agents/acp.js'
 import { ENGINES } from '../src/host/local-agents/engines.js'
@@ -501,7 +504,7 @@ function localPart({ context, team, decision = 'switch', note = goodNote('from-t
   const settle = async () => {
     for (let at = 0; at < 100 && bot.sessionId !== 's2'; at += 1) await new Promise(resolve => setTimeout(resolve, 10))
   }
-  return { rt, bot, calls, warnings, followed, idle, settle, setContext: (next) => { current = { ...current, ...next } } }
+  return { rt, bot, ctx, calls, warnings, followed, idle, settle, setContext: (next) => { current = { ...current, ...next } } }
 }
 
 const packageOf = run => run.followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
@@ -618,6 +621,78 @@ test('cancelling local compaction does not trigger a background switch', async (
   assert.equal(run.rt.state.switching.s1, undefined)
   assert.deepEqual(run.warnings, [])
 })
+
+for (const outcome of ['deliver', 'withdraw', 'no acknowledgement']) {
+  test(`ACP holds maintenance until acknowledgement or session retirement: ${outcome}`, { timeout: 10000 }, async t => {
+    const ctx = new Context()
+    t.after(() => ctx.fiber.dispose())
+    await mountAgentLoopTestDependencies(ctx)
+    const harness = await mountAgentLoopTestHarness(ctx)
+    const adapter = makeAdapter({ args: ['--thought-levels', '--high-default'] })
+    t.after(() => adapter.dispose())
+    ctx.llm.registerAdapter(['local-acp-fake'], adapter)
+    await adapter.probeModels('local-acp-fake')
+    const agent = await harness.create('s1', { provider: 'local-acp-fake', model: 'fake-large', reasoningEffort: 'medium' })
+    const message = text => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+    agent.followup(message('show-state'))
+    await agent.whenIdle()
+
+    const live = adapter.live.get('s1')
+    assert.ok(live)
+    assert.equal(live.engineSession.defaultEffort, 'high')
+    const worker = live.engineSession._worker ?? live.engine
+    if (outcome === 'no acknowledgement') worker.cancelAckTimeoutMs = 100
+    const peer = worker.peer
+    const request = peer.request.bind(peer)
+    const notify = peer.notify.bind(peer)
+    const started = Promise.withResolvers()
+    const cancel = Promise.withResolvers()
+    const acknowledgement = Promise.withResolvers()
+    const prompts = []
+    peer.request = (method, params, options) => {
+      if (method === 'session/prompt') {
+        const text = params.prompt.map(block => block.text).join('')
+        if (text === '/compact') {
+          started.resolve(live.engineSession.effort)
+          options.signal.addEventListener('abort', () => acknowledgement.reject(options.signal.reason), { once: true })
+          return acknowledgement.promise
+        }
+        prompts.push(text)
+      }
+      return request(method, params, options)
+    }
+    peer.notify = (method, params) => {
+      if (method === 'session/cancel') cancel.resolve()
+      else notify(method, params)
+    }
+
+    const run = localPart({ context: { used: 220000, size: 262000 }, decision: 'compact' })
+    run.rt.localAgentCompact = (...args) => adapter.compact(...args)
+    ctx.on('agent/inbox/inserted', payload => run.ctx.emit('agent/inbox/inserted', payload))
+    run.ctx.emit('agent/status', { agent, status: 'idle' })
+    assert.equal(await started.promise, 'medium')
+    const queued = message('after maintenance')
+    agent.followup(queued)
+    await cancel.promise
+    assert.deepEqual(agent.inbox.nextTurn.map(input => input.id), [queued.id])
+    assert.throws(() => agent.runMaintenance(async () => {}), /active work/)
+    assert.deepEqual(prompts, [])
+    if (outcome === 'withdraw') agent.inbox.remove(queued.id)
+    if (outcome !== 'no acknowledgement') acknowledgement.resolve({ stopReason: 'cancelled' })
+    await agent.whenIdle()
+    const delivered = agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.id === queued.id)
+    assert.equal(delivered.length, outcome === 'withdraw' ? 0 : 1)
+    if (outcome === 'no acknowledgement') {
+      assert.equal(live.dead, true)
+      assert.notEqual(adapter.live.get('s1'), live)
+      assert.equal(agent.session.snapshotEvents().at(-1).data.reason.kind, 'completed')
+    } else {
+      assert.equal(prompts.length, outcome === 'withdraw' ? 0 : 1)
+      if (outcome === 'deliver') assert.match(prompts[0], /after maintenance/)
+    }
+    assert.equal(agent.inbox.nextTurn.length, 0)
+  })
+}
 
 test('Antigravity 1.5.9, as recorded: models with per-model thinking levels, context window, commands, permissions, and separate cached usage', async () => {
   const fixture = JSON.parse(readFileSync(FIXTURE('recorded/antigravity-acp-1.5.9.json'), 'utf8'))

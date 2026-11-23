@@ -132,6 +132,8 @@ export function engineOf(route, custom = []) {
   return undefined
 }
 
+export const isAcpRoute = route => typeof route === 'string' && (ENGINES[route]?.kind === 'acp' || route.startsWith(CUSTOM_PREFIX))
+
 export const isLocalAgentRoute = route => typeof route === 'string' && (ENGINES[route] !== undefined || route.startsWith(CUSTOM_PREFIX))
 
 // A custom agent the user typed: a bare command name, an absolute path or

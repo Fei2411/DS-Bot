@@ -305,7 +305,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     // the CLI when the conversation grows long: condense, write the handoff note, and
     // answer the context steward when the team has no model of its own.
     localAgentContext: sessionId => adapter.contextOf(String(sessionId)),
-    localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
+    localAgentCompact: (sessionId, signal, effort) => adapter.compact(String(sessionId), signal, effort),
     localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
     localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
     localAgentBadge: (ref) => {

@@ -1674,7 +1674,7 @@ test('switching ACP models resets effort tracking cleanly and ignores unapplied 
   assert.equal(records.s1?.effort, undefined)
 })
 
-test('ACP compaction clears persisted effort so Host restart reapplies reasoningEffort cleanly', async (t) => {
+test('ACP compaction preserves the selected effort across a host restart', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-compact-effort-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const records = {}
@@ -1693,7 +1693,7 @@ test('ACP compaction clears persisted effort so Host restart reapplies reasoning
 
   const compacted = await first.compact('s1')
   assert.equal(compacted, 'done')
-  assert.equal(records.s1?.effort, undefined)
+  assert.equal(records.s1?.effort, 'high')
   await first.dispose()
 
   const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { reasoningEffort: 'high' })))
