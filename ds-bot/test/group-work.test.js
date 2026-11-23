@@ -3807,3 +3807,83 @@ test('joined role: room request settles its live roomWaiter immediately when the
   assert.equal(failedResult?.failure?.code, 'API_ERROR', 'failed turn must immediately fail joined roomWaiter instead of leaking')
   assert.equal(rt.roomWaiters.has('ex-joined-fail'), false)
 })
+
+test('stopRoomRound and stopRoomWork during a partially-completed parallel batch close the batch without posting a wake relay', async (t) => {
+  // 1) stopRoomWork mid-batch
+  {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Chief dispatch both'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', '@Writer @Tester please run your checks')
+
+    await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w' })
+    host.finish('gb', 'Writer finished the build')
+
+    host.begin('gc')
+    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+
+    const stopped = await host.call('stop-room-work', { roomId: 'r1' })
+    assert.equal(stopped.ok, true)
+    host.emit('gc', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    await settle(() => first() !== undefined)
+    await new Promise(resolve => setTimeout(resolve, 40))
+
+    const wakePosts = host.agentOf('r1').calls.filter(msg => msg.source?.batchEnd === true || msg.source?.askedBy !== undefined)
+    assert.deepEqual(wakePosts, [], 'stopRoomWork mid-batch must never post a batchEnd wake relay that resurrects stopped group work')
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'aborted batch must be cleanly closed')
+  }
+
+  // 2) direct stopRoomRound mid-batch (without stopMemberWork)
+  {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Chief dispatch both'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', '@Writer @Tester please run your checks')
+
+    await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w-direct' })
+    host.finish('gb', 'Writer finished the build')
+
+    host.begin('gc')
+    await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+
+    assert.equal(rt.stopRoomRound('r1'), true)
+    host.emit('gc', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    await settle(() => first() !== undefined)
+    await new Promise(resolve => setTimeout(resolve, 40))
+
+    const wakePosts = host.agentOf('r1').calls.filter(msg => msg.source?.batchEnd === true || msg.source?.askedBy !== undefined)
+    assert.deepEqual(wakePosts, [], 'stopRoomRound mid-batch must never post a batchEnd wake relay')
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'aborted batch must be cleanly closed')
+  }
+})
+
+test('deleting a room mid-round with a partially-completed parallel batch closes cleanly without waking callers', async (t) => {
+  const host = await start(t)
+
+  const first = host.round('c1', host.say('@Chief dispatch both'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer @Tester please run your checks')
+
+  await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/start', { tool: 'shell_exec', callId: 'call-w2' })
+  host.finish('gb', 'Writer finished before deletion')
+  host.begin('gc')
+  await settle(() => Object.values(rt.state.roomBatches ?? {}).some(b => b.done.includes('Writer') && b.pending.includes('c')))
+
+  await rt.deleteRoom('r1')
+  await settle(() => first() !== undefined)
+  await new Promise(resolve => setTimeout(resolve, 40))
+
+  assert.equal(rt.roomOf('r1'), undefined)
+  assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'deleted room must leave zero lingering batches')
+  const wakePosts = host.agentOf('r1').calls.filter(msg => msg.source?.batchEnd === true || msg.source?.askedBy !== undefined)
+  assert.deepEqual(wakePosts, [], 'deleting a room mid-batch must never wake callers')
+})

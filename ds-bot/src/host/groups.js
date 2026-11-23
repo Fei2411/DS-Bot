@@ -486,6 +486,11 @@ export function install(rt) {
 
   function dropGroupLines(roomId) {
     backfilled.delete(roomId)
+    for (const [key, batch] of Object.entries(batches())) {
+      if (batch.roomId !== roomId) continue
+      wakingBatches.delete(key)
+      delete batches()[key]
+    }
     rt.ledger.drop(bookOf(roomId))
     if (!writes()) return
     void rm(join(rt.home, 'group-lines', roomId), { recursive: true, force: true }).catch(() => {})
@@ -1020,7 +1025,12 @@ export function install(rt) {
   const registerBatch = (roomId, by, callees) => {
     if (by === undefined || callees.length === 0) return undefined
     // A group that was deleted takes its batches with it, also one whose wake never came.
-    for (const [key, old] of Object.entries(batches())) if (rt.roomOf(old.roomId) === undefined) delete batches()[key]
+    for (const [key, old] of Object.entries(batches())) {
+      if (rt.roomOf(old.roomId) === undefined) {
+        wakingBatches.delete(key)
+        delete batches()[key]
+      }
+    }
     const batch = {
       key: randomUUID(),
       roomId,
@@ -1077,12 +1087,17 @@ export function install(rt) {
   // The member's work for one batch is over. A batch whose wake is posted to the group
   // (`keep`) stays until that post, the last one that names it, is taken in (closeBatch),
   // because the lines of its results are only known then.
-  const leaveBatch = (room, batch, botId, { keep = false } = {}) => {
+  const leaveBatch = (room, batch, botId, { keep = false, settleGoal = true } = {}) => {
     unpend(batch, botId)
     pruneBatchPending(room, batch)
     if (batch.pending.length === 0) {
-      if (!keep) delete batches()[batch.key]
-      void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+      if (!keep) {
+        wakingBatches.delete(batch.key)
+        delete batches()[batch.key]
+      }
+      if (settleGoal && !disposed && rt.roomOf(room.id) === room) {
+        void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+      }
     }
     saveSoon()
   }
@@ -1221,7 +1236,14 @@ export function install(rt) {
     wakeExtra = { late: true, done: true },
   } = {}) {
     if (owed.length === 0) return { wokenCount: 0, usedFirstPost: false }
-    const inRound = round !== undefined && !round.closed && !round.abort?.signal.aborted && !signal?.aborted
+    // When the round is aborted/stopped, the room was deleted, or the plugin is disposing,
+    // close out the member's batch membership without waking callers or resurrecting work.
+    const stopped = disposed || rt.roomOf(room.id) !== room || signal?.aborted === true || round?.abort?.signal.aborted === true
+    if (stopped) {
+      for (const batch of owed) leaveBatch(room, batch, botId, { keep: false, settleGoal: false })
+      return { wokenCount: 0, usedFirstPost: false }
+    }
+    const inRound = round !== undefined && !round.closed
     for (const batch of owed) leaveBatch(room, batch, botId, { keep: !inRound })
     const ready = owed.filter(batch => batchReadyToWake(room, batch))
     if (!inRound) {
@@ -2099,7 +2121,7 @@ export function install(rt) {
       if (callsNobody(post)) return false
       if (openingSpeakers(room, post).length > 0) return true
       const poster = post.botId === undefined ? undefined : rt.botOf(post.botId)
-      return poster !== undefined && post.quiet !== true && room.idlePaused !== undefined && isIdleRelayText(post.text ?? '', everyone, [])
+      return poster !== undefined && post.quiet !== true && post.late !== true && room.idlePaused !== undefined && isIdleRelayText(post.text ?? '', everyone, [])
     }
     const actionable = open.filter(postIsActionable)
     const multiPost = actionable.length > 1
@@ -2112,7 +2134,7 @@ export function install(rt) {
       // post is what starts the next round of status turns (#853). It counts once as an
       // idle round; a post with new work in it, or the user's own message, clears the
       // streak. Only the user's message lifts a pause already in place.
-      const idlePost = poster !== undefined && !event(post) && post.quiet !== true && isIdleRelayText(post.text ?? '', everyone, [])
+      const idlePost = poster !== undefined && !event(post) && post.quiet !== true && post.late !== true && isIdleRelayText(post.text ?? '', everyone, [])
       // The pause holds a status post back: it is not answered, and the members it named
       // wait for the user. A post with work in it goes ahead.
       const holdsPost = idlePost && room.idlePaused !== undefined
@@ -2766,7 +2788,7 @@ export function install(rt) {
       })
       if (!usedFirstPost) await postToRoom(room, member, '', { quiet: true, stopped: true })
     } else {
-      for (const batch of batchesOf(room.id, botId)) leaveBatch(room, batch, botId)
+      for (const batch of batchesOf(room.id, botId)) leaveBatch(room, batch, botId, { keep: false, settleGoal: false })
       await postToRoom(room, member, '', { quiet: true, stopped: true })
     }
     return true
