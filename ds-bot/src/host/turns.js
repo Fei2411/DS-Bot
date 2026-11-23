@@ -1636,9 +1636,23 @@ export function install(rt) {
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
         }
+        // Drop stopped room turns up front, then coalesce superseded waiterless `role: 'room'`
+        // deliveries per room so a member that received several mentions during one busy turn
+        // is not woken back-to-back to answer the same group log over and over.
+        const activeJoined = []
         for (const request of joined) {
           if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) continue
           if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
+          activeJoined.push(request)
+        }
+        const liveWaiterRooms = new Set()
+        const latestWaiterlessRoom = new Map()
+        for (const request of activeJoined) {
+          if (request.info.role !== 'room' || request.info.roomId === undefined) continue
+          if (roomWaiters.has(request.info.exchangeId)) liveWaiterRooms.add(request.info.roomId)
+          else latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
+        }
+        for (const request of activeJoined) {
           // A failed or stopped turn closes the request like any other; a finished
           // one hands it back to the Bot to answer next.
           if (failure !== undefined || reason?.kind === 'aborted') {
@@ -1646,6 +1660,9 @@ export function install(rt) {
               if (failure !== undefined) void rt.lateRoomFailure?.(id, request.info, failure)
             } else answer(request.info, '')
             continue
+          }
+          if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
+            if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) continue
           }
           void rt.deliver({
             fromId: request.info.senderSessionId,

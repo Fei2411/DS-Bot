@@ -2209,7 +2209,7 @@ export function install(rt) {
         continue
       }
       if (event.type === 'assistant/message') {
-        if (hidden.has(event.data?.turn)) continue
+        if (hidden.has(event.data?.turn ?? turn)) continue
         // One entry per text block: the chat shows each block in a bubble of its own.
         const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
         for (const block of content) {
