@@ -2114,6 +2114,8 @@ var JA = {
   "Catalog sync failed: {details}": "カタログの同期に失敗しました: {details}",
   "Restart DS Bot to finish applying plugin changes.": "プラグインの変更を反映するには DS Bot を再起動してください。",
   "Repository": "リポジトリ",
+  "Engine plugins": "エンジンプラグイン",
+  "Back to Plugins": "プラグインに戻る",
   "Built-in": "内蔵",
   "Native": "ネイティブ",
   "Restart required": "再起動が必要",
@@ -4919,6 +4921,8 @@ var KO = {
   "Catalog sync failed: {details}": "카탈로그 동기화 실패: {details}",
   "Restart DS Bot to finish applying plugin changes.": "플러그인 변경 사항을 적용하려면 DS Bot을 다시 시작하세요.",
   "Repository": "저장소",
+  "Engine plugins": "엔진 플러그인",
+  "Back to Plugins": "플러그인으로 돌아가기",
   "Built-in": "내장",
   "Native": "네이티브",
   "Restart required": "재시작 필요",
@@ -7725,6 +7729,8 @@ var ES = {
   "Catalog sync failed: {details}": "Error al sincronizar el catálogo: {details}",
   "Restart DS Bot to finish applying plugin changes.": "Reinicia DS Bot para terminar de aplicar los cambios de plugins.",
   "Repository": "Repositorio",
+  "Engine plugins": "Plugins del motor",
+  "Back to Plugins": "Volver a Plugins",
   "Built-in": "Integrado",
   "Native": "Nativo",
   "Restart required": "Requiere reinicio",
@@ -10487,6 +10493,8 @@ var FR = {
   "Catalog sync failed: {details}": "Échec de la synchronisation du catalogue : {details}",
   "Restart DS Bot to finish applying plugin changes.": "Redémarrez DS Bot pour terminer d’appliquer les changements d’extensions.",
   "Repository": "Dépôt",
+  "Engine plugins": "Extensions du moteur",
+  "Back to Plugins": "Retour aux extensions",
   "Built-in": "Intégré",
   "Native": "Natif",
   "Restart required": "Redémarrage requis",
@@ -13292,6 +13300,8 @@ var DE = {
   "Catalog sync failed: {details}": "Katalogsynchronisierung fehlgeschlagen: {details}",
   "Restart DS Bot to finish applying plugin changes.": "Starte DS Bot neu, um die Plugin-Änderungen abzuschließen.",
   "Repository": "Repository",
+  "Engine plugins": "Engine-Plugins",
+  "Back to Plugins": "Zurück zu Plugins",
   "Built-in": "Integriert",
   "Native": "Nativ",
   "Restart required": "Neustart erforderlich",
@@ -15915,6 +15925,8 @@ var ZH = {
   "Catalog sync failed: {details}": "插件目录同步失败：{details}",
   "Restart DS Bot to finish applying plugin changes.": "请重启 DS Bot 以完成插件变更生效。",
   "Repository": "仓库",
+  "Engine plugins": "引擎插件",
+  "Back to Plugins": "返回插件",
   "Built-in": "内置",
   "Native": "原生",
   "Restart required": "需要重启",
@@ -39862,7 +39874,7 @@ function ServicesForm({
     )
   );
 }
-function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2, Segmented: Segmented3 }) {
+function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2, Segmented: Segmented3, openEnginePlugins = null }) {
   const [status, setStatus] = (0, import_react47.useState)(null);
   const [selection, setSelection] = (0, import_react47.useState)(null);
   const [busy, setBusy] = (0, import_react47.useState)(false);
@@ -39939,13 +39951,9 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       save,
       selectAsr,
       onOpenModels: () => actions.openModels?.(),
-      // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to. The setup button
-      // for voice input shares this callback.
-      onOpenPlugins: () => {
-        actions.closeSettings?.();
-        actions.openPlugins?.();
-      },
+      // DSH's own Web Search API & engine plugin switches live in the nested
+      // `plugins` → `dsh` view when available; otherwise open the Plugins page.
+      onOpenPlugins: () => openEnginePlugins ? openEnginePlugins() : actions.openPlugins?.(),
       Section: Section2,
       Row: Row4,
       Switch: Switch2,
@@ -40193,7 +40201,7 @@ var SLOT_CHOICES = [
   ["", "General plugin"],
   ["browser", "Browser slot"]
 ];
-var SAFE_SHELL_ARG_RE = /^[A-Za-z0-9@._/:+-]+$/;
+var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
   const text = raw.trim();
@@ -40206,14 +40214,10 @@ function safeExternalUrl(raw) {
     return null;
   }
 }
-function shellQuote(arg) {
-  const value = String(arg ?? "").trim();
-  if (!value) return "''";
-  if (SAFE_SHELL_ARG_RE.test(value)) return value;
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
 function installCommandFor(plugin) {
-  return `dsh plugin add ${shellQuote(plugin.installSpec || plugin.packageName)}`;
+  const value = String(plugin.installSpec || plugin.packageName || "").trim();
+  if (!value || !SAFE_CLI_SPEC_RE.test(value)) return null;
+  return `dsh plugin add ${value}`;
 }
 function localizedField(plugin, field) {
   const lang = String(language?.() ?? "en").toLowerCase();
@@ -40292,7 +40296,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
   };
   const primaryAction = () => {
     if (isSlot) {
-      if (plugin.active) {
+      if (plugin.active && plugin.desired !== false) {
         return (0, import_react49.createElement)("span", { className: "bt-plg-active-pill" }, (0, import_react49.createElement)(CheckIcon), t("Active"));
       }
       if (plugin.installed || plugin.kind === "mcp") {
@@ -40305,6 +40309,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
       }
       if (!managerAvailable && plugin.kind === "dsh") {
         const cmd = installCommandFor(plugin);
+        if (!cmd) return null;
         return (0, import_react49.createElement)("button", {
           type: "button",
           className: "bt-soft bt-soft-sm bt-with-icon",
@@ -40321,6 +40326,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
     if (!plugin.installed && plugin.kind === "dsh") {
       if (!managerAvailable) {
         const cmd = installCommandFor(plugin);
+        if (!cmd) return null;
         return (0, import_react49.createElement)("button", {
           type: "button",
           className: "bt-soft bt-soft-sm bt-with-icon",
@@ -40482,8 +40488,19 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
           setLocalError(t("Enter a package name, GitHub repository, or local path."));
           return;
         }
-        const needsCustomEntry = !view?.managerAvailable || Boolean(name.trim() || slot || prefixes.trim());
-        if (needsCustomEntry) {
+        const hasMeta = Boolean(name.trim() || slot || prefixes.trim());
+        if (view?.managerAvailable) {
+          await onInstallDirect({
+            spec: cleanSpec,
+            ...hasMeta ? {
+              customMeta: {
+                name: name.trim() || cleanSpec,
+                slot: slot || null,
+                toolPrefixes: prefixes
+              }
+            } : {}
+          });
+        } else {
           await onSaveCustom({
             kind: "dsh",
             name: name.trim() || cleanSpec,
@@ -40492,9 +40509,6 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
             slot: slot || null,
             toolPrefixes: prefixes
           });
-        }
-        if (view?.managerAvailable) {
-          await onInstallDirect({ spec: cleanSpec, id: needsCustomEntry ? `dsh:${cleanSpec}` : void 0 });
         }
       } else {
         const body = {
@@ -40694,7 +40708,7 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
     )
   );
 }
-function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null }) {
+function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null }) {
   const [view, setView] = (0, import_react49.useState)(null);
   const [loading, setLoading] = (0, import_react49.useState)(true);
   const [error, setError] = (0, import_react49.useState)("");
@@ -40708,7 +40722,11 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   const seqRef = (0, import_react49.useRef)(0);
   const busySeqRef = (0, import_react49.useRef)(0);
   const hasViewRef = (0, import_react49.useRef)(false);
+  const busyRef = (0, import_react49.useRef)(false);
+  busyRef.current = busyId !== null;
   const readOnly = Boolean(roster?.readOnly);
+  const livePluginsKey = JSON.stringify(roster?.plugins ?? null);
+  const lastLiveKeyRef = (0, import_react49.useRef)(livePluginsKey);
   (0, import_react49.useEffect)(() => {
     aliveRef.current = true;
     return () => {
@@ -40748,6 +40766,11 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   (0, import_react49.useEffect)(() => {
     void load(false);
   }, [load]);
+  (0, import_react49.useEffect)(() => {
+    if (lastLiveKeyRef.current === livePluginsKey) return;
+    lastLiveKeyRef.current = livePluginsKey;
+    if (hasViewRef.current && !busyRef.current) void load(false);
+  }, [livePluginsKey, load]);
   const exec = (id, promise, { onError } = {}) => {
     const seq = ++seqRef.current;
     const busySeq = ++busySeqRef.current;
@@ -40896,7 +40919,12 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
         className: "bt-soft bt-soft-sm",
         disabled: refreshing || loading || busyId !== null,
         onClick: () => void load(true)
-      }, refreshing ? t("Refreshing…") : t("Refresh"))
+      }, refreshing ? t("Refreshing…") : t("Refresh")),
+      openEnginePlugins ? (0, import_react49.createElement)("button", {
+        type: "button",
+        className: "bt-soft bt-soft-sm",
+        onClick: openEnginePlugins
+      }, t("Engine plugins")) : null
     ),
     tab !== "add" ? (0, import_react49.createElement)(
       "div",
@@ -44346,16 +44374,17 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const resolvedPage = GROUP_ALIASES[page] ?? (page === "models" && !hasProviders ? "bot-models" : page);
   const section = resolvedPage === "dsh" ? extra.find((row) => row.id === id) : void 0;
   const advanced = resolvedPage === "models" && id === "advanced" && hasSection(dsh, "models");
+  const enginePlugins = resolvedPage === "plugins" && id === "dsh" && hasSection(dsh, "plugins");
   const validPage = groups.some((group) => group.pages.some(([key]) => key === resolvedPage));
   const shown = section ? "dsh" : validPage ? resolvedPage : "overview";
   const bot = shown === "bots" && id ? roster.byId[id] : void 0;
   const room2 = shown === "groups" && id ? roster.roomsById[id] : void 0;
   const activeGroup = section ? null : groups.find((group) => group.pages.some(([key]) => key === shown)) ?? groups[0];
   const usageFocus = shown === "usage" && id ? id : null;
-  const depth = bot || room2 || advanced ? 1 : 0;
+  const depth = bot || room2 || advanced || enginePlugins ? 1 : 0;
   const atHome = shown === "overview";
-  const label = section ? section.label : advanced ? t("Advanced settings") : atHome && narrowNav ? t("Settings") : t(activeGroup.label);
-  const back = bot ? t("Back to Bots") : room2 ? t("Back to group chats") : usageFocus ? t("All usage") : advanced ? t("Back to models") : narrowNav && !atHome ? t("Settings") : null;
+  const label = section ? section.label : advanced ? t("Advanced settings") : enginePlugins ? t("Engine plugins") : atHome && narrowNav ? t("Settings") : t(activeGroup.label);
+  const back = bot ? t("Back to Bots") : room2 ? t("Back to group chats") : usageFocus ? t("All usage") : advanced ? t("Back to models") : enginePlugins ? t("Back to Plugins") : narrowNav && !atHome ? t("Settings") : null;
   const goBack = () => actions.openSettings(depth > 0 || usageFocus ? shown : "overview");
   const navKey = section ? `dsh:${section.id}` : activeGroup.id;
   const nav = useGlide(navKey, { axis: "y" });
@@ -44519,7 +44548,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         return (0, import_react60.createElement)(BotModelsPage, { key: request("bot-models")?.key ?? "bot-models", roster, actions, run: run2, Section: SetSection, preset: request("bot-models")?.id ?? null });
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case "deepseek-services":
-        return (0, import_react60.createElement)(DeepSeekServicesPage, { key: roster.modelsKey ?? "", actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented });
+        return (0, import_react60.createElement)(DeepSeekServicesPage, { key: roster.modelsKey ?? "", actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null });
       case "bots":
         return (0, import_react60.createElement)(BotsPage, { roster, actions, run: run2, startCreating: shown === "bots" && id === "new" });
       case "groups":
@@ -44603,12 +44632,13 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         }) : null,
         shown === "general" ? (0, import_react60.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react60.createElement)(AppearancePage, { roster, actions, run: run2, dsh }) : null,
-        shown === "plugins" ? (0, import_react60.createElement)(PluginsPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null }) : null,
+        shown === "plugins" && !enginePlugins ? (0, import_react60.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
+        enginePlugins ? (0, import_react60.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "plugins" })) : null,
         advanced ? (0, import_react60.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react60.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section.id })) : null,
         bot ? (0, import_react60.createElement)("div", { className: "bt-settings-form" }, (0, import_react60.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
         room2 ? (0, import_react60.createElement)("div", { className: "bt-settings-form" }, (0, import_react60.createElement)(GroupSettingsForm, { key: room2.id, room: room2, roster, actions, run: run2 })) : null,
-        !parts && !atHome && !bot && !room2 && !advanced && !section && !["general", "appearance", "plugins", "usage"].includes(shown) ? partPage(shown) : null
+        !parts && !atHome && !bot && !room2 && !advanced && !enginePlugins && !section && !["general", "appearance", "plugins", "usage"].includes(shown) ? partPage(shown) : null
       )
     );
   };

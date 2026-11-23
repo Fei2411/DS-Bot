@@ -301,6 +301,14 @@ test('DSH\'s Models page is Models → Advanced settings, with a way back', () =
   assert.equal(providersOf(dialog({ page: 'models', sections: [] }).tree).props.advanced, null)
 })
 
+test('DSH\'s Plugins page is Plugins → Engine plugins, with a way back', () => {
+  const page = dialog({ page: 'plugins', id: 'dsh' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
+  const [back] = walk(page.tree, node => node.type === 'button' && node.props['aria-label'] === 'Back to Plugins')
+  back.props.onClick()
+  assert.deepEqual(page.calls, [['plugins']])
+})
+
 test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
   const items = [{ id: 'permission', order: -20 }, { id: 'language', order: 0 }, { id: 'appearance', order: 10 }, { id: 'font-size', order: 11 }, { id: 'developer-tools', order: 15 }]
   const [appearance] = walk(dialog({ page: 'appearance', items }).tree, node => typeof node.type === 'function' && node.type.name === 'AppearancePage')

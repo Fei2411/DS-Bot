@@ -40,7 +40,9 @@ const SLOT_CHOICES = [
   ['browser', 'Browser slot'],
 ]
 
-const SAFE_SHELL_ARG_RE = /^[A-Za-z0-9@._/:+-]+$/
+// Allow only safe npm / GitHub / plain path specs without spaces or shell metacharacters
+// (safe across POSIX shells, PowerShell, and Windows Command Prompt).
+const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
 function safeExternalUrl(raw) {
   if (typeof raw !== 'string') return null
@@ -55,15 +57,10 @@ function safeExternalUrl(raw) {
   }
 }
 
-function shellQuote(arg) {
-  const value = String(arg ?? '').trim()
-  if (!value) return "''"
-  if (SAFE_SHELL_ARG_RE.test(value)) return value
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
 function installCommandFor(plugin) {
-  return `dsh plugin add ${shellQuote(plugin.installSpec || plugin.packageName)}`
+  const value = String(plugin.installSpec || plugin.packageName || '').trim()
+  if (!value || !SAFE_CLI_SPEC_RE.test(value)) return null
+  return `dsh plugin add ${value}`
 }
 
 function localizedField(plugin, field) {
@@ -153,7 +150,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
 
   const primaryAction = () => {
     if (isSlot) {
-      if (plugin.active) {
+      if (plugin.active && plugin.desired !== false) {
         return h('span', { className: 'bt-plg-active-pill' }, h(CheckIcon), t('Active'))
       }
       if (plugin.installed || plugin.kind === 'mcp') {
@@ -166,6 +163,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
       }
       if (!managerAvailable && plugin.kind === 'dsh') {
         const cmd = installCommandFor(plugin)
+        if (!cmd) return null
         return h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm bt-with-icon',
@@ -183,6 +181,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
     if (!plugin.installed && plugin.kind === 'dsh') {
       if (!managerAvailable) {
         const cmd = installCommandFor(plugin)
+        if (!cmd) return null
         return h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm bt-with-icon',
@@ -309,8 +308,21 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
       if (kind === 'dsh') {
         const cleanSpec = spec.trim()
         if (!cleanSpec) { setLocalError(t('Enter a package name, GitHub repository, or local path.')); return }
-        const needsCustomEntry = !view?.managerAvailable || Boolean(name.trim() || slot || prefixes.trim())
-        if (needsCustomEntry) {
+        const hasMeta = Boolean(name.trim() || slot || prefixes.trim())
+        if (view?.managerAvailable) {
+          // Pass custom metadata directly into install so cancelled or failed installs
+          // never leave orphan custom entries behind.
+          await onInstallDirect({
+            spec: cleanSpec,
+            ...(hasMeta ? {
+              customMeta: {
+                name: name.trim() || cleanSpec,
+                slot: slot || null,
+                toolPrefixes: prefixes,
+              },
+            } : {}),
+          })
+        } else {
           await onSaveCustom({
             kind: 'dsh',
             name: name.trim() || cleanSpec,
@@ -319,9 +331,6 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
             slot: slot || null,
             toolPrefixes: prefixes,
           })
-        }
-        if (view?.managerAvailable) {
-          await onInstallDirect({ spec: cleanSpec, id: needsCustomEntry ? `dsh:${cleanSpec}` : undefined })
         }
       } else {
         const body = {
@@ -448,7 +457,7 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
         h('button', { type: 'submit', className: 'bt-soft bt-soft-sm', disabled: disabled || !sourceUrl.trim() }, t('Add source')))))
 }
 
-export function PluginsPage({ roster, actions, Section, Row, initialFilter = null }) {
+export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null }) {
   const [view, setView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -462,7 +471,11 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   const seqRef = useRef(0)
   const busySeqRef = useRef(0)
   const hasViewRef = useRef(false)
+  const busyRef = useRef(false)
+  busyRef.current = busyId !== null
   const readOnly = Boolean(roster?.readOnly)
+  const livePluginsKey = JSON.stringify(roster?.plugins ?? null)
+  const lastLiveKeyRef = useRef(livePluginsKey)
 
   useEffect(() => {
     aliveRef.current = true
@@ -505,6 +518,13 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   }, [actions])
 
   useEffect(() => { void load(false) }, [load])
+
+  // Refresh the detailed plugin view if another window updates live plugin state while open.
+  useEffect(() => {
+    if (lastLiveKeyRef.current === livePluginsKey) return
+    lastLiveKeyRef.current = livePluginsKey
+    if (hasViewRef.current && !busyRef.current) void load(false)
+  }, [livePluginsKey, load])
 
   const exec = (id, promise, { onError } = {}) => {
     const seq = ++seqRef.current
@@ -640,7 +660,12 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
         className: 'bt-soft bt-soft-sm',
         disabled: refreshing || loading || busyId !== null,
         onClick: () => void load(true),
-      }, refreshing ? t('Refreshing…') : t('Refresh'))),
+      }, refreshing ? t('Refreshing…') : t('Refresh')),
+      openEnginePlugins ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        onClick: openEnginePlugins,
+      }, t('Engine plugins')) : null),
     tab !== 'add' ? h('div', { className: 'bt-plg-cats', role: 'group', 'aria-label': t('Categories') },
       CATEGORIES.map(([id, label]) => h('button', {
         key: id,

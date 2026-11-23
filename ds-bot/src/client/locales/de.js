@@ -2032,6 +2032,8 @@ export const DE = {
   "Catalog sync failed: {details}": "Katalogsynchronisierung fehlgeschlagen: {details}",
   "Restart DS Bot to finish applying plugin changes.": "Starte DS Bot neu, um die Plugin-Änderungen abzuschließen.",
   "Repository": "Repository",
+  "Engine plugins": "Engine-Plugins",
+  "Back to Plugins": "Zurück zu Plugins",
   "Built-in": "Integriert",
   "Native": "Nativ",
   "Restart required": "Neustart erforderlich",

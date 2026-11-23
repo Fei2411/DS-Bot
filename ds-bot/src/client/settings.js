@@ -575,6 +575,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const section = resolvedPage === 'dsh' ? extra.find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
   const advanced = resolvedPage === 'models' && id === 'advanced' && hasSection(dsh, 'models')
+  // DSH's Plugins page (e.g. Web Search API & engine plugin switches), one level into Plugins.
+  const enginePlugins = resolvedPage === 'plugins' && id === 'dsh' && hasSection(dsh, 'plugins')
   const validPage = groups.some(group => group.pages.some(([key]) => key === resolvedPage))
   const shown = section ? 'dsh' : validPage ? resolvedPage : 'overview'
   // A Bot or group deleted while its form is open leaves its page on the list.
@@ -582,11 +584,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const room = shown === 'groups' && id ? roster.roomsById[id] : undefined
   const activeGroup = section ? null : groups.find(group => group.pages.some(([key]) => key === shown)) ?? groups[0]
   const usageFocus = shown === 'usage' && id ? id : null
-  const depth = bot || room || advanced ? 1 : 0
+  const depth = bot || room || advanced || enginePlugins ? 1 : 0
   const atHome = shown === 'overview'
-  const label = section ? section.label : advanced ? t('Advanced settings') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
+  const label = section ? section.label : advanced ? t('Advanced settings') : enginePlugins ? t('Engine plugins') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
   // Phone width: the rail hides and Overview lists the pages, so each page leads back there.
-  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : narrowNav && !atHome ? t('Settings') : null
+  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : enginePlugins ? t('Back to Plugins') : narrowNav && !atHome ? t('Settings') : null
   const goBack = () => actions.openSettings(depth > 0 || usageFocus ? shown : 'overview')
   const navKey = section ? `dsh:${section.id}` : activeGroup.id
   const nav = useGlide(navKey, { axis: 'y' })
@@ -766,7 +768,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       // A preset opens the page afresh each time search offers it.
       case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
-      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
+      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null })
       case 'bots': return h(BotsPage, { roster, actions, run, startCreating: shown === 'bots' && id === 'new' })
       case 'groups': return h(GroupsPage, { roster, actions, run })
       case 'schedules': return h(SchedulesPage, { key: request('schedules')?.key ?? 'schedules', roster, actions, start: request('schedules')?.id })
@@ -809,12 +811,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
         shown === 'appearance' ? h(AppearancePage, { roster, actions, run, dsh }) : null,
-        shown === 'plugins' ? h(PluginsPage, { roster, actions, run, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null }) : null,
+        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
+        enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
         section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
         bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
         room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
-        !parts && !atHome && !bot && !room && !advanced && !section && !['general', 'appearance', 'plugins', 'usage'].includes(shown) ? partPage(shown) : null))
+        !parts && !atHome && !bot && !room && !advanced && !enginePlugins && !section && !['general', 'appearance', 'plugins', 'usage'].includes(shown) ? partPage(shown) : null))
   }
 
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },

@@ -1997,6 +1997,8 @@ export const FR = {
   "Catalog sync failed: {details}": "Échec de la synchronisation du catalogue : {details}",
   "Restart DS Bot to finish applying plugin changes.": "Redémarrez DS Bot pour terminer d’appliquer les changements d’extensions.",
   "Repository": "Dépôt",
+  "Engine plugins": "Extensions du moteur",
+  "Back to Plugins": "Retour aux extensions",
   "Built-in": "Intégré",
   "Native": "Natif",
   "Restart required": "Redémarrage requis",

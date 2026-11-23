@@ -135,7 +135,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
       h(StateLine, { view: asrView })))
 }
 
-export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented }) {
+export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented, openEnginePlugins = null }) {
   const [status, setStatus] = useState(null)
   const [selection, setSelection] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -192,10 +192,9 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segme
     h(ServicesForm, {
       status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
       save, selectAsr, onOpenModels: () => actions.openModels?.(),
-      // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to. The setup button
-      // for voice input shares this callback.
-      onOpenPlugins: () => { actions.closeSettings?.(); actions.openPlugins?.() },
+      // DSH's own Web Search API & engine plugin switches live in the nested
+      // `plugins` → `dsh` view when available; otherwise open the Plugins page.
+      onOpenPlugins: () => (openEnginePlugins ? openEnginePlugins() : actions.openPlugins?.()),
       Section, Row, Switch, Segmented,
     }))
 }

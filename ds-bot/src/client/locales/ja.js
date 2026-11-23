@@ -1997,6 +1997,8 @@ export const JA = {
   "Catalog sync failed: {details}": "カタログの同期に失敗しました: {details}",
   "Restart DS Bot to finish applying plugin changes.": "プラグインの変更を反映するには DS Bot を再起動してください。",
   "Repository": "リポジトリ",
+  "Engine plugins": "エンジンプラグイン",
+  "Back to Plugins": "プラグインに戻る",
   "Built-in": "内蔵",
   "Native": "ネイティブ",
   "Restart required": "再起動が必要",

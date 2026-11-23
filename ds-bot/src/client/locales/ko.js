@@ -2032,6 +2032,8 @@ export const KO = {
   "Catalog sync failed: {details}": "카탈로그 동기화 실패: {details}",
   "Restart DS Bot to finish applying plugin changes.": "플러그인 변경 사항을 적용하려면 DS Bot을 다시 시작하세요.",
   "Repository": "저장소",
+  "Engine plugins": "엔진 플러그인",
+  "Back to Plugins": "플러그인으로 돌아가기",
   "Built-in": "내장",
   "Native": "네이티브",
   "Restart required": "재시작 필요",

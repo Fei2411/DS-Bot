@@ -1295,7 +1295,7 @@ export function install(rt) {
     return buildPluginsView()
   }
 
-  async function installPlugin({ id, spec, approvedBuilds } = {}) {
+  async function installPlugin({ id, spec, approvedBuilds, customMeta } = {}) {
     ensureWritable()
     await rt.load()
     await catalogManager.hydrate()
@@ -1317,6 +1317,9 @@ export function install(rt) {
 
     const installSpec = String(spec ?? existingEntry?.install?.spec ?? existingEntry?.packageName ?? '').trim()
     if (!installSpec) throw Object.assign(new Error('Enter a package name, GitHub repository, or local path to install.'), { code: 'bot/invalid' })
+    if (customMeta?.slot != null && customMeta.slot !== '' && !SLOT_RE.test(String(customMeta.slot).trim().toLowerCase())) {
+      throw Object.assign(new Error('Invalid plugin slot.'), { code: 'bot/invalid' })
+    }
     if (!pm || typeof pm.installBundle !== 'function') {
       throw Object.assign(
         new Error(`Plugin installation is unavailable in this environment. Install manually via: dsh plugin add ${installSpec}`),
@@ -1346,6 +1349,7 @@ export function install(rt) {
     }
 
     let activeTargetId = existingEntry?.id ?? `dsh:${actualPkg}`
+    let desiredSlot = existingEntry?.slot ?? null
     if (customEntry && customEntry.kind === 'dsh') {
       const oldPkg = customEntry.packageName ?? customEntry.id.replace(/^dsh:/, '')
       const nextId = `dsh:${actualPkg}`
@@ -1358,12 +1362,34 @@ export function install(rt) {
         }
         activeTargetId = nextId
       }
+    } else if (customMeta && typeof customMeta === 'object') {
+      const metaSlot = customMeta.slot == null || customMeta.slot === '' ? null : String(customMeta.slot).trim().toLowerCase()
+      const metaCat = String(customMeta.category ?? (metaSlot === 'browser' ? 'browser' : 'tools')).trim().toLowerCase()
+      const metaPrefixes = cleanPrefixes(
+        Array.isArray(customMeta.toolPrefixes)
+          ? customMeta.toolPrefixes
+          : String(customMeta.toolPrefixes ?? '').split(',').map(s => s.trim()),
+      )
+      const nextId = `dsh:${actualPkg}`
+      store.custom[nextId] = {
+        id: nextId,
+        name: String(customMeta.name ?? '').trim().slice(0, 120) || actualPkg,
+        description: String(customMeta.description ?? '').trim().slice(0, 600),
+        category: PLUGIN_CATEGORIES.includes(metaCat) ? metaCat : 'other',
+        slot: metaSlot,
+        kind: 'dsh',
+        packageName: actualPkg,
+        toolPrefixes: metaPrefixes,
+        install: { spec: installSpec, packageName: actualPkg },
+      }
+      activeTargetId = nextId
+      if (metaSlot) desiredSlot = metaSlot
     }
 
     await refreshBundles()
     if (existingEntry && !customEntry) savePluginSnapshot(store, existingEntry)
-    if (existingEntry?.slot) {
-      store.slots[existingEntry.slot] = activeTargetId
+    if (desiredSlot) {
+      store.slots[desiredSlot] = activeTargetId
     }
     lastSyncSignature = fingerprint(store)
     await rt.save()
@@ -1564,9 +1590,20 @@ export function install(rt) {
     let entry
     let publicEntry
     if (kind === 'mcp') {
-      const slug = String(body.slug ?? body.id ?? name).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)
-      if (!slug || !CUSTOM_ID_RE.test(slug)) throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
-      const id = `mcp:${slug}`
+      const explicitEdit = typeof body.id === 'string' && body.id.trim() !== ''
+      const baseSlug = String(body.slug ?? body.id ?? name).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+      if (!baseSlug || !CUSTOM_ID_RE.test(baseSlug)) throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
+      await catalogManager.hydrate()
+      const catalogEntries = catalogManager.peek().entries
+      const isTaken = candidate => own(store.custom, candidate) !== undefined
+        || own(store.snapshots, candidate) !== undefined
+        || catalogEntries.some(e => e.id === candidate)
+      let id = `mcp:${baseSlug}`
+      if (!explicitEdit && isTaken(id)) {
+        do {
+          id = `mcp:${baseSlug}-${randomUUID().slice(0, 6)}`
+        } while (isTaken(id))
+      }
       const mcp = validateMcpConfig(body.mcp ?? body)
       entry = {
         id,

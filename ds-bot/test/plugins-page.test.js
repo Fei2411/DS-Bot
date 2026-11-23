@@ -300,7 +300,13 @@ test('PluginsPage preserves AddCustomSection form on error and handles !managerA
       ...SAMPLE_VIEW.plugins.slice(0, 2),
       {
         ...SAMPLE_VIEW.plugins[2],
-        installSpec: '/tmp/my plugin;rm -rf /',
+        installSpec: 'dsh-ego-browser',
+      },
+      {
+        id: 'dsh:evil', name: 'Unsafe Spec Plugin', description: 'Bad spec',
+        category: 'tools', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+        status: 'unavailable', builtin: false, removable: false, supportsPerBot: false,
+        packageName: 'evil', installSpec: 'pkg & calc.exe', toolPrefixes: [],
       },
     ],
   }
@@ -319,14 +325,14 @@ test('PluginsPage preserves AddCustomSection form on error and handles !managerA
   await flush()
   let tree = draw()
 
-  // Discover tab with !managerAvailable offers shell-escaped copy install command via writeClipboard.
+  // Discover tab with !managerAvailable copies safe specs and hides Copy for unsafe cmd/shell metacharacter specs.
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Discover')[0].props.onClick()
   tree = draw()
-  const copyBtn = findAll(tree, n => n.type === 'button' && textOf(n).includes('Copy install command'))[0]
-  assert.ok(copyBtn)
-  copyBtn.props.onClick()
+  const copyBtns = findAll(tree, n => n.type === 'button' && textOf(n).includes('Copy install command'))
+  assert.equal(copyBtns.length, 1)
+  copyBtns[0].props.onClick()
   await flush()
-  assert.equal(copied[0], "dsh plugin add '/tmp/my plugin;rm -rf /'")
+  assert.equal(copied[0], 'dsh plugin add dsh-ego-browser')
 
   // Add plugin tab: failed save shows error and preserves input value instead of clearing.
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Add plugin')[0].props.onClick()
@@ -400,4 +406,36 @@ test('PluginsPage clears busyId when exec falls back to load(false) without wedg
   tree = draw()
   const useBtnAfter = findAll(tree, n => n.type === 'button' && textOf(n) === 'Use')[0]
   assert.equal(useBtnAfter.props.disabled, false)
+})
+
+test('PluginsPage keeps Use button on active read-only fallback when another browser is desired and reloads on live roster change', async () => {
+  const fallbackView = {
+    ...SAMPLE_VIEW,
+    slots: {
+      browser: { active: 'builtin:readonly', desired: 'dsh:dsh-ego-browser', status: 'restart-required', error: null, restartReason: 'no-hmr' },
+    },
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'builtin:readonly' ? { ...p, active: true, desired: false } : p)),
+  }
+  let listCalls = 0
+  const currentRoster = { ...DEFAULT_ROSTER, plugins: { slots: { browser: { active: 'builtin:readonly' } } } }
+  const { draw } = mountPluginsPage({
+    view: fallbackView,
+    roster: currentRoster,
+    actions: {
+      pluginsList: () => { listCalls += 1; return Promise.resolve(fallbackView) },
+    },
+  })
+  draw()
+  await flush()
+  let tree = draw()
+  // Read-only fallback card (`active: true, desired: false`) must offer "Use" so user can cancel pending browser switch.
+  const readonlyCard = findAll(tree, n => n.props?.className === 'bt-plg-card' && textOf(n).includes('Read-only Browser'))[0]
+  assert.ok(findAll(readonlyCard, n => n.type === 'button' && textOf(n) === 'Use').length === 1)
+  assert.equal(listCalls, 1)
+
+  // Live roster plugin change triggers automatic reload.
+  currentRoster.plugins = { slots: { browser: { active: 'builtin:refs' } } }
+  draw()
+  await flush()
+  assert.equal(listCalls, 2)
 })

@@ -1860,6 +1860,8 @@ const ZH = {
   "Catalog sync failed: {details}": "插件目录同步失败：{details}",
   "Restart DS Bot to finish applying plugin changes.": "请重启 DS Bot 以完成插件变更生效。",
   "Repository": "仓库",
+  "Engine plugins": "引擎插件",
+  "Back to Plugins": "返回插件",
   "Built-in": "内置",
   "Native": "原生",
   "Restart required": "需要重启",
