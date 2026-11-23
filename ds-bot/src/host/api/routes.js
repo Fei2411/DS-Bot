@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openTasksOf } from '../tasks.js'
 import { API_ACTOR } from '../roster.js'
-import { mimeOf } from '../avatar.js'
+import { AvatarValidationError, mimeOf } from '../avatar.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'))
 
@@ -59,6 +59,15 @@ const monthKey = (ms = Date.now()) => {
 
 export function httpError(status, code, message, details = {}) {
   return Object.assign(new Error(message), { status, code, details })
+}
+
+async function avatarMutation(change) {
+  try {
+    return await change()
+  } catch (error) {
+    if (error instanceof AvatarValidationError) throw httpError(400, 'api/invalid-avatar', error.message)
+    throw error
+  }
 }
 
 export function sendJson(res, status, data, extraHeaders = {}) {
@@ -741,7 +750,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       const patch = safeFields(body, BOT_FIELDS)
       await checkModelEngine(patch, 'model')
       await rt.bootstrap()
-      const bot = await rt.createBot(patch, API_ACTOR)
+      const bot = await avatarMutation(() => rt.createBot(patch, API_ACTOR))
       return botSummary(bot)
     },
 
@@ -751,7 +760,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       const bot = findAuthorizedBot(principal, botId)
       const patch = safeFields(body, BOT_FIELDS)
       await checkModelEngine(patch, rt.engineOfBot(bot) ?? 'model')
-      const updated = await rt.updateBot(bot.id, patch, API_ACTOR)
+      const updated = await avatarMutation(() => rt.updateBot(bot.id, patch, API_ACTOR))
       return botSummary(updated)
     },
 
@@ -763,14 +772,14 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
         const bot = findAuthorizedBot(principal, memberId)
         if (bot.private === true) throw httpError(403, 'api/forbidden', 'Private Bots cannot join groups')
       }
-      const room = await rt.createRoom({
+      const room = await avatarMutation(() => rt.createRoom({
         members,
         name: body.name,
         avatar: body.avatar,
         section: body.section,
         sectionId: body.sectionId,
         ...(typeof body.admin === 'string' ? { admin: body.admin } : {}),
-      })
+      }))
       return groupSummary(room, principal)
     },
 
@@ -793,7 +802,7 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
       if (patch.members !== undefined) {
         patch.members = [...new Set([...patch.members, ...(room.members ?? []).filter(id => !principal.canAccessBot(id))])]
       }
-      const { room: updated } = await rt.updateRoom(room.id, patch, API_ACTOR)
+      const { room: updated } = await avatarMutation(() => rt.updateRoom(room.id, patch, API_ACTOR))
       return groupSummary(updated, principal)
     },
 

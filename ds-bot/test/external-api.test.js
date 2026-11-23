@@ -173,6 +173,77 @@ function createHarness(initialState, { onPrompt } = {}) {
   return { home, ctx, rt, prompted, emitSessionEvent, emitStream, triggerApproval, agents, ensureSession, stop }
 }
 
+test('REST avatar mutations return validation errors as 400 and retain internal failures as 500', async t => {
+  const h = createHarness()
+  t.after(h.stop)
+  const workspace = { id: 'avatar-workspace', path: join(h.home, 'work') }
+  Object.assign(h.ctx.workspaceRegistry, {
+    get: () => workspace,
+    resolveByPath: async () => workspace,
+    create: async () => workspace,
+    archiveSession: async () => {},
+  })
+  let seq = 0
+  h.ctx.sessionController.create = async () => {
+    const sessionId = `avatar-session-${++seq}`
+    h.ensureSession(sessionId)
+    return { sessionId }
+  }
+  h.ctx.sessionController.selectModel = async () => {}
+  h.ctx.sessionTitle = { rename: async () => {} }
+  h.ctx.llm = { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) }
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', {
+    name: 'Avatar manager', scopes: ['team:manage'], confirmHighRisk: true, targetScope: 'all_public',
+  })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const mutations = [
+    { method: 'POST', path: '/v1/bots', roster: 'createBot', body: { name: 'Avatar Bot' }, state: 'bots' },
+    { method: 'PATCH', path: '/v1/bots/b2', roster: 'updateBot', body: {}, state: 'bots', id: 'b2' },
+    { method: 'POST', path: '/v1/groups', roster: 'createRoom', body: { name: 'Avatar Group', members: ['b1', 'b2'] }, state: 'rooms' },
+    { method: 'PATCH', path: '/v1/groups/r1', roster: 'updateRoom', body: {}, state: 'rooms', id: 'r1' },
+  ]
+  const request = async (mutation, avatar) => {
+    const response = await fetch(`${view.baseUrl}${mutation.path}`, {
+      method: mutation.method, headers, body: JSON.stringify({ ...mutation.body, avatar }),
+    })
+    return { status: response.status, data: await response.json() }
+  }
+  const invalidImages = [
+    'data:image/svg+xml;base64,PHN2Zy8+',
+    'not an image URL',
+    'data:image/png;base64',
+    'data:image/png,AAAA',
+    'data:image/png;base64,???',
+    'data:image/png;base64,bm90IGFuIGltYWdl',
+    'data:image/png;base64,' + 'A'.repeat(200_000),
+    42,
+  ]
+  const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0KsAAAAASUVORK5CYII='
+  for (const mutation of mutations) {
+    for (const invalid of invalidImages) {
+      const result = await request(mutation, { image: invalid })
+      assert.equal(result.status, 400, `${mutation.method} ${mutation.path}: ${JSON.stringify(result.data)}`)
+      assert.equal(result.data.error.code, 'api/invalid-avatar')
+      assert.match(result.data.error.message, /avatar|image/i)
+    }
+    const valid = await request(mutation, { image })
+    assert.equal(valid.status, mutation.method === 'POST' ? 201 : 200, JSON.stringify(valid.data))
+    assert.equal(h.rt.state[mutation.state][valid.data.id].avatar.image, image)
+    if (mutation.method === 'POST') mutation.body.name += ' empty'
+    const empty = await request(mutation, null)
+    assert.equal(empty.status, mutation.method === 'POST' ? 201 : 200, JSON.stringify(empty.data))
+    assert.equal(h.rt.state[mutation.state][empty.data.id].avatar, undefined)
+    const mock = t.mock.method(h.rt, mutation.roster, async () => { throw new Error('Internal fixture failure') })
+    const internal = await request(mutation, { image })
+    assert.equal(internal.status, 500)
+    assert.equal(internal.data.error.code, 'api/internal-error')
+    assert.equal(internal.data.error.message, 'Internal fixture failure')
+    mock.mock.restore()
+  }
+})
+
 test('full REST + SSE + Idempotency + Upload + Memory + Events + MCP + OpenAI compat lifecycle', async (t) => {
   const h = createHarness()
   t.after(h.stop)
