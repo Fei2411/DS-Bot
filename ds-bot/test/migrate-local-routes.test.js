@@ -86,6 +86,16 @@ test('a plugin provider that shares the Mistral Vibe CLI name keeps its model', 
   assert.equal(state.bots.b1.appliedModel, 'mistral-vibe/deepseek-v4-1-flash-1017')
 })
 
+test('a CLI added after the prefix never had an old route', () => {
+  // Mistral Vibe shipped as `local-mistral-vibe`, so even its "CLI default" or a
+  // CLI record under the bare name belongs to a provider called `mistral-vibe`.
+  const state = team('mistral-vibe/default', { s1: { route: 'mistral-vibe' } })
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'mistral-vibe/default')
+  assert.equal(state.bots.b1.appliedModel, 'mistral-vibe/default')
+  assert.equal(state.localAgents.sessions.s1.route, 'mistral-vibe')
+})
+
 test('a ref saved after the team moved its routes is never migrated', () => {
   // Since the move, a local agent is only ever saved under `local-`, so an
   // unprefixed CLI name is a provider of the same name (#2104).
