@@ -1042,9 +1042,12 @@ export function install(rt) {
     return batch.key
   }
 
+  // In-flight late settlements are process-local, not saved work. Keep their members
+  // pending while history is read, and publish each batch's results in order.
+  const lateBatchSettlements = new WeakMap()
   const pruneBatchPending = (room, batch) => {
     for (const otherId of batch.pending) {
-      if (!room.members.includes(otherId) || !activeInRoom(room, otherId)) unpend(batch, otherId)
+      if (!room.members.includes(otherId) || (!lateBatchSettlements.get(batch)?.members.has(otherId) && !activeInRoom(room, otherId))) unpend(batch, otherId)
     }
   }
 
@@ -2618,6 +2621,7 @@ export function install(rt) {
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
+    let releaseSettlement
     enterLate(room.id)
     try {
       const text = stripOwnName(member.name, reply)
@@ -2640,6 +2644,27 @@ export function install(rt) {
         return
       }
       const batch = batchOfTurn(room.id, member.id, info)
+      if (batch !== undefined) {
+        let settling = lateBatchSettlements.get(batch)
+        if (settling === undefined) {
+          settling = { members: new Map(), tail: Promise.resolve() }
+          lateBatchSettlements.set(batch, settling)
+        }
+        // Register before yielding: the live turn was already cleared by turn/end.
+        settling.members.set(member.id, (settling.members.get(member.id) ?? 0) + 1)
+        const previous = settling.tail
+        let unlock
+        settling.tail = new Promise(resolve => { unlock = resolve })
+        releaseSettlement = () => {
+          const left = settling.members.get(member.id) - 1
+          if (left === 0) settling.members.delete(member.id)
+          else settling.members.set(member.id, left)
+          unlock()
+        }
+        // Include posting in this barrier: the last result must not overtake an
+        // earlier member between its bookkeeping and its asynchronous post.
+        await previous
+      }
       const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? batch?.by)
       // What the turn changed and the files it presented are read up front: the batch
       // bookkeeping and the goal gate below count presented files as a result, the same
@@ -2701,6 +2726,7 @@ export function install(rt) {
       if (done && delivered !== undefined) await post('', askedBy ? { askedBy } : {})
       else await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
     } finally {
+      releaseSettlement?.()
       leaveLate(room.id)
       void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
     }
