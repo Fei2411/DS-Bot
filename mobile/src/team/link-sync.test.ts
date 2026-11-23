@@ -7,6 +7,7 @@ import { pendingCountOf } from '../nav/pending.ts'
 let hooks: ReturnType<typeof registerHooks> | undefined
 let useTeamLinkFn: any
 let reconnectDelayMsFn: (hadLink: boolean, failStreak: number) => number
+let bgDisconnectMs = 4_000
 
 before(async () => {
   hooks = registerHooks({
@@ -60,6 +61,7 @@ before(async () => {
   const mod = await import('./link.ts')
   useTeamLinkFn = mod.useTeamLink
   reconnectDelayMsFn = mod.reconnectDelayMs
+  bgDisconnectMs = mod.BACKGROUND_DISCONNECT_MS
 })
 
 after(() => {
@@ -71,8 +73,12 @@ function mountUseTeamLink(options: {
   onStateCall: (payload: { since?: number; live?: string }) => Promise<TeamState>
   onCallBotState?: (endpoint: string, payload: unknown, state: unknown) => Promise<{ value: unknown; state?: TeamState }>
   onHelloCall?: () => Promise<{ api: number | null; capabilities: string[]; boot: string; seq: number }>
+  onNoticesCall?: (payload: any) => Promise<any>
+  onRawCallBot?: (endpoint: string, payload: unknown) => Promise<unknown>
   onOpen?: (attempt: number) => void | Promise<void>
+  onClose?: () => void
   onProbe?: (timeoutMs?: number) => void
+  linkHooks?: any
 }) {
   let states: any[] = []
   let refs: { current: any }[] = []
@@ -127,14 +133,15 @@ function mountUseTeamLink(options: {
       return {
         onEvent(fn: (ev: { event: string; data: any }) => void) { eventListener = fn },
         onClose(fn: () => void) { closeListener = fn },
-        close: async () => {},
+        close: async () => { options.onClose?.() },
         probe(timeoutMs?: number) { options.onProbe?.(timeoutMs) },
       }
     },
     callBot: async (_client: unknown, endpoint: string, payload: unknown) => {
       if (endpoint === 'state') return options.onStateCall(payload as { since?: number; live?: string })
       if (endpoint === 'hello') return options.onHelloCall ? options.onHelloCall() : { api: 1, capabilities: [], boot: 'boot-1', seq: 0 }
-      if (endpoint === 'notices') return { reset: false, notices: [] }
+      if (endpoint === 'notices') return options.onNoticesCall ? options.onNoticesCall(payload) : { reset: false, notices: [] }
+      if (options.onRawCallBot) return options.onRawCallBot(endpoint, payload)
       return {}
     },
     callBotState: async (_client: unknown, endpoint: string, payload: unknown, state: unknown) => {
@@ -149,12 +156,12 @@ function mountUseTeamLink(options: {
   const render = () => {
     for (let pass = 0; pass < 4; pass += 1) {
       cursor = 0; refCursor = 0; cbCursor = 0; effectCursor = 0; pendingEffects = []
-      const out = useTeamLinkFn(computer, identity)
+      const out = useTeamLinkFn(computer, identity, options.linkHooks)
       if (pendingEffects.length === 0) return out
       for (const run of pendingEffects) run()
     }
     cursor = 0; refCursor = 0; cbCursor = 0; effectCursor = 0; pendingEffects = []
-    return useTeamLinkFn(computer, identity)
+    return useTeamLinkFn(computer, identity, options.linkHooks)
   }
 
   return {
@@ -458,4 +465,116 @@ test('useTeamLink reconnects at once when returning to foreground while disconne
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(opens, 3, 'returning to foreground while disconnected connects at once')
   assert.equal(h.render().online, true)
+})
+
+test('useTeamLink closes socket after grace window in background when keepAliveInBackground is false, and reconnects on return', async (t) => {
+  const scheduled: { id: number; ms: number; run: () => void }[] = []
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  const timers = new Map<number, { cleared: boolean }>()
+  let nextTimerId = 1
+  ;(globalThis as any).setTimeout = (fn: () => void, ms: number = 0) => {
+    if (ms >= 1_000) {
+      const id = nextTimerId++
+      timers.set(id, { cleared: false })
+      scheduled.push({ id, ms, run: () => { if (!timers.get(id)?.cleared) fn() } })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return origSetTimeout(fn, ms)
+  }
+  ;(globalThis as any).clearTimeout = (id: any) => {
+    const entry = timers.get(id)
+    if (entry) entry.cleared = true
+    else origClearTimeout(id)
+  }
+  t.after(() => {
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+
+  let opens = 0
+  let closes = 0
+  let disconnectedCalls = 0
+  let keepAlive = false
+  const h = mountUseTeamLink({
+    onOpen(attempt) { opens = attempt },
+    onClose() { closes += 1 },
+    async onStateCall() {
+      return { revision: 1, liveKey: 'ok', bots: [{ id: 'b1', name: 'Chief', sessionId: 's1' }], questions: {} }
+    },
+    linkHooks: {
+      keepAliveInBackground: () => keepAlive,
+      onDisconnected: () => { disconnectedCalls += 1 },
+    },
+  })
+  t.after(h.cleanup)
+  h.render()
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+  assert.equal(h.render().online, true)
+
+  // Backgrounding in periodic/off mode schedules the grace disconnect timer.
+  h.appState('background')
+  const bgEntry = scheduled.find(entry => entry.ms === bgDisconnectMs && !timers.get(entry.id)?.cleared)
+  assert.ok(bgEntry, 'expected background grace disconnect timer')
+  bgEntry.run()
+  assert.equal(closes, 1)
+  assert.equal(disconnectedCalls, 1)
+  assert.equal(h.render().online, false)
+
+  // Returning to foreground reconnects immediately.
+  h.appState('active')
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+  assert.equal(opens, 2)
+  assert.equal(h.render().online, true)
+
+  // In Instant keepalive mode, backgrounding does NOT schedule a grace disconnect.
+  keepAlive = true
+  scheduled.length = 0
+  h.appState('background')
+  assert.equal(scheduled.some(entry => entry.ms === bgDisconnectMs && !timers.get(entry.id)?.cleared), false)
+  assert.equal(h.render().online, true)
+})
+
+test('useTeamLink distinguishes transient hello RPC failure from outdated desktop (api === null) and routes push-register via plain callBot', async (t) => {
+  let helloMode: 'network' | 'old' | 'ok' = 'network'
+  const rawCalls: string[] = []
+  const stateCalls: string[] = []
+  const h = mountUseTeamLink({
+    async onHelloCall() {
+      if (helloMode === 'network') throw new Error('Relay timeout')
+      if (helloMode === 'old') return { api: null, capabilities: [], boot: 'b0', seq: 0 }
+      return { api: 1, capabilities: ['push-register'], boot: 'boot-2', seq: 4 }
+    },
+    async onStateCall() {
+      return { revision: 1, liveKey: 'ok', bots: [], questions: {} }
+    },
+    async onRawCallBot(endpoint) {
+      rawCalls.push(endpoint)
+      return { registered: true }
+    },
+    async onCallBotState(endpoint) {
+      stateCalls.push(endpoint)
+      return { value: true }
+    },
+  })
+  t.after(h.cleanup)
+  h.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  // Transient hello error must show the real network error, not "Update DS Bot on the computer..."
+  assert.equal(h.render().error, 'Relay timeout')
+
+  // Simulate returning to foreground with an outdated desktop (api: null).
+  helloMode = 'old'
+  h.appState('active')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(h.render().error, 'Update DS Bot on the computer to use this phone.')
+
+  // Recover with current desktop and verify push-register bypasses callBotState.
+  helloMode = 'ok'
+  h.appState('active')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(h.render().online, true)
+  await h.render().call('push-register', { kind: 'unifiedpush', endpoint: 'https://ntfy.sh/x' })
+  assert.deepEqual(rawCalls, ['push-register'])
+  assert.deepEqual(stateCalls, [])
 })

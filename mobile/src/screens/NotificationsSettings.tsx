@@ -1,10 +1,15 @@
-import { Children, Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useInSheet } from '../nav/sheet.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
 import { useTeam } from '../team/context.tsx'
-import { applyBackgroundDeliveryPrefs, getHostPushSyncState, sendTestNotification, subscribeHostPushSyncState, unregisterHostPushEndpoint } from '../team/notification-bridge.ts'
+import {
+  applyBackgroundDeliveryPrefs,
+  getHostPushSyncState,
+  resetHostPushSyncState,
+  sendTestNotification,
+  subscribeHostPushSyncState,
+  unregisterHostPushEndpoint,
+} from '../team/notification-bridge.ts'
 import { androidNotificationStatus, readNotifyPrefsFromRecord, type BackgroundDeliveryMode } from '../team/notifications.ts'
 import {
   getBackgroundStatus,
@@ -16,90 +21,20 @@ import {
   type BackgroundStatus,
 } from '../team/notifications-native'
 import { t } from '../ui/i18n.ts'
-import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
-import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
-
-function Screen({ children }: { children: React.ReactNode }) {
-  const { p } = useTheme()
-  const insets = useSafeAreaInsets()
-  const inSheet = useInSheet()
-  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>{children}</View>
-}
-
-function Back({ title, onBack }: { title: string; onBack: () => void }) {
-  const { p } = useTheme()
-  return (
-    <View style={styles.backRow}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('Back')} onPress={onBack} hitSlop={8} style={styles.backBtn}>
-        <ChevronLeftIcon size={20} color={p.ink2} />
-      </Pressable>
-      <Text style={[typeScale.rowName, { color: p.ink, flex: 1, textAlign: 'center' }]}>{title}</Text>
-      <View style={styles.backBtn} />
-    </View>
-  )
-}
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  const { p } = useTheme()
-  const items = Children.toArray(children).filter(Boolean)
-  if (items.length === 0) return null
-  return (
-    <View style={{ marginTop: 16 }}>
-      <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 18, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6, fontSize: 11 }]}>{label}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-        {items.map((child, i) => (
-          <Fragment key={i}>
-            {i > 0 ? <View style={[styles.divider, { backgroundColor: p.line }]} /> : null}
-            {child}
-          </Fragment>
-        ))}
-      </View>
-    </View>
-  )
-}
-
-function Row({ label, value, valueColor, onPress, end }: { label: string; value?: string; valueColor?: string; onPress?: () => void; end?: React.ReactNode }) {
-  const { p } = useTheme()
-  const body = (
-    <View style={styles.row}>
-      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, minWidth: 96 }]}>{label}</Text>
-      {value !== undefined ? (
-        <Text style={[typeScale.settingsRow, { color: valueColor ?? p.ink2, flexShrink: 1, maxWidth: '52%', textAlign: 'right' }]} numberOfLines={1}>
-          {value}
-        </Text>
-      ) : null}
-      {end}
-      {onPress ? <View style={{ flexShrink: 0 }}><ChevronRightIcon size={16} color={p.ink3} /></View> : null}
-    </View>
-  )
-  return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
-}
-
-function Choice<T extends string>({ label, options, value, onPick }: { label: string; options: { id: T; label: string }[]; value: T; onPick: (id: T) => void }) {
-  const { p } = useTheme()
-  return (
-    <View style={styles.choice}>
-      <Text style={[typeScale.settingsRow, { color: p.ink }]}>{label}</Text>
-      <View style={[styles.segments, { backgroundColor: p.hover }]} accessibilityRole="radiogroup">
-        {options.map(option => {
-          const on = option.id === value
-          return (
-            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onPick(option.id)}
-              style={[styles.segment, on && [{ backgroundColor: p.card }, shadow(1)]]}>
-              <Text style={[typeScale.small, { color: on ? p.ink : p.ink2, fontWeight: on ? '600' : '400', textAlign: 'center' }]} numberOfLines={1}>{option.label}</Text>
-            </Pressable>
-          )
-        })}
-      </View>
-    </View>
-  )
-}
+import { type as typeScale, useTheme } from '../ui/tokens.ts'
+import {
+  SettingsBack as Back,
+  SettingsChoice as Choice,
+  SettingsRow as Row,
+  SettingsScreen as Screen,
+  SettingsSection as Section,
+} from './settings-primitives.tsx'
 
 export function NotificationsSettings({ navigation }: any) {
   const { p } = useTheme()
   const { computer, call, hello, online } = useTeam()
   const [rawPrefs, setRawPrefs] = useState<Record<string, string>>({})
-  const [granted, setGranted] = useState(false)
+  const [granted, setGranted] = useState<boolean | undefined>(undefined)
   const [bgStatus, setBgStatus] = useState<BackgroundStatus | null>(null)
   const [testSent, setTestSent] = useState<boolean | null>(null)
   const [pickingDistributor, setPickingDistributor] = useState(false)
@@ -145,7 +80,7 @@ export function NotificationsSettings({ navigation }: any) {
 
   const requestOrOpenPermission = async () => {
     if (Platform.OS !== 'android') return
-    if (androidSdk >= 33 && !granted) {
+    if (androidSdk >= 33 && granted !== true) {
       const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => null)
       if (result === PermissionsAndroid.RESULTS.GRANTED) {
         setGranted(true)
@@ -164,11 +99,17 @@ export function NotificationsSettings({ navigation }: any) {
   }
 
   const pickBgMode = (mode: BackgroundDeliveryMode) => {
-    void updatePref({ notifyBgMode: mode }, true)
+    void (async () => {
+      if ((mode === 'periodic' || mode === 'instant') && (granted === false || bgStatus?.notificationsEnabled === false)) {
+        await requestOrOpenPermission()
+      }
+      await updatePref({ notifyBgMode: mode }, true)
+    })()
   }
 
   const pickDistributor = async (pkg: string) => {
     setPickingDistributor(false)
+    resetHostPushSyncState(computer?.hostDeviceId)
     await registerUnifiedPush(pkg).catch(() => {})
     timersRef.current.push(setTimeout(refreshStatus, 400))
   }
@@ -261,7 +202,7 @@ export function NotificationsSettings({ navigation }: any) {
           />
         </Section>
 
-        {Platform.OS === 'android' ? (
+        {Platform.OS === 'android' && prefs.enabled ? (
           <Section label={t('Background delivery')}>
             <Choice<BackgroundDeliveryMode>
               label={t('Background mode')}
@@ -328,14 +269,6 @@ export function NotificationsSettings({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
-  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, minHeight: 50, gap: 10 },
-  choice: { paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
-  segments: { flexDirection: 'row', borderRadius: 9, padding: 2 },
-  segment: { flex: 1, minHeight: 34, paddingVertical: 5, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   distBox: { paddingVertical: 4 },
   distRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 44, gap: 8 },
   noteRow: { paddingHorizontal: 16, paddingVertical: 10 },
