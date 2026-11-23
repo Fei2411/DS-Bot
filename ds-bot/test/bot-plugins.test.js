@@ -1065,3 +1065,79 @@ test('catalog rejects third-party registry resolving to private IP via dnsLookup
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('saveCustomPlugin avoids MCP name collisions and installPlugin with customMeta rolls back on build-approval rejection', async (t) => {
+  let installed = false
+  const fakePm = {
+    async listBundles() {
+      return installed ? [{
+        name: 'custom-pkg',
+        official: false,
+        availability: 'profile',
+        version: '1.0.0',
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        updatable: false,
+        rows: [],
+        overrides: [],
+      }] : []
+    },
+    async installBundle(spec, opts) {
+      if (!opts?.approvedBuilds) {
+        return { changed: false, application: 'cancelled', stage: 'install', target: spec, pendingBuilds: ['native-dep'], error: { code: 'build-approval-required', diagnostic: 'Approve build' } }
+      }
+      installed = true
+      return { changed: true, application: 'applied', stage: 'install', target: spec, bundle: 'custom-pkg' }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // 1. Two custom MCP servers with the same display name get distinct IDs; neither overwrites the other.
+  const first = await call('plugins-custom-save', { kind: 'mcp', name: 'Notes', transport: 'streamable-http', url: 'https://a.example.com/mcp' })
+  const second = await call('plugins-custom-save', { kind: 'mcp', name: 'Notes', transport: 'streamable-http', url: 'https://b.example.com/mcp' })
+  assert.equal(first.ok, true)
+  assert.equal(second.ok, true)
+  assert.notEqual(first.value.entry.id, second.value.entry.id)
+  assert.equal(rt.state.plugins.custom[first.value.entry.id].install.mcp.url, 'https://a.example.com/mcp')
+  assert.equal(rt.state.plugins.custom[second.value.entry.id].install.mcp.url, 'https://b.example.com/mcp')
+
+  // 2. Custom MCP named like bundled preset ("Playwright MCP") allocates a distinct ID so it does not collide.
+  const pwCustom = await call('plugins-custom-save', { kind: 'mcp', name: 'Playwright MCP', transport: 'streamable-http', url: 'https://c.example.com/mcp' })
+  assert.equal(pwCustom.ok, true)
+  assert.notEqual(pwCustom.value.entry.id, 'mcp:playwright-mcp')
+
+  // 3. Declined install with customMeta leaves NO orphan custom DSH entry; approved retry persists it cleanly.
+  const rejected = await call('plugins-install', {
+    spec: 'github:org/custom-pkg',
+    customMeta: { name: 'My Custom Tool', slot: null, toolPrefixes: 'custom_' },
+  })
+  assert.equal(rejected.ok, false)
+  assert.deepEqual(rejected.error.details.pendingBuilds, ['native-dep'])
+  assert.equal(Object.keys(rt.state.plugins.custom).some(id => id.startsWith('dsh:')), false)
+
+  const approved = await call('plugins-install', {
+    spec: 'github:org/custom-pkg',
+    approvedBuilds: ['native-dep'],
+    customMeta: { name: 'My Custom Tool', slot: null, toolPrefixes: 'custom_' },
+  })
+  assert.equal(approved.ok, true)
+  assert.equal(rt.state.plugins.custom['dsh:custom-pkg']?.name, 'My Custom Tool')
+
+  // 4. Non-ASCII localized MCP display names (e.g. CJK) allocate a safe ASCII ID while retaining display name.
+  const cjk = await call('plugins-custom-save', { kind: 'mcp', name: '笔记', transport: 'streamable-http', url: 'https://notes-cn.example.com/mcp' })
+  assert.equal(cjk.ok, true)
+  assert.match(cjk.value.entry.id, /^mcp:custom-[a-f0-9]{8}$/)
+  assert.equal(cjk.value.entry.name, '笔记')
+
+  // 5. Custom DSH override retains catalog browser slot even when user only provides a custom name (`slot: null`).
+  await call('plugins-custom-save', { kind: 'dsh', name: 'My Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: null, toolPrefixes: 'custom_ego_' })
+  const listed = await call('plugins-list', {})
+  const egoItem = listed.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
+  assert.equal(egoItem.name, 'My Ego')
+  assert.equal(egoItem.slot, 'browser')
+  assert.deepEqual(egoItem.toolPrefixes, ['custom_ego_'])
+})

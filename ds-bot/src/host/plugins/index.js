@@ -989,10 +989,19 @@ export function install(rt) {
       seenIds.add(desc.id)
     }
 
-    // B. Catalog entries + Custom entries + persisted snapshots for offline installed catalog plugins
+    // B. Catalog entries + Custom entries + persisted snapshots for offline installed catalog plugins.
+    // Custom entries override catalog fields (slot, toolPrefixes, name, install) with the same precedence
+    // as `findKnownEntry`, while keeping catalog-only metadata (verified, homepage, locales) as defaults.
+    const catalogById = new Map(catalogSnapshot.entries.map(e => [e.id, e]))
+    const mergedCustom = Object.values(store.custom).map((custom) => {
+      const cat = catalogById.get(custom.id)
+      return cat
+        ? { ...cat, ...custom, slot: custom.slot ?? cat.slot ?? null, install: custom.install ?? cat.install, toolPrefixes: custom.toolPrefixes?.length ? custom.toolPrefixes : cat.toolPrefixes, custom: true }
+        : { ...custom, custom: true }
+    })
     const combinedEntries = [
+      ...mergedCustom,
       ...catalogSnapshot.entries.map(e => ({ ...e, custom: false })),
-      ...Object.values(store.custom).map(e => ({ ...e, custom: true })),
       ...Object.values(store.snapshots).map(e => ({ ...e, custom: false })),
     ]
     for (const entry of combinedEntries) {
@@ -1295,7 +1304,7 @@ export function install(rt) {
     return buildPluginsView()
   }
 
-  async function installPlugin({ id, spec, approvedBuilds } = {}) {
+  async function installPlugin({ id, spec, approvedBuilds, customMeta } = {}) {
     ensureWritable()
     await rt.load()
     await catalogManager.hydrate()
@@ -1317,6 +1326,9 @@ export function install(rt) {
 
     const installSpec = String(spec ?? existingEntry?.install?.spec ?? existingEntry?.packageName ?? '').trim()
     if (!installSpec) throw Object.assign(new Error('Enter a package name, GitHub repository, or local path to install.'), { code: 'bot/invalid' })
+    if (customMeta?.slot != null && customMeta.slot !== '' && !SLOT_RE.test(String(customMeta.slot).trim().toLowerCase())) {
+      throw Object.assign(new Error('Invalid plugin slot.'), { code: 'bot/invalid' })
+    }
     if (!pm || typeof pm.installBundle !== 'function') {
       throw Object.assign(
         new Error(`Plugin installation is unavailable in this environment. Install manually via: dsh plugin add ${installSpec}`),
@@ -1346,6 +1358,7 @@ export function install(rt) {
     }
 
     let activeTargetId = existingEntry?.id ?? `dsh:${actualPkg}`
+    let desiredSlot = existingEntry?.slot ?? null
     if (customEntry && customEntry.kind === 'dsh') {
       const oldPkg = customEntry.packageName ?? customEntry.id.replace(/^dsh:/, '')
       const nextId = `dsh:${actualPkg}`
@@ -1358,12 +1371,36 @@ export function install(rt) {
         }
         activeTargetId = nextId
       }
+    } else if (customMeta && typeof customMeta === 'object') {
+      const nextId = `dsh:${actualPkg}`
+      const catMatch = findCatalogEntry(nextId, catalogEntries)
+      const explicitSlot = customMeta.slot == null || customMeta.slot === '' ? null : String(customMeta.slot).trim().toLowerCase()
+      const metaSlot = explicitSlot ?? catMatch?.slot ?? null
+      const metaCat = String(customMeta.category ?? (metaSlot === 'browser' ? 'browser' : (catMatch?.category ?? 'tools'))).trim().toLowerCase()
+      const metaPrefixes = cleanPrefixes(
+        Array.isArray(customMeta.toolPrefixes)
+          ? customMeta.toolPrefixes
+          : String(customMeta.toolPrefixes ?? '').split(',').map(s => s.trim()),
+      )
+      store.custom[nextId] = {
+        id: nextId,
+        name: String(customMeta.name ?? '').trim().slice(0, 120) || actualPkg,
+        description: String(customMeta.description ?? '').trim().slice(0, 600),
+        category: PLUGIN_CATEGORIES.includes(metaCat) ? metaCat : 'other',
+        slot: metaSlot,
+        kind: 'dsh',
+        packageName: actualPkg,
+        toolPrefixes: metaPrefixes,
+        install: { spec: installSpec, packageName: actualPkg },
+      }
+      activeTargetId = nextId
+      if (metaSlot) desiredSlot = metaSlot
     }
 
     await refreshBundles()
     if (existingEntry && !customEntry) savePluginSnapshot(store, existingEntry)
-    if (existingEntry?.slot) {
-      store.slots[existingEntry.slot] = activeTargetId
+    if (desiredSlot) {
+      store.slots[desiredSlot] = activeTargetId
     }
     lastSyncSignature = fingerprint(store)
     await rt.save()
@@ -1564,9 +1601,28 @@ export function install(rt) {
     let entry
     let publicEntry
     if (kind === 'mcp') {
-      const slug = String(body.slug ?? body.id ?? name).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)
-      if (!slug || !CUSTOM_ID_RE.test(slug)) throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
-      const id = `mcp:${slug}`
+      const explicitEdit = typeof body.id === 'string' && body.id.trim() !== ''
+      const explicitSlug = typeof body.slug === 'string' && body.slug.trim() !== ''
+      const rawSlugSource = explicitSlug ? body.slug : (explicitEdit ? body.id : name)
+      let baseSlug = String(rawSlugSource).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+      if (!baseSlug || !CUSTOM_ID_RE.test(baseSlug)) {
+        if (explicitEdit || explicitSlug) {
+          throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
+        }
+        // Localized display names (e.g. CJK) have no ASCII slug; allocate a safe unique identifier.
+        baseSlug = `custom-${randomUUID().slice(0, 8)}`
+      }
+      await catalogManager.hydrate()
+      const catalogEntries = catalogManager.peek().entries
+      const isTaken = candidate => own(store.custom, candidate) !== undefined
+        || own(store.snapshots, candidate) !== undefined
+        || catalogEntries.some(e => e.id === candidate)
+      let id = `mcp:${baseSlug}`
+      if (!explicitEdit && isTaken(id)) {
+        do {
+          id = `mcp:${baseSlug}-${randomUUID().slice(0, 6)}`
+        } while (isTaken(id))
+      }
       const mcp = validateMcpConfig(body.mcp ?? body)
       entry = {
         id,
@@ -1586,12 +1642,15 @@ export function install(rt) {
       if (!spec) throw Object.assign(new Error('Enter an npm package, GitHub repo, or local path.'), { code: 'bot/invalid' })
       const packageName = String(body.packageName ?? spec).trim()
       const id = `dsh:${packageName}`
+      await catalogManager.hydrate()
+      const catMatch = findCatalogEntry(id)
+      const effectiveSlot = rawSlot ?? catMatch?.slot ?? null
       entry = {
         id,
         name,
         description,
-        category,
-        slot: rawSlot,
+        category: effectiveSlot === 'browser' ? 'browser' : category,
+        slot: effectiveSlot,
         kind: 'dsh',
         packageName,
         toolPrefixes,
