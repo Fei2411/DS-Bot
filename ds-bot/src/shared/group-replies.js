@@ -80,6 +80,9 @@ function scanReplies(text, start, replies) {
   }
 }
 
+// One delivered-file ref names its Session, its event and its place in it.
+const fileKey = file => `${file.sessionId}:${file.seq}:${file.index ?? 0}`
+
 // A member's messages in a row, as one block under its name: what it says while it
 // works comes one message at a time. A block carries the last message's time and run.
 export function stackReplies(replies) {
@@ -103,6 +106,18 @@ export function stackReplies(replies) {
       // The change line belongs to the turn, so a later message of the same turn replaces
       // it rather than stacking a second one.
       if (reply.changes !== undefined) last.changes = reply.changes
+      // Delivered files of the same turn's messages draw on the one block (#975),
+      // once per file: the turn's post and its late echo can name the same ref.
+      if (reply.files !== undefined) {
+        const merged = [...(last.files ?? [])]
+        const keys = new Set(merged.map(fileKey))
+        for (const file of reply.files) {
+          if (keys.has(fileKey(file))) continue
+          keys.add(fileKey(file))
+          merged.push(file)
+        }
+        last.files = merged
+      }
     } else {
       items.push({
         reply, index,
@@ -110,6 +125,7 @@ export function stackReplies(replies) {
         time: reply.time, duration: reply.duration,
         ...(reply.claims === undefined ? {} : { claims: reply.claims }),
         ...(reply.changes === undefined ? {} : { changes: reply.changes }),
+        ...(reply.files === undefined ? {} : { files: reply.files }),
       })
     }
   })
