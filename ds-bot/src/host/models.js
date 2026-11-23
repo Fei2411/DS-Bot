@@ -134,8 +134,21 @@ export function install(rt) {
   // The providers whose models could not be listed at the last catalog read: what
   // they serve is unknown, which is not the same as serving nothing.
   let unlisted = new Set()
-  // The outages already logged: one line each, however many reads meet it.
-  const warned = new Set()
+  // Catalog reads overlap, and each takes its turn by when it began: `kept` is the
+  // read whose catalog is cached, `roster` the providers the newest read began with,
+  // `listings` what the newest read to list each of them found. A read that began
+  // earlier never undoes what a later one found.
+  let reads = 0
+  let kept = 0
+  let roster = new Set()
+  const listings = new Map()
+  // Whether this read is the first to meet the provider's outage: one line is logged.
+  const listed = (id, read, failing) => {
+    const last = listings.get(id)
+    if (!roster.has(id) || (last !== undefined && last.read > read)) return false
+    listings.set(id, { read, failing })
+    return failing && last?.failing !== true
+  }
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
   // HOSTED_ENGINE_ROUTE it is remembered with the models its provider served then,
@@ -216,19 +229,20 @@ export function install(rt) {
     const entries = []
     const failed = new Set()
     const providers = service.listProviders()
-    // An outage ends where it is seen to: a read that ends later may have listed earlier.
-    for (const id of warned) if (!providers.some(provider => provider.id === id)) warned.delete(id)
+    const read = ++reads
+    // A provider that is gone has no outage: one that comes back failing is logged again.
+    roster = new Set(providers.map(provider => provider.id))
+    for (const id of listings.keys()) if (!roster.has(id)) listings.delete(id)
     for (const provider of providers) {
       // A local-agent route owned by another adapter is not offered by DS Bot.
       if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
       try { models = await service.listModels(provider.id) } catch (error) {
         failed.add(provider.id)
-        if (!warned.has(provider.id)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
-        warned.add(provider.id)
+        if (listed(provider.id, read, true)) rt.warn?.('ds-bot: models of %s not listed: %s', provider.id, error)
         continue
       }
-      warned.delete(provider.id)
+      listed(provider.id, read, false)
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
@@ -255,6 +269,8 @@ export function install(rt) {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
+    if (read < kept) return answerable(entries)
+    kept = read
     // A provider that stops or starts being listed changes what its Bots are to run on,
     // though everyone else is served the same models: the next sync runs. The failures
     // change with the entries they belong to, never ahead of them.

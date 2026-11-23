@@ -766,6 +766,57 @@ test('an outage is logged once though an older catalog read ends after it began'
   assert.equal(warnings.length, 1)
 })
 
+// A catalog read whose listing of deepseek is held until `fail` rejects it.
+function heldListing(rt) {
+  const listModels = rt.ctx.llm.listModels
+  let fail
+  let listing
+  const asked = new Promise((resolve) => { listing = resolve })
+  rt.ctx.llm.listModels = (id) => {
+    if (id !== 'deepseek') return listModels(id)
+    rt.ctx.llm.listModels = listModels
+    listing()
+    return new Promise((resolve, reject) => { fail = () => reject(new Error('timed out')) })
+  }
+  const read = rt.catalog({ fresh: true })
+  return { read, asked, fail: () => fail(), listModels }
+}
+
+test('a listing that fails after a newer read saw its provider removed does not hide the next outage', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listProviders = rt.ctx.llm.listProviders
+  const older = heldListing(rt)
+  await older.asked
+  rt.ctx.llm.listProviders = () => listProviders().filter(provider => provider.id !== 'deepseek')
+  await rt.catalog({ fresh: true })
+  older.fail()
+  await older.read
+  assert.equal(warnings.length, 0)
+  rt.ctx.llm.listProviders = listProviders
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return older.listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  assert.equal(warnings.length, 1)
+})
+
+test('a read that began before the catalog now kept does not replace it', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const older = heldListing(rt)
+  await older.asked
+  rt.ctx.llm.listModels = async id => (id === 'deepseek' ? [{ id: 'deepseek-v4.1-flash' }] : older.listModels(id))
+  await rt.catalog({ fresh: true })
+  const bot = { model: 'deepseek/deepseek-v4-pro' }
+  assert.equal(await rt.desiredModel(bot), 'ollama/kimi-k3')
+  older.fail()
+  await older.read
+  // The provider was listed without the model after that failure: the model is not served.
+  assert.equal(await rt.desiredModel(bot), 'ollama/kimi-k3')
+})
+
 test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
   const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
   const listModels = rt.ctx.llm.listModels
