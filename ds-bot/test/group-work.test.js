@@ -3190,3 +3190,64 @@ test('concurrent post_to_group posts do not leak the second opening post as a re
   assert.match(report, /Writer: 第一个任务完成。/)
   assert.doesNotMatch(report, /第二个并发任务/, 'second opening post must not appear as a reply to the first report')
 })
+
+test('roomRelayDiscarded ignores part-switch inbox moves and only settles genuine discards on the current room Session (#1894)', async (t) => {
+  const host = await start(t)
+  const room = rt.roomOf('r1')
+  const fireDiscarded = (sessionId, message) => {
+    for (const listener of host.ctx.listeners.get('agent/inbox/discarded') ?? []) {
+      listener({ agent: { id: sessionId, session: { id: sessionId } }, message })
+    }
+  }
+
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 跑一下检查' }, 'a')
+  const post = host.takePost()
+  const reportId = post.source.reportId
+  rt.state.roomReports[reportId].imOrigin = { connId: 'c1', chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' }
+
+  // 1) Room moved to a new part 'r1-p2'; old part 'r1' removing the forwarded inbox message must NOT settle or drop imOrigin.
+  room.sessionId = 'r1-p2'
+  fireDiscarded('r1', post)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'earlier-part inbox removal must not settle queued report')
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+  assert.deepEqual(rt.state.roomReports[reportId]?.imOrigin, { connId: 'c1', chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
+
+  // 2) While room's own Session is marked switching, inbox discard must NOT settle either.
+  rt.state.switching['r1-p2'] = { roomId: 'r1' }
+  fireDiscarded('r1-p2', post)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 0, 'discard while room Session switches must not settle queued report')
+  assert.equal(rt.state.roomReports[reportId]?.status, 'queued')
+  delete rt.state.switching['r1-p2']
+
+  // 3) Genuine discard on the current non-switching room Session settles the queued report cleanly.
+  fireDiscarded('r1-p2', post)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /stopped before your post started/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('stop-room-work with active group_goal and idle tracking report preserves the stopped note (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  await host.tool('post_to_group', { group: 'Lab', message: '开目标推进发布' }, 'a')
+  const post = host.agentOf('r2').calls.shift()
+  const round = host.round('c1', { content: post.content, source: post.source }, 'r2')
+  await settle(() => host.agentOf('lb').calls.length === 1)
+  host.begin('lb')
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Ship v4', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+  host.finish('lb', '目标已启动，等待继续推进。')
+  await settle(() => round() !== undefined)
+  // Drain the goal-check nudge queued by goalDrive so only the active goal holds the tracking report open.
+  host.agentOf('r2').calls.length = 0
+  rt.roomRelayTaken('r2')
+  assert.equal(host.agentOf('a').calls.length, 0, 'active goal holds tracking report open')
+
+  // Stopping the group marks report.stopped BEFORE goalUserStopped triggers settleRoomReports.
+  assert.equal((await host.call('stop-room-work', { roomId: 'r2' })).ok, true)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /stopped before finishing/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})

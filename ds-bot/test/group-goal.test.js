@@ -883,3 +883,22 @@ test('a scoped mid-round post_to_group by the primary Main Bot does not suppress
   await settle(() => round() !== undefined)
   await settle(() => host.agentOf('a').calls.some(call => text(call).includes('版本号是 1.2.3')))
 })
+
+test('a queued post_to_group by the primary Main Bot does not suppress standalone group_goal outcome alert (#1894)', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Queued Goal', objective: 'Deliver', acceptance: 'green', stages: oneStage }, 'lb'), /Started\./)
+
+  // Main Bot queues a post_to_group (still status: 'queued', not yet tracking).
+  await host.tool('post_to_group', { group: 'Lab', message: '@Tester 顺便看一下' }, 'a')
+  const queued = Object.values(host.rt.state.roomReports).find(r => r.roomId === 'r2')
+  assert.equal(queued?.status, 'queued')
+  assert.equal(host.rt.hasRoomReportFor('r2', 'a'), false, 'queued report must not suppress standalone goal alert')
+
+  // Stopping the goal via panel still sends the standalone goal stopped alert to Main Bot.
+  assert.equal((await host.call('goal-control', { roomId: 'r2', goalId: host.rt.roomOf('r2').goal.id, action: 'stop' })).ok, true)
+  await settle(() => host.agentOf('a').calls.some(call => text(call).includes('goal stopped')))
+  const stopAlert = host.agentOf('a').calls.find(call => text(call).includes('goal stopped'))
+  assert.match(text(stopAlert), /\[Group chat "Lab" · goal stopped\]/)
+})

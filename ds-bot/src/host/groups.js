@@ -1113,11 +1113,11 @@ export function install(rt) {
     delete reports()[id]
     saveSoon()
   }
-  // Only non-scoped reports carry whole-room outcomes (such as group_goal completion);
-  // a mid-round scoped post targeting a subset of members must not suppress standalone
-  // goal notifications to the primary Main Bot.
+  // Only already-tracking non-scoped reports carry whole-room outcomes (such as group_goal
+  // completion); a queued post or a mid-round scoped post targeting a subset of members must
+  // not suppress standalone goal notifications to the primary Main Bot.
   const hasRoomReportFor = (roomId, botId) => Object.values(reports())
-    .some(report => report.roomId === roomId && report.botId === botId && !Array.isArray(report.ids))
+    .some(report => report.roomId === roomId && report.botId === botId && report.status === 'tracking' && !Array.isArray(report.ids))
   const roomReportImOrigin = (roomId, targetBotId) => {
     const active = Object.values(reports()).filter(report => report.roomId === roomId && rt.botOf(report.botId) !== undefined)
     if (active.length === 0) return undefined
@@ -1135,18 +1135,24 @@ export function install(rt) {
     }
     return first
   }
+  const nextRoomSeq = room => (typeof room?.seq === 'number' ? room.seq + 1 : 1)
   const settleQueuedReportInRound = (room, postExtra, { paused = false } = {}) => {
     if (postExtra.reportBack !== true) return
     const id = postExtra.reportId ?? postExtra.sub
     const existing = id === undefined ? undefined : reports()[id]
     if (existing !== undefined) {
-      if (paused) existing.paused = true
+      let changed = false
+      if (paused && existing.paused !== true) {
+        existing.paused = true
+        changed = true
+      }
       if (existing.status === 'queued') {
         existing.status = 'tracking'
-        existing.fromSeq = room.seq + 1
+        existing.fromSeq = nextRoomSeq(room)
         existing.ids = []
+        changed = true
       }
-      saveSoon()
+      if (changed) saveSoon()
     } else if (paused && postExtra.botId !== undefined) {
       const nextId = id ?? randomUUID()
       reports()[nextId] = {
@@ -1155,7 +1161,7 @@ export function install(rt) {
         botId: postExtra.botId,
         name: postExtra.name ?? rt.botOf(postExtra.botId)?.name ?? 'Bot',
         status: 'tracking',
-        fromSeq: room.seq + 1,
+        fromSeq: nextRoomSeq(room),
         ids: [],
         paused: true,
         passed: [],
@@ -1294,8 +1300,13 @@ export function install(rt) {
       await settleRoomReports(room.id)
     }
   }
-  function roomRelayDiscarded(source) {
+  function roomRelayDiscarded(source, sessionId) {
     if (typeof source?.roomId !== 'string') return
+    const room = rt.roomOf(source.roomId)
+    // Ignore removals from an earlier part or while the group's own Session is moving parts.
+    if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
+    if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
+    if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
     roomRelayTaken(source.roomId, source.exchangeId)
     if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
       reports()[source.reportId].neverStarted = true
@@ -2428,7 +2439,7 @@ export function install(rt) {
         botId: sender.id,
         name: sender.name,
         status: 'queued',
-        fromSeq: room.seq + 1,
+        fromSeq: nextRoomSeq(room),
         passed: [],
         failed: [],
         at: Date.now(),
@@ -2725,7 +2736,6 @@ export function install(rt) {
     if (round) await attempt(async () => rt.stopRoomRound(room.id))
     let stopped = false
     for (const botId of room.members) stopped = (await attempt(() => stopMemberWork(room.id, botId))) || stopped
-    rt.goalUserStopped?.(room.id)
     laterPosts.delete(room.id)
     queuedRelays.delete(room.id)
     let marked = false
@@ -2742,6 +2752,7 @@ export function install(rt) {
       }
     }
     if (marked) saveSoon()
+    rt.goalUserStopped?.(room.id)
     void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
     if (failures.length > 0) throw failures[0]
     return round || stopped
