@@ -119,12 +119,13 @@ export function install(rt) {
   const { ctx, state } = rt
   const pluginStore = () => {
     if (!state.plugins || typeof state.plugins !== 'object' || Array.isArray(state.plugins)) {
-      state.plugins = { slots: {}, enabled: {}, offFor: {}, custom: {}, sources: [], knownPrefixes: {} }
+      state.plugins = { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }
     }
     state.plugins.slots ??= {}
     state.plugins.enabled ??= {}
     state.plugins.offFor ??= {}
     state.plugins.custom ??= {}
+    state.plugins.snapshots ??= {}
     if (!Array.isArray(state.plugins.sources)) state.plugins.sources = []
     state.plugins.knownPrefixes ??= {}
     return state.plugins
@@ -235,11 +236,12 @@ export function install(rt) {
       })
       return { transport: 'streamable-http', serverName, url, headers, failOnStartupError: true }
     }
-    const { command, args } = resolveMcpPresetCommand(mcp, {
+    const { command, args, env: runnerEnv } = resolveMcpPresetCommand(mcp, {
       probe: rt.config.mcpCommandProbe,
+      ...(rt.config.mcpPackageManager !== undefined ? { packageManager: rt.config.mcpPackageManager } : {}),
     })
     const expandedArgs = args.map(arg => expandSecretValue(String(arg), secretOf))
-    const env = {}
+    const env = { ...(runnerEnv ?? {}) }
     for (const [k, v] of Object.entries(mcp.env ?? {})) {
       env[k] = expandSecretValue(String(v), secretOf)
     }
@@ -352,6 +354,7 @@ export function install(rt) {
         id: descriptor.id,
         slotTargetId: slotTargetId ?? descriptor.id,
         kind: builtinPlugins.has(descriptor.id) ? 'builtin' : 'provider',
+        descriptor,
         packageName: descriptor.packageName,
         ownedTools,
         handle,
@@ -454,6 +457,7 @@ export function install(rt) {
         id: desc.id,
         slotTargetId: targetId,
         kind: 'builtin',
+        descriptor: desc,
         ownedTools,
         handle,
         dispose: cleanup,
@@ -474,6 +478,39 @@ export function install(rt) {
     return own(pluginStore().custom, id)
   }
 
+  function findSnapshotEntry(id) {
+    return own(pluginStore().snapshots, id)
+  }
+
+  function findKnownEntry(id, catalogEntries = catalogManager.peek().entries) {
+    return findCustomEntry(id) ?? findCatalogEntry(id, catalogEntries) ?? findSnapshotEntry(id)
+  }
+
+  // Persist a clean launch snapshot for catalog-installed plugins so startup reconciliation
+  // succeeds offline without depending on remote discovery or an external cache file.
+  function savePluginSnapshot(store, entry) {
+    if (!entry?.id || entry.custom || builtinPlugins.has(entry.id)) return
+    const snap = {
+      id: entry.id,
+      name: entry.name,
+      description: entry.description ?? '',
+      ...(entry.author ? { author: entry.author } : {}),
+      ...(entry.version ? { version: entry.version } : {}),
+      category: entry.category ?? (entry.slot === 'browser' ? 'browser' : 'tools'),
+      slot: entry.slot ?? null,
+      kind: entry.kind,
+      toolPrefixes: cleanPrefixes(entry.toolPrefixes),
+      install: entry.install ? structuredClone(entry.install) : {},
+      ...(entry.homepage ? { homepage: entry.homepage } : {}),
+      ...(entry.repository ? { repository: entry.repository } : {}),
+      ...(entry.locales ? { locales: structuredClone(entry.locales) } : {}),
+      ...(Array.isArray(entry.tags) ? { tags: [...entry.tags] } : {}),
+      ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
+      ...(entry.sourceName ? { sourceName: entry.sourceName } : {}),
+    }
+    store.snapshots[entry.id] = snap
+  }
+
   function resolveDshBundleForEntry(entry, bundles = cachedBundles) {
     if (!entry || entry.kind !== 'dsh') return null
     const pkg = entry.install?.packageName ?? entry.packageName
@@ -492,6 +529,52 @@ export function install(rt) {
     return null
   }
 
+  // Resolve what implementation a slot target currently maps to so fast-path reuse only
+  // succeeds when the active mount still matches the exact live implementation.
+  async function resolveSlotDesired(targetId, entry) {
+    if (!targetId) return { kind: 'none' }
+    const builtinDesc = builtinPlugins.get(targetId)
+    if (builtinDesc) return { kind: 'builtin', descriptor: builtinDesc }
+    const nativeDesc = nativePlugins.get(targetId)
+      ?? (targetId.startsWith('provider:') ? nativePlugins.get(targetId.slice('provider:'.length)) : null)
+    if (nativeDesc) return { kind: 'provider', descriptor: nativeDesc }
+    if (entry?.kind === 'mcp') {
+      try {
+        await rt.loadSecrets?.()
+        const configHash = fingerprint(resolveMcpRuntimeConfig(entry.id, entry.install?.mcp ?? entry.mcp))
+        return { kind: 'mcp', entry, configHash }
+      } catch {
+        return { kind: 'mcp', entry, configHash: null }
+      }
+    }
+    if (targetId.startsWith('dsh:') || entry?.kind === 'dsh') {
+      const pkgName = entry?.install?.packageName ?? entry?.packageName ?? targetId.slice('dsh:'.length)
+      const bundle = entry ? resolveDshBundleForEntry(entry) : cachedBundles.get(pkgName)
+      const actualPkg = bundle?.name ?? pkgName
+      const pending = pendingRestartPackages.get(actualPkg) ?? pendingRestartPackages.get(pkgName)
+      if (pending) return { kind: 'pending', actualPkg, pending }
+      const nativeFromBundle = findNativeForPackage(actualPkg)
+      if (nativeFromBundle) return { kind: 'provider', descriptor: nativeFromBundle }
+      if (!isBundleAvailable(bundle) || !bundle.enabled) return { kind: 'unavailable', actualPkg }
+      return { kind: 'dsh', actualPkg }
+    }
+    return { kind: 'unavailable', actualPkg: null }
+  }
+
+  function mountMatchesDesired(current, desired) {
+    if (!current || !desired) return false
+    if (desired.kind === 'builtin' || desired.kind === 'provider') {
+      return current.kind === desired.kind && current.descriptor === desired.descriptor
+    }
+    if (desired.kind === 'mcp') {
+      return current.kind === 'mcp' && desired.configHash !== null && current.configHash === desired.configHash
+    }
+    if (desired.kind === 'dsh') {
+      return current.kind === 'dsh' && current.packageName === desired.actualPkg
+    }
+    return false
+  }
+
   // Reconcile one exclusive slot (e.g. `browser`) to match desired target.
   async function reconcileSlotInner(slot, { allowFallback = true } = {}) {
     if (stopped || isReadOnly()) return
@@ -502,21 +585,12 @@ export function install(rt) {
 
     const current = activeMounts.get(mountKey)
     const currentStatus = runtimeStatus.get(mountKey)
-    const entry = targetId ? (findCustomEntry(targetId) ?? findCatalogEntry(targetId, catalogEntries)) : null
+    const entry = targetId ? findKnownEntry(targetId, catalogEntries) : null
 
-    // If an MCP slot plugin's config changed, force a remount even if targetId matches.
-    let mcpHashChanged = false
-    if (current?.kind === 'mcp' && entry?.kind === 'mcp') {
-      try {
-        await rt.loadSecrets?.()
-        const nextHash = fingerprint(resolveMcpRuntimeConfig(entry.id, entry.install?.mcp ?? entry.mcp))
-        mcpHashChanged = nextHash !== current.configHash
-      } catch {
-        mcpHashChanged = true
-      }
-    }
+    const desired = await resolveSlotDesired(targetId, entry)
+    if (stopped || isReadOnly()) return
 
-    if (current && current.slotTargetId === targetId && currentStatus?.status === 'ready' && !mcpHashChanged) {
+    if (current && current.slotTargetId === targetId && currentStatus?.status === 'ready' && mountMatchesDesired(current, desired)) {
       rt.reapplyToolMasks?.()
       return
     }
@@ -662,7 +736,7 @@ export function install(rt) {
 
     for (const [id, enabled] of Object.entries(store.enabled)) {
       if (enabled !== true) continue
-      const entry = findCustomEntry(id) ?? findCatalogEntry(id, catalogEntries)
+      const entry = findKnownEntry(id, catalogEntries)
       if (entry && !entry.slot && entry.kind === 'mcp') {
         desiredActive.add(id)
         const mountKey = `plugin:${id}`
@@ -699,7 +773,10 @@ export function install(rt) {
       if (enabled) {
         desiredActive.add(id)
         const mountKey = `plugin:${id}`
-        if (!activeMounts.has(mountKey)) {
+        const existing = activeMounts.get(mountKey)
+        if (!existing || existing.descriptor !== desc) {
+          if (existing) await unmountKey(mountKey)
+          if (stopped || isReadOnly()) return
           try {
             const mount = await mountNativeDescriptor(desc)
             if (mount) {
@@ -742,7 +819,7 @@ export function install(rt) {
         await unmountAll()
         return
       }
-      await refreshBundles()
+      await Promise.all([refreshBundles(), catalogManager.hydrate()])
       const slots = new Set([...slotDefaults.keys(), ...Object.keys(pluginStore().slots)])
       for (const slot of slots) await reconcileSlotInner(slot)
       await reconcileGeneralPluginsInner()
@@ -785,7 +862,7 @@ export function install(rt) {
     for (const mount of activeMounts.values()) {
       if (mount.kind === 'dsh' && mount.packageName) activeSlotPackages.add(mount.packageName)
     }
-    const slotEntries = [...catalogEntries, ...Object.values(store.custom)].filter(e => e?.slot && e.kind === 'dsh')
+    const slotEntries = [...catalogEntries, ...Object.values(store.custom), ...Object.values(store.snapshots)].filter(e => e?.slot && e.kind === 'dsh')
     for (const entry of slotEntries) {
       const bundle = resolveDshBundleForEntry(entry)
       const pkg = bundle?.name ?? entry.install?.packageName ?? entry.packageName
@@ -805,14 +882,13 @@ export function install(rt) {
     }
 
     // 4. Per-Bot off switches (`state.plugins.offFor[pluginId]`) for non-slot plugins.
+    const disabledPluginIds = new Set()
     if (botId) {
       for (const [pluginId, offBots] of Object.entries(store.offFor)) {
         if (!Array.isArray(offBots) || !offBots.includes(botId)) continue
-        const custom = findCustomEntry(pluginId)
-        const cat = findCatalogEntry(pluginId, catalogEntries)
-        const native = nativePlugins.get(pluginId)
-        const entry = custom ?? cat ?? native
+        const entry = findKnownEntry(pluginId, catalogEntries) ?? nativePlugins.get(pluginId)
         if (entry?.slot) continue
+        disabledPluginIds.add(pluginId)
         // For native plugins whose tools are registered in Agent scope, record exact owned tool names.
         const nativeMount = activeMounts.get(`plugin:${pluginId}`)
         if (nativeMount) {
@@ -825,10 +901,20 @@ export function install(rt) {
       }
     }
 
+    // Tools registered by currently active, non-disabled plugins (e.g. built-in `browser_open`
+    // when an installed DSH browser plugin like Ego Lite is inactive) must never be blocked by
+    // an inactive bundle's overlapping tool prefix.
+    const activeOwnedTools = new Set()
+    for (const [mountKey, mount] of activeMounts.entries()) {
+      if (mountKey.startsWith('plugin:') && disabledPluginIds.has(mountKey.slice('plugin:'.length))) continue
+      for (const toolName of mount.ownedTools) activeOwnedTools.add(toolName)
+    }
+
     return {
       prefixes: [...prefixes],
       exact: [...exact],
       scopedDenied,
+      activeOwnedTools,
       protectedTools: coreToolsSnapshot(),
     }
   }
@@ -837,7 +923,7 @@ export function install(rt) {
     if (!toolName) return false
     const rules = pluginDeniedRules(botId)
     if (rules.scopedDenied.has(toolName) || rules.exact.includes(toolName)) return true
-    if (rules.protectedTools.has(toolName)) return false
+    if (rules.protectedTools.has(toolName) || rules.activeOwnedTools.has(toolName)) return false
     return rules.prefixes.some(prefix => prefix && toolName.startsWith(prefix))
   }
 
@@ -903,10 +989,11 @@ export function install(rt) {
       seenIds.add(desc.id)
     }
 
-    // B. Catalog entries + Custom entries (merged with DSH bundle & package-backed native providers)
+    // B. Catalog entries + Custom entries + persisted snapshots for offline installed catalog plugins
     const combinedEntries = [
       ...catalogSnapshot.entries.map(e => ({ ...e, custom: false })),
       ...Object.values(store.custom).map(e => ({ ...e, custom: true })),
+      ...Object.values(store.snapshots).map(e => ({ ...e, custom: false })),
     ]
     for (const entry of combinedEntries) {
       if (!entry?.id || seenIds.has(entry.id)) continue
@@ -1179,10 +1266,11 @@ export function install(rt) {
     if (!id) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
 
     await rt.load()
-    await refreshBundles()
+    await Promise.all([refreshBundles(), catalogManager.hydrate()])
     const store = pluginStore()
 
-    const catalogEntry = findCustomEntry(id) ?? findCatalogEntry(id)
+    const catalogEntry = findKnownEntry(id)
+    if (catalogEntry && !findCustomEntry(id)) savePluginSnapshot(store, catalogEntry)
     if ((id.startsWith('dsh:') || catalogEntry?.kind === 'dsh') && pluginManager()) {
       const bundle = catalogEntry ? resolveDshBundleForEntry(catalogEntry) : cachedBundles.get(id.slice('dsh:'.length))
       if (bundle && !bundle.enabled && typeof pluginManager().setBundleEnabled === 'function') {
@@ -1210,13 +1298,15 @@ export function install(rt) {
   async function installPlugin({ id, spec, approvedBuilds } = {}) {
     ensureWritable()
     await rt.load()
+    await catalogManager.hydrate()
     const pm = pluginManager()
     const store = pluginStore()
     const catalogEntries = catalogManager.peek().entries
     const customEntry = id ? findCustomEntry(id) : null
-    const existingEntry = customEntry ?? (id ? findCatalogEntry(id, catalogEntries) : null)
+    const existingEntry = customEntry ?? (id ? (findCatalogEntry(id, catalogEntries) ?? findSnapshotEntry(id)) : null)
 
     if (existingEntry?.kind === 'mcp') {
+      if (!customEntry) savePluginSnapshot(store, existingEntry)
       if (existingEntry.slot) store.slots[existingEntry.slot] = existingEntry.id
       else store.enabled[existingEntry.id] = true
       lastSyncSignature = fingerprint(store)
@@ -1271,6 +1361,7 @@ export function install(rt) {
     }
 
     await refreshBundles()
+    if (existingEntry && !customEntry) savePluginSnapshot(store, existingEntry)
     if (existingEntry?.slot) {
       store.slots[existingEntry.slot] = activeTargetId
     }
@@ -1285,9 +1376,9 @@ export function install(rt) {
     const targetId = String(id ?? '').trim()
     if (!targetId) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
     await rt.load()
-    await refreshBundles()
+    await Promise.all([refreshBundles(), catalogManager.hydrate()])
     const store = pluginStore()
-    const entry = findCustomEntry(targetId) ?? findCatalogEntry(targetId) ?? nativePlugins.get(targetId)
+    const entry = findKnownEntry(targetId) ?? nativePlugins.get(targetId)
 
     if (entry?.slot) {
       if (enabled) return setSlot(entry.slot, targetId)
@@ -1342,11 +1433,10 @@ export function install(rt) {
     const targetId = String(id ?? '').trim()
     if (!targetId) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
     await rt.load()
-    await refreshBundles()
+    await Promise.all([refreshBundles(), catalogManager.hydrate()])
     const store = pluginStore()
     const custom = findCustomEntry(targetId)
-    const cat = findCatalogEntry(targetId)
-    const entry = custom ?? cat
+    const entry = findKnownEntry(targetId)
 
     // Perform the external DSH bundle removal BEFORE mutating in-memory `store`,
     // so a failed removal never leaves half-mutated team state behind.
@@ -1378,6 +1468,7 @@ export function install(rt) {
     }
     delete store.enabled[targetId]
     delete store.offFor[targetId]
+    delete store.snapshots[targetId]
     if (custom) delete store.custom[targetId]
 
     if (removedPkg && prefixes.length > 0 && (removalResult?.application === 'restart-required' || (!removalResult && cachedBundles.has(removedPkg)))) {
@@ -1399,7 +1490,7 @@ export function install(rt) {
     }
     await rt.load()
     await refreshBundles()
-    const entry = findCustomEntry(targetId) ?? findCatalogEntry(targetId)
+    const entry = findKnownEntry(targetId)
     const bundle = entry ? resolveDshBundleForEntry(entry) : cachedBundles.get(targetId.replace(/^dsh:/, ''))
     if (!bundle) throw Object.assign(new Error('Installed plugin bundle not found.'), { code: 'bot/not-found' })
 
@@ -1622,8 +1713,8 @@ export function install(rt) {
       case 'retry': {
         ensureWritable()
         await rt.load()
-        lastSyncSignature = null
         await reconcileAll()
+        lastSyncSignature = fingerprint(pluginStore())
         return buildPluginsView()
       }
       case 'versions': {

@@ -787,3 +787,281 @@ test('removePlugin preserves in-memory state when DSH removeBundle fails and Loc
   assert.match(rem.error.message, /disk locked/)
   assert.ok(rt.state.plugins.custom['dsh:localized-plugin'])
 })
+
+test('inactive Ego Lite does not block active built-in browser tool execution', async (t) => {
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  await mountAgentLoopTestDependencies(root)
+
+  // Register global Ego tools using the overlapping `browser_` prefix.
+  let egoOpenCalls = 0
+  let egoTabsCalls = 0
+  const offEgoOpen = root.tools.register(defineTool({
+    name: 'browser_open',
+    description: 'Ego browser_open',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute() { egoOpenCalls += 1; return 'ego-open' },
+  }))
+  const offEgoTabs = root.tools.register(defineTool({
+    name: 'browser_ego_tabs',
+    description: 'Ego tabs',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute() { egoTabsCalls += 1; return 'ego-tabs' },
+  }))
+  t.after(offEgoOpen)
+  t.after(offEgoTabs)
+
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-ego-overlap-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['bot-1'],
+    bots: { 'bot-1': { id: 'bot-1', name: 'Chief', role: 'Lead', capabilities: [], packs: [] } },
+    rooms: {},
+  }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  const fakePm = {
+    async listBundles() {
+      return [{
+        name: 'dsh-ego-browser',
+        official: false,
+        availability: 'profile',
+        version: '1.0.0',
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        updatable: false,
+        rows: [],
+        overrides: [],
+      }]
+    },
+  }
+  root.provide('pluginManager', fakePm)
+  const fake = fakeContext({ services: { pluginManager: fakePm } })
+  for (const key of ['connection', 'sessions', 'sessionController', 'sessionManager', 'agents', 'llm', 'credentials', 'settings', 'approval', 'workspace', 'commands', 'skills', 'attachments', 'logger']) {
+    if (!root.get(key) && fake[key]) root.provide(key, fake[key])
+  }
+
+  let builtinOpenCalls = 0
+  const rt = createRuntime(root, {
+    home,
+    browser: true,
+    pluginFetch: async () => { throw new Error('offline') },
+  })
+  // Register a lightweight built-in browser slot plugin owning `browser_open`.
+  rt.plugins.registerBuiltin({
+    id: 'builtin:test-refs',
+    name: 'Test Refs',
+    category: 'browser',
+    slot: 'browser',
+    toolPrefixes: ['browser_'],
+    mount(host) {
+      host.registerTool(host.defineTool({
+        name: 'browser_open',
+        description: 'Built-in open',
+        parameters: {},
+        async execute() { builtinOpenCalls += 1; return 'builtin-open' },
+      }))
+      return { dispose: () => {} }
+    },
+  })
+  await rt.load()
+  await rt.plugins.setSlot('browser', 'builtin:test-refs')
+
+  let injectedCtx
+  await root.plugin({
+    name: 'test-ego-scope',
+    inject: ['tools'],
+    apply(c) { injectedCtx = c },
+  }).await()
+  const agent = { id: 'bot-1', session: { id: 'bot-1', header: { id: 'bot-1' } } }
+  const scope = createScope(injectedCtx, agent)
+  t.after(() => scope.dispose())
+  agent.ctx = scope.ctx
+  rt.hideBotUnusedTools(agent)
+
+  // Active built-in `browser_open` is visible and executes without being blocked by inactive Ego's `browser_` prefix.
+  assert.equal(rt.isPluginToolBlockedForBot('bot-1', 'browser_open'), false)
+  assert.equal(rt.isPluginToolBlockedForBot('bot-1', 'browser_ego_tabs'), true)
+  const signal = new AbortController().signal
+  const openBatch = await root.tools.execute({ agent, signal, calls: [{ id: 'c1', name: 'browser_open', arguments: {} }] })
+  assert.equal(openBatch.results[0].result.isError, false)
+  assert.equal(builtinOpenCalls, 1)
+  assert.equal(egoOpenCalls, 0)
+
+  // Inactive Ego's own `browser_ego_tabs` is still masked and refused by the guard.
+  const egoBatch = await root.tools.execute({ agent, signal, calls: [{ id: 'c2', name: 'browser_ego_tabs', arguments: {} }] })
+  assert.equal(egoBatch.results[0].result.isError, true)
+  assert.equal(egoTabsCalls, 0)
+})
+
+test('persisted non-bundled catalog MCP plugin activates on restart without buildPluginsView', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-mcp-restart-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  const registryDoc = {
+    schemaVersion: 1,
+    plugins: [{
+      id: 'mcp:custom-notes',
+      name: 'Notes MCP',
+      description: 'Remote notes',
+      category: 'tools',
+      kind: 'mcp',
+      install: { mcp: { transport: 'stdio', command: 'notes-mcp-bin', args: ['--serve'] } },
+    }],
+  }
+
+  // First boot: add third-party registry, install `mcp:custom-notes`, verify mounted.
+  const mountedConfigs1 = []
+  const fakeLoader = { async import() { return { apply() {} } } }
+  const ctx1 = fakeContext({ services: { loader: fakeLoader } })
+  ctx1.plugin = (_plugin, cfg) => {
+    mountedConfigs1.push(cfg)
+    return { async await() {}, async dispose() {} }
+  }
+  const rt1 = createRuntime(ctx1, {
+    home,
+    pluginFetch: async (url) => {
+      if (String(url).includes('notes.example.com')) return new Response(JSON.stringify(registryDoc), { status: 200 })
+      throw new Error('official offline')
+    },
+  })
+  await rt1.load()
+  await rt1.pluginEndpoint('source-save', { name: 'Notes', url: 'https://notes.example.com/registry.json' })
+  await rt1.pluginEndpoint('install', { id: 'mcp:custom-notes' })
+  assert.equal(mountedConfigs1.length, 1)
+  assert.equal(mountedConfigs1[0].command, 'notes-mcp-bin')
+  await ctx1.dispose()
+
+  // Second boot (completely offline, never calls `buildPluginsView`): startup reconcile must mount it!
+  const mountedConfigs2 = []
+  const ctx2 = fakeContext({ services: { loader: fakeLoader } })
+  ctx2.plugin = (_plugin, cfg) => {
+    mountedConfigs2.push(cfg)
+    return { async await() {}, async dispose() {} }
+  }
+  const rt2 = createRuntime(ctx2, {
+    home,
+    pluginFetch: async () => { throw new Error('completely offline') },
+  })
+  t.after(() => ctx2.dispose())
+  await rt2.load()
+  await rt2.reconcilePlugins()
+  assert.equal(mountedConfigs2.length, 1)
+  assert.equal(mountedConfigs2[0].command, 'notes-mcp-bin')
+  assert.ok(rt2.plugins.getActiveMount('plugin:mcp:custom-notes'))
+})
+
+test('unregistering active native browser provider disposes and falls back; late native provider upgrades DSH mount', async (t) => {
+  const fakePm = {
+    async listBundles() {
+      return [{
+        name: 'dsh-ego-browser',
+        official: false,
+        availability: 'profile',
+        version: '1.0.0',
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        updatable: false,
+        rows: [],
+        overrides: [],
+      }]
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // 1. Register native browser provider, activate it, then unregister it → must dispose & fall back.
+  let disposed = false
+  const unregister = rt.plugins.registerNative(defineBrowserProvider({
+    id: 'ext:temp-browser',
+    name: 'Temp Browser',
+    mount(host) {
+      host.registerTool(host.defineTool({
+        name: 'temp_nav',
+        description: 'Temp nav',
+        parameters: {},
+        async execute() { return 'ok' },
+      }))
+      return { dispose() { disposed = true } }
+    },
+  }))
+  await call('plugins-slot-set', { slot: 'browser', id: 'ext:temp-browser' })
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'ext:temp-browser')
+  assert.equal(rt.teamTools.some(tool => tool.name === 'temp_nav'), true)
+
+  unregister()
+  await rt.plugins.reconcileSlot('browser')
+  assert.equal(disposed, true)
+  assert.equal(rt.teamTools.some(tool => tool.name === 'temp_nav'), false)
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly')
+
+  // 2. Activate DSH bundle first (package-only mount), then register native provider for that package → upgrades!
+  await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  assert.equal(rt.plugins.getActiveMount('slot:browser')?.kind, 'dsh')
+
+  let upgraded = false
+  const unregUpgrade = rt.plugins.registerNative(defineBrowserProvider({
+    id: 'ego-native',
+    name: 'Ego Native',
+    packageName: 'dsh-ego-browser',
+    mount(host) {
+      upgraded = true
+      host.registerTool(host.defineTool({
+        name: 'ego_native_nav',
+        description: 'Ego native nav',
+        parameters: {},
+        async execute() { return 'ok' },
+      }))
+      return { dispose: () => {} }
+    },
+  }))
+  t.after(unregUpgrade)
+  await rt.plugins.reconcileSlot('browser')
+  assert.equal(upgraded, true)
+  assert.equal(rt.plugins.getActiveMount('slot:browser')?.kind, 'provider')
+  assert.equal(rt.teamTools.some(tool => tool.name === 'ego_native_nav'), true)
+})
+
+test('resolveMcpPresetCommand uses desktop bundled packageManager when npx/pnpm are absent', () => {
+  const pm = {
+    command: '/app/DS Bot',
+    args: ['--expose-internals', '/app/resources/pnpm.cjs'],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  }
+  const cmd = resolveMcpPresetCommand(
+    { transport: 'stdio', packageSpec: '@playwright/mcp@latest', args: ['--isolated'] },
+    {
+      probe: bin => bin === '/app/DS Bot',
+      pnpmPath: undefined,
+      packageManager: pm,
+    },
+  )
+  assert.equal(cmd.command, '/app/DS Bot')
+  assert.deepEqual(cmd.args, ['--expose-internals', '/app/resources/pnpm.cjs', 'dlx', '@playwright/mcp@latest', '--isolated'])
+  assert.deepEqual(cmd.env, { ELECTRON_RUN_AS_NODE: '1' })
+})
+
+test('catalog rejects third-party registry resolving to private IP via dnsLookup', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dns-ssrf-'))
+  try {
+    const mgr = createCatalogManager({
+      cachePath: join(home, 'cache.json'),
+      fetchImpl: async () => new Response(JSON.stringify({ schemaVersion: 1, plugins: [] }), { status: 200 }),
+      dnsLookup: async () => [{ address: '127.0.0.1', family: 4 }],
+    })
+    const snap = await mgr.load({
+      sources: [{ id: 'evil', name: 'Evil', url: 'https://rebind.example.com/registry.json', enabled: true }],
+      force: true,
+    })
+    assert.ok(snap.errors.some(e => /private IP/i.test(e.message)))
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
