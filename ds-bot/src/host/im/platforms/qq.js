@@ -15,6 +15,7 @@ import { retryDelay, retryWait } from './retry.js'
 const API = 'https://api.sgroup.qq.com'
 const TOKEN_API = 'https://bots.qq.com'
 const TEXT_LIMIT = 2000
+const DIRECT_UPLOAD_LIMIT = 5 * 1024 * 1024
 // GROUP_AND_C2C covers C2C_MESSAGE_CREATE and GROUP_AT_MESSAGE_CREATE.
 const INTENTS = 1 << 25
 
@@ -136,6 +137,13 @@ export default {
     const msgSeq = new Map()
     const lastMsgId = new Map()
     const inOrder = createChatQueue()
+
+    const nextReply = (msgId) => {
+      if (!msgId) return {}
+      const seq = (msgSeq.get(msgId) ?? 0) + 1
+      msgSeq.set(msgId, seq)
+      return { msg_id: msgId, msg_seq: seq }
+    }
 
     const send = packet => { if (socket?.readyState === 1) socket.send(JSON.stringify(packet)) }
     const heartbeat = () => send({ op: 1, d: sequence ?? null })
@@ -294,9 +302,7 @@ export default {
         let count = done?.count ?? 0
         let messageId = done?.messageId
         for (const chunk of chunks.slice(count)) {
-          const seq = (msgSeq.get(msgId) ?? 0) + 1
-          msgSeq.set(msgId, seq)
-          const reply = msgId ? { msg_id: msgId, msg_seq: seq } : {}
+          const reply = nextReply(msgId)
           let sent
           try {
             sent = await api(env, token, base, {
@@ -318,6 +324,24 @@ export default {
         }
         delivered.delete(message)
         return { messageId }
+      },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.length === 0 || bytes.length > DIRECT_UPLOAD_LIMIT) {
+          throw Object.assign(new Error('QQ image must be non-empty and at most 5 MiB'), { permanent: true })
+        }
+        const msgId = lastMsgId.get(chat.key)
+        const base = chat.kind === 'direct' ? `/v2/users/${chat.key}` : `/v2/groups/${chat.key}`
+        const { file_info: fileInfo } = await api(env, token, `${base}/files`, {
+          method: 'POST',
+          body: { file_type: 1, file_name: image.name || 'image.png', file_data: bytes.toString('base64'), srv_send_msg: false },
+        })
+        if (typeof fileInfo !== 'string' || fileInfo === '') throw new Error('QQ image upload returned no file_info')
+        const sent = await api(env, token, `${base}/messages`, {
+          method: 'POST',
+          body: { msg_type: 7, media: { file_info: fileInfo }, ...nextReply(msgId) },
+        })
+        return { messageId: String(sent?.id ?? '') }
       },
       stop: () => {
         stopped = true
