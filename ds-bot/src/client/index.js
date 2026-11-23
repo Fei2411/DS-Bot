@@ -28,6 +28,7 @@ import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } f
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { SaveFileAction } from './file-save.js'
+import { FILE_CARD_CSS } from './file-card.js'
 import { fileMentionSource } from './mention-source.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
@@ -1229,6 +1230,7 @@ export function apply(ctx) {
     [GOAL_CSS, 'goal'],
     [TASKS_CSS, 'tasks'],
     [USER_MESSAGE_CSS, 'user-messages'],
+    [FILE_CARD_CSS, 'file-cards'],
     [WIDGET_CSS, 'widgets'],
     [CHANGES_CSS, 'changes'],
     [HANDOFF_CSS, 'handoff'],

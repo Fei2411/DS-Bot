@@ -8,6 +8,21 @@ import { call } from './api.js'
 import { t } from './i18n.js'
 import { presentedFileTarget } from './file-target.js'
 
+// Save one presented file by its {sessionId, seq, index} coordinates, over the same
+// bounded file-download route: the bytes land as a browser download.
+export async function saveFileRef(target) {
+  const parts = []
+  let saved
+  for await (const part of fileChunks(call, target)) { parts.push(part.data); saved = part }
+  const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }))
+  const link = Object.assign(document.createElement('a'), { href: url, download: saved.name })
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return saved
+}
+
 // The slot's action area on one delivered-file card. `available` is DSH's answer to
 // whether the Host can read the file; `pending` is its own action running.
 export function SaveFileAction({ actionUrl, available = true, pending = false }) {
@@ -18,17 +33,7 @@ export function SaveFileAction({ actionUrl, available = true, pending = false })
   const save = () => {
     setBusy(true)
     setError(null)
-    void (async () => {
-      const parts = []
-      let saved
-      for await (const part of fileChunks(call, target)) { parts.push(part.data); saved = part }
-      const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }))
-      const link = Object.assign(document.createElement('a'), { href: url, download: saved.name })
-      document.body.append(link)
-      link.click()
-      link.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    })().catch(failure => setError(failure?.message ?? t('Could not save this file'))).finally(() => setBusy(false))
+    void saveFileRef(target).catch(failure => setError(failure?.message ?? t('Could not save this file'))).finally(() => setBusy(false))
   }
   return h('span', { className: 'bt-file-save' },
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || pending || available !== true, onClick: save },
