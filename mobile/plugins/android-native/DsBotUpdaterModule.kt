@@ -23,6 +23,7 @@ import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -41,17 +42,30 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
     private val SAFE_APK_NAME = Regex("^[A-Za-z0-9._-]+\\.apk$")
   }
 
-  private val executor = Executors.newSingleThreadExecutor()
-  private val cancelFlag = AtomicBoolean(false)
-  private val activeConn = AtomicReference<HttpURLConnection?>(null)
-  private val downloading = AtomicBoolean(false)
+  private class ActiveDownload(
+    val id: Long,
+    val partName: String,
+    val cancelled: AtomicBoolean = AtomicBoolean(false),
+    val conn: AtomicReference<HttpURLConnection?> = AtomicReference(null),
+  ) {
+    fun cancel() {
+      cancelled.set(true)
+      try { conn.get()?.disconnect() } catch (_: Exception) {}
+    }
+  }
+
+  private val downloadExecutor = Executors.newCachedThreadPool()
+  private val cacheExecutor = Executors.newSingleThreadExecutor()
+  private val downloadSeq = AtomicLong(0)
+  private val activeDownload = AtomicReference<ActiveDownload?>(null)
+  private val cacheLock = Any()
 
   override fun getName(): String = NAME
 
   override fun invalidate() {
-    cancelFlag.set(true)
-    try { activeConn.get()?.disconnect() } catch (_: Exception) {}
-    executor.shutdownNow()
+    activeDownload.getAndSet(null)?.cancel()
+    downloadExecutor.shutdownNow()
+    cacheExecutor.shutdownNow()
     super.invalidate()
   }
 
@@ -73,7 +87,8 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
     return false
   }
 
-  private fun emitProgress(bytesWritten: Long, totalBytes: Long) {
+  private fun emitProgress(download: ActiveDownload, bytesWritten: Long, totalBytes: Long) {
+    if (download.cancelled.get() || activeDownload.get() !== download) return
     if (!reactApplicationContext.hasActiveReactInstance()) return
     val map = Arguments.createMap()
     map.putDouble("bytesWritten", bytesWritten.toDouble())
@@ -107,10 +122,10 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
     return MessageDigest.isEqual(left, right)
   }
 
-  private fun openFollowingRedirects(initialUrl: String): HttpURLConnection {
+  private fun openFollowingRedirects(initialUrl: String, download: ActiveDownload): HttpURLConnection {
     var currentUrl = initialUrl
     for (hop in 0..MAX_REDIRECTS) {
-      if (cancelFlag.get()) throw CancelledException()
+      if (download.cancelled.get()) throw CancelledException()
       if (!isAllowedDownloadUrl(currentUrl)) throw SecurityException("Only HTTPS update URLs are allowed")
       val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
         instanceFollowRedirects = false
@@ -120,7 +135,11 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
         setRequestProperty("User-Agent", "DS-Bot-Android/${BuildConfig.VERSION_NAME}")
         setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream, */*")
       }
-      activeConn.set(conn)
+      download.conn.set(conn)
+      if (download.cancelled.get()) {
+        conn.disconnect()
+        throw CancelledException()
+      }
       val code = conn.responseCode
       if (code in listOf(301, 302, 303, 307, 308)) {
         val loc = conn.getHeaderField("Location")
@@ -182,26 +201,26 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
       promise.resolve(null)
       return
     }
-    executor.execute {
+    cacheExecutor.execute {
       try {
-        val dir = updatesDir().canonicalFile
-        val target = File(dir, fileName).canonicalFile
-        if (target.parentFile != dir || !target.isFile) {
-          promise.resolve(null)
-          return@execute
+        val result = synchronized(cacheLock) {
+          val dir = updatesDir().canonicalFile
+          val target = File(dir, fileName).canonicalFile
+          if (target.parentFile != dir || !target.isFile) {
+            return@synchronized null
+          }
+          val actual = sha256OfFile(target)
+          if (!safeCompareHex(actual, expectedSha256)) {
+            target.delete()
+            return@synchronized null
+          }
+          Arguments.createMap().apply {
+            putString("path", target.absolutePath)
+            putDouble("size", target.length().toDouble())
+            putString("sha256", actual)
+          }
         }
-        val actual = sha256OfFile(target)
-        if (!safeCompareHex(actual, expectedSha256)) {
-          target.delete()
-          promise.resolve(null)
-          return@execute
-        }
-        val res = Arguments.createMap().apply {
-          putString("path", target.absolutePath)
-          putDouble("size", target.length().toDouble())
-          putString("sha256", actual)
-        }
-        promise.resolve(res)
+        promise.resolve(result)
       } catch (_: Exception) {
         promise.resolve(null)
       }
@@ -222,15 +241,22 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
       promise.reject("INVALID_URL", "Only HTTPS update URLs are allowed")
       return
     }
-    if (!downloading.compareAndSet(false, true)) {
+    val current = activeDownload.get()
+    if (current != null && !current.cancelled.get()) {
       promise.reject("ALREADY_DOWNLOADING", "An update download is already in progress")
       return
     }
-    cancelFlag.set(false)
-    executor.execute {
+    val id = downloadSeq.incrementAndGet()
+    val partName = "$fileName.$id.part"
+    val download = ActiveDownload(id = id, partName = partName)
+    if (!activeDownload.compareAndSet(current, download)) {
+      promise.reject("ALREADY_DOWNLOADING", "An update download is already in progress")
+      return
+    }
+    downloadExecutor.execute {
       val dir = updatesDir().canonicalFile
       val finalFile = File(dir, fileName).canonicalFile
-      val partFile = File(dir, "$fileName.part").canonicalFile
+      val partFile = File(dir, partName).canonicalFile
       var conn: HttpURLConnection? = null
       try {
         if (finalFile.parentFile != dir || partFile.parentFile != dir) {
@@ -243,7 +269,7 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
         }
         if (partFile.exists()) partFile.delete()
 
-        conn = openFollowingRedirects(url)
+        conn = openFollowingRedirects(url, download)
         val contentLength = conn.contentLengthLong.let { if (it > 0L) it else expectedSize.toLong().coerceAtLeast(0L) }
         if (contentLength > MAX_APK_BYTES) {
           throw IOException("Update package exceeds maximum allowed size")
@@ -256,11 +282,11 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
         var written = 0L
         var lastEmitMs = 0L
 
-        emitProgress(0L, contentLength)
+        emitProgress(download, 0L, contentLength)
         conn.inputStream.use { input ->
           FileOutputStream(partFile).use { output ->
             while (true) {
-              if (cancelFlag.get()) throw CancelledException()
+              if (download.cancelled.get()) throw CancelledException()
               val read = input.read(buf)
               if (read <= 0) break
               written += read.toLong()
@@ -272,15 +298,15 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
               val now = System.currentTimeMillis()
               if (now - lastEmitMs >= 150L) {
                 lastEmitMs = now
-                emitProgress(written, contentLength)
+                emitProgress(download, written, contentLength)
               }
             }
-            if (cancelFlag.get()) throw CancelledException()
+            if (download.cancelled.get()) throw CancelledException()
             output.fd.sync()
           }
         }
-        if (cancelFlag.get()) throw CancelledException()
-        emitProgress(written, if (contentLength > 0L) contentLength else written)
+        if (download.cancelled.get()) throw CancelledException()
+        emitProgress(download, written, if (contentLength > 0L) contentLength else written)
 
         val actualSha = digest.digest().joinToString("") { "%02x".format(it) }
         if (!safeCompareHex(actualSha, expectedSha256)) {
@@ -289,22 +315,27 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
           return@execute
         }
 
-        // Remove older APKs and atomically place the verified APK.
-        dir.listFiles()?.forEach { child ->
-          if (child.canonicalFile != partFile && child.canonicalFile != finalFile) {
-            child.delete()
+        // Remove older APKs and atomically place the verified APK only if this download is still current.
+        val result = synchronized(cacheLock) {
+          if (download.cancelled.get() || activeDownload.get() !== download) {
+            throw CancelledException()
           }
-        }
-        if (finalFile.exists()) finalFile.delete()
-        if (!partFile.renameTo(finalFile)) {
-          partFile.copyTo(finalFile, overwrite = true)
-          partFile.delete()
-        }
-
-        val result = Arguments.createMap().apply {
-          putString("path", finalFile.absolutePath)
-          putDouble("size", finalFile.length().toDouble())
-          putString("sha256", actualSha)
+          dir.listFiles()?.forEach { child ->
+            val canon = child.canonicalFile
+            if (canon != partFile && canon != finalFile && !child.name.endsWith(".part")) {
+              child.delete()
+            }
+          }
+          if (finalFile.exists()) finalFile.delete()
+          if (!partFile.renameTo(finalFile)) {
+            partFile.copyTo(finalFile, overwrite = true)
+            partFile.delete()
+          }
+          Arguments.createMap().apply {
+            putString("path", finalFile.absolutePath)
+            putDouble("size", finalFile.length().toDouble())
+            putString("sha256", actualSha)
+          }
         }
         promise.resolve(result)
       } catch (_: CancelledException) {
@@ -315,23 +346,22 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
         promise.reject("INSUFFICIENT_STORAGE", storage.message)
       } catch (error: Exception) {
         partFile.delete()
-        if (cancelFlag.get()) {
+        if (download.cancelled.get()) {
           promise.reject("CANCELLED", "Download cancelled")
         } else {
           promise.reject("DOWNLOAD_FAILED", error.message ?: "Download failed", error)
         }
       } finally {
-        activeConn.set(null)
+        download.conn.set(null)
         try { conn?.disconnect() } catch (_: Exception) {}
-        downloading.set(false)
+        activeDownload.compareAndSet(download, null)
       }
     }
   }
 
   @ReactMethod
   fun cancelDownload(promise: Promise) {
-    cancelFlag.set(true)
-    try { activeConn.get()?.disconnect() } catch (_: Exception) {}
+    activeDownload.getAndSet(null)?.cancel()
     promise.resolve(true)
   }
 
@@ -341,25 +371,28 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
       promise.reject("INVALID_CHECKSUM", "Expected SHA-256 checksum is required")
       return
     }
-    executor.execute {
+    cacheExecutor.execute {
       try {
         val ctx = reactApplicationContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !ctx.packageManager.canRequestPackageInstalls()) {
           promise.reject("INSTALL_PERMISSION_REQUIRED", "Install unknown apps permission is required")
           return@execute
         }
-        val dir = updatesDir().canonicalFile
-        val apkFile = File(filePath).canonicalFile
-        if (apkFile.parentFile != dir || !apkFile.name.endsWith(".apk") || !apkFile.isFile) {
-          promise.reject("INVALID_APK_PATH", "APK file is not in the update cache")
-          return@execute
-        }
-        val actualSha = sha256OfFile(apkFile)
-        if (!safeCompareHex(actualSha, expectedSha256)) {
-          apkFile.delete()
-          promise.reject("CHECKSUM_MISMATCH", "Cached APK failed SHA-256 verification")
-          return@execute
-        }
+        val apkFile = synchronized(cacheLock) {
+          val dir = updatesDir().canonicalFile
+          val candidate = File(filePath).canonicalFile
+          if (candidate.parentFile != dir || !candidate.name.endsWith(".apk") || !candidate.isFile) {
+            promise.reject("INVALID_APK_PATH", "APK file is not in the update cache")
+            return@synchronized null
+          }
+          val actualSha = sha256OfFile(candidate)
+          if (!safeCompareHex(actualSha, expectedSha256)) {
+            candidate.delete()
+            promise.reject("CHECKSUM_MISMATCH", "Cached APK failed SHA-256 verification")
+            return@synchronized null
+          }
+          candidate
+        } ?: return@execute
         val contentUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.dsbot.apkprovider", apkFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
           setDataAndType(contentUri, "application/vnd.android.package-archive")
@@ -376,12 +409,17 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
 
   @ReactMethod
   fun cleanupCache(keepFileName: String?, promise: Promise) {
-    executor.execute {
+    cacheExecutor.execute {
       try {
-        val dir = updatesDir()
-        dir.listFiles()?.forEach { child ->
-          if (keepFileName == null || child.name != keepFileName) {
-            child.delete()
+        synchronized(cacheLock) {
+          val activePart = activeDownload.get()?.let { if (!it.cancelled.get()) it.partName else null }
+          val dir = updatesDir()
+          dir.listFiles()?.forEach { child ->
+            val keepApk = keepFileName != null && child.name == keepFileName
+            val keepPart = activePart != null && child.name == activePart
+            if (!keepApk && !keepPart) {
+              child.delete()
+            }
           }
         }
         promise.resolve(true)

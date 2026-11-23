@@ -109,6 +109,10 @@ object DsBotHeadlessRunner {
     onDone: (() -> Unit)?,
   ) {
     try {
+      if (isKeepalive && (DsBotNotifyHelper.uiMounted || !DsBotBackgroundService.running.get())) {
+        onDone?.invoke()
+        return
+      }
       val taskCtx = HeadlessJsTaskContext.getInstance(reactContext)
       ensureEventListener(reactContext, taskCtx)
       if (isKeepalive) {
@@ -183,6 +187,14 @@ object DsBotHeadlessRunner {
           }
         }
         host.addReactInstanceEventListener(listener)
+        val alreadyReady = currentReactContext(app)
+        if (alreadyReady != null) {
+          if (settled.compareAndSet(false, true)) {
+            host.removeReactInstanceEventListener(listener)
+            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, onStarted, onDone) }
+          }
+          return
+        }
         mainHandler.postDelayed(timeoutRunnable, START_CONTEXT_TIMEOUT_MS)
         host.start()
       } else {
@@ -203,6 +215,14 @@ object DsBotHeadlessRunner {
           }
         }
         manager.addReactInstanceEventListener(listener)
+        val alreadyReady = currentReactContext(app)
+        if (alreadyReady != null) {
+          if (settled.compareAndSet(false, true)) {
+            manager.removeReactInstanceEventListener(listener)
+            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, onStarted, onDone) }
+          }
+          return
+        }
         mainHandler.postDelayed(timeoutRunnable, START_CONTEXT_TIMEOUT_MS)
         manager.createReactContextInBackground()
       }
