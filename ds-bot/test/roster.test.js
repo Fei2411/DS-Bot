@@ -1352,7 +1352,7 @@ test('a photo in the team\'s data is refused, and one in the team workspace ther
   const exec = { agent: { id: chief } }
   const tool = avatar => rt.teamTools.find(d => d.name === 'update_bot').execute({ avatar }, exec)
   writeFileSync(join(home, 'photo.png'), PNG_BYTES)
-  assert.match(await tool(join(home, 'photo.png')), /is in DeepSeek Harness data, so it cannot be a Bot's photo/)
+  assert.match(await tool(join(home, 'photo.png')), /is in DeepSeek Harness data, so it cannot be used as a photo/)
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === chief).avatar?.image, undefined)
   // The default team workspace lies in the team's data, and the Bots' own files are there.
   const workspace = ctx.workspaceRegistry.get((await call('state', {})).value.workspaceId)?.path ?? join(home, 'workspace')

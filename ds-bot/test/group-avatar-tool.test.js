@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -141,4 +141,112 @@ test('a group photo survives a restart', async (t) => {
   t.after(async () => { await second.stop() })
   const room = (await second.call('state', {})).value.rooms.find(entry => entry.id === 'r1')
   assert.deepEqual(room.avatar, { image })
+})
+
+// A group shows its photo to every member, so it must not be read out of a private Bot's
+// folder — the same hole existed on update_bot, and both go through the same check now.
+test('a photo inside a private Bot folder is refused for groups and for Bots', async (t) => {
+  const folder = mkdtempSync(join(tmpdir(), 'ds-bot-private-'))
+  const imagePath = join(folder, 'secret.png')
+  writeFileSync(imagePath, PNG.sync.write({ width: 1, height: 1, data: Buffer.from([1, 2, 3, 255]) }))
+  const team = baseTeam()
+  team.bots.writer = { ...team.bots.writer, private: true, workDir: folder }
+  const { call, tool, stop } = start({ saved: team })
+  t.after(async () => { await stop(); rmSync(folder, { recursive: true, force: true }) })
+
+  assert.match(await tool('create_group').execute({ members: ['Editor'], name: 'Leaky', avatar: imagePath }, mainExec),
+    /Could not create the group: Writer is a private Bot/)
+  assert.match(await tool('update_group').execute({ group: 'Video Room', avatar: imagePath }, mainExec),
+    /Could not update "Video Room": Writer is a private Bot/)
+  assert.match(await tool('update_bot').execute({ bot: 'Editor', avatar: imagePath }, mainExec),
+    /Could not update the Bot: Writer is a private Bot/)
+  // The same file is fine as a data URL: the folder is closed, not the image.
+  const readable = `data:image/png;base64,${readFileSync(imagePath).toString('base64')}`
+  await tool('update_group').execute({ group: 'Video Room', avatar: readable }, mainExec)
+  const room = (await call('state', {})).value.rooms.find(entry => entry.id === 'r1')
+  assert.deepEqual(room.avatar, { image: readable })
+})
+
+// The path as written is checked before it is resolved, so a link that sits inside a
+// closed folder cannot lead out of it, and one that leads into it is caught on the real path.
+test('a link that sits inside or leads into a private folder is refused', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-links-'))
+  const priv = join(root, 'priv')
+  const open = join(root, 'open')
+  mkdirSync(priv)
+  mkdirSync(open)
+  const png = PNG.sync.write({ width: 1, height: 1, data: Buffer.from([9, 9, 9, 255]) })
+  const insidePrivate = join(priv, 'private.png')
+  const outsideFile = join(open, 'open.png')
+  writeFileSync(insidePrivate, png)
+  writeFileSync(outsideFile, png)
+  const outbound = join(priv, 'outbound.png')
+  const inbound = join(open, 'inbound.png')
+  try {
+    symlinkSync(outsideFile, outbound, 'file')
+    symlinkSync(insidePrivate, inbound, 'file')
+  } catch {
+    await rmSync(root, { recursive: true, force: true })
+    return t.skip('this host cannot make file links without extra rights')
+  }
+  const team = baseTeam()
+  team.bots.writer = { ...team.bots.writer, private: true, workDir: priv }
+  const { tool, stop } = start({ saved: team })
+  t.after(async () => { await stop(); rmSync(root, { recursive: true, force: true }) })
+
+  assert.match(await tool('update_group').execute({ group: 'Video Room', avatar: outbound }, mainExec),
+    /Writer is a private Bot/, 'a link written inside the folder is refused')
+  assert.match(await tool('update_group').execute({ group: 'Video Room', avatar: inbound }, mainExec),
+    /Writer is a private Bot/, 'a link that leads into the folder is refused')
+})
+
+// A closed folder stays closed while the Bot it belonged to is only an archive entry.
+test('a deleted private Bot still has its folder refused', async (t) => {
+  const folder = mkdtempSync(join(tmpdir(), 'ds-bot-archived-'))
+  const imagePath = join(folder, 'archive.png')
+  writeFileSync(imagePath, PNG.sync.write({ width: 1, height: 1, data: Buffer.from([7, 7, 7, 255]) }))
+  const team = baseTeam()
+  delete team.bots.writer
+  team.rooms.r1 = { ...team.rooms.r1, members: ['chief', 'editor'] }
+  team.privateArchives = [{ id: 'writer', name: 'Writer', workDir: folder }]
+  const { tool, stop } = start({ saved: team })
+  t.after(async () => { await stop(); rmSync(folder, { recursive: true, force: true }) })
+  assert.match(await tool('update_group').execute({ group: 'Video Room', avatar: imagePath }, mainExec),
+    /Writer is a private Bot/)
+})
+
+// A group photo follows the same rule as the rest of a group: its admin may change it,
+// a member who only reads there may not.
+test('the group admin changes the photo and a plain member cannot', async (t) => {
+  const image = photo([0, 128, 0, 255])
+  const team = baseTeam()
+  team.rooms.r1 = { ...team.rooms.r1, admin: 'editor' }
+  const { call, tool, stop } = start({ saved: team })
+  t.after(stop)
+  const editorExec = { agent: { id: 'editor', session: { id: 'editor' } } }
+  const writerExec = { agent: { id: 'writer', session: { id: 'writer' } } }
+
+  await tool('update_group').execute({ group: 'Video Room', avatar: image }, editorExec)
+  const set = (await call('state', {})).value.rooms.find(entry => entry.id === 'r1')
+  assert.deepEqual(set.avatar, { image }, 'the admin sets the photo')
+
+  await tool('update_group').execute({ group: 'Video Room', avatar: '' }, editorExec)
+  const cleared = (await call('state', {})).value.rooms.find(entry => entry.id === 'r1')
+  assert.equal(cleared.avatar, undefined, 'the admin clears it')
+
+  const refused = await tool('update_group').execute({ group: 'Video Room', avatar: image }, writerExec)
+  assert.match(refused, /Only the user, a Main Bot, or the admin of "Video Room" can change it/)
+})
+
+// Nothing inside a closed folder is even confirmed to exist: the refusal comes before the
+// path is resolved, so an ENOENT could not be used to probe it.
+test('a path inside a private folder is refused before it says whether the file exists', async (t) => {
+  const folder = mkdtempSync(join(tmpdir(), 'ds-bot-probe-'))
+  const team = baseTeam()
+  team.bots.writer = { ...team.bots.writer, private: true, workDir: folder }
+  const { tool, stop } = start({ saved: team })
+  t.after(async () => { await stop(); rmSync(folder, { recursive: true, force: true }) })
+  const out = await tool('update_group').execute({ group: 'Video Room', avatar: join(folder, 'nothing-here.png') }, mainExec)
+  assert.match(out, /Writer is a private Bot/)
+  assert.doesNotMatch(out, /There is no image file/)
 })

@@ -63,6 +63,13 @@ export function install(rt) {
   installBuiltinPacks(rt)
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
+  // A photo the user names for a Bot or a group: the same input and checks either way, and
+  // never a file out of a private Bot's folder, which no other Bot reads from.
+  const readPhoto = (input, exec) => readAvatar(String(input), {
+    baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent),
+    isData: rt.inData,
+    isClosed: path => rt.privateOwnerOf?.(path, { self: rt.selfOf(exec.agent?.id) }),
+  })
   const callerRoom = (exec) => {
     const roomId = (rt.groupOwners.get(exec.agent?.id) ?? rt.pastOwners?.get(exec.agent?.id))?.roomId
     return roomId ? { fromRoomId: roomId } : {}
@@ -1043,7 +1050,7 @@ export function install(rt) {
       await rt.load()
       if (!rt.isMain(rt.selfOf(exec.agent?.id))) return 'Only the Main Bot can create Bots. Ask the Main Bot instead.'
       try {
-        const avatar = args.avatar ? await readAvatar(String(args.avatar), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) : undefined
+        const avatar = args.avatar ? await readPhoto(args.avatar, exec) : undefined
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
@@ -1092,7 +1099,7 @@ export function install(rt) {
         let image
         if (args.avatar !== undefined) {
           const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
-          image = input === null || input === '' ? null : await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData })
+          image = input === null || input === '' ? null : await readPhoto(input, exec)
         }
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
@@ -1222,7 +1229,7 @@ export function install(rt) {
       members: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact names of the other Bots to add; you are added automatically' },
       name: { type: 'string', description: 'Group name; defaults to the member names' },
       notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group; at most 2000 characters' },
-      avatar: AVATAR_PARAM,
+      avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} Optional; without one the group shows its members.` },
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
       section: SECTION_PARAM,
@@ -1239,7 +1246,8 @@ export function install(rt) {
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
         const hadRooms = Object.keys(state.rooms).length > 0
-        const photo = args.avatar ? { image: await readAvatar(String(args.avatar), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) } : undefined
+        const given = typeof args.avatar === 'string' ? args.avatar.trim() : ''
+        const photo = given === '' ? undefined : { image: await readPhoto(given, exec) }
         const room = await rt.createRoom({ members, name: args.name, avatar: photo, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
         if (!hadRooms) rt.refreshToolScopeForSession?.(exec.agent?.id)
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
@@ -1291,7 +1299,7 @@ export function install(rt) {
         let photo
         if (args.avatar !== undefined) {
           const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
-          photo = input === null || input === '' ? null : { image: await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) }
+          photo = input === null || input === '' ? null : { image: await readPhoto(input, exec) }
         }
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         const targetDir = moving ? workDir : room.workDir
