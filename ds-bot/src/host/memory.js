@@ -267,6 +267,7 @@ export function install(rt) {
       } else if (step.action === 'append') {
         await mkdir(dirname(path), { recursive: true })
         const size = statSync(path, { throwIfNoEntry: false })?.size ?? 0
+        if (size < step.offset) throw new Error(`Cannot append to ${step.path} at offset ${step.offset}: file size is ${size}`)
         if (size > step.offset) await truncate(path, step.offset)
         await appendFile(path, step.text, 'utf8')
       } else if (step.action === 'truncate') {
@@ -405,14 +406,16 @@ export function install(rt) {
       const size = fstatSync(fd).size
       const start = Math.max(0, size - maxBytes)
       const bytes = Buffer.alloc(size - start)
-      for (let at = 0; at < bytes.length;) {
+      let at = 0
+      while (at < bytes.length) {
         const read = readSync(fd, bytes, at, bytes.length - at, start + at)
         if (read === 0) break
         at += read
       }
-      if (start === 0) return bytes.toString('utf8')
-      const nl = bytes.indexOf(0x0a)
-      return nl === -1 ? '' : bytes.subarray(nl + 1).toString('utf8')
+      const chunk = bytes.subarray(0, at)
+      if (start === 0) return chunk.toString('utf8')
+      const nl = chunk.indexOf(0x0a)
+      return nl === -1 ? '' : chunk.subarray(nl + 1).toString('utf8')
     } catch (error) {
       unreadable(path, error)
     } finally {
@@ -820,30 +823,37 @@ export function install(rt) {
   // The prompt section, frozen per Session.
 
   // What a Bot's model leaves room for, from the last time it was asked (keyed per model
-  // ref so switching models takes effect immediately).
+  // ref so switching models takes effect immediately, including to unknown-window models).
   const windows = new Map()
+  const modelWindows = new Map()
   const windowAsked = new Map()
   async function noteWindow(bot, sessionId) {
-    const localSize = sessionId === undefined ? undefined : rt.localAgentContext?.(sessionId)?.size
-    if (typeof localSize === 'number' && localSize > 0) {
-      windows.set(bot.id, linesFor({ window: localSize }).usable)
+    const route = await modelFor(bot).catch(() => undefined)
+    if (route === undefined) {
+      windows.delete(bot.id)
       return
     }
-    const route = await modelFor(bot).catch(() => undefined)
-    if (route === undefined) return
+    if (rt.isLocalAgentRoute?.(route.provider) === true) {
+      const sid = sessionId ?? rt.chatOf?.(bot.id) ?? bot.id
+      const localSize = rt.localAgentContext?.(sid)?.size
+      if (typeof localSize === 'number' && localSize > 0) windows.set(bot.id, linesFor({ window: localSize }).usable)
+      else windows.delete(bot.id)
+      return
+    }
     const cacheKey = `${bot.id}:${route.provider}/${route.model}`
-    if (Date.now() - (windowAsked.get(cacheKey) ?? 0) < WINDOW_ASK_MS && windows.has(cacheKey)) {
-      windows.set(bot.id, windows.get(cacheKey))
+    if (modelWindows.has(cacheKey) && Date.now() - (windowAsked.get(cacheKey) ?? 0) < WINDOW_ASK_MS) {
+      const cached = modelWindows.get(cacheKey)
+      if (cached === undefined) windows.delete(bot.id)
+      else windows.set(bot.id, cached)
       return
     }
     windowAsked.set(cacheKey, Date.now())
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     const size = info?.context?.contextWindow
-    if (typeof size === 'number' && size > 0) {
-      const usable = linesFor({ window: size, reserve: info.defaultMaxTokens }).usable
-      windows.set(cacheKey, usable)
-      windows.set(bot.id, usable)
-    }
+    const usable = typeof size === 'number' && size > 0 ? linesFor({ window: size, reserve: info.defaultMaxTokens }).usable : undefined
+    modelWindows.set(cacheKey, usable)
+    if (usable === undefined) windows.delete(bot.id)
+    else windows.set(bot.id, usable)
   }
   const windowUsable = bot => windows.get(bot.id)
   const windowTokens = (bot) => {
@@ -860,13 +870,20 @@ export function install(rt) {
       const lines = entries.length > 0 ? entries.map(promptEntry) : ['(nothing saved yet)']
       return [...lines, ...topics]
     }
-    // Reserve a compact slice of the resident budget for topic links so a full MEMORY.md
-    // never drops every [[topic]] pointer silently.
+    // Reserve a compact slice of the resident budget for topic links (at least enough for
+    // one bare topic link plus the omitted-topics notice when topics exist) so a full
+    // MEMORY.md never drops all topic pointers and their notice silently.
     const topicsTotal = topics.reduce((sum, line) => sum + estimateTokens(line) + 1, 0)
-    const topicReserve = topics.length === 0 ? 0 : Math.min(topicsTotal, Math.floor(budget * 0.25))
+    const firstBare = topics.length === 0 ? '' : topics[0].replace(/: .+$/, '')
+    const minTopicNeed = topics.length === 0
+      ? 0
+      : Math.min(topicsTotal, estimateTokens(firstBare) + 1 + (topics.length > 1 ? estimateTokens(omittedTopics(topics.length - 1)) + 1 : 0))
+    const topicReserve = topics.length === 0
+      ? 0
+      : Math.min(topicsTotal, Math.min(Math.floor(budget * 0.5), Math.max(Math.floor(budget * 0.25), minTopicNeed)))
     const entryBudget = Math.max(0, budget - topicReserve)
     let { shown, left } = fitWindow(entries, entryBudget, estimateTokens)
-    if (left > 0) ({ shown, left } = fitWindow(entries, Math.max(0, entryBudget - estimateTokens(omitted(entries.length))), estimateTokens))
+    if (left > 0) ({ shown, left } = fitWindow(entries, Math.max(0, entryBudget - estimateTokens(omitted(entries.length)) - 1), estimateTokens))
     const lines = shown.map(promptEntry)
     if (left > 0) lines.push(omitted(left))
     if (entries.length === 0) lines.push('(nothing saved yet)')
@@ -1120,13 +1137,15 @@ export function install(rt) {
     return message.source?.role !== 'kickoff' && message.source?.role !== 'task-handoff'
   }
   const GROUP_ROUND_START = /This round so far[^\n]*:\n/g
-  const GROUP_ROUND_END = /\n\n(?:Still at work on |Members answer this message |Called together with you:|Also in this round:|Write your reply)/
+  const GROUP_ROUND_EMPTY = /(?:^|\n\n)Nothing new in this round since your last message\.(?:\n\n|$)/
+  const GROUP_ROUND_END = /\n\n(?:Conversations the user referenced in this round:|Still at work on |Members answer this message |Called together with you:|Also in this round:|Reply with your message for the group)/
   function recallQueryOf(message, { group = false } = {}) {
     let raw = textOf(message.content)
     if (raw.trim() === '') return ''
     if (message.source?.kind === REPLY_KIND) {
       try {
         const parsed = JSON.parse(raw)
+        if (parsed?.kind === 'answer_to_pending_handoff') return ''
         const parts = []
         for (const q of parsed?.questions ?? []) if (typeof q?.question === 'string') parts.push(q.question)
         for (const a of parsed?.answers ?? []) {
@@ -1143,6 +1162,8 @@ export function install(rt) {
         const tail = raw.slice(last.index + last[0].length)
         const end = GROUP_ROUND_END.exec(tail)
         raw = (end === null ? tail : tail.slice(0, end.index)).trim()
+      } else if (GROUP_ROUND_EMPTY.test(raw)) {
+        return ''
       }
     }
     if (raw.length <= AUTO_RECALL_QUERY_MAX) return raw
@@ -1470,7 +1491,7 @@ export function install(rt) {
       }
       if (wantsTopic) {
         const topic = cleanTopic(args.topic)
-        const matches = loaded
+        const matches = topic === undefined ? [] : loaded
           .map(item => ({ ...item, file: item.files.find(entry => entry.topic === topic) }))
           .filter(item => item.file !== undefined)
         if (matches.length > 0) {
@@ -2017,12 +2038,14 @@ export function install(rt) {
         const readSize = Math.min(chunkBytes, pos)
         pos -= readSize
         const buf = Buffer.alloc(readSize)
-        for (let at = 0; at < readSize;) {
+        let at = 0
+        while (at < readSize) {
           const got = readSync(fd, buf, at, readSize - at, pos + at)
           if (got === 0) break
           at += got
         }
-        const combined = tail.length > 0 ? Buffer.concat([buf, tail]) : buf
+        const slice = buf.subarray(0, at)
+        const combined = tail.length > 0 ? Buffer.concat([slice, tail]) : slice
         const rows = []
         let end = combined.length
         while (end > 0) {
@@ -2046,12 +2069,15 @@ export function install(rt) {
         }
         if (rows.length > 0) yield rows
       }
+    } catch (error) {
+      unreadable(path, error)
     } finally {
       closeSync(fd)
     }
   }
 
   const HISTORY_PAGE = 50
+  const cmpTime = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 
   async function memoryHistory(body) {
     const panel = panelOf(body)
@@ -2062,8 +2088,14 @@ export function install(rt) {
       const collected = []
       let order = 0
       const streams = journalPathsOf(panel).map(path => ({ iter: reverseJournalChunks(path), done: false, minTime: undefined }))
-      const sortCollected = () => collected.sort((a, b) => String(b.row.time ?? '').localeCompare(String(a.row.time ?? '')) || a.order - b.order)
+      let dirty = false
+      const ensureSorted = () => {
+        if (!dirty) return
+        collected.sort((a, b) => cmpTime(String(b.row.time ?? ''), String(a.row.time ?? '')) || a.order - b.order)
+        dirty = false
+      }
       const sliceAfterBefore = () => {
+        ensureSorted()
         if (before === undefined) return collected
         const at = collected.findIndex(item => item.row.id === before)
         return at === -1 ? undefined : collected.slice(at + 1)
@@ -2072,16 +2104,18 @@ export function install(rt) {
         for (;;) {
           const active = streams.filter(stream => !stream.done)
           if (active.length === 0) break
-          const slice = sliceAfterBefore()
-          if (slice !== undefined && slice.length > HISTORY_PAGE) {
-            const cutoff = String(slice[HISTORY_PAGE].row.time ?? '')
-            if (active.every(stream => stream.minTime !== undefined && stream.minTime <= cutoff)) break
+          if (collected.length > HISTORY_PAGE) {
+            const slice = sliceAfterBefore()
+            if (slice !== undefined && slice.length > HISTORY_PAGE) {
+              const cutoff = String(slice[HISTORY_PAGE].row.time ?? '')
+              if (active.every(stream => stream.minTime !== undefined && stream.minTime < cutoff)) break
+            }
           }
           // Pull the next 64 KB chunk from whichever active log has the highest watermark.
           const nextStream = active.reduce((best, stream) => (
             best.minTime === undefined ? best
               : stream.minTime === undefined ? stream
-                : stream.minTime > best.minTime ? stream : best
+                : cmpTime(stream.minTime, best.minTime) > 0 ? stream : best
           ))
           const step = nextStream.iter.next()
           if (step.done) {
@@ -2096,15 +2130,14 @@ export function install(rt) {
             if (typeof row.restored === 'string') seenUndone.add(row.restored)
             if (row.op === 'add' || row.op === 'remove' || row.op === 'replace') {
               collected.push({ row, order: order++ })
+              dirty = true
             }
           }
           if (chunkMin !== undefined) nextStream.minTime = chunkMin
-          sortCollected()
         }
       } finally {
         for (const stream of streams) stream.iter.return?.()
       }
-      sortCollected()
       const slice = sliceAfterBefore() ?? []
       return {
         page: slice.slice(0, HISTORY_PAGE).map(item => item.row),

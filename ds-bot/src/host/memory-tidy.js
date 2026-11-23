@@ -51,12 +51,13 @@ function readTailBytes(path, offset) {
     if (size < offset) return undefined
     const length = size - offset
     const buf = Buffer.alloc(length)
-    for (let at = 0; at < length;) {
+    let at = 0
+    while (at < length) {
       const read = readSync(fd, buf, at, length - at, offset + at)
       if (read === 0) break
       at += read
     }
-    return buf
+    return buf.subarray(0, at)
   } finally {
     closeSync(fd)
   }

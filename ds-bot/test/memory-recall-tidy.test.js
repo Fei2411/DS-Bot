@@ -51,7 +51,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-mem-opt-')), replies 
   Object.assign(ctx, {
     llm: {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
-      listModels: async () => [{ id: 'v4' }, { id: 'small' }, { id: 'large' }],
+      listModels: async () => [{ id: 'v4' }, { id: 'small' }, { id: 'large' }, { id: 'unknown' }],
       resolveModelInfo: async (provider, model) => modelInfo(provider, model),
       async* stream(request) {
         requests.push(request)
@@ -192,6 +192,21 @@ test('P0-1: tidy uses O(1) retired offset/hash undo on >600 KB retired.jsonl, pr
   assert.equal(legacyUndone.ok, true, JSON.stringify(legacyUndone))
   assert.equal(read('bots', 'b2', 'MEMORY.md'), originalMain)
   assert.equal(read('bots', 'b2', 'retired.jsonl'), legacyRetired)
+
+  // Crash-recovery fail-closed: append step must refuse when file shrank below offset.
+  writeFileSync(join(dir, 'retired.jsonl'), 'tiny\n')
+  writeFileSync(join(home, 'memory', PENDING_FILE), JSON.stringify(pendingRecord({
+    id: 'recover-append-short',
+    time: '2026-11-23T00:02:00.000Z',
+    op: 'tidy',
+    scope: 'bot:b2',
+    steps: [{ action: 'append', path: 'bots/b2/retired.jsonl', text: delta, offset: 500 }],
+    row: { op: 'tidy', scope: 'bot:b2', actor: 'b2', actorName: 'Writer', auto: true },
+  })))
+  const shortFailed = await call('memory-view', { botId: 'b2' })
+  assert.equal(shortFailed.ok, false)
+  assert.match(shortFailed.error.message, /Cannot append to bots\/b2\/retired\.jsonl at offset 500/)
+  assert.equal(read('bots', 'b2', 'retired.jsonl'), 'tiny\n')
 })
 
 test('P0-1: tidy bounds LLM prompt size on large multi-topic memories and enforces 16 KB / 40 topic caps on move', async (t) => {
@@ -296,7 +311,7 @@ test('P0-2: autoRecall surfaces realistic detailed Chinese/English/2-char-tech e
   await tool('bot_remember', { text: 'The user prefers direct morning flights on ANA or JAL when traveling to Tokyo and always books aisle seats near the front', topic: 'travel' }, 'b2')
   await tool('bot_remember', { text: 'Backend microservices are written in Go and run automated CI tests on every PR before merge', topic: 'backend' }, 'b2')
   for (let i = 0; i < 15; i += 1) {
-    await tool('bot_remember', { text: `Unrelated archival project specification item ${i} covering historical quarterly finance notes`, topic: `misc-${i}` }, 'b2')
+    await tool('bot_remember', { text: `用户的新项目文档第${i + 1}条：please check the new project checklist note ${i}`, topic: `misc-${i}` }, 'b2')
   }
   section('b2')
 
@@ -309,9 +324,16 @@ test('P0-2: autoRecall surfaces realistic detailed Chinese/English/2-char-tech e
   const shortTechHit = await recallOf(ctx, 'b2', 'Go CI rules')
   assert.match(textOf(shortTechHit), /written in Go and run automated CI tests/)
 
-  // Unrelated queries must still stay quiet (zero false positives).
+  // Unrelated and short generic queries must stay quiet (no low-IDF false positives).
   assert.equal(await recallOf(ctx, 'b2', '今天天气怎么样要不要带伞'), undefined)
   assert.equal(await recallOf(ctx, 'b2', 'please check the weather in Paris tomorrow'), undefined)
+  assert.equal(await recallOf(ctx, 'b2', '检查一下项目'), undefined)
+  assert.equal(await recallOf(ctx, 'b2', '用户的项目'), undefined)
+  assert.equal(await recallOf(ctx, 'b2', 'help me check the new thing'), undefined)
+
+  // Tiny 1-doc corpus still recalls matching detailed entries cleanly.
+  const singleRanked = rankEntries([{ text: 'Backend microservices are written in Go and run automated CI tests on every PR before merge', file: { topic: 'backend' } }], 'Go CI rules')
+  assert.equal(pickRecalled(singleRanked, 5, 'Go CI rules').length, 1)
 
   // pickRecalled remains backwards-compatible with 2-arg calls.
   const ranked = rankEntries([{ text: 'Short release checklist', file: { topic: 'release' } }], 'release checklist')
@@ -322,9 +344,12 @@ test('P0-2: group autoRecall parses "This round so far" past long notice headers
   const { ctx, tool, section, stop } = start()
   t.after(() => stop())
   await tool('bot_remember', { text: '生产环境部署必须先跑完单元和冒烟测试再通过 Release 发布', topic: 'deploy' }, 'g3')
+  await tool('bot_remember', { text: 'Backend microservices are written in Go and run automated CI tests on every PR before merge', topic: 'backend' }, 'g3')
   await tool('bot_remember', { text: 'Alpha beta gamma protocol notice keyword decoy entry', topic: 'decoy' }, 'g3')
+  await tool('bot_remember', { text: 'Message discussion prefix tool step reply result promise silent entry', topic: 'boilerplate-decoy' }, 'g3')
   section('b3')
 
+  const realRoomReply = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, call your first tool in the same step as your opening note — if you stop without a tool call, your turn ends and no work runs. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
   const longNotice = `Group notice (shared instructions for every member):\n${'Alpha beta gamma protocol guidelines. '.repeat(70)}`
   assert.ok(longNotice.length > 2_400)
   const groupPrompt = [
@@ -332,16 +357,37 @@ test('P0-2: group autoRecall parses "This round so far" past long notice headers
     longNotice,
     'Earlier in the group, before this round (context only):\nUser: Just checking in.',
     'This round so far, starting with the new message (oldest first):\nUser: 帮我部署生产环境发版',
-    'Write your reply to the group.',
+    'Conversations the user referenced in this round:\n\nAlpha beta gamma protocol notes.',
+    realRoomReply,
   ].join('\n\n')
   const groupHit = await recallOf(ctx, 'g3', groupPrompt, { source: { kind: 'bot', form: 'relay', role: 'room' } })
   assert.match(textOf(groupHit), /生产环境部署必须先跑完单元和冒烟测试/)
-  assert.doesNotMatch(textOf(groupHit), /decoy entry/)
+  assert.doesNotMatch(textOf(groupHit), /decoy entry|boilerplate-decoy|Message discussion prefix/)
 
-  // Non-conversational bot messages (handoff / kickoff / task-handoff) must not trigger recall.
+  // Solo/short group turn followed directly by real ROOM_REPLY must strip boilerplate so "Go CI rules" recalls cleanly.
+  const soloGroupPrompt = [
+    'Members: the user, Writer and you (admin).',
+    'This round so far, starting with the new message (oldest first):\nUser: Go CI rules',
+    realRoomReply,
+  ].join('\n\n')
+  const soloHit = await recallOf(ctx, 'g3', soloGroupPrompt, { source: { kind: 'bot', form: 'relay', role: 'room' } })
+  assert.match(textOf(soloHit), /written in Go and run automated CI tests/)
+  assert.doesNotMatch(textOf(soloHit), /Message discussion prefix/)
+
+  // Empty-round wake ("Nothing new in this round since your last message.") must not fall back to notice/ROOM_REPLY.
+  const emptyRoundPrompt = [
+    'Members: the user, Writer and you (admin).',
+    longNotice,
+    'Nothing new in this round since your last message.',
+    realRoomReply,
+  ].join('\n\n')
+  assert.equal(await recallOf(ctx, 'g3', emptyRoundPrompt, { source: { kind: 'bot', form: 'relay', role: 'room' } }), undefined)
+
+  // Non-conversational bot messages (handoff / kickoff / task-handoff) and handoff REPLY_KIND payloads must not trigger recall.
   assert.equal(await recallOf(ctx, 'b3', '生产环境部署必须先跑完单元和冒烟测试', { source: { kind: 'bot', handoff: true } }), undefined)
   assert.equal(await recallOf(ctx, 'b3', '生产环境部署必须先跑完单元和冒烟测试', { source: { kind: 'bot', role: 'kickoff' } }), undefined)
   assert.equal(await recallOf(ctx, 'b3', '生产环境部署必须先跑完单元和冒烟测试', { source: { kind: 'bot', role: 'task-handoff' } }), undefined)
+  assert.equal(await recallOf(ctx, 'b3', JSON.stringify({ kind: 'answer_to_pending_handoff', question: 'Go CI rules', answer: '生产环境部署' }), { source: { kind: 'user-question-reply' } }), undefined)
 
   // Long DM whose actual question sits at the tail (>2000 chars in) still recalls via head+tail query.
   await tool('bot_remember', { text: 'Database migrations always run inside an explicit transaction with rollback check', topic: 'db' }, 'b2')
@@ -358,7 +404,7 @@ test('P0-2: autoRecall surfaces MEMORY.md entries omitted by the 2% prompt cap w
   })
   t.after(() => stop())
   // Older entry that will be pushed out by newer entries under the 100-token (2% of 5,000) budget.
-  await tool('bot_remember', { text: 'Tokyo ANA aisle seat preference for morning flights' }, 'b2')
+  await tool('bot_remember', { text: 'Tokyo ANA aisle seat preference for direct morning flights near the front of the cabin' }, 'b2')
   for (let i = 0; i < 12; i += 1) {
     await tool('bot_remember', { text: `Newer resident memory entry number ${i} occupying budget slots` }, 'b2')
   }
@@ -400,26 +446,32 @@ test('P1-1: full Chinese MEMORY.md reserves topic-index budget and reports omitt
   assert.match(own, /Topic \[\[topic-0\]\]/, 'topic links must remain visible even when MEMORY.md fills the 2% budget')
   assert.ok(estimateTokens(own) <= 2_400, `own section tokens ${estimateTokens(own)} exceeded budget 2400`)
 
-  // With tiny budget and 25 topics, omitted topic count is surfaced explicitly.
+  // With tiny budget (100 tokens), FULL MEMORY.md + 25 topics still surfaces topics & explicit omitted-topics count!
   const small = start({ modelInfo: () => ({ context: { contextWindow: 5_000 } }) })
   t.after(() => small.stop())
-  await small.tool('bot_remember', { text: 'One short resident entry' }, 'b2')
+  for (let i = 0; i < 15; i += 1) await small.tool('bot_remember', { text: `Resident entry ${i} occupying tight prompt budget` }, 'b2')
   for (let i = 0; i < 25; i += 1) await small.tool('bot_remember', { text: `Ref ${i}`, topic: `ref-${i}` }, 'b2')
   await runPreStep(small.ctx, 'b2', [])
   const ownSmall = small.section('b2').split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
+  assert.match(ownSmall, /more entries are saved here; bot_recall finds them/)
   assert.match(ownSmall, /Topic \[\[ref-0\]\]/)
   assert.match(ownSmall, /more topics? (?:is|are) saved here; call bot_recall with no arguments to list them/)
   assert.ok(estimateTokens(ownSmall) <= 100, `small section tokens ${estimateTokens(ownSmall)} exceeded budget 100`)
 })
 
-test('P1-1: noteWindow applies steward usable floor, reads localAgentContext, and refreshes immediately on model switch', async (t) => {
+test('P1-1: noteWindow applies steward usable floor, reads localAgentContext only for local routes, clears stale caps, and caches negative lookups', async (t) => {
   const models = {
     'deepseek/v4': { context: { contextWindow: 32_768 }, defaultMaxTokens: 32_768 },
     'deepseek/small': { context: { contextWindow: 5_000 }, defaultMaxTokens: 0 },
     'deepseek/large': { context: { contextWindow: 200_000 }, defaultMaxTokens: 8_000 },
+    'deepseek/unknown': {},
   }
+  const lookups = []
   const { ctx, rt, tool, section, stop } = start({
-    modelInfo: (provider, model) => models[`${provider}/${model}`] ?? {},
+    modelInfo: (provider, model) => {
+      lookups.push(`${provider}/${model}`)
+      return models[`${provider}/${model}`] ?? {}
+    },
   })
   t.after(() => stop())
   await tool('bot_remember', { text: 'Critical preference that must remain visible' }, 'b2')
@@ -434,16 +486,33 @@ test('P1-1: noteWindow applies steward usable floor, reads localAgentContext, an
   await runPreStep(ctx, 'b2', [])
   assert.match(section('b2'), /more entries are saved here/, 'switching to small model must enforce 100-token cap immediately')
 
+  // Switching to a model with unknown contextWindow must CLEAR the stale small-model cap AND cache the negative lookup.
+  rt.botOf('b2').model = 'deepseek/unknown'
+  rt.renewMemory('b2')
+  await runPreStep(ctx, 'b2', [])
+  assert.doesNotMatch(section('b2'), /more entries are saved here/, 'unknown-window model must not inherit stale cap')
+  const unknownLookupsAfterFirst = lookups.filter(ref => ref === 'deepseek/unknown').length
+  await runPreStep(ctx, 'b2', [])
+  assert.equal(lookups.filter(ref => ref === 'deepseek/unknown').length, unknownLookupsAfterFirst, 'negative modelInfo lookup must be throttled')
+
   rt.botOf('b2').model = 'deepseek/large'
   rt.renewMemory('b2')
   await runPreStep(ctx, 'b2', [])
   assert.doesNotMatch(section('b2'), /more entries are saved here/, 'switching to large model must lift cap immediately')
 
-  // Local agent context window is respected directly.
+  // A stale localAgentContext record must NOT override a served API model!
   rt.localAgentContext = sessionId => (sessionId === 'b2' ? { size: 5_000 } : undefined)
+  rt.isLocalAgentRoute = provider => provider === 'local-cli'
   rt.renewMemory('b2')
   await runPreStep(ctx, 'b2', [])
-  assert.match(section('b2'), /more entries are saved here/, 'localAgentContext size must govern 2% prompt cap')
+  assert.doesNotMatch(section('b2'), /more entries are saved here/, 'served API model must ignore stale localAgentContext')
+
+  // When routed to a local-agent provider, localAgentContext size governs the 2% prompt cap.
+  const prevDesired = rt.desiredModel
+  rt.desiredModel = async bot => (bot.id === 'b2' ? 'local-cli/default' : prevDesired(bot))
+  rt.renewMemory('b2')
+  await runPreStep(ctx, 'b2', [])
+  assert.match(section('b2'), /more entries are saved here/, 'localAgentContext size must govern 2% prompt cap for local-agent routes')
 })
 
 // ---------------------------------------------------------------------------
@@ -463,6 +532,12 @@ test('P1-2: bot_recall disambiguates same-named topics across scopes, ranks rare
   const ownExplicit = await tool('bot_recall', { topic: 'earlier', scope: 'own' }, 'g3')
   assert.match(ownExplicit, /Personal earlier fact/)
   assert.doesNotMatch(ownExplicit, /Also found topic/)
+  // Invalid topic names (e.g. "MEMORY.md" or path chars) must NOT match MEMORY.md as `Topic [[undefined]]`.
+  const reservedTopic = await tool('bot_recall', { topic: 'MEMORY.md' }, 'g3')
+  assert.match(reservedTopic, /^No topic \[\[MEMORY\.md\]\] there\./)
+  assert.doesNotMatch(reservedTopic, /\[\[undefined\]\]/)
+  const invalidTopic = await tool('bot_recall', { topic: 'bad/topic' }, 'g3')
+  assert.match(invalidTopic, /^No topic \[\[bad\/topic\]\] there\./)
 
   // Full-corpus BM25: rare domain keyword outranks 20 entries sharing filler Chinese bigrams.
   for (let i = 0; i < 20; i += 1) {
