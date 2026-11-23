@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -7,6 +7,7 @@ import { setTimeout as realDelay } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import * as SessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -49,6 +50,8 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     return origWarn(...args)
   }
   await mountAgentLoopTestDependencies(root)
+  const sessionDir = join(home, 'sessions')
+  await root.plugin(SessionPersistence, { root: sessionDir })
 
   const toolStarted = Promise.withResolvers()
   const toolGate = Promise.withResolvers()
@@ -132,7 +135,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     }
   }
   root.llm.registerAdapter(['fg-test'], new TestAdapter())
-  await mountAgentLoopTestHarness(root)
+  const harness = await mountAgentLoopTestHarness(root)
 
   const agents = new Map()
   const makeRealAgent = async (sid) => {
@@ -219,12 +222,13 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     toolGate.resolve()
     firstModelGate.resolve()
     forkGate.resolve()
+    await Promise.all([...agents.values()].map(agent => agent.whenIdle()))
     await root.fiber.dispose()
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, forkStarted, forkGate, repliesBySession, modelCallsBySession }
+  return { home, root, rootWarnings, rt, agents, makeRealAgent, harness, sessionDir, toolStarted, toolGate, firstModelStarted, firstModelGate, forkStarted, forkGate, repliesBySession, modelCallsBySession }
 }
 
 test('real DSH SessionStore + ReactLoopAgent: Desktop steer while busy hands off foreground without reentrancy error', async (t) => {
@@ -330,6 +334,246 @@ test('real DSH SessionStore + ReactLoopAgent: failed pre-commit fork restores pu
   await settle(() => dmA.inbox.nextStep.some(m => textOf(m).includes('Keep me on failure')), 3000, 'pulled message must be restored on pre-commit failure')
   assert.equal(rig.rt.botOf('a').sessionId, 'dm-a')
   assert.equal(rig.rt.botOf('a').tasks?.length ?? 0, 0)
+})
+
+const journal = rig => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).pendingHandoffInputs ?? []
+const userPrompt = (text, rpcId) => createUserMessage({
+  content: [{ type: 'text', text }], source: { kind: 'user', ...(rpcId === undefined ? {} : { rpcId }) },
+})
+
+for (const rejectedIndex of [0, 1]) {
+  test(`failed handoff retains only refused input when message ${rejectedIndex + 1} is rejected`, async (t) => {
+    const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+    const old = rig.agents.get('dm-a')
+    old.followup(userPrompt('Please run slow work'))
+    await rig.toolStarted.promise
+    const first = userPrompt('Keep the next-step input', 'rollback-first')
+    const second = userPrompt('Keep the next-turn input')
+    old.steer(first)
+    await rig.forkStarted.promise
+    old.followup(second)
+    await settle(() => journal(rig).length === 2)
+    const messages = [first, second]
+    const rejected = messages[rejectedIndex]
+    const accepted = messages[1 - rejectedIndex]
+    const send = old.send.bind(old)
+    const reject = t.mock.method(old, 'send', (msg, ...args) => {
+      if (msg.id === rejected.id) throw new Error('Original Session refused the input')
+      return send(msg, ...args)
+    })
+    rig.forkGate.resolve()
+    await settle(() => !rig.rt.isHandingOff('dm-a'))
+    assert.equal(rig.rt.botOf('a').sessionId, 'dm-a')
+    assert.deepEqual(journal(rig).map(item => [item.messageId, item.content]), [[rejected.id, rejected.content]])
+    assert.equal(old.inbox.nextStep.some(item => item.id === accepted.id), accepted === first)
+    assert.equal(old.inbox.nextTurn.some(item => item.id === accepted.id), accepted === second)
+    reject.mock.restore()
+    await rig.rt.reconcileTasksAfterRestart()
+    assert.deepEqual(journal(rig), [])
+    assert.deepEqual(old.inbox.nextStep.map(item => item.id), [first.id])
+    assert.deepEqual(old.inbox.nextTurn.map(item => item.id), [second.id])
+
+    // Reopen the durable storage from another context, rather than reading live events.
+    const reopened = new Context()
+    try {
+      await reopened.plugin(SessionPersistence, { root: rig.sessionDir })
+      const handle = await reopened.sessionPersistence.open(SessionId('dm-a'), 'read')
+      try {
+        const { events } = await handle.read()
+        const inbox = { 'next-step': [], 'next-turn': [] }
+        for (const event of events) {
+          if (event.type !== 'agent/inbox/spliced') continue
+          const { target, start, removedCount, inserted } = event.data
+          inbox[target].splice(start, removedCount ?? 0, ...inserted)
+        }
+        assert.deepEqual(inbox['next-step'].map(message => message.id), [first.id])
+        assert.deepEqual(inbox['next-turn'].map(message => message.id), [second.id])
+      } finally {
+        await handle.close()
+      }
+    } finally {
+      await reopened.fiber.dispose()
+    }
+    rig.toolGate.resolve()
+    const readCount = prompt => old.session.snapshotEvents().filter(event => event.type === 'user/message'
+      && event.data.id === prompt.id).length
+    await settle(() => readCount(first) === 1 && readCount(second) === 1)
+    assert.equal(readCount(first), 1)
+    assert.equal(readCount(second), 1)
+  })
+}
+
+for (const flushFailure of ['false', 'throw']) {
+  test(`a ${flushFailure} durability checkpoint keeps accepted input in the handoff journal`, async (t) => {
+    const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+    const old = rig.agents.get('dm-a')
+    old.followup(userPrompt('Please run slow work'))
+    await rig.toolStarted.promise
+    const prompt = userPrompt('Keep this until the storage confirms it')
+    old.steer(prompt)
+    await rig.forkStarted.promise
+    const sessions = rig.rt.ctx.sessions
+    rig.rt.ctx.sessions = { flush: async () => {
+      if (flushFailure === 'throw') throw new Error('Fixture storage failure')
+      return false
+    } }
+    rig.forkGate.resolve()
+    await settle(() => !rig.rt.isHandingOff('dm-a'))
+    assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+    assert.equal(old.inbox.nextStep.filter(item => item.id === prompt.id).length, 1)
+
+    const [claimed] = rig.harness.claim(old, 'next-step', 1)
+    assert.equal(claimed.id, prompt.id)
+    rig.rt.ctx.sessions = sessions
+    await sessions.flush(old.session)
+    await rig.rt.reconcileTasksAfterRestart()
+    assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+    assert.equal(old.inbox.nextStep.some(item => item.id === prompt.id), false)
+    old.session.append('user/message', claimed, { surfaceOp: 'append' })
+    await rig.rt.reconcileTasksAfterRestart()
+    assert.deepEqual(journal(rig), [])
+    assert.equal(old.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.id === prompt.id).length, 1)
+  })
+}
+
+test('rollback drains a second input that arrives while the first checkpoint is pending', async (t) => {
+  const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const first = userPrompt('First input during rollback', 'rollback-one')
+  const second = userPrompt('Second input during rollback', 'rollback-two')
+  const sessions = rig.rt.ctx.sessions
+  const reached = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  rig.rt.ctx.sessions = { flush: async (session) => {
+    reached.resolve()
+    await release.promise
+    return sessions.flush(session)
+  } }
+  old.steer(first)
+  await rig.forkStarted.promise
+  rig.forkGate.resolve()
+  await reached.promise
+  try {
+    old.steer(second)
+    await settle(() => journal(rig).length === 2)
+  } finally {
+    release.resolve()
+  }
+  await settle(() => !rig.rt.isHandingOff('dm-a'))
+  assert.deepEqual(journal(rig), [])
+  assert.deepEqual(old.inbox.nextStep.map(item => item.id), [first.id, second.id])
+})
+
+test('a failed team state write rolls back to the original durable inbox', async (t) => {
+  const rig = await createRealLoopRig(t)
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const save = t.mock.method(rig.rt, 'save', async () => {
+    throw Object.assign(new Error('State write blocked'), { code: 'EBUSY' })
+  })
+  const prompt = userPrompt('Restore this despite an EBUSY state file')
+  old.steer(prompt)
+  await settle(() => !rig.rt.isHandingOff('dm-a'))
+  assert.equal(rig.rt.botOf('a').sessionId, 'dm-a')
+  assert.deepEqual(old.inbox.nextStep.map(item => item.id), [prompt.id])
+  const stored = await rig.root.sessionPersistence.open(SessionId('dm-a'), 'read')
+  try {
+    const { events } = await stored.read()
+    const last = events.findLast(event => event.type === 'agent/inbox/spliced')
+    assert.deepEqual(last.data.inserted.map(item => item.id), [prompt.id])
+  } finally {
+    await stored.close()
+    save.mock.restore()
+  }
+})
+
+for (const transition of ['read-only', 'switching']) {
+  test(`rollback reaches the original Agent when the foreground becomes ${transition}`, async (t) => {
+    const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+    const old = rig.agents.get('dm-a')
+    old.followup(userPrompt('Please run slow work'))
+    await rig.toolStarted.promise
+    const prompt = userPrompt('Keep this in the original queue')
+    old.steer(prompt)
+    await rig.forkStarted.promise
+    const restore = transition === 'read-only'
+      ? t.mock.method(rig.rt, 'readOnly', () => 'Another host holds the state lock')
+      : t.mock.method(rig.rt, 'isSwitchingPart', sid => sid === 'dm-a')
+    rig.forkGate.resolve()
+    await settle(() => !rig.rt.isHandingOff('dm-a'))
+    assert.deepEqual(old.inbox.nextStep.map(item => item.id), [prompt.id])
+    if (transition === 'read-only') assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+    restore.mock.restore()
+    await rig.rt.reconcileTasksAfterRestart()
+    assert.deepEqual(journal(rig), [])
+    assert.deepEqual(old.inbox.nextStep.map(item => item.id), [prompt.id])
+  })
+}
+
+test('legacy handoff records with the same RPC ID replay independently for different Bots', async (t) => {
+  const rig = await createRealLoopRig(t)
+  rig.rt.state.bots.b = { id: 'b', name: 'Other Bot', sessionId: 'dm-b' }
+  await rig.makeRealAgent('dm-b')
+  const id = 'shared-rpc'
+  rig.rt.state.pendingHandoffInputs = ['a', 'b'].map(botId => ({
+    id, botId, source: { kind: 'user', rpcId: id }, content: [{ type: 'text', text: `Prompt for ${botId}` }],
+  }))
+  await rig.rt.save()
+  await rig.rt.reconcileTasksAfterRestart()
+  await settle(() => ['dm-a', 'dm-b'].every(sid => rig.repliesBySession.has(sid)))
+  assert.deepEqual(journal(rig), [])
+  for (const botId of ['a', 'b']) assert.equal(rig.repliesBySession.get(`dm-${botId}`).length, 1)
+})
+
+test('recovery recognizes a restored input after a later part switch copies it to a new message ID', async (t) => {
+  const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const prompt = userPrompt('Message without an RPC ID')
+  old.steer(prompt)
+  await rig.forkStarted.promise
+  const sessions = rig.rt.ctx.sessions
+  rig.rt.ctx.sessions = { flush: async () => false }
+  rig.forkGate.resolve()
+  await settle(() => !rig.rt.isHandingOff('dm-a'))
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  const original = old.inbox.nextStep.find(item => item.id === prompt.id)
+  const clone = createUserMessage({ content: original.content, source: original.source })
+  assert.notEqual(clone.id, original.id)
+  const fresh = await rig.makeRealAgent('next-part')
+  rig.rt.botOf('a').sessionId = 'next-part'
+  await rig.rt.save()
+  rig.rt.ctx.sessions = sessions
+  assert.equal(old.inbox.remove(original.id), true)
+  fresh.followup(clone)
+  await fresh.whenIdle()
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig), [])
+  const recovered = fresh.session.snapshotEvents().filter(event => event.type === 'user/message'
+    && event.data.source?.rpcId === prompt.id)
+  assert.deepEqual(recovered.map(event => event.data.id), [clone.id])
+})
+
+test('an unreadable original Session leaves its input pending until the source can be checked', async (t) => {
+  const rig = await createRealLoopRig(t)
+  const prompt = userPrompt('Recover after the original Session is available', 'find-old')
+  rig.rt.state.pendingHandoffInputs = [{
+    id: prompt.source.rpcId, messageId: prompt.id, originalSessionId: 'old-part',
+    botId: 'a', source: prompt.source, content: prompt.content, target: 'next-step',
+  }]
+  await rig.rt.save()
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  assert.equal(rig.repliesBySession.has('dm-a'), false)
+  await rig.makeRealAgent('old-part')
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig), [])
+  await settle(() => rig.repliesBySession.has('dm-a'))
+  assert.equal(rig.repliesBySession.get('dm-a').length, 1)
 })
 
 test('real DSH SessionStore + ReactLoopAgent: fast-turn steer below waitMs still cuts running model call immediately', async (t) => {

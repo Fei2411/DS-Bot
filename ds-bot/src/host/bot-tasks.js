@@ -50,10 +50,6 @@ export function install(rt) {
   // Transfer IDs created and actively handled by this host process so startup
   // `reconcileTasksAfterRestart()` only replays entries left on disk by a prior crash.
   const inFlightTransferIds = new Set()
-  // Transfer rpcIds already admitted onto a destination session during this process
-  // (covers the window after `inbox.claim()` removes the item from inbox and before
-  // `step()` appends `user/message` to the session log).
-  const admittedRpcIds = new Map()
   // In-flight foreground-to-background handoffs per Bot:
   // botId -> { oldSid, committed, newSid, promise, messages }.
   const handoffing = new Map()
@@ -647,64 +643,61 @@ export function install(rt) {
         else state.pendingHandoffInputs = valid
         await rt.save().catch(() => {})
       }
-      const pending = [...valid]
-      const stillPending = id => Array.isArray(state.pendingHandoffInputs)
-        && state.pendingHandoffInputs.some(item => item?.id === id)
-      for (const entry of pending) {
-        const id = (entry.id ??= entry.source?.rpcId ?? newId())
-        if (!stillPending(id)) continue
-        if (inFlightTransferIds.has(id)) continue
-        inFlightTransferIds.add(id)
+      for (const entry of valid.slice()) {
+        entry.id ??= entry.source?.rpcId ?? newId()
+        const key = transferKey(entry)
+        if (!pendingTransfers().includes(entry) || inFlightTransferIds.has(key)) continue
+        inFlightTransferIds.add(key)
         try {
-          const movedSids = new Set()
+          const sourceSessions = new Set()
           while (entry.botId !== undefined && handoffing.has(entry.botId)) {
             const active = handoffing.get(entry.botId)
-            if (active?.oldSid !== undefined) movedSids.add(active.oldSid)
-            await active?.promise?.catch(() => {})
+            sourceSessions.add(active.oldSid)
+            await active.promise.catch(() => {})
           }
-          if (!stillPending(id)) continue
-          let targetSid
-          let label
-          let bot
-          if (entry.roomId !== undefined) {
-            const room = rt.roomOf(entry.roomId)
-            targetSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-            label = room?.name
-          } else if (entry.botId !== undefined) {
-            bot = rt.botOf(entry.botId)
-            targetSid = bot === undefined ? undefined : rt.chatOf(bot.id)
-            label = bot?.name
-            for (const task of bot?.tasks ?? []) {
-              if (task?.origin !== 'fg-handoff') continue
-              if (task.sessionId !== undefined) movedSids.add(task.sessionId)
-              for (const seg of task.segments ?? []) {
-                if (seg?.sessionId !== undefined) movedSids.add(seg.sessionId)
-              }
-            }
-          }
-          if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
-            await clearPendingTransfers([id])
+          if (!pendingTransfers().includes(entry)) continue
+          const targetSid = transferTarget(entry)
+          if (targetSid === undefined) {
+            await clearPendingTransfers([key])
             continue
           }
-          let admittedElsewhere = false
-          for (const sid of movedSids) {
-            if (sid === targetSid) continue
-            const movedAgent = ctx.get('agents')?.get(sid) ?? await rt.resolveAgent(sid).catch(() => undefined)
-            if (isAdmittedOn(movedAgent, id) || (entry.source?.rpcId !== undefined && isAdmittedOn(movedAgent, entry.source.rpcId))) {
-              admittedElsewhere = true
-              break
+          if (entry.originalSessionId !== undefined) {
+            sourceSessions.clear()
+            sourceSessions.add(entry.originalSessionId)
+          } else {
+            for (const task of tasksOf(rt.botOf(entry.botId))) {
+              if (task.origin !== 'fg-handoff') continue
+              sourceSessions.add(task.sessionId)
+              for (const segment of task.segments ?? []) sourceSessions.add(segment.sessionId)
             }
           }
-          if (admittedElsewhere) {
-            await clearPendingTransfers([id])
+          // A part switch can copy an admitted input with a new message ID.
+          const targetAgent = await transferAgent(targetSid)
+          if (admissionOf(targetAgent, entry) === 'accepted') {
+            if (await confirmAdmission(targetAgent, entry)) await clearPendingTransfers([key])
             continue
           }
+          // An attempted send can have been claimed in a part that has since moved.
+          let keepThere = false
+          for (const sid of new Set([entry.attempt?.sessionId, ...sourceSessions])) {
+            if (sid === undefined || sid === targetSid) continue
+            const agent = await transferAgent(sid)
+            const admission = admissionOf(agent, entry)
+            if (admission === 'missing' || (admission === 'unknown' && entry.originalSessionId === undefined && sid !== entry.attempt?.sessionId)) continue
+            keepThere = true
+            if (admission === 'accepted' && await confirmAdmission(agent, entry)) await clearPendingTransfers([key])
+            break
+          }
+          if (keepThere) continue
+          const target = entry.attempt?.sessionId === targetSid ? entry.attempt.target
+            : entry.originalSessionId === targetSid ? entry.target : undefined
           await forwardPulledMessages(targetSid, [{
-            msg: { id, content: entry.content, source: entry.source },
-            transferId: id,
-          }], label)
+            msg: { id: entry.messageId ?? entry.id, content: entry.content, source: entry.source, role: 'user' },
+            target,
+            transferKey: key,
+          }], true)
         } finally {
-          inFlightTransferIds.delete(id)
+          inFlightTransferIds.delete(key)
         }
       }
     }
@@ -792,68 +785,124 @@ export function install(rt) {
     return raw !== '' ? oneLine(raw, TITLE_MAX) : 'Background task'
   }
 
-  const transferIdOf = (item) => {
-    if (item.transferId === undefined) {
-      item.transferId = item.msg?.source?.rpcId ?? item.msg?.id ?? newId()
-    }
-    return item.transferId
-  }
+  const pendingTransfers = () => Array.isArray(state.pendingHandoffInputs) ? state.pendingHandoffInputs : []
+  const transferKey = entry => JSON.stringify([entry?.botId ?? null, entry?.roomId ?? null, entry?.id])
+  const sessionIdOf = agent => agent?.id ?? agent?.session?.id
+  const transferAgent = async id => ctx.get('agents')?.get(id) ?? await rt.resolveAgent(id).catch(() => undefined)
+  const transferTarget = entry => entry.roomId !== undefined ? rt.sessionOfRoom(rt.roomOf(entry.roomId))
+    : rt.botOf(entry.botId) === undefined ? undefined : rt.chatOf(entry.botId)
 
   const recordPendingTransfers = (items, owner) => {
     if (rt.readOnly?.() !== undefined || items.length === 0) return
     const list = Array.isArray(state.pendingHandoffInputs) ? state.pendingHandoffInputs : (state.pendingHandoffInputs = [])
     let added = false
     for (const item of items) {
-      const id = transferIdOf(item)
-      inFlightTransferIds.add(id)
-      if (list.some(entry => entry?.id === id)) continue
-      list.push({
-        id,
-        ...(owner?.botId !== undefined ? { botId: owner.botId } : {}),
-        ...(owner?.roomId !== undefined ? { roomId: owner.roomId } : {}),
+      const entry = {
+        id: item.msg.source?.rpcId ?? item.msg.id,
+        ...owner,
+        messageId: item.msg.id,
+        originalSessionId: sessionIdOf(item.oldAgent),
+        target: item.target,
         content: item.msg.content,
         source: item.msg.source,
         at: Date.now(),
-      })
+      }
+      item.transferKey ??= transferKey(entry)
+      item.transfer ??= entry
+      inFlightTransferIds.add(item.transferKey)
+      if (list.some(record => transferKey(record) === item.transferKey)) continue
+      list.push(entry)
       added = true
     }
     if (added) void rt.save().catch(() => {})
   }
 
-  const clearPendingTransfers = async (ids) => {
-    const drop = new Set(ids.filter(id => id !== undefined))
-    for (const id of drop) inFlightTransferIds.delete(id)
-    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
-    if (drop.size === 0) return
-    const next = state.pendingHandoffInputs.filter(entry => !drop.has(entry?.id))
-    if (next.length === state.pendingHandoffInputs.length) return
+  const clearPendingTransfers = async (keys) => {
+    if (rt.readOnly?.() !== undefined || keys.length === 0) return
+    const drop = new Set(keys)
+    const list = pendingTransfers()
+    const next = list.filter(entry => !drop.has(transferKey(entry)))
+    if (next.length === list.length) return
     if (next.length === 0) delete state.pendingHandoffInputs
     else state.pendingHandoffInputs = next
+    for (const key of drop) inFlightTransferIds.delete(key)
     await rt.save().catch(() => {})
   }
 
-  const noteAdmittedRpc = (sessionId, rpcId) => {
-    if (sessionId === undefined || rpcId === undefined) return
-    let set = admittedRpcIds.get(sessionId)
-    if (set === undefined) {
-      set = new Set()
-      admittedRpcIds.set(sessionId, set)
-    }
-    set.add(rpcId)
-    if (set.size > 200) set.delete(set.values().next().value)
+  const transferRpcId = entry => entry.source?.rpcId ?? entry.messageId ?? entry.id
+  const matchesTransfer = (message, entry) => message?.id === (entry.messageId ?? entry.id)
+    || (message?.source?.rpcId !== undefined && message.source.rpcId === transferRpcId(entry))
+
+  const admissionOf = (agent, entry) => {
+    const events = agent?.session?.snapshotEvents?.()
+    if (!Array.isArray(events)) return 'unknown'
+    const pending = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
+    if (pending.some(message => matchesTransfer(message, entry)) || events.some(event =>
+      event.type === 'user/message' && matchesTransfer(event.data?.message ?? event.data, entry))) return 'accepted'
+    // A durable insertion after our send started can have been claimed before a
+    // user/message event was appended. Retain its record and wait for evidence.
+    if (entry.attempt?.sessionId === sessionIdOf(agent) && events.some(event =>
+      event.seq > entry.attempt.afterSeq && event.type === 'agent/inbox/spliced'
+      && event.data?.inserted?.some(message => matchesTransfer(message, entry)))) return 'unknown'
+    return 'missing'
   }
 
-  const isAdmittedOn = (agent, rpcId) => {
-    if (rpcId === undefined || agent === undefined) return false
-    const sid = agent.id ?? agent.session?.id
-    if (sid !== undefined && admittedRpcIds.get(sid)?.has(rpcId)) return true
-    for (const list of [agent.inbox?.nextStep ?? [], agent.inbox?.nextTurn ?? []]) {
-      if (list.some(msg => msg?.source?.rpcId === rpcId)) return true
-    }
-    for (const ev of agent.session?.snapshotEvents?.() ?? []) {
-      if (ev?.type === 'user/message' && ev.data?.source?.rpcId === rpcId) return true
+  async function confirmAdmission(agent, entry, waitForClaim = false) {
+    try {
+      // A waking send can claim an idle inbox immediately. Give the loop a
+      // short chance to append its user event without sending the input again.
+      for (const delay of waitForClaim ? [0, 5, 15, 40] : [0]) {
+        if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+        if (admissionOf(agent, entry) !== 'accepted') continue
+        if ((await ctx.sessions.flush(agent.session)) !== true) return false
+        if (admissionOf(agent, entry) === 'accepted') return true
+      }
+    } catch {
+      return false
     }
     return false
+  }
+
+  async function deliverPendingInput(agent, item, target, send, restoring = false) {
+    const key = item.transferKey
+    const entry = pendingTransfers().find(record => transferKey(record) === key) ?? (restoring ? item.transfer : undefined)
+    if (key !== undefined && entry === undefined) return true
+    const sid = sessionIdOf(agent)
+    const current = () => {
+      if (sid === undefined || (ctx.get('agents')?.get(sid) ?? agent) !== agent || rt.taskOwners?.has(sid)) return false
+      // A part switch can carry the restored inbox to its successor. The
+      // original Agent still owns that input even if state.json is read-only.
+      if (restoring) {
+        const botId = rt.selfOf(sid)
+        return rt.botOf(botId) !== undefined && (entry?.botId === undefined || entry.botId === botId)
+      }
+      return rt.readOnly?.() === undefined && !rt.isSwitchingPart?.(sid)
+        && (entry === undefined || (pendingTransfers().includes(entry) && transferTarget(entry) === sid))
+    }
+    if (!current()) return false
+    if (entry !== undefined) {
+      const status = admissionOf(agent, entry)
+      if (status !== 'missing') return status === 'accepted' && await confirmAdmission(agent, entry)
+      entry.attempt = { sessionId: sid, afterSeq: agent.session.snapshotEvents().at(-1)?.seq ?? -1, ...(target ? { target } : {}) }
+      if (rt.readOnly?.() === undefined) await rt.save({ required: true }).catch(() => {})
+      if (!current()) return false
+      const afterSave = admissionOf(agent, entry)
+      if (afterSave !== 'missing') return afterSave === 'accepted' && await confirmAdmission(agent, entry)
+    }
+    const original = entry ?? item.msg
+    const baseSource = original.source ?? { kind: 'user' }
+    const rpcId = entry === undefined ? baseSource.rpcId : transferRpcId(entry)
+    const source = rpcId === undefined ? baseSource : { ...baseSource, rpcId }
+    const message = { ...item.msg, id: entry?.messageId ?? item.msg.id, content: original.content, role: 'user', source }
+    skipInterceptIds.add(message.id)
+    try {
+      send(message)
+    } catch (error) {
+      if (entry === undefined || admissionOf(agent, entry) === 'missing') throw error
+    } finally {
+      skipInterceptIds.delete(message.id)
+    }
+    return entry === undefined || await confirmAdmission(agent, entry, true)
   }
 
   // Pulls earlier pending user-authored messages in FIFO order (next-step before
@@ -874,67 +923,60 @@ export function install(rt) {
     return pulled
   }
 
-  // Restores pulled user messages back to their original Agent (pre-commit failure only)
-  // without triggering `interceptForegroundUserMessage`, waking an idle Agent if needed.
-  const restorePulledMessages = (items) => {
-    const ids = []
+  async function restorePulledMessages(items) {
     for (const item of items) {
-      if (item.transferId !== undefined) ids.push(item.transferId)
-      const key = item.msg?.id
-      if (key !== undefined) skipInterceptIds.add(key)
+      const key = item.transferKey
+      const agent = item.oldAgent
+      let accepted = false
       try {
-        if (typeof item.oldAgent?.send === 'function') item.oldAgent.send(item.msg, item.target, true)
-        else item.oldAgent?.followup?.(item.msg)
-      } catch {}
-      finally {
-        if (key !== undefined) skipInterceptIds.delete(key)
+        accepted = await deliverPendingInput(agent, item, item.target, message => {
+          if (typeof agent.send === 'function') agent.send(message, item.target, true)
+          else agent.followup(message)
+        }, true)
+        if (accepted) await clearPendingTransfers([key])
+      } catch {
+        // The journal remains available if the Agent or a durability write failed.
+      } finally {
+        inFlightTransferIds.delete(key)
       }
+      if (accepted) ctx.logger.info('ds-bot: original Session %s restored handoff input %s', sessionIdOf(agent), item.msg.id)
+      else rt.warn('ds-bot: original Session %s has a pending handoff input %s', sessionIdOf(agent), item.msg.id)
     }
-    if (ids.length > 0) void clearPendingTransfers(ids)
   }
 
-  // Delivers pulled user messages onto a target foreground Session, retrying transient
-  // destination failures without duplicating already-admitted items.
-  const forwardPulledMessages = async (targetSid, items, botName) => {
-    if (items.length === 0) return
-    let nextIndex = 0
+  // Retry a transient failure to resolve or enqueue on the foreground; an
+  // ambiguous admission stays in the journal without a second delivery.
+  async function forwardPulledMessages(targetSid, items, preserveQueue = false) {
     const delays = [50, 250]
-    for (let attempt = 0; attempt <= delays.length; attempt += 1) {
-      try {
-        await rt.ensureCapabilities(targetSid)
-        const freshAgent = await rt.resolveAgent(targetSid)
-        while (nextIndex < items.length) {
-          const item = items[nextIndex]
-          const rpcId = item.transferId ?? item.msg?.source?.rpcId
-          if (rpcId === undefined || !isAdmittedOn(freshAgent, rpcId)) {
-            const baseSource = item.msg.source ?? { kind: 'user' }
-            const source = baseSource.rpcId !== undefined || rpcId === undefined
-              ? baseSource
-              : { ...baseSource, rpcId }
-            const forwarded = createUserMessage({ content: item.msg.content, source })
-            skipInterceptIds.add(forwarded.id)
-            try {
-              freshAgent.followup(forwarded)
-              noteAdmittedRpc(targetSid, rpcId)
-            } finally {
-              skipInterceptIds.delete(forwarded.id)
-            }
-          }
-          nextIndex += 1
-        }
-        await ctx.sessions.flush(freshAgent.session)
-        await clearPendingTransfers(items.map(item => item.transferId))
-        return
-      } catch (error) {
-        if (attempt < delays.length) {
-          await new Promise(resolve => setTimeout(resolve, delays[attempt]))
-          continue
-        }
-        for (const item of items) {
-          if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
-        }
-        rt.warn('ds-bot: forwarding queued input to new foreground %s for %s failed: %s', targetSid, botName ?? '?', error)
+    try {
+      let agent
+      for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+        try {
+          await rt.ensureCapabilities(targetSid)
+          agent = await rt.resolveAgent(targetSid)
+          if (agent !== undefined) break
+        } catch {}
+        if (attempt < delays.length) await new Promise(resolve => setTimeout(resolve, delays[attempt]))
       }
+      for (const item of items) {
+        let accepted = false
+        const target = preserveQueue ? item.target : undefined
+        for (let attempt = 0; agent !== undefined && attempt <= delays.length; attempt += 1) {
+          try {
+            accepted = await deliverPendingInput(agent, item, target, message => {
+              if (target !== undefined && typeof agent.send === 'function') agent.send(message, target, true)
+              else agent.followup(message)
+            })
+            break
+          } catch {
+            if (attempt < delays.length) await new Promise(resolve => setTimeout(resolve, delays[attempt]))
+          }
+        }
+        if (accepted) await clearPendingTransfers([item.transferKey])
+        else rt.warn('ds-bot: foreground Session %s has a pending handoff input %s', targetSid, item.msg.id)
+      }
+    } finally {
+      for (const item of items) inFlightTransferIds.delete(item.transferKey)
     }
   }
 
@@ -948,7 +990,7 @@ export function install(rt) {
       if (initialMessages.length > 0) {
         recordPendingTransfers(initialMessages, { botId: bot.id })
         if (existing.committed && existing.newSid !== undefined) {
-          void forwardPulledMessages(existing.newSid, initialMessages, bot.name)
+          void forwardPulledMessages(existing.newSid, initialMessages)
         } else {
           existing.messages.push(...initialMessages)
         }
@@ -982,13 +1024,17 @@ export function install(rt) {
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
     const record = { oldSid, committed: false, newSid: undefined, messages: seededMessages, promise: undefined }
+    const restoreBeforeCommit = async () => {
+      while (record.messages.length > 0) await restorePulledMessages(record.messages.splice(0))
+      if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
+    }
     const run = (async () => {
-      if (record.messages.length > 0) await rt.save().catch(() => {})
       let forkedResult
       try {
+        if (record.messages.length > 0) await rt.save({ required: true })
         forkedResult = await rt.forkForegroundPart(bot, oldSid)
       } catch (error) {
-        restorePulledMessages(record.messages.splice(0))
+        await restoreBeforeCommit()
         throw error
       }
       const { sessionId: newSid, forked, syncRoute } = forkedResult
@@ -999,11 +1045,12 @@ export function install(rt) {
         const pending = record.messages.splice(0)
         if (pending.length > 0) {
           if (currentSid !== undefined && currentSid !== oldSid && !rt.taskOwners?.has(currentSid)) {
-            await forwardPulledMessages(currentSid, pending, bot.name)
+            await forwardPulledMessages(currentSid, pending)
           } else if (rt.botOf(bot.id) === bot) {
-            restorePulledMessages(pending)
+            record.messages.unshift(...pending)
+            await restoreBeforeCommit()
           } else {
-            await clearPendingTransfers(pending.map(item => item.transferId))
+            await clearPendingTransfers(pending.map(item => item.transferKey))
           }
         }
         return currentSid ?? newSid
@@ -1112,7 +1159,7 @@ export function install(rt) {
       // (including when `channel.js:sendUser` initiated the handoff).
       while (record.messages.length > 0) {
         const batch = record.messages.splice(0)
-        await forwardPulledMessages(newSid, batch, bot.name)
+        await forwardPulledMessages(newSid, batch)
       }
       return newSid
     })()
@@ -1120,7 +1167,7 @@ export function install(rt) {
     record.promise = run.finally(() => {
       if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
       if (record.committed && record.newSid !== undefined && record.messages.length > 0) {
-        void forwardPulledMessages(record.newSid, record.messages.splice(0), bot.name)
+        void forwardPulledMessages(record.newSid, record.messages.splice(0))
       }
     })
     handoffing.set(bot.id, record)
@@ -1208,8 +1255,8 @@ export function install(rt) {
         if (taskOwner.roomId !== undefined) {
           const room = rt.roomOf(taskOwner.roomId)
           const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-          if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name)
-          else await clearPendingTransfers(pulled.map(item => item.transferId))
+          if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled)
+          else await clearPendingTransfers(pulled.map(item => item.transferKey))
           return
         }
         const pending = handoffing.get(taskOwner.botId)
@@ -1217,7 +1264,7 @@ export function install(rt) {
         const ownerBot = rt.botOf(taskOwner.botId)
         let fgSid = ownerBot === undefined ? undefined : rt.chatOf(ownerBot.id)
         if (fgSid === undefined || fgSid === id || rt.taskOwners?.has(fgSid)) {
-          await clearPendingTransfers(pulled.map(item => item.transferId))
+          await clearPendingTransfers(pulled.map(item => item.transferKey))
           return
         }
         if (shouldMoveForeground(ownerBot, fgSid)) {
@@ -1226,7 +1273,7 @@ export function install(rt) {
           fgSid = await handoffForeground(ownerBot, fgSid, rebased)
           return
         }
-        await forwardPulledMessages(fgSid, pulled, ownerBot?.name)
+        await forwardPulledMessages(fgSid, pulled)
       })().catch(error => rt.warn('ds-bot: redirecting user input from background task %s failed: %s', id, error))
       return
     }
@@ -1239,15 +1286,16 @@ export function install(rt) {
     if (agent?.inbox?.remove === undefined) return
     const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
     if (!agent.inbox.remove(msg.id)) {
-      if (earlier.length > 0) restorePulledMessages(earlier)
+      recordPendingTransfers(earlier, { botId: bot.id })
+      void restorePulledMessages(earlier)
       return
     }
     clearSteeredAt()
     const pulled = [...earlier, { msg, target, oldAgent: agent }]
     recordPendingTransfers(pulled, { botId: bot.id })
 
-    void handoffForeground(bot, id, pulled).catch((error) => {
-      rt.warn('ds-bot: foreground handoff for %s failed; restored input: %s', bot.name, error)
+    void handoffForeground(bot, id, pulled).catch(() => {
+      rt.warn('ds-bot: foreground handoff failed for Bot %s in Session %s', bot.id, id)
     })
   }
 
