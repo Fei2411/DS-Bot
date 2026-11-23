@@ -15,6 +15,7 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, isWorkTool, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { replaceFile } from './files.js'
+import { stripOwnName } from './groups.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
@@ -439,7 +440,7 @@ export function install(rt) {
       const cancelled = refWork !== undefined && rt.closedWorkOf?.(refWork)?.status === 'cancelled'
       const workState = refWork === undefined ? undefined : rt.workStateOf?.(refWork)
       const staleWorkState = refWork !== undefined && (
-        workState === 'paused'
+        (args.role === 'request' && workState === 'paused')
         || (args.role === 'ask_back' && workState !== 'need_input')
         || (args.role === 'answer' && workState !== 'open')
       )
@@ -707,8 +708,10 @@ export function install(rt) {
     const queuedPosts = [...(roomAgent?.inbox?.nextStep ?? []), ...(roomAgent?.inbox?.nextTurn ?? [])]
       .filter(msg => msg?.source?.kind === SOURCE_KIND && msg.source.role === 'post' && msg.source.senderSessionId === bot.id)
     const info = record.trigger ?? { role: 'room', roomId: room.id }
+    const isMemberFailureLine = (line, botId) => (line?.about === botId || line?.botId === botId)
+      && ((line?.kind === 'notice' && line?.reason === 'failed') || line?.kind === 'failed' || line?.failed !== undefined)
     if (reason.kind === 'error') {
-      const alreadyPostedFailure = roomLines.some(line => line?.botId === bot.id && line.failed !== undefined && (line.time ?? 0) >= since)
+      const alreadyPostedFailure = roomLines.some(line => isMemberFailureLine(line, bot.id) && (line.time ?? 0) >= since)
         || queuedPosts.some(msg => msg.source?.failed !== undefined)
       if (!alreadyPostedFailure) {
         await rt.lateRoomFailure?.(sessionId, info, turnFailure(reason.error))
@@ -719,11 +722,11 @@ export function install(rt) {
     if (reason.kind !== 'aborted') {
       const said = turn.texts.join('\n\n').trim()
       const reply = reason.kind === 'max-tokens' ? cutOffText(said) : said
-      const trimmed = reply.trim()
+      const trimmed = stripOwnName(bot.name, reply).trim()
       const alreadyPosted = trimmed !== '' && (
         roomLines.some(line => line?.botId === bot.id && !line.progress && line.kind !== 'resumed'
-          && (line.time ?? 0) >= since && typeof line.text === 'string' && line.text.trim() === trimmed)
-        || queuedPosts.some(msg => textOf(msg.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '').trim() === trimmed)
+          && (line.time ?? 0) >= since && typeof line.text === 'string' && stripOwnName(bot.name, line.text).trim() === trimmed)
+        || queuedPosts.some(msg => stripOwnName(bot.name, textOf(msg.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')).trim() === trimmed)
       )
       if (!alreadyPosted) {
         await rt.lateRoomReply?.(sessionId, info, reply, { toolCount: turn.toolCount ?? 0 })

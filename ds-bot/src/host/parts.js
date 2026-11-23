@@ -1659,14 +1659,8 @@ export function install(rt) {
         const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
-          const silentEntries = rt.takeSilentEntries?.(sessionId) ?? []
-          try {
-            await forward(owner, [...held, ...silentEntries.map(entry => entry.message)], target)
-            void rt.markSilentDelivered?.(silentEntries, target)
-          } catch (error) {
-            rt.putBackSilentNotes?.(sessionId, silentEntries)
-            throw error
-          }
+          await forward(owner, held, target)
+          await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
@@ -1980,14 +1974,11 @@ export function install(rt) {
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
       carry.push(...job.carry.splice(0))
-      const silentEntries = rt.takeSilentEntries?.(agent.id) ?? []
-      try {
-        await forward(job, [...carry, ...held, ...silentEntries.map(entry => entry.message)], freshId)
-        void rt.markSilentDelivered?.(silentEntries, freshId)
-      } catch (error) {
-        rt.putBackSilentNotes?.(agent.id, silentEntries)
-        throw error
-      }
+      await forward(job, [...carry, ...held], freshId)
+      // Migrate buffered silent entries after forward succeeds so entry.ledger stays
+      // intact until freshId actually flushes (or takes them on pre-step), and a failed
+      // forward never leaves duplicate silent notes on both old and new parts.
+      void rt.moveSilentNotes?.(agent.id, freshId)
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
@@ -2430,8 +2421,9 @@ export function install(rt) {
         // Suppress silent [PASS]/stub replies on Bot-triggered own-chat turns immediately
         // (before turn/end records exchangeTurns) so live feed and sidebar preview never flash [PASS].
         const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+        const eventTurn = event.data?.turn ?? turn
         const isLiveBotTurn = !sawTurnBoundary && liveBotTriggered
-          && (live.turn === undefined || event.data?.turn === undefined || event.data.turn === live.turn)
+          && (live.turn === undefined || eventTurn === undefined || eventTurn === live.turn)
         if (options.taskView !== true && (turnKind === 'bot' || isLiveBotTurn) && isSilentTurnText(textOf(content))) continue
         for (const block of content) {
           if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') stamp(event, { kind: 'bot', text: block.text, time: event.time })

@@ -124,7 +124,17 @@ export function install(rt) {
     pendingSilent.set(sessionId, [...restored, ...existing])
     syncSilent(sessionId)
   }
-  async function flushSilentNotes(sessionId) {
+  const pendingMessageIds = (agent) => new Set([
+    ...(agent?.inbox?.nextStep ?? []),
+    ...(agent?.inbox?.nextTurn ?? []),
+  ].map(item => item?.id).filter(Boolean))
+  const injectIfNotPending = (agent, message, pendingIds) => {
+    if (message?.id !== undefined && pendingIds.has(message.id)) return false
+    agent.inject(message)
+    if (message?.id !== undefined) pendingIds.add(message.id)
+    return true
+  }
+  async function flushSilentNotes(sessionId, { rethrow = false } = {}) {
     if (!pendingSilent.has(sessionId) || flushingSilent.has(sessionId)) return
     if (rt.live?.get(sessionId)?.turn !== undefined) return
     flushingSilent.add(sessionId)
@@ -147,13 +157,15 @@ export function install(rt) {
       queued = pendingSilent.get(sessionId)
       if (queued === undefined || queued.length === 0) return
       pendingSilent.delete(sessionId)
-      for (const entry of queued) agent.inject(entry.message)
+      const pendingIds = pendingMessageIds(agent)
+      for (const entry of queued) injectIfNotPending(agent, entry.message, pendingIds)
       await ctx.sessions.flush(agent.session)
       syncSilent(sessionId)
       void markSilentDelivered(queued, sessionId)
       queued = undefined
     } catch (error) {
       if (queued !== undefined && queued.length > 0) putBackSilentNotes(sessionId, queued)
+      if (rethrow) throw error
       rt.warn('ds-bot: flushing silent notes for %s failed: %s', sessionId, error)
     } finally {
       flushingSilent.delete(sessionId)
@@ -167,24 +179,31 @@ export function install(rt) {
     return queued
   }
   const takeSilentNotes = (sessionId) => takeSilentEntries(sessionId).map(entry => entry.message)
-  const moveSilentNotes = (fromSessionId, toSessionId) => {
-    if (fromSessionId === undefined || toSessionId === undefined || fromSessionId === toSessionId) return
+  const moveSilentNotes = (fromSessionId, toSessionId, { awaitFlush = false, rethrow = false } = {}) => {
+    if (fromSessionId === undefined || toSessionId === undefined || fromSessionId === toSessionId) return Promise.resolve()
     const entries = takeSilentEntries(fromSessionId)
-    if (entries.length === 0) return
-    const targetList = pendingSilent.get(toSessionId) ?? []
-    const seenIds = new Set(targetList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
-    for (const entry of entries) {
-      const exId = entry?.message?.source?.exchangeId
-      if (exId !== undefined && seenIds.has(exId)) continue
-      if (exId !== undefined) seenIds.add(exId)
-      targetList.push({
-        message: entry.message,
-        ...(entry.ledger !== undefined ? { ledger: { ...entry.ledger, sessionId: toSessionId } } : {}),
-      })
+    if (entries.length > 0) {
+      const targetList = pendingSilent.get(toSessionId) ?? []
+      const seenIds = new Set(targetList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
+      const seenMsgIds = new Set(targetList.map(item => item?.message?.id).filter(Boolean))
+      for (const entry of entries) {
+        const exId = entry?.message?.source?.exchangeId
+        const msgId = entry?.message?.id
+        if ((exId !== undefined && seenIds.has(exId)) || (msgId !== undefined && seenMsgIds.has(msgId))) continue
+        if (exId !== undefined) seenIds.add(exId)
+        if (msgId !== undefined) seenMsgIds.add(msgId)
+        targetList.push({
+          message: entry.message,
+          ...(entry.ledger !== undefined ? { ledger: { ...entry.ledger, sessionId: toSessionId } } : {}),
+        })
+      }
+      pendingSilent.set(toSessionId, targetList)
+      syncSilent(toSessionId)
     }
-    pendingSilent.set(toSessionId, targetList)
-    syncSilent(toSessionId)
+    if (!pendingSilent.has(toSessionId)) return Promise.resolve()
+    if (awaitFlush) return flushSilentNotes(toSessionId, { rethrow })
     queueMicrotask(() => void flushSilentNotes(toSessionId))
+    return Promise.resolve()
   }
   async function restoreSilentNotes(savedMap) {
     if (savedMap === null || typeof savedMap !== 'object') return
@@ -225,22 +244,43 @@ export function install(rt) {
       bufferSilent(sessionId, message, agent, ledger)
       return false
     }
-    agent.inject(message)
+    injectIfNotPending(agent, message, pendingMessageIds(agent))
     return true
   }
 
-  // Deterministically prepend any buffered silent notices before step 1 of the next
-  // turn so queued work (e.g. `delegate_work` after `note_bot`) never runs ahead of them.
-  ctx.on('agent/pre-step', async ({ agent, step, signal }, next) => {
+  const NON_WAKING_PRE_STEP_KINDS = new Set([
+    'working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context',
+    'bot-memory', 'skill-catalog', 'compact-checkpoint', 'snapshot',
+  ])
+  const isWakingPreStepMessage = (msg) => {
+    const src = msg?.source
+    if (src === undefined) return true
+    if (src.form === 'snapshot' || NON_WAKING_PRE_STEP_KINDS.has(src.kind)) return false
+    if (src.kind === SOURCE_KIND && (src.silent === true || ['note', 'cancelled', 'stopped'].includes(src.role))) return false
+    return true
+  }
+
+  // Deterministically prepend any buffered silent notices before step 1 of a real
+  // waking turn so queued work (e.g. `delegate_work` after `note_bot`) never runs
+  // ahead of them, while never waking an empty or snapshot-only wake boundary.
+  ctx.on('agent/pre-step', async ({ agent, step, messages, signal }, next) => {
     const decision = await next()
     if (decision?.kind === 'reject' || signal?.aborted || !Array.isArray(decision?.messages)) return decision
-    if (step !== 1 || !pendingSilent.has(agent.id)) return decision
+    if (step !== 1 || !decision.messages.some(isWakingPreStepMessage) || (Array.isArray(messages) && !messages.some(isWakingPreStepMessage))) return decision
+    if (!pendingSilent.has(agent.id)) return decision
     const entries = takeSilentEntries(agent.id)
     if (entries.length === 0) return decision
+    const alreadyIds = new Set(decision.messages.map(m => m?.id).filter(Boolean))
+    const alreadyExchanges = new Set(decision.messages.map(m => m?.source?.exchangeId).filter(Boolean))
+    const toPrepend = entries
+      .map(entry => entry.message)
+      .filter(msg => (msg?.id === undefined || !alreadyIds.has(msg.id))
+        && (msg?.source?.exchangeId === undefined || !alreadyExchanges.has(msg.source.exchangeId)))
     void markSilentDelivered(entries, agent.id)
+    if (toPrepend.length === 0) return decision
     return {
       ...decision,
-      messages: [...entries.map(entry => entry.message), ...decision.messages],
+      messages: [...toPrepend, ...decision.messages],
     }
   })
 
@@ -454,13 +494,21 @@ export function install(rt) {
       const takenSilent = !isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)
         ? takeSilentEntries(targetSessionId)
         : []
+      let woke = false
       try {
-        for (const entry of takenSilent) agent.inject(entry.message)
+        const pendingIds = pendingMessageIds(agent)
+        for (const entry of takenSilent) injectIfNotPending(agent, entry.message, pendingIds)
         if (steer) agent.steer(message)
         else agent.followup(message)
+        woke = true
         await ctx.sessions.flush(agent.session)
       } catch (error) {
-        if (takenSilent.length > 0) putBackSilentNotes(targetSessionId, takenSilent)
+        // Restore silent notes only if the waking call itself never ran; once steer/followup
+        // woke the turn, already-injected notes sit in the agent's inbox for that turn and
+        // must not be re-buffered (which would duplicate them or collide on message.id).
+        if (!woke && takenSilent.length > 0) {
+          putBackSilentNotes(targetSessionId, takenSilent)
+        }
         throw error
       }
       if (takenSilent.length > 0) void markSilentDelivered(takenSilent, targetSessionId)

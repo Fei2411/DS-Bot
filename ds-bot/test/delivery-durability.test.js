@@ -72,8 +72,18 @@ async function startHost(t, { home: existingHome, team, logs = new Map(), flushI
     const inbox = {
       nextStep: [],
       nextTurn: [],
-      prepend(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).unshift(msg) },
-      append(queue, msg) { (queue === 'next-step' ? this.nextStep : this.nextTurn).push(msg) },
+      prepend(queue, msg) {
+        if (msg?.id !== undefined && [...this.nextStep, ...this.nextTurn].some(item => item?.id === msg.id)) {
+          throw new Error(`message "${msg.id}" is already pending`)
+        }
+        ;(queue === 'next-step' ? this.nextStep : this.nextTurn).unshift(msg)
+      },
+      append(queue, msg) {
+        if (msg?.id !== undefined && [...this.nextStep, ...this.nextTurn].some(item => item?.id === msg.id)) {
+          throw new Error(`message "${msg.id}" is already pending`)
+        }
+        ;(queue === 'next-step' ? this.nextStep : this.nextTurn).push(msg)
+      },
       remove(msgId) {
         for (const list of [this.nextStep, this.nextTurn]) {
           const at = list.findIndex(item => item?.id === msgId)
@@ -179,7 +189,7 @@ async function startHost(t, { home: existingHome, team, logs = new Map(), flushI
 }
 
 // Real DSH ReactLoopAgent rig for testing agent/pre-step deterministic ordering.
-async function createRealAgentRig(t, { streamHandler, team = makeTeam() } = {}) {
+async function createRealAgentRig(t, { streamHandler, team = makeTeam(), hasDshClock = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-durability-real-'))
   const workDir = join(home, 'workspace')
   mkdirSync(workDir, { recursive: true })
@@ -243,6 +253,7 @@ async function createRealAgentRig(t, { streamHandler, team = makeTeam() } = {}) 
         inspect: async sid => ({ events: (agents.get(sid) ?? root.agents.get(sid))?.session?.snapshotEvents?.() ?? [] }),
       },
       sessionTitle: { rename: async () => {} },
+      ...(hasDshClock ? { sessionProjections: { stateOf: (_session, key) => (key === 'timeContext' ? {} : undefined) } } : {}),
     },
   })
   Object.assign(ctx, {
@@ -376,6 +387,7 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
         { at: 10, args: { fromId: 'a', toId: 'b', text: 'stale paused', role: 'request', exchangeId: 'w_paused' } },
         { at: 11, args: { fromId: 'c', toId: 'b', text: 'stale ask', role: 'ask_back', askWork: 'w_open_not_need_input', exchangeId: 'q-stale-ask' } },
         { at: 12, args: { fromId: 'a', toId: 'b', text: 'stale ans', role: 'answer', work: 'w_need_input_not_open', exchangeId: 'q-stale-ans' } },
+        { at: 13, args: { fromId: 'c', toId: 'b', text: 'child done for paused parent', role: 'reply', work: 'w_paused', replyTo: 'w_child_of_paused', exchangeId: 'ex-child-for-paused-parent' } },
       ],
     },
   }))
@@ -417,7 +429,7 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
 
   const host = await startHost(t, { home, team, logs })
   t.mock.timers.tick(3000)
-  await settle(() => (host.agents.get('dm-b')?.calls.length ?? 0) >= 3 && (host.agents.get('dm-c')?.calls.length ?? 0) >= 2, 2000)
+  await settle(() => (host.agents.get('dm-b')?.calls.length ?? 0) >= 4 && (host.agents.get('dm-c')?.calls.length ?? 0) >= 2, 2000)
 
   const bMsgs = host.agents.get('dm-b').calls.map(([, m]) => m)
   // Ordinary user turn was completed -> MUST NOT be re-run as role: 'resume'!
@@ -428,17 +440,19 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
   assert.deepEqual(recReply.content.filter(b => b.type === 'image').map(b => b.attachment), [img])
   assert.ok(bMsgs.some(m => m.source?.exchangeId === 'ex-steered-ask' && m.source?.role === 'ask_back' && m.source?.deferred === true))
   assert.ok(bMsgs.some(m => m.source?.exchangeId === 'ex-steered-ans' && m.source?.role === 'answer' && m.source?.deferred === true))
-  // Stale paused/ask_back/answer queued items were all filtered out by resendQueued!
+  // Stale paused request / mismatched ask_back / mismatched answer were filtered out by resendQueued,
+  // while a child reply for a paused parent work MUST still be resent so it does not strand parent.open!
   assert.equal(bMsgs.some(m => ['w_paused', 'q-stale-ask', 'q-stale-ans'].includes(m.source?.exchangeId)), false, 'stale queued items must not be resent')
+  assert.ok(bMsgs.some(m => m.source?.exchangeId === 'ex-child-for-paused-parent' && m.source?.role === 'reply'), 'child reply for paused parent work must still be resent')
 
   // Cut turn on dm-c resumed primary trigger AND recovered steered request w_cut_steered!
   const cMsgs = host.agents.get('dm-c').calls.map(([, m]) => m)
   assert.ok(cMsgs.some(m => m.source?.exchangeId === 'w_cut_primary' && m.source?.resumed === true))
   assert.ok(cMsgs.some(m => m.source?.exchangeId === 'w_cut_steered' && m.source?.deferred === true))
 
-  // Atomic inflight.json write leaves no leftover .tmp files.
-  const leftoverTmp = readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp'))
-  assert.deepEqual(leftoverTmp, [])
+  // Atomic inflight.json write leaves no leftover .tmp files once async persist settles.
+  await settle(() => readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp')).length === 0, 2000, 'atomic inflight.json write must leave no leftover .tmp files')
+  assert.doesNotThrow(() => JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')))
 })
 
 test('G-08 & G-09: unseen completed/failed group turns reconcile once, double-interrupt resets tasks, aborted turn keeps non-stopped joined room call', async (t) => {
@@ -519,6 +533,53 @@ test('G-08 & G-09: unseen completed/failed group turns reconcile once, double-in
   host.emit('gb', 'turn/end', { turn: 11, reason: { kind: 'aborted', reason: { kind: 'disposed' } } })
   await realDelay(30)
   assert.equal(host.agents.get('gb').calls.length, gbBeforeDisposed, 'G-09: disposed abort must not redeliver during shutdown')
+
+  // P1-4 & P2-2: reconcileEndedGroupTurn dedups against real groups.js:noteFailure ledger rows
+  // (`{ kind: 'notice', reason: 'failed', about: member.id }`) AND own-name-prefixed replies (`Writer: ...`)!
+  const homeDedup = mkdtempSync(join(tmpdir(), 'ds-bot-g08-dedup-'))
+  t.after(() => rmSync(homeDedup, { recursive: true, force: true, maxRetries: 5 }))
+  mkdirSync(join(homeDedup, 'ledger'), { recursive: true })
+  writeFileSync(join(homeDedup, 'ledger', bookFile('group-r1')), [
+    JSON.stringify({ seq: 1, who: 'DS Bot', kind: 'notice', reason: 'failed', names: ['Chief'], about: 'a', code: 'RATE_LIMIT', message: '429', time: 20 }),
+    JSON.stringify({ seq: 2, botId: 'b', name: 'Writer', text: 'Deployment verified green.', time: 20 }),
+  ].join('\n') + '\n', 'utf8')
+  writeFileSync(join(homeDedup, 'inflight.json'), JSON.stringify({
+    turns: {
+      ga: { botId: 'a', roomId: 'r1', turn: 1, since: 10, trigger: { role: 'room', roomId: 'r1', exchangeId: 'room-dedup-err' } },
+      gb: { botId: 'b', roomId: 'r1', turn: 1, since: 10, trigger: { role: 'room', roomId: 'r1', askedBy: 'a', exchangeId: 'room-dedup-ok' } },
+    },
+    queued: {},
+  }))
+  const dedupTeam = makeTeam({
+    rooms: {
+      r1: {
+        id: 'r1', name: 'Ops', members: ['a', 'b', 'c'], mode: 'admin', admin: 'a', named: true,
+        sessions: { a: 'ga', b: 'gb', c: 'gc' }, log: [], seq: 2, seen: {},
+        goal: {
+          id: 'g1', title: 'Ship', status: 'active', current: 0, revision: 0,
+          stages: [{ id: 's1', title: 'Stage 1', status: 'active', tasks: [{ id: 'gtask1', botId: 'a', title: 'Check', status: 'working' }] }],
+        },
+      },
+    },
+  })
+  const dedupLogs = new Map([
+    ['ga', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', exchangeId: 'room-dedup-err' }, content: textBlock('[Group chat "Ops"]\nCoordinate') } },
+      { type: 'turn/end', seq: 3, data: { turn: 1, reason: { kind: 'error', error: { code: 'RATE_LIMIT', message: '429' } } } },
+    ]],
+    ['gb', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', askedBy: 'a', exchangeId: 'room-dedup-ok' }, content: textBlock('[Group chat "Ops"]\nGive status') } },
+      { type: 'assistant/message', seq: 3, data: { message: { content: textBlock('Writer: Deployment verified green.') } } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+  const hostDedup = await startHost(t, { home: homeDedup, team: dedupTeam, logs: dedupLogs })
+  t.mock.timers.tick(3000)
+  await realDelay(40)
+  assert.equal(hostDedup.agents.get('r1')?.calls.length ?? 0, 0, 'real noteFailure ledger row and own-name-prefixed reply must dedup cleanly without double posting')
+  assert.equal(hostDedup.rt.state.rooms.r1.goal.stages[0].tasks[0].status, 'working', 'deduped failure must not re-run goalTaskReset')
 })
 
 test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before queued delegate_work, >50 notes kept, restart flush without waking, ledger mark after flush, handoff & cancel session targeting', async (t) => {
@@ -575,6 +636,105 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
   assert.ok(noteIdx !== -1 && workIdx !== -1, `Turn 2 must see both messages: ${JSON.stringify(turn2Messages)}`)
   assert.ok(noteIdx < workIdx, `silent note (${noteIdx}) must causally precede queued delegate_work (${workIdx})`)
   await settle(() => rig.rt.exchangesOf('a', 'b').some(e => e.text.includes('CRITICAL_NOTE_FIRST')), 2000, 'ledger delivered mark must land after pre-step flush')
+  await writer.whenIdle()
+
+  // 1b) Real ReactLoopAgent P1-1 flush retry + P1-2 zero-wake on empty wake boundary:
+  //     - Inject silent note -> first sessions.flush throws -> retry MUST NOT crash ReactLoopInbox with
+  //       `message "<id>" is already pending`, and succeeds cleanly on second flush!
+  //     - Empty pre-step batch (`messages: []` / hook-emptied `decision.messages: []`) with buffered silent notes
+  //       MUST NOT wake an LLM stream call and MUST leave silent notes buffered intact!
+  let reviewerStreamCalls = 0
+  let releaseRetryTurn
+  const retryTurnEntered = new Promise(resolve => { releaseRetryTurn = resolve })
+  let finishRetryTurn
+  const holdRetryTurn = new Promise(resolve => { finishRetryTurn = resolve })
+  const rig2 = await createRealAgentRig(t, {
+    hasDshClock: true,
+    async *streamHandler(options) {
+      if (options.sessionId === 'dm-c') {
+        reviewerStreamCalls += 1
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: 'unexpected wake' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'unexpected wake' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      if (options.sessionId === 'dm-b') {
+        releaseRetryTurn()
+        await holdRetryTurn
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: 'Retry turn done.' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Retry turn done.' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: '[PASS]' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: '[PASS]' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  })
+  const origFlush = rig2.root.sessions.flush.bind(rig2.root.sessions)
+  let failOnceFlush = false
+  rig2.root.sessions.flush = async (session) => {
+    if (failOnceFlush && session?.id === 'dm-b') {
+      failOnceFlush = false
+      throw new Error('simulated transient flush failure')
+    }
+    return origFlush(session)
+  }
+  const writer2 = rig2.agents.get('dm-b')
+  writer2.followup({ id: 'u-retry-1', role: 'user', content: textBlock('busy turn for retry test'), source: { kind: 'user' } })
+  await retryTurnEntered
+  await rig2.tool('note_bot', { to: 'Writer', note: 'RETRY_AFTER_FLUSH_ERROR' }, 'dm-a')
+  failOnceFlush = true
+  finishRetryTurn()
+  await writer2.whenIdle()
+  await realDelay(30)
+  // First flush failed, so note is still buffered (not yet marked delivered in pair ledger),
+  // AND the message already sits in real ReactLoopInbox.nextStep.
+  assert.equal(rig2.rt.exchangesOf('a', 'b').some(e => e.text.includes('RETRY_AFTER_FLUSH_ERROR')), false, 'failed flush must not mark delivered')
+  // Retry flush on real ReactLoopAgent MUST skip duplicate agent.inject() and succeed cleanly!
+  await rig2.rt.flushSilentNotes('dm-b')
+  await settle(() => rig2.rt.exchangesOf('a', 'b').some(e => e.text.includes('RETRY_AFTER_FLUSH_ERROR')), 2000, 'retry flush must succeed on real ReactLoopInbox without duplicate-id crash')
+
+  // P1-2: Warm up dm-c (so DSH runtime-context snapshot is already projected), then buffer a silent
+  // note and trigger a REAL ReactLoopAgent empty wake boundary (followup immediately removed before
+  // pre-step claims next-turn) -> MUST exit turn with 0 LLM calls and keep silent note buffered!
+  const reviewer2 = rig2.agents.get('dm-c')
+  reviewer2.followup({ id: 'warmup-c', role: 'user', content: textBlock('warmup'), source: { kind: 'user' } })
+  await reviewer2.whenIdle()
+  reviewerStreamCalls = 0
+  rig2.rt.live.set('dm-c', { turn: 99 })
+  await rig2.tool('note_bot', { to: 'Reviewer', note: 'ZERO_WAKE_EMPTY_PRESTEP' }, 'dm-a')
+  const emptyWakeMsg = { id: 'tmp-removed-before-claim', role: 'user', content: textBlock('cancelled before claim'), source: { kind: 'user' } }
+  await reviewer2.runMaintenance(async () => {
+    reviewer2.followup(emptyWakeMsg)
+    assert.equal(reviewer2.inbox.remove(emptyWakeMsg.id), true, 'queued message removed during maintenance leaves an empty wake boundary')
+  })
+  await reviewer2.whenIdle()
+  assert.equal(reviewerStreamCalls, 0, 'real ReactLoopAgent empty wake boundary must never wake LLM on buffered silent note')
+  const preStepListeners = rig2.ctx.listeners.get('agent/pre-step') ?? []
+  const runPreStep = (payload, baseDecision) => {
+    const run = idx => (idx < preStepListeners.length ? preStepListeners[idx](payload, () => run(idx + 1)) : Promise.resolve(baseDecision))
+    return run(0)
+  }
+  const emptyClaimDecision = await runPreStep(
+    { agent: reviewer2, step: 1, messages: [], signal: new AbortController().signal },
+    { kind: 'enter', messages: [{ id: 'rc-1', role: 'user', content: textBlock('runtime'), source: { kind: 'runtime-context' } }] },
+  )
+  assert.equal(emptyClaimDecision.messages.some(m => textOf(m.content).includes('ZERO_WAKE_EMPTY_PRESTEP')), false, 'empty claimed batch must never prepend silent notes')
+  const emptiedDecision = await runPreStep(
+    { agent: reviewer2, step: 1, messages: [{ id: 'w-1', role: 'user', content: textBlock('hi'), source: { kind: 'user' } }], signal: new AbortController().signal },
+    { kind: 'enter', messages: [] },
+  )
+  assert.equal(emptiedDecision.messages.some(m => textOf(m.content).includes('ZERO_WAKE_EMPTY_PRESTEP')), false, 'hook-emptied decision.messages must never prepend silent notes')
+  assert.equal(reviewerStreamCalls, 0, 'empty pre-step must never trigger LLM stream call')
+  // Note must still be buffered and flush cleanly once dm-c goes idle!
+  rig2.rt.live.delete('dm-c')
+  await rig2.rt.flushSilentNotes('dm-c')
+  await settle(() => rig2.rt.exchangesOf('a', 'c').some(e => e.text.includes('ZERO_WAKE_EMPTY_PRESTEP')), 2000, 'silent note preserved after skipped empty pre-step must flush on idle')
+  assert.equal(reviewerStreamCalls, 0, 'flushing silent note on idle must remain zero-wake')
 
   // 2) >50 silent notes buffered while busy (no silent 50-item cap!), persisted in inflight.json.silent,
   //    survive flush failure (restored back to buffer), and flush on restart WITHOUT waking!
@@ -598,8 +758,9 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
   // Flush failure restores all 55 entries instead of dropping them!
   failFlush = true
   host1.emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await realDelay(30)
-  assert.equal(JSON.parse(readFileSync(join(home2, 'inflight.json'), 'utf8')).silent?.['dm-b']?.length, 55, 'flush failure must restore buffered silent notes')
+  await settle(() => {
+    try { return (JSON.parse(readFileSync(join(home2, 'inflight.json'), 'utf8')).silent?.['dm-b']?.length ?? 0) === 55 } catch { return false }
+  }, 2000, 'flush failure must restore buffered silent notes')
   await host1.stop()
 
   // Restart: inflight.json.silent flushes all 55 notes via agent.inject WITHOUT waking!
@@ -633,7 +794,8 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
   await settle(() => (host3.agents.get(bgTask.sessionId)?.calls.some(([k, m]) => k === 'inject' && m.source?.role === 'cancelled')), 2000, 'cancel_work must target background task session')
   assert.equal(host3.agents.get('dm-c').calls.length, fgCallsBeforeCancel, 'cancel_work on background task must NOT pollute foreground chat')
 
-  // 4) parts.js:handOnHeld restores pendingSilent via putBackSilentNotes if forward fails, then succeeds on retry!
+  // 4) P1-3: parts.js:handOnHeld migrates silent entries cleanly without dual copies or premature delivered,
+  //    AND deliver({ wake: true }) flush failure after wakeup does not re-buffer already-injected silent notes!
   let failForward = true
   const host4 = await startHost(t, {
     team: makeTeam({
@@ -658,10 +820,47 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
   host4.rt.state.switching = { 'dm-b-old': { botId: 'b' } }
   await host4.rt.heldBack()
   assert.equal(host4.rt.state.switching['dm-b-old'] !== undefined, true, 'failed handOnHeld must keep switching marker')
-  // Silent note must have been put back on dm-b-old, not dropped!
+  // Failed flush on dm-b-new must NOT mark pair ledger delivered AND must NOT duplicate on both dm-b-old & dm-b-new!
+  assert.equal(host4.rt.exchangesOf('a', 'b').some(e => e.text.includes('Held across failed forward')), false, 'failed handOnHeld flush must not mark delivered prematurely')
+  await settle(() => {
+    try {
+      const data = JSON.parse(readFileSync(join(host4.home, 'inflight.json'), 'utf8'))
+      return (data.silent?.['dm-b-old']?.length ?? 0) === 0 && (data.silent?.['dm-b-new']?.length ?? 0) === 1
+    } catch { return false }
+  }, 2000, 'silent note must remain buffered solely on dm-b-new for retry (no dual copy on dm-b-old)')
+  // Retry succeeds cleanly without duplicate-id throw on strict inbox, and marks delivered ONCE!
   failForward = false
   await host4.rt.heldBack()
-  assert.ok(host4.agents.get('dm-b-new')?.calls.some(([, m]) => textOf(m.content).includes('Held across failed forward')), 'putBackSilentNotes must preserve silent note for next heldBack retry')
+  assert.equal(host4.rt.state.switching['dm-b-old'], undefined, 'retried handOnHeld must clear switching marker')
+  assert.equal(host4.agents.get('dm-b-new').calls.filter(([, m]) => textOf(m.content).includes('Held across failed forward')).length, 1, 'retry must not inject duplicate message')
+  await settle(() => host4.rt.exchangesOf('a', 'b').some(e => e.text.includes('Held across failed forward')), 2000, 'ledger delivered mark must land once retry flush succeeds')
+
+  // Busy target moveSilentNotes preserves entry.ledger until target goes idle and flushes (no premature delivered).
+  host4.emit('dm-c', 'turn/start', { turn: 1 })
+  host4.emit('dm-c', 'user/message', { content: textBlock('busy c'), source: { kind: 'user' } })
+  await host4.tool('note_bot', { to: 'Reviewer', note: 'Deferred ledger across part move' }, 'dm-a')
+  host4.emit('dm-c-next', 'turn/start', { turn: 1 })
+  host4.rt.chatOwners.set('dm-c-next', 'c')
+  await host4.rt.moveSilentNotes('dm-c', 'dm-c-next')
+  assert.equal(host4.rt.exchangesOf('a', 'c').some(e => e.text.includes('Deferred ledger across part move')), false, 'moving silent note onto busy target must not mark delivered prematurely')
+  host4.emit('dm-c-next', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await host4.rt.flushSilentNotes('dm-c-next')
+  await settle(() => host4.rt.exchangesOf('a', 'c').some(e => e.text.includes('Deferred ledger across part move')), 2000, 'ledger delivered mark must land once busy target flushes')
+
+  // P1-1b: deliver({ wake: true }) flush failure after followup woke the turn does NOT re-buffer already-injected silent notes!
+  let failWakeFlush = true
+  const host5 = await startHost(t, {
+    team: makeTeam(),
+    flushImpl: async () => { if (failWakeFlush) throw new Error('post-wake flush failure') },
+  })
+  host5.emit('dm-b', 'turn/start', { turn: 1 })
+  host5.emit('dm-b', 'user/message', { content: textBlock('busy'), source: { kind: 'user' } })
+  await host5.tool('note_bot', { to: 'Writer', note: 'Already injected before wake' }, 'dm-a')
+  // End turn 1 without flushing yet by clearing live directly so pendingSilent stays populated for deliver({ wake: true }).
+  host5.rt.live.delete('dm-b')
+  await assert.rejects(() => host5.rt.deliver({ fromId: 'a', toId: 'b', text: 'waking work', role: 'request' }), /post-wake flush failure/)
+  assert.equal(host5.rt.takeSilentEntries('dm-b').length, 0, 'deliver({ wake: true }) flush failure after wakeup must not re-buffer already-injected silent notes')
+  failWakeFlush = false
 })
 
 test('F9 (ledger.js, delivery.js, handoffs.js): torn newline & prepend race fixes, drop clears lastWrite, incremental pairCache, disposed resolveAgent, async dropResults + orphan sweep', async (t) => {
@@ -838,6 +1037,13 @@ test('F10 + State Hygiene + Weixin: deleteBot/startup prune requests & pair ledg
   assert.equal(received.some(e => e.data?.sessionId === activeTask.sessionId), false, 'feed.js must never publish taskOwners events or streams')
   assert.equal(received.some(e => e.event === 'message' && e.data?.item?.text === '[PASS]'), false, 'feed.js must never flash silent [PASS] on Bot-triggered turn')
   assert.equal(host.rt.chatTail('dm-a')?.preview, '（收工。）', 'sidebar tail must show real user turn, never [PASS]')
+
+  // P2-1: displayItems with seedTurn (historical mid-turn slice whose assistant/message omits event.data.turn)
+  // must NOT be misclassified as live Bot-triggered turn when live.turn !== seedTurn!
+  host.rt.live.set('dm-a', { turn: 30, info: { kind: SOURCE_KIND, role: 'reply', senderSessionId: 'b' } })
+  const histItems = host.rt.displayItems('dm-a', [{ type: 'assistant/message', seq: 5, time: 1, data: assistantText('[PASS]') }], undefined, 1)
+  assert.equal(histItems.length, 1, 'historical mid-turn slice with seedTurn !== live.turn must not be suppressed by live Bot turn')
+  host.rt.live.delete('dm-a')
 
   // 3) weixin.js: repeated consecutive identical transient poll failures coalesce and log recovery count.
   let pollCalls = 0
