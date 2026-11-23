@@ -694,6 +694,45 @@ test('a Bot whose provider is listed again without its model is moved at the nex
   assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:stepfun/step-5'])
 })
 
+test('a Bot on a fallback is moved back at the next sync once its provider cannot be listed', async () => {
+  const { rt, selected } = bench({ providers: { custom: [], stepfun: ['step-5'] } })
+  rt.state.bots = { b1: { id: 'b1', model: 'custom/x', appliedModel: 'stepfun/step-5' } }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), [])
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'custom') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:custom/x'])
+})
+
+test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  const bot = { model: 'deepseek/deepseek-v4-pro' }
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  rt.ctx.llm.listModels = listModels
+  let release
+  let reading
+  const read = new Promise((resolve) => { reading = resolve })
+  rt.missingKeys = () => { reading(); return new Promise((resolve) => { release = () => resolve(new Set()) }) }
+  const fresh = rt.catalog({ fresh: true })
+  await read
+  // The cached catalog still lacks the provider's models: its failure stands with it.
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  release()
+  await fresh
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+})
+
 test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
   const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
   rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
