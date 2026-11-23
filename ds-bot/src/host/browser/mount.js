@@ -77,7 +77,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   // DSH's public surface API, keeping the original log for the transcript.
   // Track the highest checked seq per Session so subsequent steps skip already-verified nodes.
   // Surface replacements splice higher seqs in place (incrementing replaceGeneration), so the
-  // O(1) fast path requires both tail stability and an unchanged replaceGeneration.
+  // O(1) fast path requires tail stability and unchanged replaceGeneration/contentGeneration.
   const checkedState = new WeakMap()
   const offPreStep = ctx.on?.('agent/pre-step', async ({ agent }, next) => {
     if (disposed) return next()
@@ -86,20 +86,25 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     if (nodes.length === 0) return next()
     const prev = checkedState.get(session)
     const replaceGen = session.surface?.replaceGeneration
+    const contentGen = session.surface?.contentGeneration
     const lastSeq = nodes.at(-1)
     if (
       prev !== undefined
       && typeof replaceGen === 'number'
       && prev.replaceGen === replaceGen
+      && prev.contentGen === contentGen
       && prev.nodesLen === nodes.length
       && prev.lastSeq === lastSeq
     ) return next()
     const through = prev?.through ?? -1
     let changed = false
     let highest = through
+    let initialMax = through
     let skippedUnowned = false
+    const replacedSeqs = new Set()
     const snapshot = nodes.slice()
     for (const seq of snapshot) {
+      if (seq > initialMax) initialMax = seq
       if (seq <= through) continue
       if (seq > highest) highest = seq
       const event = session.eventAt(seq)
@@ -119,17 +124,28 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
       const replacement = session.append('tool/result', { ...event.data, message: { ...message, content } }, {
         surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq],
       })
-      if (typeof replacement?.seq === 'number' && replacement.seq > highest) highest = replacement.seq
+      if (typeof replacement?.seq === 'number') {
+        replacedSeqs.add(replacement.seq)
+        if (replacement.seq > highest) highest = replacement.seq
+      }
       changed = true
     }
     if (!skippedUnowned) {
       const updated = session.surface?.nodes ?? nodes
-      checkedState.set(session, {
-        through: highest,
-        replaceGen: session.surface?.replaceGeneration,
-        nodesLen: updated.length,
-        lastSeq: updated.at(-1),
-      })
+      const sawConcurrent = updated.some(seq => seq > initialMax && !replacedSeqs.has(seq))
+      if (sawConcurrent) {
+        // An unrelated event arrived while awaiting keyOf/saveShot: only mark the initial
+        // snapshot as checked and leave the O(1) fast path uncached so the next step inspects it.
+        checkedState.set(session, { through: initialMax })
+      } else {
+        checkedState.set(session, {
+          through: highest,
+          replaceGen: session.surface?.replaceGeneration,
+          contentGen: session.surface?.contentGeneration,
+          nodesLen: updated.length,
+          lastSeq: updated.at(-1),
+        })
+      }
     }
     if (changed) await ctx.sessions.flush(session)
     return next()

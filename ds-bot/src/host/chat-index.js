@@ -99,12 +99,21 @@ export function install(rt) {
         if (read !== undefined) read.capped = true
         if (!read?.continue?.()) return
       }
-      const page = await ctx.sessionController.page({
-        address: { kind: 'session', sessionId },
-        ...(throughSeq === undefined ? {} : { throughSeq }),
-        ...(beforeSeq === undefined ? {} : { beforeSeq }),
-        maxMessages: HISTORY_PAGE,
-      }, signal)
+      let page
+      try {
+        page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId },
+          ...(throughSeq === undefined ? {} : { throughSeq }),
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          maxMessages: HISTORY_PAGE,
+        }, signal)
+      } catch (error) {
+        if (beforeSeq === undefined && (error?.code === 'session/not-found' || error?.code === 'SESSION_QUERY_SESSION_NOT_FOUND')) {
+          if (read !== undefined) read.complete = true
+          return
+        }
+        throw error
+      }
       const events = page.records.map(record => record.event)
       if (throughSeq === undefined) {
         const pinned = Number.isInteger(page.cursor) ? page.cursor : events.at(-1)?.seq

@@ -14,7 +14,6 @@ import { toolDefs as refsTools } from '../src/host/browser/refs.js'
 import { callAside } from '../src/host/btw.js'
 import { install as installCapabilities } from '../src/host/capabilities.js'
 import { install as installChatIndex, termQuery } from '../src/host/chat-index.js'
-import { install as installComputer } from '../src/host/computer/index.js'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { install as installMemory } from '../src/host/memory.js'
 import { install as installPrompt } from '../src/host/prompt.js'
@@ -35,7 +34,6 @@ function createDeferred() {
 // -----------------------------------------------------------------------------
 test('P0-2: local-agent /side runs in an isolated read-only dsbot-side-* session without touching the live CLI session or live.handed', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-p02-side-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
 
   const opened = []
   const prompted = []
@@ -104,7 +102,10 @@ test('P0-2: local-agent /side runs in an isolated read-only dsbot-side-* session
     toolsFor: () => [],
     recordUsage: entry => usageRecorded.push(entry),
   })
-  t.after(async () => { await adapter.dispose() })
+  t.after(async () => {
+    await adapter.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
 
   // 1) Run main turn 1 on live session s1 so adapter.live.get('s1').handed is populated.
   const mainMessages1 = [
@@ -273,7 +274,7 @@ test('P0-2: HTTP callAside tags purpose: aside and LocalAgentAdapter.stream reje
 
 test('P0-2: side.js plugin unload between persist() and complete() returns entry and preserves saved side chat on disk', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-p02-unload-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
 
   let botExists = true
   let llmCalls = 0
@@ -343,11 +344,12 @@ test('P0-2: side.js plugin unload between persist() and complete() returns entry
 // -----------------------------------------------------------------------------
 test('P1-2: real DSH SystemPrompt places shared bot-team-rules (640) and DSH static sections (800..10200) ahead of per-Bot tail (10300..10320)', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-p12-order-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  t.after(async () => { await ctx.fiber.dispose() })
+  t.after(async () => {
+    await ctx.fiber.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
 
   // Register representative DSH static tool/harness sections at documented DSH SECTION_ORDERS.
   ctx.systemPrompt.section({ name: 'dsh-file-ref', order: ctx.systemPrompt.getSectionOrder('FILE_REFERENCE'), text: () => '# File reference\nStatic DSH file guidance.' })
@@ -428,56 +430,44 @@ test('P1-2: real DSH SystemPrompt places shared bot-team-rules (640) and DSH sta
     assert.ok(idxMemory > idxPacks, 'bot-memory must sit after feature-packs')
   }
 
-  // Worker A and Worker B MUST share a byte-identical prefix all the way through DSH DEPLOYMENT_PERSONA_SUFFIX!
+  // Main Bot, Worker A, and Worker B MUST ALL share a byte-identical prefix all the way
+  // through bot-team-rules (640) AND DSH DEPLOYMENT_PERSONA_SUFFIX (10200) up to # Your identity (10300)!
+  const cutMain = mainPrompt.indexOf('# Your identity')
   const cutW1 = w1Prompt.indexOf('# Your identity')
   const cutW2 = w2Prompt.indexOf('# Your identity')
   assert.equal(w1Prompt.slice(0, cutW1), w2Prompt.slice(0, cutW2), 'all Worker Bots must share a byte-identical static prefix up to # Your identity')
+  assert.equal(mainPrompt.slice(0, cutMain), w1Prompt.slice(0, cutW1), 'Main Bot and Worker Bots must share the entire static prefix through DSH sections (800..10200)')
 
-  // Main Bot and Worker Bot MUST share the same leading TEAM_RULES prefix (TEAM_RULES before MAIN_RULES).
+  // Main Bot authority rules sit inside bot-identity (after # Your identity, before # Feature packs).
   const idxMainRules = mainPrompt.indexOf('## You are the Main Bot (Chief of Staff)')
-  assert.ok(idxMainRules > 0, 'Main Bot must include MAIN_RULES after TEAM_RULES')
-  assert.equal(
-    mainPrompt.slice(0, idxMainRules).trim(),
-    w1Prompt.slice(0, w1Prompt.indexOf('# File reference')).trim(),
-    'Main Bot and Worker Bot must share the exact TEAM_RULES prefix',
-  )
+  assert.ok(idxMainRules > cutMain && idxMainRules < mainPrompt.indexOf('# Feature packs'), 'MAIN_RULES must sit inside bot-identity (order 10300)')
+  assert.equal(w1Prompt.includes('## You are the Main Bot (Chief of Staff)'), false, 'Worker Bots must not receive MAIN_RULES')
 
   // Feature packs MUST NOT contain volatile runtime `(\d+ tools)` suffixes.
   assert.doesNotMatch(w1Prompt, /\(\d+ tools\)/)
   assert.match(w1Prompt, /- pack-a: Database tools/)
 })
 
-test('P1-2: computer-use:ds-bot prompt text stays byte-identical across loading -> ready and hides on disabled or hard-unavailable states', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-p12-cu-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-
-  const ctx = fakeContext()
-  const providerReady = createDeferred()
-  let computerUseService
-  ctx.plugin = (plugin) => ({
-    await: async () => {
-      if (plugin === 'registry') {
-        computerUseService = { providerName: undefined }
-      } else {
-        await providerReady.promise
-        computerUseService = { providerName: 'mock-cu' }
-      }
-    },
-    dispose: async () => { computerUseService = undefined },
+test('P1-2: capabilities feature-packs catalog stays byte-identical across MCP mounts with zero volatile tool counts', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-p12-caps-'))
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  t.after(async () => {
+    await ctx.fiber.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   })
-  const loader = {
-    import: async (name) => (name === '@deepseek-ai/dsh-computer-use' ? 'registry' : 'provider'),
-  }
-  const origGet = ctx.get
-  ctx.get = (name) => (name === 'computerUse' ? computerUseService : name === 'loader' ? loader : origGet?.(name))
 
   const state = {
     bots: {
-      b1: { id: 'b1', name: 'Operator', sessionId: 's1', computer: { level: 'background' } },
-      b2: { id: 'b2', name: 'Observer', sessionId: 's2', computer: { level: 'off' } },
+      b1: { id: 'b1', name: 'Alpha', sessionId: 's1', packs: ['db'] },
+      b2: { id: 'b2', name: 'Beta', sessionId: 's2', packs: ['db'] },
     },
-    computer: { enabled: true },
     rooms: {},
+    capabilities: {
+      items: {
+        db: { kind: 'mcp', description: 'Database query tools', command: 'echo', args: [] },
+      },
+    },
     prefs: {},
   }
   const rt = {
@@ -490,61 +480,35 @@ test('P1-2: computer-use:ds-bot prompt text stays byte-identical across loading 
     warn: () => {},
     readOnly: () => undefined,
     botOf: id => state.bots[id],
+    roomOf: () => undefined,
     selfOf: sid => ({ s1: 'b1', s2: 'b2' }[sid]),
     isBotSession: sid => sid === 's1' || sid === 's2',
     chatOwners: new Map([['s1', 'b1'], ['s2', 'b2']]),
     groupOwners: new Map(),
+    pastOwners: new Map(),
     roomOwners: new Map(),
+    teamTools: [],
     onBotDelete: () => {},
   }
-  installComputer(rt)
+  installCapabilities(rt)
 
-  const section = ctx.sections.get('computer-use:ds-bot')
-  assert.ok(section, 'computer-use:ds-bot section must be registered')
-
-  // Turn 1: computer enabled, provider still in 'off'/'loading' startup state.
-  const turn1Text = section.text({ agent: { id: 's1' } })
-  assert.match(turn1Text, /## Using the computer/, 'enabled Bot must emit computer-use guidance before provider finishes loading')
-  assert.equal(section.text({ agent: { id: 's2' } }), '', 'Bot with level=off must emit empty string')
-
-  // Transition provider to 'loading', then 'ready' (via set-enabled -> ensureProvider).
-  await rt.computerEndpoint('set-enabled', { enabled: true })
-  assert.equal(rt.computerStatus().state, 'loading')
-  const loadingText = section.text({ agent: { id: 's1' } })
-  assert.equal(loadingText, turn1Text, 'loading state must match Turn 1 byte-for-byte')
-
-  providerReady.resolve()
-  for (let i = 0; i < 40 && rt.computerStatus().state !== 'ready'; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 10))
+  const assembleCatalog = async (sid) => {
+    const out = await ctx.systemPrompt.assemble({ agent: { id: sid, session: { id: sid } }, signal: AbortSignal.timeout(5_000) })
+    return out.sections.find(s => s.name === 'feature-packs')?.text ?? ''
   }
-  assert.equal(rt.computerStatus().state, 'ready')
-  const turn2Text = section.text({ agent: { id: 's1' } })
-  assert.equal(turn2Text, turn1Text, 'ready state must match Turn 1 byte-for-byte (zero Turn 1 -> Turn 2 KV cache bust)')
 
-  // Turning computer use off must immediately return ''.
-  await rt.computerEndpoint('set-enabled', { enabled: false })
-  assert.equal(section.text({ agent: { id: 's1' } }), '', 'disabled computer use must return empty string')
-
-  // Hard-unavailable state ('missing') must also return ''.
-  loader.import = async (name) => {
-    if (name === '@deepseek-ai/dsh-computer-use') return 'registry'
-    throw Object.assign(new Error('helper missing'), { code: 'bot/missing' })
-  }
-  await rt.computerEndpoint('set-enabled', { enabled: true })
-  for (let i = 0; i < 40 && rt.computerStatus().state !== 'missing'; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  assert.equal(rt.computerStatus().state, 'missing')
-  assert.equal(section.text({ agent: { id: 's1' } }), '', 'missing provider state must hide computer-use prompt section')
+  const s1Before = await assembleCatalog('s1')
+  const s2Before = await assembleCatalog('s2')
+  assert.equal(s1Before, s2Before, 'Bots sharing the same packs must render byte-identical feature-packs text')
+  assert.match(s1Before, /^- db: Database query tools$/m)
+  assert.doesNotMatch(s1Before, /\(\d+ tools\)/, 'feature-packs must never append volatile runtime tool counts')
 })
 
 // -----------------------------------------------------------------------------
 // P1-3 + P2-2: Cold chat-index reads, messages_session_time index, CJK fallback
 // -----------------------------------------------------------------------------
-test('P1-3: eventsBackwards reads archived multi-page sessions cold via sessionController.page without calling resolveAgent', async (t) => {
+test('P1-3: eventsBackwards reads archived multi-page sessions cold via sessionController.page without calling resolveAgent, and handles session/not-found cleanly', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-p13-cold-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-
   const allEvents = Array.from({ length: 450 }, (_, seq) => ({
     seq,
     time: 1_000 + seq,
@@ -565,6 +529,15 @@ test('P1-3: eventsBackwards reads archived multi-page sessions cold via sessionC
       sessionController: {
         page: async (req) => {
           pageCalls.push({ ...req })
+          const sid = req.address.sessionId
+          if (sid === 's-missing') throw Object.assign(new Error('session "s-missing" not found'), { code: 'session/not-found' })
+          if (sid === 's-io-err') throw Object.assign(new Error('disk read failed'), { code: 'gateway/internal' })
+          if (sid === 's-mid-missing') {
+            if (req.beforeSeq === undefined) {
+              return { cursor: 10, records: [{ event: { seq: 10, time: 10, text: 'page1' } }], hasMore: true }
+            }
+            throw Object.assign(new Error('session disappeared mid-read'), { code: 'session/not-found' })
+          }
           const through = req.throughSeq ?? (allEvents.length - 1)
           const filtered = allEvents.filter(ev => ev.seq <= through && (req.beforeSeq === undefined || ev.seq < req.beforeSeq))
           const slice = filtered.slice(-req.maxMessages)
@@ -585,7 +558,10 @@ test('P1-3: eventsBackwards reads archived multi-page sessions cold via sessionC
     clock: time => String(time),
     warn: (...args) => assert.fail(args.join(' ')),
   }
-  t.after(() => { for (const close of dispose) close() })
+  t.after(() => {
+    for (const close of dispose) close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   installChatIndex(rt)
 
   // 1) Cold multi-page read across 450 events (3 pages of 200).
@@ -624,12 +600,29 @@ test('P1-3: eventsBackwards reads archived multi-page sessions cold via sessionC
   assert.equal(pageCalls.length, 1)
   assert.equal(pageCalls[0].throughSeq, 2, 'live session must pin throughSeq=seq-1 on page 1')
   assert.deepEqual(liveOut, [2, 1, 0])
+
+  // 4) Uninitialized/missing session (DSH RemoteError 'session/not-found' on page 1) returns empty & complete=true.
+  const missingRead = {}
+  const missingOut = []
+  for await (const ev of rt.eventsBackwards('s-missing', AbortSignal.timeout(5_000), Infinity, missingRead)) missingOut.push(ev)
+  assert.deepEqual(missingOut, [])
+  assert.equal(missingRead.complete, true, 'page-1 session/not-found must complete cleanly with 0 events')
+
+  // 5) Non-not-found errors AND mid-pagination session/not-found failures MUST still propagate!
+  await assert.rejects(async () => {
+    const out = []
+    for await (const ev of rt.eventsBackwards('s-io-err', AbortSignal.timeout(5_000), Infinity)) out.push(ev)
+    return out
+  }, /disk read failed/)
+  await assert.rejects(async () => {
+    const out = []
+    for await (const ev of rt.eventsBackwards('s-mid-missing', AbortSignal.timeout(5_000), Infinity)) out.push(ev)
+    return out
+  }, /session disappeared mid-read/)
 })
 
 test('P1-3 + P2-2: short (<3-char) termQuery uses messages_session_time index (no FTS5 scan), upgrades v5 DB in place, and Tier-2 CJK bigram fallback recovers unsegmented queries', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-p13-p22-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-
   const dbPath = join(home, 'chat-index.sqlite')
   // Seed an existing v5 database WITHOUT messages_session_time to verify zero-rebuild upgrade!
   const seed = new DatabaseSync(dbPath)
@@ -652,6 +645,12 @@ test('P1-3 + P2-2: short (<3-char) termQuery uses messages_session_time index (n
     { seq: 3, time: 4000, text: 'PR #42 已合并' },
   ]
   const dispose = []
+  let db
+  t.after(() => {
+    db?.close()
+    for (const close of dispose) close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const rt = {
     home,
     ctx: {
@@ -668,15 +667,13 @@ test('P1-3 + P2-2: short (<3-char) termQuery uses messages_session_time index (n
     clock: time => String(time),
     warn: (...args) => assert.fail(args.join(' ')),
   }
-  t.after(() => { for (const close of dispose) close() })
   installChatIndex(rt)
 
   // Trigger index open + catch-up for s1.
   await rt.latestOwnChat('b1', { limit: 10 })
 
   // 1) Verify existing v5 row was preserved (no rebuild wipe) AND messages_session_time index was added.
-  const db = new DatabaseSync(dbPath)
-  t.after(() => db.close())
+  db = new DatabaseSync(dbPath)
   assert.equal(db.prepare("SELECT text FROM messages WHERE session = 's-other'").get()?.text, '旧数据保留验证', 'existing v5 rows must not be wiped')
 
   // 2) Verify EXPLAIN QUERY PLAN for short (<3-char) queries uses messages_session_time (NOT FTS5 SCAN lines).
@@ -782,9 +779,16 @@ test('P2-1: browser/mount.js skips already-checked surface nodes in O(1) AND sti
   const savedRef = { attachmentId: 'sha256:fixed', mediaType: 'image/png', bytes: 3, width: 1, height: 1 }
   let flushed = 0
   let savedCount = 0
+  let onSaveImage
   const plugin = (inner) => {
     inner.provide('sessions', { flush: async () => { flushed += 1 } })
-    inner.provide('attachments', { saveImage: async () => { savedCount += 1; return savedRef } })
+    inner.provide('attachments', {
+      saveImage: async () => {
+        savedCount += 1
+        if (onSaveImage) await onSaveImage()
+        return savedRef
+      },
+    })
     mountBrowserPlugin(inner, {
       toolDefs: refsTools.filter(tool => tool.name === 'browser_screenshot'),
       defineTool,
@@ -856,6 +860,38 @@ test('P2-1: browser/mount.js skips already-checked surface nodes in O(1) AND sti
   await runPreStep()
   assert.equal(savedCount, 1, 'mid-array surface replacement with malformed inline image must still be caught and saved')
   assert.equal(flushed, 1, 'rewritten replacement must flush session')
+
+  // Concurrent append during async saveImage await: a second malformed browser tool/result arriving
+  // while pre-step is awaiting saveImage must NOT be skipped by checkedState on the next step!
+  const call2 = session.append('tool/call', { turn: 2, step: 1, callId: ToolCallId('call-2'), name: 'browser_screenshot', arguments: '{}' })
+  session.append('tool/result', {
+    turn: 2,
+    step: 1,
+    message: createToolResultMessage({
+      callId: ToolCallId('call-2'),
+      isError: false,
+      content: [{ type: 'image', mediaType: 'image/png', data: 'BBBB' }],
+    }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [call2.seq] })
+
+  onSaveImage = async () => {
+    onSaveImage = undefined
+    // Append a concurrent browser tool/result BEFORE the replacement of call-2 gets appended!
+    const call3 = session.append('tool/call', { turn: 2, step: 2, callId: ToolCallId('call-3'), name: 'browser_screenshot', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 2,
+      step: 2,
+      message: createToolResultMessage({
+        callId: ToolCallId('call-3'),
+        isError: false,
+        content: [{ type: 'image', mediaType: 'image/png', data: 'CCCC' }],
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call3.seq] })
+  }
+  await runPreStep()
+  assert.equal(savedCount, 2, 'call-2 image repaired on this step')
+  await runPreStep()
+  assert.equal(savedCount, 3, 'concurrent call-3 image appended during saveImage await must still be caught on next step')
 })
 
 test('P2-1: thinking.js caches closed turns, evicts deleted Bot sessions on onBotDelete, and bounds settled cache', async () => {

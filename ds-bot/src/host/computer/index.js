@@ -1082,8 +1082,7 @@ export function install(rt) {
     text: (context) => {
       const id = context?.agent?.id ?? context?.agent?.session?.id
       const bot = rt.botOf(rt.selfOf(id))
-      if (bot === undefined || !rt.isBotSession(id) || !enabled() || levelOf(bot) === 'off') return ''
-      if (providerStatus.state === 'error' || providerStatus.state === 'missing' || providerStatus.state === 'unsupported' || providerStatus.state === 'occupied') return ''
+      if (bot === undefined || !rt.isBotSession(id) || !enabled() || providerStatus.state !== 'ready' || levelOf(bot) === 'off') return ''
       const level = levelOf(bot)
       return [
         '## Using the computer',

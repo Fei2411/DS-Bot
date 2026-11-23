@@ -48,27 +48,27 @@ const MAIN_RULES = [
 export function install(rt) {
   const { ctx } = rt
 
-  // Static team-wide rules sit ahead of DSH static tool sections (800..10200),
-  // with TEAM_RULES first so Main Bots and Worker Bots share the same prefix.
+  // Static team-wide rules sit ahead of DSH static tool sections (800..10200) so
+  // Main Bots and Worker Bots share one byte-identical prefix through DSH's static tail.
   const rulesFor = (id) => {
     const self = rt.selfOf(id)
     const bot = rt.botOf(self)
-    if (bot === undefined) return ''
-    const main = rt.isMainForTurn?.(id) ?? rt.isMain(self)
-    return main ? `${TEAM_RULES}\n\n${MAIN_RULES}` : TEAM_RULES
+    return bot === undefined ? '' : TEAM_RULES
   }
 
-  // Per-Bot identity sits after DSH static sections (>10200) so per-Bot text
-  // never busts shared static prefix caching across Bots or across turns.
+  // Per-Bot identity (and Main Bot authority rules) sits after DSH static sections (>10200)
+  // so per-Bot or role-specific text never busts shared static prefix caching across Bots.
   // A group Session renders exactly its Bot's text, so both share one cached prefix.
   const identityFor = (id) => {
     const self = rt.selfOf(id)
     const bot = rt.botOf(self)
     if (bot !== undefined) {
+      const main = rt.isMainForTurn?.(id) ?? rt.isMain(self)
       return [
         '# Your identity',
         `You are ${bot.name}, a Bot on the user's team in DS Bot.${bot.role ? ` Your role: ${bot.role}.` : ''}`,
         bot.instructions ? `\n${bot.instructions}` : '',
+        ...(main ? ['', MAIN_RULES] : []),
       ].join('\n')
     }
     const room = rt.roomOf(id)
