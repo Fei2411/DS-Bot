@@ -472,16 +472,28 @@ export class LocalAgentAdapter extends LlmAdapter {
     const mode = cliMode(live.spec.kind, preset)
     const priorCliId = live.cliSessionId
     const freshCli = priorCliId === undefined
+    let freshMemory
+    let memoryRefreshed = false
+    let appliedMemory = { system: rawSystem, note: '' }
+    let system = rawSystem
+    let promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
+    let instructions = system === '' ? undefined : system
+    const refreshMemory = () => {
+      if (memoryRefreshed) return
+      memoryRefreshed = true
+      freshMemory = this.deps.freshMemoryView?.(sessionId)
+      if (freshMemory === undefined) return
+      appliedMemory = applyFreshMemory(rawSystem, freshMemory)
+      system = appliedMemory.system
+      instructions = system === '' ? undefined : system
+      promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
+    }
     // When starting a fresh CLI session that replays history with memory changes
     // (including Claude's post-resumeMissing retry), refresh the authorized memory
     // snapshot before open() so deleted entries never resurrect from an old prompt.
-    let freshMemory = (fresh || options[RESUME_RETRIED] === true) && (options[RESUME_RETRIED] === true || hasMemoryDelta)
-      ? this.deps.freshMemoryView?.(sessionId)
-      : undefined
-    let appliedMemory = applyFreshMemory(rawSystem, freshMemory)
-    let system = appliedMemory.system
-    let promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
-    let instructions = system === '' ? undefined : system
+    if ((fresh || options[RESUME_RETRIED] === true) && (options[RESUME_RETRIED] === true || hasMemoryDelta)) {
+      refreshMemory()
+    }
     let resumeDropped = false
     if (live.engineSession === undefined) {
       const openArgs = {
@@ -494,10 +506,16 @@ export class LocalAgentAdapter extends LlmAdapter {
         defaultEffort: live.defaultEffort,
         effort: live.effort,
         // Codex carries the team instructions as developer config on a new
-        // thread (including when thread/resume falls back to thread/start;
+        // thread (including when thread/resume falls back to thread/start, where
+        // the callback refreshes memory before thread/start sends startup config;
         // thread/resume itself ignores `instructions`); Claude gets them
         // appended at spawn; ACP reads them in the first prompt below.
-        instructions: live.spec.kind === 'codex' ? instructions : undefined,
+        instructions: live.spec.kind === 'codex'
+          ? () => {
+              if (!freshCli) refreshMemory()
+              return instructions
+            }
+          : undefined,
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
@@ -512,15 +530,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.context = live.context?.size === undefined ? undefined : { size: live.context.size }
         live.compactions = 0
         live.promptHash = undefined
-        if (freshMemory === undefined) {
-          freshMemory = this.deps.freshMemoryView?.(sessionId)
-          if (freshMemory !== undefined) {
-            appliedMemory = applyFreshMemory(rawSystem, freshMemory)
-            system = appliedMemory.system
-            instructions = system === '' ? undefined : system
-            promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
-          }
-        }
+        refreshMemory()
         this.deps.rt?.warn?.('local-agents: %s did not resume session %s for %s (opened %s); replaying conversation history', live.spec.kind, priorCliId, sessionId, reportedId ?? 'new')
       }
       if (reportedId !== undefined) live.cliSessionId = reportedId
@@ -539,9 +549,6 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.pumpToken === token && !live.dead) live.push(event)
         }
       })()
-      if (live.spec.kind === 'codex' && resumeDropped && system !== rawSystem && instructions !== undefined) {
-        await live.engine.instruct?.(live.engineSession, `Updated team instructions (replace earlier ones):\n\n${instructions}`)
-      }
       if (live.spec.kind === 'claude' && instructions !== undefined) live.promptHash = promptHash
       else if (live.spec.kind === 'codex' && (freshCli || resumeDropped) && instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
@@ -1246,7 +1253,7 @@ async function renderDelta(contextText, remaining, resolveImage) {
 function applyFreshMemory(system, freshMemory) {
   if (freshMemory === undefined) return { system, note: '' }
   if (freshMemory.previous !== undefined && system.includes(freshMemory.previous)) {
-    const updated = system.replace(freshMemory.previous, freshMemory.own)
+    const updated = system.replace(freshMemory.previous, () => freshMemory.own)
     return {
       system: updated,
       note: updated === system ? '' : 'Note: The "# Your memory" section above reflects current memory and supersedes any earlier memory snapshot or updates.',

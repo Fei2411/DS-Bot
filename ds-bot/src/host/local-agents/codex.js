@@ -212,7 +212,8 @@ export class CodexEngine {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
+    const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
+    const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     thread.resumed = false
     return thread

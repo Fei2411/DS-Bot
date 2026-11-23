@@ -2525,7 +2525,7 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   const freshRecord = join(mkdtempSync(join(tmpdir(), 'dsb-acp-fresh-mem-')), 'prompts.jsonl')
   t.after(() => rmSync(dirname(freshRecord), { recursive: true, force: true }))
   const staleSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Deploy to staging\n- Keep logs short'
-  const currentSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Keep logs short\n- Always run lint'
+  const currentSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Keep logs short\n- Always run lint\n- Keep literal $& and $$100 intact'
   const freshAdapter = makeAdapter({
     records,
     acpArgs: ['--fail-load', '--record', freshRecord],
@@ -2546,6 +2546,35 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   assert.doesNotMatch(freshPrompt, /Deploy to staging/, 'deleted memory from stale frozen snapshot must not resurrect after failed resume')
   assert.doesNotMatch(freshPrompt, /Old deleted group note/, 'stale group memory snapshot must be replaced with current authorized group memory')
   assert.match(freshPrompt, /Always run lint/, 'current memory entries must appear in replacement CLI replay')
+  assert.ok(freshPrompt.includes('Keep literal $& and $$100 intact'), 'dollar-sign tokens in memory must stay literal without expanding stale snapshot')
   assert.match(freshPrompt, /Active release: v2/, 'current group memory must appear in replacement CLI replay')
   assert.doesNotMatch(freshPrompt, /Memory update #0:/, 'historical memory delta messages must not be replayed when fresh snapshot was applied')
+
+  // On Codex fallback thread/start (after thread/resume fails), startup developerInstructions
+  // itself must already carry the refreshed memory (excluding deleted entries and preserving $&/$$).
+  const codexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-codex-fresh-mem-')), 'params.jsonl')
+  t.after(() => rmSync(dirname(codexRecord), { recursive: true, force: true }))
+  const codexRecords = {}
+  const codexFirst = makeAdapter({ records: codexRecords, codexArgs: ['--record', codexRecord] })
+  try {
+    await collect(codexFirst.stream(options('c1', [system('sys', `You are Kai.\n\n${staleSnap}`), user('m1', 'hello')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  } finally {
+    await codexFirst.dispose()
+  }
+  const codexSecond = makeAdapter({
+    records: codexRecords,
+    codexArgs: ['--fail-resume', '--record', codexRecord],
+    freshMemoryView: () => ({ previous: staleSnap, own: currentSnap }),
+  })
+  t.after(() => codexSecond.dispose())
+  const codexOut = await collect(codexSecond.stream(options('c1', [
+    system('sys', `You are Kai.\n\n${staleSnap}`),
+    user('m1', 'hello'),
+    user('m2', 'status?'),
+  ], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(codexOut.finish?.kind, 'stop')
+  const codexCalls = readFileSync(codexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const fallbackStart = codexCalls.filter(call => call.method === 'thread/start').at(-1)
+  assert.doesNotMatch(fallbackStart.params.developerInstructions, /Deploy to staging/, 'fallback Codex thread/start developerInstructions must not carry deleted memory')
+  assert.ok(fallbackStart.params.developerInstructions.includes('Keep literal $& and $$100 intact'), 'fallback Codex developerInstructions must carry refreshed memory literally')
 })
