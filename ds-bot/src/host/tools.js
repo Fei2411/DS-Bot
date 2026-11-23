@@ -1054,7 +1054,7 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
-  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
   const scoped = new Map()
   const unscope = (id) => {
     const held = scoped.get(id)

@@ -364,15 +364,16 @@ test('Main Bot keeps team-admin across switched parts and background tasks while
   await mountAgentLoopTestHarness(root)
   attachHostBuiltinFilters(root, host)
   const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
-  const streamHooksBefore = root.events._hooks['llm/stream'].length
-  const assembleHooksBefore = root.events._hooks['system-prompt/assemble'].length
+  const addedFilterHooks = []
+  root.on('internal/listener', (name) => {
+    if (name === 'llm/stream' || name === 'system-prompt/assemble') addedFilterHooks.push(name)
+  })
   const agents = {}
   for (const id of ['a-cur', 'a-task', 'b']) {
     agents[id] = await root.agentLoop.create(SessionId(id), { provider: 'role-test', model: 'test' })
     await created({ agent: agents[id] })
   }
-  assert.equal(root.events._hooks['llm/stream'].length, streamHooksBefore, 'creating Bot Agents adds no per-Agent llm/stream hooks')
-  assert.equal(root.events._hooks['system-prompt/assemble'].length, assembleHooksBefore, 'creating Bot Agents adds no per-Agent system-prompt/assemble hooks')
+  assert.deepEqual(addedFilterHooks, [], 'creating Bot Agents adds no per-Agent llm/stream or system-prompt/assemble hooks')
   for (const id of ['a-cur', 'a-task', 'b']) {
     agents[id].followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }))
     await agents[id].whenIdle()
