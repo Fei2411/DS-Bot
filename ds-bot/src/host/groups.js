@@ -555,7 +555,13 @@ export function install(rt) {
       const sessionLines = partLines.flat()
       const kept = records.filter(record => Number.isInteger(record.seq))
       const recovered = alignGroupSessionLines(sessionLines, kept)
-      if (recovered !== undefined && recovered.length > 0) rt.ledger.prepend(book, recovered)
+      // The room counts as backfilled only once the recovered lines are on disk. A failed
+      // write takes them out of the book again, so the count below sees them as missing and
+      // the next call retries.
+      let landed = true
+      if (recovered !== undefined && recovered.length > 0 && rt.ledger.prepend(book, recovered) > 0) {
+        await rt.ledger.written(book).catch(() => { landed = false })
+      }
       let earliestSeq = oldestSeq
       for (const record of rt.ledger.records(book)) {
         if (Number.isInteger(record.seq) && (earliestSeq === undefined || record.seq < earliestSeq)) earliestSeq = record.seq
@@ -568,7 +574,7 @@ export function install(rt) {
           rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed and were not in its Session', missing, room.name)
         }
       }
-      backfilled.add(roomId)
+      if (landed) backfilled.add(roomId)
     })().finally(() => {
       if (backfilling.get(roomId) === run) backfilling.delete(roomId)
     })
