@@ -1355,6 +1355,7 @@ export function install(rt) {
     if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
     roomRelayTaken(source.roomId, source.exchangeId)
+    if (source.batchEnd && source.batch) closeBatch(source.batch)
     if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
       reports()[source.reportId].neverStarted = true
       reports()[source.reportId].stopped = true
@@ -2484,9 +2485,9 @@ export function install(rt) {
   // once, and the members it calls start in that round, so it is not held back until
   // the round ends and never sits in the group Session's QueueDock (#663).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
-    // Keep imOrigin in state.roomReports only — never write private IM routing metadata
-    // into DSH Session events.
-    const { imOrigin, ...postExtra } = extra
+    // Keep imOrigin/callerOrigin out of DSH Session events — store imOrigin in state.roomReports only.
+    const { imOrigin, callerOrigin, ...postExtra } = extra
+    const postOrigin = imOrigin ?? callerOrigin
     const noticeOnly = postExtra.resumed === true || (postExtra.stopped === true && !postExtra.askedBy) || (postExtra.failed !== undefined && !postExtra.askedBy)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
       && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
@@ -2495,12 +2496,15 @@ export function install(rt) {
       .some(other => other.roomId === room.id && other.id !== postExtra.reportId
         && (other.imOriginMixed === true || !sameImOrigin(other.imOrigin, imOrigin)))
     const roomWorking = running !== undefined || finalizing.has(room.id)
+      || (queuedRelays.get(room.id)?.size ?? 0) > 0
+      || (rt.roomInbox.get(room.id)?.length ?? 0) > 0
+      || (laterPosts.get(room.id) ?? []).some(isBotPendingPost)
       || room.members.some(id => memberBusyForReport(room, id))
       || Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch))
     const runningUnrelated = openingBotPost && imOrigin !== undefined && roomWorking
       && !sameImOrigin(rt.captureImOrigin?.(rt.sessionOfRoom(room)), imOrigin)
       && !sameImOrigin(roomReportImOrigin(room.id), imOrigin)
-    if (openingBotPost) taintRoomReportOrigins(room.id, imOrigin, { excludeReportId: postExtra.reportId })
+    if (openingBotPost) taintRoomReportOrigins(room.id, postOrigin, { excludeReportId: postExtra.reportId })
     if (postExtra.reportBack === true) {
       const reportId = postExtra.reportId ?? postExtra.sub ?? randomUUID()
       postExtra.reportId = reportId
@@ -2814,6 +2818,7 @@ export function install(rt) {
         if (isBotPendingPost(post)) {
           rememberStoppedRelay(post.exchangeId)
           rememberStoppedRelay(post.reportId)
+          if (post.batchEnd && post.batch) closeBatch(post.batch)
         } else {
           kept.push(post)
         }
@@ -2828,6 +2833,11 @@ export function install(rt) {
     else rt.roomInbox.delete(room.id)
     for (const exchangeId of queuedRelays.get(room.id) ?? []) rememberStoppedRelay(exchangeId)
     queuedRelays.delete(room.id)
+    // Close any already-empty unanswered batch on this room whose terminal wake relay
+    // is being cancelled by stopRoomWork, so reports are never stranded after Stop All.
+    for (const batch of Object.values(batches())) {
+      if (batch.roomId === room.id && batch.pending.length === 0) closeBatch(batch.key)
+    }
     let marked = false
     for (const report of Object.values(reports())) {
       if (report.roomId !== room.id) continue
@@ -2856,6 +2866,7 @@ export function install(rt) {
             if (!cancelable) continue
             rememberStoppedRelay(src.exchangeId)
             rememberStoppedRelay(src.reportId)
+            if (src.batchEnd && src.batch) closeBatch(src.batch)
             roomAgent.inbox.remove(message.id)
           }
         }

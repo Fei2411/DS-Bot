@@ -898,14 +898,15 @@ export function install(rt) {
       const fromTaskId = trackTaskWait ? taskOwner.taskId : undefined
       const sub = work !== undefined || trackTaskWait ? randomUUID() : undefined
       const reportId = reportBack ? (sub ?? randomUUID()) : undefined
-      const imOrigin = reportBack && work === undefined ? callerImOrigin(exec) : undefined
+      const callerOrigin = callerImOrigin(exec)
+      const imOrigin = reportBack && work === undefined ? callerOrigin : undefined
       if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, ...(work !== undefined ? { parent: work } : {}), ...callerPart(exec), ...(imOrigin ? { imOrigin } : {}) })
       const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
       const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         if (reportId !== undefined) rt.dropRoomReport?.(reportId)

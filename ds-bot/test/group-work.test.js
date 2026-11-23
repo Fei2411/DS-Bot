@@ -3294,7 +3294,13 @@ test('stop-room-work withdraws queued post_to_group relays while preserving defe
   rt.state.roomReports['rep-stop-1'] = { id: 'rep-stop-1', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
   rt.noteRoomRelayQueued('r1', 'ex-stop-1')
   roomAgent.followup(queuedPost)
-  assert.equal(roomAgent.inbox.nextTurn.length, 1)
+  // Also queue a terminal batchEnd late reply whose empty batch must close when Stop All cancels it.
+  rt.state.roomBatches['b-done'] = { key: 'b-done', roomId: 'r1', by: 'a', pending: [], done: ['Writer'], doneIds: ['b'], results: [], worked: true, answered: false, at: Date.now() }
+  roomAgent.followup({
+    content: [{ type: 'text', text: '[Group post from Writer]\n迟到答复' }],
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'ex-batch-end', late: true, batch: 'b-done', batchEnd: true, senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+  })
+  assert.equal(roomAgent.inbox.nextTurn.length, 2)
 
   // Stop All withdraws the queued Bot post and settles its report once, without dropping the user's screenshot.
   assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).ok, true)
@@ -3303,6 +3309,7 @@ test('stop-room-work withdraws queued post_to_group relays while preserving defe
   await settle(() => host.agentOf('a').calls.length === 1)
   assert.match(text(host.agentOf('a').calls[0]), /stopped before your post started/)
   assert.equal(roomAgent.inbox.nextTurn.some(item => item.source?.exchangeId === 'ex-stop-1'), false, 'queued Bot relay must be withdrawn from room inbox')
+  assert.equal(rt.state.roomBatches['b-done'], undefined, 'cancelled terminal batchEnd reply must close its empty batch')
 
   // Even if the stopped relay was already claimed before removal, replaying it skips the stopped
   // Bot post while bringing back ONLY the preserved user screenshot from laterPosts!

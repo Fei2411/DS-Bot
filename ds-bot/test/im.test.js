@@ -4609,6 +4609,14 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   await tool('post_to_group', { group: 'Ops', message: '@Writer 部署' }, 'a')
   const postMsg = s.agentOf('r1').lastFollowup
   const reportId = postMsg.source.reportId
+  // A one-way notice (`report_back: false`) from the SAME IM turn must NOT taint the earlier IM report,
+  // and must never write callerOrigin into room Session event sources.
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 维护窗口提醒', report_back: false }, 'a')
+  const sameImNotice = s.agentOf('r1').lastFollowup
+  assert.equal(sameImNotice.source.callerOrigin, undefined)
+  assert.equal(sameImNotice.source.imOrigin, undefined)
+  assert.deepEqual(s.rt.state.roomReports[reportId].imOrigin, { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
+  s.rt.roomRelayTaken('r1', sameImNotice.source.exchangeId)
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   s.fake.sent.length = 0
 
@@ -4686,4 +4694,20 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined)
   s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
   s.emitEvent('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  delete s.rt.state.roomReports[lateReportId]
+  s.rt.roomRelayTaken('r1', s.agentOf('r1').lastFollowup.source.exchangeId)
+
+  // 6) A queued Web one-way post (no round running yet) followed immediately by an IM post_to_group
+  //    taints the new IM report so queued Web work never leaks approvals to IM.
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 排队中的 Web 任务', report_back: false }, 'a')
+  await dm(s, 'u1', '排队场景也问下 Ops')
+  const req3 = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 4 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req3 }, content: [{ type: 'text', text: '排队场景也问下 Ops' }] })
+  await tool('post_to_group', { group: 'Ops', message: '@Writer IM 查询' }, 'a')
+  const queuedMixId = s.agentOf('r1').lastFollowup.source.reportId
+  assert.equal(s.rt.state.roomReports[queuedMixId].imOrigin, undefined)
+  assert.equal(s.rt.state.roomReports[queuedMixId].imOriginMixed, true)
+  assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined)
+  s.emitEvent('a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
 })
