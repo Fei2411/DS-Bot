@@ -103,104 +103,130 @@ test('selectRetainedRange keeps a balanced ~16% verbatim tail, pairs user+assist
   assert.equal(selectRetainedRange(simpleSession, giantMeasure, 5000), null)
 })
 
-test('mid-turn condense uses compactRegion with retained tail instead of wiping all recent context, and falls back on error', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-midturn-condense-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+test('mid-turn condense uses compactRegion with retained tail instead of wiping all recent context, and falls back cleanly on errors', async (t) => {
+  const runCase = async ({ onRegion, onOverflow }) => {
+    const home = mkdtempSync(join(tmpdir(), 'dsb-midturn-condense-'))
+    writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
 
-  const calls = { region: [], overflow: [] }
-  let tokens = 96_000
-  let failRegion = false
-  const events = [
-    { seq: 0, type: 'system/message', data: { content: [{ type: 'text', text: 'sys' }] } },
-    { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 1' }] } },
-    { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 1' }] } } },
-    { seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 2' }] } },
-    { seq: 4, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 2' }] } } },
-    { seq: 5, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 3' }] } },
-    { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 3' }] } } },
-  ]
-  const compaction = {
-    async compactIfNeeded(_agent, trigger) {
-      calls.overflow.push(trigger)
-      tokens = 30_000
-      return { ok: true }
-    },
-    async compactNow() { return { ok: true } },
-    async compactRegion(start, end) {
-      calls.region.push([start, end])
-      if (failRegion) throw new Error('replacement did not shrink')
-      tokens = 35_000
-      return { ok: true }
-    },
-    async summarize() { return { summary: [{ type: 'text', text: 'ok' }] } },
-  }
-  const ctx = fakeContext({
-    services: {
-      compaction,
-      tokenMeter: {
-        ...meter,
-        measure: () => ({
-          totalTokens: tokens,
-          nodes: [
-            { seq: 0, tokens: 10_000 },
-            { seq: 1, tokens: 20_000 },
-            { seq: 2, tokens: 20_000 },
-            { seq: 3, tokens: 18_000 },
-            { seq: 4, tokens: 18_000 },
-            { seq: 5, tokens: 5_000 },
-            { seq: 6, tokens: 5_000 },
-          ],
-        }),
+    const calls = { region: [], overflow: [] }
+    let tokens = 96_000
+    const events = [
+      { seq: 0, type: 'system/message', data: { content: [{ type: 'text', text: 'sys' }] } },
+      { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 1' }] } },
+      { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 1' }] } } },
+      { seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 2' }] } },
+      { seq: 4, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 2' }] } } },
+      { seq: 5, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'step 3' }] } },
+      { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'reply 3' }] } } },
+    ]
+    const setTokens = next => { tokens = next }
+    const compaction = {
+      async compactIfNeeded(_agent, trigger) {
+        calls.overflow.push(trigger)
+        return onOverflow(setTokens)
       },
-    },
-  })
-  Object.assign(ctx, {
-    llm: {
-      listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
-      listModels: async () => [{ id: 'v4' }],
-      resolveModelInfo: async () => ({ context: { contextWindow: 100_000 }, defaultMaxTokens: 4_000 }),
-      stream: () => makeStream({ text: JSON.stringify({ action: 'compact', reason: 'still working' }) })(),
-    },
-    sessions: { messageProjections: [] },
-    sessionController: {
-      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: events.length } } }),
-      page: async () => ({ records: events.map(event => ({ event })), hasMore: false }),
-    },
-    workspaceRegistry: { archiveSession: async () => {} },
-  })
-  createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+      async compactNow() { return { ok: true } },
+      async compactRegion(start, end) {
+        calls.region.push([start, end])
+        return onRegion(setTokens)
+      },
+      async summarize() { return { summary: [{ type: 'text', text: 'ok' }] } },
+    }
+    const ctx = fakeContext({
+      services: {
+        compaction,
+        tokenMeter: {
+          ...meter,
+          measure: () => ({
+            totalTokens: tokens,
+            nodes: [
+              { seq: 0, tokens: 10_000 },
+              { seq: 1, tokens: 20_000 },
+              { seq: 2, tokens: 20_000 },
+              { seq: 3, tokens: 18_000 },
+              { seq: 4, tokens: 18_000 },
+              { seq: 5, tokens: 5_000 },
+              { seq: 6, tokens: 5_000 },
+            ],
+          }),
+        },
+      },
+    })
+    Object.assign(ctx, {
+      llm: {
+        listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+        listModels: async () => [{ id: 'v4' }],
+        resolveModelInfo: async () => ({ context: { contextWindow: 100_000 }, defaultMaxTokens: 4_000 }),
+        stream: () => makeStream({ text: JSON.stringify({ action: 'compact', reason: 'still working' }) })(),
+      },
+      sessions: { messageProjections: [] },
+      sessionController: {
+        resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: events.length } } }),
+        page: async () => ({ records: events.map(event => ({ event })), hasMore: false }),
+      },
+      workspaceRegistry: { archiveSession: async () => {} },
+    })
+    const rt = createRuntime(ctx, { home })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
 
-  const agent = {
-    id: 'b2',
-    status: 'running',
-    inbox: { nextStep: [], nextTurn: [] },
-    session: {
+    let renewed = 0
+    const origRenew = rt.renewMemory
+    rt.renewMemory = (...args) => { renewed += 1; return origRenew?.(...args) }
+    let condensedLogged = 0
+    const origInfo = ctx.logger.info
+    ctx.logger.info = (...args) => { if (String(args[0]).includes('condensed from')) condensedLogged += 1; return origInfo(...args) }
+
+    const agent = {
       id: 'b2',
-      seq: events.length,
-      surface: { nodes: events.map(e => e.seq) },
-      eventAt: seq => events[seq],
-      requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }),
-      deriveMessages: () => [],
-      toolHistory: () => [],
-    },
+      status: 'running',
+      inbox: { nextStep: [], nextTurn: [] },
+      session: {
+        id: 'b2',
+        seq: events.length,
+        surface: { nodes: events.map(e => e.seq) },
+        eventAt: seq => events[seq],
+        requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }),
+        deriveMessages: () => [],
+        toolHistory: () => [],
+      },
+    }
+    const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
+    adopt({ agent })
+    const preStep = ctx.listeners.get('agent/pre-step').find(listener => /adoptCompaction/.test(String(listener)))
+    await preStep({ agent, step: 2, messages: [], signal: new AbortController().signal }, async () => 'continued')
+    return { calls, renewed, condensedLogged }
   }
-  const adopt = ctx.listeners.get('agent/created').find(listener => /adoptCompaction/.test(String(listener)))
-  adopt({ agent })
-  const preStep = ctx.listeners.get('agent/pre-step').find(listener => /adoptCompaction/.test(String(listener)))
 
   // 1) Retained-tail compactRegion runs: usable=96k -> retainTokens=15,360, so nodes 5+6 (10k)
-  //    plus paired turn 2 (nodes 3+4) stay verbatim while older prefix seq 1..2 is compacted!
-  await preStep({ agent, step: 2, messages: [], signal: new AbortController().signal }, async () => 'continued')
-  assert.deepEqual(calls.region, [[1, 2]], 'mid-turn condense must compact older prefix via compactRegion while retaining recent turns')
-  assert.deepEqual(calls.overflow, [], 'context-overflow must not run when retained-tail compaction succeeded below check line')
+  //    plus paired turn 2 (nodes 3+4) stay verbatim while older prefix seq 1..2 is compacted.
+  const retained = await runCase({
+    onRegion: (setTokens) => { setTokens(35_000); return { ok: true } },
+    onOverflow: (setTokens) => { setTokens(30_000); return { ok: true } },
+  })
+  assert.deepEqual(retained.calls.region, [[1, 2]], 'mid-turn condense must compact older prefix via compactRegion while retaining recent turns')
+  assert.deepEqual(retained.calls.overflow, [], 'context-overflow must not run when retained-tail compaction succeeded below check line')
+  assert.equal(retained.renewed, 1)
 
-  // 2) If compactRegion throws a shrink error, condense gracefully falls back to context-overflow.
-  failRegion = true
-  tokens = 96_000
-  await preStep({ agent, step: 3, messages: [], signal: new AbortController().signal }, async () => 'continued')
-  assert.equal(calls.region.length, 2)
-  assert.deepEqual(calls.overflow, ['context-overflow'])
+  // 2) If compactRegion throws a shrink error, condense falls back to context-overflow ONCE
+  //    (never running context-overflow twice even when tokens stay >= check line).
+  const fallback = await runCase({
+    onRegion: () => { throw new Error('replacement did not shrink') },
+    onOverflow: (setTokens) => { setTokens(85_000); return { ok: true } },
+  })
+  assert.deepEqual(fallback.calls.region, [[1, 2]])
+  assert.deepEqual(fallback.calls.overflow, ['context-overflow'], 'fallback context-overflow must not run twice in a row')
+  assert.equal(fallback.renewed, 1)
+
+  // 3) If compactRegion commits (leaving tokens >= check) and follow-up context-overflow throws,
+  //    renewMemory/partBase still runs because the retained-tail compaction already mutated the session.
+  const followUpFail = await runCase({
+    onRegion: (setTokens) => { setTokens(80_000); return { ok: true } },
+    onOverflow: () => { throw new Error('follow-up overflow failed') },
+  })
+  assert.deepEqual(followUpFail.calls.region, [[1, 2]])
+  assert.deepEqual(followUpFail.calls.overflow, ['context-overflow'])
+  assert.equal(followUpFail.renewed, 1, 'already-committed compactRegion must still run renewMemory even if follow-up overflow fails')
+  assert.equal(followUpFail.condensedLogged, 1, 'already-committed compactRegion must still finish partBase/log even if follow-up overflow fails')
 })
 
 test('idle writeCheckpoint lowers reasoning effort, retries without tools on tool-call output, and keeps recent replies + redacted tool trail without duplicating tail', async (t) => {
@@ -220,6 +246,8 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'sys' }] },
           { role: 'user', content: [{ type: 'text', text: `Fix bug in auth\n${'Earlier detailed trace. '.repeat(400)}` }] },
+          { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
+          { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'auth.js body' }] },
           { role: 'assistant', content: [{ type: 'text', text: `Options are A (cache) and B (refresh).\n${'Long analysis output. '.repeat(400)}` }] },
           { role: 'user', content: [{ type: 'text', text: 'Also check config.js' }] },
         ],
@@ -277,8 +305,10 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
       requestHeader: () => ({ config: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' } }),
       deriveMessages: () => [
         { role: 'system', content: [{ type: 'text', text: 'sys' }] },
-        { role: 'user', content: [{ type: 'text', text: 'Fix bug in auth' }] },
-        { role: 'assistant', content: [{ type: 'text', text: 'Options are A (cache) and B (refresh).' }] },
+        { role: 'user', content: [{ type: 'text', text: `Fix bug in auth\n${'Earlier detailed trace. '.repeat(400)}` }] },
+        { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
+        { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'auth.js body' }] },
+        { role: 'assistant', content: [{ type: 'text', text: `Options are A (cache) and B (refresh).\n${'Long analysis output. '.repeat(400)}` }] },
         { role: 'user', content: [{ type: 'text', text: 'Also check config.js' }] },
         { role: 'assistant', content: [{ type: 'text', text: 'config.js is clean.' }] }, // tail[0] kept on surface
       ],
@@ -295,6 +325,12 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
   assert.equal(llmCalls[0].reasoningEffort, 'off', 'checkpoint summary must lower reasoningEffort instead of inheriting high')
   assert.ok(Array.isArray(llmCalls[0].tools) && llmCalls[0].tools.length === 1)
   assert.equal(llmCalls[1].tools, undefined, 'retry must omit tools')
+  assert.equal(llmCalls[1].messages.some(m => m.role === 'tool'), false, 'withoutTools retry must not send raw role:tool messages')
+  assert.equal(
+    llmCalls[1].messages.some(m => Array.isArray(m.content) && m.content.some(b => b?.type === 'tool-call' || b?.type === 'tool-result')),
+    false,
+    'withoutTools retry must strip raw tool-call/tool-result blocks for strict providers',
+  )
 
   const text = checkpoints[0].summary[0].text
   assert.match(text, /## Recent exchanges, word for word \(oldest first\)/)
@@ -378,12 +414,15 @@ test('model-switch compaction retries target route with trimmed transcript when 
 test('partLines flushes replies past page cap, askSteward scans past 2 pages on tool-heavy turns, and historyEntry keeps schedules', async (t) => {
   const scheduled = {
     type: 'user/message',
-    data: { source: { kind: 'schedule' }, content: [{ type: 'text', text: '[Scheduled task]\nPrompt: Check build status' }] },
+    data: {
+      source: { kind: 'schedule' },
+      content: [{ type: 'text', text: 'A scheduled reminder fired.\nreminder_prompt_json: "Check build status"' }],
+    },
   }
   const parsedSchedule = historyEntry(scheduled, false)
   assert.equal(parsedSchedule?.who, 'bot')
   assert.equal(parsedSchedule?.keepAnswers, true)
-  assert.match(parsedSchedule?.text ?? '', /Check build status/)
+  assert.equal(parsedSchedule?.text, '[Scheduled reminder] Check build status')
 
   // Simulate a 450-event tool turn: user message at seq 1, 448 tool events, assistant reply at seq 450.
   const events = [
@@ -455,7 +494,7 @@ test('partLines flushes replies past page cap, askSteward scans past 2 pages on 
 })
 
 test('handoff note keeps substantial partial note on final attempt, retries without tools on tool-calls, and handoffPackage carries recent tool trail', async () => {
-  const runSwitch = async ({ replies, events = [] }) => {
+  const runSwitch = async ({ replies, events = [], capped = false }) => {
     const requests = []
     const followups = []
     let seq = 1
@@ -480,7 +519,11 @@ test('handoff note keeps substantial partial note on final attempt, retries with
         eventAt: () => undefined,
         header: { cwd: '/ws' },
         requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' }, tools: [{ name: 'read_file' }] }),
-        deriveMessages: () => [{ role: 'user', content: [{ type: 'text', text: 'x'.repeat(200_000) }] }],
+        deriveMessages: () => [
+          { role: 'user', content: [{ type: 'text', text: 'x'.repeat(200_000) }] },
+          { role: 'assistant', content: [{ type: 'tool-call', id: 'tc1', name: 'read_file', arguments: { path: 'a.js' } }] },
+          { role: 'tool', toolCallId: 'tc1', content: [{ type: 'text', text: 'file contents' }] },
+        ],
         toolHistory: () => [],
       },
     })
@@ -518,7 +561,10 @@ test('handoff note keeps substantial partial note on final attempt, retries with
       resolveAgent: async id => agents.get(id),
       eventsBackwards: async function* (_sid, _sig, _pages, read) {
         for (const ev of [...events].reverse()) yield ev
-        if (read) read.complete = true
+        if (read) {
+          read.capped = capped
+          read.complete = !capped
+        }
       },
       assembleLlm: async (options) => {
         requests.push(options)
@@ -559,7 +605,7 @@ test('handoff note keeps substantial partial note on final attempt, retries with
   assert.match(partial.packageText, /## Recent tool activity \(oldest first\)/)
   assert.match(partial.packageText, /edit_file\(src\/auth\.js\) -> ok/)
 
-  // 2) Tool-call finish on attempt 1 retries without tools on attempt 2 and succeeds.
+  // 2) Tool-call finish on attempt 1 retries without tools AND strips raw tool blocks on attempt 2.
   const fullNote = [
     '## Goals\n- g', '## Constraints and preferences\n- c', '## Progress\n- p', '## Decisions\n- d',
     '## Facts to keep\n- f', '## Open threads\n- o', '## Next step\n- n', '## Where to look\n- w',
@@ -570,10 +616,38 @@ test('handoff note keeps substantial partial note on final attempt, retries with
   assert.equal(toolRetry.requests.length, 2)
   assert.ok(Array.isArray(toolRetry.requests[0].tools))
   assert.equal(toolRetry.requests[1].tools, undefined, 'retry after tool-calls must omit tools')
+  assert.equal(toolRetry.requests[1].messages.some(m => m.role === 'tool'), false, 'noteThrough withoutTools retry must strip role:tool messages')
+  assert.equal(
+    toolRetry.requests[1].messages.some(m => Array.isArray(m.content) && m.content.some(b => b?.type === 'tool-call' || b?.type === 'tool-result')),
+    false,
+    'noteThrough withoutTools retry must strip raw tool blocks',
+  )
   assert.match(toolRetry.packageText, /## Goals\n- g/)
+
+  // 3) Unrelated 4-heading reply with 0 canonical headings and empty-heading skeletons are rejected.
+  const unrelated = '## Overview\n- Here is an essay about bananas.\n## History\n- Grown in tropical climates.\n## Nutrition\n- High in potassium.\n## Conclusion\n- Very tasty fruit indeed.'
+  const emptySkeleton = '## Goals\n- (none)\n## Constraints and preferences\n- (none)\n## Progress\n- (none)\n## Decisions\n- (none)'
+  for (const bad of [unrelated, emptySkeleton]) {
+    const rejected = await runSwitch({ replies: [{ text: bad }, { text: bad }] })
+    assert.match(rejected.packageText, /STALE NOTE FROM PART 1/, 'unrelated/empty partial reply must not be accepted as a handoff note')
+  }
+
+  // 4) When paging hits the page cap before an initiating user message, partLines flushes real
+  //    assistant replies while filtering HANDOFF_ACK; on a complete scan, orphan replies are not flushed.
+  const orphanEvents = [
+    { seq: 1, time: 1000, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Noted. I have my handoff note and carry on from here.' }] } } },
+    { seq: 2, time: 1100, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Milestone 42 finished.' }] } } },
+  ]
+  const cappedRes = await runSwitch({ replies: [{ text: fullNote }], events: orphanEvents, capped: true })
+  assert.match(cappedRes.packageText, /You: Milestone 42 finished\./, 'capped scan must flush real buffered replies')
+  assert.doesNotMatch(cappedRes.packageText, /Noted\. I have my handoff note/, 'capped scan must not leak HANDOFF_ACK')
+
+  const completeRes = await runSwitch({ replies: [{ text: fullNote }], events: orphanEvents, capped: false })
+  assert.doesNotMatch(completeRes.packageText, /Milestone 42 finished/, 'complete scan must not flush orphan assistant messages with no initiating user message')
+  assert.doesNotMatch(completeRes.packageText, /Noted\. I have my handoff note/)
 })
 
-test('parseReview handles fenced JSON and JSON surrounded by prose with braces without losing changes', () => {
+test('parseReview handles fenced JSON and JSON surrounded by prose with stray braces or unmatched quotes', () => {
   assert.deepEqual(
     parseReview('Reviewed {session} notes:\n```json\n{"changes": [{"op": "add", "text": "User uses pnpm"}]}\n```'),
     { changes: [{ op: 'add', text: 'User uses pnpm' }], leftOut: [] },
@@ -582,7 +656,11 @@ test('parseReview handles fenced JSON and JSON surrounded by prose with braces w
     parseReview('For {user}, here is the result: {"changes": [{"op": "add", "text": "Keep concise"}]} done.'),
     { changes: [{ op: 'add', text: 'Keep concise' }], leftOut: [] },
   )
-  assert.equal(parseReview('Just prose with {braces} and no JSON'), undefined)
+  assert.deepEqual(
+    parseReview('Discussed 5" screen and opening { character before result: {"changes": [{"op": "add", "text": "Use {pnpm} \\"fast\\""}]}'),
+    { changes: [{ op: 'add', text: 'Use {pnpm} "fast"' }], leftOut: [] },
+  )
+  assert.equal(parseReview('Just prose with {braces} and 5" quote and no JSON'), undefined)
 })
 
 test('checkpointText keeps backward-compatible format when recent/tools are empty and renders them when provided', () => {

@@ -427,8 +427,9 @@ export function install(rt) {
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
   async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
+    const scan = read ?? {}
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages, read)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan)) {
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -440,9 +441,14 @@ export function install(rt) {
       yield* kept
       if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who }
     }
-    // If paging stopped before reaching the initiating user message (for instance a long
-    // tool turn hit the page limit), flush the replies already read instead of dropping them.
-    if (answers.length > 0) yield* answers
+    // If paging stopped at the page cap before reaching the initiating user message
+    // (for instance a long tool turn hit the cap), flush the real replies already read
+    // instead of dropping them, while never leaking a bare HANDOFF_ACK.
+    if (answers.length > 0 && scan.capped === true && scan.complete !== true) {
+      for (const item of answers) {
+        if (item.text !== `You: ${HANDOFF_ACK}`) yield item
+      }
+    }
   }
 
   const TOOL_TRAIL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
@@ -599,6 +605,61 @@ export function install(rt) {
     return { effort, limit }
   }
 
+  // Converts tool-call blocks and role:'tool' messages into plain text blocks so a
+  // no-tools retry never sends raw tool_use/tool_result blocks without tool schemas
+  // (which Anthropic Messages API and Bedrock reject with HTTP 400).
+  function stripToolBlocks(messages) {
+    const out = []
+    const pushText = (role, text) => {
+      const clean = text.trim()
+      if (clean === '') return
+      const prev = out.at(-1)
+      if (prev !== undefined && prev.role === role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
+        prev.content = [{ type: 'text', text: `${prev.content.map(block => block.text).join('\n')}\n\n${clean}` }]
+      } else {
+        out.push({ role, content: [{ type: 'text', text: clean }] })
+      }
+    }
+    for (const message of messages ?? []) {
+      if (message?.role === 'system') {
+        out.push(message)
+        continue
+      }
+      if (message?.role === 'tool') {
+        const body = redactText(textOf(message.content)).trim()
+        const label = `[tool result${message.toolCallId ? ` (${message.toolCallId})` : ''}${message.isError ? ', error' : ''}]`
+        pushText('user', body === '' ? label : `${label}: ${clip(body, 2_000, 'truncated')}`)
+        continue
+      }
+      const raw = Array.isArray(message?.content) ? message.content : []
+      const hasToolBlock = raw.some(block => block?.type === 'tool-call' || block?.type === 'tool-result')
+      if (!hasToolBlock) {
+        const text = textOf(raw)
+        if (text !== '' || raw.some(block => block?.type === 'image')) {
+          const prev = out.at(-1)
+          if (raw.every(block => block?.type === 'text') && prev !== undefined && prev.role === message.role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
+            pushText(message.role, text)
+          } else {
+            out.push(message)
+          }
+        }
+        continue
+      }
+      const pieces = []
+      for (const block of raw) {
+        if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') {
+          pieces.push(block.text)
+        } else if (block?.type === 'tool-call') {
+          const name = typeof block.name === 'string' ? block.name : 'tool'
+          const arg = toolArgSummary(block.arguments ?? block.input)
+          pieces.push(arg === '' ? `[tool call: ${name}]` : `[tool call: ${name}(${arg})]`)
+        }
+      }
+      pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'))
+    }
+    return out
+  }
+
   // One route's attempts at the note: the same system prompt, tools, and messages as
   // the conversation's own requests, plus the note prompt; nothing is written into the
   // Session. A cut-off note, or one without every section, is asked for again once with
@@ -607,11 +668,12 @@ export function install(rt) {
     const { effort, limit } = await notePlan(route)
     return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false } = {}) => {
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
+      const history = withoutTools ? stripToolBlocks(messages) : messages
       const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: [...messages, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+        messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
         ...(withoutTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
         maxTokens,
         sessionId: session.id,
@@ -625,11 +687,16 @@ export function install(rt) {
     })
   }
 
+  // Requires at least half the canonical handoff sections AND non-trivial body text
+  // (rejecting unrelated Markdown answers and bare empty-heading skeletons).
   function isUsablePartialNote(note, missing) {
-    if (note === '') return false
-    if (NOTE_SECTIONS.length - missing.length >= 4) return true
-    const headings = note.split('\n').filter(line => /^#{1,4}\s+\S/.test(line)).length
-    return headings >= 4 && note.length >= 120
+    if (note === '' || NOTE_SECTIONS.length - missing.length < 4) return false
+    const body = note.split('\n')
+      .filter(line => !/^#{1,4}\s+/.test(line.trim()))
+      .map(line => line.replace(/^[-*]\s*/, '').trim())
+      .filter(line => line !== '' && line.toLowerCase() !== '(none)')
+      .join(' ')
+    return body.length >= 40
   }
 
   // The attempts at a note, each asked through `request`: a cut-off note, or one
@@ -649,10 +716,13 @@ export function install(rt) {
       if (finish === 'max-tokens') {
         problem = 'it was cut off at the output limit'
         retry = NOTE_RETRY_SHORTER
-      } else if (note === '' || finish === 'tool-calls') {
-        problem = finish === 'tool-calls' ? 'it tried to call a tool instead of writing text' : 'it was empty'
+      } else if (finish === 'tool-calls') {
+        problem = 'it tried to call a tool instead of writing text'
         withoutTools = true
-        retry = finish === 'tool-calls' ? 'Output the handoff note as plain Markdown text only, without calling any tools.' : undefined
+        retry = 'Output the handoff note as plain Markdown text only, without calling any tools.'
+      } else if (note === '') {
+        problem = 'it was empty'
+        retry = undefined
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
           const score = NOTE_SECTIONS.length - missing.length
@@ -893,7 +963,8 @@ export function install(rt) {
     }
     const callOnce = async (one, { withoutTools = false, trimmed = false } = {}) => {
       const { effort } = await notePlan(one)
-      const fullMessages = [...head, ...tail, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
+      const baseHistory = withoutTools && !trimmed ? stripToolBlocks([...head, ...tail]) : [...head, ...tail]
+      const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
       const callOptions = {
         provider: one.provider,
         model: one.model,
@@ -1027,16 +1098,23 @@ export function install(rt) {
           ? selectRetainedRange(agent.session, measureOf(agent.session), retainTokens)
           : null
         if (range !== null) {
+          let fellBack = false
           try {
             result = await engine.compactRegion(range.start, range.end, agent, signal)
           } catch (regionError) {
             if (signal?.aborted) throw regionError
+            fellBack = true
             rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, regionError)
             result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
           }
           const afterRetained = tokensOf(agent.session)
-          if (result !== null && afterRetained !== undefined && afterRetained >= lines.check) {
-            result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
+          if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= lines.check) {
+            try {
+              result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
+            } catch (followUpError) {
+              if (signal?.aborted) throw followUpError
+              rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, followUpError)
+            }
           }
         } else {
           result = await engine.compactIfNeeded(agent, 'context-overflow', signal)

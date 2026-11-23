@@ -1721,4 +1721,23 @@ test('roomPrompt explicitly tells a member how many earlier unread group message
   assert.match(promptText, /\(22 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
   await answer(turn.sessionId, turn.message.source.exchangeId, 'Got it, checking read_group_chat.', 1)
   await running
+
+  // First-look member (`seen[id] === undefined`) uses ROOM_FIRST_LOOK (12) consistently with unseenLines/unreadCount.
+  delete live.seen[writer.id]
+  live.log = Array.from({ length: 20 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `First look msg ${index + 1}`,
+    time: 2000 + index,
+  }))
+  live.seq = 20
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer check first look'))
+  const running2 = relay(room.id, 'relay-first-look')
+  const turn2 = await turnFor(sent)
+  assert.ok(turn2)
+  // 20 earlier + 1 current = 21 total; ROOM_FIRST_LOOK=12 drops 9, then ROOM_EARLIER_MAX=8 drops 3 of the 11 earlier -> 12 omitted!
+  assert.match(turn2.message.content[0].text, /\(12 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
+  await running2
 })

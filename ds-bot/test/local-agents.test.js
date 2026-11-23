@@ -2471,3 +2471,47 @@ test('replay keeps full group memory snapshot and assistant tool-call markers, a
   assert.match(digest.text, /msg-59/, 'compaction digest must keep newest messages')
   assert.doesNotMatch(digest.text, /msg-0 /, 'compaction digest should drop oldest messages past 8KB budget')
 })
+
+test('failed CLI resume preserves a >2000-char request followed by a clock message, bounds memory updates, and rejects dropped resume during maintenance', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-clock-replay-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const first = makeAdapter({ records })
+  try {
+    await collect(first.stream(options('s1', [system('sys', 'You are Kai.'), user('m1', 'hello')])))
+  } finally {
+    await first.dispose()
+  }
+
+  const longReq = `${'Detailed change request. '.repeat(110)}DO_NOT_TOUCH_PROD_TAIL`
+  assert.ok(longReq.length > 2_500)
+  const manyUpdates = Array.from({ length: 30 }, (_, i) => ({
+    id: `mu-${i}`,
+    role: 'user',
+    content: [{ type: 'text', text: `Memory update #${i}: ${'m'.repeat(1_500)}` }],
+    source: { kind: 'ds-bot-memory-update' },
+  }))
+  const second = makeAdapter({ records, acpArgs: ['--fail-load', '--record', record] })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [
+    system('sys', 'You are Kai.'),
+    user('m1', 'hello'),
+    ...manyUpdates,
+    user('m2', longReq),
+    { id: 'clk', role: 'user', content: [{ type: 'text', text: 'Current time: 14:30' }], source: { kind: 'runtime-context' } },
+  ])))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /DO_NOT_TOUCH_PROD_TAIL/, 'long unread request followed by clock must not be clipped at 2,000 chars')
+  assert.match(promptText, /Memory update #29:/, 'newest memory updates must be kept')
+  assert.doesNotMatch(promptText, /Memory update #0:/, 'old memory updates must be bounded instead of growing replay without limit')
+
+  // Maintenance (`note()`) on a dropped resume must fail instead of asking a blank CLI session for a handoff note.
+  const third = makeAdapter({ records, acpArgs: ['--fail-load'] })
+  t.after(() => third.dispose())
+  await assert.rejects(
+    () => third.note('s1', 'Write a handoff note', AbortSignal.timeout(5_000)),
+    /could not be resumed/,
+  )
+})

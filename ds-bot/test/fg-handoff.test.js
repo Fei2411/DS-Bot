@@ -856,4 +856,21 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   const injected2 = fresh2.injected.map(m => m.content?.[0]?.text ?? '').join('\n')
   assert.match(injected2, /\[Recent context from your own chat\]/, 'non-forked fresh foreground must still get fallback context even if moved turn finished mid-handoff')
   assert.match(injected2, /target repo is ds-bot/)
+
+  // 3) When > 8 KB of prior messages exist, fallbackContextSummary preserves the newest turns instead of clipping them off.
+  const env3 = await startEnv({
+    forkImpl: async () => { throw new Error('fork unavailable') },
+  })
+  t.after(env3.stop)
+  const dm3 = env3.agentMap.get('dm-a')
+  dm3.status = 'running'
+  for (let i = 1; i <= 14; i += 1) {
+    await env3.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: `MSG_${i}_START ${'a'.repeat(850)} MSG_${i}_END` }] })
+  }
+  await env3.emit('dm-a', 'turn/start', { turn: 1 })
+  await env3.emit('dm-a', 'tool/call', { callId: 'tc3', name: 'bash', arguments: '{}' })
+  await env3.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Continue from latest' }] })
+  const injected3 = env3.agentMap.get(env3.rt.botOf('a').sessionId).injected.map(m => m.content?.[0]?.text ?? '').join('\n')
+  assert.match(injected3, /MSG_14_START/, 'newest message must survive >8KB fallback truncation')
+  assert.doesNotMatch(injected3, /MSG_1_START/, 'oldest messages past 8KB should be dropped before newest ones')
 })

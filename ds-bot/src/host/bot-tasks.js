@@ -179,8 +179,26 @@ export function install(rt) {
       }
     }
     if (lines.length === 0) return ''
-    const recent = lines.slice(-CONTEXT_FALLBACK_ITEMS).join('\n')
-    const clipped = recent.length > CONTEXT_FALLBACK_MAX ? `${recent.slice(0, CONTEXT_FALLBACK_MAX)}…` : recent
+    const selected = []
+    let chars = 0
+    let truncated = false
+    const tail = lines.slice(-CONTEXT_FALLBACK_ITEMS)
+    for (let i = tail.length - 1; i >= 0; i -= 1) {
+      const line = tail[i]
+      const extra = selected.length === 0 ? line.length : line.length + 1
+      if (selected.length > 0 && chars + extra > CONTEXT_FALLBACK_MAX) {
+        truncated = true
+        break
+      }
+      const kept = selected.length === 0 && line.length > CONTEXT_FALLBACK_MAX
+        ? `${line.slice(0, CONTEXT_FALLBACK_MAX)}…`
+        : line
+      selected.push(kept)
+      chars += selected.length === 1 ? kept.length : kept.length + 1
+    }
+    truncated ||= lines.length > CONTEXT_FALLBACK_ITEMS
+    const body = selected.reverse().join('\n')
+    const clipped = truncated ? `…\n${body}` : body
     const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
     const label = room !== undefined ? `group "${room.name}"` : 'your own chat'
     return `\n\n[Recent context from ${label}]\n${clipped}`
@@ -1031,7 +1049,7 @@ export function install(rt) {
         || rt.waitsForApproval?.(oldSid)
         || hasOpenOutgoingWorks(bot, task)
 
-      if (!stillRunning && isActiveTask(task)) {
+      if (!stillRunning) {
         // When the new foreground could not fork history (e.g. first turn, workdir change,
         // or local CLI), still carry recent context so the fresh foreground is not blank.
         if (!forked && origin === 'fg-handoff') {
@@ -1050,13 +1068,15 @@ export function install(rt) {
             }
           }
         }
-        const events = oldAgent?.session?.snapshotEvents?.() ?? []
-        const lastEnd = events.findLast(ev => ev?.type === 'turn/end')
-        const endReason = lastEnd?.data?.reason
-        const endFailure = endReason?.kind === 'error' ? turnFailure(endReason.error) : undefined
-        const said = lastReplyOf(oldAgent?.session, task.workDir)
-        queueMicrotask(() => void handleTurnEnd(bot, task, endReason, endFailure, said)
-          .catch(error => rt.warn('ds-bot: post-handoff settle failed for %s: %s', task.id, error)))
+        if (isActiveTask(task)) {
+          const events = oldAgent?.session?.snapshotEvents?.() ?? []
+          const lastEnd = events.findLast(ev => ev?.type === 'turn/end')
+          const endReason = lastEnd?.data?.reason
+          const endFailure = endReason?.kind === 'error' ? turnFailure(endReason.error) : undefined
+          const said = lastReplyOf(oldAgent?.session, task.workDir)
+          queueMicrotask(() => void handleTurnEnd(bot, task, endReason, endFailure, said)
+            .catch(error => rt.warn('ds-bot: post-handoff settle failed for %s: %s', task.id, error)))
+        }
       } else if (origin === 'fg-handoff') {
         // Inform the new foreground only when the user's own previous turn moved to
         // background and is still running (never leak hidden Bot-to-Bot work).

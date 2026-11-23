@@ -15,11 +15,14 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 // card reads it from resolveModel rather than from the Session's own figures.
 const windowKey = (route, model) => `${route}\u0000${model}`
 // The replay window when a CLI session is new or its resume failed: 12 recent user/assistant
-// turns (not counting tool results or memory snapshots) within a 24 KB cap.
+// turns (not counting tool results or memory snapshots) within a 24 KB cap, plus a
+// dedicated bounded cap for incremental memory updates.
 const REPLAY_MESSAGES = 12
 const REPLAY_TOTAL_MAX = 36
 const REPLAY_BYTES = 24 * 1024
 const REPLAY_LINE_MAX = 2_000
+const MEMORY_UPDATE_REPLAY_MAX = 4
+const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
 const APPROVE_TOOL = 'approve_agent_action'
 // A CLI that answers its compaction command first and condenses after (Devin) says
@@ -370,6 +373,8 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (session.resumeMissing === true) {
       live.cliSessionId = undefined
       live.handed = undefined
+      live.context = live.context?.size === undefined ? undefined : { size: live.context.size }
+      live.compactions = 0
       live.resumeLost = true
     } else live.handed = live.handedBefore
     this.deps.saveRecord(sessionId, this.recordOf(live))
@@ -517,7 +522,8 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.pumpToken === token && !live.dead) live.push(event)
         }
       })()
-      if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
+      if (live.spec.kind === 'claude' && instructions !== undefined) live.promptHash = promptHash
+      else if (live.spec.kind === 'codex' && (freshCli || resumeDropped) && instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
       // Claude reports its session id with `system/init`, after start() resolved:
       // the record above has no id yet, so persist it when it lands or the next
@@ -537,7 +543,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
     const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
     let promptBlocks = needsReplay
-      ? await renderReplay(messages, system, resolveImage)
+      ? await renderReplay(messages, system, resolveImage, { preserve: remaining })
       : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
@@ -928,10 +934,11 @@ export class LocalAgentAdapter extends LlmAdapter {
   async openFor(live, sessionId) {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
+    const priorCliId = live.cliSessionId
     live.engineSession = await live.engine.open(sessionId, {
       cwd,
       mcp: undefined,
-      resumeId: live.cliSessionId,
+      resumeId: priorCliId,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
       model: live.model,
@@ -939,6 +946,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       effort: live.effort,
     })
       .catch(error => { throw toLlmError(error, live) })
+    const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+    if (priorCliId !== undefined && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
+      const opened = live.engineSession
+      live.engineSession = undefined
+      await live.engine.closeSession?.(opened).catch(() => {})
+      throw new LlmError('the saved local agent session could not be resumed for maintenance', 'LOCAL_AGENT_EXIT')
+    }
     if (live.spec.kind === 'acp') {
       if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
       live.effort = live.engineSession.effort
@@ -1201,24 +1215,44 @@ async function renderDelta(contextText, remaining, resolveImage) {
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text and images, newest first, always with the latest input,
-// memory snapshots, and the handoff a new part opens with, word for word.
-async function renderReplay(messages, system, resolveImage) {
+// recent messages rendered as text and images, newest first, always keeping the
+// current unread input, the latest group memory snapshot, and the latest handoff
+// word for word while bounding historical messages and incremental memory updates.
+async function renderReplay(messages, system, resolveImage, { preserve = [] } = {}) {
   const picked = []
   let used = 0
   let conversationCount = 0
+  let memoryUpdates = 0
+  let memoryUpdateBytes = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
+  const latestNonClock = [...body].reverse().find(message => message.source?.kind !== 'runtime-context')
+  const latestGroupMem = [...body].reverse().find(message => message.source?.kind === GROUP_MEMORY_SOURCE)
+  const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
+  const preserveSet = new Set(preserve)
   let full = false
   for (const message of [...body].reverse()) {
     const sourceKind = message.source?.kind
-    if (message !== latest && sourceKind === 'runtime-context') continue
-    const whole = message === latest
-      || message.source?.handoff === true
-      || sourceKind === GROUP_MEMORY_SOURCE
-      || sourceKind === MEMORY_UPDATE_SOURCE
+    const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
+    if (!isCurrentInput && sourceKind === 'runtime-context') continue
+    if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
+    if (sourceKind === MEMORY_UPDATE_SOURCE) {
+      const len = prefix.length + 1 + text.length
+      if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes + len > MEMORY_UPDATE_REPLAY_BYTES)) continue
+      const maxText = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
+      const blocks = await blocksOfMessage(message, { maxText, resolveImage, includeToolCalls: true })
+      if (blocks.length === 0) continue
+      const entry = blocks[0].type === 'text'
+        ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
+        : [{ type: 'text', text: prefix }, ...blocks]
+      picked.unshift(entry)
+      memoryUpdates += 1
+      memoryUpdateBytes += Math.min(len, maxText)
+      continue
+    }
+    const whole = isCurrentInput || message === latestHandoff || message === latestGroupMem
     const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
     if (!whole) {
       full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
@@ -1232,8 +1266,8 @@ async function renderReplay(messages, system, resolveImage) {
         ? [{ type: 'text', text: prefix }, ...blocks]
         : [{ type: 'text', text: `${prefix} ` }]
     picked.unshift(entry)
-    used += approxLen
-    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== MEMORY_UPDATE_SOURCE) {
+    if (!whole) used += approxLen
+    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== 'runtime-context') {
       conversationCount += 1
     }
   }

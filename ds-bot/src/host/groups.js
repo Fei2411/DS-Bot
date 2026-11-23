@@ -77,11 +77,17 @@ const SHOWN_ONLY = new Set(['working', 'approval'])
 const memberLine = record => record !== undefined && !SHOWN_ONLY.has(record.kind)
 
 // A member's own lines are already in its Session, so only the others' are news.
-const unseenLines = (room, memberId) => {
+// On a member's first look (`since === undefined`), keep the last ROOM_FIRST_LOOK
+// lines from the log including any of the member's own prior lines on a fresh Session.
+const unseenWindow = (room, memberId) => {
   const since = room.seen[memberId]
-  if (since === undefined) return room.log.slice(-ROOM_FIRST_LOOK)
-  return room.log.filter(line => line.seq > since && line.botId !== memberId).slice(-ROOM_DELTA_MAX)
+  if (since === undefined) {
+    return { all: room.log, lines: room.log.slice(-ROOM_FIRST_LOOK) }
+  }
+  const all = room.log.filter(line => line.seq > since && line.botId !== memberId)
+  return { all, lines: all.slice(-ROOM_DELTA_MAX) }
 }
+const unseenLines = (room, memberId) => unseenWindow(room, memberId).lines
 
 // A notice keeps its fields, not a finished sentence: the line members read is written
 // when it is read, so old entries still say what happened when the wording or the
@@ -872,9 +878,7 @@ export function install(rt) {
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
       .map(bot => `${bot.name}${rt.isAdminOf(room, bot.id) ? ' (admin)' : ''}`)
     const leads = rt.isAdminOf(room, member.id)
-    const since = room.seen[member.id] ?? 0
-    const allUnseen = room.log.filter(line => line.seq > since && line.botId !== member.id)
-    const lines = allUnseen.slice(-ROOM_DELTA_MAX)
+    const { all: allUnseen, lines } = unseenWindow(room, member.id)
     const droppedByDelta = Math.max(0, allUnseen.length - lines.length)
     const earlierAll = lines.filter(line => line.seq < round.startSeq)
     const earlier = earlierAll.slice(-ROOM_EARLIER_MAX)
@@ -882,7 +886,7 @@ export function install(rt) {
     const omittedCount = droppedByDelta + droppedByEarlier
     const current = lines.filter(line => line.seq >= round.startSeq)
     const owed = results.filter(result => ![...earlier, ...current].some(line => line.seq === result.seq))
-    const spokeThisRound = since >= round.startSeq
+    const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
     const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
