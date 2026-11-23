@@ -789,7 +789,7 @@ export function install(rt) {
         throw error
       }
       exec.concludeTurn?.()
-      return `Sent your question on work ${ref} to ${caller.name}. End your turn now; ${caller.name} will unblock you with answer_work.`
+      return `Sent your question on work ${ref} to ${caller.name}. End your turn now without calling answer_work yourself; ${caller.name} will unblock you with answer_work.`
     },
   }))
 

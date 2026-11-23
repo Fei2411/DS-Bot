@@ -1581,7 +1581,13 @@ export function install(rt) {
     const room = rt.roomOf(roomId)
     if (room === undefined || room.idlePaused === undefined) return false
     unpauseRoomIdle(room)
-    const parked = (room.paused ?? []).map(entry => ({ ...entry, idle: false }))
+    const parked = (room.paused ?? []).map(entry => ({
+      ...entry,
+      idle: false,
+      note: entry.note && !entry.note.includes('Continue after a pause')
+        ? `${entry.note}; the user clicked Continue after a pause`
+        : (entry.note || 'the user clicked Continue after a pause'),
+    }))
     if (parked.length > 0) room.paused = parked
     else delete room.paused
     await rt.save().catch(() => {})

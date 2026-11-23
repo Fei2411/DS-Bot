@@ -1752,9 +1752,35 @@ export function install(rt) {
             }
           }
         }
+        // Drop stopped room turns up front, then coalesce superseded waiterless `role: 'room'`
+        // deliveries so a member that received several mentions during one busy turn is not
+        // woken back-to-back to answer the same group log over and over.
+        // Batch tracking (`state.roomBatches`) is keyed per `(roomId, botId, askedBy)`, so
+        // waiterless calls with `askedBy !== undefined` coalesce only within the same
+        // `(roomId, askedBy)` scope (preserving other callers' batches), while `askedBy === undefined`
+        // calls (which never open a batch) coalesce whenever any live or newer call exists for the room.
+        const activeJoined = []
         for (const request of joined) {
           if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) continue
           if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
+          activeJoined.push(request)
+        }
+        const liveWaiterRooms = new Set()
+        const liveWaiterScopes = new Set()
+        const latestWaiterlessRoom = new Map()
+        const latestWaiterlessScope = new Map()
+        for (const request of activeJoined) {
+          if (request.info.role !== 'room' || request.info.roomId === undefined) continue
+          const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
+          if (roomWaiters.has(request.info.exchangeId)) {
+            liveWaiterRooms.add(request.info.roomId)
+            if (scope !== undefined) liveWaiterScopes.add(scope)
+          } else {
+            latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
+            if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
+          }
+        }
+        for (const request of activeJoined) {
           // A failed or stopped turn closes the request like any other; a finished
           // one hands it back to the Bot to answer next.
           if (failure !== undefined || reason?.kind === 'aborted') {
@@ -1762,6 +1788,14 @@ export function install(rt) {
               if (failure !== undefined) void rt.lateRoomFailure?.(id, request.info, failure)
             } else answer(request.info, '')
             continue
+          }
+          if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
+            if (request.info.askedBy !== undefined) {
+              const scope = `${request.info.roomId}\0${request.info.askedBy}`
+              if (liveWaiterScopes.has(scope) || latestWaiterlessScope.get(scope) !== request.info.exchangeId) continue
+            } else if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) {
+              continue
+            }
           }
           void rt.deliver({
             fromId: request.info.senderSessionId,

@@ -1062,17 +1062,25 @@ export function install(rt) {
     const origin = isBotHandoff ? 'bot-handoff' : 'fg-handoff'
     const movedPrompt = isBotHandoff ? '' : promptFromRunningTurn(oldAgent?.session, entry)
     const title = titleFromRunningTurn(oldAgent?.session, entry)
-    const startSeq = (() => {
-      const events = oldAgent?.session?.snapshotEvents?.() ?? []
-      if (events.length === 0) return 0
-      const lastStart = events.findLastIndex(ev => ev?.type === 'turn/start')
-      const boundary = lastStart >= 0 ? lastStart : events.length
-      for (let i = boundary - 1; i >= 0; i -= 1) {
-        if (events[i]?.type === 'turn/end') {
-          return Number.isInteger(events[i].seq) ? events[i].seq + 1 : i + 1
+    const oldEvents = oldAgent?.session?.snapshotEvents?.() ?? []
+    const runningTurn = entry?.turn
+    const { startSeq, priorTurns, priorCallIds } = (() => {
+      const turns = new Set()
+      const callIds = new Set()
+      if (oldEvents.length === 0) return { startSeq: 0, priorTurns: turns, priorCallIds: callIds }
+      const lastStart = oldEvents.findLastIndex(ev => ev?.type === 'turn/start')
+      const boundary = lastStart >= 0 ? lastStart : oldEvents.length
+      let seq = 0
+      for (let i = 0; i < boundary; i += 1) {
+        const ev = oldEvents[i]
+        if (ev?.type === 'turn/end') {
+          if (typeof ev.data?.turn === 'number' && Number.isInteger(ev.data.turn)) turns.add(ev.data.turn)
+          seq = Number.isInteger(ev.seq) ? ev.seq + 1 : i + 1
+        } else if (ev?.type === 'tool/call' && typeof ev.data?.callId === 'string' && ev.data.callId !== '') {
+          callIds.add(ev.data.callId)
         }
       }
-      return 0
+      return { startSeq: seq, priorTurns: turns, priorCallIds: callIds }
     })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
@@ -1127,6 +1135,41 @@ export function install(rt) {
       rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
       if (isBotHandoff && activeWork !== undefined) {
         rt.setWorkTargetSession?.(activeWork, oldSid, task.id)
+      }
+      // A forked foreground Session clones completed turns from `oldSid` with the same
+      // turn numbers and callIds; carry over hidden exchange turns and closed cards for
+      // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
+      // back into the user's chat after an fg-handoff or bot-handoff fork.
+      if (forked) {
+        const forkedEvents = ctx.get('agents')?.get(newSid)?.session?.snapshotEvents?.()
+          ?? ctx.sessions?.get?.(newSid)?.snapshotEvents?.()
+          ?? []
+        let inheritedTurns = priorTurns
+        let inheritedCallIds = priorCallIds
+        const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0
+        if (forkedEvents.length > 0) {
+          inheritedTurns = new Set()
+          inheritedCallIds = new Set()
+          for (const ev of forkedEvents) {
+            if (ev?.type === 'turn/end' && typeof ev.data?.turn === 'number' && Number.isInteger(ev.data.turn)) inheritedTurns.add(ev.data.turn)
+            else if (ev?.type === 'tool/call' && typeof ev.data?.callId === 'string' && ev.data.callId !== '') inheritedCallIds.add(ev.data.callId)
+          }
+        }
+        const oldHidden = rt.own(state.exchangeTurns, oldSid)
+        if (Array.isArray(oldHidden) && oldHidden.length > 0) {
+          const carried = oldHidden.filter(t => (hasEventBounds
+            ? inheritedTurns.has(t)
+            : (runningTurn === undefined || t < runningTurn)))
+          if (carried.length > 0) state.exchangeTurns[newSid] = carried
+        }
+        const oldClosed = rt.own(state.closedCards, oldSid)
+        if (oldClosed && typeof oldClosed === 'object') {
+          const carriedCards = {}
+          for (const [callId, card] of Object.entries(oldClosed)) {
+            if (!hasEventBounds || inheritedCallIds.has(callId)) carriedCards[callId] = card
+          }
+          if (Object.keys(carriedCards).length > 0) (state.closedCards ??= {})[newSid] = carriedCards
+        }
       }
       record.committed = true
       record.newSid = newSid
