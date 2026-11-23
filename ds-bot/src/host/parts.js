@@ -15,9 +15,12 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
@@ -2126,11 +2129,58 @@ export function install(rt) {
   }
 
   // The newest line of a Bot's own-chat part, for the list row's order and
-  // preview. Read once per part, then kept by session/event.
+  // preview. Read once per part, then kept by session/event and saved under
+  // <home>/tail: a restart shows the row from the saved tail instead of opening the
+  // Session, because a cold page read decodes its whole log. Kept out of state.json
+  // so writing one never bumps the team revision.
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
   const previewText = item => String(item.text ?? item.title ?? item.texts?.join(' ') ?? '').replace(/\s+/g, ' ').trim()
-  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const tailDir = typeof rt.home === 'string' ? join(rt.home, 'tail') : undefined
+  const tailFile = botId => join(tailDir, `${botId}.json`)
+  let tailWrites = Promise.resolve()
+  const writeTail = (botId, tail) => {
+    tailWrites = tailWrites.then(async () => {
+      await mkdir(tailDir, { recursive: true })
+      const temp = `${tailFile(botId)}.${process.pid}.tmp`
+      await writeFile(temp, JSON.stringify(tail), 'utf8')
+      await replaceFile(temp, tailFile(botId))
+    }).catch(error => rt.warn?.('ds-bot: saving the chat tail of %s failed: %s', botId, error))
+  }
+  const readTails = async () => {
+    if (tailDir === undefined) return
+    for (const bot of Object.values(state.bots)) {
+      const sessionId = rt.chatOf(bot.id)
+      if (sessionId === undefined) continue
+      try {
+        const parsed = JSON.parse(await readFile(tailFile(bot.id), 'utf8'))
+        if (parsed === null || typeof parsed !== 'object') continue
+        tails.set(sessionId, {
+          lastAt: Number.isFinite(parsed.at) ? parsed.at : 0,
+          preview: typeof parsed.preview === 'string' ? parsed.preview : '',
+        })
+      } catch (error) {
+        if (error?.code !== 'ENOENT') rt.warn?.('ds-bot: reading the chat tail of %s failed: %s', bot.id, error)
+      }
+    }
+  }
+  const originalLoad = rt.load?.bind(rt)
+  if (typeof originalLoad === 'function') {
+    let ready
+    rt.load = () => (ready ??= (async () => {
+      await originalLoad()
+      await readTails()
+    })())
+  }
+  const setTail = (sessionId, tail) => {
+    const prev = tails.get(sessionId)
+    tails.set(sessionId, tail)
+    if (prev?.lastAt === tail.lastAt && prev?.preview === tail.preview) return
+    const botId = rt.chatOwners.get(sessionId)
+    if (botId === undefined || tailDir === undefined || rt.readOnly?.() !== undefined) return
+    writeTail(botId, { session: sessionId, at: tail.lastAt, preview: tail.preview })
+  }
+  const applyTail = (sessionId, item) => setTail(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
   const fillTail = async sessionId => {
     // Newest page back until a row shows; chats almost always have it on page one.
     try {
@@ -2147,8 +2197,8 @@ export function install(rt) {
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
-      tails.set(sessionId, { lastAt: 0, preview: '' })
-    } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
+      setTail(sessionId, { lastAt: 0, preview: '' })
+    } catch { setTail(sessionId, { lastAt: 0, preview: '' }) }
   }
   rt.chatTail = sessionId => {
     if (!tails.has(sessionId)) { tails.set(sessionId, null); void fillTail(sessionId); return undefined }

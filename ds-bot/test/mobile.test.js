@@ -619,6 +619,26 @@ test('state rows carry lastAt and preview from the Bot own chat', async () => {
   await stop()
 })
 
+test('a restarted host shows the saved tail without reading the Session', async () => {
+  const first = start()
+  const { chief } = await team(first.call)
+  const sessionId = (await first.call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  first.history[sessionId] = [user(1, 'Ship the list first', 1000)]
+  await first.emit(sessionId, first.history[sessionId][0])
+  const tailFile = join(first.rt.home, 'tail', `${chief}.json`)
+  await waitFor(() => {
+    try { return readFileSync(tailFile, 'utf8').includes('Ship the list first') } catch { return false }
+  })
+  await first.ctx.dispose()
+  // This host has no Session history for the chat, so a page read would come back
+  // empty: the row can only carry the preview from the saved tail.
+  const second = start({ home: first.rt.home })
+  const row = (await second.call('state', {})).value.bots.find(bot => bot.id === chief)
+  assert.equal(row.preview, 'Ship the list first')
+  assert.equal(row.lastAt, 1000)
+  await second.stop()
+})
+
 test('room-chat reads the current part after a group chat moves to a fresh part, and pages back to earlier parts', async (t) => {
   const { call, emit, history, routes, rt, stop } = start()
   t.after(stop)
