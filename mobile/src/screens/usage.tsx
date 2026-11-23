@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   axis: { position: 'absolute', left: -38, top: -8, fontSize: 10, lineHeight: 16 },
   columns: { flex: 1, flexDirection: 'row', gap: 3, alignItems: 'flex-end' },
   column: { flex: 1, height: '100%', justifyContent: 'flex-end' },
-  stack: { width: '100%', borderTopLeftRadius: radius.tag, borderTopRightRadius: radius.tag, overflow: 'hidden', flexDirection: 'column-reverse', gap: 1 },
+  stack: { width: '100%', borderTopLeftRadius: radius.tag, borderTopRightRadius: radius.tag, overflow: 'hidden', flexDirection: 'column-reverse' },
   ticks: { marginLeft: 38, marginTop: 10, height: 24 },
   tickText: { position: 'absolute', fontSize: 9, lineHeight: 14, width: 42 },
   tip: { padding: 12, gap: 5, borderRadius: radius.input, marginTop: 8 },
