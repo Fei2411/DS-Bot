@@ -391,17 +391,31 @@ export function install(rt) {
     recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
     if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
   }
+  // Opens a regular file for reading; checks `statSync` first so a directory at
+  // `path` reports `EISDIR` consistently across POSIX and Windows (where `openSync`
+  // on a directory otherwise throws `EPERM`).
+  function openReadableFile(path) {
+    let stat
+    try {
+      stat = statSync(path, { throwIfNoEntry: false })
+    } catch (error) {
+      unreadable(path, error)
+    }
+    if (stat === undefined) return undefined
+    if (stat.isDirectory()) unreadable(path, Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'EISDIR' }))
+    try {
+      return openSync(path, 'r')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return undefined
+      unreadable(path, error)
+    }
+  }
   // Reads at most `maxBytes` from the end of a change log without loading the full file.
   // When starting past byte 0, skips through the first newline so UTF-8 characters and
   // the leading partial line are never torn.
   function readTailText(path, maxBytes) {
-    let fd
-    try {
-      fd = openSync(path, 'r')
-    } catch (error) {
-      if (error?.code === 'ENOENT') return ''
-      unreadable(path, error)
-    }
+    const fd = openReadableFile(path)
+    if (fd === undefined) return ''
     try {
       const size = fstatSync(fd).size
       const start = Math.max(0, size - maxBytes)
@@ -2024,13 +2038,8 @@ export function install(rt) {
   // Reads a change log backwards in bounded 64 KB byte chunks so paging history never
   // loads a large append-only journal synchronously into memory.
   function* reverseJournalChunks(path, chunkBytes = JOURNAL_TAIL_BYTES) {
-    let fd
-    try {
-      fd = openSync(path, 'r')
-    } catch (error) {
-      if (error?.code === 'ENOENT') return
-      unreadable(path, error)
-    }
+    const fd = openReadableFile(path)
+    if (fd === undefined) return
     try {
       let pos = fstatSync(fd).size
       let tail = Buffer.alloc(0)
