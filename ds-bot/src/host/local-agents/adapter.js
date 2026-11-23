@@ -25,6 +25,8 @@ const MEMORY_UPDATE_REPLAY_MAX = 4
 const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
 const APPROVE_TOOL = 'approve_agent_action'
+const CONTEXT_KINDS = new Set(['runtime-context', 'time-context', 'ds-bot-time-context'])
+const isContext = message => message.role === 'user' && CONTEXT_KINDS.has(message.source?.kind)
 // A CLI that answers its compaction command first and condenses after (Devin) says
 // that it started within this long, or it is taken to have condensed without a word.
 const COMPACT_START_MS = 15_000
@@ -437,12 +439,18 @@ export class LocalAgentAdapter extends LlmAdapter {
       pending.resolve({ text, isError: message.isError === true })
       settled.push({ name: pending.name, text, isError: message.isError === true })
     }
-    // The loop's runtime-context user messages are context, not input: they
-    // fold into the next prompt or steer, never start a prompt on their own.
-    const contextText = delta
-      .filter(message => message.role === 'user' && message.source?.kind === 'runtime-context')
-      .map(message => textOf(message.content)).filter(text => text !== '').join('\n')
-    const users = delta.filter(message => message.role === 'user' && message.source?.kind !== 'runtime-context')
+    // The handed marker advances on tool-only steps as well. Keep the latest
+    // snapshot of each kind until a user input or a late decision takes it.
+    const snapshots = live.pendingContext ??= new Map()
+    for (const message of delta) {
+      if (isContext(message)) snapshots.set(message.source.kind, message)
+    }
+    const users = delta.filter(message => message.role === 'user' && !isContext(message))
+    if (fresh && messages.every(message => message.role === 'system' || isContext(message)) && messages.some(isContext)) {
+      for (const message of messages.filter(isContext)) snapshots.set(message.source.kind, message)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     // The first open bridged call that is not an approval may take the user's
     // next message as its answer; the rest of the input is new.
     const openCall = [...live.pending.entries()].find(([, entry]) => entry.name !== APPROVE_TOOL)
@@ -569,13 +577,14 @@ export class LocalAgentAdapter extends LlmAdapter {
     const needsReplay = fresh || resumeDropped
     const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
     const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
+    const contextText = [...snapshots.values()].map(message => textOf(message.content)).filter(Boolean).join('\n')
     let promptBlocks = needsReplay
-      ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
-      : await renderDelta(contextText, remaining, resolveImage)
+      ? await renderReplay(messages, system, resolveImage, { preserve: [...remaining, ...snapshots.values()].map(message => message.id), freshMemory, memoryNote: appliedMemory.note })
+      : remaining.length ? await renderDelta(contextText, remaining, resolveImage) : []
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
+    if ((promptBlocks.length || settled.length || !snapshots.size) && instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -598,11 +607,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       // The turn this answer belongs to is over: it needs a turn of its own, in the same
       // prompt as whatever else this call brought — runtime context, a further user
       // message — because context alone would carry the turn without the decision.
-      const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...promptBlocks])
+      const context = !needsReplay && !remaining.length && contextText ? [{ type: 'text', text: contextText }] : []
+      const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...context, ...promptBlocks])
       this.discardTurnOutput(live)
       if (sentInstructions) live.promptHash = promptHash
       promptBlocks = []
       await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
+      snapshots.clear()
     } else if (settledText !== '') {
       // The turn still looks alive; if it ends without reading the answer, the drain
       // starts the turn that carries it.
@@ -610,6 +621,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     if (promptBlocks.length > 0) {
       await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
+      if (needsReplay || remaining.length) snapshots.clear()
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) live.promptHash = promptHash
@@ -629,6 +641,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
     }
 
+    if (!promptBlocks.length && !settled.length && snapshots.size && live.state === 'idle' && !live.pending.size && !live.events.length) {
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     try {
       yield* this.drain(live, options)
     } catch (error) {
@@ -872,7 +888,9 @@ export class LocalAgentAdapter extends LlmAdapter {
             const continuation = live.continuation
             live.continuation = undefined
             this.discardTurnOutput(live)
-            await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
+            const context = [...(live.pendingContext?.values() ?? [])].map(message => textOf(message.content)).filter(Boolean).join('\n')
+            await this.startTurn(live, [continuation, context].filter(Boolean).join('\n\n'), options.signal, options.reasoningEffort)
+            live.pendingContext?.clear()
             break
           }
           live.continuation = undefined
@@ -1279,15 +1297,15 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
   let memoryUpdateBytes = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
-  const latestNonClock = [...body].reverse().find(message => message.source?.kind !== 'runtime-context')
+  const latestNonClock = [...body].reverse().find(message => !isContext(message))
   const latestGroupMem = freshMemory?.group !== undefined ? undefined : [...body].reverse().find(message => message.source?.kind === GROUP_MEMORY_SOURCE)
   const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
   const preserveSet = new Set(preserve)
   let full = false
   for (const message of [...body].reverse()) {
     const sourceKind = message.source?.kind
-    const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
-    if (!isCurrentInput && sourceKind === 'runtime-context') continue
+    const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message.id)
+    if (!isCurrentInput && isContext(message)) continue
     if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
@@ -1321,7 +1339,7 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
         : [{ type: 'text', text: `${prefix} ` }]
     picked.unshift(entry)
     if (!whole) used += approxLen
-    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== 'runtime-context') {
+    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && !isContext(message)) {
       conversationCount += 1
     }
   }

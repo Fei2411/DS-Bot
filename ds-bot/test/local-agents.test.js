@@ -106,6 +106,36 @@ test('a first turn replays the conversation, a later one sends only the delta', 
   assert.equal(records.s1.handedId, 'm2')
 })
 
+test('ACP carries the latest clock snapshots on actual input, including across a tool result', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-clock-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  const msgs = []
+  const step = (...extra) => {
+    msgs.push(...extra)
+    return collect(adapter.stream(options('s1', msgs)))
+  }
+  const clock = (id, kind, text) => ({ ...user(id, text), source: { kind } })
+  await step(clock('a', 'time-context', 'first clock'))
+  const opened = await step(user('u1', 'please call-tool now'))
+  assert.equal(opened.calls.length, 1)
+  const reply = await step(toolResult('r1', opened.calls[0].id, 'answer'),
+    clock('b', 'time-context', 'old clock'), clock('c', 'ds-bot-time-context', 'team clock'))
+  assert.match(reply.text, /tool said: answer/)
+  const idle = await step(clock('d', 'time-context', 'new clock'))
+  assert.equal(idle.text, '')
+  const next = await step(user('u2', 'second question'))
+  assert.match(next.text, /new clock[\s\S]*team clock[\s\S]*second question/)
+  assert.doesNotMatch(next.text, /old clock/)
+  await step(user('u3', 'third question'))
+  const prompts = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    .filter(entry => entry.method === 'session/prompt').map(entry => entry.params.prompt.map(block => block.text).join('\n'))
+  assert.equal(prompts.length, 3)
+  assert.match(prompts[0], /first clock/)
+  assert.equal(prompts[2], 'third question')
+})
+
 test('each DS Bot Session maps to its own CLI session', async (t) => {
   const records = {}
   const adapter = makeAdapter({ records })
