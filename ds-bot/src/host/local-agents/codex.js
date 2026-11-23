@@ -206,13 +206,16 @@ export class CodexEngine {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.resumed = true
         return thread
       } catch {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
+    const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
+    const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.resumed = false
     return thread
   }
 

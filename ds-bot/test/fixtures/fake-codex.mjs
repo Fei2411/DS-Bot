@@ -20,6 +20,7 @@ import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
 const holdCompact = process.argv.includes('--hold-compact')
+const failResume = process.argv.includes('--fail-resume')
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -173,6 +174,7 @@ process.stdin.on('data', (chunk) => {
       }
       case 'thread/resume': {
         record('thread/resume', params)
+        if (failResume) { replyError(id, 'thread not found'); break }
         const extra = unknownField(params, THREAD_RESUME)
         if (extra !== undefined) { replyError(id, extra); break }
         const thread = threads.get(params.threadId) ?? { id: params.threadId }
