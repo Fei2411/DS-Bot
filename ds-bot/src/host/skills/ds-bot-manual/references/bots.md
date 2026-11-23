@@ -6,6 +6,8 @@ A Bot is a long-lived identity with its own saved profile: instructions, model, 
 
 Open **Settings → Bots** and select a Bot. **Profile** contains **Name** and **Label**. **Instructions** define its work. **Working folder → Folder** sets where file tools and commands start. The avatar editor offers **Bot**, **Upload** and **Library**; **Reset** restores the default character.
 
+The same name and avatar controls apply to Chief, the initial Main Bot. Editing them does not change its Main Bot rights.
+
 Call `list_bots` to inspect the team. Call `update_bot` without bot to change yourself. Supported fields include name, role, instructions, color, avatar, model, effort and work_dir. Instructions replace the old text; preserve rules the user still wants. Use an absolute working folder, such as /opt/projects/site. An empty work_dir returns to the team workspace. A folder change can need user approval.
 
 Only a Main Bot can call `create_bot` or change another Bot with `update_bot`. Check for duplicates first. Do not invent a model preference: pass model or effort when the user names one. Only the user deletes a Bot or changes Main Bot status. There can be several Main Bots.
