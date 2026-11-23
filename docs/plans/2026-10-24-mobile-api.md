@@ -40,6 +40,7 @@
 - 角色形象（`avatar.shape`）和默认颜色照旧由客户端按 Bot id 算（`characters.js` 的 `defaultColor`）。
 - `create-room` / `update-room` 接受可选的 `avatar: { image }`，在群记录和 `state.rooms[]` 返回。图片须为 PNG、JPEG、WebP 或 GIF 的 base64 data URL（最多 160,000 字符）；省略不改，传 `null` 恢复成员头像拼图。
 - 主 Bot 用同一个 `update-bot` 改名或换头像：`{ id: state.mainBotId, name?, avatar? }`。Bot id 和主 Bot 角色不变。
+- 新的 Bot 照片与群头像使用同一图片校验；创建本地 Agent Bot 或确认切换到本地 Agent 时，只额外接受目标引擎的固定徽标。原 Bot 已存的旧版照片会保留，直到用户更换或移除；不符合当前规则的旧版照片不会复制到新 Bot。
 
 ### 私聊
 

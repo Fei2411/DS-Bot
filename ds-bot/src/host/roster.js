@@ -3,8 +3,9 @@
 import { openSessions } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { avatarBytes } from './avatar.js'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
+import { agentAvatar } from '../client/agent-routes.js'
+import { cleanAvatarImage } from './avatar.js'
+import { ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -18,9 +19,7 @@ const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote
 
 function cleanRoomAvatar(input) {
   if (input === undefined || input === null) return input
-  if (typeof input?.image !== 'string' || !input.image.startsWith('data:')) throw new Error('A group avatar must contain an image data URL')
-  if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
-  return { image: avatarBytes(input.image).url }
+  return { image: cleanAvatarImage(input.image) }
 }
 
 function cleanBrowserGrants(input) {
@@ -107,14 +106,17 @@ export function install(rt) {
     return sessionId
   }
 
-  function cleanAvatar(input) {
+  function cleanAvatar(input, { previousImage, engine } = {}) {
     if (input === null || typeof input !== 'object') return undefined
     const avatar = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
-    if (typeof input.image === 'string') {
-      if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
-      if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
-      avatar.image = input.image
+    if (input.image != null) {
+      // Existing photos may predate raster validation. Keeping the same image isn't an upload.
+      const unchanged = typeof input.image === 'string' && input.image === previousImage
+      // Compare with the client's fixed badge, not a caller-supplied SVG template.
+      const badge = engine !== undefined && typeof input.image === 'string' && input.image.startsWith('data:image/svg+xml;base64,')
+        && input.image === agentAvatar(engine)?.image
+      avatar.image = unchanged || badge ? input.image : cleanAvatarImage(input.image)
     }
     return Object.keys(avatar).length > 0 ? avatar : undefined
   }
@@ -199,9 +201,9 @@ export function install(rt) {
   }
 
   async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
-    const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
+    const cleanAvatarValue = cleanAvatar(avatar, { engine: model ? rt.localAgentBadge?.(modelRef) : undefined })
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
@@ -361,16 +363,24 @@ export function install(rt) {
     if (bot === undefined) throw new Error('Unknown Bot')
     if (bot.private === true) throw new Error(`${bot.name} is private, so it cannot be copied`)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
+    const model = served ? bot.model : undefined
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    let avatar
+    try {
+      avatar = cleanAvatar(bot.avatar, { engine: rt.localAgentBadge?.(model) })
+    } catch {
+      // A legacy photo can stay on its original Bot but can't be added to a new one.
+      avatar = { shape: bot.avatar?.shape }
+    }
     // No await from here to createBot's check, so two copies at once get different names.
     return createBot({
       name: freshName(`${bot.name} copy`),
       role: bot.role,
       instructions: bot.instructions,
       color: bot.color,
-      avatar: bot.avatar,
-      model: served ? bot.model : undefined,
+      avatar,
+      model,
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
@@ -396,7 +406,6 @@ export function install(rt) {
       resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
     }
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
-    const avatar = patch.avatar === undefined ? undefined : cleanAvatar(patch.avatar)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
@@ -414,6 +423,10 @@ export function install(rt) {
     const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
     if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
     if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
+    const avatar = cleanAvatar(patch.avatar, {
+      previousImage: bot.avatar?.image,
+      engine: engineChanged ? rt.localAgentBadge?.(modelRef) : undefined,
+    })
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel

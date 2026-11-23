@@ -261,10 +261,13 @@ test('a Bot\'s own chat message and its question card are notices; a hidden Bot-
   assert.equal(notices[1].text, 'Ship it?')
 })
 
+const photo = pixel => `data:image/png;base64,${PNG.sync.write({ width: 1, height: 1, data: Buffer.from(pixel) }).toString('base64')}`
+const legacySvg = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`
+
 test('state can send photos by reference, and avatar sends each one', async (t) => {
   const { call, stop } = start()
   t.after(stop)
-  const image = `data:image/png;base64,${Buffer.from('a tiny photo').toString('base64')}`
+  const image = photo([0, 0, 255, 255])
   const bot = (await call('create-bot', { name: 'Painter', avatar: { image } })).value
   const whole = (await call('state', {})).value.bots.find(entry => entry.id === bot.id)
   assert.equal(whole.avatar.image, image)
@@ -276,8 +279,6 @@ test('state can send photos by reference, and avatar sends each one', async (t) 
   assert.deepEqual((await call('avatar', { botId: chief })).value, { botId: chief, ref: null, image: null })
   assert.equal((await call('avatar', { botId: 'nobody' })).error.code, 'bot/not-found')
 })
-
-const photo = pixel => `data:image/png;base64,${PNG.sync.write({ width: 1, height: 1, data: Buffer.from(pixel) }).toString('base64')}`
 
 test('group avatars can be set at creation, replaced, kept on other edits, and cleared', async (t) => {
   const { call, rt, stop } = start()
@@ -318,7 +319,7 @@ test('invalid group avatars leave the group and its other settings unchanged', a
     {},
     { image: 'https://example.test/photo.png' },
     { image: 'data:image/png;base64,bm90IGFuIGltYWdl' },
-    { image: 'data:image/svg+xml;base64,PHN2Zy8+' },
+    { image: legacySvg },
     { image: `data:image/png;base64,${'A'.repeat(MAX_AVATAR_IMAGE)}` },
   ]) {
     assert.equal((await call('create-room', { name: 'Rejected', members: [chief, writer.id], avatar: bad })).ok, false)
@@ -356,6 +357,65 @@ test('the user can rename and set the primary Main Bot photo without changing it
   assert.match(renamedGroup.name, /Captain/)
   assert.equal(renamedGroup.admin, chief)
   assert.deepEqual(renamedGroup.members, group.members)
+})
+
+test('Bot photo writes validate the data URL and store the actual raster type', async (t) => {
+  const { call, stop } = start()
+  t.after(stop)
+  const image = photo([255, 0, 0, 255])
+  const { value: bot } = await call('create-bot', { name: 'Painter', avatar: { image } })
+  assert.deepEqual(bot.avatar, { image })
+  const [header, payload] = image.split(',')
+  const oversize = Buffer.concat([Buffer.from(payload, 'base64'), Buffer.alloc(MAX_AVATAR_IMAGE)]).toString('base64')
+  for (const invalid of [
+    legacySvg,
+    legacySvg.replace('svg+xml', 'png'),
+    'data:image/png;base64,!invalid',
+    `${header},${oversize}`,
+    'https://example.test/photo.png',
+    '/photos/photo.png',
+  ]) {
+    assert.equal((await call('create-bot', { name: 'Rejected', avatar: { image: invalid } })).ok, false)
+    assert.equal((await call('update-bot', { id: bot.id, name: 'Rejected', avatar: { image: invalid } })).ok, false)
+  }
+  const { value: state } = await call('state', {})
+  assert.equal(state.bots.some(entry => entry.name === 'Rejected'), false)
+  assert.deepEqual(state.bots.find(entry => entry.id === bot.id).avatar, { image })
+
+  const replacement = photo([0, 0, 255, 255])
+  const mislabeled = replacement.replace('image/png', 'image/jpeg')
+  assert.equal((await call('update-bot', { id: bot.id, avatar: { image: mislabeled } })).ok, true)
+  assert.equal((await call('avatar', { botId: bot.id })).value.image, replacement)
+  assert.deepEqual((await call('duplicate-bot', { id: bot.id })).value.avatar, { image: replacement })
+})
+
+test('an existing Bot photo stays readable and survives other edits without allowing a new SVG', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const id = 'chief'
+  const avatar = { shape: 'whale', image: legacySvg }
+  writeFileSync(rt.statePath, JSON.stringify({ version: 1, mainBotIds: [id], bots: { [id]: { id, name: 'Chief', avatar } } }))
+  const savedAvatar = () => JSON.parse(readFileSync(rt.statePath, 'utf8')).bots[id].avatar
+  const stateBot = async options => (await call('state', options)).value.bots.find(bot => bot.id === id)
+
+  assert.deepEqual((await stateBot({})).avatar, avatar)
+  assert.deepEqual(savedAvatar(), avatar)
+  const { imageRef } = (await stateBot({ avatars: 'ref' })).avatar
+  assert.match(imageRef, /^[0-9a-f]{16}$/)
+  assert.deepEqual((await call('avatar', { botId: id })).value, { botId: id, ref: imageRef, image: legacySvg })
+
+  assert.equal((await call('update-bot', { id, role: 'Lead' })).ok, true)
+  assert.deepEqual(savedAvatar(), avatar)
+  assert.equal((await call('update-bot', { id, avatar: { ...avatar, shape: 'fox' } })).ok, true)
+  assert.deepEqual(savedAvatar(), { shape: 'fox', image: legacySvg })
+  const copy = (await call('duplicate-bot', { id })).value
+  assert.deepEqual(copy.avatar, { shape: 'fox' })
+  assert.equal((await call('update-bot', { id: copy.id, avatar })).ok, false)
+  assert.deepEqual(savedAvatar(), { shape: 'fox', image: legacySvg })
+
+  assert.equal((await call('update-bot', { id, avatar: null })).ok, true)
+  assert.equal(savedAvatar(), undefined)
+  assert.equal((await call('update-bot', { id, avatar })).ok, false)
 })
 
 test('the user adds and edits memory entries directly, with the same checks as the tools', async (t) => {
