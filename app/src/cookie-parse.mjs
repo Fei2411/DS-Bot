@@ -29,6 +29,16 @@ const DAY = 86400;
 const CHROME_MAX_AGE_DAYS = 400;   // Chrome stores at most 400 days of lifetime
 const WEBKIT_EPOCH_OFFSET = 11644473600; // seconds between 1601-01-01 and 1970-01-01
 
+function canonicalSite(domain) {
+  const raw = String(domain ?? '').trim().replace(/^\.+/, '').toLowerCase();
+  if (!raw) return '';
+  const bare = raw.replace(/^\[|\]$/g, '');
+  if (bare.includes(':') && isIP(bare) === 6) {
+    try { return new URL(`http://[${bare}]/`).hostname; } catch { return `[${bare}]`; }
+  }
+  return raw;
+}
+
 // ------------------------------------------------------------------ decoding
 
 /** Buffer | string → { text, encoding, bom }. Handles UTF-8 BOM, UTF-16 LE/BE (with or without BOM). */
@@ -515,7 +525,9 @@ function normalizeCookie(raw, ctx, where) {
   const bareIpv6 = !host.startsWith('[') && isIP(host) === 6;
   if (bareIpv6) host = `[${host}]`;
   const ipv6 = /^\[[0-9a-f:.]+\]$/.test(host) && isIP(host.slice(1, -1)) === 6;
-  if (!ipv6) {
+  if (ipv6) {
+    host = canonicalSite(host);
+  } else {
     const ascii = domainToASCII(host);
     if (!ascii || !/^[a-z0-9._-]+$/.test(ascii) || Buffer.byteLength(ascii) > MAX_ATTR_BYTES) return { skip: ['bad-domain', `"${clip(host)}" is not a valid host name`] };
     if (ascii !== host) W('punycode', `domain converted to ASCII (${ascii})`);
@@ -676,7 +688,7 @@ export function describeCookie(c) {
 export function summarizeBySite(result) {
   const sites = new Map();
   const get = (domain) => {
-    const site = String(domain || '(no domain)').replace(/^\./, '').toLowerCase();
+    const site = canonicalSite(domain) || '(no domain)';
     if (!sites.has(site)) sites.set(site, { site, cookies: 0, session: 0, httpOnly: 0, localStorage: 0, skipped: 0, skippedReasons: {} });
     return sites.get(site);
   };
@@ -693,7 +705,7 @@ export function summarizeBySite(result) {
     s.localStorage += o.localStorage.length;
   }
   for (const k of result.skipped ?? []) {
-    const site = String(k.domain || '').replace(/^\./, '').toLowerCase();
+    const site = canonicalSite(k.domain);
     const s = site ? sites.get(site) : undefined;
     if (!s) continue;
     s.skipped++;

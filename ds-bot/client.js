@@ -51658,7 +51658,6 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         onOpenPermission: () => {
           if (imports?.openPermission) void imports.openPermission();
         },
-        onPermissionGranted: refreshSources,
         onFile: pickFile,
         onSubmitPaste: submitPaste,
         onDone: () => setFlowTracked(null),

@@ -906,17 +906,14 @@ function handleIpc() {
     assertWindow(event)
     const id = String(sourceId ?? '')
     let source = await resolveImportSource(id)
-    // After granting Full Disk Access, a named-only Safari setup replaces the pre-permission
-    // safari:Default placeholder; keep probing Safari's container directly so the card detects readiness.
     if (!source && id === 'safari:Default' && process.platform === 'darwin') {
       source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: false }
     }
     if (!source) return { liveDebugReady: false, permissionGranted: false }
-    const probed = await probeSource(source)
-    if (source.engine === 'safari' && probed.permissionGranted && source.needsPermission) {
-      await refreshImportSources().catch(() => {})
-    }
-    return probed
+    // Keep probe read-only: do not overwrite cachedImportSources here, so a pre-permission
+    // safari:Default placeholder stays recognizable when browserImportLive runs next and
+    // can return needsProfileChoice if multiple Safari profiles unlocked.
+    return probeSource(source)
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)

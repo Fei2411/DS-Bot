@@ -627,7 +627,6 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
           onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
           onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
           onOpenPermission: () => { if (imports?.openPermission) void imports.openPermission() },
-          onPermissionGranted: refreshSources,
           onFile: pickFile,
           onSubmitPaste: submitPaste,
           onDone: () => setFlowTracked(null),

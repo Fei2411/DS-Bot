@@ -1254,6 +1254,43 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
       ['k_peanuts', 'v-peanuts'],
       ['k_empty', 'v-empty'],
     ])
+
+    // Pre-v24 empty-password Linux DB across 512 rows must never suffer 1/256 wrong-key PKCS#7 collisions.
+    const pre24Path = join(root.dir, 'Pre24Cookies')
+    const pre24Db = new DatabaseSync(pre24Path)
+    pre24Db.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    const insPre = pre24Db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const expectedValues = []
+    for (let i = 0; i < 512; i += 1) {
+      const val = `tok-${i}-empty-pass-value`
+      expectedValues.push([`c_${i}`, val])
+      insPre.run('.pre24.example', `c_${i}`, '', encryptMacV10(val, emptyKey, { withDomainHash: false }), '/', 1, 1, futureWebkit, 1, 1, '')
+    }
+    pre24Db.close()
+    const pre24Source = { ...source, cookieDb: pre24Path }
+    const pre24Res = await importFromBrowser(pre24Source, { platformOverride: 'linux' })
+    assert.equal(pre24Res.method, 'linux-v10')
+    assert.deepEqual(pre24Res.result.cookies.map((c) => [c.name, c.value]), expectedValues)
+
+    // Linux Chromium fast path returns { running: true } when SQLite holds an exclusive lock (instead of throwing).
+    const locker = new DatabaseSync(dbPath)
+    try {
+      locker.exec("BEGIN EXCLUSIVE; UPDATE cookies SET path = '/locked';")
+      const lockedRes = await importFromBrowser(source, {
+        platformOverride: 'linux',
+        cloner: (src, dir, opts) => cloneCookieStore(src, dir, { ...opts, busyTimeoutMs: 40 }),
+      })
+      assert.equal(lockedRes.running, true)
+      locker.exec('ROLLBACK')
+    } finally {
+      locker.close()
+    }
   } finally {
     await work.remove()
     await root.remove()

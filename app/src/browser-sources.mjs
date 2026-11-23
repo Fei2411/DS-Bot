@@ -1151,7 +1151,10 @@ export function deriveLinuxChromiumKey(password = 'peanuts') {
   return pbkdf2Sync(Buffer.from(String(password), 'utf8'), 'saltysalt', 1, 16, 'sha1')
 }
 
-/** Decrypt a single Chromium v10 cookie blob (enforcing the v24+ SHA-256 domain digest when present). */
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
+const INVALID_COOKIE_VALUE_CTL = /[\x00-\x08\x0a-\x1f\x7f]/
+
+/** Decrypt a single Chromium v10 cookie blob (enforcing v24+ SHA-256 domain digest and valid UTF-8 cookie bytes). */
 export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHash = false } = {}) {
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted ?? [])
   if (buf.length <= 3 || buf[0] !== 0x76 || buf[1] !== 0x31 || buf[2] !== 0x30) return null
@@ -1164,7 +1167,15 @@ export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHa
     if (!plain.subarray(0, 32).equals(digest)) return null
     plain = plain.subarray(32)
   }
-  return plain.toString('utf8')
+  let text
+  try {
+    text = UTF8_DECODER.decode(plain)
+  } catch {
+    return null
+  }
+  // Reject non-tab control bytes produced by accidental 1/256 PKCS#7 padding collisions under a wrong pre-v24 key.
+  if (!stripDomainHash && INVALID_COOKIE_VALUE_CTL.test(text)) return null
+  return text
 }
 
 const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
@@ -1269,7 +1280,10 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, now = Date.now()
 }
 
 /**
- * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password per row.
+ * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password.
+ * Ranks the two keys on the database first (so a pre-v24 empty-password store prefers the
+ * empty key before per-row fallback, eliminating wrong-key padding collisions), then tries
+ * both keys per row to support mixed stores.
  * Returns null if the store contains v11/keyring-encrypted rows and source.exe is available
  * so the caller falls through to clone + CDP pipe self-decryption without dropping v11 cookies.
  */
@@ -1278,8 +1292,23 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
   const { relCookieDir } = resolveSourceLayout(source)
   const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
   const clonedDb = join(workDir, relCookieDir, dbName)
-  const keys = [deriveLinuxChromiumKey('peanuts'), deriveLinuxChromiumKey('')]
-  const detailed = readChromiumSqliteCookiesDetailed(clonedDb, { keys, now })
+  const peanutsKey = deriveLinuxChromiumKey('peanuts')
+  const emptyKey = deriveLinuxChromiumKey('')
+
+  const peanutsPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: peanutsKey, now })
+  let orderedKeys = [peanutsKey, emptyKey]
+  let detailed = peanutsPass
+  if (peanutsPass.decryptFailedCount > 0) {
+    const emptyPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: emptyKey, now })
+    if (emptyPass.decryptFailedCount === 0 && emptyPass.decryptedCount > 0) {
+      detailed = emptyPass
+    } else {
+      orderedKeys = emptyPass.decryptedCount > peanutsPass.decryptedCount
+        ? [emptyKey, peanutsKey]
+        : [peanutsKey, emptyKey]
+      detailed = readChromiumSqliteCookiesDetailed(clonedDb, { keys: orderedKeys, now })
+    }
+  }
   if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) return null
   if (detailed.unsupportedEncryptionCount > 0 && source.exe) return null
   return { cookies: detailed.cookies, origins: detailed.origins, skipped: detailed.skipped }
@@ -1664,7 +1693,12 @@ export async function importFromBrowser(source, { close = false, platformOverrid
   try {
     // 2. macOS direct Keychain decryption (never closes or launches the browser).
     if (source.engine === 'chromium' && currentPlatform === 'darwin' && (source.keychainServices?.length ?? 0) > 0) {
-      await cloner(source, work.dir, { needLocalState: false })
+      try {
+        await cloner(source, work.dir, { needLocalState: false })
+      } catch (error) {
+        if (error?.code === 'locked' && !close) return { running: true }
+        throw error
+      }
       throwIfAborted(signal)
       const macResult = await (macHarvester ?? harvestMacChromium)(source, work.dir, { signal })
       throwIfAborted(signal)
@@ -1681,7 +1715,12 @@ export async function importFromBrowser(source, { close = false, platformOverrid
 
     // 3. Linux pure-JS v10 decryption ("peanuts" / empty password) without launching Chromium.
     if (source.engine === 'chromium' && currentPlatform === 'linux') {
-      await cloner(source, work.dir, { needLocalState: false })
+      try {
+        await cloner(source, work.dir, { needLocalState: false })
+      } catch (error) {
+        if (error?.code === 'locked' && !close) return { running: true }
+        throw error
+      }
       throwIfAborted(signal)
       const linuxResult = await (linuxHarvester ?? harvestLinuxChromiumV10)(source, work.dir, { signal })
       throwIfAborted(signal)

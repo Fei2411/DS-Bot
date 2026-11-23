@@ -390,11 +390,16 @@ test('toSetDetails and applyCookies wrap bare IPv6 hosts in brackets and canonic
   assert.equal(report.dropped.length, 0)
   assert.equal(report.failed.length, 0)
 
-  // Site filtering also matches expanded and compressed IPv6 interchangeably.
-  assert.equal(filterCookiesBySites(
-    [{ name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/' }],
-    ['[2001:db8::1]'],
-  ).length, 1)
+  // Site filtering and previewOf/summarizeBySite agree on one canonical IPv6 site row.
+  const ipv6Cookies = [
+    { name: 'sid1', value: 'v1', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true },
+    { name: 'sid2', value: 'v2', domain: '[2001:db8::1]', path: '/', secure: true },
+  ]
+  const preview = previewOf({ format: 'live', entries: 2, cookies: ipv6Cookies, origins: [], skipped: [], warnings: [], info: {} }, { kind: 'chrome', label: 'Chrome' })
+  assert.equal(preview.sites.length, 1)
+  assert.equal(preview.sites[0].site, '[2001:db8::1]')
+  assert.equal(preview.sites[0].cookies, 2)
+  assert.equal(filterCookiesBySites(ipv6Cookies, [preview.sites[0].site]).length, 2)
 
   // Bare IPv6 also parses cleanly through parseCookieFile.
   const parsed = parseCookieFile(JSON.stringify([{ name: 'v6', value: 'ok', domain: '::1', path: '/', secure: false }]))
