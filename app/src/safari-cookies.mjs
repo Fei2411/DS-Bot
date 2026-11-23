@@ -368,7 +368,7 @@ export async function safariProfiles({ home = homedir(), containerLib = safariCo
   const access = await checkSafariAccess({ home, containerLib, appPaths })
   if (access.needsPermission) {
     return [{
-      dir: 'Default',
+      dir: 'permission',
       name: 'Default',
       displayName: null,
       cookieFile: null,

@@ -717,6 +717,7 @@ var JA = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS が DS Bot の終了と再起動を求めたら、確認してもう一度お試しください。",
   "Full Disk Access granted — ready to import.": "フルディスクアクセスが許可されました。インポートできます。",
   "Open System Settings": "システム設定を開く",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "このブラウザの Cookie データベースが使用中です。ブラウザを終了してから再試行してください。",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
   "That image is too large": "画像サイズが大きすぎます",
@@ -3537,6 +3538,7 @@ var KO = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS에서 DS Bot을 종료하고 다시 열지 물으면 확인한 뒤 다시 시도하세요.",
   "Full Disk Access granted — ready to import.": "전체 디스크 접근 권한이 허용되었습니다. 가져올 준비가 되었습니다.",
   "Open System Settings": "시스템 설정 열기",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "이 브라우저의 쿠키 데이터베이스가 사용 중입니다. 브라우저를 종료한 뒤 다시 시도하세요.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요",
   "Choose an image smaller than 25 MB": "25MB 미만의 이미지를 선택하세요",
@@ -6392,6 +6394,7 @@ var ES = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS pide cerrar y volver a abrir DS Bot, acepta y vuelve a intentarlo.",
   "Full Disk Access granted — ready to import.": "Acceso total al disco concedido: listo para importar.",
   "Open System Settings": "Abrir Ajustes del Sistema",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "La base de datos de cookies de este navegador está ocupada. Cierra el navegador e inténtalo de nuevo.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Elige una imagen PNG, JPEG, WebP o GIF",
   "Choose an image smaller than 25 MB": "Elige una imagen de menos de 25 MB",
@@ -9237,6 +9240,7 @@ var FR = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS demande de quitter et rouvrir DS Bot, confirmez puis réessayez.",
   "Full Disk Access granted — ready to import.": "Accès complet au disque accordé — prêt à importer.",
   "Open System Settings": "Ouvrir Réglages Système",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "La base de cookies de ce navigateur est occupée. Quittez le navigateur puis réessayez.",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
   "That image is too large": "Cette image est trop volumineuse",
@@ -12057,6 +12061,7 @@ var DE = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Falls macOS fragt, DS Bot zu beenden und neu zu öffnen, bestätige dies und versuche es erneut.",
   "Full Disk Access granted — ready to import.": "Festplattenvollzugriff erteilt – bereit zum Importieren.",
   "Open System Settings": "Systemeinstellungen öffnen",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "Die Cookie-Datenbank dieses Browsers ist belegt. Beende den Browser und versuche es erneut.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild",
   "Choose an image smaller than 25 MB": "Wähle ein Bild, das kleiner als 25 MB ist",
@@ -14866,6 +14871,7 @@ var ZH = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. 如果 macOS 提示退出并重新打开 DS Bot，点击确认后再重试。",
   "Full Disk Access granted — ready to import.": "已授予完全磁盘访问权限，可以导入了。",
   "Open System Settings": "打开系统设置",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "这个浏览器的 cookie 数据库正被占用。请退出该浏览器后重试。",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "请选择 PNG、JPEG、WebP 或 GIF 图片",
   "Choose an image smaller than 25 MB": "请选择小于 25 MB 的图片",
@@ -51386,11 +51392,17 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       cancelPendingImport();
     };
   }, [tabId]);
+  const sourcesReqRef = (0, import_react80.useRef)(0);
   const refreshSources = () => {
     if (!imports) return;
+    const req = ++sourcesReqRef.current;
     void imports.sources().then(
-      (list) => setSources(Array.isArray(list) ? list : []),
-      () => setSources((prev) => prev ?? [])
+      (list) => {
+        if (req === sourcesReqRef.current) setSources(Array.isArray(list) ? list : []);
+      },
+      () => {
+        if (req === sourcesReqRef.current) setSources((prev) => prev ?? []);
+      }
     );
   };
   const openImport = () => {
@@ -51456,6 +51468,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     }
     if (r?.canceled) return;
     if (r?.needsProfileChoice) {
+      setSources(null);
       setFlowTracked("menu");
       refreshSources();
       return;
@@ -51690,6 +51703,7 @@ function importError(error) {
   if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
   if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
   if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
+  if (error === "browser-locked") return t("This browser’s cookie database is busy. Quit the browser and try again.");
   if (error === "safari-corrupt") return t("Safari cookies could not be read. Try again or import from a file.");
   return String(error);
 }

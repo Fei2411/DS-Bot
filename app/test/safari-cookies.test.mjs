@@ -207,6 +207,7 @@ test('checkSafariAccess and safariProfiles surface needsPermission on EACCES/EPE
 
     const profiles = await safariProfiles({ home: root.dir, containerLib, appPaths: [] })
     assert.equal(profiles.length, 1)
+    assert.equal(profiles[0].dir, 'permission')
     assert.equal(profiles[0].needsPermission, true)
     assert.equal(profiles[0].cookieFile, null)
 

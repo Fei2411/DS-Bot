@@ -1224,6 +1224,12 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
     const noHashBlob = encryptMacV10('short', peanutsKey, { withDomainHash: false })
     assert.equal(decryptChromiumV10(noHashBlob, peanutsKey, { hostKey: '.target.example', stripDomainHash: true }), null)
 
+    // Leading UTF-8 BOM (U+FEFF) in cookie values must be preserved verbatim (pre-v24 and v24+).
+    const bomPre24 = encryptMacV10('\uFEFFbom-val', peanutsKey, { withDomainHash: false })
+    assert.equal(decryptChromiumV10(bomPre24, peanutsKey, { hostKey: '.bom.example', stripDomainHash: false }), '\uFEFFbom-val')
+    const bomV24 = encryptMacV10('\uFEFFbom-v24', peanutsKey, { hostKey: '.bom.example', withDomainHash: true })
+    assert.equal(decryptChromiumV10(bomV24, peanutsKey, { hostKey: '.bom.example', stripDomainHash: true }), '\uFEFFbom-v24')
+
     const net = join(root.dir, 'Default', 'Network')
     await mkdir(net, { recursive: true })
     const dbPath = join(net, 'Cookies')
@@ -1278,15 +1284,44 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
     assert.equal(pre24Res.method, 'linux-v10')
     assert.deepEqual(pre24Res.result.cookies.map((c) => [c.name, c.value]), expectedValues)
 
-    // Linux Chromium fast path returns { running: true } when SQLite holds an exclusive lock (instead of throwing).
+    // Pre-v24 mixed-key Linux DB delegates to clone-cdp when source.exe is present (no guessing without MAC),
+    // and decrypts unambiguous rows when source.exe is unavailable.
+    const pre24MixedPath = join(root.dir, 'Pre24MixedCookies')
+    const pre24MixedDb = new DatabaseSync(pre24MixedPath)
+    pre24MixedDb.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    const insPreMixed = pre24MixedDb.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    insPreMixed.run('.pre24mix.example', 'p1', '', encryptMacV10('peanuts-only-value-1', peanutsKey, { withDomainHash: false }), '/', 1, 1, futureWebkit, 1, 1, '')
+    insPreMixed.run('.pre24mix.example', 'e1', '', encryptMacV10('empty-only-value-1', emptyKey, { withDomainHash: false }), '/', 1, 1, futureWebkit, 1, 1, '')
+    pre24MixedDb.close()
+    const pre24MixedSource = { ...source, cookieDb: pre24MixedPath }
+    await cloneCookieStore(pre24MixedSource, work.dir, { needLocalState: false })
+    assert.equal(await harvestLinuxChromiumV10(pre24MixedSource, work.dir, { now: 1700000000 }), null)
+    const pre24MixedNoExe = await harvestLinuxChromiumV10({ ...pre24MixedSource, exe: null }, work.dir, { now: 1700000000 })
+    assert.deepEqual(pre24MixedNoExe.cookies.map((c) => [c.name, c.value]), [
+      ['p1', 'peanuts-only-value-1'],
+      ['e1', 'empty-only-value-1'],
+    ])
+
+    // On macOS and Linux (where closeBrowser is Windows-only), an exclusive SQLite lock rejects with
+    // browser-locked instead of showing the broken Windows "Close and import" prompt.
     const locker = new DatabaseSync(dbPath)
     try {
       locker.exec("BEGIN EXCLUSIVE; UPDATE cookies SET path = '/locked';")
-      const lockedRes = await importFromBrowser(source, {
-        platformOverride: 'linux',
-        cloner: (src, dir, opts) => cloneCookieStore(src, dir, { ...opts, busyTimeoutMs: 40 }),
-      })
-      assert.equal(lockedRes.running, true)
+      const lockedCloner = (src, dir, opts) => cloneCookieStore(src, dir, { ...opts, busyTimeoutMs: 40 })
+      await assert.rejects(
+        () => importFromBrowser(source, { platformOverride: 'linux', cloner: lockedCloner }),
+        (err) => err.code === 'browser-locked',
+      )
+      await assert.rejects(
+        () => importFromBrowser({ ...source, keychainServices: ['Chrome Safe Storage'] }, { platformOverride: 'darwin', cloner: lockedCloner }),
+        (err) => err.code === 'browser-locked',
+      )
       locker.exec('ROLLBACK')
     } finally {
       locker.close()

@@ -577,6 +577,7 @@ const ZH = {
   '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. 如果 macOS 提示退出并重新打开 DS Bot，点击确认后再重试。',
   'Full Disk Access granted — ready to import.': '已授予完全磁盘访问权限，可以导入了。',
   'Open System Settings': '打开系统设置',
+  'This browser’s cookie database is busy. Quit the browser and try again.': '这个浏览器的 cookie 数据库正被占用。请退出该浏览器后重试。',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': '请选择 PNG、JPEG、WebP 或 GIF 图片',

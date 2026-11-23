@@ -906,13 +906,11 @@ function handleIpc() {
     assertWindow(event)
     const id = String(sourceId ?? '')
     let source = await resolveImportSource(id)
-    if (!source && id === 'safari:Default' && process.platform === 'darwin') {
-      source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: false }
+    if (!source && id === 'safari:permission' && process.platform === 'darwin') {
+      source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: true }
     }
     if (!source) return { liveDebugReady: false, permissionGranted: false }
-    // Keep probe read-only: do not overwrite cachedImportSources here, so a pre-permission
-    // safari:Default placeholder stays recognizable when browserImportLive runs next and
-    // can return needsProfileChoice if multiple Safari profiles unlocked.
+    // Keep probe read-only: do not overwrite cachedImportSources here.
     return probeSource(source)
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
@@ -965,9 +963,10 @@ function handleIpc() {
       const id = String(sourceId ?? '')
       let source = await resolveImportSource(id)
       if (controller.signal.aborted) return { canceled: true }
-      // If the user started from the pre-permission safari:Default placeholder and just granted
-      // Full Disk Access, re-enumerate Safari profiles so named-only and multi-profile setups work.
-      if (id === 'safari:Default' && (!source || source.needsPermission)) {
+      // The pre-permission placeholder has its own dedicated id ('safari:permission') distinct
+      // from real Safari profiles ('safari:Default', 'safari:<UUID>'), so retrying it always
+      // re-enumerates Safari profiles cleanly and can never accidentally bypass profile choice.
+      if (id === 'safari:permission') {
         const fresh = await refreshImportSources()
         if (controller.signal.aborted) return { canceled: true }
         const safariSources = fresh.filter((item) => item.engine === 'safari')
@@ -989,7 +988,7 @@ function handleIpc() {
         outcome = await importFromBrowser(source, { close: close === true, signal: controller.signal })
       } catch (error) {
         if (error?.code === 'import-cancelled' || controller.signal.aborted) return { canceled: true }
-        if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile', 'safari-corrupt'].includes(error?.code)) {
+        if (['app-bound', 'browser-locked', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile', 'safari-corrupt'].includes(error?.code)) {
           return { error: error.code }
         }
         throw error

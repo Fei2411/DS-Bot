@@ -614,6 +614,7 @@ export const ES = {
   '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. Si macOS pide cerrar y volver a abrir DS Bot, acepta y vuelve a intentarlo.',
   'Full Disk Access granted — ready to import.': 'Acceso total al disco concedido: listo para importar.',
   'Open System Settings': 'Abrir Ajustes del Sistema',
+  'This browser’s cookie database is busy. Quit the browser and try again.': 'La base de datos de cookies de este navegador está ocupada. Cierra el navegador e inténtalo de nuevo.',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': 'Elige una imagen PNG, JPEG, WebP o GIF',

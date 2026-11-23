@@ -408,11 +408,13 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId])
 
+  const sourcesReqRef = useRef(0)
   const refreshSources = () => {
     if (!imports) return
+    const req = ++sourcesReqRef.current
     void imports.sources().then(
-      (list) => setSources(Array.isArray(list) ? list : []),
-      () => setSources((prev) => prev ?? []),
+      (list) => { if (req === sourcesReqRef.current) setSources(Array.isArray(list) ? list : []) },
+      () => { if (req === sourcesReqRef.current) setSources((prev) => prev ?? []) },
     )
   }
   const openImport = () => {
@@ -473,6 +475,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
     }
     if (r?.canceled) return
     if (r?.needsProfileChoice) {
+      setSources(null)
       setFlowTracked('menu')
       refreshSources()
       return
@@ -656,6 +659,7 @@ function importError(error) {
   if (error === 'devtools-denied') return t('Remote debugging permission was declined in the browser. Try again and click Allow.')
   if (error === 'devtools-timeout') return t('Timed out waiting for you to click Allow in the browser.')
   if (error === 'devtools-wrong-profile') return t('Another browser profile is active. Switch to the chosen profile window in your browser, then try again.')
+  if (error === 'browser-locked') return t('This browser’s cookie database is busy. Quit the browser and try again.')
   if (error === 'safari-corrupt') return t('Safari cookies could not be read. Try again or import from a file.')
   return String(error)
 }

@@ -614,6 +614,7 @@ export const KO = {
   '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. macOS에서 DS Bot을 종료하고 다시 열지 물으면 확인한 뒤 다시 시도하세요.',
   'Full Disk Access granted — ready to import.': '전체 디스크 접근 권한이 허용되었습니다. 가져올 준비가 되었습니다.',
   'Open System Settings': '시스템 설정 열기',
+  'This browser’s cookie database is busy. Quit the browser and try again.': '이 브라우저의 쿠키 데이터베이스가 사용 중입니다. 브라우저를 종료한 뒤 다시 시도하세요.',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': 'PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요',

@@ -599,6 +599,7 @@ export const JA = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS が DS Bot の終了と再起動を求めたら、確認してもう一度お試しください。",
   "Full Disk Access granted — ready to import.": "フルディスクアクセスが許可されました。インポートできます。",
   "Open System Settings": "システム設定を開く",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "このブラウザの Cookie データベースが使用中です。ブラウザを終了してから再試行してください。",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
   "That image is too large": "画像サイズが大きすぎます",

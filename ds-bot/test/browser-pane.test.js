@@ -397,7 +397,7 @@ test('ImportMenu displays profile cookie counts and Safari Permission needed bad
   const inst = h.mount(ImportMenu, {
     sources: [
       { id: 'chrome:Default', label: 'Chrome — Personal', email: 'me@example.com', cookieCount: 42, liveDebugReady: false, needsPermission: false },
-      { id: 'safari:Default', label: 'Safari', email: null, cookieCount: null, liveDebugReady: false, needsPermission: true },
+      { id: 'safari:permission', label: 'Safari', email: null, cookieCount: null, liveDebugReady: false, needsPermission: true },
     ],
     lastSourceId: 'chrome:Default',
     loading: false,
@@ -429,13 +429,13 @@ test('SafariPermissionCard polls serially via probe, opens System Settings, noti
   const imports = {
     probe: (id) => {
       probeCalls += 1
-      assert.equal(id, 'safari:Default')
+      assert.equal(id, 'safari:permission')
       return new Promise((resolve) => { resolveProbe = resolve })
     },
     openPermission: async () => { openCalls += 1; return { opened: true } },
   }
   const inst = h.mount(SafariPermissionCard, {
-    flow: { source: { id: 'safari:Default', name: 'Safari', label: 'Safari' }, info: {} },
+    flow: { source: { id: 'safari:permission', name: 'Safari', label: 'Safari' }, info: {} },
     busy: false,
     imports,
     onOpenPermission: () => { void imports.openPermission() },
@@ -477,12 +477,12 @@ test('SafariPermissionCard polls serially via probe, opens System Settings, noti
   assert.equal(h.timers.size, 0, 'unmount clears active poll timer')
 })
 
-test('BrowserView enters safari-permission stage when live import reports needsFullDiskAccess', async () => {
+test('BrowserView enters safari-permission, clears stale rows while refreshing multi-profile Safari, and renders browser-locked errors', async () => {
   const h = createHarness()
   const { BrowserView } = h.exports
   const imports = {
-    sources: async () => [{ id: 'safari:Default', name: 'Safari', label: 'Safari', needsPermission: true }],
-    live: async () => ({ needsFullDiskAccess: true, sourceId: 'safari:Default', browserName: 'Safari', label: 'Safari', kind: 'safari' }),
+    sources: async () => [{ id: 'safari:permission', name: 'Safari', label: 'Safari', needsPermission: true }],
+    live: async () => ({ needsFullDiskAccess: true, sourceId: 'safari:permission', browserName: 'Safari', label: 'Safari', kind: 'safari' }),
     probe: async () => ({ liveDebugReady: false, permissionGranted: false }),
     openPermission: async () => ({ opened: true }),
     cancel: async () => {},
@@ -506,27 +506,48 @@ test('BrowserView enters safari-permission stage when live import reports needsF
   let tree = inst.render()
   const importBtn = allNodes(tree, (n) => n.type === 'button' && String(n.props?.className ?? '').includes('bt-import-btn'))[0]
   importBtn.props.onClick()
+  await new Promise((r) => setTimeout(r, 0))
   tree = inst.render()
   const menuNode = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
-  await menuNode.props.onSource({ id: 'safari:Default', name: 'Safari', label: 'Safari', needsPermission: true })
+  await menuNode.props.onSource({ id: 'safari:permission', name: 'Safari', label: 'Safari', needsPermission: true })
   tree = inst.render()
   const cardNode = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'safari-permission')[0]
   assert.ok(cardNode, 'expected BrowserView to transition to safari-permission stage')
 
-  // When multi-profile Safari unlocks and live returns needsProfileChoice, return to refreshed ImportMenu.
+  // When multi-profile Safari unlocks and live returns needsProfileChoice, stale safari:permission
+  // must be cleared immediately (loading: true, sources: []) until unlocked profiles resolve.
+  let resolveRefresh = null
   let sourcesRefreshes = 0
-  imports.sources = async () => {
+  imports.sources = () => {
     sourcesRefreshes += 1
-    return [
-      { id: 'safari:Default', name: 'Safari', label: 'Safari — Personal', cookieCount: 10 },
-      { id: 'safari:work-uuid', name: 'Safari', label: 'Safari — Work', cookieCount: 25 },
-    ]
+    return new Promise((resolve) => { resolveRefresh = resolve })
   }
   imports.live = async () => ({ needsProfileChoice: true })
   cardNode.props.onRetrySource()
   await new Promise((r) => setTimeout(r, 0))
   tree = inst.render()
-  assert.ok(allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0], 'expected return to refreshed ImportMenu')
+  const loadingMenu = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  assert.ok(loadingMenu, 'expected return to ImportMenu')
+  assert.equal(loadingMenu.props.loading, true, 'must show loading state while refreshed Safari profiles load')
+  assert.deepEqual(Array.from(loadingMenu.props.sources), [], 'stale pre-permission Safari row must not stay clickable during refresh')
   assert.equal(sourcesRefreshes, 1)
+
+  resolveRefresh([
+    { id: 'safari:Default', name: 'Safari', label: 'Safari — Personal', cookieCount: 10 },
+    { id: 'safari:work-uuid', name: 'Safari', label: 'Safari — Work', cookieCount: 25 },
+  ])
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const loadedMenu = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  assert.equal(loadedMenu.props.loading, false)
+  assert.deepEqual(Array.from(loadedMenu.props.sources, (s) => s.id), ['safari:Default', 'safari:work-uuid'])
+
+  // Non-Windows locked SQLite error renders the localized busy-database message instead of running prompt.
+  imports.live = async () => ({ error: 'browser-locked' })
+  await loadedMenu.props.onSource({ id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' })
+  tree = inst.render()
+  const errCard = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'error')[0]
+  assert.ok(errCard)
+  assert.match(errCard.props.flow.message, /cookie database is busy/i)
   inst.unmount()
 })

@@ -599,6 +599,7 @@ export const FR = {
   "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS demande de quitter et rouvrir DS Bot, confirmez puis réessayez.",
   "Full Disk Access granted — ready to import.": "Accès complet au disque accordé — prêt à importer.",
   "Open System Settings": "Ouvrir Réglages Système",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "La base de cookies de ce navigateur est occupée. Quittez le navigateur puis réessayez.",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
   "That image is too large": "Cette image est trop volumineuse",

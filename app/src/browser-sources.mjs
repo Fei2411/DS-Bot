@@ -1151,7 +1151,7 @@ export function deriveLinuxChromiumKey(password = 'peanuts') {
   return pbkdf2Sync(Buffer.from(String(password), 'utf8'), 'saltysalt', 1, 16, 'sha1')
 }
 
-const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 const INVALID_COOKIE_VALUE_CTL = /[\x00-\x08\x0a-\x1f\x7f]/
 
 /** Decrypt a single Chromium v10 cookie blob (enforcing v24+ SHA-256 domain digest and valid UTF-8 cookie bytes). */
@@ -1180,23 +1180,28 @@ export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHa
 
 const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
 
-function decryptWithCandidateKeys(encrypted, keys, opts) {
+function decryptWithCandidateKeys(encrypted, keys, opts, { rejectAmbiguous = false } = {}) {
+  let matched = null
   for (const key of keys) {
     if (!key) continue
     try {
       const decrypted = decryptChromiumV10(encrypted, key, opts)
-      if (decrypted !== null) return decrypted
+      if (decrypted !== null) {
+        if (!rejectAmbiguous) return decrypted
+        if (matched !== null && matched !== decrypted) return null // ambiguous pre-v24 row: do not guess
+        matched = decrypted
+      }
     } catch { /* try next candidate key */ }
   }
-  return null
+  return matched
 }
 
-function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, now = Date.now() / 1000 } = {}) {
+function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous = false, now = Date.now() / 1000 } = {}) {
   const candidateKeys = Array.isArray(keys) ? keys.filter(Boolean) : (key ? [key] : [])
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
     if (!hasTable(db, 'cookies')) {
-      return { cookies: [], origins: [], skipped: [], decryptedCount: 0, decryptFailedCount: 0, unsupportedEncryptionCount: 0 }
+      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, unsupportedEncryptionCount: 0 }
     }
     let dbVersion = 0
     try {
@@ -1244,7 +1249,12 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, now = Date.now()
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
-          const decrypted = decryptWithCandidateKeys(enc, candidateKeys, { hostKey: row.host_key, stripDomainHash })
+          const decrypted = decryptWithCandidateKeys(
+            enc,
+            candidateKeys,
+            { hostKey: row.host_key, stripDomainHash },
+            { rejectAmbiguous: rejectAmbiguous && !stripDomainHash },
+          )
           if (decrypted === null) {
             decryptFailedCount += 1
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
@@ -1273,7 +1283,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, now = Date.now()
       }
       cookies.push(cookie)
     })
-    return { cookies, origins: [], skipped, decryptedCount, decryptFailedCount, unsupportedEncryptionCount }
+    return { cookies, origins: [], skipped, dbVersion, decryptedCount, decryptFailedCount, unsupportedEncryptionCount }
   } finally {
     db.close()
   }
@@ -1281,11 +1291,12 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, now = Date.now()
 
 /**
  * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password.
- * Ranks the two keys on the database first (so a pre-v24 empty-password store prefers the
- * empty key before per-row fallback, eliminating wrong-key padding collisions), then tries
- * both keys per row to support mixed stores.
- * Returns null if the store contains v11/keyring-encrypted rows and source.exe is available
- * so the caller falls through to clone + CDP pipe self-decryption without dropping v11 cookies.
+ * On v24+ stores, the SHA-256 domain digest authenticates each row unambiguously across mixed keys.
+ * On pre-v24 stores (no MAC), pure peanuts or pure empty-password stores decrypt directly; a mixed
+ * pre-v24 store delegates to clone + CDP pipe when source.exe is available, or rejects rows that
+ * decode ambiguously under both keys when no binary is available.
+ * Returns null if v11/keyring rows exist and source.exe is available so the caller falls through
+ * to clone + CDP pipe self-decryption without dropping v11 cookies.
  */
 export async function harvestLinuxChromiumV10(source, workDir, { signal, now } = {}) {
   throwIfAborted(signal)
@@ -1296,17 +1307,23 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
   const emptyKey = deriveLinuxChromiumKey('')
 
   const peanutsPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: peanutsKey, now })
-  let orderedKeys = [peanutsKey, emptyKey]
   let detailed = peanutsPass
   if (peanutsPass.decryptFailedCount > 0) {
     const emptyPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: emptyKey, now })
     if (emptyPass.decryptFailedCount === 0 && emptyPass.decryptedCount > 0) {
       detailed = emptyPass
+    } else if (peanutsPass.dbVersion < 24 && source.exe) {
+      // Pre-v24 mixed-key store has no per-row domain MAC; let Chromium itself decrypt via CDP pipe.
+      return null
     } else {
-      orderedKeys = emptyPass.decryptedCount > peanutsPass.decryptedCount
+      const orderedKeys = emptyPass.decryptedCount > peanutsPass.decryptedCount
         ? [emptyKey, peanutsKey]
         : [peanutsKey, emptyKey]
-      detailed = readChromiumSqliteCookiesDetailed(clonedDb, { keys: orderedKeys, now })
+      detailed = readChromiumSqliteCookiesDetailed(clonedDb, {
+        keys: orderedKeys,
+        rejectAmbiguous: peanutsPass.dbVersion < 24,
+        now,
+      })
     }
   }
   if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) return null
@@ -1647,6 +1664,12 @@ export async function harvestCookies(source, workDir, opts = {}) {
  *   4. Windows pre-check for App-Bound Encryption before ever asking to close the browser
  *   5. Snapshot → (close & relaunch on Windows when needed for non-v20/Firefox) → harvest
  */
+function browserLockedError() {
+  const err = new Error('This browser cookie database is locked; quit the browser and try again.')
+  err.code = 'browser-locked'
+  return err
+}
+
 export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, linuxHarvester, safariHarvester, cloneHarvester, cloner = cloneCookieStore, browserCloser = closeBrowser, browserRelauncher = relaunchBrowser, signal } = {}) {
   throwIfAborted(signal)
   const currentPlatform = platformOverride ?? platform()
@@ -1696,7 +1719,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       try {
         await cloner(source, work.dir, { needLocalState: false })
       } catch (error) {
-        if (error?.code === 'locked' && !close) return { running: true }
+        if (error?.code === 'locked') throw browserLockedError()
         throw error
       }
       throwIfAborted(signal)
@@ -1718,7 +1741,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       try {
         await cloner(source, work.dir, { needLocalState: false })
       } catch (error) {
-        if (error?.code === 'locked' && !close) return { running: true }
+        if (error?.code === 'locked') throw browserLockedError()
         throw error
       }
       throwIfAborted(signal)
@@ -1735,7 +1758,8 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       await cloner(source, work.dir)
     } catch (error) {
       if (error?.code !== 'locked') throw error
-      if (source.engine === 'chromium' && currentPlatform === 'win32' && hasAppBoundKey(userDataDir)) {
+      if (currentPlatform !== 'win32') throw browserLockedError()
+      if (source.engine === 'chromium' && hasAppBoundKey(userDataDir)) {
         return {
           running: true,
           needsRemoteDebugging: true,
