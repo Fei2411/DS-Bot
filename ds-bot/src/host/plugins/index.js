@@ -996,7 +996,7 @@ export function install(rt) {
     const mergedCustom = Object.values(store.custom).map((custom) => {
       const cat = catalogById.get(custom.id)
       return cat
-        ? { ...cat, ...custom, install: custom.install ?? cat.install, toolPrefixes: custom.toolPrefixes?.length ? custom.toolPrefixes : cat.toolPrefixes, custom: true }
+        ? { ...cat, ...custom, slot: custom.slot ?? cat.slot ?? null, install: custom.install ?? cat.install, toolPrefixes: custom.toolPrefixes?.length ? custom.toolPrefixes : cat.toolPrefixes, custom: true }
         : { ...custom, custom: true }
     })
     const combinedEntries = [
@@ -1372,14 +1372,16 @@ export function install(rt) {
         activeTargetId = nextId
       }
     } else if (customMeta && typeof customMeta === 'object') {
-      const metaSlot = customMeta.slot == null || customMeta.slot === '' ? null : String(customMeta.slot).trim().toLowerCase()
-      const metaCat = String(customMeta.category ?? (metaSlot === 'browser' ? 'browser' : 'tools')).trim().toLowerCase()
+      const nextId = `dsh:${actualPkg}`
+      const catMatch = findCatalogEntry(nextId, catalogEntries)
+      const explicitSlot = customMeta.slot == null || customMeta.slot === '' ? null : String(customMeta.slot).trim().toLowerCase()
+      const metaSlot = explicitSlot ?? catMatch?.slot ?? null
+      const metaCat = String(customMeta.category ?? (metaSlot === 'browser' ? 'browser' : (catMatch?.category ?? 'tools'))).trim().toLowerCase()
       const metaPrefixes = cleanPrefixes(
         Array.isArray(customMeta.toolPrefixes)
           ? customMeta.toolPrefixes
           : String(customMeta.toolPrefixes ?? '').split(',').map(s => s.trim()),
       )
-      const nextId = `dsh:${actualPkg}`
       store.custom[nextId] = {
         id: nextId,
         name: String(customMeta.name ?? '').trim().slice(0, 120) || actualPkg,
@@ -1640,12 +1642,15 @@ export function install(rt) {
       if (!spec) throw Object.assign(new Error('Enter an npm package, GitHub repo, or local path.'), { code: 'bot/invalid' })
       const packageName = String(body.packageName ?? spec).trim()
       const id = `dsh:${packageName}`
+      await catalogManager.hydrate()
+      const catMatch = findCatalogEntry(id)
+      const effectiveSlot = rawSlot ?? catMatch?.slot ?? null
       entry = {
         id,
         name,
         description,
-        category,
-        slot: rawSlot,
+        category: effectiveSlot === 'browser' ? 'browser' : category,
+        slot: effectiveSlot,
         kind: 'dsh',
         packageName,
         toolPrefixes,

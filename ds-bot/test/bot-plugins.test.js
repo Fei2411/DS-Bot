@@ -1133,10 +1133,11 @@ test('saveCustomPlugin avoids MCP name collisions and installPlugin with customM
   assert.match(cjk.value.entry.id, /^mcp:custom-[a-f0-9]{8}$/)
   assert.equal(cjk.value.entry.name, '笔记')
 
-  // 5. Custom DSH slot override takes precedence over catalog entry in buildPluginsView.
-  await call('plugins-custom-save', { kind: 'dsh', name: 'Custom Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: 'browser', toolPrefixes: 'custom_ego_' })
+  // 5. Custom DSH override retains catalog browser slot even when user only provides a custom name (`slot: null`).
+  await call('plugins-custom-save', { kind: 'dsh', name: 'My Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: null, toolPrefixes: 'custom_ego_' })
   const listed = await call('plugins-list', {})
   const egoItem = listed.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
-  assert.equal(egoItem.name, 'Custom Ego')
+  assert.equal(egoItem.name, 'My Ego')
+  assert.equal(egoItem.slot, 'browser')
   assert.deepEqual(egoItem.toolPrefixes, ['custom_ego_'])
 })
