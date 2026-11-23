@@ -3066,6 +3066,39 @@ test('a group memory review recovers pre-ledger lines across multiple Session pa
   assert.deepEqual(warnings.filter(line => line.includes('left its log')), [])
 })
 
+test('a group backfill retries after a ledger write fails', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: `User turn ${seq}`, seq, time: 2_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 2_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const { rt, call, warnings, stop } = start({ home, history: { r1: legacyGroupEvents(allLines) } })
+  t.after(() => stop())
+  await call('state', {})
+
+  const book = 'group-r1'
+  const path = join(home, 'ledger', `${book}.jsonl`)
+  assert.equal(rt.ledger.records(book)[0].seq, 21)
+  const temp = `${path}.${process.pid}.tmp`
+  mkdirSync(temp)
+  await rt.backfillGroupLog('r1', 4)
+  await assert.rejects(rt.ledger.written(book))
+  await rt.ledger.flush(book)
+  assert.equal(rt.ledger.record(book, 1), undefined)
+  rmSync(temp, { recursive: true })
+
+  await rt.backfillGroupLog('r1', 0)
+  assert.equal(rt.ledger.record(book, 1)?.text, 'User turn 1', 'the next backfill retries the missing line')
+  assert.equal(JSON.parse(readFileSync(path, 'utf8').split('\n')[0]).seq, 1)
+  assert.ok(warnings.some(line => line.includes('16 lines of group "Launch"') && line.includes('could not be written')), warnings.join('\n'))
+})
+
 test('lines still in the 60-line room log at upgrade stay in the ledger even if 70 more lines arrive before the first review', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory'), { recursive: true })

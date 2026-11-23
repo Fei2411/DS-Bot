@@ -555,20 +555,25 @@ export function install(rt) {
       const sessionLines = partLines.flat()
       const kept = records.filter(record => Number.isInteger(record.seq))
       const recovered = alignGroupSessionLines(sessionLines, kept)
-      if (recovered !== undefined && recovered.length > 0) rt.ledger.prepend(book, recovered)
-      let earliestSeq = oldestSeq
+      let writeFailed = false
+      if (recovered !== undefined && recovered.length > 0 && rt.ledger.prepend(book, recovered) > 0 && writes()) {
+        try { await rt.ledger.written(book) } catch { writeFailed = true }
+      }
+      let earliestSeq
       for (const record of rt.ledger.records(book)) {
         if (Number.isInteger(record.seq) && (earliestSeq === undefined || record.seq < earliestSeq)) earliestSeq = record.seq
       }
       const missing = (earliestSeq ?? (room.seq + 1)) - since - 1
       if (missing > 0) {
-        if (lostError !== undefined) {
+        if (writeFailed) {
+          rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed and could not be written to its ledger', missing, room.name)
+        } else if (lostError !== undefined) {
           rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed and could not be recovered from its Session: %s', missing, room.name, lostError.message ?? lostError)
         } else {
           rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed and were not in its Session', missing, room.name)
         }
       }
-      backfilled.add(roomId)
+      if (!writeFailed && writes()) backfilled.add(roomId)
     })().finally(() => {
       if (backfilling.get(roomId) === run) backfilling.delete(roomId)
     })
