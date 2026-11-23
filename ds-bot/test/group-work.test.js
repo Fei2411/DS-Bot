@@ -597,6 +597,76 @@ test('turnDeliverables skips open and failed turns and reads back to the turn st
   ])
 })
 
+// #975: a turn that presents a file without writing a reply did not pass — the
+// cards are its answer, on a row of their own.
+test('a member turn that only presents a file posts its cards without text', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 把报告发出来'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  host.finish('gb', '')
+  await settle(() => result() !== undefined)
+  const row = result().replies.find(reply => reply.name === 'Writer')
+  assert.equal(row.text, '')
+  assert.deepEqual(row.files, [{ name: 'quarterly.md', sessionId: 'gb', seq: 4, index: 0 }])
+})
+
+// #975: a context handoff moves the turn into a fresh Session mid-call; the presented
+// events land there, so the reader has to follow the member's current Session.
+test('a member resumed in a fresh session posts the files that session presented', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 写报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const called = host.begin('gb')
+  // The turn hit the context limit and resumed in a fresh session before answering.
+  // Production: parts.js records room.sessions[bot] = freshId, then its save() re-runs
+  // store.js indexSessions, which rebuilds groupOwners before the fresh part's first
+  // event. Mirror exactly that here.
+  // The earlier part presented a file before the switch cut its turn; production pushes
+  // it to room.segments and archives it with the turn uncompleted there.
+  rt.roomOf('r1').segments = { b: [{ sessionId: 'gb', endedAt: Date.now() }] }
+  host.history.gb = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    { seq: 2, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/early-draft.md' }] } },
+    { seq: 3, type: 'turn/end', data: { turn: 1, reason: { kind: 'aborted' } } },
+  ]
+  rt.roomOf('r1').sessions.b = 'gb2'
+  await rt.save()
+  host.history.gb2 = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  host.emit('gb2', 'turn/start', { turn: 1 })
+  host.emit('gb2', 'user/message', { content: called.content, source: called.source })
+  host.emit('gb2', 'assistant/message', { message: { content: [{ type: 'text', text: '报告写好了。' }] } })
+  host.emit('gb2', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  const row = result().replies.find(reply => reply.name === 'Writer')
+  assert.match(row.text, /报告写好了/)
+  assert.deepEqual(row.files, [
+    { name: 'early-draft.md', sessionId: 'gb', seq: 2, index: 0 },
+    { name: 'quarterly.md', sessionId: 'gb2', seq: 4, index: 0 },
+  ])
+})
+
+// #975: a late turn that only presented files posts its cards, not nothing.
+test('a late reply that only presented files posts its cards', async (t) => {
+  const host = await start(t)
+  rt.turnChanges = async () => undefined
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  await rt.lateRoomReply('gb', {}, '[PASS]')
+  const post = host.takePost()
+  assert.deepEqual(post.source.delivered, [{ name: 'quarterly.md', sessionId: 'gb', seq: 4, index: 0 }])
+  assert.match(String(post.content[0].text), /Presented files: quarterly\.md/)
+})
+
 test('a quick team tool does not let the round go on', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)

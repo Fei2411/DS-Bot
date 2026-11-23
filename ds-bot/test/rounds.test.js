@@ -100,7 +100,8 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
     await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
-    await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
+    // Session-level success is 'completed'; 'stop' is the adapter/engine layer's kind.
+    await emit(sessionId, { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
   const stop = async ({ keep = false } = {}) => {
     await ctx.dispose()
