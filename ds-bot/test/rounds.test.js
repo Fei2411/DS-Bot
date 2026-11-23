@@ -2074,6 +2074,47 @@ test('a user line that joins a round closing meanwhile waits for the next round'
   }
 })
 
+// #2066 review: the write can land after the round has finished for good, with no round
+// left to drain what waits. The line itself must open the next round: no further relay.
+test('a line whose write lands after the round finished opens the next round itself', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  await emit(room.id, userMessage('@Writer late question'))
+
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  try {
+    const mid = relay(room.id, 'mid')
+    const line = await waitFor(() => rt.roomOf(room.id).log.find(entry => entry.text === '@Writer late question'))
+    assert.ok(line, 'the line is said before its write is awaited')
+    const round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const second = await turnFor(sent, first)
+    await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+    // The round finishes all the way before the write lands: nothing of it is left.
+    assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished')
+    release()
+    // No further relay: the line itself must bring the round that calls the member it names.
+    const late = await turnFor(sent, first, second)
+    assert.ok(late, 'the line itself opens the round that calls the member it names')
+    const after = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress !== round)
+    assert.ok(after, 'a round of its own runs it')
+    assert.equal(after.startSeq, line.seq, 'the next round starts at the line it carries')
+    await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+    await Promise.all([mid, running])
+  } finally {
+    rt.ledger.written = realWritten
+  }
+})
+
 // #2066 review: the Session's copy is the only one that can be said again, so a composer
 // line leaves it only once the book has it. A write that fails keeps the line for a later
 // round and draws nothing: it is neither lost nor said twice.

@@ -2429,6 +2429,21 @@ export function install(rt) {
   const roundRuns = new Map()
   rt.roomRounds = roomId => [...(roundRuns.get(roomId) ?? [])]
   const runningRound = roomId => [...rt.roomProgress.values()].find(round => round.roomId === roomId)
+  // What came in for a round that takes no more. A round that runs, or one that still
+  // finishes, drains this queue as it ends. With neither, waiting on the queue would mean
+  // waiting for a relay that may never come, so the post opens the next round itself; after
+  // a stop it waits for the group's next message instead (the user's own stop).
+  async function holdForNextRound(room, posts, agent, { stopped = false } = {}) {
+    laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
+    if (stopped || finalizing.has(room.id)) return
+    const open = [...rt.roomProgress.values()].find(other => other.roomId === room.id
+      && other.closed !== true && other.abort?.signal.aborted !== true)
+    if (open !== undefined) return
+    const later = laterPosts.get(room.id) ?? []
+    laterPosts.delete(room.id)
+    startRound(room, later, agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)))
+  }
+
   // Stops the round running in a group, with the member turns it started.
   // A round still finishing is stopped too: what waits on it then waits for the group's
   // next message instead of starting.
@@ -2453,7 +2468,7 @@ export function install(rt) {
       return
     }
     if (round.closed || round.abort?.signal.aborted) {
-      laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
+      await holdForNextRound(room, posts, agent, { stopped: round.abort?.signal.aborted === true })
       return
     }
     const members = room.members.map(rt.botOf).filter(Boolean)
@@ -2502,10 +2517,11 @@ export function install(rt) {
         rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
         throw new Error(`the user's line may not have been saved: ${error?.message ?? error}`)
       })
-      // The write can outlast the round: one that closed meanwhile takes no more lines,
-      // so this one waits for the next round, which starts at its seq.
+      // The write can outlast the round: one that closed meanwhile takes no more lines.
+      // The line is handed to the next round, which starts at its seq, instead of waiting
+      // for a relay that may never come.
       if (round.closed || round.abort?.signal.aborted) {
-        laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), post])
+        await holdForNextRound(room, [post], agent, { stopped: round.abort?.signal.aborted === true })
         continue
       }
       unpauseRoomIdle(room)
