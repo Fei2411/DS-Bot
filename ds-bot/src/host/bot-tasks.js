@@ -436,6 +436,12 @@ export function install(rt) {
     const id = newId()
     const now = Date.now()
     const imOrigin = room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
+    // When a group has no direct IM binding/origin of its own, capture an untainted
+    // IM dispatch approval route separately so task approvals reach the IM caller
+    // without claiming the group's own Session or streaming unrelated group lines.
+    const dispatchApprovalOrigin = room !== undefined && imOrigin === undefined
+      ? rt.roomReportImOrigin?.(room.id, bot.id)
+      : undefined
     // Link into the DM handoff tree when a foreground DM turn is answering another Bot.
     // Group tasks participate in group dispatch batches via `hasRoomTasks` instead.
     const liveEntry = rt.live.get(fromSessionId)
@@ -454,6 +460,7 @@ export function install(rt) {
       ...(room !== undefined ? { roomId: room.id } : {}),
       ...(taskWorkId !== undefined ? { workId: taskWorkId, parentWorkId: parentWork } : {}),
       ...(imOrigin !== undefined ? { imOrigin } : {}),
+      ...(dispatchApprovalOrigin !== undefined ? { dispatchApprovalOrigin } : {}),
     }
 
     const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir })
@@ -1119,7 +1126,7 @@ export function install(rt) {
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
   // Bot request while the target Bot's foreground chat is busy, without switching the
   // user's visible foreground session or interrupting desktop drafts/IME.
-  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, text, files = [], length, exchangeId }) {
+  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, text, files = [], length, exchangeId }) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
@@ -1136,7 +1143,7 @@ export function install(rt) {
       updatedAt: now,
     }
     const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask)
-    rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}) })
+    rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}) })
     try {
       await rt.deliver({
         fromId: fromBot.id,
@@ -1329,7 +1336,8 @@ export function install(rt) {
     ? 'Background tasks cannot manage other background tasks. Finish your work and report back to your chat.'
     : undefined)
 
-  const hasRoomTasks = (roomId, botId) => activeTasksOf(rt.botOf(botId)).some(task => task.roomId === roomId)
+  const hasRoomTasks = (roomId, botId, ignoreTaskId) => activeTasksOf(rt.botOf(botId))
+    .some(task => task.roomId === roomId && (ignoreTaskId === undefined || task.id !== ignoreTaskId))
   const activeRoomTasks = () => {
     const out = []
     for (const bot of Object.values(state.bots)) {

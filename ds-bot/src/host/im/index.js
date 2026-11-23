@@ -751,6 +751,39 @@ export function install(rt) {
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
   // A card answered here continues that turn: its replies belong to this chat too.
+  // Only approvals that belong directly to this chat's bound target claim it; approvals
+  // forwarded from a background task or a dispatched group report must never claim an
+  // unrelated foreground Web or IM turn on this Bot.
+  const shouldClaimApprovalChat = (conn, chat, entry) => {
+    if (entry === undefined || entry.taskId !== undefined) return false
+    const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
+    if (target === undefined) return false
+    if (target.roomId !== undefined) return entry.roomId === target.roomId
+    return entry.roomId === undefined && entry.botId === target.botId
+  }
+  const approvalOrigin = (entry) => {
+    if (entry.taskId !== undefined) {
+      const task = rt.taskById?.(entry.taskId)?.task
+      if (task?.imOrigin !== undefined) return originFromSaved(task.imOrigin)
+      if (entry.roomId !== undefined && task?.dispatchApprovalOrigin !== undefined) {
+        const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
+        if (mixed.has(roomSid)) return undefined
+        const saved = task.dispatchApprovalOrigin
+        const liveReport = rt.roomReportImOrigin?.(entry.roomId, entry.botId)
+        if (liveReport !== undefined && liveReport.connId === saved.connId && liveReport.chatKey === saved.chatKey
+          && liveReport.senderId === saved.senderId && liveReport.binding === saved.binding) {
+          return originFromSaved(saved)
+        }
+      }
+      return undefined
+    }
+    if (entry.roomId !== undefined) {
+      const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
+      if (mixed.has(roomSid)) return undefined
+      return originOf(roomSid) ?? originFromSaved(rt.roomReportImOrigin?.(entry.roomId, entry.botId))
+    }
+    return originOf(chatOfBot(entry.botId))
+  }
   const claimChat = (conn, chat, senderId) => {
     const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
     const sessionId = target?.roomId !== undefined ? (rt.roomOf(target.roomId)?.sessionId ?? target.roomId) : chatOfBot(target?.botId)
@@ -1261,11 +1294,13 @@ export function install(rt) {
           if (answered !== false) return
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
-        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
-        && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
-        const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
-        if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
-        if (answered !== false) return
+        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
+        const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
+        if (entry !== undefined) {
+          const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
+          if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
+          if (answered !== false) return
+        }
       }
     }
     if (target === undefined) {
@@ -1331,8 +1366,9 @@ export function install(rt) {
     }
     if (data.startsWith('a:') && cut > 2) {
       if (choice === 'allow' || choice === 'reject') {
+        const entry = rt.approvalsView?.().find(item => `a:${item.id}` === cardKey)
         const answered = await answerApprovalCard(conn, chat, cardKey, choice)
-        if (answered === 'answered') claimChat(conn, chat, action.sender.id)
+        if (answered === 'answered' && shouldClaimApprovalChat(conn, chat, entry)) claimChat(conn, chat, action.sender.id)
         else if (answered === false) await sendCardReply(conn, chat, text('stale'))
       }
     }
@@ -1428,10 +1464,7 @@ export function install(rt) {
       for (const entry of rt.approvalsView?.() ?? []) {
         const cardKey = `a:${entry.id}`
         const bot = rt.botOf(entry.botId)
-        // A task approval belongs strictly to the IM chat that started that task (never fall back to an unrelated foreground IM chat).
-        const origin = entry.taskId !== undefined
-          ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
-          : originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        const origin = approvalOrigin(entry)
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
@@ -2005,9 +2038,11 @@ export function install(rt) {
       } else {
         const imOrigin = source?.imOrigin
         const rpcId = source?.rpcId
-        // A late member result, part-switch handoff, or task report continues the work the chat asked for;
-        // any other first message starts a fresh turn, which clears the previous turn's origin.
+        // A late member result, part-switch handoff, or task report continues the work the
+        // chat asked for; any other first message starts a fresh turn, which clears the
+        // previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
+        const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
         if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
@@ -2056,6 +2091,43 @@ export function install(rt) {
             if (saved !== undefined) dropOrigin(session.id)
           } else {
             claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          }
+        } else if (isDispatchReturn) {
+          // Restore the originating IM chat when a Bot reply or group report returns for
+          // work dispatched from an IM turn (#1836, #1894), with the same pairing, binding
+          // and anti-mix checks as task-report. A non-IM (Web) dispatch return joining an
+          // active IM turn drops origin so Web results never leak into IM summaries.
+          const saved = rt.imReplyOrigin?.(source.replyTo)
+          const owner = rt.groupOwners.get(session.id)
+          if (saved !== undefined) {
+            if (owner !== undefined) {
+              const room = rt.roomOf(owner.roomId)
+              const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+              if (saved.mixed !== true && roomSid !== undefined && originFromSaved(saved) !== undefined && saved.binding === `room:${room.id}`) {
+                const live = origins.get(roomSid)
+                const activeRound = rt.roomActive?.(room.id) === true
+                if (live === undefined && !activeRound && !mixed.has(roomSid)) {
+                  claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+                } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey || live.senderId !== saved.senderId)) {
+                  dropOrigin(roomSid)
+                }
+              } else if (roomSid !== undefined) {
+                dropOrigin(roomSid)
+              }
+            } else {
+              const ownerBotId = rt.chatOwners.get(session.id)
+              if (saved.mixed === true || ownerBotId === undefined || originFromSaved(saved) === undefined || saved.binding !== `bot:${ownerBotId}`) {
+                dropOrigin(session.id)
+              } else {
+                claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              }
+            }
+          } else if (owner !== undefined) {
+            const room = rt.roomOf(owner.roomId)
+            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            if (roomSid !== undefined && (origins.has(roomSid) || rt.roomActive?.(room.id) === true)) dropOrigin(roomSid)
+          } else {
+            dropOrigin(session.id)
           }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
@@ -2126,10 +2198,7 @@ export function install(rt) {
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
       void (async () => {
-        const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const origin = data.taskId !== undefined
-          ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
-          : originOf(sessionId)
+        const origin = approvalOrigin(data)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined

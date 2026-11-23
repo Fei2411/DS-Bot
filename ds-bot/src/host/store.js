@@ -310,6 +310,18 @@ export function install(rt) {
     for (const [key, batch] of Object.entries(state.roomBatches)) {
       if (!Array.isArray(batch?.pending) || !Array.isArray(batch.done) || !Array.isArray(batch.results) || batch.key !== key) delete state.roomBatches[key]
     }
+    // Pending group report-back watchers (groups.js); malformed entries are dropped.
+    if (state.roomReports === null || typeof state.roomReports !== 'object' || Array.isArray(state.roomReports)) state.roomReports = {}
+    for (const [key, report] of Object.entries(state.roomReports)) {
+      if (!report || typeof report !== 'object' || report.id !== key || typeof report.roomId !== 'string' || typeof report.botId !== 'string') delete state.roomReports[key]
+    }
+    // IM return origins for dispatched Bot/group replies (handoffs.js / im/index.js).
+    if (state.imReplyOrigins === null || typeof state.imReplyOrigins !== 'object' || Array.isArray(state.imReplyOrigins)) state.imReplyOrigins = {}
+    for (const [key, origin] of Object.entries(state.imReplyOrigins)) {
+      const validOrigin = origin && typeof origin === 'object'
+        && (origin.mixed === true || (typeof origin.connId === 'string' && typeof origin.chatKey === 'string'))
+      if (!validOrigin) delete state.imReplyOrigins[key]
+    }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
     // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
