@@ -623,6 +623,7 @@ export const ES = {
   'Browse files': 'Explorar archivos',
   'Remove photo': 'Quitar foto',
   'Edit Bot avatar': 'Editar avatar del Bot',
+  'Edit group avatar': 'Editar avatar del grupo',
   Name: 'Nombre',
   Instructions: 'Instrucciones',
   'What this Bot is responsible for…': 'De qué se encarga este Bot…',

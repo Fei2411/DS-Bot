@@ -724,6 +724,7 @@ var JA = {
   "Browse files": "ファイルを選択",
   "Remove photo": "写真を削除",
   "Edit Bot avatar": "Bot のアバターを編集",
+  "Edit group avatar": "グループのアバターを編集",
   "Name": "名前",
   "Instructions": "指示",
   "What this Bot is responsible for…": "この Bot の担当・役割…",
@@ -3436,6 +3437,7 @@ var KO = {
   "Browse files": "파일 찾아보기",
   "Remove photo": "사진 제거",
   "Edit Bot avatar": "Bot 아바타 편집",
+  "Edit group avatar": "그룹 아바타 편집",
   Name: "이름",
   Instructions: "지침",
   "What this Bot is responsible for…": "이 Bot이 담당하는 역할…",
@@ -6182,6 +6184,7 @@ var ES = {
   "Browse files": "Explorar archivos",
   "Remove photo": "Quitar foto",
   "Edit Bot avatar": "Editar avatar del Bot",
+  "Edit group avatar": "Editar avatar del grupo",
   Name: "Nombre",
   Instructions: "Instrucciones",
   "What this Bot is responsible for…": "De qué se encarga este Bot…",
@@ -8917,6 +8920,7 @@ var FR = {
   "Browse files": "Parcourir les fichiers",
   "Remove photo": "Supprimer la photo",
   "Edit Bot avatar": "Modifier l’avatar du Bot",
+  "Edit group avatar": "Modifier l’avatar du groupe",
   "Name": "Nom",
   "Instructions": "Instructions",
   "What this Bot is responsible for…": "Ce dont ce Bot est responsable…",
@@ -11629,6 +11633,7 @@ var DE = {
   "Browse files": "Dateien durchsuchen",
   "Remove photo": "Foto entfernen",
   "Edit Bot avatar": "Bot-Avatar bearbeiten",
+  "Edit group avatar": "Gruppenavatar bearbeiten",
   Name: "Name",
   Instructions: "Anweisungen",
   "What this Bot is responsible for…": "Wofür dieser Bot zuständig ist…",
@@ -14329,6 +14334,7 @@ var ZH = {
   "Browse files": "选择文件",
   "Remove photo": "移除照片",
   "Edit Bot avatar": "编辑 Bot 形象",
+  "Edit group avatar": "编辑群聊头像",
   Name: "名字",
   Instructions: "说明",
   "What this Bot is responsible for…": "这个 Bot 负责什么…",
@@ -20021,6 +20027,13 @@ function clusterSeats(count, frame2) {
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]];
 }
 function RoomAvatar({ room: room2, roster, size = 36 }) {
+  const [broken, setBroken] = (0, import_react2.useState)("");
+  const image = room2.avatar?.image;
+  if (image && image !== broken) return (0, import_react2.createElement)(
+    "span",
+    { className: "bt-mark", style: { width: size, height: size }, "aria-hidden": true },
+    (0, import_react2.createElement)("img", { className: "bt-mark-img", src: image, alt: "", draggable: false, onError: () => setBroken(image) })
+  );
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const people = members.length === 1 ? [members[0], null] : members;
   const seat = (bot, seatSize, key) => bot ? (0, import_react2.createElement)(BotMark, { key, bot, size: seatSize }) : (0, import_react2.createElement)("span", { key, className: "bt-cluster-you", style: { width: seatSize * 0.92, height: seatSize * 0.92, margin: seatSize * 0.04 } });
@@ -28364,14 +28377,16 @@ function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
     }, (0, import_react27.createElement)("span", { style: { background: paintCss(color) } }))))
   );
 }
-function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
-  const look = lookOf(bot);
-  const [tab, setTab] = (0, import_react27.useState)(look.image ? "upload" : "bot");
+function AvatarEditor({ bot, room: room2, actions, run: run2, onClose, leaving = false }) {
+  const look = room2 ? { image: room2.avatar?.image } : lookOf(bot);
+  const [tab, setTab] = (0, import_react27.useState)(room2 || look.image ? "upload" : "bot");
   const [over2, setOver] = (0, import_react27.useState)(false);
   const ref = (0, import_react27.useRef)(null);
   const fileRef = (0, import_react27.useRef)(null);
+  const savePhoto = (image) => room2 ? actions.updateRoom(room2.id, { avatar: { image } }) : actions.updateBot(bot.id, { avatar: { ...bot.avatar ?? {}, image } });
+  const reset = () => room2 ? actions.updateRoom(room2.id, { avatar: null }) : actions.updateBot(bot.id, { avatar: null, color: null });
   const upload = (file) => {
-    if (file) void run2(avatarImage(file).then((image) => actions.updateBot(bot.id, { avatar: { ...bot.avatar ?? {}, image } })));
+    if (file) void run2(avatarImage(file).then(savePhoto));
   };
   (0, import_react27.useEffect)(() => {
     const onDown = (event) => {
@@ -28402,7 +28417,7 @@ function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [tab, bot]);
+  }, [tab, bot, room2]);
   const hasPhoto = Boolean(look.image);
   const glide2 = useGlide(tab);
   return (0, import_react27.createElement)(
@@ -28415,13 +28430,13 @@ function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
         "div",
         { ref: glide2.box, role: "tablist", "aria-label": t("Avatar source"), className: "bt-avedit-tabs" },
         (0, import_react27.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
-        [["bot", "Bot"], ["upload", "Upload"], ["library", "Library"]].map(([id, label]) => (0, import_react27.createElement)("button", { key: id, type: "button", role: "tab", className: "bt-avedit-tab", "aria-selected": tab === id, onClick: () => setTab(id) }, t(label)))
+        [...room2 ? [] : [["bot", "Bot"]], ["upload", "Upload"], ["library", "Library"]].map(([id, label]) => (0, import_react27.createElement)("button", { key: id, type: "button", role: "tab", className: "bt-avedit-tab", "aria-selected": tab === id, onClick: () => setTab(id) }, t(label)))
       ),
       (0, import_react27.createElement)("button", {
         type: "button",
         className: "bt-avedit-tab bt-avedit-reset",
-        title: t("Reset character to default"),
-        onClick: () => run2(actions.updateBot(bot.id, { avatar: null, color: null }))
+        title: room2 ? t("Remove photo") : t("Reset character to default"),
+        onClick: () => run2(reset())
       }, t("Reset"))
     ),
     tab === "bot" ? (0, import_react27.createElement)(CharacterGrid, {
@@ -28452,7 +28467,7 @@ function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
         "div",
         { className: "bt-actions", style: { justifyContent: "center" } },
         (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => fileRef.current?.click() }, hasPhoto ? t("Replace") : t("Browse files")),
-        hasPhoto ? (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t("Remove photo")) : null
+        hasPhoto ? (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(room2 ? reset() : actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t("Remove photo")) : null
       ),
       (0, import_react27.createElement)("input", { ref: fileRef, type: "file", accept: "image/png,image/jpeg,image/webp,image/gif", hidden: true, onChange: (event) => {
         const file = event.target.files?.[0];
@@ -28464,7 +28479,7 @@ function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
     // keeps its own copy, and the library keeps its entry.
     tab === "library" ? (0, import_react27.createElement)(AvatarLibraryPanel, {
       actions,
-      onPick: (entry) => run2(actions.updateBot(bot.id, { avatar: { ...bot.avatar, image: entry.image } }))
+      onPick: (entry) => run2(savePhoto(entry.image))
     }) : null
   );
 }
@@ -34873,6 +34888,9 @@ function GroupTodos({ room: room2, actions }) {
   );
 }
 function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted }) {
+  const [editing, setEditing] = (0, import_react39.useState)(false);
+  const [editorShown, editorLeaving] = useLinger(editing, 120);
+  const closeEditor = (0, import_react39.useCallback)(() => setEditing(false), []);
   const [adding, setAdding] = (0, import_react39.useState)(false);
   const [confirming, setConfirming] = (0, import_react39.useState)(false);
   (0, import_react39.useEffect)(() => {
@@ -34905,7 +34923,17 @@ function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted 
     (0, import_react39.createElement)(
       "div",
       { className: "bt-bs-hero" },
-      (0, import_react39.createElement)(RoomAvatar, { room: room2, roster, size: 64 }),
+      (0, import_react39.createElement)(
+        "div",
+        { className: "bt-avatar-anchor" },
+        (0, import_react39.createElement)(
+          "button",
+          { type: "button", className: "bt-avatar-trigger", "aria-label": t("Edit group avatar"), "aria-expanded": editing, onClick: () => setEditing((value) => !value) },
+          (0, import_react39.createElement)(RoomAvatar, { room: room2, roster, size: 64 }),
+          (0, import_react39.createElement)("span", { className: "bt-avatar-pencil", "aria-hidden": true }, (0, import_react39.createElement)(PencilIcon))
+        ),
+        editorShown ? (0, import_react39.createElement)(AvatarEditor, { room: room2, actions, run: run2, onClose: closeEditor, leaving: editorLeaving }) : null
+      ),
       (0, import_react39.createElement)(
         "div",
         { className: "bt-bs-who" },

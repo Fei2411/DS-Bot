@@ -606,6 +606,7 @@ export const JA = {
   "Browse files": "ファイルを選択",
   "Remove photo": "写真を削除",
   "Edit Bot avatar": "Bot のアバターを編集",
+  "Edit group avatar": "グループのアバターを編集",
   "Name": "名前",
   "Instructions": "指示",
   "What this Bot is responsible for…": "この Bot の担当・役割…",

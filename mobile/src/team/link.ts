@@ -5,6 +5,7 @@ import { callBot, callBotState, openLink, type TeamState } from '../connection.t
 import { ensureUnlock } from './gate'
 import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
+import { fillTeamPhotos } from './photos.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
@@ -78,12 +79,12 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     return () => { feedHandlers.current.delete(handler) }
   }, [])
 
-  function fetchPhoto(botId: string, ref: string) {
+  function fetchPhoto(id: string, ref: string, group: boolean) {
     if (photoFetching.has(ref)) return
     const client = clientRef.current
     if (client === undefined) return
     photoFetching.add(ref)
-    void callBot<{ ref?: string | null; image?: string | null }>(client, 'avatar', { botId })
+    void callBot<{ ref?: string | null; image?: string | null }>(client, 'avatar', group ? { roomId: id } : { botId: id })
       .then(answer => {
         if (typeof answer.image === 'string') photoCache.set(typeof answer.ref === 'string' ? answer.ref : ref, answer.image)
         // Re-fill the current team now that this photo is cached.
@@ -93,20 +94,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       .finally(() => photoFetching.delete(ref))
   }
 
-  // Every bot whose photo came as a ref gets the cached image, or keeps the
-  // previous team's photo while the fetch runs — never a blank avatar.
   function fillPhotos(team: TeamState, prev: TeamState | null): TeamState {
     if (!Array.isArray(team.bots)) return team
-    const bots = team.bots.map(bot => {
-      const ref = bot.avatar?.imageRef
-      if (ref === undefined) return bot
-      const cached = photoCache.get(ref)
-      if (cached !== undefined) return bot.avatar?.image === cached ? bot : { ...bot, avatar: { ...bot.avatar, image: cached } }
-      fetchPhoto(bot.id, ref)
-      const kept = prev?.bots.find(entry => entry.id === bot.id)?.avatar?.image
-      return kept !== undefined && kept !== bot.avatar?.image ? { ...bot, avatar: { ...bot.avatar, image: kept } } : bot
-    })
-    return bots.every((bot, index) => bot === team.bots[index]) ? team : { ...team, bots }
+    return fillTeamPhotos(team, prev, photoCache, fetchPhoto)
   }
 
   // One place every state answer goes through. An older in-flight poll must

@@ -55,6 +55,7 @@ export interface Bot {
 export interface Room {
   id: string
   name: string
+  avatar?: { image?: string; imageRef?: string }
   workDir?: string
   preview?: string
   lastAt?: number
