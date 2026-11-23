@@ -195,7 +195,9 @@ export function install(rt) {
     const work = own(works(), id)
     if (work === undefined) return
     if (toSession) work.toSession = toSession
+    else if (toSession === null || toSession === '') delete work.toSession
     if (toTaskId) work.toTaskId = toTaskId
+    else if (toTaskId === null || toTaskId === '') delete work.toTaskId
     save()
   }
 
@@ -366,6 +368,17 @@ export function install(rt) {
     return cur?.from
   }
 
+  // Resolves an active background task thread that initiated a top-level work (`parent === undefined`).
+  const activeTaskThreadOf = (work) => {
+    const callerBot = work?.from === undefined ? undefined : rt.botOf(work.from)
+    if (callerBot === undefined || work.fromPart === undefined) return undefined
+    const taskThread = threadOfPart(callerBot, work.fromPart)
+    const task = taskThread?.thread === 'task' ? callerBot.tasks?.[taskThread.index] : undefined
+    if (task === undefined || !isActiveTask(task)) return undefined
+    const targetSession = threadCurrentOfPart(callerBot, work.fromPart) ?? task.sessionId
+    return { callerBot, task, targetSession }
+  }
+
   // Wakes a waiting parent work (or an active background task thread) when one of its
   // delegated children is cancelled or stopped externally, so it never hangs forever.
   function notifyParentCancelled(snapshot, { reason = '', by, bySession, byLabel = 'the user' } = {}) {
@@ -374,11 +387,9 @@ export function install(rt) {
     const why = reason.trim()
     const summary = `Delegated work${label} to ${targetName} was cancelled by ${byLabel}${why ? ` (${why})` : ''}. Continue with your own work without waiting for ${targetName}.`
     if (snapshot?.parent === undefined) {
-      const callerBot = snapshot?.from === undefined ? undefined : rt.botOf(snapshot.from)
-      const taskThread = callerBot !== undefined && snapshot.fromPart !== undefined ? threadOfPart(callerBot, snapshot.fromPart) : undefined
-      const task = taskThread?.thread === 'task' ? callerBot.tasks?.[taskThread.index] : undefined
-      if (task === undefined || !isActiveTask(task)) return Promise.resolve(false)
-      const targetSession = threadCurrentOfPart(callerBot, snapshot.fromPart) ?? task.sessionId
+      const waitingTask = activeTaskThreadOf(snapshot)
+      if (waitingTask === undefined) return Promise.resolve(false)
+      const { callerBot, targetSession } = waitingTask
       if (by === callerBot.id && targetSession !== undefined && bySession === targetSession && rt.live?.get(targetSession)?.turn !== undefined) {
         return Promise.resolve(false)
       }
@@ -772,8 +783,14 @@ export function install(rt) {
   // other open works stay. `gone` is the startup sweep, whose target no longer exists.
   function abandonWork(id, reason = 'user') {
     const work = own(works(), id)
-    const parent = work?.parent === undefined ? undefined : own(works(), work.parent)
-    if (work === undefined || parent === undefined || !parent.open.includes(id)) return false
+    if (work === undefined) return false
+    const parent = work.parent === undefined ? undefined : own(works(), work.parent)
+    const waitingTask = parent === undefined && work.parent === undefined ? activeTaskThreadOf(work) : undefined
+    if (parent !== undefined) {
+      if (!parent.open.includes(id)) return false
+    } else if (waitingTask === undefined) {
+      return false
+    }
     const target = labelOfWork(work)
     const name = rt.botOf(work.to)?.name ?? work.name ?? (work.room !== undefined ? rt.roomOf(work.room)?.name : undefined) ?? 'the other Bot'
     const text = reason === 'gone'
@@ -782,11 +799,11 @@ export function install(rt) {
     const origin = workImOrigin(id)
     if (origin !== undefined) rememberImReplyOrigin(id, origin)
     if (reason === 'gone') rt.dropRoomReport?.(id)
-    const waitingBot = ownerBotOfWork(parent)
-    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(waitingBot !== undefined ? { waiting: waitingBot } : {}) })
+    const waitingBot = parent !== undefined ? ownerBotOfWork(parent) : waitingTask.callerBot.id
+    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, ...(work.parent !== undefined ? { parent: work.parent } : {}), name, reason, ...(waitingBot !== undefined ? { waiting: waitingBot } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
-    parent.open = parent.open.filter(other => other !== id)
+    if (parent !== undefined) parent.open = parent.open.filter(other => other !== id)
     save()
     // The Bot that waited goes on with its work now, the same way a reply brings it back.
     if (waitingBot !== undefined && rt.botOf(waitingBot) !== undefined) {
@@ -794,13 +811,15 @@ export function install(rt) {
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
         : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
       const backRoom = rt.roomOf(work.fromRoom)?.sessions?.[waitingBot]
-      const targetSession = backRoom
-        ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
-        ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), parent.toSession))
+      const targetSession = parent !== undefined
+        ? (backRoom
+          ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
+          ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), parent.toSession)))
+        : waitingTask.targetSession
       void rt.deliver({
         fromId: work.to !== undefined && rt.botOf(work.to) !== undefined ? work.to : undefined,
         fromName: name, toId: waitingBot, ...(targetSession ? { sessionId: targetSession } : {}), text: said, role: 'reply', replyTo: id,
-        exchangeId: randomUUID(), work: work.parent, abandoned: true, recordExchange: false,
+        exchangeId: randomUUID(), ...(work.parent !== undefined ? { work: work.parent } : {}), abandoned: true, recordExchange: false,
       }).catch(error => rt.warn('ds-bot: giving up the wait for %s was not delivered: %s', waitingBot, error))
     }
     return true
@@ -817,15 +836,19 @@ export function install(rt) {
       if (work?.state === 'paused') {
         const targetGone = work.to !== undefined && rt.botOf(work.to) === undefined
         const senderGone = work.from !== undefined && rt.botOf(work.from) === undefined
-        if (targetGone && !senderGone && work.parent !== undefined && own(works(), work.parent)?.open?.includes(id)) {
+        const canAbandon = targetGone && !senderGone
+          && ((work.parent !== undefined && own(works(), work.parent)?.open?.includes(id))
+            || (work.parent === undefined && activeTaskThreadOf(work) !== undefined))
+        if (canAbandon) {
           abandonWork(id, 'gone')
         } else if (targetGone || senderGone) {
           dropWork(id)
         }
         continue
       }
-      if (work.parent === undefined || own(works(), work.parent) === undefined) continue
-      if (!own(works(), work.parent).open.includes(id)) continue
+      const hasWaitingParent = work.parent !== undefined && own(works(), work.parent)?.open?.includes(id) === true
+      const hasWaitingTask = work.parent === undefined && activeTaskThreadOf(work) !== undefined
+      if (!hasWaitingParent && !hasWaitingTask) continue
       const gone = work.room !== undefined ? rt.roomOf(work.room) === undefined
         : work.to !== undefined ? rt.botOf(work.to) === undefined
           : false
@@ -850,7 +873,9 @@ export function install(rt) {
     for (const [id, work] of Object.entries(works())) {
       if (work.to === botId && work.state === 'paused') {
         const parent = work.parent === undefined ? undefined : own(works(), work.parent)
-        if (parent !== undefined && ownerBotOfWork(parent) !== botId && parent.open.includes(id)) {
+        const wakesParent = parent !== undefined && ownerBotOfWork(parent) !== botId && parent.open.includes(id)
+        const wakesTask = work.parent === undefined && work.from !== botId && activeTaskThreadOf(work) !== undefined
+        if (wakesParent || wakesTask) {
           abandonWork(id, 'gone')
         } else {
           dropWork(id)

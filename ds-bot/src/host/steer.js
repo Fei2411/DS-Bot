@@ -121,7 +121,8 @@ export function install(rt) {
     const agent = liveAgent(id)
     if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
     const botId = rt.chatOwners.get(id)
-    if (rt.isHiddenBotWorkTurn?.(botId, entry.info)) return
+    const activeInfo = entry.info ?? entry.claimed?.find(item => item?.silent !== true)
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return
     if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || (!checkedHandoff && rt.shouldMoveForeground?.(rt.botOf(botId), id))) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === botId && job.roomId === undefined)) return
     const track = stateOf(id)

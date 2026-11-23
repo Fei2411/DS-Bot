@@ -127,6 +127,8 @@ async function startHost(t, { team = makeTeam(), forkImpl, pageEvents = {} } = {
       },
       inject(message) {
         calls.push(['inject', message])
+        // Match real DSH dsh-agent-loop: agent.inject() calls send(msg, 'next-step', false).
+        inbox.append('next-step', message)
       },
       cancel(cause) {
         calls.push(['cancel', cause])
@@ -611,6 +613,103 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   assert.equal(rt.state.works[workId].question, 'Need info?', 'failed answer_work must preserve question')
   assert.equal(rt.unreadOf('dm-b').filter(d => d.role === 'answer').length, 0, 'failed answer_work must forget inflight delivery')
   failEnsureFor = undefined
+
+  // 4) Pre-enqueue failure on resumePausedWork: foreground delegate, spawnInBackground (reuseWork: true), and ask_back.
+  // 4a) Foreground paused delegate rollback.
+  rt.openWork('w-paused-fg', {
+    from: 'a',
+    to: 'b',
+    goal: 'resume fg work',
+    state: 'paused',
+    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume fg work', when: 'now', bounces: 2, at: Date.now() },
+  })
+  rt.state.works['w-paused-fg'].rounds = 2
+  failEnsureFor = 'dm-b'
+  await assert.rejects(() => rt.resumePausedWork('w-paused-fg'), /capability mount failed/)
+  assert.equal(rt.state.works['w-paused-fg'].state, 'paused', 'foreground resumePausedWork failure must restore paused state')
+  assert.equal(rt.state.works['w-paused-fg'].paused?.kind, 'delegate', 'foreground resumePausedWork failure must restore paused payload')
+  assert.equal(rt.state.works['w-paused-fg'].rounds, 2, 'foreground resumePausedWork failure must restore rounds')
+  assert.equal(rt.unreadOf('dm-b').some(d => d.exchangeId === 'w-paused-fg'), false)
+  failEnsureFor = undefined
+
+  // 4b) spawnInBackground (reuseWork: true) rollback: must NOT close/delete paused work, must roll back toSession/toTaskId, and must NOT send failure reply to caller!
+  rt.openWork('w-paused-bg', {
+    from: 'a',
+    to: 'b',
+    goal: 'resume bg work',
+    state: 'paused',
+    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume bg work', when: 'now', bounces: 2, at: Date.now() },
+  })
+  rt.state.works['w-paused-bg'].rounds = 2
+  // Writer's foreground is busy running a tool -> resumePausedWork takes spawnInBackground = true -> spawnBotHandoffTask({ reuseWork: true }).
+  emit('dm-b', 'tool/call', { callId: 'busy-1', name: 'bash', arguments: '{}' })
+  const chiefCallsBeforeBgRollback = agents.get('dm-a').calls.length
+  let hitBgTaskSid
+  rt.ensureCapabilities = async (sid) => {
+    if (sid.startsWith('created-') || sid.startsWith('fork-')) {
+      hitBgTaskSid = sid
+      throw new Error('task capability mount failed')
+    }
+    return origEnsure(sid)
+  }
+  await assert.rejects(() => rt.resumePausedWork('w-paused-bg'), /task capability mount failed/)
+  rt.ensureCapabilities = origEnsure
+  assert.ok(hitBgTaskSid, 'resumePausedWork must have entered spawnBotHandoffTask({ reuseWork: true })')
+  assert.ok(rt.state.works['w-paused-bg'], 'spawnInBackground reuseWork rollback must keep work in state.works')
+  assert.equal(rt.state.works['w-paused-bg'].state, 'paused', 'spawnInBackground reuseWork rollback must restore paused state')
+  assert.equal(rt.state.works['w-paused-bg'].paused?.kind, 'delegate', 'spawnInBackground reuseWork rollback must keep paused payload')
+  assert.equal(rt.state.works['w-paused-bg'].toSession, undefined, 'spawnInBackground reuseWork rollback must clear toSession')
+  assert.equal(rt.state.works['w-paused-bg'].toTaskId, undefined, 'spawnInBackground reuseWork rollback must clear toTaskId')
+  assert.equal(rt.state.works['w-paused-bg'].rounds, 2, 'spawnInBackground reuseWork rollback must restore rounds')
+  assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeBgRollback, 'spawnInBackground reuseWork rollback must NOT send failure reply to caller')
+  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 4c) Paused ask_back resume rollback.
+  rt.openWork('w-paused-ask', {
+    from: 'a',
+    to: 'b',
+    goal: 'paused ask work',
+    state: 'paused',
+    paused: { reason: 'ask_back_limit', kind: 'ask_back', question: 'Confirm deploy?', text: 'Confirm deploy?', rounds: 2, at: Date.now() },
+  })
+  rt.state.works['w-paused-ask'].rounds = 2
+  rt.ensureCapabilities = async (sid) => {
+    if (sid === 'dm-a') throw new Error('caller capability mount failed')
+    return origEnsure(sid)
+  }
+  await assert.rejects(() => rt.resumePausedWork('w-paused-ask'), /caller capability mount failed/)
+  rt.ensureCapabilities = origEnsure
+  assert.equal(rt.state.works['w-paused-ask'].state, 'paused', 'ask_back resumePausedWork rollback must restore paused state')
+  assert.equal(rt.state.works['w-paused-ask'].paused?.kind, 'ask_back')
+  assert.equal(rt.state.works['w-paused-ask'].question, undefined)
+  assert.equal(rt.state.works['w-paused-ask'].rounds, 2)
+
+  // 5) Pre-enqueue failure on merged unread delegation (joins === true): must restore earlier.message and unread tracking!
+  rt.dropWork('w-paused-fg')
+  rt.dropWork('w-paused-bg')
+  rt.dropWork('w-paused-ask')
+  const writerAgent = agents.get('dm-b')
+  writerAgent.inbox.nextStep.length = 0
+  writerAgent.inbox.nextTurn.length = 0
+  await tool('delegate_work', { to: 'Writer', goal: 'original unread task', when: 'queue' }, 'dm-a')
+  const originalMsg = writerAgent.inbox.nextTurn.at(-1)
+  assert.ok(originalMsg, 'first delegation sits unread in nextTurn')
+  const joinedExchangeId = originalMsg.source.exchangeId
+  rt.ensureCapabilities = async (sid) => {
+    if (sid === 'dm-b') throw new Error('merge capability mount failed')
+    return origEnsure(sid)
+  }
+  await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'second task trying to merge', when: 'queue' }, 'dm-a'), /merge capability mount failed/)
+  rt.ensureCapabilities = origEnsure
+  assert.ok(rt.state.works[joinedExchangeId], 'failed merge must keep original work open')
+  assert.ok(
+    [...writerAgent.inbox.nextStep, ...writerAgent.inbox.nextTurn].some(m => m.source?.exchangeId === joinedExchangeId && textOf(m.content).includes('original unread task')),
+    'failed merge (joins === true) must restore original unread message back into agent.inbox',
+  )
+  assert.ok(
+    rt.unreadOf('dm-b').some(d => d.exchangeId === joinedExchangeId && d.text.includes('original unread task')),
+    'failed merge (joins === true) must restore original delivery tracking in resume.js',
+  )
 })
 
 test('F3 (real ReactLoopAgent): fast answer_work before ask_back turn/end does NOT prematurely close work and delivers real answer on Turn 2', async (t) => {
@@ -943,10 +1042,13 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   ])
   assert.equal('note' in task1.inheritedSegments[0], false, 'inheritedSegments must not clone segment.note')
 
-  // 2) task_start task can search earlier parts via read_own_chat (ctx-arch P1-5)!
+  // 2) task_start task can search earlier parts AND read part summaries via read_own_chat (hydrated from bot.segments)!
   assert.deepEqual(rt.partsOfThread('a', task1.sessionId).map(p => p.sessionId), ['dm-a-p1', 'dm-a-p2', task1.sessionId])
   const found = await tool('read_own_chat', { query: 'ALBATROSS-99' }, task1.sessionId)
   assert.match(found, /ALBATROSS-99/, 'task_start task must find messages from earlier foreground parts via read_own_chat')
+  const part1 = await tool('read_own_chat', { part: 1 }, task1.sessionId)
+  assert.match(part1, /Handoff note 1/, 'read_own_chat({ part: 1 }) inside background task must hydrate segment.note from bot.segments')
+  assert.doesNotMatch(part1, /context overflow/, 'read_own_chat({ part: 1 }) must not fall back to overflow placeholder')
 
   // 3) fallbackContextSummary preserves structured ## Decisions / ## Open work headings with newlines past 1,000 chars!
   const taskPrompt = textOf(agents.get(task1.sessionId).calls[0][1].content)
@@ -955,11 +1057,15 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   assert.match(taskPrompt, /## Open work\n- Finish PR-3 contract verification\./)
   assert.match(taskPrompt, /User: Now run the migration task\./)
 
-  // 4) fallbackContextSummary also preserves compaction/summary [Checkpoint N] summaries.
+  // 4) fallbackContextSummary handles real DSH compaction/summary TextBlock[] and skips paired compact-checkpoint replacement user/message!
   emit('dm-b', 'compaction/summary', {
     compactionId: 'cmp-1',
-    summary: '[Checkpoint 1]\n## Decisions\n- Keep API v2 compatibility intact.',
+    summary: [{ type: 'text', text: '[Checkpoint 1]\n## Decisions\n- Keep API v2 compatibility intact.' }],
     shadowedRange: { start: 1, end: 1 },
+  })
+  emit('dm-b', 'user/message', {
+    content: textBlock('This is an automatically generated checkpoint summarizing earlier conversation.'),
+    source: { kind: 'compact-checkpoint', compactionId: 'cmp-1' },
   })
   emit('dm-b', 'user/message', { content: textBlock('Check v2 tests'), source: { kind: 'user' } })
   await tool('task_start', { title: 'Check v2', brief: 'Run API tests' }, 'dm-b')
@@ -967,6 +1073,8 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }])
   const promptB = textOf(agents.get(taskB.sessionId).calls[0][1].content)
   assert.match(promptB, /\[Checkpoint 1\]\n## Decisions\n- Keep API v2 compatibility intact\./)
+  assert.doesNotMatch(promptB, /\[object Object\]/, 'TextBlock[] compaction/summary must never stringify to [object Object]')
+  assert.doesNotMatch(promptB, /automatically generated checkpoint/, 'paired compact-checkpoint user/message must not leak into transcript lines')
   assert.match(promptB, /User: Check v2 tests/)
 
   // 5) handoffForeground and spawnBotHandoffTask also store lightweight inheritedSegments without note.
@@ -975,4 +1083,199 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   await tool('delegate_work', { to: 'Writer', goal: 'bg work with slim segments' }, 'dm-a')
   const botHandoffTask = rt.botOf('b').tasks.find(item => item.origin === 'bot-handoff')
   assert.deepEqual(botHandoffTask.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }])
+})
+
+test('P1 #3 (real ReactLoopAgent): non-waking agent.inject()/note_bot in inbox.nextStep does NOT deadlock background task settlement or restart reconciliation', async (t) => {
+  const rig = await createRealAgentRig(t, {
+    async *streamHandler(options) {
+      if (options.sessionId === 'dm-a') {
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: 'Noted.' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Noted.' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      // Background task session finishes cleanly.
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: 'Background job finished cleanly.' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Background job finished cleanly.' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  })
+
+  await rig.tool('task_start', { title: 'Audit job', brief: 'Run quick audit' }, 'dm-a')
+  const task = rig.rt.botOf('a').tasks[0]
+  const taskAgent = rig.agents.get(task.sessionId)
+  // Inject a silent note directly into the real ReactLoopAgent while it runs (or right before turn/end),
+  // mirroring note_bot/flushSilentNotes calling agent.inject() -> inbox.nextStep with wake=false.
+  await rig.rt.deliver({
+    fromId: 'b',
+    toId: 'a',
+    sessionId: task.sessionId,
+    text: 'FYI: build server restarted earlier.',
+    role: 'note',
+    wake: false,
+  })
+  await settle(() => task.status === 'completed', 5000, 'task with silent note in inbox.nextStep must settle to completed, never deadlock')
+  assert.equal(task.status, 'completed')
+
+  // Also verify reconcileTasksAfterRestart settles an idle task holding ONLY a non-waking agent.inject() message.
+  const idleTask = {
+    id: 'k_idle_inject',
+    title: 'Stale injected task',
+    brief: 'Interrupted task',
+    from: 'dm-a',
+    sessionId: task.sessionId,
+    segments: [],
+    origin: 'task-start',
+    status: 'running',
+    startedAt: Date.now() - 5000,
+    updatedAt: Date.now() - 5000,
+  }
+  rig.rt.botOf('a').tasks.push(idleTask)
+  rig.rt.taskOwners.set(task.sessionId, { botId: 'a', taskId: idleTask.id })
+  taskAgent.inject(createUserMessage({
+    content: textBlock('[Note from Writer · FYI only, no reply needed]\nQuiet note'),
+    source: { kind: SOURCE_KIND, form: 'relay', role: 'note', silent: true, exchangeId: 'note-restart-1' },
+  }))
+  assert.ok(taskAgent.inbox.nextStep.length >= 1, 'real ReactLoopAgent.inject() must populate inbox.nextStep while idle')
+  assert.equal(taskAgent.status, 'idle', 'real ReactLoopAgent.inject() must not wake idle driver')
+  await rig.rt.reconcileTasksAfterRestart(new Set())
+  assert.equal(idleTask.status, 'interrupted', 'reconcileTasksAfterRestart must not hang on non-waking inbox.nextStep messages')
+})
+
+test('P1 #6: user-started background task (parent === undefined) wakes on abandonWork, reconcileLostWorks, and deleted-target paused work in forgetBot', async (t) => {
+  const { rt, agents, emit, tool } = await startHost(t, {
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+        b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
+        c: { id: 'c', name: 'Reviewer', role: 'QA', sessionId: 'dm-c', createdAt: 3 },
+      },
+    }),
+  })
+
+  // Start a user-initiated background task on Chief (parent === undefined for its delegations).
+  await tool('task_start', { title: 'Release check', brief: 'Coordinate with Writer and Reviewer' }, 'dm-a')
+  const task = rt.botOf('a').tasks[0]
+  const taskAgent = agents.get(task.sessionId)
+  taskAgent.inbox.nextTurn.length = 0
+  taskAgent.inbox.nextStep.length = 0
+
+  // 1) abandonWork wakes user-started background task when parent === undefined.
+  emit(task.sessionId, 'turn/start', { turn: 1 })
+  emit(task.sessionId, 'user/message', { content: textBlock('delegate to Writer'), source: { kind: SOURCE_KIND, role: 'task', taskId: task.id } })
+  await tool('delegate_work', { to: 'Writer', goal: 'check changelog' }, task.sessionId)
+  const [w1] = Object.keys(rt.state.works)
+  assert.equal(rt.state.works[w1].parent, undefined)
+  emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task.status === 'waiting_work', 1000)
+  const callsBeforeAbandon = taskAgent.calls.length
+  assert.equal(rt.abandonWork(w1), true, 'abandonWork must accept top-level work owned by an active task thread')
+  assert.equal(rt.state.works[w1], undefined)
+  await settle(() => taskAgent.calls.length > callsBeforeAbandon, 1000, 'abandonWork must wake waiting background task')
+  assert.equal(taskAgent.calls.at(-1)[1].source.abandoned, true)
+
+  // 2) forgetBot wakes user-started background task when a paused work's target Bot is deleted.
+  rt.openWork('w-del-paused', {
+    from: 'a', to: 'c', fromPart: task.sessionId, goal: 'paused on Reviewer', state: 'paused',
+    paused: { reason: 'idle_loop', kind: 'delegate', text: 'paused on Reviewer', at: Date.now() },
+  })
+  const callsBeforeForget = taskAgent.calls.length
+  await rt.deleteBot('c')
+  assert.equal(rt.state.works['w-del-paused'], undefined)
+  await settle(() => taskAgent.calls.length > callsBeforeForget, 1000, 'forgetBot must wake waiting task when paused work target is deleted')
+
+  // 3) Startup reconcileLostWorks wakes user-started background task when target Bot is gone (both open and paused).
+  const seeded = makeTeam({
+    bots: {
+      a: {
+        id: 'a',
+        name: 'Chief',
+        role: 'Boss',
+        sessionId: 'dm-a',
+        createdAt: 1,
+        tasks: [{
+          id: 'k_wait1',
+          title: 'Release check',
+          brief: 'Waiting on deleted teammate',
+          from: 'dm-a',
+          sessionId: 'task-wait-1',
+          segments: [],
+          origin: 'task-start',
+          status: 'waiting_work',
+          startedAt: 10,
+          updatedAt: 10,
+        }],
+      },
+    },
+    works: {
+      'w-lost-open': { from: 'a', to: 'ghost-bot', fromPart: 'task-wait-1', open: [], results: [], at: 10 },
+      'w-lost-paused': {
+        from: 'a', to: 'ghost-bot', fromPart: 'task-wait-1', state: 'paused', open: [], results: [], at: 11,
+        paused: { reason: 'idle_loop', kind: 'delegate', text: 'lost paused', at: 11 },
+      },
+    },
+  })
+  const restarted = await startHost(t, { team: seeded })
+  await settle(
+    () => restarted.rt.state.works['w-lost-open'] === undefined
+      && restarted.rt.state.works['w-lost-paused'] === undefined
+      && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 2,
+    2000,
+    'startup reconcileLostWorks must abandon both open and paused works for deleted targets and wake waiting task',
+  )
+  assert.equal(restarted.agents.get('task-wait-1').calls.filter(([, m]) => m.source?.abandoned === true).length, 2)
+})
+
+test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-handoff task preserves work and waits without premature close', async (t) => {
+  const { rt, agents, emit, tool } = await startHost(t)
+
+  // Writer foreground is busy running a tool -> Chief delegation spawns a bot-handoff task.
+  emit('dm-b', 'turn/start', { turn: 1 })
+  emit('dm-b', 'tool/call', { callId: 'fg-1', name: 'bash', arguments: '{}' })
+  await tool('delegate_work', { to: 'Writer', goal: 'deploy artifact' }, 'dm-a')
+  const task = rt.botOf('b').tasks.find(item => item.origin === 'bot-handoff')
+  const taskAgent = agents.get(task.sessionId)
+  const reqMsg = taskAgent.calls[0][1]
+  const workId = reqMsg.source.exchangeId
+  taskAgent.inbox.nextTurn.length = 0
+  taskAgent.inbox.nextStep.length = 0
+
+  // Turn 1 starts on the bot-handoff task and calls ask_back.
+  emit(task.sessionId, 'turn/start', { turn: 1 })
+  emit(task.sessionId, 'user/message', { content: reqMsg.content, source: reqMsg.source })
+  await tool('ask_back', { question: 'Which region?' }, task.sessionId)
+  const askMsg = agents.get('dm-a').calls.at(-1)[1]
+
+  // Chief immediately answers BEFORE Writer's Turn 1 ends (state transitions back to 'open' while Turn 1 is still ending!).
+  emit('dm-a', 'turn/start', { turn: 1 })
+  emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
+  await tool('answer_work', { answer: 'us-west-2' }, 'dm-a')
+  assert.equal(rt.workStateOf(workId), 'open', 'work state flipped back to open before Turn 1 ended')
+  const answerMsg = taskAgent.calls.at(-1)[1]
+  // Simulate the answer sitting unread until Turn 2 (remove from inbox momentarily to isolate the lastAskedBackWork guard!).
+  taskAgent.inbox.nextStep.length = 0
+  taskAgent.inbox.nextTurn.length = 0
+  rt.forgetDelivery?.(answerMsg.source.exchangeId)
+
+  // Turn 1 ends BEFORE Turn 2 claims the answer!
+  const chiefCallsBeforeEnd = agents.get('dm-a').calls.length
+  emit(task.sessionId, 'assistant/message', { message: { role: 'assistant', content: textBlock('Asking Chief now.') } })
+  emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await realDelay(30)
+
+  // turns.js:askedBackWork prevented premature finish(), and bot-tasks.js:lastAskedBackWork kept task in waiting_work!
+  assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd, 'Turn 1 end must NOT prematurely close work to Chief')
+  assert.ok(rt.state.works[workId], 'work must remain open across Turn 1 -> Turn 2 boundary')
+  assert.equal(task.status, 'waiting_work', 'bot-handoff task must transition to waiting_work, NOT completed')
+
+  // Turn 2 consumes Chief's answer and finishes cleanly -> closes work and settles task!
+  emit(task.sessionId, 'turn/start', { turn: 2 })
+  emit(task.sessionId, 'user/message', { content: answerMsg.content, source: answerMsg.source })
+  emit(task.sessionId, 'assistant/message', { message: { role: 'assistant', content: textBlock('Deployed to us-west-2.') } })
+  emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.state.works[workId] === undefined && task.status === 'completed', 2000)
+  assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd + 1)
+  assert.match(textOf(agents.get('dm-a').calls.at(-1)[1].content), /Deployed to us-west-2\./)
 })

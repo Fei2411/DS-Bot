@@ -329,6 +329,10 @@ export function install(rt) {
     let workRef = existingWork?.work?.ref
     const prevState = existingWork?.work?.state
     const prevPaused = existingWork?.work?.paused
+    const prevUnread = joins ? (rt.unreadOf?.(chat) ?? []).find(item => item?.exchangeId === exchangeId) : undefined
+    const joinedWork = joins && !toUser ? rt.resolveWork?.(exchangeId)?.work : undefined
+    const prevImOrigin = joinedWork?.imOrigin
+    const prevImOriginMixed = joinedWork?.imOriginMixed
     if (joins) {
       rt.forgetDelivery?.(exchangeId)
       if (!toUser) rt.mergeWorkImOrigin?.(exchangeId, imOrigin)
@@ -357,7 +361,28 @@ export function install(rt) {
         ...(toUser ? { audience: 'user' } : {}),
       })
     } catch (error) {
-      if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
+      if (error?.delivered === false) {
+        rt.forgetDelivery?.(exchangeId)
+        if (joins) {
+          // Restore the original unread message and delivery tracking so a failed merge
+          // never strands the already-open work in state.works.
+          const restoreTarget = earlier.steered ? 'next-step' : 'next-turn'
+          try {
+            if (typeof agent.send === 'function') agent.send(earlier.message, restoreTarget, true)
+            else if (earlier.steered) agent.steer?.(earlier.message)
+            else agent.followup?.(earlier.message)
+            await ctx.sessions.flush(agent.session).catch(() => {})
+          } catch {}
+          if (prevUnread !== undefined) rt.restoreDelivery?.(chat, prevUnread)
+          if (joinedWork !== undefined) {
+            if (prevImOrigin !== undefined) joinedWork.imOrigin = prevImOrigin
+            else delete joinedWork.imOrigin
+            if (prevImOriginMixed === true) joinedWork.imOriginMixed = true
+            else delete joinedWork.imOriginMixed
+            void rt.save().catch(() => {})
+          }
+        }
+      }
       if (existingWork !== undefined && !toUser) {
         if (error?.delivered !== true) {
           existingWork.work.state = prevState
@@ -977,7 +1002,7 @@ export function install(rt) {
         }
       }
       for (const snapshot of cancelledSnapshots) {
-        await rt.notifyParentCancelled?.(snapshot, { reason: why, by: sender.id, byLabel: sender.name })
+        await rt.notifyParentCancelled?.(snapshot, { reason: why, by: sender.id, bySession: exec.agent?.id, byLabel: sender.name })
       }
       if (places.length === 0 && openWorks.length > 0) places.push(`${openWorks.length} open work${openWorks.length === 1 ? '' : 's'}`)
       await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', wake: false, afterCancel: nonTaskRunning.length > 0 || activeTasks.length > 0, ...callerRoom(exec) })
