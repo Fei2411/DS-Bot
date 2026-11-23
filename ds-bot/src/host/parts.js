@@ -2021,7 +2021,7 @@ export function install(rt) {
           // A turn that started after the last end is still open: nothing to deliver.
           if (lastStart !== undefined && lastStart.data?.turn > lastEnd.data?.turn) return undefined
           const kind = lastEnd.data?.reason?.kind
-          if (kind !== undefined && kind !== 'stop') return undefined
+          if (kind !== undefined && kind !== 'completed') return undefined
           if (!Number.isInteger(lastEnd.data?.turn)) return undefined
           ended = lastEnd.data.turn
         }
