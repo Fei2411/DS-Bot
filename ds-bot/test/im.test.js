@@ -4861,6 +4861,21 @@ test('group IM dispatch return blocks live late Web work, keeps multi-user IM gr
   s.rt.logRoom(room, { who: 'Chief', botId: 'a', text: '不该泄露的桌面任务汇报' })
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'non-IM group task-report opening a turn must not be hijacked by a same-turn IM return')
+
+  // 7) Non-IM dispatchReturn opening a turn on member 'a' in an idle IM-bound group must keep roomWebRounds
+  //    set while 'a' runs, so sibling 'b' receiving a historical g1 return cannot re-arm g1 and leak 'a'!
+  s.rt.clearImOrigin(roomSid)
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 7 })
+  s.emitEvent('grp-r1-a', 'user/message', { source: { kind: 'bot', form: 'relay', role: 'report', replyTo: 'rep-non-im-only', roomId: 'r2' }, content: [{ type: 'text', text: '桌面群派单汇报' }] })
+  // While 'a' is STILL running its non-IM dispatchReturn turn, sibling 'b' receives a historical g1 return.
+  s.emitEvent('grp-r1-b', 'turn/start', { turn: 2 })
+  s.emitEvent('grp-r1-b', 'user/message', { source: { kind: 'bot', form: 'relay', role: 'report', replyTo: 'rep-grp-after-web', roomId: 'r2' }, content: [{ type: 'text', text: '旧 g1 派单汇报' }] })
+  s.emitEvent('grp-r1-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  s.rt.logRoom(room, { who: 'Chief', botId: 'a', text: '桌面非 IM 派单的私密回复' })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 7, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'sibling IM dispatch return must not re-arm g1 while another member runs a non-IM dispatch return turn')
 })
 
 test('same-IM report_back: false before report_back: true stays untainted, and failed postToRoom never taints existing IM reports (#1836, #1894)', async (t) => {
@@ -5006,6 +5021,81 @@ test('concurrent flush failure preserves sibling taint, and claimed idle followu
   assert.match(postClaimed, /Could not post/)
   const claimedReportId = roomAgent.lastFollowup.source.reportId
   assert.ok(s.rt.state.roomReports[claimedReportId] !== undefined, 'synchronously claimed post whose flush failed must keep its roomReport')
+})
+
+test('withdrawing a failed postToRoom via synchronous DSH inbox.remove suppresses bogus stopped report and restores sibling IM origin (#1836, #1894)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+  const room = s.rt.roomOf('r1')
+  const roomAgent = s.agentOf('r1')
+  let inboxSeq = 0
+  const origFollowup = roomAgent.followup.bind(roomAgent)
+  // Real DSH ReactLoopInbox.remove synchronously emits agent/inbox/discarded.
+  roomAgent.inbox = {
+    nextStep: [],
+    nextTurn: [],
+    remove(id) {
+      for (const lane of [this.nextStep, this.nextTurn]) {
+        const idx = lane.findIndex(item => item.id === id)
+        if (idx !== -1) {
+          const [removed] = lane.splice(idx, 1)
+          for (const listener of s.ctx.listeners.get('agent/inbox/discarded') ?? []) {
+            listener({ agent: roomAgent, message: removed })
+          }
+          return true
+        }
+      }
+      return false
+    },
+  }
+  roomAgent.followup = (message) => {
+    origFollowup(message)
+    roomAgent.inbox.nextTurn.push({ ...message, id: `rm-${++inboxSeq}` })
+  }
+  const chiefFollowups = []
+  const chiefAgent = s.agentOf('a')
+  const origChiefFollowup = chiefAgent.followup.bind(chiefAgent)
+  chiefAgent.followup = (message) => {
+    chiefFollowups.push(message)
+    origChiefFollowup(message)
+  }
+
+  // Register an untainted tracking IM report R2 whose work has logged its reply and awaits settlement.
+  await dm(s, 'u1', '派单二给 Ops')
+  const req = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req }, content: [{ type: 'text', text: '派单二给 Ops' }] })
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 任务二' }, 'a')
+  const r2Msg = roomAgent.lastFollowup
+  const r2Id = r2Msg.source.reportId
+  s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  roomAgent.inbox.nextTurn.length = 0
+  s.rt.roomRelayTaken('r1', r2Msg.source.exchangeId)
+  s.rt.state.roomReports[r2Id].status = 'tracking'
+  s.rt.state.roomReports[r2Id].fromSeq = room.seq + 1
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '任务二已完成。' })
+
+  // A Web post_to_group (report_back: true) fails when flushing the room session -> withdraws via
+  // inbox.remove (synchronously firing agent/inbox/discarded). R2 must settle cleanly with its
+  // restored dm-u1 origin, and no bogus "stopped before your post started" report may be sent!
+  const origFlush = s.ctx.sessions.flush
+  s.ctx.sessions.flush = async (session) => {
+    if (session?.id === 'r1') throw new Error('disk full on room session')
+    return origFlush(session)
+  }
+  const failedWebWithReport = await tool('post_to_group', { group: 'Ops', message: '@Writer 失败的 Web 回报帖', report_back: true }, 'a')
+  s.ctx.sessions.flush = origFlush
+  assert.match(failedWebWithReport, /Could not post/)
+  await waitFor(() => chiefFollowups.length >= 1)
+  await s.flush()
+  assert.equal(chiefFollowups.length, 1, 'withdrawn failed post must not deliver a bogus stopped report alongside R2')
+  const r2Report = chiefFollowups[0]
+  assert.match(r2Report.content[0].text, /Writer: 任务二已完成。/)
+  assert.doesNotMatch(r2Report.content[0].text, /stopped before your post started/)
+  assert.equal(s.rt.imReplyOrigin(r2Report.source.replyTo)?.chatKey, 'dm-u1', 'sibling IM report must restore clean imOrigin before settling')
+  assert.equal(s.rt.imReplyOrigin(r2Report.source.replyTo)?.mixed, undefined)
 })
 
 test('external post_to_group never leaks into an IM-bound group (idle reset, cross-chat active round, and late work isolation) (#1836, #1894)', async (t) => {

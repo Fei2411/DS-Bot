@@ -1088,6 +1088,7 @@ export function install(rt) {
     activeInRoom,
     runningRound: roomId => runningRound(roomId),
     isFinalizing: roomId => finalizing.has(roomId),
+    isDisposed: () => disposed,
     laterPostsOf: roomId => laterPosts.get(roomId) ?? [],
     bookOf,
     ensureRoomLog,
@@ -1101,6 +1102,7 @@ export function install(rt) {
     isBotPendingPost,
     noteRoomRelayQueued,
     roomRelayTaken,
+    withWithdrawingRelay,
     enterLate,
     leaveLate,
     dropRoomReport,
@@ -2252,18 +2254,23 @@ export function install(rt) {
       // claimed the message before flush failed, fail closed so taint and tracking stay intact.
       let withdrawn = !enqueued
       if (!withdrawn && typeof agent.inbox?.remove === 'function') {
-        for (const lane of [agent.inbox.nextStep, agent.inbox.nextTurn]) {
-          for (const item of Array.from(lane ?? [])) {
-            if (item?.source?.exchangeId === exchangeId && agent.inbox.remove(item.id) === true) {
-              withdrawn = true
+        withWithdrawingRelay(exchangeId, () => {
+          for (const lane of [agent.inbox.nextStep, agent.inbox.nextTurn]) {
+            for (const item of Array.from(lane ?? [])) {
+              if (item?.source?.exchangeId === exchangeId && agent.inbox.remove(item.id) === true) {
+                withdrawn = true
+              }
             }
           }
-        }
+        })
       }
       if (withdrawn) {
         if (tracksRelay) roomRelayTaken(room.id, exchangeId)
         if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
         if (snapshot !== undefined) restoreOriginState(room.id, snapshot, originUpdate.version)
+        if (tracksRelay || postExtra.reportId !== undefined || snapshot !== undefined) {
+          void settleRoomReports(room.id).catch(err => rt.warn('ds-bot: settling reports after withdrawn post failed: %s', err))
+        }
       } else if (error && typeof error === 'object') {
         error.delivered = true
       }

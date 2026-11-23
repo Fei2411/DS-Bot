@@ -711,7 +711,10 @@ export function install(rt) {
     const roomSid = rt.sessionOfRoom(room)
     const live = origins.get(roomSid)
     if (live !== undefined) {
-      if (!sameImChat(live, incomingOrigin)) dropOrigin(roomSid)
+      if (!sameImChat(live, incomingOrigin)) {
+        dropOrigin(roomSid)
+        roomWebRounds.add(room.id)
+      }
     } else {
       roomWebRounds.add(room.id)
     }
@@ -2071,11 +2074,11 @@ export function install(rt) {
           dropOrigin(roomSid)
         }
       } else {
-        if (!origins.has(roomSid)) {
-          nonImTurn.add(sessionId)
-          roomWebRounds.add(room.id)
-        }
-        if (saved !== undefined || origins.has(roomSid) || (dropWhenUnsaved && hasActiveWebWork(room, sessionId))) {
+        const hadOrigin = origins.has(roomSid)
+        const hadActiveWeb = dropWhenUnsaved && hasActiveWebWork(room, sessionId)
+        if (!hadOrigin) nonImTurn.add(sessionId)
+        roomWebRounds.add(room.id)
+        if (saved !== undefined || hadOrigin || hadActiveWeb) {
           dropOrigin(roomSid)
         }
       }
@@ -2220,7 +2223,12 @@ export function install(rt) {
               const memberRoomSid = memberRoom === undefined ? undefined : rt.sessionOfRoom(memberRoom)
               const imGroupCall = source?.kind === SOURCE_KIND && source.role === 'room'
                 && memberRoomSid !== undefined && origins.has(memberRoomSid) && !mixed.has(memberRoomSid)
-              if (!imGroupCall) nonImTurn.add(session.id)
+              if (!imGroupCall) {
+                nonImTurn.add(session.id)
+                if (memberRoom !== undefined && (memberRoomSid === undefined || !origins.has(memberRoomSid))) {
+                  roomWebRounds.add(memberRoom.id)
+                }
+              }
             } else if (!origins.has(session.id)) {
               nonImTurn.add(session.id)
             }

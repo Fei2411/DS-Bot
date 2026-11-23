@@ -19,6 +19,7 @@ export function createRoomReports(rt, deps) {
     activeInRoom,
     runningRound,
     isFinalizing,
+    isDisposed = () => false,
     laterPostsOf,
     bookOf,
     ensureRoomLog,
@@ -38,15 +39,29 @@ export function createRoomReports(rt, deps) {
   // so same-IM `report_back: false` posts followed by `report_back: true` stay untainted
   // while mixed Web/IM or cross-chat posts taint cleanly.
   const roomOrigins = new Map()
-  // Monotonic per-room mutation counter so a failed flush never rolls back concurrent taint.
+  // Monotonic mutation counter so a failed flush never rolls back concurrent taint,
+  // and deleting a room cleans up originVersions without ever reusing an old version.
   const originVersions = new Map()
+  let nextOriginVersion = 0
   const bumpOriginVersion = (roomId) => {
-    const next = (originVersions.get(roomId) ?? 0) + 1
+    const next = ++nextOriginVersion
     originVersions.set(roomId, next)
     return next
   }
   // Guards against scheduling duplicate idle re-checks during a DSH preStep startup window.
   const pendingStartupRechecks = new Set()
+  // Relays that postToRoom is synchronously withdrawing after a failed flush: suppress
+  // agent/inbox/discarded so it never settles the failed report as "stopped" or settles
+  // a sibling report before postToRoom rolls back its origin taint.
+  const withdrawingRelays = new Set()
+  const withWithdrawingRelay = (exchangeId, fn) => {
+    if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.add(exchangeId)
+    try {
+      return fn()
+    } finally {
+      if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.delete(exchangeId)
+    }
+  }
   // Bounded set of exchangeId / reportId values cancelled by stopRoomWork so even a
   // relay already claimed out of the room Session inbox cannot resurrect a stopped report.
   const stoppedRelays = new Set()
@@ -405,12 +420,16 @@ export function createRoomReports(rt, deps) {
     if (changed) saveSoon()
   }
 
+  const matchesReportPost = (post, report) => post !== undefined
+    && (post.reportId === report.id || (report.sub !== undefined && post.sub === report.sub))
+
   const isReportBusy = (room, report, { startup = false } = {}) => {
     if (report.status !== 'tracking') {
       if (!startup) return true
       if (hasQueuedRelayForReport(room.id, report)) return true
-      const inRoomInbox = (rt.roomInbox.get(room.id) ?? []).some(post => post?.reportId === report.id || (report.sub !== undefined && post?.sub === report.sub))
-      if (inRoomInbox || runningRound(room.id)?.starting === true) return true
+      const inRoomQueue = (rt.roomInbox.get(room.id) ?? []).some(post => matchesReportPost(post, report))
+        || laterPostsOf(room.id).some(post => matchesReportPost(post, report))
+      if (inRoomQueue || runningRound(room.id)?.starting === true) return true
       return false
     }
     if (hasRoomPendingWork(room)) return true
@@ -443,7 +462,16 @@ export function createRoomReports(rt, deps) {
       && (src.reportId === report.id || (report.sub !== undefined && src.sub === report.sub))
     const lanes = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
     const queuedMsg = lanes.find(msg => matchesReport(msg?.source))
-    if (queuedMsg !== undefined) return { alive: true, exchangeId: queuedMsg.source.exchangeId }
+    if (queuedMsg !== undefined) {
+      // Register synchronously while the entry is confirmed in agent.inbox so if the room
+      // consumes it during a later await (e.g. resolving another room's agent), roomRelayTaken
+      // removes it cleanly instead of a deferred insert stranding the room.
+      if (typeof queuedMsg.source.exchangeId === 'string' && queuedMsg.source.exchangeId !== '') {
+        noteRoomRelayQueued(room.id, queuedMsg.source.exchangeId, report.id)
+        return { alive: true }
+      }
+      return { alive: true, recheckAgent: agent }
+    }
     if (agent.status !== 'running') return { alive: false }
     const snapshot = agent.session?.snapshotEvents?.()
     if (!Array.isArray(snapshot)) return { alive: true, recheckAgent: agent }
@@ -459,12 +487,13 @@ export function createRoomReports(rt, deps) {
   }
 
   const scheduleStartupRecheck = (roomId, agent) => {
-    if (pendingStartupRechecks.has(roomId) || typeof agent?.whenIdle !== 'function') return
+    if (isDisposed() || pendingStartupRechecks.has(roomId) || typeof agent?.whenIdle !== 'function') return
     pendingStartupRechecks.add(roomId)
     void Promise.resolve(agent.whenIdle())
       .catch(() => {})
       .finally(() => {
         pendingStartupRechecks.delete(roomId)
+        if (isDisposed()) return
         void settleRoomReports(roomId, { startup: true }).catch(error => rt.warn('ds-bot: startup recheck in %s failed: %s', roomId, error))
       })
   }
@@ -501,7 +530,6 @@ export function createRoomReports(rt, deps) {
     const ready = []
     let pruned = false
     const roomAgentCache = startup ? new Map() : undefined
-    const recoveredRelays = []
     const rechecks = new Map()
     const touchedRoomIds = new Set()
     if (roomId !== undefined) touchedRoomIds.add(roomId)
@@ -524,7 +552,6 @@ export function createRoomReports(rt, deps) {
       if (startup && report.status !== 'tracking') {
         const live = await inspectLiveQueuedRelay(room, report, roomAgentCache)
         if (live.alive) {
-          if (live.exchangeId !== undefined) recoveredRelays.push({ roomId: room.id, exchangeId: live.exchangeId, reportId: report.id })
           if (live.recheckAgent !== undefined) rechecks.set(room.id, live.recheckAgent)
           continue
         }
@@ -537,7 +564,6 @@ export function createRoomReports(rt, deps) {
       pruned = true
       ready.push({ room, report: current, deleted: false, neverStarted })
     }
-    for (const item of recoveredRelays) noteRoomRelayQueued(item.roomId, item.exchangeId, item.reportId)
     for (const [recheckRoomId, agent] of rechecks) scheduleStartupRecheck(recheckRoomId, agent)
     if (pruned) saveSoon()
     for (const id of touchedRoomIds) clearRoomOriginIfIdle(rt.roomOf(id))
@@ -548,7 +574,7 @@ export function createRoomReports(rt, deps) {
     queuedRelays.delete(room.id)
     inFlightLate.delete(room.id)
     roomOrigins.delete(room.id)
-    bumpOriginVersion(room.id)
+    originVersions.delete(room.id)
     rt.clearRoomWebRound?.(room.id)
     const dropped = []
     for (const [id, report] of Object.entries(reports())) {
@@ -600,6 +626,7 @@ export function createRoomReports(rt, deps) {
 
   function roomRelayDiscarded(source, sessionId) {
     if (typeof source?.roomId !== 'string') return
+    if (typeof source.exchangeId === 'string' && withdrawingRelays.has(source.exchangeId)) return
     const room = rt.roomOf(source.roomId)
     // Ignore removals from an earlier part or while the group's own Session is moving parts.
     if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
@@ -738,6 +765,7 @@ export function createRoomReports(rt, deps) {
     noteRoomRelayQueued,
     roomRelayTaken,
     roomRelayDiscarded,
+    withWithdrawingRelay,
     enterLate,
     leaveLate,
     dropRoomReport,
