@@ -21,18 +21,13 @@ test('a plugin provider that shares its name with a local CLI keeps its model', 
   }
 })
 
-test('a Bot that ran on the Qoder CLI still follows the route it moved to', () => {
-  const state = team('qoder/qmodel_latest', { s1: { route: 'qoder' } })
+test('a plugin default named like the Qoder CLI keeps its model', () => {
+  // The Qoder CLI shipped as `local-qoder`, so no bare `qoder` ref was ever the CLI.
+  const state = team('qoder/default', { s1: { route: 'qoder' } })
   state.bots.b1.sessionId = 's1'
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-qoder/qmodel_latest')
-  assert.equal(state.bots.b1.appliedModel, undefined)
-})
-
-test('the CLI default moves even without a Session of its own', () => {
-  const state = team('qoder/default')
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-qoder/default')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'qoder/default')
+  assert.equal(state.bots.b1.appliedModel, 'qoder/default')
 })
 
 test('a plugin provider that shares the Antigravity CLI name keeps its model', () => {
@@ -47,18 +42,14 @@ test('a plugin provider that shares the Antigravity CLI name keeps its model', (
   }
 })
 
-test('a Bot that ran on the Antigravity CLI still follows the route it moved to', () => {
-  const state = team('antigravity/gemini-4-neon', { s1: { route: 'antigravity' } })
+test('a plugin default named like the Antigravity CLI keeps its model', () => {
+  // The Antigravity CLI shipped as `local-antigravity`, so no bare `antigravity`
+  // ref was ever the CLI.
+  const state = team('antigravity/default', { s1: { route: 'antigravity' } })
   state.bots.b1.sessionId = 's1'
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-antigravity/gemini-4-neon')
-  assert.equal(state.bots.b1.appliedModel, undefined)
-})
-
-test('the Antigravity CLI default moves even without a Session of its own', () => {
-  const state = team('antigravity/default')
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-antigravity/default')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'antigravity/default')
+  assert.equal(state.bots.b1.appliedModel, 'antigravity/default')
 })
 
 test('a route already on local-antigravity is left alone', () => {
