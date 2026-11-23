@@ -78,6 +78,10 @@ function positiveInt(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 }
 
+function nonNegativeInt(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+}
+
 /**
  * Pairs a phone's control socket with its computer's and forwards their frames.
  * It checks who may send what, in which order, but it cannot read the messages:
@@ -100,7 +104,7 @@ export class Gateway {
 
   constructor(options: GatewayOptions) {
     this.options = options
-    this.allowedPushHosts = Array.isArray(options.allowedPushHosts) && options.allowedPushHosts.length > 0
+    this.allowedPushHosts = Array.isArray(options.allowedPushHosts)
       ? new Set(options.allowedPushHosts)
       : undefined
     this.heartbeat = setInterval(() => this.beat(), HEARTBEAT_MS)
@@ -388,7 +392,7 @@ export class Gateway {
       reply({ ok: false, code: 'UNSUPPORTED' })
       return
     }
-    const maxPerHost = positiveInt(this.options.maxPushesPerHour, DEFAULT_MAX_PUSHES_PER_HOUR)
+    const maxPerHost = nonNegativeInt(this.options.maxPushesPerHour, DEFAULT_MAX_PUSHES_PER_HOUR)
     const maxInFlight = positiveInt(this.options.maxInFlightPushesPerHost, DEFAULT_MAX_INFLIGHT_PUSHES)
     const active = this.inFlightPushes.get(peer.id) ?? 0
     if (active >= maxInFlight) {

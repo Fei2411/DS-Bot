@@ -352,3 +352,51 @@ test('createFcmForwarder exchanges signed JWT, refreshes on 401, and distinguish
   assert.deepEqual(gone, { ok: false, gone: true, code: 'UNREGISTERED' })
   assert.equal(authCalls, 2)
 })
+
+test('Relay Server treats empty allowedPushHosts and zero maxPushesPerHour as closed', async () => {
+  const hostKeys = generateKeyPair()
+  const hostId = deviceIdFor(hostKeys.publicKey)
+  const phoneKeys = generateKeyPair()
+  const phoneId = deviceIdFor(phoneKeys.publicKey)
+  const envelope = sealPushEnvelope(hostKeys.privateKey, hostKeys.publicKey, phoneKeys.publicKey, {
+    notice: { seq: 1, kind: 'approval', botId: 'b1', name: 'Chief', text: 'Run', time: 1 },
+  })
+
+  const emptyAllowRelay = await startRelayServer({
+    allowedPushHosts: [],
+    pushForwarder: async () => ({ ok: true }),
+  })
+  const zeroQuotaRelay = await startRelayServer({
+    maxPushesPerHour: 0,
+    pushForwarder: async () => ({ ok: true }),
+  })
+  const hostA = new HostLink({
+    url: emptyAllowRelay.url,
+    identity: { deviceId: hostId, ...hostKeys },
+    accessToken: randomToken(),
+    admits: () => false,
+    authorize: () => false,
+    handle: async () => null,
+  })
+  const hostB = new HostLink({
+    url: zeroQuotaRelay.url,
+    identity: { deviceId: hostId, ...hostKeys },
+    accessToken: randomToken(),
+    admits: () => false,
+    authorize: () => false,
+    handle: async () => null,
+  })
+  try {
+    hostA.start()
+    hostB.start()
+    await Promise.all([hostA.waitOnline(), hostB.waitOnline()])
+    assert.equal(hostA.capabilities().includes('push.fcm'), false)
+    assert.deepEqual(await hostA.sendPush({ targetDeviceId: phoneId, kind: 'fcm', token: 't', urgency: 'high', envelope }), { ok: false, code: 'UNSUPPORTED' })
+    assert.deepEqual(await hostB.sendPush({ targetDeviceId: phoneId, kind: 'fcm', token: 't', urgency: 'high', envelope }), { ok: false, code: 'RATE_LIMITED' })
+  } finally {
+    await hostA.stop()
+    await hostB.stop()
+    await emptyAllowRelay.close()
+    await zeroQuotaRelay.close()
+  }
+})

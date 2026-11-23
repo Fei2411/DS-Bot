@@ -216,7 +216,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         // this app. The team read goes out with it, not after it: each is a round
         // trip through the relay.
         void poll()
-        const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
+        const [helloResult, persisted] = await Promise.all([
+          callBot<Hello>(client, 'hello', {}).catch(() => null),
+          hooksRef.current?.loadCursor?.().catch(() => null) ?? Promise.resolve(null),
+        ])
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
           if (activeClient === client) activeClient = undefined
@@ -234,10 +237,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         setOnline(true)
         setError(null)
         hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client, endpoint, payload))
-        // Seed memory cursor from persisted cursor on first connect so notices already
-        // delivered via offline push or periodic sync are not replayed as duplicates.
-        const persisted = await hooksRef.current?.loadCursor?.().catch(() => null)
-        if (stopped || clientRef.current !== client) return
+        // Seed memory cursor from persisted cursor so notices already delivered via offline
+        // push or periodic sync are not replayed as duplicates.
         if (persisted !== null && persisted !== undefined) {
           noticeCursor.connect(persisted)
         }
@@ -266,7 +267,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
           const typed = answer as NoticeCursorAnswer
           const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
           const nextBoot = typeof typed.boot === 'string' && typed.boot.length > 0 ? typed.boot : helloResult.boot
-          const nextSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
+          let maxSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
           const toEmit = reset && persisted !== null && persisted !== undefined && Array.isArray(typed.notices)
             ? typed.notices
             : replay
@@ -274,20 +275,23 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
           for (const entry of toEmit) {
             for (const handler of feedHandlers.current) handler('notice', entry)
           }
-          catchingUp = false
-          for (const entry of bufferedLiveNotices) {
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift() as { seq?: unknown }
             if (!noticeCursor.acceptLive(nextBoot, entry)) continue
+            if (typeof entry?.seq === 'number' && entry.seq > maxSeq) maxSeq = entry.seq
             for (const handler of feedHandlers.current) handler('notice', entry)
           }
+          catchingUp = false
           if (AppState.currentState === 'active' || persisted === null || persisted === undefined) {
-            hooksRef.current?.onCursor?.(nextBoot, nextSeq)
+            hooksRef.current?.onCursor?.(nextBoot, maxSeq)
           }
         }).catch(() => {
-          catchingUp = false
-          for (const entry of bufferedLiveNotices) {
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift()
             if (!noticeCursor.acceptLive(helloResult.boot, entry)) continue
             for (const handler of feedHandlers.current) handler('notice', entry)
           }
+          catchingUp = false
         })
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return

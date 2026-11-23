@@ -162,9 +162,10 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
     // Always restore any persisted update result (including already-downloaded APK) on cold start.
     if (snapshot !== null && state.phase === 'idle') {
       await hydrateFromSnapshot(snapshot)
-    } else if (snapshot === null) {
-      // Clear any leftover APK from an older version immediately after an upgrade.
+    } else if (prefs.updateCacheVersion && prefs.updateCacheVersion !== state.currentVersion) {
+      // Clear leftover APK immediately after upgrading to a newer installed version.
       void cleanupUpdateCache(null)
+      void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
     }
     if (prefs.autoUpdate === 'off') return
     if (snapshot !== null && now - snapshot.checkedAt < AUTO_CHECK_INTERVAL_MS) return
@@ -187,10 +188,12 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
       emit({ phase: state.release !== null ? (state.cached !== null ? 'ready' : 'available') : 'up-to-date', checkedAt })
       return
     }
-    if (result.etag) lastEtag = result.etag
+    // Only preserve ETag when the response actually supplied one (custom mirror responses carry no GitHub ETag).
+    lastEtag = result.etag
 
     if (result.status === 'up-to-date') {
       void cleanupUpdateCache(null)
+      void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
       persistSnapshot({ appVersion: state.currentVersion, mirror: customMirror, checkedAt, status: 'up-to-date', release: null, etag: lastEtag })
       emit({ phase: 'up-to-date', release: null, cached: null, checkedAt, error: null })
       return
@@ -198,6 +201,7 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
 
     const canInstall = await canInstallPackages().catch(() => false)
     const cached = await getCachedApk(result.release.apkName, result.release.sha256).catch(() => null)
+    void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
     persistSnapshot({ appVersion: state.currentVersion, mirror: customMirror, checkedAt, status: 'available', release: result.release, etag: lastEtag })
     emit({
       phase: cached !== null ? 'ready' : 'available',

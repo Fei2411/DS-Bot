@@ -89,9 +89,16 @@ async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbac
       },
     }, (res) => {
       const status = res.statusCode ?? 0
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        resolve({ status })
+      }
       res.resume()
-      res.once('end', () => resolve({ status }))
-      res.once('error', () => resolve({ status }))
+      res.once('end', done)
+      res.once('close', done)
+      res.once('error', done)
     })
     const onAbort = () => { req.destroy(new Error('Push aborted')) }
     combined.addEventListener('abort', onAbort, { once: true })

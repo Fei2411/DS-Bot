@@ -21,7 +21,15 @@ import {
 import { recordNoticeSeen } from './notice-cursor-store.ts'
 
 const onlineHosts = new Set<string>()
-let hostPushSynced: 'unknown' | 'synced' | 'failed' = 'unknown'
+const hostPushStates = new Map<string, 'unknown' | 'synced' | 'failed'>()
+const pushSyncListeners = new Set<() => void>()
+
+function setHostPushSyncState(hostId: string, state: 'unknown' | 'synced' | 'failed'): void {
+  if (!hostId) return
+  if (hostPushStates.get(hostId) === state) return
+  hostPushStates.set(hostId, state)
+  pushSyncListeners.forEach(fn => fn())
+}
 
 export function setForegroundLinkOnline(hostId: string, online: boolean): void {
   if (!hostId) return
@@ -33,8 +41,14 @@ export function isForegroundLinkOnline(): boolean {
   return onlineHosts.size > 0
 }
 
-export function getHostPushSyncState(): 'unknown' | 'synced' | 'failed' {
-  return hostPushSynced
+export function getHostPushSyncState(hostId?: string): 'unknown' | 'synced' | 'failed' {
+  if (!hostId) return 'unknown'
+  return hostPushStates.get(hostId) ?? 'unknown'
+}
+
+export function subscribeHostPushSyncState(listener: () => void): () => void {
+  pushSyncListeners.add(listener)
+  return () => { pushSyncListeners.delete(listener) }
 }
 
 export async function deliverSystemNotice(
@@ -110,7 +124,29 @@ export async function syncBackgroundConnectionSubtitle(online: boolean, computer
   await updateBackgroundStatusText(text)
 }
 
+export async function registerHostPushEndpoint(
+  hostId: string,
+  call: (endpoint: string, payload?: unknown) => Promise<unknown>,
+  endpoint: string,
+): Promise<void> {
+  try {
+    await call('push-register', { kind: 'unifiedpush', endpoint })
+    setHostPushSyncState(hostId, 'synced')
+  } catch {
+    setHostPushSyncState(hostId, 'failed')
+  }
+}
+
+export async function unregisterHostPushEndpoint(
+  hostId: string,
+  call: (endpoint: string, payload?: unknown) => Promise<unknown>,
+): Promise<void> {
+  await call('push-unregister', {}).catch(() => {})
+  setHostPushSyncState(hostId, 'unknown')
+}
+
 export async function syncPushEndpointWithHost(
+  hostId: string,
   call: (endpoint: string, payload?: unknown) => Promise<unknown>,
   capabilities: string[] | undefined,
 ): Promise<void> {
@@ -119,16 +155,10 @@ export async function syncPushEndpointWithHost(
   const status = await getBackgroundStatus()
   if (status === null) return
   if (status.unifiedPushEndpoint) {
-    try {
-      await call('push-register', { kind: 'unifiedpush', endpoint: status.unifiedPushEndpoint })
-      hostPushSynced = 'synced'
-    } catch {
-      hostPushSynced = 'failed'
-    }
+    await registerHostPushEndpoint(hostId, call, status.unifiedPushEndpoint)
   } else if (status.unifiedPushDisabled) {
     // Clean up any stale registration on a computer that was offline when UnifiedPush was turned off.
-    await call('push-unregister', {}).catch(() => {})
-    hostPushSynced = 'unknown'
+    await unregisterHostPushEndpoint(hostId, call)
   }
 }
 

@@ -6,7 +6,7 @@ import * as SecureStore from '../storage'
 import type { TeamState } from '../connection.ts'
 import { offline, useTeamLink, type TeamLinkHooks } from './link.ts'
 import { loadNoticeCursor, saveNoticeCursor } from './notice-cursor-store.ts'
-import { setForegroundLinkOnline, syncBackgroundConnectionSubtitle, syncPushEndpointWithHost } from './notification-bridge.ts'
+import { registerHostPushEndpoint, setForegroundLinkOnline, syncBackgroundConnectionSubtitle, syncPushEndpointWithHost, unregisterHostPushEndpoint } from './notification-bridge.ts'
 import { readNotifyPrefsFromRecord } from './notifications.ts'
 import { onUnifiedPushEvent } from './notifications-native'
 import { DEMO_HELLO, demoLink } from './demo.ts'
@@ -44,7 +44,7 @@ export function TeamProvider({ computer, identity, children }: { computer: Saved
     onConnected: (hello, rawCall) => {
       setForegroundLinkOnline(computer.hostDeviceId, true)
       void syncBackgroundConnectionSubtitle(true, computer.name)
-      void syncPushEndpointWithHost(rawCall, hello.capabilities)
+      void syncPushEndpointWithHost(computer.hostDeviceId, rawCall, hello.capabilities)
     },
     onDisconnected: () => {
       setForegroundLinkOnline(computer.hostDeviceId, false)
@@ -62,12 +62,12 @@ export function TeamProvider({ computer, identity, children }: { computer: Saved
     return onUnifiedPushEvent(event => {
       if (!link.online || !link.hello?.capabilities?.includes('push-register')) return
       if (event.type === 'endpoint' && event.endpoint) {
-        void link.call('push-register', { kind: 'unifiedpush', endpoint: event.endpoint }).catch(() => {})
+        void registerHostPushEndpoint(computer.hostDeviceId, link.call, event.endpoint)
       } else if (event.type === 'unregistered') {
-        void link.call('push-unregister', {}).catch(() => {})
+        void unregisterHostPushEndpoint(computer.hostDeviceId, link.call)
       }
     })
-  }, [link.online, link.hello, link.call])
+  }, [link.online, link.hello, link.call, computer.hostDeviceId])
   const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, linked: link.linked, error: link.error, call: link.call, refresh: link.refresh, computer, hello: link.hello, onFeed: link.onFeed }), [link.team, link.online, link.linked, link.error, link.call, link.refresh, link.hello, link.onFeed, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

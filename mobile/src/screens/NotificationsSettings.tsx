@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useInSheet } from '../nav/sheet.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
 import { useTeam } from '../team/context.tsx'
-import { applyBackgroundDeliveryPrefs, getHostPushSyncState, sendTestNotification } from '../team/notification-bridge.ts'
+import { applyBackgroundDeliveryPrefs, getHostPushSyncState, sendTestNotification, subscribeHostPushSyncState, unregisterHostPushEndpoint } from '../team/notification-bridge.ts'
 import { androidNotificationStatus, readNotifyPrefsFromRecord, type BackgroundDeliveryMode } from '../team/notifications.ts'
 import {
   getBackgroundStatus,
@@ -103,6 +103,7 @@ export function NotificationsSettings({ navigation }: any) {
   const [bgStatus, setBgStatus] = useState<BackgroundStatus | null>(null)
   const [testSent, setTestSent] = useState<boolean | null>(null)
   const [pickingDistributor, setPickingDistributor] = useState(false)
+  const [, bumpPushSync] = useState(0)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const androidSdk = Platform.OS === 'android' ? Number(Platform.Version) : 0
 
@@ -127,7 +128,8 @@ export function NotificationsSettings({ navigation }: any) {
     if (Platform.OS !== 'android') return
     const sub = AppState.addEventListener('change', next => { if (next === 'active') refreshStatus() })
     const offUp = onUnifiedPushEvent(() => refreshStatus())
-    return () => { sub.remove(); offUp() }
+    const offSync = subscribeHostPushSyncState(() => bumpPushSync(n => n + 1))
+    return () => { sub.remove(); offUp(); offSync() }
   }, [refreshStatus])
 
   const prefs = readNotifyPrefsFromRecord(rawPrefs)
@@ -175,7 +177,7 @@ export function NotificationsSettings({ navigation }: any) {
     setPickingDistributor(false)
     await unregisterUnifiedPush()
     if (hello?.capabilities?.includes('push-register')) {
-      void call('push-unregister', {}).catch(() => {})
+      void unregisterHostPushEndpoint(computer?.hostDeviceId ?? '', call)
     }
     refreshStatus()
   }
@@ -190,7 +192,7 @@ export function NotificationsSettings({ navigation }: any) {
   const distributors = bgStatus?.unifiedPushDistributors ?? []
   const activeDist = distributors.find(d => d.packageName === bgStatus?.unifiedPushDistributor)
   const pushSupportedByHost = hello?.capabilities?.includes('push-register') === true
-  const hostSyncState = getHostPushSyncState()
+  const hostSyncState = getHostPushSyncState(computer?.hostDeviceId)
   const upSynced = Boolean(bgStatus?.unifiedPushEndpoint) && online && pushSupportedByHost && hostSyncState === 'synced'
 
   const upStatusText = bgStatus?.unifiedPushEndpoint

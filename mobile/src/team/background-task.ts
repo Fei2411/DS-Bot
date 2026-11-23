@@ -182,9 +182,9 @@ async function handleKeepalive(): Promise<void> {
           }
           await saveNoticeCursor(computer.hostDeviceId, nextBoot, typeof answer.seq === 'number' ? answer.seq : hello.seq)
         }
-        catchingUp = false
-        for (const entry of bufferedLive) {
-          if (signal.aborted) break
+        while (bufferedLive.length > 0 && !signal.aborted) {
+          const entry = bufferedLive.shift()!
+          if (!cursor.acceptLive(hello.boot, entry)) continue
           await deliverSystemNotice(entry, {
             hostId: computer.hostDeviceId,
             hostName: computer.name,
@@ -193,6 +193,7 @@ async function handleKeepalive(): Promise<void> {
             dedupe: true,
           })
         }
+        catchingUp = false
       }
 
       await closed
