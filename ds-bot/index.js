@@ -60,8 +60,6 @@ import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
-installSocketTosGuard()
-
 export { COLORS } from './src/host/constants.js'
 
 export { name, inject } from './src/host/entry.js'
@@ -74,6 +72,7 @@ export { name, inject } from './src/host/entry.js'
 const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
+  ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
   createRuntime(ctx, config)
 }
 

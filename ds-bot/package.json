@@ -25,6 +25,7 @@
   "main": "plugin.js",
   "exports": {
     ".": "./plugin.js",
+    "./socket-tos-guard": "./src/host/socket-tos-guard.js",
     "./client": "./client.js",
     "./web-search": "./web-search.js",
     "./package.json": "./package.json"
