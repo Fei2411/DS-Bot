@@ -210,7 +210,7 @@ export function install(rt) {
     drop,
     records: book => open(book).records,
     record: (book, seq) => open(book).bySeq.get(seq),
-    after: (book, since) => open(book).records.filter(record => since === undefined || (Number.isInteger(record.seq) && record.seq > since)),
+    after: (book, since) => (since === undefined ? [...open(book).records] : ledger.range(book, Math.floor(since) + 1)),
     range: (book, from, to) => {
       const entry = open(book)
       const view = viewOf(entry)
@@ -235,17 +235,30 @@ export function install(rt) {
       for (const record of open(book).records) if (Number.isInteger(record.seq) && record.seq > last) last = record.seq
       return last
     },
-    // Newest first: every word has to be in the record's text.
-    search: (book, query, pick = record => record.text) => {
+    // Newest first: every word has to be in the record's text. Accepts either a `pick`
+    // function or `{ pick, filter, limit }`; checks `filter` before lowercasing and stops
+    // as soon as `limit` hits are collected from the tail.
+    search: (book, query, pickOrOptions) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
+      const pick = typeof pickOrOptions === 'function' ? pickOrOptions : (pickOrOptions?.pick ?? (record => record.text))
+      const filter = typeof pickOrOptions === 'object' && typeof pickOrOptions?.filter === 'function' ? pickOrOptions.filter : undefined
+      const limit = typeof pickOrOptions === 'object' && Number.isInteger(pickOrOptions?.limit) && pickOrOptions.limit > 0 ? pickOrOptions.limit : SEARCH_MAX
       const records = open(book).records
       const lower = searchTextFor(records)
-      return records.filter((record, at) => {
+      const hits = []
+      for (let at = records.length - 1; at >= 0; at -= 1) {
+        const record = records[at]
+        if (filter !== undefined && !filter(record)) continue
         const text = pick(record)
+        if (typeof text !== 'string' || text === '') continue
         const value = lower(at, text)
-        return typeof text === 'string' && words.every(word => value.includes(word))
-      }).slice(-SEARCH_MAX).reverse()
+        if (words.every(word => value.includes(word))) {
+          hits.push(record)
+          if (hits.length === limit) break
+        }
+      }
+      return hits
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`
     // is the start of its name, up to and with the first "-".

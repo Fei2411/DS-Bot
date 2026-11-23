@@ -942,3 +942,181 @@ test('post_to_group report still includes completed goal summary if user clears 
   assert.match(msg2, /Writer: 好的，知道了。/)
   assert.doesNotMatch(msg2, /Goal "Clear Race"/, 'past goal that ended before the new report must not be recycled')
 })
+
+test('removing a member annotates its open goal tasks, clearing or deleting the admin auto-pauses the active goal, and waiting roomReports settle', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  host.rt.state.bots.d = { id: 'd', name: 'Reviewer', role: 'Review', sessionId: 'd', createdAt: 4 }
+  host.rt.roomOf('r2').members.push('d')
+  host.rt.roomOf('r2').sessions.d = 'ld'
+  host.rt.groupOwners.set('ld', { botId: 'd', roomId: 'r2' })
+  const stages = [{ title: 'Build', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'run suite' }, { bot: 'Reviewer', task: 'review code' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Admin Guard', objective: 'Ship safely', acceptance: 'green', stages }, 'lb'), /Started\./)
+
+  // Track a waiting post_to_group report on Lab so we verify it settles when admin disappears.
+  host.rt.state.roomReports = {
+    'rep-admin-gone': { id: 'rep-admin-gone', roomId: 'r2', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now() },
+  }
+
+  // 1) Removing Reviewer annotates its open task without pausing the goal.
+  await host.rt.updateRoom('r2', { members: ['b', 'c'], admin: 'b' })
+  const r2 = host.rt.roomOf('r2')
+  assert.equal(r2.goal.status, 'active')
+  const revTask = r2.goal.stages[0].tasks.find(item => item.botId === 'd')
+  assert.match(revTask.note, /Member left the group/i)
+
+  // 2) Clearing the admin auto-pauses the active goal with a notice and settles waiting roomReports.
+  await host.rt.updateRoom('r2', { admin: null })
+  assert.equal(r2.goal.status, 'paused')
+  assert.ok(r2.log.some(line => line.reason === 'goal' && line.event === 'pause' && /no admin is assigned/i.test(line.text ?? '')))
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.deepEqual(host.rt.state.roomReports ?? {}, {})
+
+  // 3) Re-assign admin, resume goal, then delete the admin Bot -> auto-pauses with "admin was deleted".
+  await host.rt.updateRoom('r2', { admin: 'b' })
+  await host.tool('group_goal', { action: 'resume' }, 'lb')
+  assert.equal(r2.goal.status, 'active')
+  await host.rt.deleteBot('b')
+  assert.equal(r2.goal.status, 'paused')
+  assert.ok(r2.log.some(line => line.reason === 'goal' && line.event === 'pause' && /admin was deleted/i.test(line.text ?? '')))
+})
+
+test('startup settleRoomReports marks a dormant active goal idle instead of deadlocking waiting reports', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const stages = [{ title: 'Ship', acceptance: 'done', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Dormant Goal', objective: 'Ship', acceptance: 'done', stages }, 'lb'), /Started\./)
+
+  // Simulate post-restart state: goal is active & not idle, zero running rounds/members/batches/relays,
+  // and a tracking roomReport waits for settlement.
+  host.rt.state.roomReports = {
+    'rep-dormant': { id: 'rep-dormant', roomId: 'r2', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now() },
+  }
+  await host.rt.settleRoomReports(undefined, { startup: true })
+  assert.equal(host.rt.roomOf('r2').goal.idle, true, 'dormant active goal must be marked idle on startup')
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.deepEqual(host.rt.state.roomReports ?? {}, {})
+})
+
+test('group_goal stop stops full room when called from outside target group, and stops other members/waiting slots/queues when called inside target group', async (t) => {
+  // 1) Called by Main Bot from outside Ops -> stops the entire running round & queued relays.
+  {
+    const host = await start(t)
+    await startGoal(host)
+    const first = host.round('c-out', host.say('@Chief start'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.emit('gb', 'turn/start', { turn: 1 })
+    // Queue a pending post on r1 inbox to verify cancelRoomQueues withdraws it.
+    host.agentOf('r1').inbox.nextTurn.push({
+      id: 'queued-bot-post',
+      source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'ex-q1', roomId: 'r1' },
+      content: [{ type: 'text', text: 'pending relay' }],
+    })
+
+    // Main Bot 'a' calls group_goal stop from its own chat ('a', NOT 'ga').
+    const out = await host.tool('group_goal', { group: 'Ops', action: 'stop', reason: 'cancelled by main' }, 'a')
+    assert.match(out, /Stopped\./)
+    assert.equal(goal(host).status, 'stopped')
+    assert.ok(host.agentOf('ga').cancelled.length >= 1, 'outside stop must cancel active in-group round speaker too')
+    assert.ok(host.agentOf('gb').cancelled.length >= 1)
+    assert.equal(host.agentOf('r1').inbox.nextTurn.some(m => m.id === 'queued-bot-post'), false, 'outside stop must withdraw pending bot relays')
+    host.emit('ga', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    await settle(() => first() !== undefined)
+  }
+
+  // 2) Called by Admin inside Ops -> cancels waiting slots, other members, and queued relays, while leaving Admin running.
+  {
+    const host = await start(t)
+    await startGoal(host)
+    // Open an ordered round where Chief speaks first and Writer/Tester sit in waiting slots.
+    const first = host.round('c-in', host.say('everyone check in'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.emit('gc', 'turn/start', { turn: 1 })
+    host.agentOf('r1').inbox.nextTurn.push({
+      id: 'queued-goal-nudge',
+      source: { kind: 'bot', form: 'relay', role: 'goal', goal: 'nudge', exchangeId: 'ex-q2', roomId: 'r1' },
+      content: [{ type: 'text', text: '[Goal check]' }],
+    })
+
+    const out = await host.tool('group_goal', { action: 'stop', reason: 'stopping from inside' }, 'ga')
+    assert.match(out, /Stopped\./)
+    assert.equal(host.agentOf('ga').cancelled.length, 0, 'in-group stop must keep caller turn running')
+    assert.equal(host.agentOf('gc').cancelled.length, 1, 'in-group stop must cancel other running member')
+    assert.equal(host.agentOf('r1').inbox.nextTurn.some(m => m.id === 'queued-goal-nudge'), false, 'in-group stop must withdraw pending goal relays')
+    host.finish('ga', 'Stopped the goal.')
+    await settle(() => first() !== undefined)
+    // Waiting slots for Writer/Tester must have been cancelled rather than started after Chief finished.
+    assert.equal(host.agentOf('gb').calls.length, 0, 'waiting slot for Writer must be cancelled')
+    assert.equal(host.agentOf('gc').calls.length, 0, 'waiting slot for Tester must be cancelled')
+  }
+})
+
+test('goalDrive marks goal idle and settles waiting roomReports when queueGoalRelay fails', async (t) => {
+  const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: lab })
+  const stages = [{ title: 'Ship', acceptance: 'done', tasks: [{ bot: 'Tester', task: 'verify' }] }]
+  assert.match(await host.tool('group_goal', { action: 'start', title: 'Relay Fail', objective: 'Ship', acceptance: 'done', stages }, 'lb'), /Started\./)
+
+  host.rt.state.roomReports = {
+    'rep-fail-relay': { id: 'rep-fail-relay', roomId: 'r2', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now() },
+  }
+  const origFlush = host.ctx.sessions.flush
+  host.ctx.sessions.flush = async (session) => {
+    if (session?.id === 'r2') throw new Error('session flush failed')
+    return origFlush(session)
+  }
+
+  await host.rt.goalDrive(host.rt.roomOf('r2'), { stoppedOnly: false, slots: [{ id: 'b', worked: false }] })
+  assert.equal(host.rt.roomOf('r2').goal.idle, true, 'failed goal check relay must mark goal idle instead of stranding reports')
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.deepEqual(host.rt.state.roomReports ?? {}, {})
+})
+
+test('group_goal task supports task_id disambiguation and ledgerLines shows task ids only for duplicate-member tasks', async (t) => {
+  const host = await start(t)
+  const stages = [{
+    title: 'Multi',
+    acceptance: 'both done',
+    tasks: [
+      { bot: 'Writer', task: 'write part A' },
+      { bot: 'Writer', task: 'write part B' },
+      { bot: 'Tester', task: 'verify all' },
+    ],
+  }]
+  const started = await host.tool('group_goal', { action: 'start', title: 'Disambiguate', objective: 'Two tasks for Writer', acceptance: 'both done', stages }, 'ga')
+  const [t1, t2, t3] = goal(host).stages[0].tasks
+  assert.match(started, new RegExp(`- Writer \\(${t1.id}\\): write part A`))
+  assert.match(started, new RegExp(`- Writer \\(${t2.id}\\): write part B`))
+  assert.match(started, /- Tester: verify all \[not started\]/, 'single-task member omits task id tag')
+
+  // Updating task 2 by task_id leaves task 1 untouched.
+  const updated = await host.tool('group_goal', { action: 'task', task_id: t2.id, status: 'done', note: 'part B complete' }, 'ga')
+  assert.match(updated, new RegExp(`- Writer \\(${t2.id}\\): write part B \\[done\\] — part B complete`))
+  assert.equal(goal(host).stages[0].tasks[0].status, 'pending')
+  assert.equal(goal(host).stages[0].tasks[1].status, 'done')
+
+  // Passing wrong bot with task_id is refused.
+  const mismatch = await host.tool('group_goal', { action: 'task', task_id: t2.id, bot: 'Tester', status: 'working' }, 'ga')
+  assert.match(mismatch, /does not belong to Tester/)
+  assert.equal(t3.status, 'pending')
+})
+
+test('group_goal pass clears idleEdges and zeroWorkRelays so calling the same member in stage 2 does not false-pause', async (t) => {
+  const host = await start(t)
+  const stages = [
+    { title: 'Stage 1', acceptance: 'draft done', tasks: [{ bot: 'Writer', task: 'draft' }] },
+    { title: 'Stage 2', acceptance: 'final done', tasks: [{ bot: 'Writer', task: 'polish' }] },
+  ]
+  await startGoal(host, { stages })
+  const r1 = host.rt.roomOf('r1')
+  // Simulate stage 1 zero-work handoff edges (Chief -> Writer -> Chief).
+  r1.idleEdges = ['a->b', 'b->a']
+  r1.zeroWorkRelays = 3
+
+  // Passing stage 1 is real goal progression and must clear idleEdges and zeroWorkRelays.
+  await host.tool('group_goal', { action: 'pass', evidence: 'stage 1 verified' }, 'ga')
+  assert.equal(r1.idleEdges, undefined)
+  assert.equal(r1.zeroWorkRelays, undefined)
+})

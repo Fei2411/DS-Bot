@@ -118,3 +118,35 @@ test('a later unchanged turn cannot reuse the last changed turn, live or after r
   const cold = harness({ service, page: [event(7, 3), { type: 'turn/start', seq: 8, data: { turn: 4 } }, { type: 'turn/end', seq: 9, data: { turn: 4 } }] })
   assert.equal(await cold.rt.turnChanges('s1'), undefined)
 })
+
+test('per-turn ring buffer preserves earlier turn changes after a new turn starts, falls back to page() on cache miss, and evicts on forgetSessionChanges', async () => {
+  const s1 = summaryOf(1, [file('src/first.js', 5, 2)])
+  const s2 = summaryOf(2, [file('src/second.js', 3, 0)])
+  const service = { summary: (id, seq) => (seq === 10 ? s1 : seq === 20 ? s2 : undefined) }
+  const { rt, emit, pages } = harness({
+    service,
+    page: [event(10, 1), { type: 'turn/end', seq: 11, data: { turn: 1 } }, { type: 'turn/start', seq: 12, data: { turn: 2 } }],
+  })
+  // Turn 1 changes files, then Turn 2 immediately starts before Turn 1's changes are read.
+  emit({ id: 's1' }, { type: 'turn/start', seq: 9, data: { turn: 1 } })
+  emit({ id: 's1' }, event(10, 1))
+  emit({ id: 's1' }, { type: 'turn/end', seq: 11, data: { turn: 1 } })
+  emit({ id: 's1' }, { type: 'turn/start', seq: 12, data: { turn: 2 } })
+  // Calling without targetTurn returns undefined because latest turn (2) has no changes yet.
+  assert.equal(await rt.turnChanges('s1'), undefined)
+  // Calling with explicit targetTurn 1 still retrieves Turn 1's summary from the ring buffer (no page read).
+  const turn1 = await rt.turnChanges('s1', 1)
+  assert.equal(turn1?.turn, 1)
+  assert.equal(turn1?.files[0].path, 'src/first.js')
+  assert.equal(pages.length, 0)
+  // Turn 2 later changes another file: both turns stay addressable independently.
+  emit({ id: 's1' }, event(20, 2))
+  assert.equal((await rt.turnChanges('s1', 2))?.files[0].path, 'src/second.js')
+  assert.equal((await rt.turnChanges('s1', 1))?.files[0].path, 'src/first.js')
+  // After forgetSessionChanges, Turn 1 misses memory cache and falls back cleanly to page().
+  rt.forgetSessionChanges('s1')
+  const recovered = await rt.turnChanges('s1', 1)
+  assert.equal(recovered?.turn, 1)
+  assert.equal(recovered?.files[0].path, 'src/first.js')
+  assert.equal(pages.length, 1)
+})

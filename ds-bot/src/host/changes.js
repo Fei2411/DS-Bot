@@ -2,32 +2,83 @@
 const EVENT = 'workspace/changes'
 const MAX_FILES = 8
 const PAGE_EVENTS = 80
+const MAX_TURNS_PER_SESSION = 8
+const MAX_TRACKED_SESSIONS = 256
 
 export function install(rt) {
   const { ctx } = rt
-  const latest = new Map()
+  // Per-session ring buffer of announced workspace/changes events keyed by turn number,
+  // preventing a fast subsequent turn from clobbering the preceding turn's change summary.
+  const byTurn = new Map()
   const turns = new Map()
 
-  // The turn each Session announced last, from the live event. Cheap, and it covers a turn
+  const touchSession = (map, sessionId, value) => {
+    if (map.has(sessionId)) map.delete(sessionId)
+    map.set(sessionId, value)
+    if (map.size > MAX_TRACKED_SESSIONS) {
+      const oldest = map.keys().next().value
+      map.delete(oldest)
+      if (map === byTurn) turns.delete(oldest)
+      else byTurn.delete(oldest)
+    }
+  }
+
+  const recordTurnChange = (sessionId, turn, seq) => {
+    const map = byTurn.get(sessionId) ?? new Map()
+    if (map.has(turn)) map.delete(turn)
+    map.set(turn, seq)
+    while (map.size > MAX_TURNS_PER_SESSION) map.delete(map.keys().next().value)
+    touchSession(byTurn, sessionId, map)
+  }
+
+  // The turn each Session announced, from the live event. Cheap, and it covers a turn
   // whose page has not been read since.
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'turn/start' || event?.type === 'turn/end') {
-      if (Number.isInteger(event.data?.turn)) turns.set(session.id, event.data.turn)
+      if (Number.isInteger(event.data?.turn)) touchSession(turns, session.id, event.data.turn)
     }
     if (event?.type !== EVENT || !Number.isInteger(event.seq)) return
     const turn = event.data?.turn
     if (!Number.isInteger(turn)) return
-    latest.set(session.id, { seq: event.seq, turn })
+    recordTurnChange(session.id, turn, event.seq)
   })
 
   const service = () => rt.ctx.get?.('workspaceChanges')
 
-  // The announced turn, from the live event or, for a Session whose event came before this
-  // process listened, from the tail of its log.
-  async function announcedTurn(sessionId) {
-    const known = latest.get(sessionId)
-    if (turns.has(sessionId)) return known?.turn === turns.get(sessionId) ? known : undefined
-    if (known !== undefined) return known
+  // The announced turn, from the per-turn ring buffer or, on a cache miss (e.g. after
+  // reload or when workspace/changes landed out-of-order), from the tail of its log.
+  async function announcedTurn(sessionId, targetTurn) {
+    const knownMap = byTurn.get(sessionId)
+    if (Number.isInteger(targetTurn)) {
+      const seq = knownMap?.get(targetTurn)
+      if (seq !== undefined) return { seq, turn: targetTurn }
+      try {
+        const page = await ctx.sessionController.page({ address: { kind: 'session', sessionId }, maxMessages: PAGE_EVENTS }, AbortSignal.timeout(4000))
+        const events = page.records.map(record => record.event)
+        const event = events.findLast(item => item.type === EVENT && Number.isInteger(item.seq) && item.data?.turn === targetTurn)
+        if (event !== undefined) {
+          recordTurnChange(sessionId, targetTurn, event.seq)
+          return { seq: event.seq, turn: targetTurn }
+        }
+        return undefined
+      } catch {
+        return undefined
+      }
+    }
+    if (turns.has(sessionId)) {
+      const latestTurn = turns.get(sessionId)
+      const seq = knownMap?.get(latestTurn)
+      return seq === undefined ? undefined : { seq, turn: latestTurn }
+    }
+    if (knownMap !== undefined && knownMap.size > 0) {
+      let lastTurn
+      let lastSeq
+      for (const [turn, seq] of knownMap) {
+        lastTurn = turn
+        lastSeq = seq
+      }
+      return { seq: lastSeq, turn: lastTurn }
+    }
     try {
       const page = await ctx.sessionController.page({ address: { kind: 'session', sessionId }, maxMessages: PAGE_EVENTS }, AbortSignal.timeout(4000))
       const events = page.records.map(record => record.event)
@@ -44,10 +95,10 @@ export function install(rt) {
   // A row's change line: the coordinates the review tab needs plus what the group shows.
   // Undefined when the turn changed nothing, when the service is absent, or when the
   // summary is already gone.
-  async function turnChanges(sessionId) {
+  async function turnChanges(sessionId, targetTurn) {
     const changes = service()
     if (changes === undefined || typeof sessionId !== 'string' || sessionId === '') return undefined
-    const announced = await announcedTurn(sessionId)
+    const announced = await announcedTurn(sessionId, targetTurn)
     if (announced === undefined) return undefined
     let summary
     try {
@@ -85,6 +136,13 @@ export function install(rt) {
     }
   }
 
+  const forgetSessionChanges = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    byTurn.delete(sessionId)
+    turns.delete(sessionId)
+  }
+
   rt.turnChanges = turnChanges
   rt.changesAvailable = changesAvailable
+  rt.forgetSessionChanges = forgetSessionChanges
 }
