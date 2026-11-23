@@ -1418,11 +1418,25 @@ export function install(rt) {
 
   // Input in the inbox is durable but does not wake the driver; send() is what wakes
   // it. Re-send what waits, inserting silent notices first with wake=false so they sit
-  // in nextStep alongside (never behind) any waking turn, and waking once on the last
+  // in nextStep alongside (never behind) any waking turn, and waking on the first
   // non-silent message so a stopped turn goes on without waking on silent notes.
+  // Only while the plugin is live — a turn that starts during unload would run without DS Bot's hooks.
+  // Track message ids DS Bot itself removes from an inbox in order to wake or forward
+  // them during a part switch so `agent/inbox/discarded` never mistakes a move for a cancel.
+  const movingInboxMessages = new Set()
+  const removeForMove = (agent, messages) => {
+    for (const message of messages) {
+      if (message?.id !== undefined) movingInboxMessages.add(message.id)
+      try {
+        agent.inbox.remove(message.id)
+      } finally {
+        if (message?.id !== undefined) movingInboxMessages.delete(message.id)
+      }
+    }
+  }
   const wake = (agent) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
-    for (const message of pending) agent.inbox.remove(message.id)
+    removeForMove(agent, pending)
     const silent = pending.filter(isSilentRelay)
     const active = pending.filter(message => !isSilentRelay(message))
     for (const message of silent) agent.send(message, 'next-step', false)
@@ -1452,7 +1466,7 @@ export function install(rt) {
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
           await forward(owner, [...held, ...(rt.takeSilentNotes?.(sessionId) ?? [])], target)
-          for (const message of held) agent.inbox.remove(message.id)
+          removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
           await rt.moveSchedules?.(sessionId, target)
@@ -1500,6 +1514,7 @@ export function install(rt) {
           engineRetry.delete(agent.id)
           // The folder may have changed again while the switch ran.
           void followFolder(job)
+          if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
           return
         }
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
@@ -1530,6 +1545,7 @@ export function install(rt) {
         })
         if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
+        if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
       })
       // A state write that fails here (full disk, a file another program holds, a lost lock)
       // must not end up as an unhandled rejection, which stops the whole host.
@@ -1769,7 +1785,7 @@ export function install(rt) {
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
       throw error
     }
-    for (const message of held) agent.inbox.remove(message.id)
+    removeForMove(agent, held)
     // Input the old part claimed while the rest moved goes on after it.
     for (let late = job.carry.splice(0); late.length > 0; late = job.carry.splice(0)) {
       await forward(job, late, threadTargetOf(agent.id, job)).catch((error) => {
@@ -2644,5 +2660,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

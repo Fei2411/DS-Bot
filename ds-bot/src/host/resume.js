@@ -257,8 +257,13 @@ export function install(rt) {
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
-  ctx.on('agent/inbox/discarded', ({ message } = {}) => {
-    if (message?.source?.kind === SOURCE_KIND && message.source.exchangeId) forgetQueued(message.source.exchangeId)
+  ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
+    const source = message?.source
+    if (source?.kind === SOURCE_KIND && source.exchangeId) forgetQueued(source.exchangeId)
+    if (source?.kind === SOURCE_KIND && (source.role === 'post' || source.role === 'goal') && typeof source.roomId === 'string') {
+      if (rt.isMovingInboxMessage?.(message?.id) === true) return
+      rt.roomRelayDiscarded?.(source, agent?.id ?? agent?.session?.id)
+    }
   })
   // Exchanges a turn took up since this start, until the resends are done, so a resend
   // never repeats one.
@@ -806,6 +811,7 @@ export function install(rt) {
     await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()
+    await rt.settleRoomReports?.(undefined, { startup: true })
   }
 
   ctx.effect(() => {
@@ -816,6 +822,7 @@ export function install(rt) {
       : setTimeout(() => void rt.load()
         .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
         .then(() => rt.settleRoomBatches?.())
+        .then(() => rt.settleRoomReports?.(undefined, { startup: true }))
         .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
     timer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.

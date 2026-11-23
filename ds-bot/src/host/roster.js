@@ -871,6 +871,7 @@ export function install(rt) {
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
+    void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
@@ -1021,6 +1022,8 @@ export function install(rt) {
         rt.dropGroupSession(room, id)
         touched.push(room)
       }
+      await rt.forgetBotRoomReports?.(id, touched)
+        .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
       await followMemberNames(touched)
       await rt.forgetBotSecrets(id)
       const archivePath = await archived

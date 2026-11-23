@@ -154,8 +154,14 @@ export function install(rt) {
   // session id of the subagent a run of this work belongs to — the run, not the
   // child, is the sub-work, so a child that is continued hands up a result per run.
   // `fromPart`: the part of the sender's own chat it wrote from, which its answer goes
-  // back to when that is a background part.
-  function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart, toSession, toTaskId, goal, state: initialState = 'open', paused }) {
+  // back to when that is a background part. `imOrigin`: the IM chat that asked the
+  // sender for this work, kept out of public views and Session logs.
+  const sameImOrigin = (a, b) => (a === undefined && b === undefined)
+    || (a !== undefined && b !== undefined
+      && a.connId === b.connId && a.chatKey === b.chatKey
+      && a.senderId === b.senderId && a.binding === b.binding)
+
+  function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart, toSession, toTaskId, imOrigin, goal, state: initialState = 'open', paused }) {
     if (!safeKey(id)) return undefined
     const above = parent === undefined ? undefined : own(works(), parent)
     // Only assign visible #W… refs to Bot-to-Bot delegations, not internal subagents,
@@ -174,6 +180,7 @@ export function install(rt) {
       ...(toTaskId ? { toTaskId } : {}),
       ...(name ? { name } : {}),
       ...(child ? { child } : {}),
+      ...(imOrigin ? { imOrigin } : {}),
       ...(typeof goal === 'string' && goal.trim() !== '' ? { goal: headOf(goal.trim().replace(/\s+/g, ' '), 80) } : {}),
       ...(paused !== undefined ? { paused } : {}),
       rounds: 0,
@@ -420,6 +427,75 @@ export function install(rt) {
     return out.sort((a, b) => a.at - b.at)
   }
 
+  const workImOrigin = (id) => {
+    const work = own(works(), id)
+    if (work === undefined) return undefined
+    if (work.imOriginMixed === true) return { mixed: true }
+    return work.imOrigin
+  }
+
+  // Merging a second unread request into an open work keeps the IM origin only when both
+  // requests come from the same IM chat; mixing Web and IM or two IM chats clears it.
+  function mergeWorkImOrigin(id, nextImOrigin) {
+    const work = own(works(), id)
+    if (work === undefined) return
+    if (work.imOriginMixed === true) {
+      if (work.imOrigin !== undefined) {
+        delete work.imOrigin
+        save()
+      }
+      return
+    }
+    if (!sameImOrigin(work.imOrigin, nextImOrigin)) {
+      delete work.imOrigin
+      work.imOriginMixed = true
+      save()
+    }
+  }
+
+  // Bounded store of IM origins for returning replies/reports, kept in state.json
+  // (never in public views or Session logs) so deferred redelivery and post-restart
+  // resends can still reclaim the originating IM chat.
+  const IM_REPLY_ORIGINS_KEPT = 200
+  const IM_REPLY_ORIGIN_TTL_MS = 24 * 60 * 60_000
+  const imReplyOrigins = () => (state.imReplyOrigins ??= {})
+  function rememberImReplyOrigin(id, imOrigin) {
+    const isMixed = imOrigin?.mixed === true
+    if (typeof id !== 'string' || id === '' || (!isMixed && (imOrigin?.connId === undefined || imOrigin?.chatKey === undefined))) return
+    const map = imReplyOrigins()
+    const now = Date.now()
+    for (const [key, entry] of Object.entries(map)) {
+      if (now - (entry?.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) delete map[key]
+    }
+    map[id] = isMixed
+      ? { mixed: true, at: now }
+      : {
+          connId: imOrigin.connId,
+          chatKey: imOrigin.chatKey,
+          ...(imOrigin.senderId !== undefined ? { senderId: imOrigin.senderId } : {}),
+          ...(imOrigin.binding !== undefined ? { binding: imOrigin.binding } : {}),
+          at: now,
+        }
+    const keys = Object.keys(map)
+    if (keys.length > IM_REPLY_ORIGINS_KEPT) {
+      for (const old of keys.sort((a, b) => (map[a].at ?? 0) - (map[b].at ?? 0)).slice(0, keys.length - IM_REPLY_ORIGINS_KEPT)) delete map[old]
+    }
+    save()
+  }
+  function imReplyOrigin(id) {
+    if (typeof id !== 'string' || id === '') return undefined
+    const map = state.imReplyOrigins
+    if (map === undefined || !Object.hasOwn(map, id)) return undefined
+    const entry = map[id]
+    if (entry === undefined) return undefined
+    if (Date.now() - (entry.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) {
+      delete map[id]
+      save()
+      return undefined
+    }
+    return entry
+  }
+
   // The answer to work `id` is on its way, with `result` from `name`. Returns the work
   // it goes on with. That work keeps waiting until a turn reads the answer (`taken`).
   function closeWork(id, name, text, extra = {}) {
@@ -650,6 +726,9 @@ export function install(rt) {
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
       : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
+    const origin = workImOrigin(id)
+    if (origin !== undefined) rememberImReplyOrigin(id, origin)
+    if (reason === 'gone') rt.dropRoomReport?.(id)
     rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(parent.to !== undefined ? { waiting: parent.to } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
@@ -794,8 +873,9 @@ export function install(rt) {
 
   Object.assign(rt, {
     workOf, openWork, setWorkTargetSession, closeWork, dropWork, takenWork: taken, lateWork, answerMissed,
-    ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText,
-    upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView,
+    ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy,
+    workImOrigin, mergeWorkImOrigin, rememberImReplyOrigin, imReplyOrigin,
+    answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView,
     settleSubWork, subWorkRun, nameSubWork, abandonWork, abandonedWork: takeAbandoned,
     resolveWork, closedWorkOf, workRefOf, workStateOf, markWorkWorked,
     askBackWork, answerWork, cancelWork, notifyParentCancelled, needInputWorksFor, openWorksBetween,

@@ -68,6 +68,18 @@ export function install(rt) {
     const sessionId = exec.agent?.id
     return sessionId === undefined || callerRoom(exec).fromRoomId !== undefined ? {} : { fromPart: sessionId }
   }
+  const callerImOrigin = (exec) => {
+    const sessionId = exec.agent?.id
+    if (sessionId === undefined) return undefined
+    const taskOrigin = rt.taskBySession?.(sessionId)?.task?.imOrigin
+    if (taskOrigin !== undefined) return taskOrigin
+    const owner = rt.groupOwners.get(sessionId)
+    if (owner !== undefined) {
+      const room = rt.roomOf(owner.roomId)
+      return room === undefined ? undefined : rt.captureImOrigin?.(rt.sessionOfRoom(room))
+    }
+    return rt.captureImOrigin?.(sessionId)
+  }
 
   const sectionNameOf = id => (state.sections ?? []).find(sec => sec.id === id)?.name
 
@@ -255,7 +267,7 @@ export function install(rt) {
   // long-file attachments, busy-foreground background handoff, and live delivery.
   // Used by both `delegate_work` and `resumePausedWork` so paused delegations run
   // through the exact same path when the user clicks Continue.
-  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
+  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
     const chat = rt.chatOf(target.id)
     const agent = await rt.resolveAgent(chat)
     const status = rt.statusOf(target.id)
@@ -288,6 +300,7 @@ export function install(rt) {
           fromBot: sender,
           fromPart,
           parentWork,
+          ...(imOrigin ? { imOrigin } : {}),
           text: long.text,
           files: long.files,
           length: long.length,
@@ -315,13 +328,14 @@ export function install(rt) {
     const prevPaused = existingWork?.work?.paused
     if (joins) {
       rt.forgetDelivery?.(exchangeId)
+      if (!toUser) rt.mergeWorkImOrigin?.(exchangeId, imOrigin)
       workRef = rt.workRefOf?.(exchangeId)
     } else if (existingWork !== undefined && !toUser) {
       existingWork.work.state = 'open'
       delete existingWork.work.paused
       void rt.save().catch(() => {})
     } else if (!toUser) {
-      const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), goal: text })
+      const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), goal: text })
       workRef = opened?.ref
     }
     try {
@@ -495,6 +509,7 @@ export function install(rt) {
           length: paused.length,
           fromPart: work.fromPart,
           parentWork: work.parent,
+          ...(work.imOrigin ? { imOrigin: work.imOrigin } : {}),
           toUser: paused.toUser === true,
           when: paused.when ?? 'now',
           existingWork: resolved,
@@ -600,6 +615,7 @@ export function install(rt) {
       const send = async () => {
         const toUser = deliverTo === 'user'
         const work = toUser ? undefined : works[0]
+        const imOrigin = !toUser && work === undefined ? callerImOrigin(exec) : undefined
         const fromPart = callerPart(exec).fromPart
         const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
         const loop = rt.checkPairLoop?.(sender.id, target.id, { callerWorked, text }) ?? { ok: true }
@@ -616,6 +632,7 @@ export function install(rt) {
             to: target.id,
             parent: work,
             ...(fromPart ? { fromPart } : {}),
+            ...(imOrigin ? { imOrigin } : {}),
             goal: text,
             state: 'paused',
             paused: {
@@ -636,7 +653,7 @@ export function install(rt) {
           }
           return `Paused work${ref} before waking ${target.name}: you and ${target.name} have completed ${loop.bounces} consecutive delegations since the user last wrote. The user can click Continue on the pause card to keep going.`
         }
-        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, toUser, when, request, callerWorked })
+        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, toUser, when, request, callerWorked })
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
     },
@@ -1292,11 +1309,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'post_to_group',
-    description: 'Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot\'s or the group admin\'s post starts a round: members reply in the group, where the user reads them. Another member\'s post calls only the members it names with "@Name"; without one it is only written into the group.',
+    description: 'Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot\'s or the group admin\'s post starts a round: members reply in the group, where the user reads them. Another member\'s post calls only the members it names with "@Name"; without one it is only written into the group. By default, whenever your post calls members, their final outcome comes back to you as a new message once the group\'s work (including long tasks, approvals, relays and any active goal) finishes; pass report_back: false for a one-way notice or when the user reads in the group themselves.',
     parameters: {
       group: GROUP_REF,
       message: { type: 'string', required: true, description: 'What to say; write "@Name" to choose who answers, and a name without "@" to only mention a member' },
-      report_back: { type: 'boolean', description: 'Also send the members\' replies back to you as a new message when the round ends' },
+      report_back: { type: 'boolean', description: 'Send the group\'s final replies back to you as a new message once its work finishes (default true when your post calls members; set false for a one-way notice)' },
     },
     output,
     async execute(args, exec) {
@@ -1321,26 +1338,32 @@ export function install(rt) {
         if (span.bot && span.bot.id !== self && !named.includes(span.bot.id)) named.push(span.bot.id)
       }
       const mentions = { ids: named, all: spans.some(span => span.all === true) }
-      const reportBack = args.report_back === true
-      if (member && reportBack && named.length === 0) {
-        return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post without report_back.'
+      if (member && named.length === 0 && args.report_back === true) {
+        return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post with report_back: false.'
       }
+      const reportBack = !(member && named.length === 0) && args.report_back !== false
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for — or from
       // a background task that must stay open until the group replies — are tracked as work.
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
-      const trackTaskWait = reportBack && rt.taskOwners?.has(exec.agent?.id)
+      const taskOwner = rt.taskOwners?.get(exec.agent?.id)
+      const trackTaskWait = reportBack && taskOwner !== undefined
+      const fromTaskId = trackTaskWait ? taskOwner.taskId : undefined
       const sub = work !== undefined || trackTaskWait ? randomUUID() : undefined
-      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, ...(work !== undefined ? { parent: work } : {}), ...callerPart(exec) })
+      const reportId = reportBack ? (sub ?? randomUUID()) : undefined
+      const callerOrigin = callerImOrigin(exec)
+      const imOrigin = reportBack && work === undefined ? callerOrigin : undefined
+      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, ...(work !== undefined ? { parent: work } : {}), ...callerPart(exec), ...(imOrigin ? { imOrigin } : {}) })
       const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
       const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
+        if (reportId !== undefined) rt.dropRoomReport?.(reportId)
         return `Could not post in "${room.name}": ${failure.message}`
       }
       if (member && named.length === 0) return `Posted in "${room.name}", where the user and its members read it. Nobody answers it: your post only calls the members you name with @Name.`
@@ -1353,7 +1376,7 @@ export function install(rt) {
       }
       const asker = sub === undefined ? undefined : rt.botOf(state.works[work]?.from)?.name
       const waits = asker ? ` End your turn when you have handed on everything: the replies bring you back to this work, and your answer goes to ${asker} once all of it is back.` : ''
-      return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.${waits}`
+      return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their final outcome also comes back to you as a new message once the group finishes' : ', and nothing comes back to you'}.${waits}`
     },
   }))
 

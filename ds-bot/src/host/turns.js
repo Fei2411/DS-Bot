@@ -156,6 +156,8 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const workBeforeClose = typeof source.exchangeId === 'string' ? rt.state?.works?.[source.exchangeId] : undefined
   const workRef = source.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(source.exchangeId)
   const workWorked = workBeforeClose?.worked === true || options.worked === true
+  const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
+  if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
   const work = rt.closeWork?.(source.exchangeId, name, text)
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
     rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, text })
@@ -1025,6 +1027,7 @@ export function install(rt) {
       noteSubagentFailure(parentId, info.id, { stopReason: info.stopReason, helper, closing: textOf(info?.lastAssistantMessage) })
     }
     void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+    void rt.settleRoomReports?.(owner.roomId).catch(error => rt.warn('ds-bot: group report settle failed: %s', error))
   })
 
   const laterTarget = (id) => {
@@ -1167,7 +1170,11 @@ export function install(rt) {
           // child active and preserves its label until it actually settles.
           if (source.kind === 'subagent-settled' && childId !== undefined) {
             noteSubagentEnd(childId)
-            if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+            if (rt.groupOwners.has(id)) {
+              const roomId = rt.groupOwners.get(id).roomId
+              void rt.goalSettled?.(rt.roomOf(roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+              void rt.settleRoomReports?.(roomId).catch(error => rt.warn('ds-bot: group report settle failed: %s', error))
+            }
           }
           if (stoppedSubagentParents.has(id) || (childId !== undefined && stoppedSubagents.has(childId))) {
             entry.suppressedSubagent = true
@@ -1210,14 +1217,18 @@ export function install(rt) {
           }
         }
         if (source?.kind === SOURCE_KIND && source.role === 'post' && rt.roomOf(id)) {
+          const roomId = rt.roomOf(id).id
           // A long post comes as a file (attachLong), which stays with its line.
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-          queueRoomMessage(rt.roomOf(id).id, {
+          queueRoomMessage(roomId, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
+            ...(source.reportId ? { reportId: source.reportId } : {}),
+            ...(source.fromTaskId ? { fromTaskId: source.fromTaskId } : {}),
             ...(source.claims === undefined ? {} : { claims: source.claims }),
             // The turn's change line travels with its post; without it a completion
             // notice that arrives after the round closed has nothing to show.
@@ -1246,16 +1257,20 @@ export function install(rt) {
             ...(source.logged !== undefined ? { logged: source.logged } : {}),
             ...(source.called ? { called: true } : {}),
           })
+          rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(rt.roomOf(id).id, { text: '', kickoff: true })
         } else if (source?.kind === SOURCE_KIND && source.role === 'goal' && rt.roomOf(id)) {
+          const roomId = rt.roomOf(id).id
           // A goal message — the user's draft ask, an idle goal check, a resume —
           // opens a round of its own; the draft ask is the user's line.
-          queueRoomMessage(rt.roomOf(id).id, {
+          queueRoomMessage(roomId, {
             text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+            ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
           })
+          rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
             entry.pending = source
@@ -1419,6 +1434,9 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) {
           rt.dropRoomStepEcho?.(id)
+          if (suppressedSubagent && !steerCut && rt.groupOwners.has(id)) {
+            void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(error => rt.warn('ds-bot: group report settle in %s failed: %s', id, error))
+          }
           break
         }
         // Flush any silent notes buffered while this Session was busy, once idle.
@@ -1502,6 +1520,13 @@ export function install(rt) {
         const retry = (wroteCall || promisedOnly) && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
         entry.retrying = retry
         if (retry) {
+          const onRetryFailed = (label, error) => {
+            entry.retrying = false
+            rt.warn(label, id, error)
+            if (rt.groupOwners.has(id)) {
+              void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(err => rt.warn('ds-bot: group report settle in %s failed: %s', id, err))
+            }
+          }
           if (promisedOnly) {
             const opening = stripWrittenCalls(lastText ?? '')
             if (opening !== '') {
@@ -1509,9 +1534,9 @@ export function install(rt) {
               void rt.roomStepText?.(id, info, opening, !shown)?.catch(() => {})
             }
             roomWaiters.get(info.exchangeId)?.touch()
-            void retryPromisedWork(id, info).catch(error => rt.warn('ds-bot: asking %s to run its promised work failed: %s', id, error))
+            void retryPromisedWork(id, info).catch(error => onRetryFailed('ds-bot: asking %s to run its promised work failed: %s', error))
           } else {
-            void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
+            void retryWrittenCall(id, info).catch(error => onRetryFailed('ds-bot: asking %s to run its written tool call failed: %s', error))
           }
         }
         const replyText = () => {
@@ -1635,7 +1660,11 @@ export function install(rt) {
         }
         // A retry keeps the line it just showed, so its own final can still fold into it.
         if (!echoed && !retry) rt.dropRoomStepEcho?.(id)
-        if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', id, error))
+        if (rt.groupOwners.has(id)) {
+          const roomId = rt.groupOwners.get(id).roomId
+          void rt.goalSettled?.(rt.roomOf(roomId)).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', id, error))
+          void rt.settleRoomReports?.(roomId).catch(error => rt.warn('ds-bot: group report settle in %s failed: %s', id, error))
+        }
         break
       }
     }

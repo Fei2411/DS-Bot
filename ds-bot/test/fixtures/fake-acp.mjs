@@ -329,6 +329,7 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/new': {
+        record('session/new', params)
         if (authRequired) { send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Authentication required' } }); break }
         const servers = params.mcpServers ?? []
         if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
@@ -371,6 +372,7 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/load': {
+        record('session/load', params)
         if (failLoad) { fail(id, 'session not found'); break }
         const servers = params.mcpServers ?? []
         if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
