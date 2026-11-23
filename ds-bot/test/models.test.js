@@ -812,6 +812,26 @@ test('a Bot keeps the model a newer read found when the listing its own read wai
   assert.equal(await older.read, 'deepseek/deepseek-v4-pro')
 })
 
+test('a listing that fails after its provider was removed and came back is not the returned provider\'s outage', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listProviders = rt.ctx.llm.listProviders
+  const older = heldListing(rt)
+  await older.asked
+  rt.ctx.llm.listProviders = () => listProviders().filter(provider => provider.id !== 'deepseek')
+  await rt.catalog({ fresh: true })
+  rt.ctx.llm.listProviders = listProviders
+  const newer = heldListing(rt)
+  await newer.asked
+  older.fail()
+  await older.read
+  assert.equal(warnings.length, 0)
+  newer.fail()
+  await newer.read
+  assert.equal(warnings.length, 1)
+})
+
 test('a read that began before the catalog now kept does not replace it', async () => {
   const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
   const older = heldListing(rt)

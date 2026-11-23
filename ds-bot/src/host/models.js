@@ -136,16 +136,18 @@ export function install(rt) {
   let unlisted = new Set()
   // Catalog reads overlap, and each takes its turn by when it began: `kept` is the
   // read whose catalog is cached, `roster` the providers the newest read began with,
-  // `listings` what the newest read to list each of them found. A read that began
-  // earlier never undoes what a later one found.
+  // each with the first read to see it since it was last absent, `listings` what the
+  // newest read to list each of them found. A read that began earlier never undoes
+  // what a later one found.
   let reads = 0
   let kept = 0
-  let roster = new Set()
+  let roster = new Map()
   const listings = new Map()
   // Whether this read is the first to meet the provider's outage: one line is logged.
   const listed = (id, read, failing) => {
     const last = listings.get(id)
-    if (!roster.has(id) || (last !== undefined && last.read > read)) return false
+    // A read from before the provider was last absent listed another registration.
+    if (!(roster.get(id) <= read) || last?.read > read) return false
     listings.set(id, { read, failing })
     return failing && last?.failing !== true
   }
@@ -231,7 +233,7 @@ export function install(rt) {
     const providers = service.listProviders()
     const read = ++reads
     // A provider that is gone has no outage: one that comes back failing is logged again.
-    roster = new Set(providers.map(provider => provider.id))
+    roster = new Map(providers.map(provider => [provider.id, roster.get(provider.id) ?? read]))
     for (const id of listings.keys()) if (!roster.has(id)) listings.delete(id)
     for (const provider of providers) {
       // A local-agent route owned by another adapter is not offered by DS Bot.
