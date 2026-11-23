@@ -86,7 +86,14 @@ async function startHost(t, { team = makeTeam(), forkImpl, pageEvents = {} } = {
       remove(msgId) {
         for (const list of [this.nextStep, this.nextTurn]) {
           const at = list.findIndex(item => item?.id === msgId)
-          if (at !== -1) { list.splice(at, 1); return true }
+          if (at !== -1) {
+            const [removed] = list.splice(at, 1)
+            // Match real DSH dsh-agent-loop: inbox.remove() synchronously emits agent/inbox/discarded.
+            for (const listener of ctx.listeners.get('agent/inbox/discarded') ?? []) {
+              listener({ agent, message: removed })
+            }
+            return true
+          }
         }
         return false
       },

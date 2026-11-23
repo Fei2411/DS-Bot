@@ -278,6 +278,11 @@ export function install(rt) {
     const joinable = earlier !== undefined
       && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, parentWork)))
     const before = joinable ? bodyOf(earlier.message) : undefined
+    // Snapshot prior inflight unread args BEFORE inbox.remove() synchronously emits
+    // `agent/inbox/discarded` (which clears `resume.js`'s queued tracking for exchangeId).
+    const prevUnread = before !== undefined
+      ? (rt.unreadOf?.(chat) ?? []).find(item => item?.exchangeId === earlier.message.source.exchangeId)
+      : undefined
     let long = length !== undefined && before === undefined
       ? { text, files, length }
       : await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Work from ${sender.name}.txt`)
@@ -329,7 +334,6 @@ export function install(rt) {
     let workRef = existingWork?.work?.ref
     const prevState = existingWork?.work?.state
     const prevPaused = existingWork?.work?.paused
-    const prevUnread = joins ? (rt.unreadOf?.(chat) ?? []).find(item => item?.exchangeId === exchangeId) : undefined
     const joinedWork = joins && !toUser ? rt.resolveWork?.(exchangeId)?.work : undefined
     const prevImOrigin = joinedWork?.imOrigin
     const prevImOriginMixed = joinedWork?.imOriginMixed

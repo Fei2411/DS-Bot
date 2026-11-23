@@ -652,7 +652,7 @@ export function install(rt) {
     if (source.silent === true) return true
     if (source.kind === SOURCE_KIND && ['note', 'cancelled', 'stopped', 'task-handoff'].includes(source.role)) return true
     if (source.form === 'snapshot') return true
-    return ['working-directory', 'runtime-context', 'bot-memory', 'skill-catalog', 'compact-checkpoint'].includes(source.kind)
+    return ['working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context', 'bot-memory', 'skill-catalog', 'compact-checkpoint'].includes(source.kind)
   }
   const hasWakingInboxInput = agent => Boolean(
     agent?.inbox?.nextTurn?.length
