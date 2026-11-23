@@ -258,10 +258,10 @@ export function install(rt) {
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
   ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
+    if (rt.isMovingInboxMessage?.(message?.id) === true) return
     const source = message?.source
     if (source?.kind === SOURCE_KIND && source.exchangeId) forgetQueued(source.exchangeId)
     if (source?.kind === SOURCE_KIND && (source.role === 'post' || source.role === 'goal') && typeof source.roomId === 'string') {
-      if (rt.isMovingInboxMessage?.(message?.id) === true) return
       rt.roomRelayDiscarded?.(source, agent?.id ?? agent?.session?.id)
     }
   })

@@ -1424,15 +1424,16 @@ export function install(rt) {
   // Track message ids DS Bot itself removes from an inbox in order to wake or forward
   // them during a part switch so `agent/inbox/discarded` never mistakes a move for a cancel.
   const movingInboxMessages = new Set()
-  const removeForMove = (agent, messages) => {
-    for (const message of messages) {
-      if (message?.id !== undefined) movingInboxMessages.add(message.id)
-      try {
-        agent.inbox.remove(message.id)
-      } finally {
-        if (message?.id !== undefined) movingInboxMessages.delete(message.id)
-      }
+  const removeMessageForMove = (agent, message) => {
+    if (message.id !== undefined) movingInboxMessages.add(message.id)
+    try {
+      return agent.inbox.remove(message.id)
+    } finally {
+      if (message.id !== undefined) movingInboxMessages.delete(message.id)
     }
+  }
+  const removeForMove = (agent, messages) => {
+    for (const message of messages) removeMessageForMove(agent, message)
   }
   const wake = (agent) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
@@ -2109,7 +2110,7 @@ export function install(rt) {
 
   // The newest turn/end among the Session's last events in memory.
   function lastTurnEnd(agent) {
-    const latest = agent.session.seq - 1
+    const latest = (agent.session?.seq ?? 0) - 1
     for (let seq = latest; seq >= Math.max(0, latest - 199); seq -= 1) {
       const event = agent.session.eventAt?.(seq)
       if (event?.type === 'turn/end') return event
@@ -2121,6 +2122,20 @@ export function install(rt) {
     if (!rescued.has(agent.id)) return
     const end = lastTurnEnd(agent)
     if (end !== undefined && end.data?.reason?.kind !== 'error') rescued.delete(agent.id)
+  }
+
+  function wakeFailedTurnInbox(agent, end) {
+    if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
+    const id = agent.id
+    if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const nextStep = agent.inbox?.nextStep ?? []
+    const target = nextTurn.length > 0 ? 'next-turn' : 'next-step'
+    const tail = target === 'next-turn' ? nextTurn.at(-1)
+      : nextStep.some(message => inboxTargetOf(message) === 'next-turn') ? nextStep.at(-1) : undefined
+    // DSH preserves pending input on error but stops its driver. Reinsert one message
+    // at the same position with wake enabled rather than duplicating or reordering it.
+    if (tail !== undefined && removeMessageForMove(agent, tail)) agent.send(tail, target, true)
   }
 
   ctx.effect(() => {
@@ -2147,7 +2162,14 @@ export function install(rt) {
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
-      void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      const end = lastTurnEnd(agent)
+      if (end?.data?.reason?.kind === 'error') {
+        // Let the old driver finish and replay any wake already latched on it.
+        void Promise.resolve().then(() => wakeFailedTurnInbox(agent, end))
+          .catch(error => rt.warn('ds-bot: waking queued input in %s after a failed turn failed: %s', agent.id, error))
+      } else {
+        void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      }
     }
   })
 
