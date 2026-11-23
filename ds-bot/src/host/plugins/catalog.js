@@ -2,6 +2,7 @@
 // and MCP argument/security validation for DS Bot's plugin system.
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
+import { request as httpsRequest } from 'node:https'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -221,7 +222,9 @@ export function validateMcpConfig(raw) {
     const packageSpec = typeof raw.packageSpec === 'string' ? raw.packageSpec.trim() : ''
     const command = typeof raw.command === 'string' ? raw.command.trim() : ''
     if (!packageSpec && !command) throw new Error('Enter a command or npm package for the stdio MCP plugin.')
-    if (/[\r\n\0]/.test(command) || /[\r\n\0]/.test(packageSpec)) throw new Error('Command must not contain control characters.')
+    if (command.includes('\0') || /[\r\n]/.test(command) || packageSpec.includes('\0') || /[\r\n]/.test(packageSpec)) {
+      throw new Error('Command must not contain control characters.')
+    }
     const args = Array.isArray(raw.args)
       ? raw.args.map(v => String(v))
       : typeof raw.args === 'string' ? splitArgs(raw.args) : []
@@ -329,6 +332,7 @@ export function expandSecretValue(text, secretValueOf) {
   })
 }
 
+let cachedRunnerKey = null
 let cachedRunner = null
 function hasExecutable(bin) {
   if (!bin) return false
@@ -343,16 +347,41 @@ function hasExecutable(bin) {
   }
 }
 
+export function parsePackageManagerEnv(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const command = typeof parsed.command === 'string' ? parsed.command.trim() : ''
+    if (!command) return null
+    const args = Array.isArray(parsed.args) ? parsed.args.map(v => String(v)) : []
+    const env = {}
+    if (parsed.env && typeof parsed.env === 'object' && !Array.isArray(parsed.env)) {
+      for (const [k, v] of Object.entries(parsed.env)) {
+        if (typeof v === 'string') env[k] = v
+      }
+    }
+    return { command, args, env }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Resolve how to launch an npm-packaged MCP preset (e.g. `@playwright/mcp@latest`),
- * preferring `npx` and falling back to bundled/system `pnpm dlx` when npm is absent.
+ * preferring `npx`, then desktop-bundled pnpm (`DS_BOT_PACKAGE_MANAGER`), then `DS_BOT_PNPM` / `pnpm` on PATH.
  */
-export function resolveMcpPresetCommand(mcp, { probe = hasExecutable, pnpmPath = process.env.DS_BOT_PNPM } = {}) {
+export function resolveMcpPresetCommand(mcp, {
+  probe = hasExecutable,
+  pnpmPath = process.env.DS_BOT_PNPM,
+  packageManager = parsePackageManagerEnv(process.env.DS_BOT_PACKAGE_MANAGER),
+} = {}) {
   if (mcp.command) return { command: mcp.command, args: [...(mcp.args ?? [])] }
   const pkg = mcp.packageSpec
   if (!pkg) throw new Error('MCP plugin has neither command nor packageSpec.')
   const extra = [...(mcp.args ?? [])]
-  if (probe === hasExecutable && cachedRunner !== null) {
+  const cacheKey = `${pnpmPath ?? ''}|${packageManager ? JSON.stringify(packageManager) : ''}`
+  if (probe === hasExecutable && cachedRunner !== null && cachedRunnerKey === cacheKey) {
     return cachedRunner(pkg, extra)
   }
   const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx'
@@ -360,6 +389,15 @@ export function resolveMcpPresetCommand(mcp, { probe = hasExecutable, pnpmPath =
   let runner
   if (probe(npxBin)) {
     runner = (spec, args) => ({ command: npxBin, args: ['-y', spec, ...args] })
+  } else if (packageManager?.command && probe(packageManager.command)) {
+    const pmArgs = [...(packageManager.args ?? [])]
+    const pmEnv = { ...(packageManager.env ?? {}) }
+    const hasPmEnv = Object.keys(pmEnv).length > 0
+    runner = (spec, args) => ({
+      command: packageManager.command,
+      args: [...pmArgs, 'dlx', spec, ...args],
+      ...(hasPmEnv ? { env: { ...pmEnv } } : {}),
+    })
   } else if (pnpmPath && probe(pnpmPath)) {
     runner = (spec, args) => ({ command: pnpmPath, args: ['dlx', spec, ...args] })
   } else if (probe(pnpmBin)) {
@@ -367,7 +405,10 @@ export function resolveMcpPresetCommand(mcp, { probe = hasExecutable, pnpmPath =
   } else {
     throw new Error('Neither npx nor pnpm is available on PATH to run this MCP plugin.')
   }
-  if (probe === hasExecutable) cachedRunner = runner
+  if (probe === hasExecutable) {
+    cachedRunnerKey = cacheKey
+    cachedRunner = runner
+  }
   return runner(pkg, extra)
 }
 
@@ -477,14 +518,127 @@ async function readBoundedText(response, maxBytes) {
   return buffer.toString('utf8')
 }
 
+// Perform an HTTPS GET whose TCP socket connects strictly to a DNS-validated public IP
+// (eliminating the DNS rebinding TOCTOU window between validation and connection).
+function httpsGetPinned(urlText, { dnsLookup = lookup, signal, maxBytes = MAX_REGISTRY_BYTES } = {}) {
+  const parsed = new URL(urlText)
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (err, value) => {
+      if (settled) return
+      settled = true
+      if (err) reject(err)
+      else resolve(value)
+    }
+
+    const pinnedLookup = (hostname, options, cb) => {
+      const bare = String(hostname ?? '').toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '')
+      const ipVer = isIP(bare)
+      if (ipVer) {
+        if (isPrivateIpAddress(bare)) {
+          cb(new Error('Plugin registry URLs cannot target private IP addresses.'))
+          return
+        }
+        if (options?.all) cb(null, [{ address: bare, family: ipVer }])
+        else cb(null, bare, ipVer)
+        return
+      }
+      Promise.resolve(dnsLookup(bare, { all: true })).then((records) => {
+        if (!Array.isArray(records) || records.length === 0) {
+          cb(new Error(`Could not resolve registry host "${bare}".`))
+          return
+        }
+        for (const rec of records) {
+          if (isPrivateIpAddress(rec.address)) {
+            cb(new Error(`Registry host "${bare}" resolved to a private IP address.`))
+            return
+          }
+        }
+        const validated = records.map(rec => ({
+          address: rec.address,
+          family: rec.family ?? (isIP(rec.address) || 4),
+        }))
+        if (options?.all) cb(null, validated)
+        else cb(null, validated[0].address, validated[0].family)
+      }, err => cb(err))
+    }
+
+    const req = httpsRequest({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || undefined,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+      servername: parsed.hostname,
+      lookup: pinnedLookup,
+      headers: {
+        Host: parsed.host,
+        Accept: 'application/json',
+        'User-Agent': 'DS-Bot-Plugin-Catalog/1',
+      },
+      signal,
+    }, (res) => {
+      const status = res.statusCode ?? 0
+      if (status >= 300 && status < 400) {
+        const location = typeof res.headers.location === 'string' ? res.headers.location : null
+        res.resume()
+        finish(null, { status, location, text: '' })
+        return
+      }
+      if (status < 200 || status >= 300) {
+        res.resume()
+        finish(new Error(`Registry responded with HTTP ${status}.`))
+        return
+      }
+      const lengthHeader = Number(res.headers['content-length'])
+      if (Number.isFinite(lengthHeader) && lengthHeader > maxBytes) {
+        res.destroy()
+        finish(new Error('Plugin registry response exceeds 1 MB limit.'))
+        return
+      }
+      const chunks = []
+      let total = 0
+      res.on('data', (chunk) => {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        total += bytes.byteLength
+        if (total > maxBytes) {
+          res.destroy()
+          finish(new Error('Plugin registry response exceeds 1 MB limit.'))
+          return
+        }
+        chunks.push(bytes)
+      })
+      res.on('end', () => {
+        finish(null, { status, location: null, text: Buffer.concat(chunks, total).toString('utf8') })
+      })
+      res.on('error', err => finish(err))
+    })
+
+    req.on('error', err => finish(err))
+    req.end()
+  })
+}
+
 async function fetchJsonWithGuard(rawUrl, { fetchImpl = globalThis.fetch, dnsLookup = lookup, signal, allowHttp = false } = {}) {
   let currentUrl = validateRegistryUrl(rawUrl, { allowHttp })
   for (let hops = 0; hops <= MAX_REDIRECTS; hops += 1) {
-    if (!allowHttp && fetchImpl === globalThis.fetch) {
-      await assertPublicDns(currentUrl, { dnsLookup })
-    }
     const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS)
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
+
+    // Real HTTPS traffic uses pinned-DNS `https.request` so the validated IP is the exact IP connected to.
+    if (!allowHttp && fetchImpl === globalThis.fetch) {
+      const res = await httpsGetPinned(currentUrl, { dnsLookup, signal: combined, maxBytes: MAX_REGISTRY_BYTES })
+      if (res.status >= 300 && res.status < 400) {
+        if (!res.location || hops === MAX_REDIRECTS) throw new Error('Too many redirects while fetching plugin registry.')
+        currentUrl = validateRegistryUrl(new URL(res.location, currentUrl).toString(), { allowHttp })
+        continue
+      }
+      return JSON.parse(res.text)
+    }
+
+    if (!allowHttp && dnsLookup !== lookup) {
+      await assertPublicDns(currentUrl, { dnsLookup })
+    }
     const response = await fetchImpl(currentUrl, {
       method: 'GET',
       redirect: 'manual',
@@ -596,6 +750,16 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
     return snapshot
   }
 
+  async function hydrate() {
+    if (memoryCache) return memoryCache
+    const disk = await readDiskCache()
+    if (disk) {
+      memoryCache = disk
+      return disk
+    }
+    return peek()
+  }
+
   function peek() {
     if (memoryCache) return memoryCache
     return {
@@ -607,5 +771,5 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
     }
   }
 
-  return { load, peek }
+  return { load, peek, hydrate }
 }
