@@ -15,22 +15,32 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, asker } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, asker, workRef } = {}) => {
+    const tag = workRef ? ` #${workRef}` : ''
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
+    // Silent one-way notices keep their exact header regardless of deferred/resent flags.
+    if (role === 'cancelled') return `[Work${tag} cancelled by ${fromName} · no reply needed]`
+    if (role === 'note') return `[Note from ${fromName} · FYI only, no reply needed]`
+    if (role === 'stopped') return `[Stopped by ${fromName} · no reply needed]`
     // A wait the user gave up reads as its own thing: the other Bot never answered.
     if (abandoned) return `[Waiting given up · ${fromName} did not hand back this work; go on with the work it was for${goesOn}]`
-    if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
+    if (deferred && role === 'reply') return `[Work${tag} completed by ${fromName} · closed · you read it during your last task; go on with the work it is for now${goesOn}]`
+    if (deferred && role === 'ask_back') return `[Work${tag} · ${fromName} asked during your last task${goesOn} · call answer_work to unblock or cancel_work to stop]`
+    if (deferred && role === 'answer') return `[Work${tag} · ${fromName} answered during your last task · continue and reply when done]`
     if (deferred && role === 'report') return `[Group chat "${roomName}" · replies to your post · you read them during your last task; go on with the work they are for now${goesOn}]`
     if (deferred && role === 'task-report') return `[Background task report · you read it during your last task; go on with the work it is for now${goesOn}]`
-    if (deferred && role !== 'room') return `[Message from ${fromName} · you read it during your last task; answer it now]`
+    if (deferred && role !== 'room') return `[Work${tag} from ${fromName} · you read it during your last task; complete it now]`
     if (retried && role !== 'room') return '[Your last reply wrote a tool call as text, so nothing ran]'
     if (resumed && role === 'resume') return '[DeepSeek Harness restarted while you were working]'
-    if (resumed && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted while you were working on it]`
-    if (resent && role === 'reply') return `[Reply from ${fromName} · DeepSeek Harness restarted before it could reach you]`
-    if (resent && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted before it could reach you]`
-    if (role === 'reply') return `[Reply from ${fromName}${goesOn}]`
-    if (role === 'stopped') return `[Stopped by ${fromName}]`
+    if (resumed && role !== 'room') return `[Work${tag} from ${fromName} · DeepSeek Harness restarted while you were working on it]`
+    if (resent && role === 'reply') return `[Work${tag} completed by ${fromName} · DeepSeek Harness restarted before it could reach you]`
+    if (resent && role === 'ask_back') return `[Work${tag} · ${fromName} asks before continuing · DeepSeek Harness restarted before it could reach you · call answer_work or cancel_work]`
+    if (resent && role === 'answer') return `[Work${tag} · ${fromName} answered your question · DeepSeek Harness restarted before it could reach you · continue and reply when done]`
+    if (resent && role !== 'room') return `[Work${tag} from ${fromName} · DeepSeek Harness restarted before it could reach you]`
+    if (role === 'reply') return `[Work${tag} completed by ${fromName} · closed${goesOn}; reply [PASS] if nothing needs to be told to the user]`
+    if (role === 'ask_back') return `[Work${tag} · ${fromName} asks before continuing${goesOn} · call answer_work to unblock or cancel_work to stop]`
+    if (role === 'answer') return `[Work${tag} · ${fromName} answered your question · continue and reply when done]`
     if (role === 'room') return `[Group chat "${roomName}" · ${note}]`
     if (role === 'report') return `[Group chat "${roomName}" · replies to your post${goesOn}]`
     if (role === 'kickoff') return '[Bot team setup]'
@@ -42,12 +52,83 @@ export function install(rt) {
     if (role === 'task') return `[Background task · ${note}]`
     if (role === 'task-followup') return `[Follow-up from your own chat · ${note}]`
     if (role === 'task-report') return `[Background task report · ${note}${goesOn}]`
-    if (audience === 'user') return `[Message from ${fromName} · the user sees your reply here]`
-    return `[Message from ${fromName}]`
+    if (audience === 'user') return `[Work from ${fromName} · the user sees your reply here]`
+    return `[Work${tag} from ${fromName} · reply closes work; call ask_back if blocked]`
+  }
+
+  // Silent (zero-wake) messages buffered while a target Session is busy.
+  // In real DSH (`dsh-agent-loop`), `agent.inject()` puts messages into `inbox.nextStep`,
+  // which while `agent.status === 'running'` forces an extra step or starts a spurious
+  // turn when checked at `turnEnds`. Buffering until idle guarantees true zero-wake.
+  const PENDING_SILENT_MAX = 50
+  const pendingSilent = new Map()
+  const flushingSilent = new Set()
+  const isBusyAgent = (agent, sessionId) => agent?.status === 'running' || rt.live?.get(sessionId)?.turn !== undefined
+  const waitIdleBriefly = (agent, timeoutMs = 2000) => {
+    if (typeof agent?.whenIdle !== 'function') return Promise.resolve()
+    return new Promise((resolve) => {
+      let settled = false
+      const done = () => { if (!settled) { settled = true; clearTimeout(timer); resolve() } }
+      const timer = setTimeout(done, timeoutMs)
+      timer?.unref?.()
+      Promise.resolve(agent.whenIdle()).then(done, done)
+    })
+  }
+  const bufferSilent = (sessionId, message, agent) => {
+    const list = pendingSilent.get(sessionId) ?? []
+    const exchangeId = message?.source?.exchangeId
+    if (exchangeId !== undefined && list.some(item => item?.source?.exchangeId === exchangeId)) return
+    list.push(message)
+    if (list.length > PENDING_SILENT_MAX) list.splice(0, list.length - PENDING_SILENT_MAX)
+    pendingSilent.set(sessionId, list)
+    if (typeof agent?.whenIdle === 'function') {
+      void Promise.resolve(agent.whenIdle()).then(() => flushSilentNotes(sessionId)).catch(() => {})
+    }
+  }
+  async function flushSilentNotes(sessionId) {
+    if (!pendingSilent.has(sessionId) || flushingSilent.has(sessionId)) return
+    if (rt.live?.get(sessionId)?.turn !== undefined) return
+    flushingSilent.add(sessionId)
+    try {
+      const agent = await resolveAgent(sessionId).catch(() => undefined)
+      if (agent === undefined) {
+        if (rt.selfOf?.(sessionId) === undefined) pendingSilent.delete(sessionId)
+        return
+      }
+      if (isBusyAgent(agent, sessionId)) {
+        if (typeof agent.whenIdle === 'function') {
+          void Promise.resolve(agent.whenIdle()).then(() => flushSilentNotes(sessionId)).catch(() => {})
+        }
+        return
+      }
+      const queued = pendingSilent.get(sessionId)
+      if (queued === undefined || queued.length === 0) return
+      pendingSilent.delete(sessionId)
+      for (const message of queued) agent.inject(message)
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      rt.warn('ds-bot: flushing silent notes for %s failed: %s', sessionId, error)
+    } finally {
+      flushingSilent.delete(sessionId)
+    }
+  }
+  const takeSilentNotes = (sessionId) => {
+    const queued = pendingSilent.get(sessionId)
+    if (queued === undefined) return []
+    pendingSilent.delete(sessionId)
+    return queued
+  }
+  const injectSilent = (sessionId, message, agent) => {
+    if (isBusyAgent(agent, sessionId)) {
+      bufferSilent(sessionId, message, agent)
+      return false
+    }
+    agent.inject(message)
+    return true
   }
 
   // Roles recorded as team exchanges.
-  const EXCHANGE_ROLES = new Set(['request', 'reply', 'stopped'])
+  const EXCHANGE_ROLES = new Set(['request', 'reply', 'stopped', 'ask_back', 'answer', 'cancelled', 'note'])
 
   // What two Bots say to each other is in the book of the pair (ledger.js), whole, written
   // before the message goes out. A message is shown once a record says it was delivered.
@@ -130,13 +211,14 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, taskId, imOrigin, failureRequestId }) {
+  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
     const fromName = senderName ?? from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
+    const resolvedWorkRef = workRef ?? rt.workRefOf?.(role === 'reply' ? replyTo : askWork ?? work ?? exchangeId)
     // Session events reject `undefined` members, so optional fields are omitted instead.
     const source = {
       kind: SOURCE_KIND,
@@ -144,7 +226,10 @@ export function install(rt) {
       role,
       exchangeId,
       senderName: fromName,
+      ...(wake === false ? { silent: true } : {}),
       ...(work ? { work } : {}),
+      ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}),
+      ...(askWork ? { askWork } : {}),
       ...(taskId ? { taskId } : {}),
       ...(imOrigin ? { imOrigin } : {}),
       ...(fromId ? { senderSessionId: fromId } : {}),
@@ -163,26 +248,39 @@ export function install(rt) {
     // On disk before it goes out: a message the book could not keep is not sent, so none is
     // delivered with no record of it. A resend keeps the record it has; only a merged request
     // replaces it with its added text.
-    const book = fromId !== undefined && from !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(fromId, toId) : undefined
+    const bookPeer = fromId !== undefined && from !== undefined
+      ? fromId
+      : (pairFrom !== undefined && rt.botOf(pairFrom) !== undefined ? pairFrom : undefined)
+    const book = bookPeer !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(bookPeer, toId) : undefined
     if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
-      rt.ledger.append(book, { id: exchangeId, from: fromId, to: toId, role, text, time: Date.now(), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
+      rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
       await rt.ledger.written(book)
     }
     await rt.ensureCapabilities(targetSessionId)
     const agent = await resolveAgent(targetSessionId)
-    // A steered message cuts into a running turn at its next step; a follow-up
-    // queues for the next turn (see turns.js for how each is routed).
+    // A non-waking note/cancel injects model-facing context ONLY while the target is idle
+    // (buffering until idle if the target is currently running, so DSH never runs an extra
+    // model step or starts a spurious turn). A steered message cuts into a running turn at
+    // its next step; a follow-up queues.
     const message = createUserMessage({
       content: [
-        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, asker })}\n${text}` },
+        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, asker, workRef: resolvedWorkRef })}\n${text}` },
         ...images.map(attachment => ({ type: 'image', attachment })),
         ...files.map(attachment => ({ type: 'file', attachment })),
       ],
       source,
     })
-    if (steer) agent.steer(message)
-    else agent.followup(message)
-    await ctx.sessions.flush(agent.session)
+    if (wake === false) {
+      if (afterCancel && isBusyAgent(agent, targetSessionId)) await waitIdleBriefly(agent)
+      if (injectSilent(targetSessionId, message, agent)) await ctx.sessions.flush(agent.session)
+    } else {
+      if (!isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)) {
+        for (const silent of takeSilentNotes(targetSessionId)) agent.inject(silent)
+      }
+      if (steer) agent.steer(message)
+      else agent.followup(message)
+      await ctx.sessions.flush(agent.session)
+    }
     if (book !== undefined) {
       rt.ledger.append(book, {
         event: 'delivered',
@@ -283,5 +381,5 @@ export function install(rt) {
     return { ...record, ledger: true }
   }
 
-  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered })
+  Object.assign(rt, { resolveAgent, deliver, flushSilentNotes, takeSilentNotes, injectSilent, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered })
 }

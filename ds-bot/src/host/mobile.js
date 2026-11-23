@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
@@ -243,6 +243,8 @@ export function install(rt) {
     const botId = rt.chatOwners.get(id)
     if (botId === undefined || rt.taskOwners?.has(id) || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
     const text = textOf(event.data?.message?.content)
+    const info = rt.live?.get(id)?.info
+    if (info?.kind === SOURCE_KIND && info.audience !== 'user' && isSilentTurnText(text)) return
     // The fixed reply that opens a fresh part is not the Bot speaking.
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })
   })

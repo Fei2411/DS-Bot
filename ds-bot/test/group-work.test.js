@@ -174,12 +174,12 @@ test('work past the grace lets the round go on, and the member that asked answer
 // 公开#165: asked in a group to hand out work, Chief sent it with message_bot. Members
 // did it in their own chats, apart from the group (Bots outside the group too), and
 // again when called in the group.
-test('message_bot from a group to one of its members calls it there, as "@Name" would', async (t) => {
+test('delegate_work from a group to one of its members calls it there, as "@Name" would', async (t) => {
   const host = await start(t)
   const first = host.round('c1', host.say('@Chief 安排一下文档'))
   await settle(() => host.agentOf('ga').calls.length === 1)
   host.begin('ga')
-  const sent = await host.tool('message_bot', { to: 'Writer', message: '把文档整理好' }, 'ga')
+  const sent = await host.tool('delegate_work', { to: 'Writer', goal: '把文档整理好' }, 'ga')
   assert.match(sent, /^Called Writer in "Ops"/)
   host.finish('ga', '安排好了。')
   await settle(() => host.agentOf('gb').calls.length === 1)
@@ -227,7 +227,7 @@ test('a member\'s group Session runs on the member\'s model and thinking level',
   await settle(() => first() !== undefined)
 })
 
-test('message_bot from a member the round moved on from calls the other member in a round of its own', async (t) => {
+test('delegate_work from a member the round moved on from calls the other member in a round of its own', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
   const first = host.round('c1', host.say('@Writer 整理文档'))
@@ -236,7 +236,7 @@ test('message_bot from a member the round moved on from calls the other member i
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'write', arguments: '{}' })
   t.mock.timers.tick(ROOM_WORK_GRACE_MS)
   await settle(() => first() !== undefined)
-  await host.tool('message_bot', { to: 'Tester', message: '帮我测一下' }, 'gb')
+  await host.tool('delegate_work', { to: 'Tester', goal: '帮我测一下' }, 'gb')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const post = host.takePost()
   assert.deepEqual([post.source.progress, text(post)], [true, '[Group post from Writer]\n@Tester 帮我测一下'])
@@ -248,11 +248,11 @@ test('message_bot from a member the round moved on from calls the other member i
   assert.deepEqual(host.agentOf('c').calls, [])
 })
 
-test('message_bot from a group does not reach a Bot outside it', async (t) => {
+test('delegate_work from a group does not reach a Bot outside it', async (t) => {
   const host = await start(t, { members: ['a', 'b'], sessions: { a: 'ga', b: 'gb' } })
-  await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '帮忙测一下' }, 'ga'),
+  await assert.rejects(host.tool('delegate_work', { to: 'Tester', goal: '帮忙测一下' }, 'ga'),
     { message: 'Not sent: Tester is not in "Ops", and work for this group stays in it. Ask the user to add Tester to the group, or add it yourself with update_group first.' })
-  await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '帮忙测一下' }, 'gb'),
+  await assert.rejects(host.tool('delegate_work', { to: 'Tester', goal: '帮忙测一下' }, 'gb'),
     { message: 'Not sent: Tester is not in "Ops", and work for this group stays in it. Ask the user to add Tester to the group.' })
   assert.deepEqual([host.agentOf('c').calls, host.agentOf('r1').calls], [[], []])
 })
@@ -268,16 +268,16 @@ test('ordinary group admins keep the guidance to edit their own group', async (t
   await settle(() => done() !== undefined)
 })
 
-test('a Bot a post called by name gets no message_bot in that turn', async (t) => {
+test('a Bot a post called by name gets no delegate_work in that turn', async (t) => {
   const host = await start(t)
   host.emit('a', 'turn/start', { turn: 1 })
   await host.tool('post_to_group', { group: 'Ops', message: '@Writer 整理文档' }, 'a')
-  await assert.rejects(host.tool('message_bot', { to: 'Writer', message: '整理文档' }, 'a'), /^Error: Not sent: you called Writer in "Ops" in this turn/)
+  await assert.rejects(host.tool('delegate_work', { to: 'Writer', goal: '整理文档' }, 'a'), /^Error: Not sent: you called Writer in "Ops" in this turn/)
   assert.deepEqual(host.agentOf('b').calls, [])
-  assert.match(await host.tool('message_bot', { to: 'Tester', message: '准备测试' }, 'a'), /^Delivered to Tester/)
+  assert.match(await host.tool('delegate_work', { to: 'Tester', goal: '准备测试' }, 'a'), /^Delegated work #W\d+ to Tester/)
   host.emit('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   host.emit('a', 'turn/start', { turn: 2 })
-  assert.match(await host.tool('message_bot', { to: 'Writer', message: '进度如何？' }, 'a'), /^Delivered to Writer/)
+  assert.match(await host.tool('delegate_work', { to: 'Writer', goal: '进度如何？' }, 'a'), /^Delegated work #W\d+ to Writer/)
 })
 
 test('read_group_chat shows a Bot named "User" apart from the user', async (t) => {
@@ -375,7 +375,7 @@ test('late work the user asked for directly ends without a post once its result 
 
 test('replies a post waits for are work handed on: the answer to the Bot that asked waits for them and carries them', async (t) => {
   const host = await start(t)
-  await host.tool('message_bot', { to: 'Chief', message: '让群里看一下文档' }, 'c')
+  await host.tool('delegate_work', { to: 'Chief', goal: '让群里看一下文档' }, 'c')
   host.begin('a')
   const posted = await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a')
   assert.match(posted, /your answer goes to Tester once all of it is back\.$/)
@@ -396,14 +396,14 @@ test('replies a post waits for are work handed on: the answer to the Bot that as
   assert.match(text(report), /^\[Group chat "Ops" · replies to your post · for the work Tester asked you for; your answer goes to Tester once everything you handed on is back\]/)
   host.finish('a', 'Writer 看过了，没问题。')
   await settle(() => host.agentOf('c').calls.length === 1)
-  assert.equal(text(host.agentOf('c').calls[0]), '[Reply from Chief]\nWriter 看过了，没问题。\n\n[Handed back to Chief for this work]\n\nGroup "Ops":\nReplies to your post (oldest first):\nWriter: 文档没问题。')
+  assert.match(text(host.agentOf('c').calls[0]), /^\[Work #W\d+ completed by Chief[^\n]*\]\nWriter 看过了，没问题。\n\n\[Handed back to Chief for this work\]\n\nGroup "Ops":\nReplies to your post \(oldest first\):\nWriter: 文档没问题。$/)
 })
 
 // A group post's report comes back even after the user gave up the wait: it is the
 // late answer it is, and it opens no work again.
 test('replies that arrive after the wait for a group was given up come back marked late', async (t) => {
   const host = await start(t)
-  await host.tool('message_bot', { to: 'Chief', message: '让群里看一下文档' }, 'c')
+  await host.tool('delegate_work', { to: 'Chief', goal: '让群里看一下文档' }, 'c')
   host.begin('a')
   await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a')
   host.finish('a', '已经让 Writer 去看了。')
@@ -761,7 +761,7 @@ test('a long post calls a member named past the preview, and the preview stays t
   assert.equal(message.indexOf('@Tester'), LONG_HEAD)
   assert.ok(message.length > MESSAGE_INLINE_MAX)
   await host.tool('post_to_group', { group: 'Ops', message }, 'a')
-  await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '再看一眼' }, 'a'), /^Error: Not sent: you called Tester in "Ops" in this turn/)
+  await assert.rejects(host.tool('delegate_work', { to: 'Tester', goal: '再看一眼' }, 'a'), /^Error: Not sent: you called Tester in "Ops" in this turn/)
   const post = host.takePost()
   assert.deepEqual(post.source.mentions, { ids: ['c'], all: false })
   assert.equal(post.source.length, message.length)
@@ -1073,7 +1073,7 @@ test('a reply to a message a group Session sent comes back there, and its turn p
   host.emit('c', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => host.agentOf('gb').calls.length === 1)
   assert.deepEqual(host.agentOf('b').calls, [])
-  assert.match(text(host.begin('gb')), /^\[Reply from Tester\]\nok/)
+  assert.match(text(host.begin('gb')), /^\[Work(?:\s+#W\d+)? completed by Tester[^\n]*\]\nok/)
   host.finish('gb', 'Tester 说可以，我继续。')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const post = host.takePost()
@@ -1597,7 +1597,7 @@ test('deleting a working Bot clears its activity and tells the Bots waiting for 
   for (const [to, exchangeId] of [['a', 'x1'], ['c', 'x2']]) {
     const reply = host.agentOf(to).calls[0]
     assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
-    assert.equal(text(reply), '[Reply from Writer]\nWriter was deleted before it could answer your message.')
+    assert.match(text(reply), /^\[Work(?:\s+#W\d+)? completed by Writer[^\n]*\]\nWriter was deleted before it could answer your message\.$/)
   }
   // The stopped turn ends after the delete; it brings nothing back.
   host.emit('b', 'turn/start', { turn: 2 })
@@ -1797,17 +1797,17 @@ test('a late member that passes on the promise retry still hands the work back (
   assert.deepEqual([post.source.done, post.source.askedBy], [true, 'a'])
 })
 
-// Progress-based loop guard: consecutive 0-tool ack/repetitive relays pause after 6
+// Progress-based loop guard: consecutive 0-tool ack/repetitive relays pause after 2
 // turns and park the next call in room.paused, whereas tool calls reset the counter.
 // #872: the parked calls wait for the user, not for the next round of any kind.
-test('consecutive 0-tool ack ping-pong relays pause after 6 turns and go on only when the user writes', async (t) => {
+test('consecutive 0-tool ack ping-pong relays pause after 2 turns and go on only when the user writes', async (t) => {
   const host = await start(t)
   const first = host.round('c1', host.say('@Chief 开始'))
   await settle(() => host.agentOf('ga').calls.length === 1)
   host.begin('ga')
   host.finish('ga', '@Writer 收到，辛苦了')
 
-  for (let step = 1; step <= 6; step += 1) {
+  for (let step = 1; step <= 2; step += 1) {
     const isWriter = step % 2 === 1
     const sessionId = isWriter ? 'gb' : 'ga'
     const target = isWriter ? '@Chief' : '@Writer'
@@ -1823,17 +1823,17 @@ test('consecutive 0-tool ack ping-pong relays pause after 6 turns and go on only
   const saved = () => JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1
   assert.deepEqual(saved().paused.map(entry => [entry.id, entry.idle]), [['b', true]])
   assert.match(await host.tool('read_group_chat', { group: 'Ops' }, 'a'),
-    /\[Paused: Chief and Writer went back and forth 6 times without progress \(no tool used, only thanks or repeats\)\. The calls to @Writer wait until the user writes here; do not call them again\.\]/)
+    /\[Paused: Chief and Writer went back and forth 2 times without progress \(no tool used, only thanks or repeats\)\. The calls to @Writer wait until the user writes here; do not call them again\.\]/)
 
   // A Bot's quiet late result opens a round, which leaves the parked call alone.
   const second = host.round('c2', { content: [{ type: 'text', text: '[Group post from Tester]\n测试跑完了' }], source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'x2', senderSessionId: 'c', senderName: 'Tester', roomId: 'r1', late: true, quiet: true } })
   await settle(() => second() !== undefined)
-  assert.equal(host.agentOf('gb').calls.length, 3)
+  assert.equal(host.agentOf('gb').calls.length, 1)
   assert.equal(saved().paused.length, 1)
 
   // The user's message brings the parked call back with the admin.
   const third = host.round('c3', host.say('好了，说正事'))
-  await settle(() => host.agentOf('gb').calls.length === 4 && host.agentOf('ga').calls.length === 5)
+  await settle(() => host.agentOf('gb').calls.length === 2 && host.agentOf('ga').calls.length === 3)
   assert.match(text(host.begin('gb')), /Chief mentioned you/)
   host.finish('gb', '[PASS]')
   host.begin('ga')

@@ -1714,6 +1714,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 [data-chat-flow-kind=assistant-step]+[data-step-process]:has(.bt-q-inline){margin-top:0!important}
 [data-chat-flow-kind=question-reply]:has(.bt-q-inline),[data-chat-group-key]:has([data-chat-flow-kind=question-reply] .bt-q-inline),[data-chat-group-key]:has(.bt-q-gone){margin-top:0!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
+.bt-dialog-log .bt-q-inline{margin:8px 0 4px}
+.bt-dialog-log .bt-q-inline .bt-work-pause{width:100%;max-width:100%}
+.bt-work-pause-goal{margin-top:6px;padding:6px 10px;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font-size:13px;line-height:18px;word-break:break-word}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
 .bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}

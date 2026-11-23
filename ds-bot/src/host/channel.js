@@ -144,7 +144,7 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -411,6 +411,18 @@ export function install(rt) {
         case 'abandon-work':
           await rt.load()
           if (rt.abandonWork?.(String(body.id ?? '')) !== true) return fail('That wait is no longer open', 'bot/stale')
+          return ok(true)
+        case 'resume-work':
+          await rt.load()
+          if (typeof body.id !== 'string' || body.id.trim() === '' || await rt.resumePausedWork?.(body.id.trim()) !== true) return fail('That paused work is no longer open', 'bot/stale')
+          return ok(true)
+        case 'cancel-work':
+          await rt.load()
+          if (typeof body.id !== 'string' || body.id.trim() === '' || await rt.cancelWorkByUser?.(body.id.trim(), typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined) !== true) return fail('That work is no longer open', 'bot/stale')
+          return ok(true)
+        case 'resume-room-pause':
+          await rt.load()
+          if (typeof body.roomId !== 'string' || body.roomId.trim() === '' || await rt.resumeRoomPause?.(body.roomId.trim()) !== true) return fail('That group is not paused', 'bot/stale')
           return ok(true)
         // The repair card's Retry, once the user fixed what failed the Bot's turn.
         case 'resume': {

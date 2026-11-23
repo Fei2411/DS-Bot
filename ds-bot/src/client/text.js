@@ -314,7 +314,7 @@ export const contentText = content => (content ?? [])
   .join('\n')
 // A name can contain brackets. Generated headers end at the newline; without a
 // newline, a legacy inline header still stops at its first closing bracket.
-export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
+export const HEADER = /^\[(Message from|Reply from|Work(?:\s+#W\d+)?(?:\s+from|\s+completed\s+by|\s+cancelled\s+by|\s+·)|Note from|Stopped by|Waiting given up|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
 export const currentPart = bot => bot.sessionId ?? bot.id
 // The prompts in a due scheduled task's message. DSH frames it for the model: one
 // task as `reminder_prompt_json: "…"`, several as `reminders_json: [{reminder_prompt}]`.
@@ -393,7 +393,7 @@ export function toolArgs(root) {
 // parts) are not events in the chat, nor is a request handed back after its line was
 // already shown: deferred, resumed after a restart, or retried after a tool call
 // written as text.
-const RELAY_ROLES = new Set(['request', 'reply', 'stopped'])
+const RELAY_ROLES = new Set(['request', 'reply', 'stopped', 'ask_back', 'answer'])
 export const isRelayContext = (data) => {
   const source = data?.source
   if (source === null || typeof source !== 'object' || source.kind !== 'bot' || source.handoff === true) return false
