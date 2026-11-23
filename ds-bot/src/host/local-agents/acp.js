@@ -444,6 +444,7 @@ export class AcpEngine {
         ? await this.loadSession(peer, { cwd, mcp, resumeId })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
+      session.resumed = loaded
       const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
       // Some agents list nothing on session/load: the session reads what this CLI
       // listed before rather than guessing a mode or model list.
