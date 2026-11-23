@@ -51455,6 +51455,11 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       return;
     }
     if (r?.canceled) return;
+    if (r?.needsProfileChoice) {
+      setFlowTracked("menu");
+      refreshSources();
+      return;
+    }
     if (r?.needsFullDiskAccess) setFlowTracked({ stage: "safari-permission", source, info: r });
     else if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else if (r?.running) setFlowTracked({ stage: "running", source });

@@ -89,7 +89,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
@@ -323,7 +323,7 @@ async function loadModules() {
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
-  ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL } = sources)
+  ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
   ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
@@ -904,7 +904,13 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportProbe, async (event, sourceId) => {
     assertWindow(event)
-    const source = await resolveImportSource(sourceId)
+    const id = String(sourceId ?? '')
+    let source = await resolveImportSource(id)
+    // After granting Full Disk Access, a named-only Safari setup replaces the pre-permission
+    // safari:Default placeholder; keep probing Safari's container directly so the card detects readiness.
+    if (!source && id === 'safari:Default' && process.platform === 'darwin') {
+      source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: false }
+    }
     if (!source) return { liveDebugReady: false, permissionGranted: false }
     const probed = await probeSource(source)
     if (source.engine === 'safari' && probed.permissionGranted && source.needsPermission) {
@@ -959,8 +965,27 @@ function handleIpc() {
     const controller = new AbortController()
     activeLiveImports.set(reqKey, controller)
     try {
-      const source = await resolveImportSource(sourceId)
+      const id = String(sourceId ?? '')
+      let source = await resolveImportSource(id)
       if (controller.signal.aborted) return { canceled: true }
+      // If the user started from the pre-permission safari:Default placeholder and just granted
+      // Full Disk Access, re-enumerate Safari profiles so named-only and multi-profile setups work.
+      if (id === 'safari:Default' && (!source || source.needsPermission)) {
+        const fresh = await refreshImportSources()
+        if (controller.signal.aborted) return { canceled: true }
+        const safariSources = fresh.filter((item) => item.engine === 'safari')
+        if (safariSources.length === 1) {
+          source = safariSources[0]
+        } else if (safariSources.length > 1) {
+          return { needsProfileChoice: true }
+        } else {
+          return {
+            ...cookieImports.store({ format: 'live', entries: 0, cookies: [], origins: [], skipped: [], warnings: [], info: {} }, { kind: 'safari', label: 'Safari', id: 'safari:Default' }),
+            restarted: false,
+            method: 'safari-binarycookies',
+          }
+        }
+      }
       if (!source) throw new Error('DS Bot: an unknown browser profile')
       let outcome
       try {

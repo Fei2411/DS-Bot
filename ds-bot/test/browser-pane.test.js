@@ -512,5 +512,21 @@ test('BrowserView enters safari-permission stage when live import reports needsF
   tree = inst.render()
   const cardNode = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'safari-permission')[0]
   assert.ok(cardNode, 'expected BrowserView to transition to safari-permission stage')
+
+  // When multi-profile Safari unlocks and live returns needsProfileChoice, return to refreshed ImportMenu.
+  let sourcesRefreshes = 0
+  imports.sources = async () => {
+    sourcesRefreshes += 1
+    return [
+      { id: 'safari:Default', name: 'Safari', label: 'Safari — Personal', cookieCount: 10 },
+      { id: 'safari:work-uuid', name: 'Safari', label: 'Safari — Work', cookieCount: 25 },
+    ]
+  }
+  imports.live = async () => ({ needsProfileChoice: true })
+  cardNode.props.onRetrySource()
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  assert.ok(allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0], 'expected return to refreshed ImportMenu')
+  assert.equal(sourcesRefreshes, 1)
   inst.unmount()
 })

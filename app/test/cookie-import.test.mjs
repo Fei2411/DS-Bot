@@ -373,22 +373,28 @@ test('applyCookies retries http:// overwrite and insecure SameSite=None, keeps s
   assert.equal(friendlyCookieError(new Error('Invalid cookie fields')), 'Invalid cookie fields')
 })
 
-test('toSetDetails and applyCookies wrap bare IPv6 hosts in brackets and match read-back keys', async () => {
+test('toSetDetails and applyCookies wrap bare IPv6 hosts in brackets and canonicalize expanded IPv6 read-back keys', async () => {
   const bare = toSetDetails({ name: 'sid', value: 'v', domain: '::1', path: '/app', secure: false })
   assert.equal(bare.url, 'http://[::1]/app')
   assert.equal(bare.domain, undefined)
 
-  const bracketed = toSetDetails({ name: 'sid2', value: 'v2', domain: '[2001:db8::1]', path: '/', secure: true })
-  assert.equal(bracketed.url, 'https://[2001:db8::1]/')
+  const expanded = toSetDetails({ name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true })
+  assert.equal(expanded.url, 'https://[2001:db8::1]/')
 
   const ses = fakeSession()
   const report = await applyCookies(ses, [
     { name: 'sid', value: 'v', domain: '::1', path: '/', secure: false },
-    { name: 'sid2', value: 'v2', domain: '[2001:db8::1]', path: '/', secure: true },
+    { name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true },
   ])
   assert.equal(report.stored, 2)
   assert.equal(report.dropped.length, 0)
   assert.equal(report.failed.length, 0)
+
+  // Site filtering also matches expanded and compressed IPv6 interchangeably.
+  assert.equal(filterCookiesBySites(
+    [{ name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/' }],
+    ['[2001:db8::1]'],
+  ).length, 1)
 
   // Bare IPv6 also parses cleanly through parseCookieFile.
   const parsed = parseCookieFile(JSON.stringify([{ name: 'v6', value: 'ok', domain: '::1', path: '/', secure: false }]))
@@ -397,37 +403,36 @@ test('toSetDetails and applyCookies wrap bare IPv6 hosts in brackets and match r
   assert.equal(parsed.cookies[0].domain, '[::1]')
 })
 
-test('CHIPS partitioned cookies are skipped in preview, pending store, and applyCookies instead of flattened', async () => {
-  const input = {
-    format: 'live',
-    entries: 2,
+test('CHIPS partitioned and opaque-partitioned cookies are skipped without overwriting same-key unpartitioned cookies', async () => {
+  // File parsing must NOT let a later partitioned cookie clobber an earlier unpartitioned login cookie.
+  const parsed = parseCookieFile(JSON.stringify({
     cookies: [
-      { name: 'plain', value: 'ok', domain: '.example.com', path: '/', secure: true },
-      { name: 'chips', value: 'secret-3p', domain: '.third.example', path: '/', secure: true, partitionKey: { topLevelSite: 'https://example.com', hasCrossSiteAncestor: true } },
+      { name: 'sid', value: 'real-login', domain: '.example.com', path: '/', secure: true },
+      { name: 'sid', value: 'iframe-part', domain: '.example.com', path: '/', secure: true, partitionKey: 'https://embedder.example' },
+      { name: 'opaque_c', value: 'opaque-val', domain: '.example.com', path: '/', secure: true, partitionKeyOpaque: true },
     ],
     origins: [],
-    skipped: [],
-    warnings: [],
-    info: {},
-  }
-  const split = splitPartitionedCookies(input.cookies)
-  assert.deepEqual(split.cookies.map((c) => c.name), ['plain'])
-  assert.deepEqual(split.skipped.map((s) => [s.name, s.code]), [['chips', 'partitioned']])
+  }))
+  assert.equal(parsed.cookies.length, 3)
+
+  const split = splitPartitionedCookies(parsed.cookies)
+  assert.deepEqual(split.cookies.map((c) => [c.name, c.value]), [['sid', 'real-login']])
+  assert.deepEqual(split.skipped.map((s) => [s.name, s.code]), [['sid', 'partitioned'], ['opaque_c', 'partitioned']])
 
   const store = new CookieImports()
-  const { id, preview } = store.store(input, { kind: 'chrome', label: 'Chrome — Default' })
+  const { id, preview } = store.store(parsed, { kind: 'file', label: 'state.json' })
   assert.equal(preview.cookies, 1)
-  assert.equal(preview.skipped.length, 1)
-  assert.equal(preview.skipped[0].name, 'chips')
-  assert.equal(preview.skipped[0].code, 'partitioned')
-  assert.equal(JSON.stringify(preview).includes('secret-3p'), false)
-  assert.deepEqual(store.take(id).cookies.map((c) => c.name), ['plain'])
+  assert.equal(preview.skipped.length, 2)
+  assert.equal(JSON.stringify(preview).includes('iframe-part'), false)
+  assert.equal(JSON.stringify(preview).includes('opaque-val'), false)
+  assert.deepEqual(store.take(id).cookies.map((c) => [c.name, c.value]), [['sid', 'real-login']])
 
-  // Direct applyCookies also refuses to flatten a partitioned cookie into Electron's jar.
+  // Direct applyCookies also refuses to flatten partitioned or opaque-partitioned cookies into Electron's jar.
   const ses = fakeSession()
-  const report = await applyCookies(ses, input.cookies)
+  const report = await applyCookies(ses, parsed.cookies)
   assert.equal(report.stored, 1)
   assert.equal(ses.stored.size, 1)
-  assert.equal(report.skipped.length, 1)
-  assert.equal(report.skipped[0].code, 'partitioned')
+  assert.equal([...ses.stored.values()][0].value, 'real-login')
+  assert.equal(report.skipped.length, 2)
+  assert.deepEqual(report.skipped.map((s) => s.code), ['partitioned', 'partitioned'])
 })

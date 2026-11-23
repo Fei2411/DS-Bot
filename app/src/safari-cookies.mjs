@@ -86,6 +86,8 @@ async function probeDir(dirPath) {
  * Inspect whether DS Bot can read Safari's cookie store on macOS.
  * Distinguishes TCC permission denial (EPERM/EACCES) from an absent store (ENOENT),
  * because existsSync() swallows EPERM and would wrongly hide Safari.
+ * Also recognizes Safari installations that only have named-profile cookie stores
+ * (WebKit/WebsiteDataStore/<UUID> or Safari/Profiles/<UUID>) without a default store.
  */
 export async function checkSafariAccess({ home = homedir(), containerLib = safariContainerLibrary(home), appPaths = SAFARI_APPS } = {}) {
   const containerCookie = join(containerLib, 'Cookies', 'Cookies.binarycookies')
@@ -99,9 +101,17 @@ export async function checkSafariAccess({ home = homedir(), containerLib = safar
     return { accessible: false, needsPermission: true, cookieFile: null }
   }
 
-  // Container directory itself can throw EPERM before reaching Cookies.binarycookies.
+  // Container directories can throw EPERM before reaching Cookies.binarycookies.
   const cookiesDirStatus = await probeDir(join(containerLib, 'Cookies'))
   if (cookiesDirStatus === 'permission') {
+    return { accessible: false, needsPermission: true, cookieFile: null }
+  }
+  const websiteDataStatus = await probeDir(join(containerLib, 'WebKit', 'WebsiteDataStore'))
+  if (websiteDataStatus === 'permission') {
+    return { accessible: false, needsPermission: true, cookieFile: null }
+  }
+  const profilesDirStatus = await probeDir(join(containerLib, 'Safari', 'Profiles'))
+  if (profilesDirStatus === 'permission') {
     return { accessible: false, needsPermission: true, cookieFile: null }
   }
   const containerRootStatus = await probeDir(dirname(dirname(containerLib)))
@@ -117,19 +127,31 @@ export async function checkSafariAccess({ home = homedir(), containerLib = safar
     return { accessible: false, needsPermission: true, cookieFile: null }
   }
 
+  // Container is readable without TCC denial: check if any named Safari profile has cookies.
+  const uuids = await scanProfileUuids(containerLib)
+  for (const uuid of uuids) {
+    const namedFile = await findSafariProfileCookieFile(containerLib, uuid)
+    if (namedFile) {
+      return { accessible: true, needsPermission: false, cookieFile: null, hasNamedProfiles: true }
+    }
+  }
+
+  const containerReadable = cookiesDirStatus === 'readable' || websiteDataStatus === 'readable' || profilesDirStatus === 'readable'
   return {
     accessible: false,
+    containerReadable,
     needsPermission: false,
     cookieFile: null,
     installed: appPaths.some((p) => existsSync(p)),
   }
 }
 
-function readCString(buf, base, relOffset, limit) {
-  if (relOffset <= 0 || base + relOffset >= limit) return ''
+function readStrictCString(buf, base, relOffset, limit) {
+  if (relOffset < COOKIE_HEADER_BYTES || base + relOffset >= limit) return null
   const start = base + relOffset
   let end = start
   while (end < limit && buf[end] !== 0) end += 1
+  if (end >= limit) return null // missing NUL terminator inside record bounds
   return buf.subarray(start, end).toString('utf8')
 }
 
@@ -180,12 +202,19 @@ export function parseBinaryCookies(input, { now = Date.now() / 1000 } = {}) {
 
     for (let j = 0; j < cookieCount; j += 1) {
       entryIndex += 1
+      const where = `entry ${entryIndex}`
       const relOffset = buf.readUInt32LE(pageOffset + 8 + j * 4)
       const cOff = pageOffset + relOffset
-      if (cOff < pageOffset || cOff + COOKIE_HEADER_BYTES > pageEnd) continue
+      if (cOff < pageOffset || cOff + COOKIE_HEADER_BYTES > pageEnd) {
+        skipped.push({ where, name: null, domain: null, code: 'corrupt', reason: 'corrupted Safari cookie record' })
+        continue
+      }
       const recordSize = buf.readUInt32LE(cOff)
-      if (recordSize < COOKIE_HEADER_BYTES) continue
-      const recordEnd = Math.min(cOff + recordSize, pageEnd)
+      if (recordSize < COOKIE_HEADER_BYTES || cOff + recordSize > pageEnd) {
+        skipped.push({ where, name: null, domain: null, code: 'corrupt', reason: 'corrupted Safari cookie record' })
+        continue
+      }
+      const recordEnd = cOff + recordSize
 
       const flags = buf.readUInt32LE(cOff + 8)
       const domainOff = buf.readUInt32LE(cOff + 16)
@@ -193,18 +222,23 @@ export function parseBinaryCookies(input, { now = Date.now() / 1000 } = {}) {
       const pathOff = buf.readUInt32LE(cOff + 24)
       const valueOff = buf.readUInt32LE(cOff + 28)
 
-      const domain = readCString(buf, cOff, domainOff, recordEnd).trim()
-      const name = readCString(buf, cOff, nameOff, recordEnd)
-      const path = readCString(buf, cOff, pathOff, recordEnd) || '/'
-      const value = readCString(buf, cOff, valueOff, recordEnd)
-      if (!domain || !name) continue
+      const rawDomain = readStrictCString(buf, cOff, domainOff, recordEnd)
+      const name = readStrictCString(buf, cOff, nameOff, recordEnd)
+      const rawPath = readStrictCString(buf, cOff, pathOff, recordEnd)
+      const value = readStrictCString(buf, cOff, valueOff, recordEnd)
+      const domain = rawDomain === null ? null : rawDomain.trim()
+      if (!domain || !name || rawPath === null || value === null) {
+        skipped.push({ where, name: name || null, domain: domain || null, code: 'corrupt', reason: 'corrupted Safari cookie record' })
+        continue
+      }
+      const path = rawPath || '/'
 
       const expiryRaw = buf.readDoubleLE(cOff + 40)
       let expires
       if (Number.isFinite(expiryRaw) && expiryRaw !== 0) {
         expires = expiryRaw + MAC_EPOCH_OFFSET
         if (expires <= now) {
-          skipped.push({ where: `entry ${entryIndex}`, name, domain, code: 'expired', reason: 'already expired' })
+          skipped.push({ where, name, domain, code: 'expired', reason: 'already expired' })
           continue
         }
       }

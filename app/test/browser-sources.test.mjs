@@ -931,9 +931,12 @@ test('readFirefoxSqliteCookies adapts to schema 14, 15 (no rawSameSite), 16+ (ms
     ins14.run('.example.com', 'ss_lax', 'v1', '/', 0, 1, 1900000000, 1, 1, '')
     ins14.run('.example.com', 'ss_strict', 'v2', '/', 1, 1, 1900000000, 2, 2, '')
     ins14.run('.example.com', 'ss_unset', 'v3', '/', 0, 1, 1900000000, 3, 0, '')
+    ins14.run('.example.com', 'ss_lax_default_unset', 'v4', '/', 0, 1, 1900000000, 1, 0, '')
     ins14.run('.example.com', 'expired_old', 'old', '/', 0, 1, 1500000000, 1, 1, '')
     ins14.run('.example.com', 'container_tok', 'c', '/', 1, 1, 1900000000, 1, 1, '^userContextId=2')
+    ins14.run('.example.com', 'container_and_part', 'cp', '/', 1, 1, 1900000000, 0, 0, '^userContextId=2&partitionKey=%28https%2Ctop.example%29')
     ins14.run('.example.com', 'dfpi_tok', 'p', '/', 1, 1, 1900000000, 0, 0, '^partitionKey=%28https%2Ctop.example%29')
+    ins14.run('.example.com', 'dfpi_multi_attr', 'p2', '/', 1, 1, 1900000000, 0, 0, '^firstPartyDomain=a.example&partitionKey=%28https%2Ctop.example%29')
     db14.close()
 
     const r14 = readFirefoxSqliteCookies(db14Path, { now: 1700000000 })
@@ -943,11 +946,14 @@ test('readFirefoxSqliteCookies adapts to schema 14, 15 (no rawSameSite), 16+ (ms
       ['ss_lax', 'Lax', 1900000000],
       ['ss_strict', 'Strict', 1900000000],
       ['ss_unset', undefined, 1900000000],
+      ['ss_lax_default_unset', undefined, 1900000000],
     ])
     assert.deepEqual(r14.skipped.map((s) => [s.name, s.code]), [
       ['expired_old', 'expired'],
       ['container_tok', 'container'],
+      ['container_and_part', 'container'],
       ['dfpi_tok', 'partitioned'],
+      ['dfpi_multi_attr', 'partitioned'],
     ])
 
     // Schema 15: rawSameSite column removed
@@ -1010,6 +1016,9 @@ test('userDataRoots includes Linux Snap and Flatpak paths for Firefox and Zen', 
   assert.ok(roots.firefox.includes('/home/user/.var/app/org.mozilla.firefox/.mozilla/firefox'))
   assert.ok(roots.zen.includes('/home/user/.zen'))
   assert.ok(roots.zen.includes('/home/user/.var/app/app.zen_browser.zen/.zen'))
+
+  const winRoots = await userDataRoots({ platformOverride: 'win32', homeOverride: 'C:\\Users\\Public', envOverride: {} })
+  assert.ok(winRoots.firefox.includes('C:\\Users\\Public\\AppData\\Roaming\\Mozilla\\Firefox'))
 })
 
 test('snapshotSqliteDatabase and cloneCookieStore use atomic VACUUM INTO to capture live WAL frames and preserve user_version', async () => {
@@ -1158,4 +1167,130 @@ test('importFromBrowser and probeSource handle Safari binarycookies and Full Dis
   const probed = await probeSource(source)
   assert.equal(probed.liveDebugReady, false)
   assert.equal(probed.permissionGranted, false)
+})
+
+test('snapshotSqliteDatabase throws locked on exclusive SQLite lock and cloneCookieStore clears stale WAL sidecars on non-SQLite fallback', async () => {
+  const root = await tempRoot()
+  const work = await cloneWorkDir()
+  let locker
+  try {
+    const profileDir = join(root.dir, 'Profiles', 'locked.default')
+    await mkdir(profileDir, { recursive: true })
+    const dbPath = join(profileDir, 'cookies.sqlite')
+    locker = new DatabaseSync(dbPath)
+    locker.exec("CREATE TABLE moz_cookies (host TEXT); INSERT INTO moz_cookies VALUES ('.a.example');")
+    locker.exec("BEGIN EXCLUSIVE; INSERT INTO moz_cookies VALUES ('.b.example');")
+
+    await assert.rejects(
+      () => snapshotSqliteDatabase(dbPath, join(work.dir, 'cookies.sqlite'), { busyTimeoutMs: 40 }),
+      (err) => err.code === 'locked',
+    )
+    await assert.rejects(
+      () => cloneCookieStore({ engine: 'firefox', profilePath: profileDir }, work.dir, { busyTimeoutMs: 40 }),
+      (err) => err.code === 'locked',
+    )
+    locker.exec('COMMIT')
+    locker.close()
+    locker = null
+
+    // Non-SQLite fallback retry must clear a previously copied -wal when the source -wal is gone.
+    const rawProfile = join(root.dir, 'Profiles', 'raw.default')
+    await mkdir(rawProfile, { recursive: true })
+    await writeFile(join(rawProfile, 'cookies.sqlite'), 'not-sqlite')
+    await writeFile(join(rawProfile, 'cookies.sqlite-wal'), 'old-wal')
+    await cloneCookieStore({ engine: 'firefox', profilePath: rawProfile }, work.dir)
+    assert.equal(existsSync(join(work.dir, 'cookies.sqlite-wal')), true)
+
+    await rm(join(rawProfile, 'cookies.sqlite-wal'))
+    await cloneCookieStore({ engine: 'firefox', profilePath: rawProfile }, work.dir)
+    assert.equal(existsSync(join(work.dir, 'cookies.sqlite-wal')), false, 'stale destination -wal must be removed on retry')
+  } finally {
+    try { locker?.close() } catch { /* ignore */ }
+    await work.remove()
+    await root.remove()
+  }
+})
+
+test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 decrypts mixed peanuts and empty-password rows', async () => {
+  const root = await tempRoot()
+  const work = await cloneWorkDir()
+  try {
+    const peanutsKey = deriveLinuxChromiumKey('peanuts')
+    const emptyKey = deriveLinuxChromiumKey('')
+
+    // Mismatched domain hash in v24 mode must fail closed (return null), never return raw garbage.
+    const wrongHostBlob = encryptMacV10('val', peanutsKey, { hostKey: '.other.example', withDomainHash: true })
+    assert.equal(decryptChromiumV10(wrongHostBlob, peanutsKey, { hostKey: '.target.example', stripDomainHash: true }), null)
+    const noHashBlob = encryptMacV10('short', peanutsKey, { withDomainHash: false })
+    assert.equal(decryptChromiumV10(noHashBlob, peanutsKey, { hostKey: '.target.example', stripDomainHash: true }), null)
+
+    const net = join(root.dir, 'Default', 'Network')
+    await mkdir(net, { recursive: true })
+    const dbPath = join(net, 'Cookies')
+    const db = new DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE meta (key TEXT NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('version', '24')
+    const futureWebkit = (1900000000 + 11644473600) * 1e6
+    const ins = db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ins.run('.mixed.example', 'k_peanuts', '', encryptMacV10('v-peanuts', peanutsKey, { hostKey: '.mixed.example', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, '')
+    ins.run('.mixed.example', 'k_empty', '', encryptMacV10('v-empty', emptyKey, { hostKey: '.mixed.example', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, '')
+    db.close()
+
+    const source = {
+      id: 'chromium:Default', kind: 'chromium', name: 'Chromium', label: 'Chromium — Default',
+      engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'),
+      profileDir: 'Default', cookieDb: dbPath, exe: '/usr/bin/chromium',
+    }
+    await cloneCookieStore(source, work.dir, { needLocalState: false })
+    const mixed = await harvestLinuxChromiumV10(source, work.dir, { now: 1700000000 })
+    assert.deepEqual(mixed.cookies.map((c) => [c.name, c.value]), [
+      ['k_peanuts', 'v-peanuts'],
+      ['k_empty', 'v-empty'],
+    ])
+  } finally {
+    await work.remove()
+    await root.remove()
+  }
+})
+
+test('harvestLiveChromium preserves CDP partitionKeyOpaque and string partitionKey', async () => {
+  const root = await tempRoot()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => wss.once('listening', resolve))
+  const { port } = wss.address()
+  wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString())
+      if (msg.method === 'Storage.getCookies') {
+        ws.send(JSON.stringify({
+          id: msg.id,
+          result: {
+            cookies: [
+              { name: 'plain', value: 'ok', domain: '.example.com', path: '/', secure: true, httpOnly: true, session: true },
+              { name: 'opaque_part', value: 'o', domain: '.embed.example', path: '/', secure: true, httpOnly: false, session: true, partitionKeyOpaque: true },
+              { name: 'str_part', value: 's', domain: '.embed.example', path: '/', secure: true, httpOnly: false, session: true, partitionKey: 'https://top.example' },
+            ],
+          },
+        }))
+      }
+    })
+  })
+  try {
+    const activePort = { port, wsPath: '/devtools/browser/test', wsUrl: `ws://127.0.0.1:${port}/devtools/browser/test` }
+    const source = { engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default' }
+    const out = await harvestLiveChromium(source, { activePort, skipFocus: true, includeLocalStorage: false })
+    assert.equal(out.cookies.length, 3)
+    assert.equal(out.cookies[1].partitionKeyOpaque, true)
+    assert.deepEqual(out.cookies[2].partitionKey, { topLevelSite: 'https://top.example', hasCrossSiteAncestor: true })
+  } finally {
+    await new Promise((resolve) => wss.close(resolve))
+    await root.remove()
+  }
 })

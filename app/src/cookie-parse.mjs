@@ -414,6 +414,7 @@ function rawFromObject(e) {
     path: e.path, secure: e.secure, httpOnly: e.httpOnly, sameSite: e.sameSite,
     session: typeof e.session === 'boolean' ? e.session : undefined,
     expires, expiresField, partitionKey: e.partitionKey,
+    partitionKeyOpaque: e.partitionKeyOpaque === true ? true : undefined,
     hasField: (k) => k in e,
   };
 }
@@ -433,11 +434,17 @@ function newCtx(format, opts) {
 }
 
 function finish(ctx, error = null) {
-  // Duplicates (same name + domain + path) would overwrite each other in Chrome: keep the last one.
+  // Duplicates (same name + domain + path + partition scope) would overwrite each other in Chrome:
+  // keep the last one, while never letting a partitioned cookie overwrite an unpartitioned cookie.
   const byKey = new Map();
   ctx.items.forEach((it, idx) => {
     it.idx = idx;
-    const k = `${it.cookie.name}\u0000${it.cookie.domain}\u0000${it.cookie.path}`;
+    const partScope = it.cookie.partitionKeyOpaque
+      ? '\u0001opaque'
+      : it.cookie.partitionKey
+        ? `\u0001${it.cookie.partitionKey.topLevelSite}\u0000${it.cookie.partitionKey.hasCrossSiteAncestor ? 1 : 0}`
+        : '';
+    const k = `${it.cookie.name}\u0000${it.cookie.domain}\u0000${it.cookie.path}${partScope}`;
     if (byKey.has(k)) {
       warn(ctx, it.where, it.cookie, 'duplicate', `same name/domain/path as ${byKey.get(k).where}; the later entry is used`);
     }
@@ -582,6 +589,7 @@ function normalizeCookie(raw, ctx, where) {
   if (sameSite) cookie.sameSite = sameSite;
   if (!ex.session) cookie.expires = ex.expires;
   if (partitionKey) cookie.partitionKey = partitionKey;
+  if (raw.partitionKeyOpaque === true) cookie.partitionKeyOpaque = true;
   return { cookie };
 }
 

@@ -219,3 +219,63 @@ test('checkSafariAccess and safariProfiles surface needsPermission on EACCES/EPE
     await root.remove()
   }
 })
+
+test('checkSafariAccess and safariProfiles detect named-only Safari profiles without a default Cookies.binarycookies', async () => {
+  const root = await tempRoot()
+  try {
+    const containerLib = join(root.dir, 'Library', 'Containers', 'com.apple.Safari', 'Data', 'Library')
+    const workUuid = '22222222-3333-4444-5555-666666666666'
+    await mkdir(join(containerLib, 'WebKit', 'WebsiteDataStore', workUuid, 'Cookies'), { recursive: true })
+    await writeFile(
+      join(containerLib, 'WebKit', 'WebsiteDataStore', workUuid, 'Cookies', 'Cookies.binarycookies'),
+      buildBinaryCookies([[{ domain: '.named.example', name: 'tok', value: 'v1', flags: 0x05, expires: 1900000000 }]]),
+    )
+
+    const access = await checkSafariAccess({ home: root.dir, containerLib, appPaths: [] })
+    assert.equal(access.accessible, true)
+    assert.equal(access.needsPermission, false)
+    assert.equal(access.hasNamedProfiles, true)
+
+    const profiles = await safariProfiles({ home: root.dir, containerLib, appPaths: [] })
+    assert.equal(profiles.length, 1)
+    assert.equal(profiles[0].dir, workUuid)
+    assert.equal(profiles[0].cookieCount, 1)
+  } finally { await root.remove() }
+})
+
+test('parseBinaryCookies skips corrupted records with out-of-bounds offsets, truncated sizes, or missing NUL terminators', () => {
+  const goodRec = buildCookieRecord({ domain: '.ok.example', name: 'good', path: '/', value: 'real', flags: 0x05, expires: 1900000000 })
+
+  // 1. Out-of-bounds value offset (must NOT emit value: '' and clobber real cookies)
+  const badValueOff = Buffer.from(goodRec)
+  badValueOff.writeUInt32LE(badValueOff.length + 10, 28)
+
+  // 2. Record size claiming past page end
+  const oversizedRec = Buffer.from(goodRec)
+  oversizedRec.writeUInt32LE(oversizedRec.length + 200, 0)
+
+  // 3. Missing NUL terminator on value string
+  const noNulRec = Buffer.from(goodRec)
+  noNulRec[noNulRec.length - 1] = 0x41 // overwrite final NUL with 'A'
+
+  const records = [goodRec, badValueOff, noNulRec, oversizedRec]
+  const tableBytes = 8 + records.length * 4 + 4
+  let cursor = tableBytes
+  const offsets = records.map((rec) => { const off = cursor; cursor += rec.length; return off })
+  const page = Buffer.alloc(cursor)
+  page.writeUInt32BE(0x00000100, 0)
+  page.writeUInt32LE(records.length, 4)
+  offsets.forEach((off, idx) => page.writeUInt32LE(off, 8 + idx * 4))
+  page.writeUInt32LE(0, 8 + records.length * 4)
+  records.forEach((rec, idx) => rec.copy(page, offsets[idx]))
+
+  const header = Buffer.alloc(12)
+  header.write('cook', 0, 'ascii')
+  header.writeUInt32BE(1, 4)
+  header.writeUInt32BE(page.length, 8)
+  const buf = Buffer.concat([header, page])
+
+  const parsed = parseBinaryCookies(buf, { now: 1700000000 })
+  assert.deepEqual(parsed.cookies.map((c) => [c.name, c.value]), [['good', 'real']])
+  assert.deepEqual(parsed.skipped.map((s) => s.code), ['corrupt', 'corrupt', 'corrupt'])
+})

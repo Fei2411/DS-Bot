@@ -15,14 +15,28 @@ const SEED_PATH = '/__ds_bot_storage_seed__'
 const SAME_SITE = { Strict: 'strict', Lax: 'lax', None: 'no_restriction' }
 
 const normalizeSite = (domain) => String(domain ?? '').replace(/^\.+/, '').toLowerCase()
-const normalizeKeyHost = (domain) => normalizeSite(domain).replace(/^\[|\]$/g, '')
+
+function canonicalHost(domain) {
+  const raw = normalizeSite(domain)
+  const bare = raw.replace(/^\[|\]$/g, '')
+  if (bare.includes(':')) {
+    try {
+      return new URL(`http://[${bare}]/`).hostname.replace(/^\[|\]$/g, '')
+    } catch {
+      return bare
+    }
+  }
+  return bare
+}
 
 function formatHostForUrl(host) {
-  if (host.includes(':') && !host.startsWith('[')) return `[${host}]`
-  return host
+  const canonical = canonicalHost(host)
+  if (canonical.includes(':')) return `[${canonical}]`
+  return canonical
 }
 
 function isPartitionedCookie(cookie) {
+  if (cookie?.partitionKeyOpaque === true) return true
   const pk = cookie?.partitionKey
   if (!pk) return false
   if (typeof pk === 'string') return pk.length > 0
@@ -83,22 +97,22 @@ export function toSetDetails(cookie, opts = {}) {
   return details
 }
 
-const keyOf = (c) => `${c.name}\u0000${normalizeKeyHost(c.domain)}\u0000${c.path ?? '/'}`
+const keyOf = (c) => `${c.name}\u0000${canonicalHost(c.domain)}\u0000${c.path ?? '/'}`
 
 /** Keep only cookies whose site is in `sites` (or all when `sites` is omitted). */
 export function filterCookiesBySites(cookies, sites) {
   if (!Array.isArray(sites)) return cookies
-  const wanted = new Set(sites.map(normalizeSite).filter(Boolean))
-  return cookies.filter((cookie) => wanted.has(normalizeSite(cookie.domain)))
+  const wanted = new Set(sites.map(canonicalHost).filter(Boolean))
+  return cookies.filter((cookie) => wanted.has(canonicalHost(cookie.domain)))
 }
 
 /** Keep only localStorage origins whose hostname is in `sites` (or all when `sites` is omitted). */
 export function filterOriginsBySites(origins, sites) {
   if (!Array.isArray(origins)) return []
   if (!Array.isArray(sites)) return origins
-  const wanted = new Set(sites.map(normalizeSite).filter(Boolean))
+  const wanted = new Set(sites.map(canonicalHost).filter(Boolean))
   return origins.filter((item) => {
-    try { return wanted.has(new URL(item.origin).hostname.toLowerCase()) } catch { return false }
+    try { return wanted.has(canonicalHost(new URL(item.origin).hostname)) } catch { return false }
   })
 }
 
