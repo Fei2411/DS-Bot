@@ -600,11 +600,28 @@ export function install(rt) {
   const roomLineListeners = new Set()
   // The one way anything is said in a group: into its book, then into the room's log for
   // the members' turns. `session` marks a message the group's own Session shows already.
-  const say = (room, line) => {
+  // A line takes its seq and starts its write here; the room draws it apart, in drawLine,
+  // so a caller that must not show a line the book refused can append without drawing.
+  const appendLine = (room, line) => {
     ensureRoomLog(room)
     room.seq += 1
     const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
     rt.ledger.append(bookOf(room.id), record)
+    return record
+  }
+  // What the room and its members see of a line the book was given.
+  const drawLine = (room, record) => {
+    // The phone link hears every line the chat will draw (mobile.js).
+    rt.roomLineAdded?.(room, record)
+    if (!memberLine(record)) return record
+    room.log = [...room.log, cutLine(record)].slice(-ROOM_LOG_MAX)
+    for (const listener of roomLineListeners) {
+      try { listener(room, record) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
+    }
+    return record
+  }
+  const say = (room, line) => {
+    const record = appendLine(room, line)
     // A line the book did not keep is told once to the room here, so every caller is
     // covered; a caller that waits for written() hears the rejection as well. The notice
     // itself is not told again.
@@ -616,14 +633,7 @@ export function install(rt) {
         } catch {}
       })
     }
-    // The phone link hears every line the chat will draw (mobile.js).
-    rt.roomLineAdded?.(room, record)
-    if (!memberLine(record)) return record
-    room.log = [...room.log, cutLine(record)].slice(-ROOM_LOG_MAX)
-    for (const listener of roomLineListeners) {
-      try { listener(room, record) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
-    }
-    return record
+    return drawLine(room, record)
   }
 
   // What the group chat draws of a record, in the shape of a reply of the round.
@@ -1892,10 +1902,11 @@ export function install(rt) {
   // every turn that starts from now on sees them. The members the message's own round
   // would open with answer it inside this round, as soon as they are free. Each message
   // leaves the Session's inbox, so it does not open another round when this one ends.
-  function drainRoomInbox(room, round, agent) {
-    // The greeting's prompt tells the admin the user has not written yet.
-    if (round.kickoff) return
-    const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
+  async function drainRoomInbox(room, round, agent) {
+    // The greeting's prompt tells the admin the user has not written yet; a line the book
+    // refused is handed back to the Session for a later round, not retried in this one.
+    if (round.kickoff || round.inboxHeld === true) return
+    const lines = waitingLines(agent)
     if (lines.length === 0) return
     const roomSid = rt.sessionOfRoom(room)
     unpauseRoomIdle(room)
@@ -1911,14 +1922,27 @@ export function install(rt) {
         const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
         noteRoomUserOrigin(room, origin)
       }
-      say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      // The Session's copy is the only one that can be said again, so the line leaves it
+      // only once the book has it: a write that fails draws nothing and keeps the message.
+      const record = appendLine(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      try {
+        await rt.ledger.written(bookOf(room.id))
+      } catch (error) {
+        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+        say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
+        // The round goes on without the line; the Session's turn that follows says it once.
+        round.inboxHeld = true
+        break
+      }
+      drawLine(room, record)
+      if (!agent.inbox.remove(line.id)) continue
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
       callIn(round, speakers, note, undefined, { ordered })
     }
     releaseParked(room, round)
-    void rt.save().catch(() => {})
+    await rt.save().catch(() => {})
   }
 
   // Consecutive idle steps in this room since the user last wrote here or a member worked
@@ -2190,7 +2214,9 @@ export function install(rt) {
         if (!due) await new Promise((resolve) => { wake = resolve })
         due = false
         if (signal.aborted) break
-        drainRoomInbox(room, round, agent)
+        // Nothing queued adds no await: a round one microtask away from closing must not
+        // still look open to a Bot post that comes in at that moment.
+        if (waitingLines(agent).length > 0) await drainRoomInbox(room, round, agent)
         for (const slot of round.slots) {
           if (!startable(round, slot)) continue
           const turn = memberTurn(room, round, slot, signal)
@@ -2199,7 +2225,7 @@ export function install(rt) {
           turns.add(turn)
         }
         // The greeting round leaves the user's messages for a round of their own.
-        if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
+        if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || round.inboxHeld === true || waitingLines(agent).length === 0)) break
       }
       // No new turns can start once the loop exits; mark closed before draining so late joiners queue for the next round.
       round.closed = true
@@ -2218,7 +2244,6 @@ export function install(rt) {
       await rt.save()
     }
   }
-
   // One call's turn in the round. Its status says how it ended; what it says calls
   // members as soon as each line is posted.
   async function memberTurn(room, round, slot, signal) {

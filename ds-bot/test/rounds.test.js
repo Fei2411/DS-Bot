@@ -2073,3 +2073,44 @@ test('a user line that joins a round closing meanwhile waits for the next round'
     rt.ledger.written = realWritten
   }
 })
+
+// #2066 review: the Session's copy is the only one that can be said again, so a composer
+// line leaves it only once the book has it. A write that fails keeps the line for a later
+// round and draws nothing: it is neither lost nor said twice.
+test('a composer follow-up the book did not keep waits in the session inbox', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer use the revised figures'
+  chmodSync(book, 0o444)
+  try {
+    // The shell's composer queues the line while a member is busy; the round drains it and
+    // the book refuses the write.
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room hears the line was not saved')
+    // Not handed over and not drawn: the Session still holds the only copy.
+    assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 0, 'the line the book did not keep is not drawn')
+    const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+    assert.ok(waiting.some(message => JSON.stringify(message.content).includes('revised figures')), 'the line waits in the session inbox')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  // Once the book takes writes again the next round says the line once and calls its member.
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const late = await turnFor(sent, first, second)
+  assert.ok(late, 'the next round calls the member the line names')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 1, 'the line is said once')
+  await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+  await running
+  void again
+})
