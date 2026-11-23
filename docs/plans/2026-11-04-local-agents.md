@@ -29,7 +29,9 @@ and model changes all work the same way.
   service failed to load. Refs saved under the unprefixed names move to the
   prefixed ones when the team loads. An old `opencode/...` ref moves only for a
   Bot that ran on the local CLI or on its "CLI default"; otherwise it stays on
-  DSH's OpenCode provider.
+  DSH's OpenCode provider. The same holds for `qoder`, `antigravity` and
+  `mistral-vibe`. The move runs once per team: a ref saved after it under an
+  unprefixed CLI name belongs to a provider of that name and stays.
 - A route's models are what its CLI reports, plus a "CLI default" entry.
 - Every DS Bot Session maps to one CLI session. A Bot's own chat and each of
   its group sessions are separate CLI sessions, so no content crosses between

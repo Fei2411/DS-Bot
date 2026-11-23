@@ -75,3 +75,32 @@ test('a CLI that no provider shares is still migrated for every Bot', () => {
   assert.equal(migrateLocalRoutes(state), true)
   assert.equal(state.bots.b1.model, 'local-codex-cli/gpt-5')
 })
+
+test('a plugin provider that shares the Mistral Vibe CLI name keeps its model', () => {
+  // llm-pi-ai can register a remote provider called `mistral-vibe`; the Mistral Vibe
+  // CLI is `mistral-vibe` too (#2104). Without evidence that this Bot ran on the
+  // CLI, the ref belongs to the provider.
+  const state = team('mistral-vibe/deepseek-v4-1-flash-1017')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'mistral-vibe/deepseek-v4-1-flash-1017')
+  assert.equal(state.bots.b1.appliedModel, 'mistral-vibe/deepseek-v4-1-flash-1017')
+})
+
+test('a ref saved after the team moved its routes is never migrated', () => {
+  // Since the move, a local agent is only ever saved under `local-`, so an
+  // unprefixed CLI name is a provider of the same name (#2104).
+  const state = team('codex-cli/gpt-5')
+  state.localRoutesMoved = true
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'codex-cli/gpt-5')
+  assert.equal(state.bots.b1.appliedModel, 'codex-cli/gpt-5')
+})
+
+test('a migrated team is marked so later loads leave its refs alone', () => {
+  const state = team('codex-cli/gpt-5')
+  assert.equal(migrateLocalRoutes(state), true)
+  assert.equal(state.localRoutesMoved, true)
+  state.bots.b1.model = 'codex-cli/remote-model'
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'codex-cli/remote-model')
+})

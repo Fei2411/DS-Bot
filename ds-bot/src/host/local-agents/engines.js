@@ -110,9 +110,10 @@ export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 // caller decides on evidence. `qoder` is one too — dsh-connect-qoder registers a
 // provider called `qoder` for the same models the Qoder CLI offers. `antigravity`
 // is one too — dsh-llm-antigravity-acp registers a provider called `antigravity`
-// for the same models the Antigravity CLI offers.
+// for the same models the Antigravity CLI offers. `mistral-vibe` is a common id
+// for a Mistral provider added to llm-pi-ai (#2104).
 const OLD_CUSTOM_PREFIX = 'acp-'
-export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder', 'antigravity'])
+export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder', 'antigravity', 'mistral-vibe'])
 export const legacyRoute = (provider) => {
   if (typeof provider !== 'string') return undefined
   if (CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
