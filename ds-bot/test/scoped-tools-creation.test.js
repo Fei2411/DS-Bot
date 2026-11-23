@@ -184,39 +184,70 @@ const hasShowView = (host, id) => host.scoped.some(entry => entry.sessionId === 
 const denied = (host, id) => host.restricted.some(entry => entry.sessionId === id && entry.deny.includes('ask_user_question'))
 const scopedNames = (host, id) => host.scoped.filter(entry => entry.sessionId === id).map(entry => entry.name)
 
-test('a Bot assembly can omit sections and tools', async (t) => {
+test('a Bot assembly can omit sections and tools without per-Agent hooks', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
-  const agent = host.agentOf('a')
-  let filter
-  agent.ctx.on = (name, listener) => { if (name === 'system-prompt/assemble' && String(listener).includes('HIDDEN_SECTIONS')) filter = listener; return () => {} }
-  await host.agentCreated('a')
-  assert.deepEqual(await filter({}, {}, async () => ({})), {})
-  const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'list_bots' }] }))
-  assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'list_bots' }] })
+  const perAgentFilterHooks = []
+  const toolsCreated = host.ctx.listeners.get('agent/created').find(fn => String(fn).includes('hideBotUnusedTools(agent)'))
+  for (const id of ['a', 'b']) {
+    const agent = host.agentOf(id)
+    agent.ctx.on = (name) => {
+      if (name === 'llm/stream' || name === 'system-prompt/assemble') perAgentFilterHooks.push({ id, name })
+      return () => {}
+    }
+    await toolsCreated({ agent })
+  }
+  assert.deepEqual(perAgentFilterHooks, [])
+  const listener = host.ctx.listeners.get('system-prompt/assemble').find(fn => fn.name === 'scopeTeamTools')
+  assert.ok(listener)
+  assert.deepEqual(await listener({}, { agent: host.agentOf('a') }, async () => ({})), {})
+  const sample = () => ({
+    sections: [{ name: 'team:policy' }, { name: 'tool:create_bot' }, { name: 'keep' }],
+    tools: [{ name: 'subagent' }, { name: 'create_bot' }, { name: 'list_bots' }],
+  })
+  const mainResult = await listener({}, { agent: host.agentOf('a') }, async () => sample())
+  assert.deepEqual(mainResult, {
+    sections: [{ name: 'tool:create_bot' }, { name: 'keep' }],
+    tools: [{ name: 'create_bot' }, { name: 'list_bots' }],
+  })
+  const botResult = await listener({}, { agent: host.agentOf('b') }, async () => sample())
+  assert.deepEqual(botResult, {
+    sections: [{ name: 'keep' }],
+    tools: [{ name: 'list_bots' }],
+  })
+  const plainInput = sample()
+  assert.equal(await listener({}, { agent: host.agentOf('plain') }, async () => plainInput), plainInput)
+  const noAgentInput = sample()
+  assert.equal(await listener({}, {}, async () => noAgentInput), noAgentInput)
 })
 
-test('team-admin filtering preserves other tools and sessions, including empty requests', async (t) => {
+test('team-admin filtering preserves other tools and sessions, including empty and sessionless requests', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
   const names = BUILTIN_PACKS['team-admin'].tools
   assert.deepEqual(names, ['create_bot', 'stop_bot', 'create_group', 'delete_group'])
-  for (const id of ['a', 'b', 'plain']) {
-    const agent = host.agentOf(id)
-    let filter
-    agent.ctx.on = (name, listener) => { if (name === 'llm/stream') filter = listener; return () => {} }
-    await host.agentCreated(id)
-    if (id === 'plain') { assert.equal(filter, undefined); continue }
-    agent.ctx.llm = { stream: options => filter(options, () => options) }
-    const available = ['update_bot', 'update_group', 'list_bot_models', 'list_bots', 'save_capability', 'schedule_create', 'group_goal']
-    const options = { tools: [...names, ...available].map(name => ({ name })) }
+  const filter = host.ctx.listeners.get('llm/stream').find(fn => fn.name === 'filterBuiltinTools')
+  assert.ok(filter)
+  host.ctx.llm.stream = options => filter(options, () => options)
+  for (const id of ['a', 'b', 'plain']) await host.agentCreated(id)
+  const available = ['update_bot', 'update_group', 'list_bot_models', 'list_bots', 'save_capability', 'schedule_create', 'group_goal']
+  const allTools = [...names, ...available].map(name => ({ name }))
+  for (const sessionId of ['a', 'b', 'plain', undefined]) {
+    const options = sessionId === undefined ? { tools: allTools } : { sessionId, tools: allTools }
     const result = filter(options, () => options)
-    assert.deepEqual(result.tools.map(tool => tool.name), id === 'a' ? options.tools.map(tool => tool.name) : available)
-    for (const empty of [{}, { tools: [] }]) assert.equal(filter(empty, () => empty), empty)
+    assert.deepEqual(result.tools.map(tool => tool.name), sessionId === 'b' ? available : allTools.map(tool => tool.name))
   }
+  for (const empty of [{}, { tools: [] }, { sessionId: 'b', tools: [] }]) assert.equal(filter(empty, () => empty), empty)
 })
+
+function attachHostBuiltinFilters(root, host) {
+  root.on('session/event', host.ctx.listeners.get('session/event').find(listener => listener.name === 'freezeBuiltinPacks'))
+  root.on('llm/stream', host.ctx.listeners.get('llm/stream').find(listener => listener.name === 'filterBuiltinTools'))
+  root.on('system-prompt/assemble', host.ctx.listeners.get('system-prompt/assemble').find(listener => listener.name === 'scopeTeamTools'))
+  host.ctx.llm.stream = options => root.llm.stream(options)
+}
 
 for (const main of [false, true]) {
   for (const group of [false, true]) {
@@ -245,7 +276,7 @@ for (const main of [false, true]) {
       }
       root.llm.registerAdapter(['role-test'], new Adapter())
       await mountAgentLoopTestHarness(root)
-      root.on('session/event', host.ctx.listeners.get('session/event').find(listener => listener.name === 'freezeBuiltinPacks'))
+      attachHostBuiltinFilters(root, host)
       const agent = await root.agentLoop.create(SessionId(id), { provider: 'role-test', model: 'test' })
       await host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))({ agent })
       const message = text => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
@@ -293,7 +324,7 @@ test("an upgraded team's Main Bot keeps team-admin while an ordinary Bot's Agent
   }
   root.llm.registerAdapter(['role-test'], new Adapter())
   await mountAgentLoopTestHarness(root)
-  root.on('session/event', host.ctx.listeners.get('session/event').find(listener => listener.name === 'freezeBuiltinPacks'))
+  attachHostBuiltinFilters(root, host)
   const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
   const agents = {}
   for (const id of ['a', 'b']) {
@@ -306,6 +337,58 @@ test("an upgraded team's Main Bot keeps team-admin while an ordinary Bot's Agent
   }
   assert.deepEqual(offered.get('a').toSorted(), [...BUILTIN_PACKS['team-admin'].tools].sort())
   assert.deepEqual(offered.get('b'), [])
+})
+
+test('Main Bot keeps team-admin across switched parts and background tasks while ordinary Bots are live', async (t) => {
+  const team = structuredClone(TEAM)
+  team.bots.a.sessionId = 'a-cur'
+  team.bots.a.segments = [{ sessionId: 'a', endedAt: 1 }]
+  const host = start(team)
+  t.after(host.stop)
+  await host.call('state', {})
+  rt.state.bots.a.tasks = [{ id: 't1', title: 'Work', status: 'running', sessionId: 'a-task', segments: [], startedAt: 2, updatedAt: 2 }]
+  await rt.save()
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  await mountAgentLoopTestDependencies(root)
+  const offered = new Map()
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream(options) {
+      const key = options.sessionId === undefined ? 'sessionless' : String(options.sessionId)
+      offered.set(key, (options.tools ?? []).map(tool => tool.name).filter(name => BUILTIN_PACKS['team-admin'].tools.includes(name)))
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['role-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  attachHostBuiltinFilters(root, host)
+  const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
+  const addedFilterHooks = []
+  root.on('internal/listener', (name) => {
+    if (name === 'llm/stream' || name === 'system-prompt/assemble') addedFilterHooks.push(name)
+  })
+  const agents = {}
+  for (const id of ['a-cur', 'a-task', 'b']) {
+    agents[id] = await root.agentLoop.create(SessionId(id), { provider: 'role-test', model: 'test' })
+    await created({ agent: agents[id] })
+  }
+  assert.deepEqual(addedFilterHooks, [], 'creating Bot Agents adds no per-Agent llm/stream or system-prompt/assemble hooks')
+  for (const id of ['a-cur', 'a-task', 'b']) {
+    agents[id].followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }))
+    await agents[id].whenIdle()
+  }
+  for await (const chunk of root.llm.stream({
+    provider: 'role-test',
+    model: 'test',
+    messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'aux' }] })],
+    tools: BUILTIN_PACKS['team-admin'].tools.map(name => ({ name, description: name, parameters: { type: 'object', properties: {} } })),
+  })) void chunk
+  const expected = [...BUILTIN_PACKS['team-admin'].tools].sort()
+  assert.deepEqual(offered.get('a-cur').toSorted(), expected)
+  assert.deepEqual(offered.get('a-task').toSorted(), expected)
+  assert.deepEqual(offered.get('b'), [])
+  assert.deepEqual(offered.get('sessionless').toSorted(), expected)
 })
 
 test('team tools retry without a step, without registering successful tools twice', async (t) => {

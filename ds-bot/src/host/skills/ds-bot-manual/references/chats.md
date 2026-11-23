@@ -2,6 +2,8 @@
 
 Each Bot has its own conversation. In a group it speaks from a separate conversation. A group has members, an optional admin, shared memory and an optional shared working folder. Group work can use more model calls than one Bot.
 
+To change a group's photo, open **Settings → Team → Group chats**, select the group and open its avatar editor. Use **Upload** or **Library**, or remove the photo to show members' avatars again. This is a settings action, not an `update_group` tool argument.
+
 ## UI and tools
 
 Use **Settings → Group chats** to inspect and change groups. In a chat's **+** menu, **Reference a chat** adds another chat as context. **Set a goal** starts a staged group goal. Type /side for a side question without interrupting the main work.

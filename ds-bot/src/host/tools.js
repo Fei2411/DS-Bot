@@ -1372,8 +1372,10 @@ export function install(rt) {
         // from, so the report comes back there instead of the own chat.
         await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
-        if (sub !== undefined) rt.dropWork(sub)
-        if (reportId !== undefined) rt.dropRoomReport?.(reportId)
+        if (failure?.delivered !== true) {
+          if (sub !== undefined) rt.dropWork(sub)
+          if (reportId !== undefined) rt.dropRoomReport?.(reportId)
+        }
         return `Could not post in "${room.name}": ${failure.message}`
       }
       if (member && named.length === 0) return `Posted in "${room.name}", where the user and its members read it. Nobody answers it: your post only calls the members you name with @Name.`
@@ -1518,7 +1520,7 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
-  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
   const scoped = new Map()
   const unscope = (id) => {
     const held = scoped.get(id)
@@ -1588,7 +1590,7 @@ export function install(rt) {
     }
     if (!wanted) return
     if (held === undefined) {
-      held = { agent, relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
+      held = { agent, relay: relayOnly, tools: false, restricted: false, disposers: [], unlisted: new Set() }
       scoped.set(id, held)
       agent.ctx?.effect?.(() => () => { if (scoped.get(id) === held) unscope(id) })
     }
@@ -1681,39 +1683,6 @@ export function install(rt) {
       clearTimeout(held.retryTimer)
       held.retryTimer = undefined
     }
-  }
-
-  // The standard preset registers `subagent` (model selection) in each Agent's own
-  // scope, where restrict() and a same-name section cannot reach it, so the Bot's
-  // assembly drops the hidden tools and their guidance instead. restrict still
-  // masks what it can, so lookup and execution stay aligned, and the guard
-  // refuses calls. The assembly filter goes on every Bot Session whether or not
-  // the tools are served yet: subagent's own agent/created listener can run
-  // after this one.
-  const filterBotAssembly = (agent, held) => {
-    if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
-    // These hooks see every Session's requests, not only this Agent's.
-    const filterTools = agent.ctx.on('llm/stream', function filterBuiltinTools(options, next) {
-      if (options.sessionId !== undefined && options.sessionId !== agent.session?.id) return next()
-      const hidden = rt.hiddenBuiltinTools(agent.session?.id)
-      if (!options.tools?.some(tool => hidden.has(tool.name))) return next()
-      return agent.ctx.llm.stream({ ...options, tools: options.tools.filter(tool => !hidden.has(tool.name)) })
-    })
-    if (typeof filterTools === 'function') held.disposers.push(filterTools)
-    const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      if (context?.agent !== undefined && context.agent !== agent) return next()
-      const assembled = await next()
-      const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(agent.session?.id)])
-      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
-      // older assembly still carries tools to drop here.
-      return {
-        ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !hidden.has(tool.name)) } : {},
-        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name) && ![...hidden].some(name => section.name === `tool:${name}`)) } : {},
-      }
-    })
-    held.filtered = true
-    if (typeof dispose === 'function') held.disposers.push(dispose)
   }
 
   // Tools joined after the first scoping (mail tools appear when the first
@@ -1953,16 +1922,15 @@ export function install(rt) {
     // the team lifts them like the rest, and the Agent can be scoped again.
     const shadows = rt.shadowShells?.(agent) ?? []
     if (shadows.length > 0) {
-      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [], unlisted: new Set() }
       held.agent = agent
       held.disposers.push(...shadows)
       scoped.set(id, held)
     }
     if (agent === undefined || !rt.isBotSession(id)) return
-    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
+    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     scoped.set(id, held)
-    filterBotAssembly(agent, held)
     if (held.restricted !== true && typeof agent.ctx?.tools?.restrict === 'function') {
       maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
     }
@@ -2006,6 +1974,29 @@ export function install(rt) {
     }
   })
 
+  // The standard preset registers `subagent` (model selection) in each Agent's own
+  // scope, where restrict() and a same-name section cannot reach it, so the host
+  // assembly hook drops hidden tools and their guidance for that Bot Session.
+  // restrict still masks what it can, so lookup and execution stay aligned, and the
+  // guard refuses calls.
+  const filterAssembled = (id, assembled) => {
+    if (!rt.isBotSession(id) || assembled === undefined || assembled === null) return assembled
+    const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(id)])
+    const dropTool = tool => hidden.has(tool?.name)
+    const dropSection = section => HIDDEN_SECTIONS.has(section?.name)
+      || (typeof section?.name === 'string' && section.name.startsWith('tool:') && hidden.has(section.name.slice(5)))
+    const filterTools = Array.isArray(assembled.tools) && assembled.tools.some(dropTool)
+    const filterSections = Array.isArray(assembled.sections) && assembled.sections.some(dropSection)
+    if (!filterTools && !filterSections) return assembled
+    // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
+    // older assembly still carries tools to drop here.
+    return {
+      ...assembled,
+      ...filterTools ? { tools: assembled.tools.filter(tool => !dropTool(tool)) } : {},
+      ...filterSections ? { sections: assembled.sections.filter(section => !dropSection(section)) } : {},
+    }
+  }
+
   // A live Agent the creation path missed — after a restart, agent/created may
   // run before this plugin's listeners are back — is scoped by the load or
   // here, before the step's request. The request's tool list was collected
@@ -2013,49 +2004,51 @@ export function install(rt) {
   // global entry is replaced by the scoped schema, and a PTC list that reaches
   // team tools through run_code is left alone.
   ctx.on('system-prompt/assemble', async function scopeTeamTools(_assembly, context, next) {
-    const agent = context.agent
+    const agent = context?.agent
     if (agent === undefined) return next()
+    const id = agent.session?.id ?? agent.id
     try {
       await rt.load()
       hideBotUnusedTools(agent)
     } catch (error) {
-      rt.warn('ds-bot: scoping the tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+      rt.warn('ds-bot: scoping the tools of %s failed: %s', id, error)
     }
-    const assembled = await next()
-    const held = scoped.get(agent.session?.id)
-    if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
-    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
-    if (!Array.isArray(assembled.tools)) {
-      held.unlisted.clear()
-      return assembled
-    }
-    const pending = [...held.unlisted]
-    // Cleared whatever happens below: the names are offered once, not on
-    // every step.
-    held.unlisted.clear()
-    if ((assembled.tools ?? []).some(tool => tool.name === 'run_code')) return assembled
-    if (typeof ctx.tools?.schemas !== 'function') return assembled
-    try {
-      const wanted = new Set(pending)
-      const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
-      let changed = false
-      const tools = (assembled.tools ?? []).map((tool) => {
-        const schema = current.get(tool.name)
-        if (schema === undefined) return tool
-        changed = true
-        return schema
-      })
-      const present = new Set((assembled.tools ?? []).map(tool => tool.name))
-      for (const name of pending) {
-        if (present.has(name) || !current.has(name)) continue
-        changed = true
-        tools.push(current.get(name))
+    let assembled = await next()
+    const held = scoped.get(id)
+    if (held?.unlisted !== undefined && held.unlisted.size > 0) {
+      // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
+      if (!Array.isArray(assembled?.tools)) {
+        held.unlisted.clear()
+      } else {
+        const pending = [...held.unlisted]
+        // Cleared whatever happens below: the names are offered once, not on
+        // every step.
+        held.unlisted.clear()
+        if (!assembled.tools.some(tool => tool.name === 'run_code') && typeof ctx.tools?.schemas === 'function') {
+          try {
+            const wanted = new Set(pending)
+            const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
+            let changed = false
+            const tools = assembled.tools.map((tool) => {
+              const schema = current.get(tool.name)
+              if (schema === undefined) return tool
+              changed = true
+              return schema
+            })
+            const present = new Set(assembled.tools.map(tool => tool.name))
+            for (const name of pending) {
+              if (present.has(name) || !current.has(name)) continue
+              changed = true
+              tools.push(current.get(name))
+            }
+            if (changed) assembled = { ...assembled, tools }
+          } catch (error) {
+            rt.warn('ds-bot: listing the scoped tools of %s failed: %s', id, error)
+          }
+        }
       }
-      return changed ? { ...assembled, tools } : assembled
-    } catch (error) {
-      rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
-      return assembled
     }
+    return filterAssembled(id, assembled)
   })
 
   // DSH adds tools after system-prompt/assemble. Transform the final request through
