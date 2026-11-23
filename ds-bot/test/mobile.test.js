@@ -784,6 +784,61 @@ test('file-download resolves presented files in active and archived group member
   assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
 })
 
+// #975: the files a member's turn presented reach the group chat, on its live rows and
+// on the posts it makes from outside a round, as refs file-download resolves.
+test('a member turn that presents a file shows the file on its group row', async (t) => {
+  const { call, emit, relay, answer, sent, history, rt, ctx, stop } = start()
+  t.after(stop)
+  const { room } = await team(call)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-group-row-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, 'quarterly.pdf')
+  writeFileSync(path, Buffer.from('%PDF-1.4 quarterly'))
+
+  for (const def of rt.teamTools) ctx.tools.register(def)
+  sent.length = 0
+  history[room.id] = [user(1, 'Draft the quarterly report'), relayCall(2, 'call-1')]
+  await emit(room.id, history[room.id][0])
+  const running = relay(room.id, 'call-1')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '[PASS]', 1)
+  const second = await turnFor(sent, first)
+  // The files Writer's turn presented, in its group Session's log.
+  history[second.sessionId] = [
+    { seq: 3, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } },
+    { seq: 4, type: 'turn/end', data: { turn: 1 } },
+  ]
+  await answer(second.sessionId, second.message.source.exchangeId, 'The report is ready.', 1)
+  const result = await running
+  history[room.id].push(relayResult(3, 'call-1', result))
+
+  // The presented file reaches the room row once the member's write has landed, so the
+  // page is read again while that write is still in flight.
+  let row
+  for (let at = 0; at < 100 && row?.files === undefined; at += 1) {
+    const done = (await call('room-chat', { roomId: room.id })).value
+    row = done.items.find(item => item.kind === 'bot' && item.text === 'The report is ready.')
+    if (row?.files === undefined) await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: second.sessionId, seq: 3, index: 0, bytes: 18 }])
+  const saved = await call('file-download', { sessionId: second.sessionId, seq: 3, index: 0 })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.value.name, 'quarterly.pdf')
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), '%PDF-1.4 quarterly')
+})
+
+test('a member post that carries delivered file refs shows them on its row (#975)', () => {
+  const events = [
+    { seq: 4, time: 20, type: 'user/message', data: { source: { kind: 'bot', role: 'post', senderSessionId: 'b2', senderName: 'Writer', delivered: [{ name: 'draft.md', sessionId: 'b2', seq: 9, index: 0 }] }, content: [{ type: 'text', text: '[Group post from Writer]\nDraft is ready' }] } },
+    { seq: 5, time: 21, type: 'user/message', data: { source: { kind: 'bot', role: 'post', senderSessionId: 'b2', senderName: 'Writer', done: true }, content: [{ type: 'text', text: 'done' }] } },
+  ]
+  const { items } = roomItems(events)
+  // A finished-work notice is an event of the round it opens, and draws no row here.
+  assert.deepEqual(items.map(item => [item.kind, item.text, item.files ?? null]), [
+    ['bot', 'Draft is ready', [{ name: 'draft.md', sessionId: 'b2', seq: 9, index: 0 }]],
+  ])
+})
+
 test('displayItems extracts prompt text for scheduled task user messages (#1498)', async (t) => {
   const { rt, stop } = start()
   t.after(stop)

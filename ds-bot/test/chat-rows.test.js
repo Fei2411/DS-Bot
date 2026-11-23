@@ -183,6 +183,35 @@ test('a group post carries claims both live and in earlier chat rows', () => {
   assert.deepEqual(earlier.props.claims, claims)
 })
 
+// #975: the files a member's turn delivered ride its group row, merged when the turn's
+// messages stack, once per file even when the post and its late echo name the same ref.
+test('delivered files of one turn stack onto its block, once per file', () => {
+  const ref = { name: 'notes.md', sessionId: 'gb', seq: 4, index: 0 }
+  const other = { name: 'chart.png', sessionId: 'gb', seq: 5, index: 0 }
+  const stacked = stackReplies([
+    { botId: 'b', text: 'Draft done', files: [ref] },
+    { botId: 'b', text: 'And the chart', files: [ref, other] },
+  ])
+  assert.equal(stacked.length, 1)
+  assert.deepEqual(stacked[0].texts, ['Draft done', 'And the chart'])
+  assert.deepEqual(stacked[0].files, [ref, other])
+})
+
+test('a group reply draws the delivered-file cards its row carries (#975)', () => {
+  const files = [{ name: 'notes.md', sessionId: 'gb', seq: 4, index: 0 }]
+  const tree = GroupMessage({
+    bot: { id: 'b', name: 'Writer' }, text: 'The report is ready.', room: { id: 'r1' }, roster: { prefs: {} }, actions: { openSession() {} }, files,
+  })
+  const block = tree.children.find(child => child?.props?.className === 'bt-group-files')
+  const card = [block.children].flat(Infinity).find(child => child?.type?.name === 'FileCards')
+  assert.deepEqual(card.props.files, files)
+  // A row without delivered files draws no card block.
+  const bare = GroupMessage({
+    bot: { id: 'b', name: 'Writer' }, text: 'The report is ready.', room: { id: 'r1' }, roster: { prefs: {} }, actions: { openSession() {} },
+  })
+  assert.equal(bare.children.some(child => child?.props?.className === 'bt-group-files'), false)
+})
+
 test('a marked final reply stacks onto earlier progress and keeps later messages below its marker', () => {
   const claims = { missingFiles: ['./missing.md'] }
   const progress = { botId: 'b', text: 'Started' }
