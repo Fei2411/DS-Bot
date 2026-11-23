@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -17,6 +17,13 @@ import { output } from '../src/host/tools.js'
 import { fakeContext } from './fake-ctx.js'
 
 const meter = { estimateMessage: message => TokenMeter.prototype.estimateMessage(message) }
+
+function deepFreeze(value) {
+  if (value === null || typeof value !== 'object') return value
+  Object.freeze(value)
+  for (const child of Object.values(value)) deepFreeze(child)
+  return value
+}
 
 const TEAM = {
   version: 1,
@@ -239,18 +246,20 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
     { text: '- Done: inspected auth.js and proposed options A/B/C' }, // Retry without tools succeeds
   ]
   const checkpoints = []
+  const frozenInputMessages = deepFreeze([
+    { role: 'system', content: [{ type: 'text', text: 'sys' }] },
+    { role: 'user', source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current time: 10:00' }] },
+    { role: 'user', content: [{ type: 'text', text: `Fix bug in auth\n${'Earlier detailed trace. '.repeat(400)}` }] },
+    { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
+    { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'auth.js body' }] },
+    { role: 'assistant', content: [{ type: 'text', text: `Options are A (cache) and B (refresh).\n${'Long analysis output. '.repeat(400)}` }] },
+    { role: 'user', content: [{ type: 'text', text: 'Also check config.js' }] },
+  ])
   const compaction = {
     async compactIfNeeded() { return null },
     async compactNow(agent, signal) {
       checkpoints.push(await this.summarize({
-        messages: [
-          { role: 'system', content: [{ type: 'text', text: 'sys' }] },
-          { role: 'user', content: [{ type: 'text', text: `Fix bug in auth\n${'Earlier detailed trace. '.repeat(400)}` }] },
-          { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
-          { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'auth.js body' }] },
-          { role: 'assistant', content: [{ type: 'text', text: `Options are A (cache) and B (refresh).\n${'Long analysis output. '.repeat(400)}` }] },
-          { role: 'user', content: [{ type: 'text', text: 'Also check config.js' }] },
-        ],
+        messages: frozenInputMessages,
         tools: [{ name: 'read_file' }],
       }, agent, signal))
       return { ok: true }
@@ -303,15 +312,10 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
       id: 'b2',
       seq: history.length + 1,
       requestHeader: () => ({ config: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' } }),
-      deriveMessages: () => [
-        { role: 'system', content: [{ type: 'text', text: 'sys' }] },
-        { role: 'user', content: [{ type: 'text', text: `Fix bug in auth\n${'Earlier detailed trace. '.repeat(400)}` }] },
-        { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
-        { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'auth.js body' }] },
-        { role: 'assistant', content: [{ type: 'text', text: `Options are A (cache) and B (refresh).\n${'Long analysis output. '.repeat(400)}` }] },
-        { role: 'user', content: [{ type: 'text', text: 'Also check config.js' }] },
+      deriveMessages: () => deepFreeze([
+        ...frozenInputMessages,
         { role: 'assistant', content: [{ type: 'text', text: 'config.js is clean.' }] }, // tail[0] kept on surface
-      ],
+      ]),
       toolHistory: () => [],
     },
   }
@@ -325,6 +329,8 @@ test('idle writeCheckpoint lowers reasoning effort, retries without tools on too
   assert.equal(llmCalls[0].reasoningEffort, 'off', 'checkpoint summary must lower reasoningEffort instead of inheriting high')
   assert.ok(Array.isArray(llmCalls[0].tools) && llmCalls[0].tools.length === 1)
   assert.equal(llmCalls[1].tools, undefined, 'retry must omit tools')
+  assert.equal(frozenInputMessages[1].content[0].text, 'Current time: 10:00', 'stripToolBlocks must not mutate frozen DSH input messages')
+  assert.match(llmCalls[1].messages[1].content[0].text, /Current time: 10:00[\s\S]*Fix bug in auth/, 'adjacent same-role frozen messages must merge into a fresh object')
   assert.equal(llmCalls[1].messages.some(m => m.role === 'tool'), false, 'withoutTools retry must not send raw role:tool messages')
   assert.equal(
     llmCalls[1].messages.some(m => Array.isArray(m.content) && m.content.some(b => b?.type === 'tool-call' || b?.type === 'tool-result')),
@@ -519,11 +525,12 @@ test('handoff note keeps substantial partial note on final attempt, retries with
         eventAt: () => undefined,
         header: { cwd: '/ws' },
         requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' }, tools: [{ name: 'read_file' }] }),
-        deriveMessages: () => [
+        deriveMessages: () => deepFreeze([
+          { role: 'user', source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current time: 11:00' }] },
           { role: 'user', content: [{ type: 'text', text: 'x'.repeat(200_000) }] },
           { role: 'assistant', content: [{ type: 'tool-call', id: 'tc1', name: 'read_file', arguments: { path: 'a.js' } }] },
           { role: 'tool', toolCallId: 'tc1', content: [{ type: 'text', text: 'file contents' }] },
-        ],
+        ]),
         toolHistory: () => [],
       },
     })
@@ -895,4 +902,59 @@ test('real DSH BasicCompactionEngine: mid-turn compactRegion keeps recent verbat
   assert.ok(msgs.some(m => m.role === 'tool' && (m.content ?? []).some(b => String(b.text ?? '').includes('inspected src/session.js: ok'))), 'mid-turn retained tail must keep real tool result verbatim on surface')
   assert.ok(msgs.some(m => m.role === 'user' && (m.content ?? []).some(b => String(b.text ?? '').includes('Phase 4 live prompt'))), 'mid-turn retained tail must keep current turn user message intact on surface')
   assert.equal(agent.session.id, 'm1', 'bot must stay on same part after mid-turn compaction')
+})
+
+test('freshMemoryView rebuilds current authorized memory snapshot and advances seen cursor cleanly', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-fresh-mem-view-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
+  const memFile = join(home, 'memory', 'bots', 'b2', 'MEMORY.md')
+  writeFileSync(memFile, '- Deploy to staging\n- Keep replies concise\n')
+
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    sessions: { messageProjections: [] },
+    sessionController: {
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 1 } } }),
+      page: async () => ({ records: [], hasMore: false }),
+    },
+    workspaceRegistry: { archiveSession: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+
+  const memSection = ctx.sections.get('bot-memory')
+  assert.ok(memSection, 'bot-memory section must be registered')
+  const frozenBefore = memSection.text({ agent: { id: 'b2' } })
+  assert.match(frozenBefore, /Deploy to staging/)
+
+  // Delete "Deploy to staging" and add a new memory entry via the real memory API.
+  await rt.memoryEndpoint('memory-forget', { botId: 'b2', scope: 'own', text: 'Deploy to staging' })
+  await rt.memoryAdd({ botId: 'b2', scope: 'own', text: 'Always run lint' })
+  // Before refresh, frozen sectionFor still holds the old snapshot (prefix-cache invariant).
+  assert.match(memSection.text({ agent: { id: 'b2' } }), /Deploy to staging/)
+
+  // Refresh for CLI replay: returns previous + current authorized view without deleted entry,
+  // and updates frozen snapshot so future turns stay consistent.
+  const view = rt.freshMemoryView('b2')
+  assert.ok(view, 'freshMemoryView must return current snapshot')
+  assert.equal(view.previous, frozenBefore)
+  assert.doesNotMatch(view.own, /Deploy to staging/, 'freshMemoryView must not contain deleted entry')
+  assert.match(view.own, /Always run lint/, 'freshMemoryView must include latest memory entry')
+  assert.doesNotMatch(memSection.text({ agent: { id: 'b2' } }), /Deploy to staging/, 'subsequent sectionFor must use refreshed snapshot')
+
+  // Any memory edit AFTER freshMemoryView must still be delivered as a delta on the next turn.
+  await new Promise(r => setTimeout(r, 15))
+  await rt.memoryAdd({ botId: 'b2', scope: 'own', text: 'Use pnpm workspaces' })
+  const preSteps = ctx.listeners.get('agent/pre-step') ?? []
+  const runPreSteps = async (decision) => {
+    let idx = 0
+    const next = async () => (idx < preSteps.length ? preSteps[idx++]({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, signal: new AbortController().signal }, next) : decision)
+    return next()
+  }
+  const decision = await runPreSteps({ kind: 'continue', messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })] })
+  const delta = decision.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
+  assert.ok(delta, 'memory edit after freshMemoryView must still emit a memory-update delta')
+  assert.match(delta.content[0].text, /Use pnpm workspaces/)
 })

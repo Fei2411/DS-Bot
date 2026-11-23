@@ -27,13 +27,14 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: rt ?? { warn: () => {} },
     attachments,
     fs,
+    freshMemoryView,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -2507,11 +2508,44 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   assert.match(promptText, /Memory update #29:/, 'newest memory updates must be kept')
   assert.doesNotMatch(promptText, /Memory update #0:/, 'old memory updates must be bounded instead of growing replay without limit')
 
-  // Maintenance (`note()`) on a dropped resume must fail instead of asking a blank CLI session for a handoff note.
+  // Maintenance (`note()`) on a dropped resume must fail instead of asking a blank CLI session for a handoff note,
+  // and must clean up both the live entry and the spawned engine session/process without leaking.
   const third = makeAdapter({ records, acpArgs: ['--fail-load'] })
   t.after(() => third.dispose())
   await assert.rejects(
     () => third.note('s1', 'Write a handoff note', AbortSignal.timeout(5_000)),
     /could not be resumed/,
   )
+  assert.equal(third.live.size, 0, 'failed maintenance resume must remove live entry')
+  assert.equal(third._spawned[0].sessions.size, 0, 'failed maintenance resume must forget engine session')
+
+  // When freshMemoryView is available on a dropped CLI resume, replay refreshes the
+  // authorized memory snapshot instead of replaying a bounded suffix of deltas over a
+  // stale frozen snapshot, so older deleted entries never resurrect.
+  const freshRecord = join(mkdtempSync(join(tmpdir(), 'dsb-acp-fresh-mem-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(freshRecord), { recursive: true, force: true }))
+  const staleSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Deploy to staging\n- Keep logs short'
+  const currentSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Keep logs short\n- Always run lint'
+  const freshAdapter = makeAdapter({
+    records,
+    acpArgs: ['--fail-load', '--record', freshRecord],
+    freshMemoryView: () => ({ previous: staleSnap, own: currentSnap, group: '# Group memory\n- Active release: v2' }),
+  })
+  t.after(() => freshAdapter.dispose())
+  const freshOut = await collect(freshAdapter.stream(options('s1', [
+    system('sys', `You are Kai.\n\n${staleSnap}`),
+    user('m1', 'hello'),
+    { id: 'gm-old', role: 'user', content: [{ type: 'text', text: '# Group memory\n- Old deleted group note' }], source: { kind: 'ds-bot-group-memory' } },
+    { id: 'mu-del', role: 'user', content: [{ type: 'text', text: 'Memory update: removed Deploy to staging' }], source: { kind: 'ds-bot-memory-update' } },
+    ...manyUpdates.slice(0, 6),
+    user('m2', 'What is our deployment plan?'),
+  ])))
+  assert.equal(freshOut.finish?.kind, 'stop')
+  const freshCalls = readFileSync(freshRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const freshPrompt = freshCalls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.doesNotMatch(freshPrompt, /Deploy to staging/, 'deleted memory from stale frozen snapshot must not resurrect after failed resume')
+  assert.doesNotMatch(freshPrompt, /Old deleted group note/, 'stale group memory snapshot must be replaced with current authorized group memory')
+  assert.match(freshPrompt, /Always run lint/, 'current memory entries must appear in replacement CLI replay')
+  assert.match(freshPrompt, /Active release: v2/, 'current group memory must appear in replacement CLI replay')
+  assert.doesNotMatch(freshPrompt, /Memory update #0:/, 'historical memory delta messages must not be replayed when fresh snapshot was applied')
 })

@@ -615,7 +615,7 @@ export function install(rt) {
       if (clean === '') return
       const prev = out.at(-1)
       if (prev !== undefined && prev.role === role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
-        prev.content = [{ type: 'text', text: `${prev.content.map(block => block.text).join('\n')}\n\n${clean}` }]
+        out[out.length - 1] = { role, content: [{ type: 'text', text: `${prev.content.map(block => block.text).join('\n')}\n\n${clean}` }] }
       } else {
         out.push({ role, content: [{ type: 'text', text: clean }] })
       }
@@ -653,6 +653,10 @@ export function install(rt) {
           const name = typeof block.name === 'string' ? block.name : 'tool'
           const arg = toolArgSummary(block.arguments ?? block.input)
           pieces.push(arg === '' ? `[tool call: ${name}]` : `[tool call: ${name}(${arg})]`)
+        } else if (block?.type === 'tool-result') {
+          const body = redactText(typeof block.content === 'string' ? block.content : textOf(block.content)).trim()
+          const label = `[tool result${block.toolCallId ? ` (${block.toolCallId})` : ''}${block.isError ? ', error' : ''}]`
+          pieces.push(body === '' ? label : `${label}: ${clip(body, 2_000, 'truncated')}`)
         }
       }
       pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'))
