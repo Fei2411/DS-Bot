@@ -82,9 +82,9 @@ test('长任务 writes text on every step when the step size is left out', async
 // so the bench can watch a Bot wait for work it handed on.
 test('a Bot message hands work on with 转告 and takes its time with 慢慢做', async (t) => {
   const url = await startMock(t)
-  const tools = ['list_bots', 'message_bot']
-  const handed = await call(url, [{ role: 'user', content: '[Message from Chief]\n转告 Coder: 慢慢做 1' }], tools)
-  assert.deepEqual(handed.tools.map(used => used.name), ['message_bot'])
+  const tools = ['list_bots', 'delegate_work']
+  const handed = await call(url, [{ role: 'user', content: '[Work #W1 from Chief]\n转告 Coder: 慢慢做 1' }], tools)
+  assert.deepEqual(handed.tools.map(used => used.name), ['delegate_work'])
   const started = Date.now()
   const slow = await call(url, [{ role: 'user', content: '[Message from Writer]\n慢慢做 1' }], tools)
   assert.ok(Date.now() - started >= 1000)

@@ -505,11 +505,11 @@ test('a Bot moved onto a local agent route gets the approval bridge, and loses i
   bot.model = 'local-acp-fake/default'
   rt.hideBotUnusedTools(host.agentOf('b'))
   assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), true)
-  assert.equal(scopedNames(host, 'b').filter(name => name === 'message_bot').length, 1)
+  assert.equal(scopedNames(host, 'b').filter(name => name === 'delegate_work').length, 1)
   bot.model = 'deepseek-official/deepseek-flash'
   rt.hideBotUnusedTools(host.agentOf('b'))
   assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), false)
-  assert.equal(scopedNames(host, 'b').includes('message_bot'), true)
+  assert.equal(scopedNames(host, 'b').includes('delegate_work'), true)
 })
 
 test('a Session ds-bot does not own sees none of the team tools', async (t) => {

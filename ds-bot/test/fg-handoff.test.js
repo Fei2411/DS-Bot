@@ -191,7 +191,7 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
   return { home, ctx, rt, agentMap, prompts, forkedCalls, createdSessions, deliveries, tool, emit, stop }
 }
 
-const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'message_bot', signal: AbortSignal.timeout(10_000) })
+const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'delegate_work', signal: AbortSignal.timeout(10_000) })
 
 test('Desktop/Web user message on busy foreground moves old Session intact into bot.tasks and forks fresh foreground', async (t) => {
   const env = await startEnv()
@@ -305,7 +305,7 @@ test('hidden peer-Bot turn moved to background gets bot-handoff origin, never le
   assert.ok(replyToChief !== undefined, 'stopping idle bot-handoff task must reply to asking Bot so handoff tree does not deadlock')
 })
 
-test('peer Bot message_bot to a busy Bot spawns a background task directly without switching user foreground', async (t) => {
+test('peer Bot delegate_work to a busy Bot spawns a background task directly without switching user foreground', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -316,8 +316,8 @@ test('peer Bot message_bot to a busy Bot spawns a background task directly witho
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc-fg', name: 'bash', arguments: '{}' })
 
-  // Chief (a) calls message_bot to Helper (b).
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Check API contract' }, execOf(dmA))
+  // Chief (a) calls delegate_work to Helper (b).
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Check API contract' }, execOf(dmA))
   assert.match(res, /background task while its foreground chat is busy/)
   assert.equal(env.rt.botOf('b').sessionId, 'dm-b', 'user foreground sessionId must NOT switch when another Bot messages')
   assert.equal(env.rt.botOf('b').tasks.length, 1)
@@ -584,7 +584,7 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
   const origOpenTaskPart = env.rt.openTaskPart
   env.rt.openTaskPart = async () => { throw new Error('disk full during openTaskPart') }
   await assert.rejects(
-    () => env.tool('message_bot').execute({ to: 'Helper', message: 'Work 1' }, execOf(dmA)),
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 1' }, execOf(dmA)),
     /disk full during openTaskPart/,
   )
   assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed openTaskPart must not leak state.works')
@@ -596,7 +596,7 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
   env.rt.forgetDelivery = (id) => { forgotten.push(id); return origForget?.(id) }
   env.rt.deliver = async () => { throw new Error('delivery exploded') }
   await assert.rejects(
-    () => env.tool('message_bot').execute({ to: 'Helper', message: 'Work 2' }, execOf(dmA)),
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 2' }, execOf(dmA)),
     /delivery exploded/,
   )
   assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed deliver must drop state.works')
@@ -695,7 +695,7 @@ test('long (>20k) completed bot-handoff reply holding attachLong does NOT trigge
 
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Long audit' }, execOf(dmA))
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Long audit' }, execOf(dmA))
   assert.match(res, /background task/)
   const task = env.rt.botOf('b').tasks[0]
   const taskSid = task.sessionId
@@ -758,7 +758,7 @@ test('plugin reload (adoptLiveWork) on running bot-handoff task restores routing
 
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Audit after reload' }, execOf(dmA))
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Audit after reload' }, execOf(dmA))
   assert.match(res, /background task/)
   const task = env.rt.botOf('b').tasks[0]
   const taskSid = task.sessionId

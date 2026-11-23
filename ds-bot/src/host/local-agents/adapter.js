@@ -5,6 +5,7 @@
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
@@ -437,12 +438,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       pending.resolve({ text, isError: message.isError === true })
       settled.push({ name: pending.name, text, isError: message.isError === true })
     }
-    // The loop's runtime-context user messages are context, not input: they
-    // fold into the next prompt or steer, never start a prompt on their own.
+    // The loop's runtime-context user messages and silent Bot notices (note/cancelled/stopped)
+    // are context, not input: they fold into the next prompt or steer, never start a prompt
+    // on their own, and never hijack an open ask_user / bridged MCP call.
+    const isContextOnly = message => message.role === 'user' && (
+      message.source?.kind === 'runtime-context'
+      || (message.source?.kind === SOURCE_KIND && (message.source?.silent === true || ['note', 'cancelled', 'stopped'].includes(message.source?.role)))
+    )
     const contextText = delta
-      .filter(message => message.role === 'user' && message.source?.kind === 'runtime-context')
+      .filter(isContextOnly)
       .map(message => textOf(message.content)).filter(text => text !== '').join('\n')
-    const users = delta.filter(message => message.role === 'user' && message.source?.kind !== 'runtime-context')
+    const users = delta.filter(message => message.role === 'user' && !isContextOnly(message))
     // The first open bridged call that is not an approval may take the user's
     // next message as its answer; the rest of the input is new.
     const openCall = [...live.pending.entries()].find(([, entry]) => entry.name !== APPROVE_TOOL)

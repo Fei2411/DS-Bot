@@ -969,7 +969,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   const opened = first.section('b2')
   assert.match(opened, /^# Your memory\n/)
   assert.match(opened, /## Your memory \(MEMORY\.md\)\n- Likes tea \[[0-9a-f]{4} · \d\d-\d\d\]\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
-  assert.match(opened, /when the whole team should know something, tell a Main Bot with message_bot/)
+  assert.match(opened, /when the whole team should know something, ask a Main Bot with delegate_work/)
   assert.match(first.section('m1'), /As a Main Bot you write it with bot_remember scope "team"/)
   assert.match(first.section('g3'), /As a group admin you write it/)
   assert.equal(first.section('nobody'), '')
@@ -1053,24 +1053,24 @@ test('a change of role freezes the section again, so its team rule matches the t
   t.after(() => stop())
   await tool('bot_remember', { text: 'Likes tea' }, 'b2')
   const before = section('b2')
-  assert.match(before, /tell a Main Bot with message_bot/)
+  assert.match(before, /ask a Main Bot with delegate_work/)
   await tool('bot_remember', { text: 'Lives in Hangzhou' }, 'b2')
   assert.equal(section('b2'), before)
 
   assert.equal((await call('set-main', { id: 'b2', main: true })).ok, true)
   const promoted = section('b2')
   assert.match(promoted, /As a Main Bot you write it with bot_remember scope "team"/)
-  assert.doesNotMatch(promoted, /tell a Main Bot with message_bot/)
+  assert.doesNotMatch(promoted, /ask a Main Bot with delegate_work/)
   // Frozen anew, so entries saved since come along; then it holds still again.
   assert.match(promoted, /- Lives in Hangzhou \[/)
   assert.equal(section('b2'), promoted)
 
   assert.equal((await call('set-main', { id: 'b2', main: false })).ok, true)
-  assert.match(section('b2'), /tell a Main Bot with message_bot/)
+  assert.match(section('b2'), /ask a Main Bot with delegate_work/)
   // Coder loses the admin seat of Launch, and with it the team rule in its group Session.
   assert.match(section('g3'), /As a group admin you write it/)
   assert.equal((await call('update-room', { id: 'r1', admin: 'b2' })).ok, true)
-  assert.match(section('g3'), /tell a Main Bot with message_bot/)
+  assert.match(section('g3'), /ask a Main Bot with delegate_work/)
   assert.match(section('b2'), /As a group admin you write it/)
 })
 

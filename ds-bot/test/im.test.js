@@ -4275,7 +4275,7 @@ const waitFor = async (fn, ms = 2000) => {
   assert.ok(fn(), 'timed out waiting for condition')
 }
 
-test('IM-origin message_bot dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
+test('IM-origin delegate_work dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
   const s = await start()
   t.after(s.stop)
   const { one } = await pairedConn(s)
@@ -4286,7 +4286,7 @@ test('IM-origin message_bot dispatch returns the summary reply to the originatin
   const reqId = s.prompts.at(-1).requestId
   s.emitEvent('a', 'turn/start', { turn: 1 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: reqId }, content: [{ type: 'text', text: '让 Writer 查一下构建状态' }] })
-  await tool('message_bot', { to: 'Writer', message: '查一下构建状态' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: '查一下构建状态' }, 'a')
   const sentToB = s.agentOf('b').lastFollowup
   const dispatchId = sentToB.source.exchangeId
   assert.deepEqual(s.rt.workImOrigin(dispatchId), { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
@@ -4314,11 +4314,11 @@ test('IM-origin message_bot dispatch returns the summary reply to the originatin
   await waitFor(() => s.fake.sent.length === 1)
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'Writer 回报：构建全绿。']])
 
-  // 3) Web-initiated message_bot reply never leaks to IM.
+  // 3) Web-initiated delegate_work reply never leaks to IM.
   s.fake.sent.length = 0
   s.emitEvent('a', 'turn/start', { turn: 3 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web dispatch' }] })
-  await tool('message_bot', { to: 'Writer', message: 'web check' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'web check' }, 'a')
   const webDispatch = s.agentOf('b').lastFollowup
   assert.equal(s.rt.workImOrigin(webDispatch.source.exchangeId), undefined)
   s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
@@ -4483,7 +4483,7 @@ test('IM-bound group post_to_group fallback to Bot own chat after member removal
   assert.deepEqual(s.fake.sent, [], 'own-chat turn with room:r1 reply origin must never leak to IM group g1')
 })
 
-test('merged Web + IM message_bot work stores mixed marker and drops IM origin when coalesced into an active IM turn (#1836)', async (t) => {
+test('merged Web + IM delegate_work work stores mixed marker and drops IM origin when coalesced into an active IM turn (#1836)', async (t) => {
   const s = await start()
   t.after(s.stop)
   await pairedConn(s)
@@ -4516,20 +4516,20 @@ test('merged Web + IM message_bot work stores mixed marker and drops IM origin w
     this.inbox.nextTurn.push(entry)
   }
 
-  // 1) IM DM turn dispatches message_bot to Writer ('b').
+  // 1) IM DM turn dispatches delegate_work to Writer ('b').
   await dm(s, 'u1', '让 Writer 查状态')
   const req1 = s.prompts.at(-1).requestId
   s.emitEvent('a', 'turn/start', { turn: 1 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req1 }, content: [{ type: 'text', text: '让 Writer 查状态' }] })
-  await tool('message_bot', { to: 'Writer', message: 'IM 查状态' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'IM 查状态' }, 'a')
   const firstSent = s.agentOf('b').lastFollowup
   const dispatchId = firstSent.source.exchangeId
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-  // 2) Before Writer reads it, a Web turn sends another message_bot to Writer -> merges into the same work and marks imOriginMixed.
+  // 2) Before Writer reads it, a Web turn sends another delegate_work to Writer -> merges into the same work and marks imOriginMixed.
   s.emitEvent('a', 'turn/start', { turn: 2 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web private check' }] })
-  await tool('message_bot', { to: 'Writer', message: 'Web 私密内容' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Web 私密内容' }, 'a')
   assert.deepEqual(s.rt.workImOrigin(dispatchId), { mixed: true })
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
@@ -4562,10 +4562,10 @@ test('Web-initiated dispatch return coalesced into an active IM DM turn drops or
   await pairedConn(s)
   const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
 
-  // 1) Web turn dispatches message_bot to Writer ('b') — no IM origin.
+  // 1) Web turn dispatches delegate_work to Writer ('b') — no IM origin.
   s.emitEvent('a', 'turn/start', { turn: 1 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web secret lookup' }] })
-  await tool('message_bot', { to: 'Writer', message: '查私密报表' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: '查私密报表' }, 'a')
   const webSent = s.agentOf('b').lastFollowup
   const dispatchId = webSent.source.exchangeId
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })

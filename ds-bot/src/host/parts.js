@@ -1357,6 +1357,9 @@ export function install(rt) {
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
+  const isSilentRelay = (message) => message?.source?.kind === SOURCE_KIND
+    && (message.source?.silent === true || ['note', 'cancelled', 'stopped'].includes(message.source?.role))
+
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
   async function forward(owner, messages, target = currentOf(owner)) {
@@ -1365,6 +1368,7 @@ export function install(rt) {
     const agent = await rt.resolveAgent(target)
     // A retry after a forward that stopped halfway must not deliver the same input twice.
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+    let flushedNeeded = false
     for (const message of messages) {
       const kind = message.source?.kind
       // DSH's notice of a folder change is about the Session it was queued in; the part
@@ -1373,11 +1377,18 @@ export function install(rt) {
       const exchangeId = message.source?.exchangeId
       if (exchangeId !== undefined && pending.some(queued => queued.source?.exchangeId === exchangeId)) continue
       const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
-      if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
-      else agent.inject(copy)
+      if (isSilentRelay(message)) {
+        if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushedNeeded = true
+      } else if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) {
+        agent.followup(copy)
+        flushedNeeded = true
+      } else {
+        agent.inject(copy)
+        flushedNeeded = true
+      }
       pending.push(copy)
     }
-    await ctx.sessions.flush(agent.session)
+    if (flushedNeeded) await ctx.sessions.flush(agent.session)
   }
 
   // The plugin's own fiber is disposed (a reload, or DSH closing): every service
@@ -1387,7 +1398,10 @@ export function install(rt) {
   const noteInfo = (template, ...args) => { try { ctx.logger.info(template, ...args) } catch {} }
 
   // A message's inbox boundary, the same one forward() delivers it to.
-  const inboxTargetOf = message => (message.source?.kind === 'user' || message.source?.kind === SOURCE_KIND || message.source?.kind === REPLY_KIND ? 'next-turn' : 'next-step')
+  const inboxTargetOf = (message) => {
+    const kind = message.source?.kind
+    return !isSilentRelay(message) && (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) ? 'next-turn' : 'next-step'
+  }
 
   // Input a switch could not hand on goes back into the part's own durable inbox, in
   // order: input followup would deliver waits for the next turn, the rest waits for
@@ -1403,9 +1417,10 @@ export function install(rt) {
   }
 
   // Input in the inbox is durable but does not wake the driver; send() is what wakes
-  // it. Re-send what waits, in order, the first message with the wake, so a stopped
-  // turn goes on without waiting for the next input. Only while the plugin is live —
-  // a turn that starts during unload would run without DS Bot's hooks.
+  // it. Re-send what waits, inserting silent notices first with wake=false so they sit
+  // in nextStep alongside (never behind) any waking turn, and waking on the first
+  // non-silent message so a stopped turn goes on without waking on silent notes.
+  // Only while the plugin is live — a turn that starts during unload would run without DS Bot's hooks.
   // Track message ids DS Bot itself removes from an inbox in order to wake or forward
   // them during a part switch so `agent/inbox/discarded` never mistakes a move for a cancel.
   const movingInboxMessages = new Set()
@@ -1422,7 +1437,12 @@ export function install(rt) {
   const wake = (agent) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     removeForMove(agent, pending)
-    pending.forEach((message, index) => agent.send(message, inboxTargetOf(message), index === 0))
+    const silent = pending.filter(isSilentRelay)
+    const active = pending.filter(message => !isSilentRelay(message))
+    for (const message of silent) agent.send(message, 'next-step', false)
+    for (let i = 0; i < active.length; i += 1) {
+      agent.send(active[i], inboxTargetOf(active[i]), i === 0)
+    }
   }
 
   // A switch that lost its move or its input to a failure leaves its part marked in
@@ -1445,7 +1465,7 @@ export function install(rt) {
         const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
-          await forward(owner, held, target)
+          await forward(owner, [...held, ...(rt.takeSilentNotes?.(sessionId) ?? [])], target)
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
@@ -1759,7 +1779,7 @@ export function install(rt) {
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
       carry.push(...job.carry.splice(0))
-      await forward(job, [...carry, ...held], freshId)
+      await forward(job, [...carry, ...held, ...(rt.takeSilentNotes?.(agent.id) ?? [])], freshId)
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
@@ -2263,6 +2283,7 @@ export function install(rt) {
         else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+        if (source.resumedPause === true || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
         // A group's own Session reads as one conversation: member posts are its
         // messages. A post past what a message holds came as a file, with its start.
         const content = Array.isArray(event.data.content) ? event.data.content : []
@@ -2286,7 +2307,7 @@ export function install(rt) {
       } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'request') {
         const body = stripRelayHeader(textOf(event.data.content))
         if (body !== '') stamp(event, { kind: 'task-brief', name: source.senderName ?? null, text: body, time: event.time })
-      } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
+      } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && source.silent !== true && ['request', 'reply', 'report', 'stopped', 'ask_back', 'answer'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(event.data.content))
@@ -2391,7 +2412,10 @@ export function install(rt) {
   ]
   const STEP_LABELS = {
     list_secrets: 'Checking the keys', ask_user_question: 'Waiting for your answer',
-    message_bot: 'Asking another Bot', stop_bot: 'Stopping another Bot',
+    message_bot: 'Asking another Bot', delegate_work: 'Delegating to another Bot',
+    ask_back: 'Asking a teammate', answer_work: 'Answering a teammate',
+    cancel_work: 'Cancelling delegated work', note_bot: 'Leaving a note',
+    stop_bot: 'Stopping another Bot',
     create_bot: 'Creating a Bot', update_bot: 'Updating a Bot',
     create_group: 'Creating a group', update_group: 'Updating the group',
     delete_group: 'Deleting the group', post_to_group: 'Posting in the group',

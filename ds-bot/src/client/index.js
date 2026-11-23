@@ -24,6 +24,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { CHANGES_CSS } from './changes-card.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
+import { WorkPauseDock } from './work-pause-card.js'
 import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
@@ -1347,6 +1348,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
     () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),
     () => shadow('conversation.input.dock', { id: 'bot-mail', order: -88, inject: face }, MailDock),
+    () => shadow('conversation.input.dock', { id: 'bot-work-pause', order: -86, inject: face }, WorkPauseDock),
     () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),

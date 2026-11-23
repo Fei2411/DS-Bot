@@ -73,7 +73,7 @@ export const AGENT_SESSION_TITLE_MAX = 80
 // profile, and `read_document` only while DeepSeek OCR is on, so the list
 // served to one session can be shorter.
 export const TEAM_TOOLS = [
-  'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
+  'list_bots', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view', 'prepare_ds_bot_issue',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'bot_remember', 'bot_forget', 'bot_recall', 'read_browser', 'read_document',
@@ -81,6 +81,55 @@ export const TEAM_TOOLS = [
   'attach_capability', 'detach_capability', 'use_pack', 'drop_pack', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
   'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
 ]
+// Team-meta, memory, and status-inspection tools do not count as external work progress
+// when checking Bot-to-Bot or group ping-pong loops.
+export const NON_WORK_TOOLS = new Set([
+  'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'message_bot', 'stop_bot',
+  'list_bots', 'list_bot_models', 'post_to_group', 'group_relay',
+  'bot_remember', 'bot_forget', 'bot_recall', 'remember', 'forget', 'recall',
+  'read_own_chat', 'read_group_chat', 'task_list', 'task_read',
+  'list_secrets', 'list_capabilities', 'list_connectors',
+])
+export const isWorkTool = name => typeof name === 'string' && name !== '' && !NON_WORK_TOOLS.has(name)
+
+// Pure silent/pass/stage-direction text produced on a Bot-triggered own-chat turn when
+// the Bot has nothing to tell the user (e.g. "[PASS]", "（静默。）", "（收工。）", "（完。）").
+const SILENT_TURN_TEXT = /^\s*(?:[[【(（]\s*(?:pass|silent|silence|no\s*reply|nothing\s+to\s+report|done|noop|静默|收工|完|完毕|无回复|无需回复|略|跳过|待命)\s*[.。!！]*\s*[\]】)）]|pass\s*[.。!！]?)\s*$/i
+export const isSilentTurnText = text => {
+  const trimmed = String(text ?? '').trim()
+  return trimmed === '' || SILENT_TURN_TEXT.test(trimmed)
+}
+
+// Tools that render visible user-facing UI cards, interactive views, handoffs, or files.
+// A turn that invokes any of these must never be auto-hidden as a silent turn.
+export const USER_UI_TOOLS = new Set([
+  'show_view', 'ask_user', 'request_secret', 'request_connector',
+  'mail_send', 'browser_handoff', 'computer_handoff', 'present_file',
+])
+
+// Short wrap-up / acknowledgement / standby texts used to detect ACK-of-ACK ping-pong
+// immediately (on bounce #1) while allowing substantive multi-step pure-LLM work.
+// Uses two flat, non-nested O(n) scans to guarantee zero catastrophic backtracking.
+const ACK_CORE_TOKEN = /(?:收到|好的|好|明白|明白了|了解|了解了|知道了|没问题|谢谢|多谢|感谢|辛苦了|辛苦|收工|待命|完毕了|完毕|完|静默|无待办|没有待办|不用再回|不用回|无需回复|已知悉|\b(?:okay|ok|got\s+it|roger|acknowledged|ack|noted|thank\s+you|thanks|done|all\s+set|standing\s+by|standby|no\s+action|no\s+reply|wrapped\s+up|good\s+to\s+go)\b)/gi
+const ACK_FILLER_TOKEN = /(?:我也|我已|我|这边|这里|一切|全部|继续|没有|不用|无需|待办|嗯|行|已|先|就|都|[，,。.!！、；;：:~～\s]+)/gi
+export const isAckLikeText = text => {
+  const trimmed = String(text ?? '').trim()
+  if (trimmed === '' || trimmed.length > 140) return false
+  if (isSilentTurnText(trimmed)) return true
+  ACK_CORE_TOKEN.lastIndex = 0
+  if (!ACK_CORE_TOKEN.test(trimmed)) return false
+  ACK_CORE_TOKEN.lastIndex = 0
+  const stripped = trimmed.replace(ACK_CORE_TOKEN, ' ').replace(ACK_FILLER_TOKEN, '')
+  return stripped === ''
+}
+
+// Max ask_back clarification rounds on one delegated work before pausing for the user.
+export const WORK_ASK_BACK_LIMIT = 2
+// Consecutive delegations between the same pair of Bots since the user last wrote before
+// pausing at a checkpoint so the user can continue or stop.
+export const WORK_REWORK_CHECKPOINT = 4
+// Idle/rework pair loop entries expire after this much inactivity between two Bots.
+export const PAIR_LOOP_TTL_MS = 10 * 60_000
 // Consecutive automatic admin wakes with no goal progress before the goal waits
 // for the user instead of waking the admin again.
 export const GOAL_IDLE_NUDGES = 2
@@ -91,9 +140,12 @@ export const BACKGROUND_AFTER_MAX_SEC = 600
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000
-// Consecutive Bot-to-Bot relays with no tool call and only repetitive or ack text
+// Consecutive Bot-to-Bot relays with no work tool and only repetitive or ack text
 // before the round parks the remaining calls and asks the user before continuing.
-export const ROOM_IDLE_RELAY_LIMIT = 6
+export const ROOM_IDLE_RELAY_LIMIT = 2
+// Consecutive Bot-to-Bot relays with no work tool at all before pausing even when
+// each turn rephrases its chatter.
+export const ROOM_ZERO_WORK_RELAY_LIMIT = 4
 
 export const OWN_CHAT_LINE_MAX = 400
 // The message an anchor points at is shown whole (up to this), so a long draft takes

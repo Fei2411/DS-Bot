@@ -498,9 +498,9 @@ export function install(rt) {
     return { scope: ownScope(bot.id) }
   }
   function writeDenied(scope, botId) {
-    if (scope.kind === 'team') return writesTeam(botId) ? undefined : 'Only Main Bots and group admins write the team memory. Tell a Main Bot with message_bot what the team should know.'
+    if (scope.kind === 'team') return writesTeam(botId) ? undefined : 'Only Main Bots and group admins write the team memory. Ask a Main Bot with delegate_work what the team should know.'
     if (scope.kind === 'group') return rt.roomOf(scope.roomId)?.members.includes(botId) ? undefined : 'Only the members of a group chat write its memory.'
-    if (scope.botId !== botId && !rt.isMain(botId)) return 'Only a Main Bot can change another Bot\'s memory. Use message_bot to tell that Bot instead.'
+    if (scope.botId !== botId && !rt.isMain(botId)) return 'Only a Main Bot can change another Bot\'s memory. Use delegate_work or note_bot to tell that Bot instead.'
     return undefined
   }
   const labelOf = (scope, botId) => (scope.kind === 'team' ? 'the team memory' : scope.kind === 'group' ? 'the group memory' : scope.botId === botId ? 'your memory' : `${rt.botOf(scope.botId)?.name ?? 'that Bot'}'s memory`)

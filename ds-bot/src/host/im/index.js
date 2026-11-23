@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { SOURCE_KIND } from '../constants.js'
+import { isSilentTurnText, SOURCE_KIND } from '../constants.js'
 import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
@@ -2133,9 +2133,9 @@ export function install(rt) {
       if (typeof source?.rpcId === 'string' && consumedRequests.has(source.rpcId)) return
       const savedRequest = weixinRequestOf(source, session.id)
       if (savedRequest?.entry.consumedOn !== undefined) return
-      // Pure context notice injected before the user's message on a newly forked foreground;
+      // Pure context notices (foreground handoff, silent Bot notes/cancellations/stops)
       // never touch pendingReset or drop/mix the IM origin for this turn.
-      if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
+      if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || source.silent === true || source.role === 'note' || source.role === 'cancelled' || source.role === 'stopped')) {
         // intentionally ignored
       } else {
         const imOrigin = source?.imOrigin
@@ -2264,6 +2264,7 @@ export function install(rt) {
         continue
       }
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
+      if (item.kind === 'bot' && rt.live?.get(session.id)?.info?.kind === SOURCE_KIND && isSilentTurnText(body)) continue
       sendReply(origin, body, { sessionId: session.id, botId })
     }
   })

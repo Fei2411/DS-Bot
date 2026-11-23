@@ -310,7 +310,7 @@ export function install(rt) {
               : outcome === 'failed'
                 ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
                 : `${bot.name} was stopped before it could answer your message.`
-            answerSender(rt, task.sessionId, asker, notice)
+            answerSender(rt, task.sessionId, asker, notice, undefined, { aborted: true })
           }
         }
         return
@@ -604,9 +604,13 @@ export function install(rt) {
     return true
   }
 
+  const isAwaitingHandoffInput = (task) => task?.origin === 'bot-handoff'
+    && task.exchangeId !== undefined
+    && ['need_input', 'paused'].includes(rt.workStateOf?.(task.exchangeId))
+
   // Reconciles active tasks after a host restart:
   //  - tasks still running, resumed, resent, switching parts, or holding queued inbox items stay active;
-  //  - tasks waiting on outgoing Bot/group works keep waiting;
+  //  - tasks waiting on outgoing Bot/group works or ask_back input keep waiting;
   //  - tasks that were idle waiting on in-memory shell jobs or dropped approvals
   //    are marked `interrupted` and reported to the foreground (no zombie tasks).
   async function reconcileTasksAfterRestart(keepSessions = new Set()) {
@@ -622,7 +626,7 @@ export function install(rt) {
         if ((rt.unreadOf?.(sid)?.length ?? 0) > 0) continue
         const agent = await rt.resolveAgent(sid).catch(() => undefined)
         if (agent?.status === 'running' || hasInboxInput(agent)) continue
-        if (hasOpenOutgoingWorks(bot, task)) {
+        if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)) {
           if (task.status !== 'waiting_work') {
             task.status = 'waiting_work'
             task.updatedAt = Date.now()
@@ -1126,7 +1130,7 @@ export function install(rt) {
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
   // Bot request while the target Bot's foreground chat is busy, without switching the
   // user's visible foreground session or interrupting desktop drafts/IME.
-  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, text, files = [], length, exchangeId }) {
+  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, text, files = [], length, exchangeId, reuseWork = false }) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
@@ -1143,7 +1147,10 @@ export function install(rt) {
       updatedAt: now,
     }
     const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask)
-    rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}) })
+    const opened = reuseWork
+      ? (rt.setWorkTargetSession?.(exchangeId, sessionId, task.id), rt.resolveWork?.(exchangeId)?.work)
+      : rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), toSession: sessionId, toTaskId: task.id, goal: text })
+    const workRef = opened?.ref ?? rt.workRefOf?.(exchangeId)
     try {
       await rt.deliver({
         fromId: fromBot.id,
@@ -1156,10 +1163,11 @@ export function install(rt) {
         role: 'request',
         steer: false,
         exchangeId,
+        ...(workRef ? { workRef } : {}),
       })
     } catch (error) {
       rt.forgetDelivery?.(exchangeId)
-      rt.dropWork?.(exchangeId)
+      if (!reuseWork) rt.dropWork?.(exchangeId)
       await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false })
       throw error
     }
@@ -1307,8 +1315,8 @@ export function install(rt) {
       }
       return
     }
-    // 8. Still waiting on outgoing Bot-to-Bot / group report-back works.
-    if (hasOpenOutgoingWorks(bot, task)) {
+    // 8. Still waiting on outgoing Bot-to-Bot / group report-back works or ask_back input.
+    if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)) {
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'
         task.updatedAt = Date.now()

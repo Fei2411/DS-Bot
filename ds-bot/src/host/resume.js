@@ -118,6 +118,8 @@ const triggerOf = info => ({
   ...(info.senderPart ? { senderPart: info.senderPart } : {}),
   ...(info.roomId ? { roomId: info.roomId } : {}),
   ...(info.work ? { work: info.work } : {}),
+  ...(info.workRef ? { workRef: info.workRef } : {}),
+  ...(info.askWork ? { askWork: info.askWork } : {}),
   ...(info.audience ? { audience: info.audience } : {}),
   ...(info.askedBy ? { askedBy: info.askedBy } : {}),
   ...(info.senderRoomId ? { senderRoomId: info.senderRoomId } : {}),
@@ -186,6 +188,22 @@ export function install(rt) {
       return
     }
   }
+  const forgetWorkDeliveries = (workId) => {
+    if (typeof workId !== 'string' || workId === '') return
+    let changed = false
+    const next = { ...queued }
+    for (const [sessionId, list] of Object.entries(next)) {
+      const kept = list.filter(item => item.args?.exchangeId !== workId && item.args?.work !== workId && item.args?.askWork !== workId)
+      if (kept.length === list.length) continue
+      changed = true
+      if (kept.length === 0) delete next[sessionId]
+      else next[sessionId] = kept
+    }
+    if (changed) {
+      queued = next
+      persist()
+    }
+  }
 
   const deliver = rt.deliver
   // Deliveries on their way right now, by Session and exchangeId. A deferred delivery is
@@ -196,6 +214,9 @@ export function install(rt) {
   const sending = new Map()
   rt.deliver = async (args) => {
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
+    // Non-waking silent notices (note_bot, cancel_work, stop_bot) do not open turns, so
+    // they must never enter inflight `queued` (would inflate unread counts and resend as work).
+    if (noted.wake === false) return deliver(noted)
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
     const repeat = noted.deferred === true && noted.resent !== true
     const key = `${sessionId}\u0000${noted.exchangeId}`
@@ -232,6 +253,7 @@ export function install(rt) {
   // What a Session was sent and no turn has read yet.
   rt.unreadOf = sessionId => (queued[sessionId] ?? []).map(item => item.args)
   rt.forgetDelivery = forgetQueued
+  rt.forgetWorkDeliveries = forgetWorkDeliveries
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
@@ -312,13 +334,18 @@ export function install(rt) {
     // dropped) falls back to the Bot's current chat.
     const ownPart = rt.selfOf(sessionId) === bot.id && rt.isBotSession(sessionId) ? { sessionId } : {}
     const trigger = record.trigger
+    const activeWorkId = trigger === undefined ? undefined : rt.workOf?.(trigger)
+    if (activeWorkId !== undefined) {
+      const activeState = rt.workStateOf?.(activeWorkId)
+      if (rt.closedWorkOf?.(activeWorkId)?.status === 'cancelled' || activeState === 'need_input' || activeState === 'paused') return false
+    }
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
-      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
+      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.workRef ? { workRef: trigger.workRef } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
       return true
     }
     // A turn that went on with work another Bot asked for still owes that Bot its answer.
-    await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}) })
+    await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}), ...(trigger?.workRef ? { workRef: trigger.workRef } : {}) })
     return true
   }
 
@@ -333,8 +360,19 @@ export function install(rt) {
   // for the next start instead of losing them.
   async function resendQueued(sessionId, list) {
     const active = new Set()
-    const fresh = list.filter(item => rt.botOf(item.args?.toId) !== undefined
-      && sessionFor(sessionId, item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
+    const fresh = []
+    for (const item of list) {
+      const args = item?.args
+      if (args === undefined || rt.botOf(args.toId) === undefined || sessionFor(sessionId, args) === undefined || taken?.has(args.exchangeId) === true) continue
+      const isSilent = args.wake === false || ['note', 'cancelled', 'stopped'].includes(args.role)
+      const refWork = args.role === 'request' ? args.exchangeId : args.askWork ?? args.work
+      const cancelled = refWork !== undefined && rt.closedWorkOf?.(refWork)?.status === 'cancelled'
+      if (isSilent || cancelled) {
+        forgetQueued(args.exchangeId)
+        continue
+      }
+      fresh.push(item)
+    }
     if (fresh.length === 0) return active
     const target = sessionFor(sessionId, fresh[0].args)
     const agent = await rt.resolveAgent(target)
@@ -494,7 +532,7 @@ export function install(rt) {
       } else {
         // The turn was stopped before it could answer: the sender is told, as it is told
         // when DS Bot watches the turn end.
-        answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`, undefined, { dedupKey })
+        answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`, undefined, { dedupKey, aborted: true })
       }
     }
     if (reason.kind === 'error' || reason.kind === 'aborted') {
@@ -519,6 +557,10 @@ export function install(rt) {
         settleFailureOrAbort(joinedAsker)
       }
       return
+    }
+    const currentWorkState = workId === undefined ? undefined : rt.workStateOf?.(workId)
+    if (workId !== undefined && (rt.closedWorkOf?.(workId)?.status === 'cancelled' || currentWorkState === 'need_input' || currentWorkState === 'paused')) {
+      primarySettled = true
     }
     if (!primarySettled) {
       // A turn cut off at the output limit is not a finish: the answer says so, and the
