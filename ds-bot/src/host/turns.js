@@ -711,6 +711,7 @@ export function install(rt) {
     const text = `${rt.botOf(botId)?.name ?? 'The other Bot'} was deleted before it could answer your message.`
     const waiting = new Map()
     for (const id of sessionIds) {
+      rt.abortRoomWaiters?.(id, { left: true })
       await stopSubagents(id)
       const entry = live.get(id)
       const held = [entry?.info, entry?.pending, ...(entry?.joined ?? []).map(joined => joined.info)]
@@ -1637,13 +1638,25 @@ export function install(rt) {
           finish(info, replyText())
         }
         for (const request of joined) {
-          if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) continue
+          if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) {
+            const waiter = roomWaiters.get(request.info.exchangeId)
+            roomWaiters.delete(request.info.exchangeId)
+            waiter?.resolve(null)
+            continue
+          }
           if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
           // A failed or stopped turn closes the request like any other; a finished
           // one hands it back to the Bot to answer next.
           if (failure !== undefined || reason?.kind === 'aborted') {
             if (request.info.role === 'room') {
-              if (failure !== undefined) void rt.lateRoomFailure?.(id, request.info, failure)
+              const waiter = roomWaiters.get(request.info.exchangeId)
+              roomWaiters.delete(request.info.exchangeId)
+              if (waiter !== undefined) {
+                if (failure !== undefined) waiter.fail(failure)
+                else waiter.resolve(null)
+              } else if (failure !== undefined) {
+                void rt.lateRoomFailure?.(id, request.info, failure)
+              }
             } else answer(request.info, '')
             continue
           }
