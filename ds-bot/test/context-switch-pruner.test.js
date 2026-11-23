@@ -663,7 +663,7 @@ test('P1-4: mid-turn condense prunes oversized tool result in retained tail befo
     compactNow: async () => null,
     compactRegion: async () => {
       regionCalls += 1
-      tokens = 30_000 // still >= check (18,400) because of giant tool result in retained tail
+      tokens = 45_000 // still >= hard target (43,700) because of giant tool result in retained tail
       return { ok: true }
     },
     summarize: async () => ({ summary: [] }),

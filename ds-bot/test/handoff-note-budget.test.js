@@ -202,7 +202,7 @@ test('attempt 1 preserves the session route config for prefix cache and steps do
   })
   assert.equal(steppedOff.bot.sessionId, 's2')
   assert.deepEqual(steppedOff.requests.map(request => request.reasoningEffort), ['high', 'off'])
-  assert.deepEqual(steppedOff.requests.map(request => request.maxTokens), [32_000, 32_000])
+  assert.deepEqual(steppedOff.requests.map(request => request.maxTokens), [32_000, 16_384])
   assert.match(steppedOff.packageText, /off-retry/)
 
   const steppedLowest = await switchPart({
