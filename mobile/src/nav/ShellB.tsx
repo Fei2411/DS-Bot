@@ -10,7 +10,7 @@ import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { useAppUpdate } from '../team/app-update-store.ts'
 import { clearChatNotifications, deliverSystemNotice } from '../team/notification-bridge.ts'
-import { ALL_NOTICE_KINDS, formatNoticeNotification, type NoticeEntry, type OpenChatLink } from '../team/notifications.ts'
+import { ALL_NOTICE_KINDS, formatNoticeNotification, readNotifyPrefsFromRecord, type NoticeEntry, type OpenChatLink } from '../team/notifications.ts'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -293,12 +293,16 @@ function NoticeBanner() {
   const hostIdRef = useRef<string>('')
   const hostNameRef = useRef<string | undefined>(undefined)
   const bootRef = useRef<string | undefined>(undefined)
-  fallbackRef.current = (team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0])?.id
+  const fallbackId = (team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0])?.id
+  fallbackRef.current = fallbackId
   hostIdRef.current = computer?.hostDeviceId ?? ''
   hostNameRef.current = computer?.name
   bootRef.current = hello?.boot
   useEffect(() => {
-    const read = () => void readPrefs().then(prefs => { banners.current = prefs.banners !== 'off' })
+    const read = () => void readPrefs().then(prefs => {
+      const parsed = readNotifyPrefsFromRecord(prefs)
+      banners.current = Platform.OS === 'android' ? parsed.enabled && parsed.banners : parsed.banners
+    })
     read()
     return onPrefsChange(read)
   }, [])
@@ -312,7 +316,7 @@ function NoticeBanner() {
     const offNav = navigation.addListener('state', clearActive)
     const offApp = AppState.addEventListener('change', next => { if (next === 'active') clearActive() })
     return () => { offNav(); offApp.remove() }
-  }, [navigation])
+  }, [navigation, fallbackId, computer?.hostDeviceId])
   useEffect(() => {
     if (onFeed === undefined) return
     let seq = 0
@@ -325,15 +329,13 @@ function NoticeBanner() {
       if (!target.id) return
       const active = activeChatTarget(navigation.getState(), fallbackRef.current)
       if (AppState.currentState !== 'active') {
-        // link.ts already advanced the persisted notice cursor for live events, so
-        // skip duplicate cursor checks here.
         void deliverSystemNotice(entry, {
           hostId: hostIdRef.current,
           hostName: hostNameRef.current,
           boot: bootRef.current,
           activeChat: active,
           appActive: false,
-          dedupe: false,
+          dedupe: true,
         })
         return
       }
@@ -391,6 +393,7 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
 
 export default function ShellB({ openLink, onOpenLinkHandled }: { openLink?: OpenChatLink | null; onOpenLinkHandled?: () => void } = {}) {
   const { p } = useTheme()
+  const { computer } = useTeam()
   const width = Math.min(Dimensions.get('window').width * 0.85, 340)
   // Render the navigator only once the saved chat is known, so it can start on it.
   const [saved, setSaved] = useState<ChatTarget | null | undefined>(undefined)
@@ -413,17 +416,18 @@ export default function ShellB({ openLink, onOpenLinkHandled }: { openLink?: Ope
     update()
     return navigation.addListener('state', update)
   }, [navigation])
+  const hostMatches = !openLink?.hostId || computer?.hostDeviceId === openLink.hostId
   useEffect(() => {
-    if (saved === undefined || !openLink) return
+    if (saved === undefined || !openLink || !hostMatches) return
     if (openLink.kind === 'needs') {
       navigation.navigate('Needs')
     } else if (openLink.id) {
       openChat(navigation, { kind: openLink.kind, id: openLink.id })
     }
     onOpenLinkHandled?.()
-  }, [saved, openLink, navigation, onOpenLinkHandled])
+  }, [saved, openLink, hostMatches, navigation, onOpenLinkHandled])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
-  const initialTarget = openLink && (openLink.kind === 'bot' || openLink.kind === 'room') && openLink.id
+  const initialTarget = openLink && hostMatches && (openLink.kind === 'bot' || openLink.kind === 'room') && openLink.id
     ? { kind: openLink.kind, id: openLink.id }
     : saved
   return (

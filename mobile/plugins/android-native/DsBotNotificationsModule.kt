@@ -68,8 +68,19 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
   }
 
   @ReactMethod
+  fun setUiState(mounted: Boolean, foreground: Boolean, promise: Promise) {
+    DsBotNotifyHelper.uiMounted = mounted
+    DsBotNotifyHelper.uiForeground = mounted && foreground
+    if (mounted) {
+      DsBotHeadlessRunner.stopKeepalive(reactApplicationContext)
+    }
+    promise.resolve(true)
+  }
+
+  @ReactMethod
   fun setUiActive(active: Boolean, promise: Promise) {
-    DsBotNotifyHelper.uiActive = active
+    DsBotNotifyHelper.uiMounted = active
+    DsBotNotifyHelper.uiForeground = active
     if (active) {
       DsBotHeadlessRunner.stopKeepalive(reactApplicationContext)
     }
@@ -274,9 +285,21 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
   fun registerUnifiedPush(distributorPackage: String, promise: Promise) {
     try {
       val ctx = reactApplicationContext
-      val token = DsBotNotifyHelper.ensureUnifiedPushToken(ctx)
-      DsBotNotifyHelper.prefs(ctx).edit()
+      val prefs = DsBotNotifyHelper.prefs(ctx)
+      val prevPkg = prefs.getString(DsBotNotifyHelper.KEY_UP_DISTRIBUTOR, null)
+      val prevToken = prefs.getString(DsBotNotifyHelper.KEY_UP_TOKEN, null)
+      if (!prevPkg.isNullOrBlank() && !prevToken.isNullOrBlank()) {
+        val unreg = Intent(ACTION_UP_UNREGISTER).apply {
+          `package` = prevPkg
+          putExtra("token", prevToken)
+        }
+        ctx.sendBroadcast(unreg)
+      }
+      val token = DsBotNotifyHelper.rotateUnifiedPushToken(ctx)
+      prefs.edit()
         .putString(DsBotNotifyHelper.KEY_UP_DISTRIBUTOR, distributorPackage)
+        .putBoolean(DsBotNotifyHelper.KEY_UP_DISABLED, false)
+        .remove(DsBotNotifyHelper.KEY_UP_ENDPOINT)
         .remove(DsBotNotifyHelper.KEY_UP_ERROR)
         .apply()
       val intent = Intent(ACTION_UP_REGISTER).apply {
@@ -308,8 +331,10 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
       }
       prefs.edit()
         .remove(DsBotNotifyHelper.KEY_UP_DISTRIBUTOR)
+        .remove(DsBotNotifyHelper.KEY_UP_TOKEN)
         .remove(DsBotNotifyHelper.KEY_UP_ENDPOINT)
         .remove(DsBotNotifyHelper.KEY_UP_ERROR)
+        .putBoolean(DsBotNotifyHelper.KEY_UP_DISABLED, true)
         .apply()
       promise.resolve(true)
     } catch (error: Exception) {
@@ -338,6 +363,7 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
       val dist = prefs.getString(DsBotNotifyHelper.KEY_UP_DISTRIBUTOR, null)
       val ep = prefs.getString(DsBotNotifyHelper.KEY_UP_ENDPOINT, null)
       val err = prefs.getString(DsBotNotifyHelper.KEY_UP_ERROR, null)
+      putBoolean("unifiedPushDisabled", prefs.getBoolean(DsBotNotifyHelper.KEY_UP_DISABLED, false))
       if (dist != null) putString("unifiedPushDistributor", dist) else putNull("unifiedPushDistributor")
       if (ep != null) putString("unifiedPushEndpoint", ep) else putNull("unifiedPushEndpoint")
       if (err != null) putString("unifiedPushError", err) else putNull("unifiedPushError")

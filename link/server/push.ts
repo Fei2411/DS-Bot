@@ -46,9 +46,9 @@ export function createFcmForwarder(
   const fetchFn = options.fetch ?? globalThis.fetch
   const now = options.now ?? Date.now
   let cachedToken: { value: string; expiresAt: number } | undefined
+  let inFlightToken: Promise<string> | undefined
 
-  async function accessToken(): Promise<string> {
-    if (cachedToken !== undefined && now() < cachedToken.expiresAt - 60_000) return cachedToken.value
+  async function refreshAccessToken(): Promise<string> {
     const iat = Math.floor(now() / 1000)
     const tokenUri = account.token_uri ?? DEFAULT_TOKEN_URI
     const header = base64UrlJson({ alg: 'RS256', typ: 'JWT' })
@@ -70,43 +70,70 @@ export function createFcmForwarder(
       }),
       signal: AbortSignal.timeout(8_000),
     })
-    if (!response.ok) throw new Error(`FCM auth failed (${response.status})`)
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {})
+      throw new Error(`FCM auth failed (${response.status})`)
+    }
     const data = await response.json() as { access_token?: unknown; expires_in?: unknown }
     if (typeof data.access_token !== 'string' || data.access_token === '') throw new Error('FCM auth returned no token')
-    const ttlSec = typeof data.expires_in === 'number' && data.expires_in > 60 ? data.expires_in : 3600
+    const ttlSec = typeof data.expires_in === 'number' && Number.isFinite(data.expires_in) && data.expires_in > 60 ? data.expires_in : 3600
     cachedToken = { value: data.access_token, expiresAt: now() + ttlSec * 1000 }
     return cachedToken.value
   }
 
+  async function accessToken(forceRefresh = false): Promise<string> {
+    if (!forceRefresh && cachedToken !== undefined && now() < cachedToken.expiresAt - 60_000) {
+      return cachedToken.value
+    }
+    if (forceRefresh) cachedToken = undefined
+    if (inFlightToken === undefined) {
+      inFlightToken = refreshAccessToken().finally(() => { inFlightToken = undefined })
+    }
+    return inFlightToken
+  }
+
+  async function sendOnce(request: PushNotifyPayload, token: string): Promise<Response> {
+    const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`
+    return fetchFn(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          token: request.token,
+          data: {
+            v: String(request.envelope.v),
+            h: request.envelope.h,
+            p: request.envelope.p,
+          },
+          android: {
+            priority: request.urgency === 'high' ? 'HIGH' : 'NORMAL',
+            ttl: '86400s',
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(8_000),
+    })
+  }
+
   return async (request) => {
     try {
-      const token = await accessToken()
-      const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`
-      const response = await fetchFn(url, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: {
-            token: request.token,
-            data: {
-              v: String(request.envelope.v),
-              h: request.envelope.h,
-              p: request.envelope.p,
-            },
-            android: {
-              priority: request.urgency === 'high' ? 'HIGH' : 'NORMAL',
-              ttl: '86400s',
-            },
-          },
-        }),
-        signal: AbortSignal.timeout(8_000),
-      })
-      if (response.ok) return { ok: true }
+      let token = await accessToken(false)
+      let response = await sendOnce(request, token)
+      if (response.status === 401) {
+        await response.body?.cancel().catch(() => {})
+        token = await accessToken(true)
+        response = await sendOnce(request, token)
+      }
+      if (response.ok) {
+        await response.body?.cancel().catch(() => {})
+        return { ok: true }
+      }
       const body = await response.text().catch(() => '')
-      const gone = response.status === 404 || body.includes('UNREGISTERED')
+      // Only treat explicit UNREGISTERED errors as gone so a misconfigured project_id 404 never wipes phone tokens.
+      const gone = body.includes('UNREGISTERED')
       return { ok: false, gone, code: gone ? 'UNREGISTERED' : `HTTP_${response.status}` }
     } catch {
       return { ok: false, code: 'PUSH_FAILED' }

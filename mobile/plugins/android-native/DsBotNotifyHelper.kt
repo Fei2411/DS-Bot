@@ -16,9 +16,9 @@ import android.os.PersistableBundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import io.github.fei2411.dsbot.MainActivity
+import io.github.fei2411.dsbot.R
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 
 object DsBotNotifyHelper {
   const val CHANNEL_NEEDS_YOU = "dsbot_needs_you"
@@ -37,19 +37,16 @@ object DsBotNotifyHelper {
   const val KEY_UP_TOKEN = "up_token"
   const val KEY_UP_ENDPOINT = "up_endpoint"
   const val KEY_UP_ERROR = "up_error"
+  const val KEY_UP_DISABLED = "up_disabled"
+  private const val KEY_PUSH_SLOT = "push_slot"
 
-  private val pushSlot = AtomicInteger(0)
-  @Volatile var uiActive: Boolean = false
+  @Volatile var uiMounted: Boolean = false
+  @Volatile var uiForeground: Boolean = false
 
   fun prefs(context: Context): SharedPreferences =
     context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-  fun smallIconRes(context: Context): Int {
-    val vector = context.resources.getIdentifier("ic_dsbot_notification", "drawable", context.packageName)
-    if (vector != 0) return vector
-    val launcher = context.resources.getIdentifier("ic_launcher", "mipmap", context.packageName)
-    return if (launcher != 0) launcher else android.R.drawable.stat_notify_chat
-  }
+  fun smallIconRes(): Int = R.drawable.ic_dsbot_notification
 
   fun ensureChannels(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -103,7 +100,7 @@ object DsBotNotifyHelper {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
     return NotificationCompat.Builder(context, CHANNEL_BACKGROUND)
-      .setSmallIcon(smallIconRes(context))
+      .setSmallIcon(smallIconRes())
       .setColor(0xFF4D6BFE.toInt())
       .setContentTitle(title)
       .setContentText(subtitle)
@@ -151,7 +148,7 @@ object DsBotNotifyHelper {
     )
 
     val builder = NotificationCompat.Builder(context, channelId)
-      .setSmallIcon(smallIconRes(context))
+      .setSmallIcon(smallIconRes())
       .setColor(0xFF4D6BFE.toInt())
       .setContentTitle(title)
       .setContentText(body)
@@ -202,7 +199,11 @@ object DsBotNotifyHelper {
       .setPersisted(true)
       .setExtras(extras)
       .build()
-    return scheduler.schedule(info) == JobScheduler.RESULT_SUCCESS
+    return try {
+      scheduler.schedule(info) == JobScheduler.RESULT_SUCCESS
+    } catch (_: Exception) {
+      false
+    }
   }
 
   fun isPeriodicSyncScheduled(context: Context): Boolean {
@@ -212,7 +213,10 @@ object DsBotNotifyHelper {
 
   fun enqueuePushJob(context: Context, rawPayload: String): Boolean {
     val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return false
-    val jobId = PUSH_JOB_ID_START + (pushSlot.getAndIncrement() and (PUSH_JOB_SLOTS - 1))
+    val p = prefs(context)
+    val slot = (p.getInt(KEY_PUSH_SLOT, 0) + 1) and (PUSH_JOB_SLOTS - 1)
+    p.edit().putInt(KEY_PUSH_SLOT, slot).apply()
+    val jobId = PUSH_JOB_ID_START + slot
     val extras = PersistableBundle().apply {
       putString("kind", "push")
       putString("rawPayload", rawPayload)
@@ -224,15 +228,16 @@ object DsBotNotifyHelper {
     } else {
       builder.setOverrideDeadline(1_000L)
     }
-    return scheduler.schedule(builder.build()) == JobScheduler.RESULT_SUCCESS
+    return try {
+      scheduler.schedule(builder.build()) == JobScheduler.RESULT_SUCCESS
+    } catch (_: Exception) {
+      false
+    }
   }
 
-  fun ensureUnifiedPushToken(context: Context): String {
-    val p = prefs(context)
-    val existing = p.getString(KEY_UP_TOKEN, null)
-    if (!existing.isNullOrBlank()) return existing
+  fun rotateUnifiedPushToken(context: Context): String {
     val created = UUID.randomUUID().toString()
-    p.edit().putString(KEY_UP_TOKEN, created).apply()
+    prefs(context).edit().putString(KEY_UP_TOKEN, created).apply()
     return created
   }
 }

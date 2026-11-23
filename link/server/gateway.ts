@@ -26,6 +26,7 @@ interface Peer {
   ws: WebSocket
   id: string
   role: 'host' | 'client'
+  address: string
   capabilities: string[]
   lastPong: number
   nonce?: string
@@ -59,6 +60,10 @@ export interface GatewayOptions {
   pushForwarder?: PushForwarder
   /** Maximum push notifications one host may request per hour. */
   maxPushesPerHour?: number
+  /** Optional allowlist of host device IDs permitted to use the relay's FCM forwarder. */
+  allowedPushHosts?: string[]
+  /** Maximum concurrent in-flight push forwards per host. */
+  maxInFlightPushesPerHost?: number
 }
 
 const RELAY_CAPABILITY = 'transport.relay'
@@ -67,6 +72,11 @@ const HEARTBEAT_MS = 25_000
 const HOUR_MS = 3_600_000
 const DEFAULT_MAX_BYTES_PER_HOUR = 512 * 1024 * 1024
 const DEFAULT_MAX_PUSHES_PER_HOUR = 240
+const DEFAULT_MAX_INFLIGHT_PUSHES = 4
+
+function positiveInt(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
+}
 
 /**
  * Pairs a phone's control socket with its computer's and forwards their frames.
@@ -83,10 +93,16 @@ export class Gateway {
   private readonly registrations = new Map<string, { start: number; count: number }>()
   private readonly traffic = new Map<string, { start: number; bytes: number }>()
   private readonly pushes = new Map<string, { start: number; count: number }>()
+  private readonly pushesByAddress = new Map<string, { start: number; count: number }>()
+  private readonly inFlightPushes = new Map<string, number>()
+  private readonly allowedPushHosts?: Set<string>
   private lastPrune = 0
 
   constructor(options: GatewayOptions) {
     this.options = options
+    this.allowedPushHosts = Array.isArray(options.allowedPushHosts) && options.allowedPushHosts.length > 0
+      ? new Set(options.allowedPushHosts)
+      : undefined
     this.heartbeat = setInterval(() => this.beat(), HEARTBEAT_MS)
     this.heartbeat.unref()
     this.prune()
@@ -157,6 +173,7 @@ export class Gateway {
     for (const [address, window] of this.registrations) if (now - window.start >= HOUR_MS) this.registrations.delete(address)
     for (const [address, window] of this.traffic) if (now - window.start >= HOUR_MS) this.traffic.delete(address)
     for (const [hostId, window] of this.pushes) if (now - window.start >= HOUR_MS) this.pushes.delete(hostId)
+    for (const [address, window] of this.pushesByAddress) if (now - window.start >= HOUR_MS) this.pushesByAddress.delete(address)
     if (this.options.deviceTtlMs === undefined || now - this.lastPrune < HOUR_MS) return
     this.lastPrune = now
     this.options.store.prune(this.options.deviceTtlMs, now)
@@ -260,11 +277,12 @@ export class Gateway {
     if (this.options.store.get(p.deviceId) === undefined) this.registerNew(address)
     this.options.store.admit(p.deviceId, p.role, p.identityKey, p.accessToken)
     this.disconnect(p.deviceId, 'CONNECTION_REPLACED')
-    const peer: Peer = { ws, id: p.deviceId, role: p.role, capabilities: p.capabilities, lastPong: Date.now() }
+    const peer: Peer = { ws, id: p.deviceId, role: p.role, address, capabilities: p.capabilities, lastPong: Date.now() }
     this.peers.set(peer.id, peer)
     const capabilities: string[] = []
     if (peer.capabilities.includes(RELAY_CAPABILITY)) capabilities.push(RELAY_CAPABILITY)
-    if (peer.role === 'host' && this.options.pushForwarder !== undefined && peer.capabilities.includes(PUSH_FCM_CAPABILITY)) {
+    const fcmAllowed = this.allowedPushHosts === undefined || this.allowedPushHosts.has(peer.id)
+    if (peer.role === 'host' && this.options.pushForwarder !== undefined && fcmAllowed && peer.capabilities.includes(PUSH_FCM_CAPABILITY)) {
       capabilities.push(PUSH_FCM_CAPABILITY)
     }
     this.send(peer, createControlFrame('hello.ack', {
@@ -366,8 +384,15 @@ export class Gateway {
       this.send(peer, createControlFrame('push.result', { requestId, targetDeviceId, ...result } satisfies PushResultPayload))
     }
     const forwarder = this.options.pushForwarder
-    if (forwarder === undefined) {
+    if (forwarder === undefined || (this.allowedPushHosts !== undefined && !this.allowedPushHosts.has(peer.id))) {
       reply({ ok: false, code: 'UNSUPPORTED' })
+      return
+    }
+    const maxPerHost = positiveInt(this.options.maxPushesPerHour, DEFAULT_MAX_PUSHES_PER_HOUR)
+    const maxInFlight = positiveInt(this.options.maxInFlightPushesPerHost, DEFAULT_MAX_INFLIGHT_PUSHES)
+    const active = this.inFlightPushes.get(peer.id) ?? 0
+    if (active >= maxInFlight) {
+      reply({ ok: false, code: 'RATE_LIMITED' })
       return
     }
     const now = Date.now()
@@ -376,11 +401,18 @@ export class Gateway {
       window = { start: now, count: 0 }
       this.pushes.set(peer.id, window)
     }
-    if (window.count >= (this.options.maxPushesPerHour ?? DEFAULT_MAX_PUSHES_PER_HOUR)) {
+    let addrWindow = this.pushesByAddress.get(peer.address)
+    if (addrWindow === undefined || now - addrWindow.start >= HOUR_MS) {
+      addrWindow = { start: now, count: 0 }
+      this.pushesByAddress.set(peer.address, addrWindow)
+    }
+    if (window.count >= maxPerHost || addrWindow.count >= maxPerHost * 4) {
       reply({ ok: false, code: 'RATE_LIMITED' })
       return
     }
     window.count += 1
+    addrWindow.count += 1
+    this.inFlightPushes.set(peer.id, active + 1)
     void forwarder({
       requestId,
       targetDeviceId,
@@ -391,6 +423,11 @@ export class Gateway {
     })
       .then(result => reply(result))
       .catch(() => reply({ ok: false, code: 'PUSH_FAILED' }))
+      .finally(() => {
+        const next = (this.inFlightPushes.get(peer.id) ?? 1) - 1
+        if (next > 0) this.inFlightPushes.set(peer.id, next)
+        else this.inFlightPushes.delete(peer.id)
+      })
   }
 }
 

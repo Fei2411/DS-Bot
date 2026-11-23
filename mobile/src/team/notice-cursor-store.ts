@@ -4,13 +4,27 @@ export interface StoredNoticeCursor {
   boot: string
   seq: number
   updatedAt: number
+  /** Highest seen sequence per recent boot epoch so delayed pushes from an older boot cannot roll back or duplicate alerts. */
+  seenBoots?: Record<string, number>
 }
 
 const KEY = 'dsbot.noticeCursors'
 const LOCAL = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
 const MAX_HOSTS = 20
+const MAX_SEEN_BOOTS = 6
 
 let cache: Record<string, StoredNoticeCursor> | null = null
+
+function trimSeenBoots(boots: Record<string, number>, currentBoot: string): Record<string, number> {
+  const keys = Object.keys(boots)
+  if (keys.length <= MAX_SEEN_BOOTS) return boots
+  const kept: Record<string, number> = {}
+  if (currentBoot && typeof boots[currentBoot] === 'number') kept[currentBoot] = boots[currentBoot]
+  for (const k of keys.slice(-(MAX_SEEN_BOOTS - 1))) {
+    if (k !== currentBoot) kept[k] = boots[k]
+  }
+  return kept
+}
 
 async function readAll(): Promise<Record<string, StoredNoticeCursor>> {
   if (cache !== null) return cache
@@ -46,31 +60,52 @@ export async function loadNoticeCursor(hostDeviceId: string): Promise<StoredNoti
 }
 
 /**
- * Advances the persisted cursor for `hostDeviceId`. Returns `true` when `seq` is newer
- * (or belongs to a new boot epoch) and should be notified; `false` when already seen.
+ * Advances the persisted watermark for `(hostDeviceId, boot, seq)`.
+ * Returns `true` when `seq` is unseen in `boot` and should be notified; `false` when already seen.
+ * Delayed pushes belonging to an already-known older boot never roll back the active boot cursor.
  */
 export async function recordNoticeSeen(hostDeviceId: string, boot: string | undefined, seq: number | undefined): Promise<boolean> {
-  if (!hostDeviceId || typeof seq !== 'number') return true
+  if (!hostDeviceId || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return true
   const all = await readAll()
   const prev = all[hostDeviceId]
-  if (prev !== undefined && (boot === undefined || boot === prev.boot) && seq <= prev.seq) {
+  const effectiveBoot = boot && boot.length > 0 ? boot : (prev?.boot ?? '')
+  const prevBoots: Record<string, number> = {
+    ...(prev?.seenBoots ?? {}),
+    ...(prev?.boot ? { [prev.boot]: Math.max(prev.seq, prev.seenBoots?.[prev.boot] ?? -1) } : {}),
+  }
+
+  const seenInBoot = effectiveBoot ? prevBoots[effectiveBoot] : prev?.seq
+  if (typeof seenInBoot === 'number' && seq <= seenInBoot) {
     return false
   }
-  const nextBoot = boot ?? prev?.boot ?? ''
-  await writeAll({
-    ...all,
-    [hostDeviceId]: { boot: nextBoot, seq, updatedAt: Date.now() },
-  })
+
+  // If this boot was already recorded previously and is NOT the active boot, it is a delayed old-boot notice:
+  // update its per-boot watermark without rolling back the active boot cursor.
+  const isStaleKnownBoot = prev !== undefined && effectiveBoot !== '' && effectiveBoot !== prev.boot && Object.prototype.hasOwnProperty.call(prevBoots, effectiveBoot)
+  const nextBoots = effectiveBoot ? trimSeenBoots({ ...prevBoots, [effectiveBoot]: seq }, isStaleKnownBoot ? prev.boot : effectiveBoot) : prevBoots
+
+  const nextEntry: StoredNoticeCursor = isStaleKnownBoot
+    ? { boot: prev.boot, seq: prev.seq, updatedAt: Date.now(), seenBoots: nextBoots }
+    : { boot: effectiveBoot, seq, updatedAt: Date.now(), seenBoots: nextBoots }
+
+  await writeAll({ ...all, [hostDeviceId]: nextEntry })
   return true
 }
 
+/** Authoritative cursor update from live/periodic host RPC (`hello` / `notices`). */
 export async function saveNoticeCursor(hostDeviceId: string, boot: string, seq: number): Promise<void> {
-  if (!hostDeviceId || !boot || typeof seq !== 'number') return
+  if (!hostDeviceId || !boot || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return
   const all = await readAll()
   const prev = all[hostDeviceId]
-  if (prev !== undefined && prev.boot === boot && prev.seq >= seq) return
+  const prevBoots: Record<string, number> = {
+    ...(prev?.seenBoots ?? {}),
+    ...(prev?.boot ? { [prev.boot]: Math.max(prev.seq, prev.seenBoots?.[prev.boot] ?? -1) } : {}),
+  }
+  const mergedSeq = prev !== undefined && prev.boot === boot ? Math.max(prev.seq, seq) : Math.max(seq, prevBoots[boot] ?? -1)
+  if (prev !== undefined && prev.boot === boot && prev.seq >= mergedSeq && prevBoots[boot] >= mergedSeq) return
+  const nextBoots = trimSeenBoots({ ...prevBoots, [boot]: mergedSeq }, boot)
   await writeAll({
     ...all,
-    [hostDeviceId]: { boot, seq, updatedAt: Date.now() },
+    [hostDeviceId]: { boot, seq: mergedSeq, updatedAt: Date.now(), seenBoots: nextBoots },
   })
 }

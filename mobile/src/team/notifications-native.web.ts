@@ -15,6 +15,7 @@ export interface BackgroundStatus {
   unifiedPushDistributor: string | null
   unifiedPushEndpoint: string | null
   unifiedPushError: string | null
+  unifiedPushDisabled?: boolean
 }
 
 export interface NativeNoticePayload {
@@ -37,6 +38,7 @@ export interface UnifiedPushEvent {
 export const isAndroidNotificationsAvailable = () => false
 export const ensureNotificationChannels = async () => {}
 export const areSystemNotificationsEnabled = async () => false
+export const setNativeUiState = async (_mounted: boolean, _foreground: boolean) => {}
 export const setNativeUiActive = async (_active: boolean) => {}
 export const postNativeNotification = async (_payload: NativeNoticePayload) => false
 export const cancelNotificationTag = async (_tag: string) => {}
@@ -49,3 +51,4 @@ export const registerUnifiedPush = async () => {}
 export const unregisterUnifiedPush = async () => {}
 export const getBackgroundStatus = async (): Promise<BackgroundStatus | null> => null
 export const onUnifiedPushEvent = (_listener: (event: UnifiedPushEvent) => void) => () => {}
+export const onStopKeepalive = (_listener: () => void) => () => {}

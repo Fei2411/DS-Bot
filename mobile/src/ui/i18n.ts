@@ -296,6 +296,13 @@ const MOBILE_ZH: Record<string, string> = {
   'Scheduled task': '定时任务',
   'Jump to latest': '回到底部',
   'New messages below': '下方有新消息',
+  'Pending sync': '待同步到电脑',
+  'Only HTTPS update URLs are allowed': '更新地址必须使用 https://',
+  'Update source redirected to an insecure address': '更新源跳转到了不安全的地址',
+  'Cached APK failed SHA-256 verification': '已缓存的安装包 SHA-256 校验失败',
+  'Release checksum file is missing the Android APK digest.': '发布校验文件缺少安卓安装包摘要',
+  'Update package exceeds maximum allowed size': '更新包超过允许的大小上限',
+  'Download failed': '下载失败',
 }
 
 const systemZh = (): boolean => {

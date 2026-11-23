@@ -1,10 +1,10 @@
-import { Children, Fragment, useCallback, useEffect, useState } from 'react'
+import { Children, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useInSheet } from '../nav/sheet.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
 import { useTeam } from '../team/context.tsx'
-import { applyBackgroundDeliveryPrefs, sendTestNotification } from '../team/notification-bridge.ts'
+import { applyBackgroundDeliveryPrefs, getHostPushSyncState, sendTestNotification } from '../team/notification-bridge.ts'
 import { androidNotificationStatus, readNotifyPrefsFromRecord, type BackgroundDeliveryMode } from '../team/notifications.ts'
 import {
   getBackgroundStatus,
@@ -97,13 +97,19 @@ function Choice<T extends string>({ label, options, value, onPick }: { label: st
 
 export function NotificationsSettings({ navigation }: any) {
   const { p } = useTheme()
-  const { computer, call, hello } = useTeam()
+  const { computer, call, hello, online } = useTeam()
   const [rawPrefs, setRawPrefs] = useState<Record<string, string>>({})
   const [granted, setGranted] = useState(false)
   const [bgStatus, setBgStatus] = useState<BackgroundStatus | null>(null)
   const [testSent, setTestSent] = useState<boolean | null>(null)
   const [pickingDistributor, setPickingDistributor] = useState(false)
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const androidSdk = Platform.OS === 'android' ? Number(Platform.Version) : 0
+
+  useEffect(() => () => {
+    for (const id of timersRef.current) clearTimeout(id)
+    timersRef.current = []
+  }, [])
 
   const refreshStatus = useCallback(() => {
     if (Platform.OS !== 'android') return
@@ -162,7 +168,7 @@ export function NotificationsSettings({ navigation }: any) {
   const pickDistributor = async (pkg: string) => {
     setPickingDistributor(false)
     await registerUnifiedPush(pkg).catch(() => {})
-    setTimeout(refreshStatus, 400)
+    timersRef.current.push(setTimeout(refreshStatus, 400))
   }
 
   const disableUnifiedPush = async () => {
@@ -177,16 +183,22 @@ export function NotificationsSettings({ navigation }: any) {
   const runTest = async () => {
     const ok = await sendTestNotification(computer?.hostDeviceId ?? '')
     setTestSent(ok)
-    setTimeout(() => setTestSent(null), 2500)
+    timersRef.current.push(setTimeout(() => setTestSent(null), 2500))
   }
 
   const permLabel = androidNotificationStatus(androidSdk, granted, bgStatus?.notificationsEnabled)
   const distributors = bgStatus?.unifiedPushDistributors ?? []
   const activeDist = distributors.find(d => d.packageName === bgStatus?.unifiedPushDistributor)
   const pushSupportedByHost = hello?.capabilities?.includes('push-register') === true
+  const hostSyncState = getHostPushSyncState()
+  const upSynced = Boolean(bgStatus?.unifiedPushEndpoint) && online && pushSupportedByHost && hostSyncState === 'synced'
 
   const upStatusText = bgStatus?.unifiedPushEndpoint
-    ? (activeDist?.label ?? t('Active'))
+    ? (hostSyncState === 'failed'
+        ? t('Failed')
+        : upSynced
+          ? (activeDist?.label ?? t('Active'))
+          : t('Pending sync'))
     : bgStatus?.unifiedPushError
       ? t('Failed')
       : bgStatus?.unifiedPushDistributor
@@ -213,28 +225,32 @@ export function NotificationsSettings({ navigation }: any) {
         ) : null}
 
         <Section label={t('Alerts')}>
-          <Row
-            label={t('Notifications')}
-            end={<Switch value={prefs.enabled} onValueChange={on => void updatePref({ notifyEnabled: on ? 'on' : 'off' }, true)} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
-          />
-          {prefs.enabled ? (
+          {Platform.OS === 'android' ? (
             <>
               <Row
-                label={t('Needs you')}
-                end={<Switch value={prefs.needsYou} onValueChange={on => void updatePref({ notifyNeedsYou: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
+                label={t('Notifications')}
+                end={<Switch value={prefs.enabled} onValueChange={on => void updatePref({ notifyEnabled: on ? 'on' : 'off' }, true)} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
               />
-              <Row
-                label={t('Replies & completions')}
-                end={<Switch value={prefs.replies} onValueChange={on => void updatePref({ notifyReplies: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
-              />
-              <Row
-                label={t('Group messages')}
-                end={<Switch value={prefs.groups} onValueChange={on => void updatePref({ notifyGroups: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
-              />
-              <Row
-                label={t('Show message preview')}
-                end={<Switch value={prefs.preview} onValueChange={on => void updatePref({ notifyPreview: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
-              />
+              {prefs.enabled ? (
+                <>
+                  <Row
+                    label={t('Needs you')}
+                    end={<Switch value={prefs.needsYou} onValueChange={on => void updatePref({ notifyNeedsYou: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
+                  />
+                  <Row
+                    label={t('Replies & completions')}
+                    end={<Switch value={prefs.replies} onValueChange={on => void updatePref({ notifyReplies: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
+                  />
+                  <Row
+                    label={t('Group messages')}
+                    end={<Switch value={prefs.groups} onValueChange={on => void updatePref({ notifyGroups: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
+                  />
+                  <Row
+                    label={t('Show message preview')}
+                    end={<Switch value={prefs.preview} onValueChange={on => void updatePref({ notifyPreview: on ? 'on' : 'off' })} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
+                  />
+                </>
+              ) : null}
             </>
           ) : null}
           <Row
@@ -264,7 +280,7 @@ export function NotificationsSettings({ navigation }: any) {
             <Row
               label={t('Offline push (UnifiedPush)')}
               value={upStatusText}
-              valueColor={bgStatus?.unifiedPushEndpoint ? p.green : bgStatus?.unifiedPushError ? p.danger : p.ink2}
+              valueColor={upSynced ? p.green : (bgStatus?.unifiedPushError || hostSyncState === 'failed') ? p.danger : p.ink2}
               onPress={distributors.length > 0 || bgStatus?.unifiedPushDistributor ? () => setPickingDistributor(open => !open) : undefined}
             />
             {pickingDistributor ? (

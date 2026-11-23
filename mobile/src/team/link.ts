@@ -39,6 +39,7 @@ export interface TeamLinkHooks {
   keepAliveInBackground?: () => boolean
   onConnected?: (hello: Hello, call: (endpoint: string, payload?: unknown) => Promise<unknown>) => void
   onDisconnected?: () => void
+  loadCursor?: () => Promise<{ boot: string; seq: number } | null>
   onCursor?: (boot: string, seq: number) => void
 }
 
@@ -233,32 +234,61 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         setOnline(true)
         setError(null)
         hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client, endpoint, payload))
+        // Seed memory cursor from persisted cursor on first connect so notices already
+        // delivered via offline push or periodic sync are not replayed as duplicates.
+        const persisted = await hooksRef.current?.loadCursor?.().catch(() => null)
+        if (stopped || clientRef.current !== client) return
+        if (persisted !== null && persisted !== undefined) {
+          noticeCursor.connect(persisted)
+        }
         const { sameBoot, since } = noticeCursor.connect(helloResult)
-        hooksRef.current?.onCursor?.(helloResult.boot, helloResult.seq)
+        let catchingUp = true
+        const bufferedLiveNotices: unknown[] = []
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
           if (event === 'notice') {
+            if (catchingUp) {
+              bufferedLiveNotices.push(data)
+              return
+            }
             if (!noticeCursor.acceptLive(helloResult.boot, data)) return
-            if (typeof data?.seq === 'number') hooksRef.current?.onCursor?.(helloResult.boot, data.seq)
+            if (AppState.currentState === 'active' && typeof data?.seq === 'number') {
+              hooksRef.current?.onCursor?.(helloResult.boot, data.seq)
+            }
           }
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
+        const queryBoot = persisted !== null && persisted !== undefined ? persisted.boot : helloResult.boot
+        const querySince = persisted !== null && persisted !== undefined ? persisted.seq : since
+        void callBot(client, 'notices', { boot: queryBoot, since: querySince }).then(answer => {
           if (stopped || clientRef.current !== client) return
           const typed = answer as NoticeCursorAnswer
           const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
-          const nextBoot = typeof typed.boot === 'string' ? typed.boot : helloResult.boot
+          const nextBoot = typeof typed.boot === 'string' && typed.boot.length > 0 ? typed.boot : helloResult.boot
           const nextSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
-          hooksRef.current?.onCursor?.(nextBoot, nextSeq)
-          if (reset) void poll()
-          else {
-            if (replay.length > 0) void poll()
-            for (const entry of replay) {
-              for (const handler of feedHandlers.current) handler('notice', entry)
-            }
+          const toEmit = reset && persisted !== null && persisted !== undefined && Array.isArray(typed.notices)
+            ? typed.notices
+            : replay
+          if (reset || toEmit.length > 0) void poll()
+          for (const entry of toEmit) {
+            for (const handler of feedHandlers.current) handler('notice', entry)
           }
-        }).catch(() => {})
+          catchingUp = false
+          for (const entry of bufferedLiveNotices) {
+            if (!noticeCursor.acceptLive(nextBoot, entry)) continue
+            for (const handler of feedHandlers.current) handler('notice', entry)
+          }
+          if (AppState.currentState === 'active' || persisted === null || persisted === undefined) {
+            hooksRef.current?.onCursor?.(nextBoot, nextSeq)
+          }
+        }).catch(() => {
+          catchingUp = false
+          for (const entry of bufferedLiveNotices) {
+            if (!noticeCursor.acceptLive(helloResult.boot, entry)) continue
+            for (const handler of feedHandlers.current) handler('notice', entry)
+          }
+        })
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return
           activeClient = undefined

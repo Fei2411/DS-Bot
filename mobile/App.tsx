@@ -1,20 +1,20 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Platform, Text, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, AppState, Linking, Platform, Text, useColorScheme, View } from 'react-native'
 import { takePairingFragment } from './src/team/pair-fragment.ts'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { listComputers, loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { startAppUpdateMonitor } from './src/team/app-update-store.ts'
 import { stopHeadlessKeepalive } from './src/team/background-task.ts'
 import { errorText } from './src/team/link.ts'
 import { applyBackgroundDeliveryPrefs } from './src/team/notification-bridge.ts'
 import { parseOpenChatUrl, type OpenChatLink } from './src/team/notifications.ts'
-import { setNativeUiActive } from './src/team/notifications-native'
+import { setNativeUiState } from './src/team/notifications-native'
 import { loadSeen } from './src/team/seen.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { ErrorBoundary } from './src/ui/error-boundary.tsx'
@@ -111,20 +111,78 @@ function Boot({ lang }: { lang?: string }) {
   const uiReadyRef = useRef<Promise<unknown>>(Promise.resolve())
 
   useEffect(() => {
+    let active = true
     void loadSeen().finally(() => setSeenReady(true))
+    let appSub: { remove(): void } | undefined
     if (Platform.OS === 'android') {
       stopHeadlessKeepalive()
-      uiReadyRef.current = setNativeUiActive(true).catch(() => {})
+      const syncUiState = (state: string | null | undefined) => setNativeUiState(true, state !== 'background' && state !== 'inactive').catch(() => {})
+      uiReadyRef.current = syncUiState(AppState.currentState)
+      appSub = AppState.addEventListener('change', next => { void syncUiState(next) })
     }
     const stopUpdater = startAppUpdateMonitor()
-    if (!DEMO) {
-      Promise.all([loadIdentity(), loadComputer()])
-        .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null) })
-        .catch(failure => setBootError(errorText(failure)))
+    const applyDeepLink = async (url?: string | null) => {
+      if (!url) return false
+      if (url.startsWith('dsbot://pair')) {
+        if (active) { setOffer(url); setAdding(true) }
+        return true
+      }
+      const target = parseOpenChatUrl(url)
+      if (target === null) return false
+      if (!DEMO && target.hostId) {
+        const { computers } = await listComputers()
+        const matched = computers.find(item => item.hostDeviceId === target.hostId)
+        if (matched === undefined) return false
+        await setActiveComputer(matched.hostDeviceId)
+        if (active) {
+          setAdding(false)
+          setComputer(matched)
+          setOpenLink(target)
+        }
+        return true
+      }
+      if (active) {
+        setAdding(false)
+        setOpenLink(target)
+      }
+      return true
     }
+
+    if (Platform.OS === 'web') {
+      const uri = takePairingFragment(window.location, window.history)
+      if (uri !== undefined) { setOffer(uri); setAdding(true) }
+    }
+
+    if (!DEMO) {
+      Promise.all([
+        loadIdentity(),
+        Platform.OS === 'web' ? Promise.resolve(null) : Linking.getInitialURL().catch(() => null),
+      ])
+        .then(async ([nextIdentity, initialUrl]) => {
+          if (!active) return
+          setIdentity(nextIdentity)
+          const handledHost = initialUrl ? await applyDeepLink(initialUrl) : false
+          if (!active) return
+          if (!handledHost || !parseOpenChatUrl(initialUrl)?.hostId) {
+            const saved = await loadComputer()
+            if (active) setComputer(saved ?? null)
+          }
+        })
+        .catch(failure => { if (active) setBootError(errorText(failure)) })
+    } else if (Platform.OS !== 'web') {
+      void Linking.getInitialURL().then(url => applyDeepLink(url)).catch(() => {})
+    }
+
+    const urlSub = Platform.OS === 'web'
+      ? undefined
+      : Linking.addEventListener('url', event => { void applyDeepLink(event.url) })
+
     return () => {
+      active = false
       stopUpdater()
-      if (Platform.OS === 'android') void setNativeUiActive(false)
+      appSub?.remove()
+      urlSub?.remove()
+      if (Platform.OS === 'android') void setNativeUiState(false, false)
     }
   }, [])
 
@@ -134,30 +192,6 @@ function Boot({ lang }: { lang?: string }) {
       void uiReadyRef.current.then(() => applyBackgroundDeliveryPrefs(computer?.name))
     }
   }, [computer])
-
-  // A pairing link opened from the system camera or a notification tap deep link
-  // arrives on whatever screen is showing.
-  useEffect(() => {
-    const open = (url?: string | null) => {
-      if (url?.startsWith('dsbot://pair')) { setOffer(url); setAdding(true); return }
-      const target = parseOpenChatUrl(url)
-      if (target !== null) {
-        setAdding(false)
-        setOpenLink(target)
-        if (!DEMO && target.hostId) {
-          void setActiveComputer(target.hostId).then(loadComputer).then(next => { if (next) setComputer(next) })
-        }
-      }
-    }
-    if (Platform.OS === 'web') {
-      const uri = takePairingFragment(window.location, window.history)
-      if (uri !== undefined) { setOffer(uri); setAdding(true) }
-      return
-    }
-    void Linking.getInitialURL().then(open)
-    const subscription = Linking.addEventListener('url', event => open(event.url))
-    return () => subscription.remove()
-  }, [])
 
   const actions = useMemo<ComputerActions>(() => ({
     add: () => setAdding(true),

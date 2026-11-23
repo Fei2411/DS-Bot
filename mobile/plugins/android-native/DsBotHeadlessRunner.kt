@@ -12,7 +12,11 @@ import com.facebook.react.internal.featureflags.ReactNativeNewArchitectureFeatur
 import com.facebook.react.jstasks.HeadlessJsTaskConfig
 import com.facebook.react.jstasks.HeadlessJsTaskContext
 import com.facebook.react.jstasks.HeadlessJsTaskEventListener
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -21,16 +25,22 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object DsBotHeadlessRunner {
   const val TASK_NAME = "DsBotBackgroundTask"
+  const val STOP_KEEPALIVE_EVENT = "dsbotStopKeepalive"
+  private const val START_CONTEXT_TIMEOUT_MS = 15_000L
+
   private val mainHandler = Handler(Looper.getMainLooper())
   private val listeners = ConcurrentHashMap<Int, () -> Unit>()
-  private val registered = ConcurrentHashMap<ReactContext, HeadlessJsTaskEventListener>()
+  private val registered = Collections.synchronizedMap(WeakHashMap<ReactContext, HeadlessJsTaskEventListener>())
   private val keepaliveTaskId = AtomicInteger(-1)
+
+  fun isKeepaliveRunning(): Boolean = keepaliveTaskId.get() >= 0
 
   fun runTask(
     context: Context,
     data: WritableMap,
     timeoutMs: Long,
     isKeepalive: Boolean = false,
+    onStarted: ((Int) -> Unit)? = null,
     onDone: (() -> Unit)? = null,
   ) {
     mainHandler.post {
@@ -42,9 +52,24 @@ object DsBotHeadlessRunner {
       val config = HeadlessJsTaskConfig(TASK_NAME, data, timeoutMs, true)
       val current = currentReactContext(app)
       if (current != null) {
-        startOnContext(current, config, isKeepalive, onDone)
+        startOnContext(current, config, isKeepalive, onStarted, onDone)
       } else {
-        startReactContextAndRun(app, config, isKeepalive, onDone)
+        startReactContextAndRun(app, config, isKeepalive, onStarted, onDone)
+      }
+    }
+  }
+
+  fun cancelTask(context: Context, taskId: Int) {
+    if (taskId < 0) return
+    mainHandler.post {
+      listeners.remove(taskId)
+      keepaliveTaskId.compareAndSet(taskId, -1)
+      val app = context.applicationContext as? ReactApplication ?: return@post
+      val reactCtx = currentReactContext(app) ?: return@post
+      try {
+        HeadlessJsTaskContext.getInstance(reactCtx).finishTask(taskId)
+      } catch (_: Exception) {
+        // Task may already have finished.
       }
     }
   }
@@ -52,13 +77,26 @@ object DsBotHeadlessRunner {
   fun stopKeepalive(context: Context) {
     mainHandler.post {
       val id = keepaliveTaskId.getAndSet(-1)
-      if (id < 0) return@post
       val app = context.applicationContext as? ReactApplication ?: return@post
       val reactCtx = currentReactContext(app) ?: return@post
+      // Emit event so the JS keepalive loop aborts its WebSocket and exits cleanly
+      // (HeadlessJsTaskContext.finishTask only clears native tracking).
       try {
-        HeadlessJsTaskContext.getInstance(reactCtx).finishTask(id)
+        if (reactCtx.hasActiveReactInstance()) {
+          reactCtx
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(STOP_KEEPALIVE_EVENT, null)
+        }
       } catch (_: Exception) {
-        // Task may already have finished.
+        // Ignore if JS context is tearing down.
+      }
+      if (id >= 0) {
+        listeners.remove(id)
+        try {
+          HeadlessJsTaskContext.getInstance(reactCtx).finishTask(id)
+        } catch (_: Exception) {
+          // Task may already have finished.
+        }
       }
     }
   }
@@ -67,6 +105,7 @@ object DsBotHeadlessRunner {
     reactContext: ReactContext,
     config: HeadlessJsTaskConfig,
     isKeepalive: Boolean,
+    onStarted: ((Int) -> Unit)?,
     onDone: (() -> Unit)?,
   ) {
     try {
@@ -75,27 +114,30 @@ object DsBotHeadlessRunner {
       if (isKeepalive) {
         val prev = keepaliveTaskId.getAndSet(-1)
         if (prev >= 0) {
+          listeners.remove(prev)
           try { taskCtx.finishTask(prev) } catch (_: Exception) {}
         }
       }
       val taskId = taskCtx.startTask(config)
       if (isKeepalive) keepaliveTaskId.set(taskId)
       if (onDone != null) listeners[taskId] = onDone
+      onStarted?.invoke(taskId)
     } catch (_: Exception) {
       onDone?.invoke()
     }
   }
 
   private fun ensureEventListener(reactContext: ReactContext, taskCtx: HeadlessJsTaskContext) {
-    if (registered.containsKey(reactContext)) return
-    val listener = object : HeadlessJsTaskEventListener {
-      override fun onHeadlessJsTaskStart(taskId: Int) {}
-      override fun onHeadlessJsTaskFinish(taskId: Int) {
-        keepaliveTaskId.compareAndSet(taskId, -1)
-        listeners.remove(taskId)?.invoke()
+    synchronized(registered) {
+      if (registered.containsKey(reactContext)) return
+      val listener = object : HeadlessJsTaskEventListener {
+        override fun onHeadlessJsTaskStart(taskId: Int) {}
+        override fun onHeadlessJsTaskFinish(taskId: Int) {
+          keepaliveTaskId.compareAndSet(taskId, -1)
+          listeners.remove(taskId)?.invoke()
+        }
       }
-    }
-    if (registered.putIfAbsent(reactContext, listener) == null) {
+      registered[reactContext] = listener
       taskCtx.addTaskEventListener(listener)
     }
   }
@@ -114,8 +156,10 @@ object DsBotHeadlessRunner {
     app: ReactApplication,
     config: HeadlessJsTaskConfig,
     isKeepalive: Boolean,
+    onStarted: ((Int) -> Unit)?,
     onDone: (() -> Unit)?,
   ) {
+    val settled = AtomicBoolean(false)
     try {
       if (ReactNativeNewArchitectureFeatureFlags.enableBridgelessArchitecture()) {
         val host = app.reactHost
@@ -123,25 +167,49 @@ object DsBotHeadlessRunner {
           onDone?.invoke()
           return
         }
-        host.addReactInstanceEventListener(object : ReactInstanceEventListener {
+        lateinit var timeoutRunnable: Runnable
+        val listener = object : ReactInstanceEventListener {
           override fun onReactContextInitialized(context: ReactContext) {
+            if (!settled.compareAndSet(false, true)) return
+            mainHandler.removeCallbacks(timeoutRunnable)
             host.removeReactInstanceEventListener(this)
-            startOnContext(context, config, isKeepalive, onDone)
+            mainHandler.post { startOnContext(context, config, isKeepalive, onStarted, onDone) }
           }
-        })
+        }
+        timeoutRunnable = Runnable {
+          if (settled.compareAndSet(false, true)) {
+            host.removeReactInstanceEventListener(listener)
+            onDone?.invoke()
+          }
+        }
+        host.addReactInstanceEventListener(listener)
+        mainHandler.postDelayed(timeoutRunnable, START_CONTEXT_TIMEOUT_MS)
         host.start()
       } else {
         val manager = app.reactNativeHost.reactInstanceManager
-        manager.addReactInstanceEventListener(object : ReactInstanceEventListener {
+        lateinit var timeoutRunnable: Runnable
+        val listener = object : ReactInstanceEventListener {
           override fun onReactContextInitialized(context: ReactContext) {
+            if (!settled.compareAndSet(false, true)) return
+            mainHandler.removeCallbacks(timeoutRunnable)
             manager.removeReactInstanceEventListener(this)
-            startOnContext(context, config, isKeepalive, onDone)
+            mainHandler.post { startOnContext(context, config, isKeepalive, onStarted, onDone) }
           }
-        })
+        }
+        timeoutRunnable = Runnable {
+          if (settled.compareAndSet(false, true)) {
+            manager.removeReactInstanceEventListener(listener)
+            onDone?.invoke()
+          }
+        }
+        manager.addReactInstanceEventListener(listener)
+        mainHandler.postDelayed(timeoutRunnable, START_CONTEXT_TIMEOUT_MS)
         manager.createReactContextInBackground()
       }
     } catch (_: Exception) {
-      onDone?.invoke()
+      if (settled.compareAndSet(false, true)) {
+        onDone?.invoke()
+      }
     }
   }
 

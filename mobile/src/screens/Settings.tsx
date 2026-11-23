@@ -1,5 +1,5 @@
 import { Children, Fragment, useCallback, useEffect, useState } from 'react'
-import { AppState, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { AppState, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTeam } from '../team/context.tsx'
 import { useAppUpdate } from '../team/app-update-store.ts'
 import { androidNotificationStatus, readNotifyPrefsFromRecord } from '../team/notifications.ts'
@@ -118,20 +118,27 @@ export function Settings({ navigation }: { navigation?: any }) {
           options={[{ id: 'system', label: t('System') }, { id: 'light', label: t('Light') }, { id: 'dark', label: t('Dark') }]} />
         <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
           options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]} />
-        <Row
-          label={t('Notifications')}
-          value={notifSummary}
-          valueColor={Platform.OS === 'android' && (permStatus === 'Allow' || permStatus === 'Off') && notifyPrefs.enabled ? p.danger : undefined}
-          onPress={() => navigation?.navigate('NotificationsSettings')}
-        />
         {Platform.OS === 'android' ? (
+          <>
+            <Row
+              label={t('Notifications')}
+              value={notifSummary}
+              valueColor={(permStatus === 'Allow' || permStatus === 'Off') && notifyPrefs.enabled ? p.danger : undefined}
+              onPress={() => navigation?.navigate('NotificationsSettings')}
+            />
+            <Row
+              label={t('App update')}
+              value={updateSummary}
+              valueColor={appUpdate.hasUpdate || appUpdate.phase === 'ready' ? p.accent : undefined}
+              onPress={() => navigation?.navigate('AppUpdate')}
+            />
+          </>
+        ) : (
           <Row
-            label={t('App update')}
-            value={updateSummary}
-            valueColor={appUpdate.hasUpdate || appUpdate.phase === 'ready' ? p.accent : undefined}
-            onPress={() => navigation?.navigate('AppUpdate')}
+            label={t('In-app banners')}
+            end={<Switch value={notifyPrefs.banners} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
           />
-        ) : null}
+        )}
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>

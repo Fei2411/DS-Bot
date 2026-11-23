@@ -191,10 +191,38 @@ function uniqueUrls(urls: (string | null | undefined)[], options: { allowLoopbac
   return out
 }
 
-async function fetchShaFromSums(fetchFn: typeof globalThis.fetch, sumsUrl: string, apkName: string, userAgent: string): Promise<string | null> {
-  const response = await fetchFn(sumsUrl, {
+const FETCH_TIMEOUT_MS = 15_000
+
+async function fetchSafe(
+  fetchFn: typeof globalThis.fetch,
+  url: string,
+  init: RequestInit,
+  urlOpts: { allowLoopbackHttp?: boolean },
+): Promise<Response> {
+  if (!isSafeUpdateUrl(url, urlOpts)) throw new Error('Only HTTPS update URLs are allowed')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  try {
+    const response = await fetchFn(url, { ...init, signal: controller.signal })
+    if (response.url && !isSafeUpdateUrl(response.url, urlOpts)) {
+      throw new Error('Update source redirected to an insecure address')
+    }
+    return response
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function fetchShaFromSums(
+  fetchFn: typeof globalThis.fetch,
+  sumsUrl: string,
+  apkName: string,
+  userAgent: string,
+  urlOpts: { allowLoopbackHttp?: boolean },
+): Promise<string | null> {
+  const response = await fetchSafe(fetchFn, sumsUrl, {
     headers: { 'user-agent': userAgent, accept: 'text/plain, */*' },
-  })
+  }, urlOpts)
   if (!response.ok) return null
   return parseSha256Sums(await response.text(), apkName)
 }
@@ -208,9 +236,9 @@ async function tryCustomMirrorManifest(
   urlOpts: { allowLoopbackHttp?: boolean },
 ): Promise<UpdateCheckResult | null> {
   try {
-    const response = await fetchFn(`${mirrorBase}/latest-android.json`, {
+    const response = await fetchSafe(fetchFn, `${mirrorBase}/latest-android.json`, {
       headers: { 'user-agent': userAgent, accept: 'application/json' },
-    })
+    }, urlOpts)
     if (!response.ok) return null
     const data = await response.json() as Record<string, unknown>
     const version = typeof data.version === 'string' ? data.version.trim().replace(/^v/u, '') : ''
@@ -256,7 +284,7 @@ async function fallbackLatestRedirect(
   userAgent: string,
   urlOpts: { allowLoopbackHttp?: boolean },
 ): Promise<UpdateCheckResult> {
-  const response = await fetchFn(latestUrl, { headers: { 'user-agent': userAgent } })
+  const response = await fetchSafe(fetchFn, latestUrl, { headers: { 'user-agent': userAgent } }, urlOpts)
   if (!response.ok) throw new Error(`Update check failed (HTTP ${response.status})`)
   const finalUrl = response.url || ''
   const tagMatch = /\/releases\/tag\/v?([^/?#]+)/u.exec(finalUrl)
@@ -266,7 +294,7 @@ async function fallbackLatestRedirect(
   const apkName = androidApkName(version)
   const baseDownload = `https://github.com/${REPO}/releases/download/v${encodeURIComponent(version)}`
   const sumsUrl = `${baseDownload}/${SUMS_NAME}`
-  const sha256 = await fetchShaFromSums(fetchFn, sumsUrl, apkName, userAgent)
+  const sha256 = await fetchShaFromSums(fetchFn, sumsUrl, apkName, userAgent, urlOpts)
   if (sha256 === null) throw new Error('Release checksum file is missing the Android APK digest.')
   const mirrorApk = customMirror ? `${customMirror}/${encodeURIComponent(apkName)}` : null
   const downloadUrls = uniqueUrls([mirrorApk, `${baseDownload}/${encodeURIComponent(apkName)}`], urlOpts)
@@ -306,7 +334,7 @@ export async function checkAndroidUpdate(options: CheckUpdateOptions): Promise<U
 
   let response: Response | null = null
   try {
-    response = await fetchFn(options.releasesApiUrl ?? RELEASES_API_URL, { headers })
+    response = await fetchSafe(fetchFn, options.releasesApiUrl ?? RELEASES_API_URL, { headers }, urlOpts)
   } catch (networkError) {
     if (!allowPrerelease) {
       return fallbackLatestRedirect(fetchFn, options.latestReleaseUrl ?? LATEST_RELEASE_URL, currentVersion, customMirror, userAgent, urlOpts)
@@ -349,7 +377,7 @@ export async function checkAndroidUpdate(options: CheckUpdateOptions): Promise<U
   const apkName = androidApkName(chosen.version)
   const apiDigest = parseGitHubDigest(chosen.apk.digest)
   const sumsDigest = chosen.sums?.browser_download_url
-    ? await fetchShaFromSums(fetchFn, chosen.sums.browser_download_url, apkName, userAgent).catch(() => null)
+    ? await fetchShaFromSums(fetchFn, chosen.sums.browser_download_url, apkName, userAgent, urlOpts).catch(() => null)
     : null
 
   if (sumsDigest !== null && apiDigest !== null && sumsDigest !== apiDigest) {

@@ -4,7 +4,10 @@
 //
 // phone.json keeps this computer's identity key, its Server token and the paired phones.
 // Only the dsh that owns the team runs the link: two would push each other off the Server.
+import { lookup as dnsLookup } from 'node:dns/promises'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -13,6 +16,7 @@ import {
   LINK_PATH,
   deviceIdFor,
   generateKeyPair,
+  isPublicIpAddress,
   isUrgentNoticeKind,
   isValidPushEndpoint,
   isValidPushToken,
@@ -26,8 +30,76 @@ const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
 const MAX_PUSH_QUEUE = 16
 const PUSH_TIMEOUT_MS = 5_000
+const PUSH_TEXT_MAX_BYTES = 600
+const PUSH_NAME_MAX_BYTES = 120
+const PUSH_HOST_MAX_BYTES = 80
 export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
 export { BROWSER_ALLOWED }
+
+function trimUtf8(value, maxBytes) {
+  const str = String(value ?? '')
+  if (Buffer.byteLength(str, 'utf8') <= maxBytes) return str
+  let out = ''
+  let used = 0
+  for (const ch of str) {
+    const bytes = Buffer.byteLength(ch, 'utf8')
+    if (used + bytes > maxBytes) break
+    out += ch
+    used += bytes
+  }
+  return out
+}
+
+async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbackHttp) {
+  if (!isValidPushEndpoint(endpoint, { allowLoopbackHttp })) return { status: 0 }
+  const parsed = new URL(endpoint)
+  const isLoopbackTest = allowLoopbackHttp && parsed.protocol === 'http:'
+  const hostBare = parsed.hostname.startsWith('[') && parsed.hostname.endsWith(']')
+    ? parsed.hostname.slice(1, -1)
+    : parsed.hostname
+  let resolved
+  if (isLoopbackTest) {
+    resolved = { address: hostBare === 'localhost' ? '127.0.0.1' : hostBare, family: hostBare.includes(':') ? 6 : 4 }
+  } else {
+    const entries = await dnsLookup(hostBare, { all: true, verbatim: true })
+    if (!Array.isArray(entries) || entries.length === 0) return { status: 0 }
+    if (!entries.every(entry => isPublicIpAddress(entry.address))) {
+      throw new Error('Push endpoint resolved to a non-public address')
+    }
+    resolved = entries[0]
+  }
+
+  const body = Buffer.from(bodyText, 'utf8')
+  const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest
+  const combined = AbortSignal.any([signal, AbortSignal.timeout(PUSH_TIMEOUT_MS)])
+  return new Promise((resolve, reject) => {
+    if (combined.aborted) { reject(new Error('Push aborted')); return }
+    const req = transport(parsed, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(body.byteLength),
+        ttl: '86400',
+        urgency,
+      },
+      lookup: (_host, opts, cb) => {
+        if (typeof opts === 'function') { opts(null, resolved.address, resolved.family); return }
+        if (opts && opts.all) { cb(null, [{ address: resolved.address, family: resolved.family }]); return }
+        cb(null, resolved.address, resolved.family)
+      },
+    }, (res) => {
+      const status = res.statusCode ?? 0
+      res.resume()
+      res.once('end', () => resolve({ status }))
+      res.once('error', () => resolve({ status }))
+    })
+    const onAbort = () => { req.destroy(new Error('Push aborted')) }
+    combined.addEventListener('abort', onAbort, { once: true })
+    req.once('close', () => combined.removeEventListener('abort', onAbort))
+    req.once('error', reject)
+    req.end(body)
+  })
+}
 
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
@@ -74,26 +146,35 @@ export function install(rt) {
   const deliverPush = async (device, notice, urgency, signal) => {
     const hostIdentity = identity()
     const boot = rt.noticeCursor?.()?.boot
-    const envelope = sealPushEnvelope(device.identityKey, hostIdentity.deviceId, {
-      hostName: hostname(),
+    const compactNotice = {
+      ...notice,
+      name: trimUtf8(notice.name, PUSH_NAME_MAX_BYTES),
+      text: trimUtf8(notice.text, PUSH_TEXT_MAX_BYTES),
+      ...(notice.title !== undefined ? { title: trimUtf8(notice.title, PUSH_NAME_MAX_BYTES) } : {}),
+    }
+    const envelope = sealPushEnvelope(hostIdentity.privateKey, hostIdentity.publicKey, device.identityKey, {
+      hostName: trimUtf8(hostname(), PUSH_HOST_MAX_BYTES),
       ...(typeof boot === 'string' ? { boot } : {}),
-      notice,
+      notice: compactNotice,
     })
     if (device.push.kind === 'unifiedpush') {
-      const fetchFn = rt.pushFetch ?? globalThis.fetch
-      if (typeof fetchFn !== 'function') return
-      const response = await fetchFn(device.push.endpoint, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ttl: '86400',
-          urgency,
-        },
-        body: JSON.stringify(envelope),
-        redirect: 'error',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(PUSH_TIMEOUT_MS)]),
-      })
-      if (response.status === 404 || response.status === 410) {
+      const bodyText = JSON.stringify(envelope)
+      let status = 0
+      if (typeof rt.pushFetch === 'function') {
+        const response = await rt.pushFetch(device.push.endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ttl: '86400', urgency },
+          body: bodyText,
+          redirect: 'error',
+          signal: AbortSignal.any([signal, AbortSignal.timeout(PUSH_TIMEOUT_MS)]),
+        })
+        status = response.status
+        await response.body?.cancel?.().catch(() => {})
+      } else {
+        const res = await postUnifiedPush(device.push.endpoint, bodyText, urgency, signal, rt.pushAllowLoopbackHttp === true)
+        status = res.status
+      }
+      if (status === 404 || status === 410) {
         registry?.setPush(device.deviceId, undefined)
         clearPushQueue(device.deviceId)
         reconcileFeed()

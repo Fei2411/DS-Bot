@@ -39,3 +39,4 @@ Settings, all optional:
 | `DSBOT_LINK_FCM_SERVICE_ACCOUNT` | none | Optional Firebase service account JSON or file path to forward E2E sealed `push.notify` frames via FCM HTTP v1 |
 | `DSBOT_LINK_FCM_PROJECT_ID` | from service account | Optional override for the Firebase project id |
 | `DSBOT_LINK_MAX_PUSHES_PER_HOUR` | `240` | Offline push requests one host may send in an hour |
+| `DSBOT_LINK_FCM_ALLOWED_HOSTS` | unset (all hosts) | Optional comma-separated host device IDs permitted to use FCM forwarding |

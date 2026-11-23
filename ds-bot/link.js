@@ -8800,7 +8800,7 @@ var PUSH_ENVELOPE_VERSION = 1;
 var MAX_PUSH_ENDPOINT_LENGTH = 1024;
 var MAX_PUSH_TOKEN_LENGTH = 512;
 var MAX_SEALED_PUSH_CHARS = 4096;
-var PUSH_SEAL_VERSION = 1;
+var PUSH_SEAL_VERSION = 2;
 var X25519_KEY_BYTES = 32;
 var SEAL_HEADER_BYTES = 1 + X25519_KEY_BYTES;
 var AEAD_TAG_BYTES = 16;
@@ -8814,8 +8814,99 @@ var URGENT_NOTICE_KINDS = /* @__PURE__ */ new Set([
   "handoff",
   "learning"
 ]);
+var BLOCKED_HOST_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".internal",
+  ".home.arpa",
+  ".localdomain"
+];
 function isUrgentNoticeKind(kind) {
   return typeof kind === "string" && URGENT_NOTICE_KINDS.has(kind);
+}
+function parseIpv4(raw) {
+  const parts = raw.split(".");
+  if (parts.length !== 4) return null;
+  const octets = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/u.test(part)) return null;
+    const value = Number(part);
+    if (!Number.isInteger(value) || value < 0 || value > 255) return null;
+    octets.push(value);
+  }
+  return [octets[0], octets[1], octets[2], octets[3]];
+}
+function isPublicIpv4(octets) {
+  const [a, b, c] = octets;
+  if (a === 0) return false;
+  if (a === 10) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  if (a === 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 198 && (b === 18 || b === 19)) return false;
+  if (a === 198 && b === 51 && c === 100) return false;
+  if (a === 203 && b === 0 && c === 113) return false;
+  if (a >= 224) return false;
+  return true;
+}
+function parseIpv6(raw) {
+  let text = raw.trim().toLowerCase();
+  if (text.startsWith("[") && text.endsWith("]")) text = text.slice(1, -1);
+  const zoneIdx = text.indexOf("%");
+  if (zoneIdx >= 0) text = text.slice(0, zoneIdx);
+  if (!text.includes(":")) return null;
+  const lastColon = text.lastIndexOf(":");
+  const tail = text.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const v4 = parseIpv4(tail);
+    if (v4 === null) return null;
+    const hi = (v4[0] << 8 | v4[1]).toString(16);
+    const lo = (v4[2] << 8 | v4[3]).toString(16);
+    text = `${text.slice(0, lastColon)}:${hi}:${lo}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const left = halves[0] === "" ? [] : halves[0].split(":");
+  const right = halves.length === 2 && halves[1] !== "" ? halves[1].split(":") : [];
+  const missing = 8 - (left.length + right.length);
+  if (halves.length === 1 && missing !== 0 || halves.length === 2 && missing < 1) return null;
+  const groups = [...left, ...Array(Math.max(0, missing)).fill("0"), ...right];
+  if (groups.length !== 8) return null;
+  const out = [];
+  for (const group of groups) {
+    if (!/^[0-9a-f]{1,4}$/u.test(group)) return null;
+    out.push(parseInt(group, 16));
+  }
+  return out;
+}
+function isPublicIpv6(groups) {
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0 && (g7 === 0 || g7 === 1)) {
+    return false;
+  }
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && (g4 === 0 && g5 === 65535 || g4 === 65535 && g5 === 0)) {
+    return isPublicIpv4([g6 >> 8 & 255, g6 & 255, g7 >> 8 & 255, g7 & 255]);
+  }
+  if (g0 === 100 && g1 === 65435 && (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 || g2 === 1)) {
+    return isPublicIpv4([g6 >> 8 & 255, g6 & 255, g7 >> 8 & 255, g7 & 255]);
+  }
+  if (g0 === 256 && g1 === 0 && g2 === 0 && g3 === 0) return false;
+  if (g0 === 8193 && g1 === 3512) return false;
+  if ((g0 & 65024) === 64512) return false;
+  if ((g0 & 65472) === 65152) return false;
+  if ((g0 & 65472) === 65216) return false;
+  if ((g0 & 65280) === 65280) return false;
+  return true;
+}
+function isPublicIpAddress(ip) {
+  const v4 = parseIpv4(ip.trim());
+  if (v4 !== null) return isPublicIpv4(v4);
+  const v6 = parseIpv6(ip);
+  if (v6 !== null) return isPublicIpv6(v6);
+  return false;
 }
 function isValidPushEndpoint(endpoint, options = {}) {
   if (typeof endpoint !== "string") return false;
@@ -8828,55 +8919,82 @@ function isValidPushEndpoint(endpoint, options = {}) {
     return false;
   }
   if (parsed.username !== "" || parsed.password !== "" || parsed.hostname === "") return false;
-  if (parsed.protocol === "https:") return true;
+  const rawHost = parsed.hostname.toLowerCase();
+  const host = rawHost.endsWith(".") ? rawHost.replace(/\.+$/u, "") : rawHost;
+  if (host === "") return false;
   if (options.allowLoopbackHttp === true && parsed.protocol === "http:") {
-    const host = parsed.hostname.toLowerCase();
     return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
   }
-  return false;
+  if (parsed.protocol !== "https:") return false;
+  if (host === "localhost" || BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return false;
+  const v4 = parseIpv4(host);
+  if (v4 !== null) return isPublicIpv4(v4);
+  if (host.startsWith("[") || host.includes(":")) {
+    const v6 = parseIpv6(host);
+    return v6 !== null && isPublicIpv6(v6);
+  }
+  if (!host.includes(".")) return false;
+  return true;
 }
 function isValidPushToken(token) {
   return typeof token === "string" && token.length > 0 && token.length <= MAX_PUSH_TOKEN_LENGTH && !/\s/u.test(token);
 }
-function sealPushEnvelope(recipientPublicKey, hostDeviceId, payload, ephemeralPrivateKey) {
+function sealPushEnvelope(hostPrivateKey, hostPublicKey, recipientPublicKey, payload, ephemeralPrivateKey) {
+  const hostPriv = fromBase64Url(hostPrivateKey);
+  const hostPub = fromBase64Url(hostPublicKey);
   const recipientPub = fromBase64Url(recipientPublicKey);
-  if (recipientPub.byteLength !== X25519_KEY_BYTES) throw new Error("Invalid recipient public key.");
-  if (typeof hostDeviceId !== "string" || hostDeviceId.length === 0 || hostDeviceId.length > 128) {
-    throw new Error("Invalid host device id.");
+  if (hostPriv.byteLength !== X25519_KEY_BYTES || hostPub.byteLength !== X25519_KEY_BYTES) {
+    throw new Error("Invalid host identity keys.");
   }
+  if (recipientPub.byteLength !== X25519_KEY_BYTES) throw new Error("Invalid recipient public key.");
+  const derivedHostPub = x25519.getPublicKey(hostPriv);
+  if (!constantTimeEqual2(derivedHostPub, hostPub)) throw new Error("Host key pair mismatch.");
+  const hostDeviceId = deviceIdFor(hostPublicKey);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   if (plaintext.byteLength > MAX_PUSH_PLAINTEXT_BYTES) throw new Error("Push payload exceeds size limit.");
   const ephPriv = ephemeralPrivateKey ?? x25519.utils.randomPrivateKey();
   if (ephPriv.byteLength !== X25519_KEY_BYTES) throw new Error("Invalid ephemeral private key.");
   const ephPub = x25519.getPublicKey(ephPriv);
-  const shared = x25519.getSharedSecret(ephPriv, recipientPub);
-  const { key, nonce, aad } = deriveSealKeys(shared, ephPub, recipientPub, hostDeviceId);
+  const es = x25519.getSharedSecret(ephPriv, recipientPub);
+  const ss = x25519.getSharedSecret(hostPriv, recipientPub);
+  const header = new Uint8Array(SEAL_HEADER_BYTES);
+  header[0] = PUSH_SEAL_VERSION;
+  header.set(ephPub, 1);
+  const { key, nonce, aad } = deriveSealKeys(es, ss, header, ephPub, hostPub, recipientPub, hostDeviceId);
   const ciphertext = chacha20poly13052(key, nonce, aad).encrypt(plaintext);
   const sealed = new Uint8Array(SEAL_HEADER_BYTES + ciphertext.byteLength);
-  sealed[0] = PUSH_SEAL_VERSION;
-  sealed.set(ephPub, 1);
+  sealed.set(header, 0);
   sealed.set(ciphertext, SEAL_HEADER_BYTES);
   const encoded = toBase64Url(sealed);
   if (encoded.length > MAX_SEALED_PUSH_CHARS) throw new Error("Sealed push envelope exceeds size limit.");
   return { v: PUSH_ENVELOPE_VERSION, h: hostDeviceId, p: encoded };
 }
-function openPushEnvelope(recipientPrivateKey, recipientPublicKey, envelope) {
-  if (envelope.v !== PUSH_ENVELOPE_VERSION || typeof envelope.h !== "string" || envelope.h.length === 0 || typeof envelope.p !== "string") {
+function openPushEnvelope(recipientPrivateKey, recipientPublicKey, expectedHostPublicKey, envelope) {
+  if (envelope.v !== PUSH_ENVELOPE_VERSION || typeof envelope.h !== "string" || envelope.h.length === 0 || envelope.h.length > 128 || typeof envelope.p !== "string" || envelope.p.length === 0 || envelope.p.length > MAX_SEALED_PUSH_CHARS) {
     throw new Error("Invalid push envelope.");
   }
   const recipientPriv = fromBase64Url(recipientPrivateKey);
   const recipientPub = fromBase64Url(recipientPublicKey);
+  const hostPub = fromBase64Url(expectedHostPublicKey);
   if (recipientPriv.byteLength !== X25519_KEY_BYTES || recipientPub.byteLength !== X25519_KEY_BYTES) {
     throw new Error("Invalid recipient identity keys.");
+  }
+  if (hostPub.byteLength !== X25519_KEY_BYTES) {
+    throw new Error("Invalid host public key.");
+  }
+  if (deviceIdFor(expectedHostPublicKey) !== envelope.h) {
+    throw new Error("Host identity mismatch.");
   }
   const sealed = fromBase64Url(envelope.p);
   if (sealed.byteLength < SEAL_HEADER_BYTES + AEAD_TAG_BYTES + 2 || sealed[0] !== PUSH_SEAL_VERSION) {
     throw new Error("Invalid sealed push bytes.");
   }
+  const header = sealed.subarray(0, SEAL_HEADER_BYTES);
   const ephPub = sealed.subarray(1, SEAL_HEADER_BYTES);
   const ciphertext = sealed.subarray(SEAL_HEADER_BYTES);
-  const shared = x25519.getSharedSecret(recipientPriv, ephPub);
-  const { key, nonce, aad } = deriveSealKeys(shared, ephPub, recipientPub, envelope.h);
+  const es = x25519.getSharedSecret(recipientPriv, ephPub);
+  const ss = x25519.getSharedSecret(recipientPriv, hostPub);
+  const { key, nonce, aad } = deriveSealKeys(es, ss, header, ephPub, hostPub, recipientPub, envelope.h);
   const plaintext = chacha20poly13052(key, nonce, aad).decrypt(ciphertext);
   const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plaintext));
   if (!isPushNoticeEntry(parsed?.notice)) throw new Error("Invalid push notice payload.");
@@ -8884,7 +9002,7 @@ function openPushEnvelope(recipientPrivateKey, recipientPublicKey, envelope) {
     hostDeviceId: envelope.h,
     payload: {
       ...typeof parsed.hostName === "string" ? { hostName: parsed.hostName } : {},
-      ...typeof parsed.boot === "string" ? { boot: parsed.boot } : {},
+      ...typeof parsed.boot === "string" && parsed.boot.length > 0 && parsed.boot.length <= 128 ? { boot: parsed.boot } : {},
       notice: parsed.notice
     }
   };
@@ -8915,17 +9033,18 @@ function parsePushEnvelope(input) {
 function isPushNoticeEntry(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const entry = value;
-  return typeof entry.seq === "number" && typeof entry.kind === "string" && entry.kind.length > 0 && typeof entry.botId === "string" && entry.botId.length > 0 && typeof entry.name === "string" && typeof entry.text === "string" && typeof entry.time === "number" && (entry.roomId === void 0 || typeof entry.roomId === "string") && (entry.title === void 0 || typeof entry.title === "string") && (entry.sessionId === void 0 || typeof entry.sessionId === "string");
+  return typeof entry.seq === "number" && Number.isSafeInteger(entry.seq) && entry.seq >= 0 && typeof entry.kind === "string" && entry.kind.length > 0 && entry.kind.length <= 64 && typeof entry.botId === "string" && entry.botId.length > 0 && entry.botId.length <= 256 && typeof entry.name === "string" && entry.name.length <= 256 && typeof entry.text === "string" && entry.text.length <= 2e3 && typeof entry.time === "number" && Number.isFinite(entry.time) && entry.time >= 0 && (entry.roomId === void 0 || typeof entry.roomId === "string" && entry.roomId.length <= 256) && (entry.title === void 0 || typeof entry.title === "string" && entry.title.length <= 256) && (entry.sessionId === void 0 || typeof entry.sessionId === "string" && entry.sessionId.length <= 256);
 }
-function deriveSealKeys(shared, ephPub, recipientPub, hostDeviceId) {
+function deriveSealKeys(es, ss, header, ephPub, hostPub, recipientPub, hostDeviceId) {
+  const ikm = concatBytes4(es, ss);
   const salt = concatBytes4(ephPub, recipientPub);
   const hostBytes = new TextEncoder().encode(hostDeviceId);
-  const info = concatBytes4(new TextEncoder().encode("ds-bot-push-v1:"), hostBytes);
-  const material = hkdf(sha2562, shared, salt, info, 44);
+  const info = concatBytes4(concatBytes4(new TextEncoder().encode("ds-bot-push-v2:"), hostPub), hostBytes);
+  const material = hkdf(sha2562, ikm, salt, info, 44);
   return {
     key: material.subarray(0, 32),
     nonce: material.subarray(32, 44),
-    aad: concatBytes4(ephPub, hostBytes)
+    aad: concatBytes4(concatBytes4(header, hostPub), hostBytes)
   };
 }
 function concatBytes4(left, right) {
@@ -8933,6 +9052,12 @@ function concatBytes4(left, right) {
   out.set(left, 0);
   out.set(right, left.byteLength);
   return out;
+}
+function constantTimeEqual2(a, b) {
+  if (a.byteLength !== b.byteLength) return false;
+  let diff = 0;
+  for (let i = 0; i < a.byteLength; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 // src/relay-transport.ts
@@ -9556,6 +9681,7 @@ export {
   encodeMessage,
   fromBase64Url,
   generateKeyPair,
+  isPublicIpAddress,
   isUrgentNoticeKind,
   isValidPushEndpoint,
   isValidPushToken,

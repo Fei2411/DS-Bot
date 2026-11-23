@@ -20,6 +20,23 @@ import {
 } from './notifications-native'
 import { recordNoticeSeen } from './notice-cursor-store.ts'
 
+const onlineHosts = new Set<string>()
+let hostPushSynced: 'unknown' | 'synced' | 'failed' = 'unknown'
+
+export function setForegroundLinkOnline(hostId: string, online: boolean): void {
+  if (!hostId) return
+  if (online) onlineHosts.add(hostId)
+  else onlineHosts.delete(hostId)
+}
+
+export function isForegroundLinkOnline(): boolean {
+  return onlineHosts.size > 0
+}
+
+export function getHostPushSyncState(): 'unknown' | 'synced' | 'failed' {
+  return hostPushSynced
+}
+
 export async function deliverSystemNotice(
   notice: NoticeEntry,
   options: {
@@ -39,7 +56,14 @@ export async function deliverSystemNotice(
     activeChat: options.activeChat ?? null,
     hostId: options.hostId,
   })
-  if (classified === null) return false
+  if (classified === null) {
+    // Still advance persisted cursor for muted/filtered background notices so periodic sync
+    // does not repeatedly re-fetch them.
+    if (!appActive && options.dedupe !== false) {
+      await recordNoticeSeen(options.hostId, options.boot, notice.seq)
+    }
+    return false
+  }
   if (options.dedupe !== false) {
     const fresh = await recordNoticeSeen(options.hostId, options.boot, notice.seq)
     if (!fresh) return false
@@ -95,7 +119,16 @@ export async function syncPushEndpointWithHost(
   const status = await getBackgroundStatus()
   if (status === null) return
   if (status.unifiedPushEndpoint) {
-    await call('push-register', { kind: 'unifiedpush', endpoint: status.unifiedPushEndpoint }).catch(() => {})
+    try {
+      await call('push-register', { kind: 'unifiedpush', endpoint: status.unifiedPushEndpoint })
+      hostPushSynced = 'synced'
+    } catch {
+      hostPushSynced = 'failed'
+    }
+  } else if (status.unifiedPushDisabled) {
+    // Clean up any stale registration on a computer that was offline when UnifiedPush was turned off.
+    await call('push-unregister', {}).catch(() => {})
+    hostPushSynced = 'unknown'
   }
 }
 

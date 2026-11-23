@@ -5,8 +5,8 @@ import { listComputers, onPrefsChange, readPrefs } from '../store.ts'
 import * as SecureStore from '../storage'
 import type { TeamState } from '../connection.ts'
 import { offline, useTeamLink, type TeamLinkHooks } from './link.ts'
-import { saveNoticeCursor } from './notice-cursor-store.ts'
-import { syncBackgroundConnectionSubtitle, syncPushEndpointWithHost } from './notification-bridge.ts'
+import { loadNoticeCursor, saveNoticeCursor } from './notice-cursor-store.ts'
+import { setForegroundLinkOnline, syncBackgroundConnectionSubtitle, syncPushEndpointWithHost } from './notification-bridge.ts'
 import { readNotifyPrefsFromRecord } from './notifications.ts'
 import { onUnifiedPushEvent } from './notifications-native'
 import { DEMO_HELLO, demoLink } from './demo.ts'
@@ -42,16 +42,20 @@ export function TeamProvider({ computer, identity, children }: { computer: Saved
   const hooks = useMemo<TeamLinkHooks>(() => ({
     keepAliveInBackground: () => keepAliveBg.current,
     onConnected: (hello, rawCall) => {
+      setForegroundLinkOnline(computer.hostDeviceId, true)
       void syncBackgroundConnectionSubtitle(true, computer.name)
       void syncPushEndpointWithHost(rawCall, hello.capabilities)
     },
     onDisconnected: () => {
+      setForegroundLinkOnline(computer.hostDeviceId, false)
       void syncBackgroundConnectionSubtitle(false, computer.name)
     },
+    loadCursor: () => loadNoticeCursor(computer.hostDeviceId),
     onCursor: (boot, seq) => {
       void saveNoticeCursor(computer.hostDeviceId, boot, seq)
     },
   }), [computer.hostDeviceId, computer.name])
+  useEffect(() => () => setForegroundLinkOnline(computer.hostDeviceId, false), [computer.hostDeviceId])
   const link = useTeamLink(computer, identity, hooks)
   useEffect(() => {
     if (Platform.OS !== 'android') return

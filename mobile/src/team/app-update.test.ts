@@ -189,3 +189,15 @@ test('checkAndroidUpdate falls back to releases/latest on API rate limit and sup
   assert.equal(fromMirror.release.version, '0.3.15')
   assert.equal(fromMirror.release.downloadUrls[0], 'https://cn.mirror.test/ds-bot/DS-Bot-0.3.15-android.apk')
 })
+
+test('checkAndroidUpdate rejects insecure HTTP redirects during metadata fetch', async () => {
+  const downgradeFetch: typeof globalThis.fetch = async () => {
+    const resp = new Response('[]', { status: 200 })
+    Object.defineProperty(resp, 'url', { value: 'http://downgrade.example/releases' })
+    return resp
+  }
+  await assert.rejects(
+    checkAndroidUpdate({ currentVersion: '0.3.10', fetch: downgradeFetch }),
+    /insecure address/i,
+  )
+})

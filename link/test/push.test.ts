@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
 import { test } from 'node:test'
+import { WebSocket } from 'ws'
 import {
   DeviceRegistry,
   HostLink,
+  PROTOCOL_VERSION,
+  createControlFrame,
   deviceIdFor,
   generateKeyPair,
+  isPublicIpAddress,
   isUrgentNoticeKind,
   isValidPushEndpoint,
   isValidPushToken,
@@ -13,17 +17,20 @@ import {
   parsePushEnvelope,
   randomToken,
   sealPushEnvelope,
+  toBase64Url,
 } from '../src/index.ts'
 import { createFcmForwarder } from '../server/push.ts'
 import { startRelayServer } from '../server/server.ts'
 
-test('sealPushEnvelope and openPushEnvelope encrypt end-to-end and reject tampering', () => {
+test('sealPushEnvelope and openPushEnvelope authenticate host sender and reject forgery/tampering', () => {
   const host = generateKeyPair()
+  const forgedHost = generateKeyPair()
   const hostId = deviceIdFor(host.publicKey)
   const phone = generateKeyPair()
   const otherPhone = generateKeyPair()
   const payload = {
     hostName: 'Studio Mac',
+    boot: 'boot-1',
     notice: {
       seq: 42,
       kind: 'approval',
@@ -35,7 +42,7 @@ test('sealPushEnvelope and openPushEnvelope encrypt end-to-end and reject tamper
     },
   }
 
-  const envelope = sealPushEnvelope(phone.publicKey, hostId, payload)
+  const envelope = sealPushEnvelope(host.privateKey, host.publicKey, phone.publicKey, payload)
   assert.equal(envelope.v, 1)
   assert.equal(envelope.h, hostId)
   // Ciphertext must not leak plaintext metadata.
@@ -46,27 +53,73 @@ test('sealPushEnvelope and openPushEnvelope encrypt end-to-end and reject tamper
   const parsed = parsePushEnvelope(new TextEncoder().encode(JSON.stringify(envelope)))
   assert.deepEqual(parsed, envelope)
 
-  const opened = openPushEnvelope(phone.privateKey, phone.publicKey, envelope)
+  const opened = openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, envelope)
   assert.equal(opened.hostDeviceId, hostId)
   assert.deepEqual(opened.payload, payload)
 
+  // Attacker with phone public key and hostDeviceId but NOT host private key cannot forge an envelope.
+  const attackerEnvelope = sealPushEnvelope(forgedHost.privateKey, forgedHost.publicKey, phone.publicKey, payload)
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, attackerEnvelope))
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, { ...attackerEnvelope, h: hostId }))
+
   // Wrong recipient key fails AEAD authentication.
-  assert.throws(() => openPushEnvelope(otherPhone.privateKey, otherPhone.publicKey, envelope))
-  // Swapped hostDeviceId fails AAD / HKDF verification.
-  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, { ...envelope, h: 'd-forged' }))
-  // Bit flip in ciphertext fails AEAD verification.
-  const flipped = `${envelope.p.slice(0, -1)}${envelope.p.endsWith('A') ? 'B' : 'A'}`
-  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, { ...envelope, p: flipped }))
+  assert.throws(() => openPushEnvelope(otherPhone.privateKey, otherPhone.publicKey, host.publicKey, envelope))
+  // Swapped hostDeviceId fails host identity verification.
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, { ...envelope, h: 'd-forged' }))
+  // Bit flip in header (version byte) or ciphertext fails AEAD verification.
+  const flippedTail = `${envelope.p.slice(0, -1)}${envelope.p.endsWith('A') ? 'B' : 'A'}`
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, { ...envelope, p: flippedTail }))
+  const flippedHead = `${envelope.p.startsWith('A') ? 'B' : 'A'}${envelope.p.slice(1)}`
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, { ...envelope, p: flippedHead }))
+  // Low-order / all-zero X25519 key is rejected.
+  const zeroKey = toBase64Url(new Uint8Array(32))
+  assert.throws(() => sealPushEnvelope(host.privateKey, host.publicKey, zeroKey, payload))
+  // Oversized plaintext or invalid notice seq is rejected.
+  assert.throws(() => sealPushEnvelope(host.privateKey, host.publicKey, phone.publicKey, {
+    notice: { ...payload.notice, text: 'x'.repeat(3000) },
+  }))
+  const badSeqEnvelope = sealPushEnvelope(host.privateKey, host.publicKey, phone.publicKey, {
+    notice: { ...payload.notice, seq: -5 },
+  })
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, badSeqEnvelope))
+  const unsafeSeqEnvelope = sealPushEnvelope(host.privateKey, host.publicKey, phone.publicKey, {
+    notice: { ...payload.notice, seq: Number.MAX_SAFE_INTEGER + 10 },
+  })
+  assert.throws(() => openPushEnvelope(phone.privateKey, phone.publicKey, host.publicKey, unsafeSeqEnvelope))
 })
 
-test('push endpoint, token, and urgency validators enforce boundaries', () => {
+test('push endpoint, IP, token, and urgency validators enforce SSRF and format boundaries', () => {
   assert.equal(isValidPushEndpoint('https://ntfy.sh/up-abc123'), true)
+  assert.equal(isValidPushEndpoint('https://1.1.1.1/push'), true)
+  assert.equal(isValidPushEndpoint('https://[2606:4700:4700::1111]/push'), true)
   assert.equal(isValidPushEndpoint('http://ntfy.sh/up-abc123'), false)
   assert.equal(isValidPushEndpoint('https://user:pass@ntfy.sh/up'), false)
   assert.equal(isValidPushEndpoint('javascript:alert(1)'), false)
+  // SSRF targets must be blocked on https://
+  assert.equal(isValidPushEndpoint('https://localhost/up'), false)
+  assert.equal(isValidPushEndpoint('https://foo.local/up'), false)
+  assert.equal(isValidPushEndpoint('https://intranet/up'), false)
+  assert.equal(isValidPushEndpoint('https://127.0.0.1/up'), false)
+  assert.equal(isValidPushEndpoint('https://10.0.0.1/up'), false)
+  assert.equal(isValidPushEndpoint('https://172.16.5.4/up'), false)
+  assert.equal(isValidPushEndpoint('https://192.168.1.1/up'), false)
+  assert.equal(isValidPushEndpoint('https://169.254.169.254/latest/meta-data'), false)
+  assert.equal(isValidPushEndpoint('https://100.64.0.1/up'), false)
+  assert.equal(isValidPushEndpoint('https://[::1]/up'), false)
+  assert.equal(isValidPushEndpoint('https://[fc00::1]/up'), false)
+  assert.equal(isValidPushEndpoint('https://[fe80::1]/up'), false)
+  assert.equal(isValidPushEndpoint('https://[::ffff:127.0.0.1]/up'), false)
+  assert.equal(isValidPushEndpoint('https://[::ffff:192.168.1.10]/up'), false)
   assert.equal(isValidPushEndpoint('http://127.0.0.1:9999/up'), false)
   assert.equal(isValidPushEndpoint('http://127.0.0.1:9999/up', { allowLoopbackHttp: true }), true)
   assert.equal(isValidPushEndpoint('http://example.com/up', { allowLoopbackHttp: true }), false)
+
+  assert.equal(isPublicIpAddress('8.8.8.8'), true)
+  assert.equal(isPublicIpAddress('127.0.0.1'), false)
+  assert.equal(isPublicIpAddress('192.168.0.1'), false)
+  assert.equal(isPublicIpAddress('::ffff:10.0.0.2'), false)
+  assert.equal(isPublicIpAddress('fe80::1'), false)
+  assert.equal(isPublicIpAddress('2001:4860:4860::8888'), true)
 
   assert.equal(isValidPushToken('fcm-token_123:ABC'), true)
   assert.equal(isValidPushToken(''), false)
@@ -103,20 +156,24 @@ test('DeviceRegistry stores push subscriptions for phones only and drops them on
   assert.equal(registry.list().length, 1)
 })
 
-test('Relay Server negotiates push.fcm, forwards sealed pushes, enforces limits, and reports gone tokens', async () => {
+test('Relay Server negotiates push.fcm, enforces allowlist, role/header validation, and rate limits', async () => {
   const received: unknown[] = []
   let nextResult: { ok: boolean; gone?: boolean; code?: string } = { ok: true }
+  const hostKeys = generateKeyPair()
+  const hostId = deviceIdFor(hostKeys.publicKey)
+  const otherHostKeys = generateKeyPair()
+  const otherHostId = deviceIdFor(otherHostKeys.publicKey)
+  const phoneKeys = generateKeyPair()
+  const phoneId = deviceIdFor(phoneKeys.publicKey)
+
   const relay = await startRelayServer({
     maxPushesPerHour: 2,
+    allowedPushHosts: [hostId],
     pushForwarder: async (request) => {
       received.push(request)
       return nextResult
     },
   })
-  const hostKeys = generateKeyPair()
-  const hostId = deviceIdFor(hostKeys.publicKey)
-  const phoneKeys = generateKeyPair()
-  const phoneId = deviceIdFor(phoneKeys.publicKey)
   const host = new HostLink({
     url: relay.url,
     identity: { deviceId: hostId, ...hostKeys },
@@ -125,13 +182,36 @@ test('Relay Server negotiates push.fcm, forwards sealed pushes, enforces limits,
     authorize: () => false,
     handle: async () => null,
   })
+  const otherHost = new HostLink({
+    url: relay.url,
+    identity: { deviceId: otherHostId, ...otherHostKeys },
+    accessToken: randomToken(),
+    admits: () => false,
+    authorize: () => false,
+    handle: async () => null,
+  })
   try {
     host.start()
-    await host.waitOnline()
+    otherHost.start()
+    await Promise.all([host.waitOnline(), otherHost.waitOnline()])
     assert.ok(host.capabilities().includes('push.fcm'))
-    const envelope = sealPushEnvelope(phoneKeys.publicKey, hostId, {
+    assert.equal(otherHost.capabilities().includes('push.fcm'), false)
+
+    const envelope = sealPushEnvelope(hostKeys.privateKey, hostKeys.publicKey, phoneKeys.publicKey, {
       notice: { seq: 1, kind: 'question', botId: 'b1', name: 'Chief', text: 'Proceed?', time: 1 },
     })
+
+    // Non-allowlisted host is rejected cleanly.
+    const denied = await otherHost.sendPush({
+      targetDeviceId: phoneId,
+      kind: 'fcm',
+      token: 'tok-1',
+      urgency: 'high',
+      envelope: sealPushEnvelope(otherHostKeys.privateKey, otherHostKeys.publicKey, phoneKeys.publicKey, {
+        notice: { seq: 1, kind: 'question', botId: 'b1', name: 'Chief', text: 'No', time: 1 },
+      }),
+    })
+    assert.deepEqual(denied, { ok: false, code: 'UNSUPPORTED' })
 
     const first = await host.sendPush({ targetDeviceId: phoneId, kind: 'fcm', token: 'tok-1', urgency: 'high', envelope })
     assert.deepEqual(first, { ok: true })
@@ -143,8 +223,34 @@ test('Relay Server negotiates push.fcm, forwards sealed pushes, enforces limits,
 
     const third = await host.sendPush({ targetDeviceId: phoneId, kind: 'fcm', token: 'tok-1', urgency: 'normal', envelope })
     assert.deepEqual(third, { ok: false, code: 'RATE_LIMITED' })
+
+    // Raw client socket attempting push.notify or host forging envelope.h must be rejected with INVALID_MESSAGE.
+    const clientWs = new WebSocket(relay.url)
+    await new Promise<void>(resolve => clientWs.once('open', () => resolve()))
+    const messages: string[] = []
+    clientWs.on('message', raw => messages.push(raw.toString()))
+    clientWs.send(JSON.stringify(createControlFrame('hello', {
+      role: 'client',
+      deviceId: phoneId,
+      identityKey: phoneKeys.publicKey,
+      accessToken: randomToken(),
+      protocols: [PROTOCOL_VERSION],
+      capabilities: ['transport.relay'],
+    })))
+    await new Promise<void>(resolve => setTimeout(resolve, 40))
+    clientWs.send(JSON.stringify(createControlFrame('push.notify', {
+      requestId: 'r-bad',
+      targetDeviceId: phoneId,
+      kind: 'fcm',
+      token: 'tok-1',
+      urgency: 'high',
+      envelope: { v: 1, h: phoneId, p: envelope.p },
+    })))
+    await new Promise<void>(resolve => clientWs.once('close', () => resolve()))
+    assert.ok(messages.some(m => m.includes('INVALID_MESSAGE')))
   } finally {
     await host.stop()
+    await otherHost.stop()
     await relay.close()
   }
 })
@@ -166,7 +272,7 @@ test('HostLink.sendPush returns UNSUPPORTED when Relay Server has no push forwar
     host.start()
     await host.waitOnline()
     assert.equal(host.capabilities().includes('push.fcm'), false)
-    const envelope = sealPushEnvelope(phoneKeys.publicKey, hostId, {
+    const envelope = sealPushEnvelope(hostKeys.privateKey, hostKeys.publicKey, phoneKeys.publicKey, {
       notice: { seq: 1, kind: 'message', botId: 'b1', name: 'Chief', text: 'Done', time: 1 },
     })
     const res = await host.sendPush({ targetDeviceId: deviceIdFor(phoneKeys.publicKey), kind: 'fcm', token: 'tok', urgency: 'normal', envelope })
@@ -177,14 +283,19 @@ test('HostLink.sendPush returns UNSUPPORTED when Relay Server has no push forwar
   }
 })
 
-test('createFcmForwarder exchanges signed JWT, caches token, sends data-only payload, and detects UNREGISTERED', async () => {
+test('createFcmForwarder exchanges signed JWT, refreshes on 401, and distinguishes UNREGISTERED from generic 404', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string
   let authCalls = 0
   let sendCalls = 0
   const sentBodies: unknown[] = []
-  let sendStatus = 200
-  let sendBody = '{}'
+  const queue: Array<{ status: number; body: string }> = [
+    { status: 200, body: '{}' },
+    { status: 401, body: '{"error":{"status":"UNAUTHENTICATED"}}' },
+    { status: 200, body: '{}' },
+    { status: 404, body: '{"error":{"status":"NOT_FOUND","message":"Project not found"}}' },
+    { status: 404, body: JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }) },
+  ]
   const forward = createFcmForwarder({
     project_id: 'demo-proj',
     client_email: 'push@demo-proj.iam.gserviceaccount.com',
@@ -196,27 +307,28 @@ test('createFcmForwarder exchanges signed JWT, caches token, sends data-only pay
       const target = String(url)
       if (target === 'https://oauth.test/token') {
         authCalls += 1
-        return new Response(JSON.stringify({ access_token: 'access-1', expires_in: 3600 }), { status: 200 })
+        return new Response(JSON.stringify({ access_token: `access-${authCalls}`, expires_in: 3600 }), { status: 200 })
       }
       sendCalls += 1
       assert.equal(target, 'https://fcm.googleapis.com/v1/projects/demo-proj/messages:send')
-      assert.equal((init?.headers as Record<string, string>).authorization, 'Bearer access-1')
       sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
-      return new Response(sendBody, { status: sendStatus })
+      const next = queue.shift() ?? { status: 200, body: '{}' }
+      return new Response(next.body, { status: next.status })
     },
   })
 
-  const ok = await forward({
+  const req = {
     requestId: 'r1',
     targetDeviceId: 'd-phone',
-    kind: 'fcm',
+    kind: 'fcm' as const,
     token: 'fcm-tok',
-    urgency: 'high',
-    envelope: { v: 1, h: 'd-host', p: 'sealed-bytes' },
-  })
+    urgency: 'high' as const,
+    envelope: { v: 1 as const, h: 'd-host', p: 'sealed-bytes' },
+  }
+
+  const ok = await forward(req)
   assert.deepEqual(ok, { ok: true })
   assert.equal(authCalls, 1)
-  assert.equal(sendCalls, 1)
   assert.deepEqual(sentBodies[0], {
     message: {
       token: 'fcm-tok',
@@ -225,18 +337,18 @@ test('createFcmForwarder exchanges signed JWT, caches token, sends data-only pay
     },
   })
 
-  sendStatus = 404
-  sendBody = JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
-  const gone = await forward({
-    requestId: 'r2',
-    targetDeviceId: 'd-phone',
-    kind: 'fcm',
-    token: 'fcm-tok',
-    urgency: 'normal',
-    envelope: { v: 1, h: 'd-host', p: 'sealed-bytes' },
-  })
+  // 401 invalidates cached token and retries once cleanly.
+  const recovered = await forward({ ...req, requestId: 'r2' })
+  assert.deepEqual(recovered, { ok: true })
+  assert.equal(authCalls, 2)
+  assert.equal(sendCalls, 3)
+
+  // Bare 404 without UNREGISTERED must NOT wipe the phone token.
+  const generic404 = await forward({ ...req, requestId: 'r3' })
+  assert.deepEqual(generic404, { ok: false, gone: false, code: 'HTTP_404' })
+
+  // Explicit UNREGISTERED marks token as gone.
+  const gone = await forward({ ...req, requestId: 'r4', urgency: 'normal' })
   assert.deepEqual(gone, { ok: false, gone: true, code: 'UNREGISTERED' })
-  // OAuth token was cached and reused across both FCM sends.
-  assert.equal(authCalls, 1)
-  assert.equal(sendCalls, 2)
+  assert.equal(authCalls, 2)
 })

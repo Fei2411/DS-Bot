@@ -17,6 +17,7 @@ export interface BackgroundStatus {
   unifiedPushDistributor: string | null
   unifiedPushEndpoint: string | null
   unifiedPushError: string | null
+  unifiedPushDisabled?: boolean
 }
 
 export interface NativeNoticePayload {
@@ -39,6 +40,7 @@ export interface UnifiedPushEvent {
 interface NativeNotifications {
   ensureChannels(): Promise<boolean>
   areNotificationsEnabled(): Promise<boolean>
+  setUiState?(mounted: boolean, foreground: boolean): Promise<boolean>
   setUiActive(active: boolean): Promise<boolean>
   notify(payload: NativeNoticePayload): Promise<boolean>
   cancelTag(tag: string): Promise<boolean>
@@ -76,9 +78,18 @@ export async function areSystemNotificationsEnabled(): Promise<boolean> {
   return m.areNotificationsEnabled().catch(() => false)
 }
 
-export async function setNativeUiActive(active: boolean): Promise<void> {
+export async function setNativeUiState(mounted: boolean, foreground: boolean): Promise<void> {
   const m = mod()
-  if (m !== null) await m.setUiActive(active).catch(() => {})
+  if (m === null) return
+  if (typeof m.setUiState === 'function') {
+    await m.setUiState(mounted, foreground).catch(() => {})
+  } else {
+    await m.setUiActive(mounted && foreground).catch(() => {})
+  }
+}
+
+export async function setNativeUiActive(active: boolean): Promise<void> {
+  await setNativeUiState(active, active)
 }
 
 export async function postNativeNotification(payload: NativeNoticePayload): Promise<boolean> {
@@ -144,5 +155,13 @@ export function onUnifiedPushEvent(listener: (event: UnifiedPushEvent) => void):
     const event = raw as Partial<UnifiedPushEvent> | null
     if (event && typeof event.type === 'string') listener(event as UnifiedPushEvent)
   })
+  return () => sub.remove()
+}
+
+export function onStopKeepalive(listener: () => void): () => void {
+  const m = mod()
+  if (m === null) return () => {}
+  const emitter = new NativeEventEmitter(m as never)
+  const sub = emitter.addListener('dsbotStopKeepalive', () => listener())
   return () => sub.remove()
 }

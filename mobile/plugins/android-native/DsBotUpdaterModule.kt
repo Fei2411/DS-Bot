@@ -36,6 +36,7 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
     private const val MAX_REDIRECTS = 5
     private const val BUFFER_BYTES = 64 * 1024
     private const val MIN_FREE_HEADROOM_BYTES = 64L * 1024 * 1024
+    private const val MAX_APK_BYTES = 512L * 1024 * 1024
     private val SHA256_HEX = Regex("^[0-9a-fA-F]{64}$")
     private val SAFE_APK_NAME = Regex("^[A-Za-z0-9._-]+\\.apk$")
   }
@@ -46,6 +47,13 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
   private val downloading = AtomicBoolean(false)
 
   override fun getName(): String = NAME
+
+  override fun invalidate() {
+    cancelFlag.set(true)
+    try { activeConn.get()?.disconnect() } catch (_: Exception) {}
+    executor.shutdownNow()
+    super.invalidate()
+  }
 
   private fun updatesDir(): File {
     val dir = File(reactApplicationContext.cacheDir, "updates")
@@ -237,6 +245,12 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
 
         conn = openFollowingRedirects(url)
         val contentLength = conn.contentLengthLong.let { if (it > 0L) it else expectedSize.toLong().coerceAtLeast(0L) }
+        if (contentLength > MAX_APK_BYTES) {
+          throw IOException("Update package exceeds maximum allowed size")
+        }
+        if (contentLength > 0L && StatFs(dir.path).availableBytes < contentLength + MIN_FREE_HEADROOM_BYTES) {
+          throw InsufficientStorageException("Not enough free storage space for the update")
+        }
         val digest = MessageDigest.getInstance("SHA-256")
         val buf = ByteArray(BUFFER_BYTES)
         var written = 0L
@@ -249,18 +263,23 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
               if (cancelFlag.get()) throw CancelledException()
               val read = input.read(buf)
               if (read <= 0) break
+              written += read.toLong()
+              if (written > MAX_APK_BYTES) {
+                throw IOException("Update package exceeds maximum allowed size")
+              }
               output.write(buf, 0, read)
               digest.update(buf, 0, read)
-              written += read.toLong()
               val now = System.currentTimeMillis()
               if (now - lastEmitMs >= 150L) {
                 lastEmitMs = now
                 emitProgress(written, contentLength)
               }
             }
+            if (cancelFlag.get()) throw CancelledException()
             output.fd.sync()
           }
         }
+        if (cancelFlag.get()) throw CancelledException()
         emitProgress(written, if (contentLength > 0L) contentLength else written)
 
         val actualSha = digest.digest().joinToString("") { "%02x".format(it) }
@@ -296,7 +315,11 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
         promise.reject("INSUFFICIENT_STORAGE", storage.message)
       } catch (error: Exception) {
         partFile.delete()
-        promise.reject("DOWNLOAD_FAILED", error.message ?: "Download failed", error)
+        if (cancelFlag.get()) {
+          promise.reject("CANCELLED", "Download cancelled")
+        } else {
+          promise.reject("DOWNLOAD_FAILED", error.message ?: "Download failed", error)
+        }
       } finally {
         activeConn.set(null)
         try { conn?.disconnect() } catch (_: Exception) {}
