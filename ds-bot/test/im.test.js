@@ -4555,3 +4555,120 @@ test('merged Web + IM message_bot work stores mixed marker and drops IM origin w
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'mixed-origin dispatch reply coalesced into an IM turn must drop origin and withhold IM send')
 })
+
+test('Web-initiated dispatch return coalesced into an active IM DM turn drops origin so Web result never leaks to IM (#1836)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+
+  // 1) Web turn dispatches message_bot to Writer ('b') — no IM origin.
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web secret lookup' }] })
+  await tool('message_bot', { to: 'Writer', message: '查私密报表' }, 'a')
+  const webSent = s.agentOf('b').lastFollowup
+  const dispatchId = webSent.source.exchangeId
+  s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 2) Writer replies to Chief.
+  s.emitEvent('b', 'turn/start', { turn: 1 })
+  s.emitEvent('b', 'user/message', { source: webSent.source, content: webSent.content })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '私密营收 999 万' }] } })
+  s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === dispatchId)
+  const webReply = s.agentOf('a').lastFollowup
+  assert.equal(s.rt.imReplyOrigin(dispatchId), undefined)
+
+  // 3) While Chief is answering an IM DM from dm-u1, the Web reply joins the SAME turn -> must drop origin!
+  s.fake.sent.length = 0
+  await dm(s, 'u1', '你好')
+  const reqId = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: reqId }, content: [{ type: 'text', text: '你好' }] })
+  s.emitEvent('a', 'user/message', { source: webReply.source, content: webReply.content })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: '你好，另外私密营收 999 万' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'Web dispatch return sharing a turn with an IM DM must drop origin and never leak to IM')
+})
+
+test('local Web input in a group taints pending IM-origin roomReport, and untainted IM group tasks forward approvals safely (#1836, #1894)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  const tool = (name, args, sessionId) => s.rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+  const room = s.rt.roomOf('r1')
+  room.sessions = { b: 'gb' }
+  s.rt.groupOwners.set('gb', { botId: 'b', roomId: 'r1' })
+
+  // 1) IM DM dispatches post_to_group to Ops (no IM binding).
+  await dm(s, 'u1', '让 Ops 群执行部署')
+  const reqId = s.prompts.at(-1).requestId
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: reqId }, content: [{ type: 'text', text: '让 Ops 群执行部署' }] })
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 部署' }, 'a')
+  const postMsg = s.agentOf('r1').lastFollowup
+  const reportId = postMsg.source.reportId
+  s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  s.fake.sent.length = 0
+
+  // 2) Writer moves deployment into a group background task -> captures dispatchApprovalOrigin (NOT task.imOrigin).
+  const dispatchApprovalOrigin = s.rt.roomReportImOrigin('r1', 'b')
+  assert.deepEqual(dispatchApprovalOrigin, { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
+  s.rt.botOf('b').tasks = [{
+    id: 'k_grp_dispatch',
+    title: 'Deploy',
+    roomId: 'r1',
+    from: 'gb',
+    sessionId: 'bt-deploy',
+    segments: [],
+    status: 'running',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    dispatchApprovalOrigin,
+  }]
+  s.rt.chatOwners.set('bt-deploy', 'b')
+  s.rt.taskOwners.set('bt-deploy', { botId: 'b', taskId: 'k_grp_dispatch', roomId: 'r1' })
+
+  // Group task raises an approval -> forwarded to dm-u1 without claiming Chief's foreground chat!
+  const askApproval = s.ctx.listeners.get('approval/request')[0]
+  const taskApproval = askApproval({ agent: { session: { id: 'bt-deploy' } }, toolName: 'bash', reason: 'deploy' }, () => 'from-dsh')
+  await waitFor(() => s.fake.sent.length === 1)
+  assert.equal(s.fake.sent[0].chat.key, 'dm-u1')
+  assert.match(s.fake.sent[0].text, /bash/)
+  await dm(s, 'u1', '1')
+  assert.equal(await taskApproval, 'allowed-once')
+  s.fake.sent.length = 0
+
+  // 3) Unrelated local Web post_to_group arrives in Ops -> taints the IM report's origin!
+  await tool('post_to_group', { group: 'Ops', message: '@Writer 查本地私密账单', report_back: false }, 'a')
+  const webPostMsg = s.agentOf('r1').lastFollowup
+  assert.equal(s.rt.state.roomReports[reportId].imOrigin, undefined)
+  assert.equal(s.rt.state.roomReports[reportId].imOriginMixed, true)
+  assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined, 'tainted report must stop routing approvals to IM')
+
+  // Subsequent group task approval must NOT reach dm-u1 once the report is tainted.
+  const taintedApproval = askApproval({ agent: { session: { id: 'bt-deploy' } }, toolName: 'read', reason: 'secret file' }, () => 'from-dsh')
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'tainted room report must block subsequent group task approvals from reaching IM')
+  await s.rt.answerApproval(s.rt.approvalsView()[0].id, 'reject')
+  assert.equal(await taintedApproval, 'rejected')
+
+  // 4) When Ops finishes, deliverRoomReport stores { mixed: true } so Chief's reply never leaks mixed content to dm-u1.
+  s.rt.botOf('b').tasks = []
+  s.rt.taskOwners.delete('bt-deploy')
+  s.rt.state.roomReports[reportId].status = 'tracking'
+  s.rt.state.roomReports[reportId].fromSeq = 1
+  s.rt.roomRelayTaken('r1', postMsg.source.exchangeId)
+  s.rt.roomRelayTaken('r1', webPostMsg.source.exchangeId)
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '部署完成，私密账单为 8888。' })
+  await s.rt.settleRoomReports('r1')
+  const reportMsg = s.agentOf('a').lastFollowup
+  assert.equal(s.rt.imReplyOrigin(reportId)?.mixed, true)
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', { source: reportMsg.source, content: reportMsg.content })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: '含本地私密账单的汇总' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'tainted group report must never leak mixed local replies to IM')
+})

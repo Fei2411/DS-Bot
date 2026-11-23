@@ -1197,7 +1197,9 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.reportId ? { reportId: source.reportId } : {}),
+            ...(source.fromTaskId ? { fromTaskId: source.fromTaskId } : {}),
             ...(source.claims === undefined ? {} : { claims: source.claims }),
             // The turn's change line travels with its post; without it a completion
             // notice that arrives after the round closed has nothing to show.
@@ -1233,6 +1235,7 @@ export function install(rt) {
           // opens a round of its own; the draft ask is the user's line.
           queueRoomMessage(roomId, {
             text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+            ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
           })

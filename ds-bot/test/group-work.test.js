@@ -3241,8 +3241,8 @@ test('stop-room-work with active group_goal and idle tracking report preserves t
   host.finish('lb', '目标已启动，等待继续推进。')
   await settle(() => round() !== undefined)
   // Drain the goal-check nudge queued by goalDrive so only the active goal holds the tracking report open.
-  host.agentOf('r2').calls.length = 0
-  rt.roomRelayTaken('r2')
+  const nudge = host.agentOf('r2').calls.shift()
+  if (nudge?.source?.exchangeId) rt.roomRelayTaken('r2', nudge.source.exchangeId)
   assert.equal(host.agentOf('a').calls.length, 0, 'active goal holds tracking report open')
 
   // Stopping the group marks report.stopped BEFORE goalUserStopped triggers settleRoomReports.
@@ -3250,4 +3250,140 @@ test('stop-room-work with active group_goal and idle tracking report preserves t
   await settle(() => host.agentOf('a').calls.length === 1)
   assert.match(text(host.agentOf('a').calls[0]), /stopped before finishing/)
   assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('stop-room-work withdraws queued post_to_group relays while preserving deferred user images (#1894)', async (t) => {
+  const host = await start(t)
+  const roomAgent = host.agentOf('r1')
+  const origFollowup = roomAgent.followup.bind(roomAgent)
+  let seq = 0
+  roomAgent.inbox = {
+    nextStep: [],
+    nextTurn: [],
+    remove(id) {
+      for (const lane of [this.nextStep, this.nextTurn]) {
+        const idx = lane.findIndex(item => item.id === id)
+        if (idx !== -1) { lane.splice(idx, 1); return true }
+      }
+      return false
+    },
+  }
+  roomAgent.followup = (message) => {
+    const entry = { ...message, id: `rm${++seq}` }
+    origFollowup(entry)
+    roomAgent.inbox.nextTurn.push(entry)
+  }
+
+  // Start a running round and queue a user image message into laterPosts.
+  const first = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.round('c-img', {
+    content: [
+      { type: 'text', text: '@Tester 看这张截图' },
+      { type: 'image', attachment: { attachmentId: 'img-1', mimeType: 'image/png', name: 'shot.png' } },
+    ],
+    source: { kind: 'user' },
+  })
+  await settle(() => true)
+  // Also queue a post_to_group directly into the room's inbox (simulating a queued relay).
+  const queuedPost = {
+    content: [{ type: 'text', text: '[Group post from Chief]\n@Tester 不要再跑的任务' }],
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'ex-stop-1', reportId: 'rep-stop-1', reportBack: true, senderName: 'Chief', senderSessionId: 'a', roomId: 'r1' },
+  }
+  rt.state.roomReports['rep-stop-1'] = { id: 'rep-stop-1', roomId: 'r1', botId: 'a', name: 'Chief', status: 'queued', fromSeq: 2, passed: [], failed: [], at: Date.now() }
+  rt.noteRoomRelayQueued('r1', 'ex-stop-1')
+  roomAgent.followup(queuedPost)
+  assert.equal(roomAgent.inbox.nextTurn.length, 1)
+
+  // Stop All withdraws the queued Bot post and settles its report once, without dropping the user's screenshot.
+  assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).ok, true)
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  await settle(() => first() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  assert.match(text(host.agentOf('a').calls[0]), /stopped before your post started/)
+  assert.equal(roomAgent.inbox.nextTurn.some(item => item.source?.exchangeId === 'ex-stop-1'), false, 'queued Bot relay must be withdrawn from room inbox')
+
+  // Even if the stopped relay was already claimed before removal, replaying it skips the stopped
+  // Bot post while bringing back ONLY the preserved user screenshot from laterPosts!
+  const replay = host.round('c-replay', queuedPost)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.match(text(host.agentOf('gc').calls[0]), /看这张截图/)
+  assert.doesNotMatch(text(host.agentOf('gc').calls[0]), /不要再跑的任务/)
+  host.begin('gc')
+  host.finish('gc', '看到截图了。')
+  await settle(() => replay() !== undefined)
+  for (let i = 0; i < 15; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('a').calls.length, 1, 'cancelled Bot relay must not send a second report')
+})
+
+test('group background task delegating to its own group via post_to_group settles without self-deadlock (#1894)', async (t) => {
+  const host = await start(t)
+  const writer = rt.botOf('b')
+  writer.tasks = [{
+    id: 'task-self-1',
+    title: 'Prepare release',
+    roomId: 'r1',
+    from: 'gb',
+    sessionId: 'bt-self-1',
+    segments: [],
+    status: 'running',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  }]
+  rt.chatOwners.set('bt-self-1', 'b')
+  rt.taskOwners.set('bt-self-1', { botId: 'b', taskId: 'task-self-1', roomId: 'r1' })
+
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 帮我复核一下' }, 'bt-self-1')
+  const post = host.takePost()
+  assert.equal(rt.state.roomReports[post.source.reportId]?.fromTaskId, 'task-self-1')
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '复核通过。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('bt-self-1').calls.length === 1)
+  assert.match(text(host.agentOf('bt-self-1').calls[0]), /Tester: 复核通过。/)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
+})
+
+test('post_to_group reports waiting-for-user-answer when a named member opens ask_user while its batch stays pending (#1894)', async (t) => {
+  const host = await start(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 帮我确认发布版本' }, 'a')
+  const post = host.takePost()
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  // Writer opens a question card (waiting for user answer) and ends its turn.
+  rt.state.questions.gb = { id: 'q-rel', prompt: '选择发布版本', options: ['v1', 'v2'], at: Date.now() }
+  host.finish('gb', '请先选择发布版本。')
+  await settle(() => round() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Waiting for the user's answer in "Ops": Writer\./)
+  assert.doesNotMatch(report, /Nobody replied/)
+  // The intra-group batch remains pending so the user's later answer still wakes Chief.
+  assert.ok(Object.values(rt.state.roomBatches).some(batch => batch.roomId === 'r1' && batch.pending.includes('b')))
+})
+
+test('scoped mid-round post_to_group expands report.ids when memberTurn wakes the batch caller in the same round (#1894)', async (t) => {
+  const { host, first } = await busyRound(t)
+  // Chief posts mid-round calling Tester ('c') -> scoped report with ids: ['c'].
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 跑完测试汇报给我' }, 'a')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 'k-test', name: 'pwsh', arguments: '{}' })
+  host.emit('gc', 'tool/result', { callId: 'k-test' })
+  // Tester worked and finishes inside the same round -> memberTurn wakes Chief ('ga') to summarize!
+  host.finish('gc', '测试全部通过。')
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '群内总结：测试通过，可以合入。')
+  host.finish('gb', 'Writer 完成无关文档。')
+  await settle(() => first() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Tester: 测试全部通过。/)
+  assert.match(report, /Chief: 群内总结：测试通过，可以合入。/)
+  assert.doesNotMatch(report, /Writer 完成无关文档/)
 })

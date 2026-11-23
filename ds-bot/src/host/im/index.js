@@ -762,7 +762,21 @@ export function install(rt) {
     return entry.roomId === undefined && entry.botId === target.botId
   }
   const approvalOrigin = (entry) => {
-    if (entry.taskId !== undefined) return originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
+    if (entry.taskId !== undefined) {
+      const task = rt.taskById?.(entry.taskId)?.task
+      if (task?.imOrigin !== undefined) return originFromSaved(task.imOrigin)
+      if (entry.roomId !== undefined && task?.dispatchApprovalOrigin !== undefined) {
+        const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
+        if (mixed.has(roomSid)) return undefined
+        const saved = task.dispatchApprovalOrigin
+        const liveReport = rt.roomReportImOrigin?.(entry.roomId, entry.botId)
+        if (liveReport !== undefined && liveReport.connId === saved.connId && liveReport.chatKey === saved.chatKey
+          && liveReport.senderId === saved.senderId && liveReport.binding === saved.binding) {
+          return originFromSaved(saved)
+        }
+      }
+      return undefined
+    }
     if (entry.roomId !== undefined) {
       const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
       if (mixed.has(roomSid)) return undefined
@@ -2081,10 +2095,11 @@ export function install(rt) {
         } else if (isDispatchReturn) {
           // Restore the originating IM chat when a Bot reply or group report returns for
           // work dispatched from an IM turn (#1836, #1894), with the same pairing, binding
-          // and anti-mix checks as task-report.
+          // and anti-mix checks as task-report. A non-IM (Web) dispatch return joining an
+          // active IM turn drops origin so Web results never leak into IM summaries.
           const saved = rt.imReplyOrigin?.(source.replyTo)
+          const owner = rt.groupOwners.get(session.id)
           if (saved !== undefined) {
-            const owner = rt.groupOwners.get(session.id)
             if (owner !== undefined) {
               const room = rt.roomOf(owner.roomId)
               const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
@@ -2107,6 +2122,12 @@ export function install(rt) {
                 claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
               }
             }
+          } else if (owner !== undefined) {
+            const room = rt.roomOf(owner.roomId)
+            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            if (roomSid !== undefined && (origins.has(roomSid) || rt.roomActive?.(room.id) === true)) dropOrigin(roomSid)
+          } else {
+            dropOrigin(session.id)
           }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })

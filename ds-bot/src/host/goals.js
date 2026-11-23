@@ -518,7 +518,7 @@ export function install(rt) {
   // the user's draft request, a resume after the user continues, or an idle nudge.
   async function queueGoalRelay(room, goal, text, senderName = 'You') {
     const exchangeId = randomUUID()
-    rt.noteRoomRelayQueued?.(room.id, exchangeId)
+    if (goal !== 'draft') rt.noteRoomRelayQueued?.(room.id, exchangeId)
     try {
       const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       agent.followup(createUserMessage({
@@ -527,7 +527,7 @@ export function install(rt) {
       }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
-      rt.roomRelayTaken?.(room.id, exchangeId)
+      if (goal !== 'draft') rt.roomRelayTaken?.(room.id, exchangeId)
       throw error
     }
   }

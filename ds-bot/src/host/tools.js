@@ -893,7 +893,9 @@ export function install(rt) {
       // Replies the poster waits for, while it works on what a Bot asked it for — or from
       // a background task that must stay open until the group replies — are tracked as work.
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
-      const trackTaskWait = reportBack && rt.taskOwners?.has(exec.agent?.id)
+      const taskOwner = rt.taskOwners?.get(exec.agent?.id)
+      const trackTaskWait = reportBack && taskOwner !== undefined
+      const fromTaskId = trackTaskWait ? taskOwner.taskId : undefined
       const sub = work !== undefined || trackTaskWait ? randomUUID() : undefined
       const reportId = reportBack ? (sub ?? randomUUID()) : undefined
       const imOrigin = reportBack && work === undefined ? callerImOrigin(exec) : undefined
@@ -903,7 +905,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, reportId, ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         if (reportId !== undefined) rt.dropRoomReport?.(reportId)
