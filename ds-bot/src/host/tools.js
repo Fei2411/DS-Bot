@@ -1222,6 +1222,7 @@ export function install(rt) {
       members: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact names of the other Bots to add; you are added automatically' },
       name: { type: 'string', description: 'Group name; defaults to the member names' },
       notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group; at most 2000 characters' },
+      avatar: AVATAR_PARAM,
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
       section: SECTION_PARAM,
@@ -1238,7 +1239,8 @@ export function install(rt) {
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
         const hadRooms = Object.keys(state.rooms).length > 0
-        const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
+        const photo = args.avatar ? { image: await readAvatar(String(args.avatar), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) } : undefined
+        const room = await rt.createRoom({ members, name: args.name, avatar: photo, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
         if (!hadRooms) rt.refreshToolScopeForSession?.(exec.agent?.id)
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
       } catch (error) {
@@ -1249,10 +1251,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'update_group',
-    description: 'Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
+    description: 'Change a group chat: rename it, set its notice or photo, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
     parameters: {
       group: GROUP_REF,
       name: { type: 'string', description: 'New group name; an empty string names it after its members again' },
+      avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the members again.` },
       notice: { type: 'string', description: 'Replacement notice, the shared instructions every member reads; an empty string clears it; at most 2000 characters' },
       add_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to add' },
       remove_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to remove' },
@@ -1285,6 +1288,11 @@ export function install(rt) {
         }
       }
       try {
+        let photo
+        if (args.avatar !== undefined) {
+          const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
+          photo = input === null || input === '' ? null : { image: await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) }
+        }
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         const targetDir = moving ? workDir : room.workDir
         const removing = new Set(remove.bots.map(bot => bot.id))
@@ -1334,6 +1342,7 @@ export function install(rt) {
           ...(args.section === undefined ? {} : { section: args.section }),
           ...(moving ? { workDir: workDir ?? '' } : {}),
           ...(extraDirs === undefined ? {} : { extraDirs }),
+          ...(photo === undefined ? {} : { avatar: photo }),
         }, self)
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {
