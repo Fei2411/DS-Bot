@@ -667,6 +667,60 @@ test('a late reply that only presented files posts its cards', async (t) => {
   assert.match(String(post.content[0].text), /Presented files: quarterly\.md/)
 })
 
+// #975: a late file-only answer still finishes its asker's call: the batch counts the
+// presented files as the member's result, and the post routes back to the asker.
+test('a late reply that only presented files reaches the member that asked', async (t) => {
+  const host = await start(t)
+  rt.turnChanges = async () => undefined
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  await rt.lateRoomReply('gb', { askedBy: 'a' }, '[PASS]')
+  const post = host.takePost()
+  assert.equal(post.source.askedBy, 'a')
+  assert.deepEqual(post.source.delivered, [{ name: 'quarterly.md', sessionId: 'gb', seq: 4, index: 0 }])
+})
+
+// #975: the model echo of the presented names is read for calls like any post text;
+// a file named "notes @Tester.md" must not call Tester, so the echo neutralizes '@'.
+test('a presented file named like a mention does not call that member', async (t) => {
+  const host = await start(t)
+  rt.turnChanges = async () => undefined
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/notes @Tester.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  await rt.lateRoomReply('gb', {}, '[PASS]')
+  const post = host.takePost()
+  const echo = String(post.content[0].text)
+  assert.ok(!echo.includes('@Tester'), echo)
+  assert.match(echo, /Presented files: notes ＠Tester\.md/)
+  assert.deepEqual(post.source.delivered, [{ name: 'notes @Tester.md', sessionId: 'gb', seq: 4, index: 0 }])
+})
+
+// #975: a result the admin asked for reports its goal task even when the answer is
+// presented files alone.
+test('a file-only answer to the admin reports its goal task', async (t) => {
+  const host = await start(t)
+  const reported = []
+  rt.goalTaskReported = (...args) => reported.push(args)
+  const result = host.round('c1', host.say('@Chief go'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer write the draft')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/draft.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  host.finish('gb', '')
+  await settle(() => reported.length === 1)
+  assert.deepEqual(reported[0], ['r1', 'b'])
+  await settle(() => result() !== undefined)
+})
+
 test('a quick team tool does not let the round go on', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
