@@ -19,10 +19,13 @@ import {
   cloneCookieStore,
   cloneWorkDir,
   closeBrowser,
+  countSqliteCookies,
   decryptChromiumV10,
+  deriveLinuxChromiumKey,
   deriveMacChromiumKey,
   firefoxProfiles,
   harvestCookies,
+  harvestLinuxChromiumV10,
   harvestLiveChromium,
   harvestMacChromium,
   hasAppBoundKey,
@@ -30,8 +33,12 @@ import {
   isLoopbackPortOpen,
   kindOfExe,
   locksProfile,
+  probeSource,
   readChromiumSqliteCookies,
   readDevToolsActivePort,
+  readFirefoxSqliteCookies,
+  snapshotSqliteDatabase,
+  userDataRoots,
 } from '../src/browser-sources.mjs'
 
 async function tempRoot() {
@@ -902,4 +909,253 @@ test('importFromBrowser propagates AbortSignal cancellation to pending live CDP 
     await new Promise((resolve) => wss.close(resolve))
     await root.remove()
   }
+})
+
+test('readFirefoxSqliteCookies adapts to schema 14, 15 (no rawSameSite), 16+ (ms expiry), fixes SameSite enum, and skips container/partitioned rows', async () => {
+  const root = await tempRoot()
+  try {
+    // Schema 14: seconds expiry, has rawSameSite, nsICookie 0=None, 1=Lax, 2=Strict, 3=Unset
+    const db14Path = join(root.dir, 'ff14.sqlite')
+    const db14 = new DatabaseSync(db14Path)
+    db14.exec(`
+      PRAGMA user_version = 14;
+      CREATE TABLE moz_cookies (
+        host TEXT, name TEXT, value TEXT, path TEXT,
+        isHttpOnly INTEGER, isSecure INTEGER, expiry INTEGER,
+        sameSite INTEGER, rawSameSite INTEGER, originAttributes TEXT
+      );
+    `)
+    const ins14 = db14.prepare('INSERT INTO moz_cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ins14.run('.example.com', 'ss_none_sec', 'v0', '/', 1, 1, 1900000000, 0, 0, '')
+    ins14.run('.example.com', 'ss_none_insec', 'v0i', '/', 0, 0, 1900000000, 0, 0, '')
+    ins14.run('.example.com', 'ss_lax', 'v1', '/', 0, 1, 1900000000, 1, 1, '')
+    ins14.run('.example.com', 'ss_strict', 'v2', '/', 1, 1, 1900000000, 2, 2, '')
+    ins14.run('.example.com', 'ss_unset', 'v3', '/', 0, 1, 1900000000, 3, 0, '')
+    ins14.run('.example.com', 'expired_old', 'old', '/', 0, 1, 1500000000, 1, 1, '')
+    ins14.run('.example.com', 'container_tok', 'c', '/', 1, 1, 1900000000, 1, 1, '^userContextId=2')
+    ins14.run('.example.com', 'dfpi_tok', 'p', '/', 1, 1, 1900000000, 0, 0, '^partitionKey=%28https%2Ctop.example%29')
+    db14.close()
+
+    const r14 = readFirefoxSqliteCookies(db14Path, { now: 1700000000 })
+    assert.deepEqual(r14.cookies.map((c) => [c.name, c.sameSite, c.expires]), [
+      ['ss_none_sec', 'None', 1900000000],
+      ['ss_none_insec', undefined, 1900000000],
+      ['ss_lax', 'Lax', 1900000000],
+      ['ss_strict', 'Strict', 1900000000],
+      ['ss_unset', undefined, 1900000000],
+    ])
+    assert.deepEqual(r14.skipped.map((s) => [s.name, s.code]), [
+      ['expired_old', 'expired'],
+      ['container_tok', 'container'],
+      ['dfpi_tok', 'partitioned'],
+    ])
+
+    // Schema 15: rawSameSite column removed
+    const db15Path = join(root.dir, 'ff15.sqlite')
+    const db15 = new DatabaseSync(db15Path)
+    db15.exec(`
+      PRAGMA user_version = 15;
+      CREATE TABLE moz_cookies (
+        host TEXT, name TEXT, value TEXT, path TEXT,
+        isHttpOnly INTEGER, isSecure INTEGER, expiry INTEGER,
+        sameSite INTEGER, originAttributes TEXT
+      );
+    `)
+    db15.prepare('INSERT INTO moz_cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.ff15.example', 'auth', 'ok15', '/', 1, 1, 1900000000, 2, '')
+    db15.close()
+    const r15 = readFirefoxSqliteCookies(db15Path, { now: 1700000000 })
+    assert.equal(r15.cookies.length, 1)
+    assert.equal(r15.cookies[0].sameSite, 'Strict')
+    assert.equal(r15.cookies[0].expires, 1900000000)
+
+    // Schema 16+: expiry stored in milliseconds instead of seconds
+    const db16Path = join(root.dir, 'ff16.sqlite')
+    const db16 = new DatabaseSync(db16Path)
+    db16.exec(`
+      PRAGMA user_version = 16;
+      CREATE TABLE moz_cookies (
+        host TEXT, name TEXT, value TEXT, path TEXT,
+        isHttpOnly INTEGER, isSecure INTEGER, expiry INTEGER,
+        sameSite INTEGER, originAttributes TEXT
+      );
+    `)
+    const ins16 = db16.prepare('INSERT INTO moz_cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ins16.run('.ff16.example', 'live_ms', 'ok16', '/', 1, 1, 1900000000_000, 0, '')
+    ins16.run('.ff16.example', 'past_ms', 'old16', '/', 1, 1, 1600000000_000, 1, '')
+    ins16.run('.ff16.example', 'sess_zero', 's16', '/', 0, 1, 0, 3, '')
+    db16.close()
+
+    const r16 = readFirefoxSqliteCookies(db16Path, { now: 1700000000 })
+    assert.deepEqual(r16.cookies.map((c) => [c.name, c.expires, c.sameSite]), [
+      ['live_ms', 1900000000, 'None'],
+      ['sess_zero', undefined, undefined],
+    ])
+    assert.deepEqual(r16.skipped.map((s) => [s.name, s.code]), [['past_ms', 'expired']])
+
+    // Empty SQLite database with no moz_cookies table returns empty cleanly
+    const emptyDbPath = join(root.dir, 'empty.sqlite')
+    const emptyDb = new DatabaseSync(emptyDbPath)
+    emptyDb.close()
+    assert.deepEqual(readFirefoxSqliteCookies(emptyDbPath), { cookies: [], origins: [], skipped: [] })
+    assert.equal(countSqliteCookies(emptyDbPath, 'moz_cookies'), 0)
+    assert.equal(countSqliteCookies(db16Path, 'moz_cookies'), 3)
+  } finally { await root.remove() }
+})
+
+test('userDataRoots includes Linux Snap and Flatpak paths for Firefox and Zen', async () => {
+  const roots = await userDataRoots({ platformOverride: 'linux', homeOverride: '/home/user', envOverride: {} })
+  assert.ok(roots.firefox.includes('/home/user/.mozilla/firefox'))
+  assert.ok(roots.firefox.includes('/home/user/snap/firefox/common/.mozilla/firefox'))
+  assert.ok(roots.firefox.includes('/home/user/.var/app/org.mozilla.firefox/.mozilla/firefox'))
+  assert.ok(roots.zen.includes('/home/user/.zen'))
+  assert.ok(roots.zen.includes('/home/user/.var/app/app.zen_browser.zen/.zen'))
+})
+
+test('snapshotSqliteDatabase and cloneCookieStore use atomic VACUUM INTO to capture live WAL frames and preserve user_version', async () => {
+  const root = await tempRoot()
+  const work = await cloneWorkDir()
+  let writer
+  try {
+    const profileDir = join(root.dir, 'Profiles', 'live.default')
+    await mkdir(profileDir, { recursive: true })
+    const dbPath = join(profileDir, 'cookies.sqlite')
+    writer = new DatabaseSync(dbPath)
+    writer.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA user_version = 16;
+      CREATE TABLE moz_cookies (
+        host TEXT, name TEXT, value TEXT, path TEXT,
+        isHttpOnly INTEGER, isSecure INTEGER, expiry INTEGER,
+        sameSite INTEGER, originAttributes TEXT
+      );
+      INSERT INTO moz_cookies VALUES ('.wal.example', 'from_wal', 'live-val', '/', 1, 1, 1900000000000, 1, '');
+    `)
+    assert.equal(existsSync(`${dbPath}-wal`), true)
+
+    // Snapshot while writer still holds the WAL open.
+    const copied = await cloneCookieStore({ engine: 'firefox', profilePath: profileDir }, work.dir)
+    assert.deepEqual(copied, [dbPath])
+    assert.equal(existsSync(join(work.dir, 'cookies.sqlite')), true)
+    assert.equal(existsSync(join(work.dir, 'cookies.sqlite-wal')), false, 'VACUUM INTO produces a standalone single file without WAL sidecars')
+
+    const parsed = readFirefoxSqliteCookies(join(work.dir, 'cookies.sqlite'), { now: 1700000000 })
+    assert.equal(parsed.cookies.length, 1)
+    assert.equal(parsed.cookies[0].name, 'from_wal')
+    assert.equal(parsed.cookies[0].value, 'live-val')
+    assert.equal(parsed.cookies[0].expires, 1900000000)
+
+    // Re-running snapshotSqliteDatabase into an existing destination cleanly overwrites it.
+    assert.equal(await snapshotSqliteDatabase(dbPath, join(work.dir, 'cookies.sqlite')), true)
+  } finally {
+    try { writer?.close() } catch { /* ignore */ }
+    await work.remove()
+    await root.remove()
+  }
+})
+
+test('empty Chromium DB returns empty results cleanly in readChromiumSqliteCookies, appBoundRows, and countSqliteCookies', async () => {
+  const root = await tempRoot()
+  try {
+    const dbPath = join(root.dir, 'EmptyCookies')
+    const db = new DatabaseSync(dbPath)
+    db.close()
+    assert.deepEqual(readChromiumSqliteCookies(dbPath, { key: deriveMacChromiumKey('x') }), { cookies: [], origins: [], skipped: [] })
+    assert.deepEqual(appBoundRows(dbPath), { locked: [], readable: 0 })
+    assert.equal(countSqliteCookies(dbPath, 'cookies'), 0)
+  } finally { await root.remove() }
+})
+
+test('harvestLinuxChromiumV10 decrypts peanuts/empty v10 cookies directly and falls back to clone-cdp when v11 exists with exe', async () => {
+  const root = await tempRoot()
+  const work = await cloneWorkDir()
+  try {
+    const net = join(root.dir, 'Default', 'Network')
+    await mkdir(net, { recursive: true })
+    await writeFile(join(root.dir, 'Local State'), '{}')
+    const dbPath = join(net, 'Cookies')
+    const peanutsKey = deriveLinuxChromiumKey('peanuts')
+    const emptyKey = deriveLinuxChromiumKey('')
+    const futureWebkit = (1900000000 + 11644473600) * 1e6
+
+    // 1. peanuts v10 with Chrome v24 domain hash prefix
+    const db = new DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE meta (key TEXT NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('version', '24')
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.linux.example', 'sid', '', encryptMacV10('peanuts-secret', peanutsKey, { hostKey: '.linux.example', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, '')
+    db.close()
+
+    const source = {
+      id: 'chromium:Default', kind: 'chromium', name: 'Chromium', label: 'Chromium — Default',
+      engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'),
+      profileDir: 'Default', cookieDb: dbPath, exe: '/usr/bin/chromium',
+    }
+    const direct = await importFromBrowser(source, { platformOverride: 'linux' })
+    assert.equal(direct.method, 'linux-v10')
+    assert.equal(direct.result.cookies.length, 1)
+    assert.equal(direct.result.cookies[0].value, 'peanuts-secret')
+
+    // 2. Empty-password v10 cookie
+    const db2 = new DatabaseSync(dbPath)
+    db2.exec('DELETE FROM cookies')
+    db2.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.linux.example', 'sid2', '', encryptMacV10('empty-pass-val', emptyKey, { hostKey: '.linux.example', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, '')
+    db2.close()
+    await cloneCookieStore(source, work.dir, { needLocalState: false })
+    const emptyOut = await harvestLinuxChromiumV10(source, work.dir, { now: 1700000000 })
+    assert.equal(emptyOut.cookies[0].value, 'empty-pass-val')
+
+    // 3. Store with v11 + source.exe present -> harvestLinuxChromiumV10 returns null so importFromBrowser falls back to clone-cdp
+    const db3 = new DatabaseSync(dbPath)
+    db3.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.linux.example', 'keyring_tok', '', Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 7)]), '/', 1, 1, futureWebkit, 1, 1, '')
+    db3.close()
+    await cloneCookieStore(source, work.dir, { needLocalState: false })
+    assert.equal(await harvestLinuxChromiumV10(source, work.dir, { now: 1700000000 }), null)
+
+    const fallback = await importFromBrowser(source, {
+      platformOverride: 'linux',
+      cloneHarvester: async () => ({ cookies: [{ name: 'keyring_tok', value: 'via-pipe', domain: '.linux.example', path: '/' }], origins: [], skipped: [] }),
+    })
+    assert.equal(fallback.method, 'clone-cdp')
+    assert.equal(fallback.result.cookies[0].value, 'via-pipe')
+
+    // 4. Without exe, v11 rows are reported as skipped while decrypted v10 rows still return
+    const noExeOut = await harvestLinuxChromiumV10({ ...source, exe: null }, work.dir, { now: 1700000000 })
+    assert.equal(noExeOut.cookies.length, 1)
+    assert.equal(noExeOut.skipped[0].code, 'unsupported-encryption')
+  } finally {
+    await work.remove()
+    await root.remove()
+  }
+})
+
+test('importFromBrowser and probeSource handle Safari binarycookies and Full Disk Access guidance', async () => {
+  const source = {
+    id: 'safari:Default', kind: 'safari', engine: 'safari', name: 'Safari', label: 'Safari',
+    userDataDir: '/nonexistent/safari', profileDir: 'Default', cookieFile: null,
+  }
+  const ok = await importFromBrowser(source, {
+    safariHarvester: async () => ({ cookies: [{ name: 's', value: 'v', domain: '.apple.com', path: '/' }], origins: [], skipped: [] }),
+  })
+  assert.equal(ok.method, 'safari-binarycookies')
+  assert.equal(ok.result.cookies.length, 1)
+
+  const denied = await importFromBrowser(source, {
+    safariHarvester: async () => { const e = new Error('denied'); e.code = 'safari-permission'; throw e },
+  })
+  assert.equal(denied.needsFullDiskAccess, true)
+  assert.equal(denied.browserName, 'Safari')
+
+  const probed = await probeSource(source)
+  assert.equal(probed.liveDebugReady, false)
+  assert.equal(probed.permissionGranted, false)
 })

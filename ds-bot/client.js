@@ -708,6 +708,15 @@ var JA = {
   "{count} sites storage": "{count} サイトのストレージ",
   "page reloaded": "ページを再読み込みしました",
   "{count}": "{count} 件",
+  "{count} cookies": "{count} 個の Cookie",
+  "Permission needed": "権限が必要",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari の Cookie を読み込めませんでした。再試行するか、ファイルからインポートしてください。",
+  "Allow Safari access": "Safari へのアクセスを許可",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS はフルディスクアクセスで Safari の Cookie を保護しています。システム設定で DS Bot を一度有効にすると Safari からインポートできます。",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. システム設定で「フルディスクアクセス」を開き、DS Bot をオンにします。",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS が DS Bot の終了と再起動を求めたら、確認してもう一度お試しください。",
+  "Full Disk Access granted — ready to import.": "フルディスクアクセスが許可されました。インポートできます。",
+  "Open System Settings": "システム設定を開く",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
   "That image is too large": "画像サイズが大きすぎます",
@@ -3519,6 +3528,15 @@ var KO = {
   "{count} sites storage": "{count}개 사이트 스토리지",
   "page reloaded": "페이지 새로고침됨",
   "{count}": "{count}개",
+  "{count} cookies": "쿠키 {count}개",
+  "Permission needed": "권한 필요",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari 쿠키를 읽을 수 없습니다. 다시 시도하거나 파일에서 가져오세요.",
+  "Allow Safari access": "Safari 접근 허용",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS는 전체 디스크 접근 권한으로 Safari 쿠키를 보호합니다. 시스템 설정에서 DS Bot을 한 번 켜면 Safari에서 가져올 수 있습니다.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. 시스템 설정에서 전체 디스크 접근 권한을 열고 DS Bot을 켜세요.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS에서 DS Bot을 종료하고 다시 열지 물으면 확인한 뒤 다시 시도하세요.",
+  "Full Disk Access granted — ready to import.": "전체 디스크 접근 권한이 허용되었습니다. 가져올 준비가 되었습니다.",
+  "Open System Settings": "시스템 설정 열기",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요",
   "Choose an image smaller than 25 MB": "25MB 미만의 이미지를 선택하세요",
@@ -6365,6 +6383,15 @@ var ES = {
   "{count} sites storage": "almacenamiento de {count} sitios",
   "page reloaded": "página recargada",
   "{count}": "{count}",
+  "{count} cookies": "{count} cookies",
+  "Permission needed": "Permiso necesario",
+  "Safari cookies could not be read. Try again or import from a file.": "No se pudieron leer las cookies de Safari. Inténtalo de nuevo o importa desde un archivo.",
+  "Allow Safari access": "Permitir acceso a Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS protege las cookies de Safari con Acceso total al disco. Activa DS Bot una vez en Ajustes del Sistema para importar desde Safari.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Abre Acceso total al disco en Ajustes del Sistema y activa DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS pide cerrar y volver a abrir DS Bot, acepta y vuelve a intentarlo.",
+  "Full Disk Access granted — ready to import.": "Acceso total al disco concedido: listo para importar.",
+  "Open System Settings": "Abrir Ajustes del Sistema",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Elige una imagen PNG, JPEG, WebP o GIF",
   "Choose an image smaller than 25 MB": "Elige una imagen de menos de 25 MB",
@@ -9201,6 +9228,15 @@ var FR = {
   "{count} sites storage": "stockage de {count} sites",
   "page reloaded": "page rechargée",
   "{count}": "{count}",
+  "{count} cookies": "{count} cookies",
+  "Permission needed": "Autorisation requise",
+  "Safari cookies could not be read. Try again or import from a file.": "Impossible de lire les cookies Safari. Réessayez ou importez depuis un fichier.",
+  "Allow Safari access": "Autoriser l’accès à Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS protège les cookies Safari avec l’Accès complet au disque. Activez DS Bot une fois dans Réglages Système pour importer depuis Safari.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Ouvrez Accès complet au disque dans Réglages Système et activez DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS demande de quitter et rouvrir DS Bot, confirmez puis réessayez.",
+  "Full Disk Access granted — ready to import.": "Accès complet au disque accordé — prêt à importer.",
+  "Open System Settings": "Ouvrir Réglages Système",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
   "That image is too large": "Cette image est trop volumineuse",
@@ -12012,6 +12048,15 @@ var DE = {
   "{count} sites storage": "Speicher von {count} Websites",
   "page reloaded": "Seite neu geladen",
   "{count}": "{count}",
+  "{count} cookies": "{count} Cookies",
+  "Permission needed": "Berechtigung nötig",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari-Cookies konnten nicht gelesen werden. Versuche es erneut oder importiere aus einer Datei.",
+  "Allow Safari access": "Safari-Zugriff erlauben",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS schützt Safari-Cookies mit Festplattenvollzugriff. Aktiviere DS Bot einmalig in den Systemeinstellungen, um aus Safari zu importieren.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Öffne in den Systemeinstellungen „Festplattenvollzugriff“ und aktiviere DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Falls macOS fragt, DS Bot zu beenden und neu zu öffnen, bestätige dies und versuche es erneut.",
+  "Full Disk Access granted — ready to import.": "Festplattenvollzugriff erteilt – bereit zum Importieren.",
+  "Open System Settings": "Systemeinstellungen öffnen",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild",
   "Choose an image smaller than 25 MB": "Wähle ein Bild, das kleiner als 25 MB ist",
@@ -14812,6 +14857,15 @@ var ZH = {
   "{count} sites storage": "{count} 个网站本地存储",
   "page reloaded": "页面已刷新",
   "{count}": "{count} 个",
+  "{count} cookies": "{count} 个 cookie",
+  "Permission needed": "需要权限",
+  "Safari cookies could not be read. Try again or import from a file.": "无法读取 Safari 的 cookie。请重试，或改为从文件导入。",
+  "Allow Safari access": "允许访问 Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS 用「完全磁盘访问权限」保护 Safari 的 cookie。在系统设置里开启 DS Bot 一次即可从 Safari 导入。",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. 在系统设置中打开「完全磁盘访问权限」，开启 DS Bot。",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. 如果 macOS 提示退出并重新打开 DS Bot，点击确认后再重试。",
+  "Full Disk Access granted — ready to import.": "已授予完全磁盘访问权限，可以导入了。",
+  "Open System Settings": "打开系统设置",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "请选择 PNG、JPEG、WebP 或 GIF 图片",
   "Choose an image smaller than 25 MB": "请选择小于 25 MB 的图片",
@@ -51401,7 +51455,8 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       return;
     }
     if (r?.canceled) return;
-    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    if (r?.needsFullDiskAccess) setFlowTracked({ stage: "safari-permission", source, info: r });
+    else if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else if (r?.running) setFlowTracked({ stage: "running", source });
     else showPicked(r, token);
   });
@@ -51595,6 +51650,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         onLaunchSource: () => {
           if (flow.source && imports?.launch) void imports.launch(flow.source.id);
         },
+        onOpenPermission: () => {
+          if (imports?.openPermission) void imports.openPermission();
+        },
+        onPermissionGranted: refreshSources,
         onFile: pickFile,
         onSubmitPaste: submitPaste,
         onDone: () => setFlowTracked(null),
@@ -51627,6 +51686,7 @@ function importError(error) {
   if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
   if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
   if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
+  if (error === "safari-corrupt") return t("Safari cookies could not be read. Try again or import from a file.");
   return String(error);
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
@@ -51637,8 +51697,11 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
     (0, import_react80.createElement)("div", { className: "bt-import-menu-title" }, t("Import from browser")),
     loading ? (0, import_react80.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react80.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => {
       const isLast = source.id === lastSourceId;
+      const needsPerm = Boolean(source.needsPermission);
       const isReady = Boolean(source.liveDebugReady);
-      const showFallback = !isLast && !isReady && !source.email;
+      const hasCount = typeof source.cookieCount === "number" && !needsPerm && !isReady;
+      const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email;
+      const hasMeta = isLast || needsPerm || isReady || hasCount || showFallback;
       return (0, import_react80.createElement)(
         "button",
         {
@@ -51657,11 +51720,13 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
           (0, import_react80.createElement)("span", { className: "bt-import-item-name" }, source.label),
           source.email ? (0, import_react80.createElement)("span", { className: "bt-import-item-email" }, source.email) : null
         ),
-        isLast || isReady || showFallback ? (0, import_react80.createElement)(
+        hasMeta ? (0, import_react80.createElement)(
           "span",
           { className: "bt-import-item-meta" },
           isLast ? (0, import_react80.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+          needsPerm ? (0, import_react80.createElement)("span", { className: "bt-import-item-sub", "data-warn": true }, t("Permission needed")) : null,
           isReady ? (0, import_react80.createElement)("span", { className: "bt-import-item-sub", "data-ready": true }, t("Ready")) : null,
+          hasCount ? (0, import_react80.createElement)("span", { className: "bt-import-item-sub" }, t("{count} cookies", { count: source.cookieCount })) : null,
           showFallback ? (0, import_react80.createElement)("span", { className: "bt-import-item-sub" }, t("Browser profile")) : null
         ) : null
       );
@@ -51682,6 +51747,77 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
       (0, import_react80.createElement)("span", { className: "bt-import-item-sub" }, t("JSON, cURL, header"))
     ) : null
   );
+}
+function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel }) {
+  const { source } = flow;
+  const [granted, setGranted] = (0, import_react80.useState)(false);
+  const notifiedRef = (0, import_react80.useRef)(false);
+  const onGrantedRef = (0, import_react80.useRef)(onPermissionGranted);
+  onGrantedRef.current = onPermissionGranted;
+  (0, import_react80.useEffect)(() => {
+    const canProbe = typeof imports?.probe === "function";
+    if (!canProbe) return void 0;
+    let active = true;
+    let timer = null;
+    const schedule = () => {
+      if (!active) return;
+      timer = setTimeout(poll, 2e3);
+    };
+    const poll = () => {
+      void imports.probe(source.id).then(
+        (res) => {
+          if (!active) return;
+          const ok = Boolean(res?.permissionGranted);
+          setGranted(ok);
+          if (ok && !notifiedRef.current) {
+            notifiedRef.current = true;
+            onGrantedRef.current?.();
+          }
+        },
+        () => {
+        }
+      ).finally(schedule);
+    };
+    schedule();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [imports, source.id]);
+  return (0, import_react80.createElement)("div", { className: "bt-import-card" }, (0, import_react80.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react80.createElement)("div", { className: "bt-import-title" }, t("Allow Safari access")),
+    (0, import_react80.createElement)(
+      "div",
+      { className: "bt-import-text" },
+      t("macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.")
+    ),
+    (0, import_react80.createElement)(
+      "div",
+      { className: "bt-import-steps" },
+      (0, import_react80.createElement)("div", { className: "bt-import-step" }, t("1. Open Full Disk Access in System Settings and turn on DS Bot.")),
+      (0, import_react80.createElement)("div", { className: "bt-import-step" }, t("2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again."))
+    ),
+    granted ? (0, import_react80.createElement)("div", { className: "bt-import-ready-note" }, t("Full Disk Access granted — ready to import.")) : null,
+    (0, import_react80.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      (0, import_react80.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      imports?.openPermission ? (0, import_react80.createElement)("button", {
+        type: "button",
+        className: granted ? "bt-import-plain" : "bt-import-primary",
+        disabled: busy,
+        onClick: onOpenPermission
+      }, t("Open System Settings")) : null,
+      (0, import_react80.createElement)("button", {
+        type: "button",
+        className: granted || !imports?.openPermission ? "bt-import-primary" : "bt-import-plain",
+        disabled: busy,
+        onClick: onRetrySource
+      }, busy ? t("Reading…") : granted ? t("Import") : t("Try again"))
+    )
+  ));
 }
 function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
   const { source, info } = flow;
@@ -51932,7 +52068,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
     )
   ));
 }
-function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow;
   if (stage === "connecting") {
     return (0, import_react80.createElement)("div", { className: "bt-import-card" }, (0, import_react80.createElement)(
@@ -51947,6 +52083,9 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndIm
         (0, import_react80.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
       )
     ));
+  }
+  if (stage === "safari-permission") {
+    return (0, import_react80.createElement)(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel });
   }
   if (stage === "remote-debug") {
     return (0, import_react80.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel });
@@ -52374,10 +52513,11 @@ var BROWSER_CSS = `
 .bt-import-item-main .bt-import-item-name{max-width:none}
 .bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
+.bt-import-item-tag{font-size:11px;line-height:15px;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta .bt-import-item-sub{flex:none}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
+.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
 .bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
@@ -52413,7 +52553,7 @@ var BROWSER_CSS = `
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
-.bt-import-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
 .bt-import-primary{height:32px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;cursor:pointer}
 .bt-import-primary:disabled{opacity:.55;cursor:default}
 .bt-import-plain{height:32px;padding:0 14px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
@@ -55700,6 +55840,7 @@ function apply(ctx) {
         pick: () => bridge2.importPick(),
         paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
         launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
+        openPermission: typeof bridge2.importOpenPermission === "function" ? () => bridge2.importOpenPermission() : null,
         live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge2.importCancel(pending)

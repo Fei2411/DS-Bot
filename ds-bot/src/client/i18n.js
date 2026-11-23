@@ -568,6 +568,15 @@ const ZH = {
   '{count} sites storage': '{count} 个网站本地存储',
   'page reloaded': '页面已刷新',
   '{count}': '{count} 个',
+  '{count} cookies': '{count} 个 cookie',
+  'Permission needed': '需要权限',
+  'Safari cookies could not be read. Try again or import from a file.': '无法读取 Safari 的 cookie。请重试，或改为从文件导入。',
+  'Allow Safari access': '允许访问 Safari',
+  'macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.': 'macOS 用「完全磁盘访问权限」保护 Safari 的 cookie。在系统设置里开启 DS Bot 一次即可从 Safari 导入。',
+  '1. Open Full Disk Access in System Settings and turn on DS Bot.': '1. 在系统设置中打开「完全磁盘访问权限」，开启 DS Bot。',
+  '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. 如果 macOS 提示退出并重新打开 DS Bot，点击确认后再重试。',
+  'Full Disk Access granted — ready to import.': '已授予完全磁盘访问权限，可以导入了。',
+  'Open System Settings': '打开系统设置',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': '请选择 PNG、JPEG、WebP 或 GIF 图片',

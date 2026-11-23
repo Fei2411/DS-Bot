@@ -15,12 +15,51 @@ const SEED_PATH = '/__ds_bot_storage_seed__'
 const SAME_SITE = { Strict: 'strict', Lax: 'lax', None: 'no_restriction' }
 
 const normalizeSite = (domain) => String(domain ?? '').replace(/^\.+/, '').toLowerCase()
+const normalizeKeyHost = (domain) => normalizeSite(domain).replace(/^\[|\]$/g, '')
+
+function formatHostForUrl(host) {
+  if (host.includes(':') && !host.startsWith('[')) return `[${host}]`
+  return host
+}
+
+function isPartitionedCookie(cookie) {
+  const pk = cookie?.partitionKey
+  if (!pk) return false
+  if (typeof pk === 'string') return pk.length > 0
+  if (typeof pk === 'object') return typeof pk.topLevelSite === 'string' && pk.topLevelSite.length > 0
+  return false
+}
+
+/**
+ * Electron's session.cookies.set does not accept CHIPS partitionKey; writing a partitioned
+ * cookie without its partitionKey would flatten it into the unpartitioned jar and break
+ * third-party isolation. Separate them into skipped entries before preview or apply.
+ */
+export function splitPartitionedCookies(cookies, existingSkipped = []) {
+  const unpartitioned = []
+  const skipped = [...(existingSkipped ?? [])]
+  ;(cookies ?? []).forEach((cookie, index) => {
+    if (isPartitionedCookie(cookie)) {
+      skipped.push({
+        where: `entry ${index + 1}`,
+        name: cookie.name,
+        domain: cookie.domain,
+        code: 'partitioned',
+        reason: 'partitioned cookie (cannot keep third-party isolation when imported)',
+      })
+      return
+    }
+    unpartitioned.push(cookie)
+  })
+  return { cookies: unpartitioned, skipped }
+}
 
 /** A normalized cookie → Electron's CookiesSetDetails. */
 export function toSetDetails(cookie, opts = {}) {
   const host = normalizeSite(cookie.domain)
+  const urlHost = formatHostForUrl(host)
   const details = {
-    url: `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`,
+    url: `${cookie.secure ? 'https' : 'http'}://${urlHost}${cookie.path || '/'}`,
     name: cookie.name,
     value: cookie.value,
     path: cookie.path || '/',
@@ -44,7 +83,7 @@ export function toSetDetails(cookie, opts = {}) {
   return details
 }
 
-const keyOf = (c) => `${c.name}\u0000${normalizeSite(c.domain)}\u0000${c.path ?? '/'}`
+const keyOf = (c) => `${c.name}\u0000${normalizeKeyHost(c.domain)}\u0000${c.path ?? '/'}`
 
 /** Keep only cookies whose site is in `sites` (or all when `sites` is omitted). */
 export function filterCookiesBySites(cookies, sites) {
@@ -126,9 +165,10 @@ async function setCookieWithRetry(storage, cookie, opts) {
  * → { stored, dropped, failed, flushed } with value-free per-item detail.
  */
 export async function applyCookies(storage, cookies, opts = {}) {
-  const selected = filterCookiesBySites(cookies ?? [], opts.sites)
-  // Group entries sharing (name, domain, path) so partitioned/non-secure duplicates run
-  // sequentially before unpartitioned/secure ones rather than racing in parallel.
+  const { cookies: unpartitioned, skipped } = splitPartitionedCookies(cookies ?? [])
+  const selected = filterCookiesBySites(unpartitioned, opts.sites)
+  // Group entries sharing (name, domain, path) so non-secure duplicates run
+  // sequentially before secure ones rather than racing in parallel.
   const groups = new Map()
   selected.forEach((cookie, index) => {
     const key = keyOf(cookie)
@@ -138,12 +178,7 @@ export async function applyCookies(storage, cookies, opts = {}) {
   })
   for (const list of groups.values()) {
     if (list.length > 1) {
-      list.sort((a, b) => {
-        const aPart = a.cookie.partitionKey ? 0 : 1
-        const bPart = b.cookie.partitionKey ? 0 : 1
-        if (aPart !== bPart) return aPart - bPart
-        return (a.cookie.secure ? 1 : 0) - (b.cookie.secure ? 1 : 0)
-      })
+      list.sort((a, b) => (a.cookie.secure ? 1 : 0) - (b.cookie.secure ? 1 : 0))
     }
   }
   const failed = []
@@ -169,7 +204,7 @@ export async function applyCookies(storage, cookies, opts = {}) {
   })
   let flushed = false
   try { await storage.cookies.flushStore(); flushed = true } catch { /* the store flushes itself within 30 s */ }
-  return { stored: storedCount, dropped, failed, flushed }
+  return { stored: storedCount, dropped, failed, skipped, flushed }
 }
 
 /**
@@ -346,6 +381,8 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
 
 /** What the page shows before and after an import — names, domains, paths and flags, never values. */
 export function previewOf(result, source) {
+  const prepared = splitPartitionedCookies(result.cookies ?? [], result.skipped ?? [])
+  const normalized = { ...result, cookies: prepared.cookies, skipped: prepared.skipped }
   const origins = (result.origins ?? []).filter((o) => Array.isArray(o?.localStorage) && o.localStorage.length > 0)
   const localStorageEntries = origins.reduce((sum, o) => sum + o.localStorage.length, 0)
   return {
@@ -353,13 +390,13 @@ export function previewOf(result, source) {
     format: result.format ?? null,
     flavor: result.flavor ?? null,
     entries: result.entries ?? 0,
-    cookies: (result.cookies ?? []).length,
+    cookies: prepared.cookies.length,
     origins: origins.length,
     localStorageEntries,
-    sites: summarizeBySite(result),
+    sites: summarizeBySite(normalized),
     warnings: groupBy(result.warnings ?? []),
-    skipped: (result.skipped ?? []).map((item) => ({ where: item.where, name: item.name, domain: item.domain, code: item.code, reason: item.reason })),
-    notes: notesOf(result, origins),
+    skipped: prepared.skipped.map((item) => ({ where: item.where, name: item.name, domain: item.domain, code: item.code, reason: item.reason })),
+    notes: notesOf(normalized, origins),
   }
 }
 
@@ -389,13 +426,15 @@ export class CookieImports {
   store(result, source) {
     this.sweep()
     while (this.#pending.size >= PENDING_MAX) this.#pending.delete(this.#pending.keys().next().value)
+    const prepared = splitPartitionedCookies(result.cookies ?? [], result.skipped ?? [])
+    const normalized = { ...result, cookies: prepared.cookies, skipped: prepared.skipped }
     const id = randomUUID()
     this.#pending.set(id, {
-      cookies: result.cookies ?? [],
+      cookies: prepared.cookies,
       origins: result.origins ?? [],
       expiresAt: Date.now() + PENDING_TTL_MS,
     })
-    return { id, preview: previewOf(result, source) }
+    return { id, preview: previewOf(normalized, source) }
   }
 
   /** The pending import, or null when it is gone or expired. Taking it leaves it for apply/drop. */

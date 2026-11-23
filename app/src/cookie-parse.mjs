@@ -505,6 +505,8 @@ function normalizeCookie(raw, ctx, where) {
   const dotted = rawDomain.startsWith('.');
   let host = rawDomain.replace(/^\.+/, '').toLowerCase();
   if (!host) return { skip: ['bad-domain', 'domain is only dots'] };
+  const bareIpv6 = !host.startsWith('[') && isIP(host) === 6;
+  if (bareIpv6) host = `[${host}]`;
   const ipv6 = /^\[[0-9a-f:.]+\]$/.test(host) && isIP(host.slice(1, -1)) === 6;
   if (!ipv6) {
     const ascii = domainToASCII(host);

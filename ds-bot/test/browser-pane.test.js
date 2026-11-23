@@ -390,3 +390,127 @@ test('ImportMenu keeps profile email and Last used visible alongside Ready', () 
   assert.match(secondText, /Browser profile/)
   inst.unmount()
 })
+
+test('ImportMenu displays profile cookie counts and Safari Permission needed badge', () => {
+  const h = createHarness()
+  const { ImportMenu } = h.exports
+  const inst = h.mount(ImportMenu, {
+    sources: [
+      { id: 'chrome:Default', label: 'Chrome — Personal', email: 'me@example.com', cookieCount: 42, liveDebugReady: false, needsPermission: false },
+      { id: 'safari:Default', label: 'Safari', email: null, cookieCount: null, liveDebugReady: false, needsPermission: true },
+    ],
+    lastSourceId: 'chrome:Default',
+    loading: false,
+    busy: false,
+    canPaste: true,
+    onFile() {}, onPaste() {}, onSource() {}, onClose() {},
+  })
+  const tree = inst.render()
+  const items = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'menuitem')
+  const firstText = textOf(items[0])
+  assert.match(firstText, /Chrome — Personal/)
+  assert.match(firstText, /me@example\.com/)
+  assert.match(firstText, /Last used/)
+  assert.match(firstText, /42 cookies/)
+
+  const secondText = textOf(items[1])
+  assert.match(secondText, /Safari/)
+  assert.match(secondText, /Permission needed/)
+  inst.unmount()
+})
+
+test('SafariPermissionCard polls serially via probe, opens System Settings, notifies once on grant, and cleans up timers', async () => {
+  const h = createHarness()
+  const { SafariPermissionCard } = h.exports
+  let probeCalls = 0
+  let resolveProbe = null
+  let openCalls = 0
+  let grantedNotifications = 0
+  const imports = {
+    probe: (id) => {
+      probeCalls += 1
+      assert.equal(id, 'safari:Default')
+      return new Promise((resolve) => { resolveProbe = resolve })
+    },
+    openPermission: async () => { openCalls += 1; return { opened: true } },
+  }
+  const inst = h.mount(SafariPermissionCard, {
+    flow: { source: { id: 'safari:Default', name: 'Safari', label: 'Safari' }, info: {} },
+    busy: false,
+    imports,
+    onOpenPermission: () => { void imports.openPermission() },
+    onPermissionGranted: () => { grantedNotifications += 1 },
+    onRetrySource() {},
+    onCancel() {},
+  })
+  let tree = inst.render()
+  assert.equal(h.intervalCalls, 0, 'must not use setInterval')
+  assert.equal(h.timers.size, 1)
+
+  const openBtn = allNodes(tree, (n) => n.type === 'button' && textOf(n) === 'Open System Settings')[0]
+  assert.ok(openBtn)
+  openBtn.props.onClick()
+  assert.equal(openCalls, 1)
+
+  const [firstId, firstTimer] = [...h.timers.entries()][0]
+  h.timers.delete(firstId)
+  firstTimer.fn()
+  assert.equal(probeCalls, 1)
+  assert.equal(h.timers.size, 0, 'serial polling waits for in-flight probe')
+
+  resolveProbe({ liveDebugReady: false, permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(grantedNotifications, 1)
+  tree = inst.render()
+  assert.match(textOf(tree), /Full Disk Access granted/)
+  assert.equal(h.timers.size, 1)
+
+  // Second granted poll must not fire onPermissionGranted a second time.
+  const [secondId, secondTimer] = [...h.timers.entries()][0]
+  h.timers.delete(secondId)
+  secondTimer.fn()
+  resolveProbe({ liveDebugReady: false, permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(grantedNotifications, 1)
+
+  inst.unmount()
+  assert.equal(h.timers.size, 0, 'unmount clears active poll timer')
+})
+
+test('BrowserView enters safari-permission stage when live import reports needsFullDiskAccess', async () => {
+  const h = createHarness()
+  const { BrowserView } = h.exports
+  const imports = {
+    sources: async () => [{ id: 'safari:Default', name: 'Safari', label: 'Safari', needsPermission: true }],
+    live: async () => ({ needsFullDiskAccess: true, sourceId: 'safari:Default', browserName: 'Safari', label: 'Safari', kind: 'safari' }),
+    probe: async () => ({ liveDebugReady: false, permissionGranted: false }),
+    openPermission: async () => ({ opened: true }),
+    cancel: async () => {},
+  }
+  const inst = h.mount(BrowserView, {
+    bot: { id: 'b1', name: 'Bot' },
+    tabId: 'tab-1',
+    leaving: false,
+    landed: true,
+    hold: null,
+    useBrowserPages: () => ({ url: '', title: '', favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: '' }),
+    actions: {
+      browserImport: imports,
+      browserShow: async () => {},
+      browserCommand: async () => {},
+      browserNavigate: async () => false,
+      browserFocus: () => {},
+      browserNewTab: () => {},
+    },
+  })
+  let tree = inst.render()
+  const importBtn = allNodes(tree, (n) => n.type === 'button' && String(n.props?.className ?? '').includes('bt-import-btn'))[0]
+  importBtn.props.onClick()
+  tree = inst.render()
+  const menuNode = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  await menuNode.props.onSource({ id: 'safari:Default', name: 'Safari', label: 'Safari', needsPermission: true })
+  tree = inst.render()
+  const cardNode = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'safari-permission')[0]
+  assert.ok(cardNode, 'expected BrowserView to transition to safari-permission stage')
+  inst.unmount()
+})

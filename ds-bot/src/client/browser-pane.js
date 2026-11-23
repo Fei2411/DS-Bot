@@ -472,7 +472,8 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
       return
     }
     if (r?.canceled) return
-    if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
+    if (r?.needsFullDiskAccess) setFlowTracked({ stage: 'safari-permission', source, info: r })
+    else if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
     else if (r?.running) setFlowTracked({ stage: 'running', source })
     else showPicked(r, token)
   })
@@ -620,6 +621,8 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
           onCloseAndImport: closeAndImport,
           onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
           onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
+          onOpenPermission: () => { if (imports?.openPermission) void imports.openPermission() },
+          onPermissionGranted: refreshSources,
           onFile: pickFile,
           onSubmitPaste: submitPaste,
           onDone: () => setFlowTracked(null),
@@ -649,6 +652,7 @@ function importError(error) {
   if (error === 'devtools-denied') return t('Remote debugging permission was declined in the browser. Try again and click Allow.')
   if (error === 'devtools-timeout') return t('Timed out waiting for you to click Allow in the browser.')
   if (error === 'devtools-wrong-profile') return t('Another browser profile is active. Switch to the chosen profile window in your browser, then try again.')
+  if (error === 'safari-corrupt') return t('Safari cookies could not be read. Try again or import from a file.')
   return String(error)
 }
 
@@ -663,8 +667,11 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
         ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
         : sources.map((source) => {
           const isLast = source.id === lastSourceId
+          const needsPerm = Boolean(source.needsPermission)
           const isReady = Boolean(source.liveDebugReady)
-          const showFallback = !isLast && !isReady && !source.email
+          const hasCount = typeof source.cookieCount === 'number' && !needsPerm && !isReady
+          const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email
+          const hasMeta = isLast || needsPerm || isReady || hasCount || showFallback
           return h('button', {
             key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
             title: source.email ? `${source.label} (${source.email})` : source.label,
@@ -674,9 +681,11 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
             h('span', { className: 'bt-import-item-main' },
               h('span', { className: 'bt-import-item-name' }, source.label),
               source.email ? h('span', { className: 'bt-import-item-email' }, source.email) : null),
-            isLast || isReady || showFallback ? h('span', { className: 'bt-import-item-meta' },
+            hasMeta ? h('span', { className: 'bt-import-item-meta' },
               isLast ? h('span', { className: 'bt-import-item-tag' }, t('Last used')) : null,
+              needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-warn': true }, t('Permission needed')) : null,
               isReady ? h('span', { className: 'bt-import-item-sub', 'data-ready': true }, t('Ready')) : null,
+              hasCount ? h('span', { className: 'bt-import-item-sub' }, t('{count} cookies', { count: source.cookieCount })) : null,
               showFallback ? h('span', { className: 'bt-import-item-sub' }, t('Browser profile')) : null) : null)
         }),
     h('div', { className: 'bt-import-sep', role: 'separator' }),
@@ -688,6 +697,66 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
       h(PasteIcon, { className: 'bt-import-item-icon' }),
       h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
       h('span', { className: 'bt-import-item-sub' }, t('JSON, cURL, header'))) : null)
+}
+
+export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel }) {
+  const { source } = flow
+  const [granted, setGranted] = useState(false)
+  const notifiedRef = useRef(false)
+  const onGrantedRef = useRef(onPermissionGranted)
+  onGrantedRef.current = onPermissionGranted
+
+  useEffect(() => {
+    const canProbe = typeof imports?.probe === 'function'
+    if (!canProbe) return undefined
+    let active = true
+    let timer = null
+    const schedule = () => {
+      if (!active) return
+      timer = setTimeout(poll, 2000)
+    }
+    const poll = () => {
+      void imports.probe(source.id).then(
+        (res) => {
+          if (!active) return
+          const ok = Boolean(res?.permissionGranted)
+          setGranted(ok)
+          if (ok && !notifiedRef.current) {
+            notifiedRef.current = true
+            onGrantedRef.current?.()
+          }
+        },
+        () => {},
+      ).finally(schedule)
+    }
+    schedule()
+    return () => { active = false; clearTimeout(timer) }
+  }, [imports, source.id])
+
+  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    h('div', { className: 'bt-import-title' }, t('Allow Safari access')),
+    h('div', { className: 'bt-import-text' },
+      t('macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.')),
+    h('div', { className: 'bt-import-steps' },
+      h('div', { className: 'bt-import-step' }, t('1. Open Full Disk Access in System Settings and turn on DS Bot.')),
+      h('div', { className: 'bt-import-step' }, t('2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.'))),
+    granted ? h('div', { className: 'bt-import-ready-note' }, t('Full Disk Access granted — ready to import.')) : null,
+    h('div', { className: 'bt-import-actions' },
+      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+      imports?.openPermission
+        ? h('button', {
+            type: 'button',
+            className: granted ? 'bt-import-plain' : 'bt-import-primary',
+            disabled: busy,
+            onClick: onOpenPermission,
+          }, t('Open System Settings'))
+        : null,
+      h('button', {
+        type: 'button',
+        className: granted || !imports?.openPermission ? 'bt-import-primary' : 'bt-import-plain',
+        disabled: busy,
+        onClick: onRetrySource,
+      }, busy ? t('Reading…') : granted ? t('Import') : t('Try again')))))
 }
 
 export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
@@ -885,8 +954,8 @@ export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
       h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import')))))
 }
 
-// The card that runs an import: connecting / remote-debug / running / paste → preview → result | error.
-function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+// The card that runs an import: connecting / safari-permission / remote-debug / running / paste → preview → result | error.
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow
   if (stage === 'connecting') {
     return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
@@ -895,6 +964,9 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndIm
       h('div', { className: 'bt-import-text' }, t('If {name} or your system asks for permission, click Allow.', { name: flow.source.name })),
       h('div', { className: 'bt-import-actions' },
         h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel')))))
+  }
+  if (stage === 'safari-permission') {
+    return h(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel })
   }
   if (stage === 'remote-debug') {
     return h(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel })
@@ -1289,10 +1361,11 @@ export const BROWSER_CSS = `
 .bt-import-item-main .bt-import-item-name{max-width:none}
 .bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
+.bt-import-item-tag{font-size:11px;line-height:15px;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta .bt-import-item-sub{flex:none}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
+.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
 .bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
@@ -1328,7 +1401,7 @@ export const BROWSER_CSS = `
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
-.bt-import-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
 .bt-import-primary{height:32px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;cursor:pointer}
 .bt-import-primary:disabled{opacity:.55;cursor:default}
 .bt-import-plain{height:32px;padding:0 14px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}

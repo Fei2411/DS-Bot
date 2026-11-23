@@ -641,6 +641,7 @@ function browserBridge() {
     importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
     importPaste: (text, defaultUrl) => ipcRenderer.invoke('ds-bot:browser-import-paste', String(text), typeof defaultUrl === 'string' ? defaultUrl : undefined),
     importLaunch: (source) => ipcRenderer.invoke('ds-bot:browser-import-launch', String(source)),
+    importOpenPermission: () => ipcRenderer.invoke('ds-bot:browser-import-open-permission'),
     importLive: (source, close, requestId) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true, typeof requestId === 'string' ? requestId : undefined),
     importApply: (key, pending, options) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending), options && typeof options === 'object' ? options : undefined),
     importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', typeof pending === 'string' ? pending : ''),
