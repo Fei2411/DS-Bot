@@ -268,19 +268,20 @@ const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node 
 test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-4), ['Account', 'Plugins', 'Agent presets', 'About DS Bot'])
+  assert.deepEqual(labels.slice(-3), ['Account', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
+  assert.equal(labels.filter(label => label === 'Plugins').length, 1)
   assert.equal(labels[0], 'Overview')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
   const nav = dialog()
-  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Plugins')[0].props.onClick()
-  assert.deepEqual(nav.calls, [['dsh', 'plugins']])
-  const page = dialog({ page: 'dsh', id: 'plugins' })
-  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
-  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
+  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Agent presets')[0].props.onClick()
+  assert.deepEqual(nav.calls, [['dsh', 'agent-presets']])
+  const page = dialog({ page: 'dsh', id: 'agent-presets' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'agent-presets'))
+  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Agent presets')
 })
 
 test('a DSH page that left the ledger falls back to Overview', () => {
