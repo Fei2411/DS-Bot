@@ -269,7 +269,9 @@ export function install(rt) {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
-    if (read < kept) return answerable(entries)
+    // A read that began before the one kept answers with the kept catalog: its own
+    // entries would be judged against failures that are not theirs.
+    if (read < kept) return answerable(catalogCache.value)
     kept = read
     // A provider that stops or starts being listed changes what its Bots are to run on,
     // though everyone else is served the same models: the next sync runs. The failures

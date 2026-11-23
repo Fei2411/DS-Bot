@@ -767,7 +767,7 @@ test('an outage is logged once though an older catalog read ends after it began'
 })
 
 // A catalog read whose listing of deepseek is held until `fail` rejects it.
-function heldListing(rt) {
+function heldListing(rt, start = () => rt.catalog({ fresh: true })) {
   const listModels = rt.ctx.llm.listModels
   let fail
   let listing
@@ -778,7 +778,7 @@ function heldListing(rt) {
     listing()
     return new Promise((resolve, reject) => { fail = () => reject(new Error('timed out')) })
   }
-  const read = rt.catalog({ fresh: true })
+  const read = start()
   return { read, asked, fail: () => fail(), listModels }
 }
 
@@ -801,6 +801,15 @@ test('a listing that fails after a newer read saw its provider removed does not 
   }
   await rt.catalog({ fresh: true })
   assert.equal(warnings.length, 1)
+})
+
+test('a Bot keeps the model a newer read found when the listing its own read waits on fails late', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const older = heldListing(rt, () => rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }))
+  await older.asked
+  await rt.catalog({ fresh: true })
+  older.fail()
+  assert.equal(await older.read, 'deepseek/deepseek-v4-pro')
 })
 
 test('a read that began before the catalog now kept does not replace it', async () => {
