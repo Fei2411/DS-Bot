@@ -439,3 +439,33 @@ test('PluginsPage keeps Use button on active read-only fallback when another bro
   await flush()
   assert.equal(listCalls, 2)
 })
+
+test('PluginsPage allows disabling failed MCP plugins via desired state and disables Add form while view is pending', async () => {
+  const failedMcpView = {
+    ...SAMPLE_VIEW,
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'mcp:notes'
+      ? { ...p, enabled: false, active: false, desired: true, status: 'error', error: 'spawn ENOENT' }
+      : p)),
+  }
+  const { draw, calls } = mountPluginsPage({ view: failedMcpView })
+  draw()
+  await flush()
+  let tree = draw()
+  const sw = findAll(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props['aria-label'] === 'Notes MCP')[0]
+  assert.equal(sw.props['aria-checked'], true)
+  sw.props.onClick()
+  await flush()
+  assert.deepEqual(calls[0], ['toggle', 'mcp:notes', false])
+
+  // While initial pluginsList is still pending (`view === null`), Add plugin form submit is disabled.
+  let resolveList
+  const pending = mountPluginsPage({
+    actions: { pluginsList: () => new Promise(r => { resolveList = r }) },
+  })
+  let pendingTree = pending.draw()
+  findAll(pendingTree, n => n.type === 'button' && textOf(n) === 'Add plugin')[0].props.onClick()
+  pendingTree = pending.draw()
+  const submitBtn = findAll(pendingTree, n => n.type === 'button' && n.props?.type === 'submit')[0]
+  assert.equal(submitBtn.props.disabled, true)
+  resolveList(SAMPLE_VIEW)
+})

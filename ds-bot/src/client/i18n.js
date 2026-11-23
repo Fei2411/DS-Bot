@@ -1862,6 +1862,7 @@ const ZH = {
   "Repository": "仓库",
   "Engine plugins": "引擎插件",
   "Back to Plugins": "返回插件",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "外部浏览器插件（DSH / MCP）自行管理页面操作与确认；下方的操作授权仅适用于内置 Playwright 插件。",
   "Built-in": "内置",
   "Native": "原生",
   "Restart required": "需要重启",

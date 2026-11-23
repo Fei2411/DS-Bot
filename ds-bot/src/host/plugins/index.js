@@ -989,10 +989,19 @@ export function install(rt) {
       seenIds.add(desc.id)
     }
 
-    // B. Catalog entries + Custom entries + persisted snapshots for offline installed catalog plugins
+    // B. Catalog entries + Custom entries + persisted snapshots for offline installed catalog plugins.
+    // Custom entries override catalog fields (slot, toolPrefixes, name, install) with the same precedence
+    // as `findKnownEntry`, while keeping catalog-only metadata (verified, homepage, locales) as defaults.
+    const catalogById = new Map(catalogSnapshot.entries.map(e => [e.id, e]))
+    const mergedCustom = Object.values(store.custom).map((custom) => {
+      const cat = catalogById.get(custom.id)
+      return cat
+        ? { ...cat, ...custom, install: custom.install ?? cat.install, toolPrefixes: custom.toolPrefixes?.length ? custom.toolPrefixes : cat.toolPrefixes, custom: true }
+        : { ...custom, custom: true }
+    })
     const combinedEntries = [
+      ...mergedCustom,
       ...catalogSnapshot.entries.map(e => ({ ...e, custom: false })),
-      ...Object.values(store.custom).map(e => ({ ...e, custom: true })),
       ...Object.values(store.snapshots).map(e => ({ ...e, custom: false })),
     ]
     for (const entry of combinedEntries) {
@@ -1591,8 +1600,16 @@ export function install(rt) {
     let publicEntry
     if (kind === 'mcp') {
       const explicitEdit = typeof body.id === 'string' && body.id.trim() !== ''
-      const baseSlug = String(body.slug ?? body.id ?? name).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
-      if (!baseSlug || !CUSTOM_ID_RE.test(baseSlug)) throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
+      const explicitSlug = typeof body.slug === 'string' && body.slug.trim() !== ''
+      const rawSlugSource = explicitSlug ? body.slug : (explicitEdit ? body.id : name)
+      let baseSlug = String(rawSlugSource).replace(/^mcp:/, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+      if (!baseSlug || !CUSTOM_ID_RE.test(baseSlug)) {
+        if (explicitEdit || explicitSlug) {
+          throw Object.assign(new Error('Enter a valid plugin identifier.'), { code: 'bot/invalid' })
+        }
+        // Localized display names (e.g. CJK) have no ASCII slug; allocate a safe unique identifier.
+        baseSlug = `custom-${randomUUID().slice(0, 8)}`
+      }
       await catalogManager.hydrate()
       const catalogEntries = catalogManager.peek().entries
       const isTaken = candidate => own(store.custom, candidate) !== undefined

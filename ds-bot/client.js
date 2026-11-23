@@ -2116,6 +2116,7 @@ var JA = {
   "Repository": "リポジトリ",
   "Engine plugins": "エンジンプラグイン",
   "Back to Plugins": "プラグインに戻る",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "外部ブラウザー プラグイン（DSH / MCP）は独自の操作と承認を管理します。以下の操作許可は組み込み Playwright プラグインにのみ適用されます。",
   "Built-in": "内蔵",
   "Native": "ネイティブ",
   "Restart required": "再起動が必要",
@@ -4923,6 +4924,7 @@ var KO = {
   "Repository": "저장소",
   "Engine plugins": "엔진 플러그인",
   "Back to Plugins": "플러그인으로 돌아가기",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "외부 브라우저 플러그인(DSH / MCP)은 자체 동작과 승인을 관리합니다. 아래 동작 권한은 내장 Playwright 플러그인에만 적용됩니다.",
   "Built-in": "내장",
   "Native": "네이티브",
   "Restart required": "재시작 필요",
@@ -7731,6 +7733,7 @@ var ES = {
   "Repository": "Repositorio",
   "Engine plugins": "Plugins del motor",
   "Back to Plugins": "Volver a Plugins",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "Los plugins externos de navegador (DSH / MCP) gestionan sus propias acciones y aprobaciones; los permisos de abajo solo se aplican a los plugins integrados de Playwright.",
   "Built-in": "Integrado",
   "Native": "Nativo",
   "Restart required": "Requiere reinicio",
@@ -10495,6 +10498,7 @@ var FR = {
   "Repository": "Dépôt",
   "Engine plugins": "Extensions du moteur",
   "Back to Plugins": "Retour aux extensions",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "Les extensions de navigateur externes (DSH / MCP) gèrent leurs propres actions et approbations ; les autorisations ci-dessous s’appliquent uniquement aux extensions Playwright intégrées.",
   "Built-in": "Intégré",
   "Native": "Natif",
   "Restart required": "Redémarrage requis",
@@ -13302,6 +13306,7 @@ var DE = {
   "Repository": "Repository",
   "Engine plugins": "Engine-Plugins",
   "Back to Plugins": "Zurück zu Plugins",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "Externe Browser-Plugins (DSH / MCP) verwalten ihre eigenen Aktionen und Freigaben; die untenstehenden Berechtigungen gelten nur für integrierte Playwright-Plugins.",
   "Built-in": "Integriert",
   "Native": "Nativ",
   "Restart required": "Neustart erforderlich",
@@ -15927,6 +15932,7 @@ var ZH = {
   "Repository": "仓库",
   "Engine plugins": "引擎插件",
   "Back to Plugins": "返回插件",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "外部浏览器插件（DSH / MCP）自行管理页面操作与确认；下方的操作授权仅适用于内置 Playwright 插件。",
   "Built-in": "内置",
   "Native": "原生",
   "Restart required": "需要重启",
@@ -39952,8 +39958,16 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       selectAsr,
       onOpenModels: () => actions.openModels?.(),
       // DSH's own Web Search API & engine plugin switches live in the nested
-      // `plugins` → `dsh` view when available; otherwise open the Plugins page.
-      onOpenPlugins: () => openEnginePlugins ? openEnginePlugins() : actions.openPlugins?.(),
+      // `plugins` → `dsh` view when available; otherwise fall back to closing
+      // the dialog and calling the legacy `openPlugins` action.
+      onOpenPlugins: () => {
+        if (openEnginePlugins) {
+          openEnginePlugins();
+          return;
+        }
+        actions.closeSettings?.();
+        actions.openPlugins?.();
+      },
       Section: Section2,
       Row: Row4,
       Switch: Switch2,
@@ -40067,7 +40081,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
         label: t("How to enable interactive browsing"),
         hint: t("In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.")
       }) : null,
-      (0, import_react48.createElement)("p", { className: "bt-browser-note" }, t("With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you."))
+      (0, import_react48.createElement)("p", { className: "bt-browser-note" }, activeBrowserId.startsWith("builtin:") ? t("With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.") : t("External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins."))
     ),
     adding ? (0, import_react48.createElement)(
       Section2,
@@ -40349,7 +40363,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
       }, isBusy ? t("Enabling…") : t("Add"));
     }
     return (0, import_react49.createElement)(Switch, {
-      on: plugin.enabled,
+      on: plugin.kind === "mcp" ? plugin.desired ?? plugin.enabled : plugin.enabled,
       label: name,
       disabled,
       onChange: (next) => onToggle(plugin.id, next)
@@ -40476,7 +40490,7 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
   const [sourceName, setSourceName] = (0, import_react49.useState)("");
   const [sourceUrl, setSourceUrl] = (0, import_react49.useState)("");
   const [localError, setLocalError] = (0, import_react49.useState)("");
-  const disabled = readOnly || busy;
+  const disabled = readOnly || busy || !view;
   const submitCustom = async (event) => {
     event.preventDefault();
     if (disabled) return;
@@ -44371,10 +44385,11 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     pages: group.pages.filter(([key]) => pageAvailable(key))
   })).filter((group) => group.pages.length > 0), [hasProviders, hasServices]);
   const extra = dshPages(dsh);
-  const resolvedPage = GROUP_ALIASES[page] ?? (page === "models" && !hasProviders ? "bot-models" : page);
+  const legacyEnginePlugins = page === "dsh" && id === "plugins" && hasSection(dsh, "plugins");
+  const resolvedPage = legacyEnginePlugins ? "plugins" : GROUP_ALIASES[page] ?? (page === "models" && !hasProviders ? "bot-models" : page);
   const section = resolvedPage === "dsh" ? extra.find((row) => row.id === id) : void 0;
   const advanced = resolvedPage === "models" && id === "advanced" && hasSection(dsh, "models");
-  const enginePlugins = resolvedPage === "plugins" && id === "dsh" && hasSection(dsh, "plugins");
+  const enginePlugins = (legacyEnginePlugins || resolvedPage === "plugins" && id === "dsh") && hasSection(dsh, "plugins");
   const validPage = groups.some((group) => group.pages.some(([key]) => key === resolvedPage));
   const shown = section ? "dsh" : validPage ? resolvedPage : "overview";
   const bot = shown === "bots" && id ? roster.byId[id] : void 0;

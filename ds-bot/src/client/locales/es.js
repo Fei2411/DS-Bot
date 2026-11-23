@@ -2034,6 +2034,7 @@ export const ES = {
   "Repository": "Repositorio",
   "Engine plugins": "Plugins del motor",
   "Back to Plugins": "Volver a Plugins",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "Los plugins externos de navegador (DSH / MCP) gestionan sus propias acciones y aprobaciones; los permisos de abajo solo se aplican a los plugins integrados de Playwright.",
   "Built-in": "Integrado",
   "Native": "Nativo",
   "Restart required": "Requiere reinicio",

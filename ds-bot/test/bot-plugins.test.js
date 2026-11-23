@@ -1126,4 +1126,17 @@ test('saveCustomPlugin avoids MCP name collisions and installPlugin with customM
   })
   assert.equal(approved.ok, true)
   assert.equal(rt.state.plugins.custom['dsh:custom-pkg']?.name, 'My Custom Tool')
+
+  // 4. Non-ASCII localized MCP display names (e.g. CJK) allocate a safe ASCII ID while retaining display name.
+  const cjk = await call('plugins-custom-save', { kind: 'mcp', name: '笔记', transport: 'streamable-http', url: 'https://notes-cn.example.com/mcp' })
+  assert.equal(cjk.ok, true)
+  assert.match(cjk.value.entry.id, /^mcp:custom-[a-f0-9]{8}$/)
+  assert.equal(cjk.value.entry.name, '笔记')
+
+  // 5. Custom DSH slot override takes precedence over catalog entry in buildPluginsView.
+  await call('plugins-custom-save', { kind: 'dsh', name: 'Custom Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: 'browser', toolPrefixes: 'custom_ego_' })
+  const listed = await call('plugins-list', {})
+  const egoItem = listed.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
+  assert.equal(egoItem.name, 'Custom Ego')
+  assert.deepEqual(egoItem.toolPrefixes, ['custom_ego_'])
 })

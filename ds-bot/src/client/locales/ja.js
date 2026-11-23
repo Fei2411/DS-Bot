@@ -1999,6 +1999,7 @@ export const JA = {
   "Repository": "リポジトリ",
   "Engine plugins": "エンジンプラグイン",
   "Back to Plugins": "プラグインに戻る",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "外部ブラウザー プラグイン（DSH / MCP）は独自の操作と承認を管理します。以下の操作許可は組み込み Playwright プラグインにのみ適用されます。",
   "Built-in": "内蔵",
   "Native": "ネイティブ",
   "Restart required": "再起動が必要",

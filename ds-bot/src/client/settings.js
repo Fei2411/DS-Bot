@@ -570,13 +570,14 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   })).filter(group => group.pages.length > 0), [hasProviders, hasServices])
 
   const extra = dshPages(dsh)
-  const resolvedPage = GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page)
+  const legacyEnginePlugins = page === 'dsh' && id === 'plugins' && hasSection(dsh, 'plugins')
+  const resolvedPage = legacyEnginePlugins ? 'plugins' : (GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page))
   // A DSH page is `dsh` with its section id; one no longer registered falls back to Overview.
   const section = resolvedPage === 'dsh' ? extra.find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
   const advanced = resolvedPage === 'models' && id === 'advanced' && hasSection(dsh, 'models')
-  // DSH's Plugins page (e.g. Web Search API & engine plugin switches), one level into Plugins.
-  const enginePlugins = resolvedPage === 'plugins' && id === 'dsh' && hasSection(dsh, 'plugins')
+  // DSH's Plugins page (e.g. Web Search API, Automation tasks & engine plugin switches), one level into Plugins.
+  const enginePlugins = (legacyEnginePlugins || (resolvedPage === 'plugins' && id === 'dsh')) && hasSection(dsh, 'plugins')
   const validPage = groups.some(group => group.pages.some(([key]) => key === resolvedPage))
   const shown = section ? 'dsh' : validPage ? resolvedPage : 'overview'
   // A Bot or group deleted while its form is open leaves its page on the list.

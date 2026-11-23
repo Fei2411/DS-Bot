@@ -206,7 +206,7 @@ function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActiva
     }
 
     return h(Switch, {
-      on: plugin.enabled,
+      on: plugin.kind === 'mcp' ? (plugin.desired ?? plugin.enabled) : plugin.enabled,
       label: name,
       disabled,
       onChange: next => onToggle(plugin.id, next),
@@ -298,7 +298,7 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
   const [sourceName, setSourceName] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
   const [localError, setLocalError] = useState('')
-  const disabled = readOnly || busy
+  const disabled = readOnly || busy || !view
 
   const submitCustom = async (event) => {
     event.preventDefault()

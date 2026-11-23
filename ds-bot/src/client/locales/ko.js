@@ -2034,6 +2034,7 @@ export const KO = {
   "Repository": "저장소",
   "Engine plugins": "엔진 플러그인",
   "Back to Plugins": "플러그인으로 돌아가기",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "외부 브라우저 플러그인(DSH / MCP)은 자체 동작과 승인을 관리합니다. 아래 동작 권한은 내장 Playwright 플러그인에만 적용됩니다.",
   "Built-in": "내장",
   "Native": "네이티브",
   "Restart required": "재시작 필요",

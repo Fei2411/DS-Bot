@@ -193,8 +193,13 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segme
       status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
       save, selectAsr, onOpenModels: () => actions.openModels?.(),
       // DSH's own Web Search API & engine plugin switches live in the nested
-      // `plugins` → `dsh` view when available; otherwise open the Plugins page.
-      onOpenPlugins: () => (openEnginePlugins ? openEnginePlugins() : actions.openPlugins?.()),
+      // `plugins` → `dsh` view when available; otherwise fall back to closing
+      // the dialog and calling the legacy `openPlugins` action.
+      onOpenPlugins: () => {
+        if (openEnginePlugins) { openEnginePlugins(); return }
+        actions.closeSettings?.()
+        actions.openPlugins?.()
+      },
       Section, Row, Switch, Segmented,
     }))
 }

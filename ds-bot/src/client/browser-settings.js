@@ -111,7 +111,9 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         label: t('How to enable interactive browsing'),
         hint: t('In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.'),
       }) : null,
-      h('p', { className: 'bt-browser-note' }, t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
+      h('p', { className: 'bt-browser-note' }, activeBrowserId.startsWith('builtin:')
+        ? t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
+        : t('External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.'))),
     adding ? h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },

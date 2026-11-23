@@ -1999,6 +1999,7 @@ export const FR = {
   "Repository": "Dépôt",
   "Engine plugins": "Extensions du moteur",
   "Back to Plugins": "Retour aux extensions",
+  "External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.": "Les extensions de navigateur externes (DSH / MCP) gèrent leurs propres actions et approbations ; les autorisations ci-dessous s’appliquent uniquement aux extensions Playwright intégrées.",
   "Built-in": "Intégré",
   "Native": "Natif",
   "Restart required": "Redémarrage requis",

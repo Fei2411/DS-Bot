@@ -307,6 +307,9 @@ test('DSH\'s Plugins page is Plugins → Engine plugins, with a way back', () =>
   const [back] = walk(page.tree, node => node.type === 'button' && node.props['aria-label'] === 'Back to Plugins')
   back.props.onClick()
   assert.deepEqual(page.calls, [['plugins']])
+  // Legacy deep links `('dsh', 'plugins')` from scheduling & onboarding also land on Engine plugins.
+  const legacy = dialog({ page: 'dsh', id: 'plugins' })
+  assert.ok(legacy.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
 })
 
 test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
