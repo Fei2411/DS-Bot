@@ -427,9 +427,13 @@ export function install(rt) {
     }
     // Only notify targets that actually received the work (a paused delegation was never sent).
     if (snapshot.state !== 'paused') {
+      const cancelSession = snapshot.toSession
+        ? (threadCurrentOfPart(target, snapshot.toSession) ?? snapshot.toSession)
+        : undefined
       await rt.deliver({
         ...(sender?.id ? { fromId: sender.id } : { fromName: 'The user', ...(snapshot.from ? { pairFrom: snapshot.from } : {}) }),
         toId: target.id,
+        ...(cancelSession ? { sessionId: cancelSession } : {}),
         text: note,
         role: 'cancelled',
         wake: false,

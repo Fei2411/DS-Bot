@@ -11,9 +11,10 @@
 // request itself is never sent again there.
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { HISTORY_TIMEOUT_MS, isWorkTool, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { replaceFile } from './files.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
@@ -34,13 +35,17 @@ export function turnsOf(events) {
   let current
   for (const event of events) {
     if (event.type === 'turn/start') {
-      current = { turn: event.data?.turn, took: [], messages: {}, texts: [], reason: undefined, end: undefined }
+      current = { turn: event.data?.turn, took: [], messages: {}, messageSeqs: {}, texts: [], toolCount: 0, reason: undefined, end: undefined }
       turns.push(current)
       continue
     }
     if (current === undefined) continue
     if (event.type === 'step/start') {
       current.stepFrom = current.texts.length
+      continue
+    }
+    if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') {
+      if (isWorkTool(String(event.data?.name ?? ''))) current.toolCount += 1
       continue
     }
     if (event.type === 'user/message') {
@@ -50,6 +55,7 @@ export function turnsOf(events) {
         // What the message held, for handing it back when its turn completed and no
         // deferred delivery made it: text, and the attachments it carried.
         current.messages[source.exchangeId] = { content: event.data?.content }
+        if (event.seq !== undefined) current.messageSeqs[source.exchangeId] = event.seq
       }
       // A turn resumed across a part switch carries steered requests in source.joined
       // ({ info, text }[]) instead of separate user/message events.
@@ -60,6 +66,9 @@ export function turnsOf(events) {
           current.took.push(info)
           if (current.messages[info.exchangeId] === undefined) {
             current.messages[info.exchangeId] = { text: typeof item.text === 'string' ? item.text : '' }
+          }
+          if (event.seq !== undefined && current.messageSeqs[info.exchangeId] === undefined) {
+            current.messageSeqs[info.exchangeId] = event.seq
           }
         }
       }
@@ -78,31 +87,60 @@ export function turnsOf(events) {
   return turns
 }
 
+const isSteerCutTurn = turn => turn?.reason?.kind === 'aborted'
+  && turn.reason.reason?.kind === 'hook'
+  && turn.reason.reason?.reason === STEER_CUT
+
+function chainSteerCuts(turns, startAt) {
+  let found = turns[startAt]
+  let next = startAt + 1
+  // A steer cut lands inside a step's model call, so the cut turn's last step left
+  // an interrupted draft: texts before the last step/start stay, the rest is a
+  // fragment the continuation replaces.
+  const finished = turn => turn.texts.slice(0, turn.stepFrom ?? turn.texts.length)
+  while (isSteerCutTurn(found) && next < turns.length) {
+    const follow = turns[next]
+    const kept = finished(found)
+    found = {
+      ...follow,
+      took: [...found.took, ...follow.took],
+      messages: { ...found.messages, ...follow.messages },
+      messageSeqs: { ...found.messageSeqs, ...follow.messageSeqs },
+      texts: [...kept, ...follow.texts],
+      toolCount: (found.toolCount ?? 0) + (follow.toolCount ?? 0),
+      stepFrom: kept.length + (follow.stepFrom ?? follow.texts.length),
+    }
+    next += 1
+  }
+  return isSteerCutTurn(found) ? { ...found, texts: finished(found), reason: undefined } : found
+}
+
 // The last turn that took up an exchange: what it said and how it ended. A turn cut
 // by a user steer keeps going in the turn that starts right after it, so the reason
 // that counts is the continuation's.
 export function turnOf(events, exchangeId) {
   const turns = turnsOf(events)
-  const steerCut = turn => turn?.reason?.kind === 'aborted'
-    && turn.reason.reason?.kind === 'hook'
-    && turn.reason.reason?.reason === STEER_CUT
   for (let at = turns.length - 1; at >= 0; at -= 1) {
     if (!turns[at].took.some(source => source.exchangeId === exchangeId)) continue
-    let found = turns[at]
-    let next = at + 1
-    // A steer cut lands inside a step's model call, so the cut turn's last step left
-    // an interrupted draft: texts before the last step/start stay, the rest is a
-    // fragment the continuation replaces.
-    const finished = turn => turn.texts.slice(0, turn.stepFrom ?? turn.texts.length)
-    while (steerCut(found) && next < turns.length) {
-      const follow = turns[next]
-      const kept = finished(found)
-      found = { ...follow, took: [...found.took, ...follow.took], messages: { ...found.messages, ...follow.messages }, texts: [...kept, ...follow.texts], stepFrom: kept.length + (follow.stepFrom ?? follow.texts.length) }
-      next += 1
-    }
-    return steerCut(found) ? { ...found, texts: finished(found), reason: undefined } : found
+    return chainSteerCuts(turns, at)
   }
   return undefined
+}
+
+function findRecordedTurn(events, record) {
+  if (!Array.isArray(events) || events.length === 0) return undefined
+  if (record?.trigger?.exchangeId !== undefined) {
+    const byExchange = turnOf(events, record.trigger.exchangeId)
+    if (byExchange !== undefined) return byExchange
+  }
+  const turns = turnsOf(events)
+  if (typeof record?.turn === 'number') {
+    for (let at = turns.length - 1; at >= 0; at -= 1) {
+      if (turns[at].turn === record.turn) return chainSteerCuts(turns, at)
+    }
+    return undefined
+  }
+  return turns.length > 0 ? chainSteerCuts(turns, turns.length - 1) : undefined
 }
 
 // Whether a Session already holds the answer to an exchange.
@@ -129,9 +167,9 @@ const readNotes = (file) => {
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8'))
     const object = value => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {})
-    return { turns: object(parsed?.turns), queued: object(parsed?.queued) }
+    return { turns: object(parsed?.turns), queued: object(parsed?.queued), silent: object(parsed?.silent) }
   } catch {
-    return { turns: {}, queued: {} }
+    return { turns: {}, queued: {}, silent: {} }
   }
 }
 
@@ -142,11 +180,13 @@ export function install(rt) {
   // What the last run left; read before this run notes anything.
   let interrupted = readNotes(file)
 
-  /** @type {Record<string, {botId:string, roomId?:string, since:number, trigger?:any, approval?:{tool:string, reason:string}, resumed?:boolean}>} */
+  /** @type {Record<string, {botId:string, roomId?:string, turn?:number, since:number, trigger?:any, approval?:{tool:string, reason:string}, resumed?:boolean}>} */
   let turns = {}
   // A new delivery can persist before recovery runs; it must keep the old queue.
   /** @type {Record<string, {at:number, args:any}[]>} deliveries no turn has taken up, by Session */
   let queued = interrupted.queued
+  /** @type {Record<string, {message:any, ledger?:any}[]>} buffered silent notices awaiting idle flush */
+  let silent = interrupted.silent
   let writing = Promise.resolve()
   let stopped = false
   let latest
@@ -154,20 +194,40 @@ export function install(rt) {
   const persist = () => {
     // Only the host that saves the team runs its work again.
     if (stopped || rt.readOnly() !== undefined) return
-    latest = JSON.stringify({ turns, queued })
+    latest = JSON.stringify({ turns, queued, ...(Object.keys(silent).length > 0 ? { silent } : {}) })
     // One write waits at a time and takes the latest notes, so a busy round does not
     // write the file once per change.
     if (due) return
     due = true
-    // Written in place: a rename over the file fails on Windows while anything reads
-    // it, and a torn write only loses what one restart would pick up.
+    // Atomic temp + replaceFile (with Windows retry) so a crash mid-write never
+    // leaves a torn inflight.json that drops all in-flight turns and queued work.
     writing = writing.then(async () => {
       due = false
       const snapshot = latest
+      const temp = `${file}.${process.pid}.tmp`
       await mkdir(home, { recursive: true })
-      await writeFile(file, snapshot, 'utf8')
+      try {
+        await writeFile(temp, snapshot, 'utf8')
+        await replaceFile(temp, file)
+      } catch (error) {
+        await unlink(temp).catch(() => {})
+        throw error
+      }
     }).catch(error => rt.warn('ds-bot: noting running turns failed: %s', error))
   }
+  const noteSilent = (sessionId, entries) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    const next = { ...silent }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      if (!(sessionId in next)) return
+      delete next[sessionId]
+    } else {
+      next[sessionId] = entries.map(entry => ({ message: entry.message, ...(entry.ledger ? { ledger: entry.ledger } : {}) }))
+    }
+    silent = next
+    persist()
+  }
+  rt.noteSilent = noteSilent
   const update = (id, change) => {
     const next = change(turns[id])
     if (next === turns[id]) return
@@ -289,11 +349,17 @@ export function install(rt) {
         const botId = owner?.botId ?? rt.chatOwners.get(id)
         // turns.js runs first and has already claimed or restored the trigger.
         const info = rt.live.get(id)?.info
-        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}) }))
+        update(id, () => ({
+          botId,
+          ...(owner ? { roomId: owner.roomId } : {}),
+          ...(typeof event.data?.turn === 'number' ? { turn: event.data.turn } : {}),
+          since: event.time ?? Date.now(),
+          ...(info !== undefined ? { trigger: triggerOf(info) } : {}),
+        }))
         break
       }
       case 'user/message': {
-        if (event.data?.source?.kind !== SOURCE_KIND) break
+        if (event.data?.source?.kind !== SOURCE_KIND || event.data?.source?.silent === true) break
         // turns.js, installed earlier, has already claimed the turn's trigger.
         const info = rt.live.get(id)?.info
         update(id, record => (record === undefined || record.trigger !== undefined || info === undefined ? record
@@ -323,8 +389,12 @@ export function install(rt) {
       if (room === undefined || !room.members.includes(bot.id)) return false
       await rt.postToRoom(room, bot, '', { resumed: true, quiet: true, ...(record.resumed ? { again: true } : {}) })
       // A turn already picked up once and cut off again stays stopped: a restart loop
-      // must not run it forever.
-      if (record.resumed) return false
+      // must not run it forever. Reset any goal/group task state so it does not stay stuck.
+      if (record.resumed) {
+        rt.goalTaskReset?.(room.id, bot.id, 'Interrupted by restart twice')
+        rt.blockTasks?.(room.id, bot.id, { cause: 'restarted' })
+        return false
+      }
       await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
       return true
     }
@@ -367,7 +437,13 @@ export function install(rt) {
       const isSilent = args.wake === false || ['note', 'cancelled', 'stopped'].includes(args.role)
       const refWork = args.role === 'request' ? args.exchangeId : args.askWork ?? args.work
       const cancelled = refWork !== undefined && rt.closedWorkOf?.(refWork)?.status === 'cancelled'
-      if (isSilent || cancelled) {
+      const workState = refWork === undefined ? undefined : rt.workStateOf?.(refWork)
+      const staleWorkState = refWork !== undefined && (
+        workState === 'paused'
+        || (args.role === 'ask_back' && workState !== 'need_input')
+        || (args.role === 'answer' && workState !== 'open')
+      )
+      if (isSilent || cancelled || staleWorkState) {
         forgetQueued(args.exchangeId)
         continue
       }
@@ -454,23 +530,18 @@ export function install(rt) {
   // have gone to the Bot that waits for it. The Session's durable log says what it did;
   // the work it was for is settled once, the way a finished turn settles it.
   async function reconcileEnded(sessionId, record, ended, prefetchedEvents) {
-    const trigger = record.trigger
-    if (trigger === undefined) return
-    const workId = rt.workOf(trigger)
-    const ownsPrimary = rt.ownsWork(record.botId, workId)
-    const hasOwnedWork = ownsPrimary || Object.values(rt.state?.works ?? {}).some(work => work.to === record.botId)
-    if (!hasOwnedWork) return
-    const exchangeId = trigger.exchangeId
-    if (exchangeId === undefined) return
-    const primaryAsker = ownsPrimary ? rt.workAsker(workId) : undefined
-    const primarySender = primaryAsker?.senderSessionId
-    const canSettlePrimary = ownsPrimary && primarySender !== undefined && rt.botOf(primarySender) !== undefined
-    const name = rt.botOf(rt.selfOf(sessionId))?.name ?? rt.botOf(record.botId)?.name ?? 'The other Bot'
     // DSH stopped that turn as it shut down: it is picked up at the next start.
     if (ended.reason?.kind === 'aborted' && ended.reason.reason?.kind === 'disposed') {
       update(sessionId, () => record)
       return
     }
+    const trigger = record.trigger
+    const workId = trigger === undefined ? undefined : rt.workOf(trigger)
+    const ownsPrimary = workId !== undefined && rt.ownsWork(record.botId, workId)
+    const primaryAsker = ownsPrimary ? rt.workAsker(workId) : undefined
+    const primarySender = primaryAsker?.senderSessionId
+    const canSettlePrimary = ownsPrimary && primarySender !== undefined && rt.botOf(primarySender) !== undefined
+    const name = rt.botOf(rt.selfOf(sessionId))?.name ?? rt.botOf(record.botId)?.name ?? 'The other Bot'
     const events = prefetchedEvents ?? await logOf(sessionId)
     if (events === undefined) {
       if (!canSettlePrimary) return
@@ -495,8 +566,8 @@ export function install(rt) {
       answerSender(rt, sessionId, primaryAsker, text)
       return
     }
-    const turn = turnOf(events, exchangeId)
-    // The request was never taken up: it is still waiting, and the delivery that is
+    const turn = findRecordedTurn(events, record)
+    // The turn was never taken up: it is still waiting, and the delivery that is
     // waiting for it keeps what it had.
     if (turn === undefined) return
     const said = turn.texts.join('\n\n')
@@ -518,6 +589,7 @@ export function install(rt) {
     // a restart that cut it off.
     if (reason === undefined || reason.kind === 'interrupted') {
       if (!primarySettled) await resumeTurn(sessionId, record)
+      await recoverTurnDeferred(sessionId, record, turn, events, name)
       return
     }
     const failure = reason.kind === 'error' ? turnFailure(reason.error) : undefined
@@ -539,9 +611,9 @@ export function install(rt) {
       if (!primarySettled) settleFailureOrAbort(primaryAsker)
       // Steered requests that joined the same failed or aborted turn also owe their own
       // callers settlement, so distinct parent works cannot stall across a restart.
-      const seen = new Set([workId, exchangeId])
+      const seen = new Set([workId, trigger?.exchangeId])
       for (const took of turn.took) {
-        if (took?.kind !== SOURCE_KIND || (took.role !== 'request' && took.role !== 'stopped') || took.audience === 'user') continue
+        if (took?.kind !== SOURCE_KIND || (took.role !== 'request' && took.role !== 'stopped') || took.silent === true || took.audience === 'user') continue
         const joinedId = took.exchangeId
         if (typeof joinedId !== 'string' || joinedId === '' || seen.has(joinedId)) continue
         seen.add(joinedId)
@@ -556,6 +628,9 @@ export function install(rt) {
         }
         settleFailureOrAbort(joinedAsker)
       }
+      // Non-request deferred items (ask_back, reply, answer, report, task-report) for other
+      // works must still be recovered even when an unrelated turn failed or aborted.
+      await recoverTurnDeferred(sessionId, record, turn, events, name, { includeRequests: false })
       return
     }
     const currentWorkState = workId === undefined ? undefined : rt.workStateOf?.(workId)
@@ -595,46 +670,127 @@ export function install(rt) {
         answerSender(rt, sessionId, primaryAsker, text, long)
       }
     }
-    // A request that steered into this turn is answered in a turn of its own; a crash
-    // after the completed turn/end but before that delivery left it open.
-    await recoverJoinedRequests(sessionId, record, turn, events, name)
+    // Deferred requests, replies, ask_backs, answers, and reports steered into this turn
+    // are handed back in turns of their own; a crash before that delivery left them open.
+    await recoverTurnDeferred(sessionId, record, turn, events, name)
   }
 
-  // Requests the turn read as steering are handed back to the Bot in a turn of their
-  // own when the turn ends. A crash between a successful turn/end reaching disk and
-  // that delivery leaves them open, and the caller or parent waits forever. The durable
-  // log still holds them, so each is delivered again in the same conversation — with
-  // the attachments and the work it came with — unless it was already handed back, taken
-  // up, or answered before the crash.
-  async function recoverJoinedRequests(sessionId, record, turn, events, name) {
+  // Reconciles a group member turn that finished or failed while DS Bot was offline,
+  // posting its unseen reply/failure once via `lateRoomReply`/`lateRoomFailure` and
+  // recovering any deferred messages steered into that turn.
+  async function reconcileEndedGroupTurn(sessionId, record, ended, prefetchedEvents) {
+    if (ended.reason?.kind === 'aborted' && ended.reason.reason?.kind === 'disposed') {
+      update(sessionId, () => record)
+      return
+    }
+    const room = rt.roomOf(record.roomId)
     const bot = rt.botOf(record.botId)
-    if (bot === undefined) return
-    const seen = new Set([rt.workOf?.(record.trigger), record.trigger?.exchangeId])
+    if (room === undefined || bot === undefined || !room.members.includes(bot.id)) return
+    const events = prefetchedEvents ?? await logOf(sessionId)
+    if (events === undefined) return
+    const turn = findRecordedTurn(events, record)
+    if (turn === undefined) return
+    const reason = turn.reason ?? ended.reason
+    if (reason?.kind === 'blocked') return
+    if (reason === undefined || reason.kind === 'interrupted') {
+      await resumeTurn(sessionId, record)
+      await recoverTurnDeferred(sessionId, record, turn, events, bot.name)
+      return
+    }
+    const since = record.since ?? 0
+    const roomLines = [
+      ...(rt.ledger?.records?.(`group-${room.id}`) ?? []),
+      ...(Array.isArray(room.log) ? room.log : []),
+    ]
+    const roomSessionId = rt.sessionOfRoom?.(room) ?? room.sessionId ?? room.id
+    const roomAgent = await rt.resolveAgent(roomSessionId).catch(() => undefined)
+    const queuedPosts = [...(roomAgent?.inbox?.nextStep ?? []), ...(roomAgent?.inbox?.nextTurn ?? [])]
+      .filter(msg => msg?.source?.kind === SOURCE_KIND && msg.source.role === 'post' && msg.source.senderSessionId === bot.id)
+    const info = record.trigger ?? { role: 'room', roomId: room.id }
+    if (reason.kind === 'error') {
+      const alreadyPostedFailure = roomLines.some(line => line?.botId === bot.id && line.failed !== undefined && (line.time ?? 0) >= since)
+        || queuedPosts.some(msg => msg.source?.failed !== undefined)
+      if (!alreadyPostedFailure) {
+        await rt.lateRoomFailure?.(sessionId, info, turnFailure(reason.error))
+      }
+      await recoverTurnDeferred(sessionId, record, turn, events, bot.name, { includeRequests: false })
+      return
+    }
+    if (reason.kind !== 'aborted') {
+      const said = turn.texts.join('\n\n').trim()
+      const reply = reason.kind === 'max-tokens' ? cutOffText(said) : said
+      const trimmed = reply.trim()
+      const alreadyPosted = trimmed !== '' && (
+        roomLines.some(line => line?.botId === bot.id && !line.progress && line.kind !== 'resumed'
+          && (line.time ?? 0) >= since && typeof line.text === 'string' && line.text.trim() === trimmed)
+        || queuedPosts.some(msg => textOf(msg.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '').trim() === trimmed)
+      )
+      if (!alreadyPosted) {
+        await rt.lateRoomReply?.(sessionId, info, reply, { toolCount: turn.toolCount ?? 0 })
+      }
+    }
+    await recoverTurnDeferred(sessionId, record, turn, events, bot.name)
+  }
+
+  // Unified deferred-message recovery for turns reconciled or resumed after a restart.
+  // Recovers steered requests, group calls, replies for other works, ask_backs, answers,
+  // and group/task reports from the durable turn log — preserving attachments and enforcing
+  // work-state guards — unless already handed back, taken up, or answered.
+  const DEFERRED_ROLES = new Set(['request', 'stopped', 'room', 'reply', 'ask_back', 'answer', 'report', 'task-report'])
+  async function recoverTurnDeferred(sessionId, record, turn, events, name, { includeRequests = true } = {}) {
+    const bot = rt.botOf(record.botId)
+    if (bot === undefined || turn === undefined || !Array.isArray(turn.took) || turn.took.length === 0) return
+    const primaryWork = rt.workOf?.(record.trigger)
+    const seen = new Set([record.trigger?.exchangeId])
     for (const source of turn.took) {
-      if (source?.kind !== SOURCE_KIND) continue
-      if (source.role !== 'request' && source.role !== 'stopped') continue
+      if (source?.kind !== SOURCE_KIND || source.silent === true) continue
+      if (!DEFERRED_ROLES.has(source.role)) continue
       if (source.audience === 'user') continue
       const exchangeId = source.exchangeId
       if (typeof exchangeId !== 'string' || exchangeId === '' || seen.has(exchangeId)) continue
+      if (source.role === 'request' && primaryWork !== undefined && exchangeId === primaryWork) continue
       seen.add(exchangeId)
-      // A request whose work is gone was closed, or answered, in another run.
-      if (source.role === 'request' && !rt.ownsWork(record.botId, exchangeId)) continue
-      const sender = source.senderSessionId
-      if (sender === undefined || rt.botOf(sender) === undefined) continue
-      // Handed back after this turn ended: it is already in the Session's log, and the
-      // restart resend or its own inbox moves it; an earlier or later turn took it up.
-      if (turn.end !== undefined && events.some(event => event.seq !== undefined && event.seq > turn.end
+
+      if (source.role === 'request' || source.role === 'stopped' || source.role === 'room') {
+        if (!includeRequests) continue
+      }
+      if (source.role === 'room') {
+        if (!rt.groupOwners.has(sessionId)) continue
+        const targetRoom = rt.roomOf(source.roomId ?? record.roomId)
+        if (targetRoom === undefined || !targetRoom.members.includes(record.botId)) continue
+      } else if (source.role === 'request') {
+        if (!rt.ownsWork(record.botId, exchangeId)) continue
+        if (rt.closedWorkOf?.(exchangeId)?.status === 'cancelled') continue
+      } else if (source.role === 'ask_back') {
+        const refWork = source.askWork ?? source.work
+        if (refWork !== undefined && rt.workStateOf?.(refWork) !== 'need_input') continue
+      } else if (source.role === 'answer') {
+        if (source.work !== undefined && (source.work === primaryWork || rt.workStateOf?.(source.work) !== 'open')) continue
+      } else if (source.role === 'reply' || source.role === 'report' || source.role === 'task-report') {
+        if (source.work === undefined || source.work === primaryWork) continue
+        if (!rt.ownsWork(record.botId, source.work)) continue
+        if (rt.closedWorkOf?.(source.work)?.status === 'cancelled') continue
+      }
+
+      const rawSender = source.senderSessionId
+      const validBotSender = rawSender !== undefined && rt.botOf(rawSender) !== undefined ? rawSender : undefined
+      if ((source.role === 'request' || source.role === 'stopped' || source.role === 'ask_back' || source.role === 'answer') && validBotSender === undefined) {
+        continue
+      }
+      // Handed back after this turn ended (or after the steered message seq on a cut turn):
+      // already in the Session's log, so an earlier or later turn took it up.
+      const afterSeq = turn.end ?? turn.messageSeqs?.[exchangeId]
+      if (afterSeq !== undefined && events.some(event => event.seq !== undefined && event.seq > afterSeq
         && event.type === 'user/message'
         && (event.data?.source?.exchangeId === exchangeId
           || event.data?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId)))) continue
       if (rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId)) continue
-      // The reply went out in another run: the work closes with what it said, and the
-      // Bot is not asked again.
+      // For a request, check whether the reply already went out in another run.
       if (source.role === 'request') {
         const asker = rt.workAsker(exchangeId)
         if (asker !== undefined) {
           const { back, where } = whereFor(asker)
-          const answered = await alreadyAnswered(record.botId, sender, where, back, asker.senderRoomId, exchangeId)
+          const answered = await alreadyAnswered(record.botId, validBotSender, where, back, asker.senderRoomId, exchangeId)
           if (answered.answered) {
             rt.closeWork?.(exchangeId, name, answered.text || rt.answerText(exchangeId, '', name))
             continue
@@ -647,48 +803,61 @@ export function install(rt) {
       const text = typeof saved?.text === 'string'
         ? saved.text
         : textOf(content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
-      const images = content.filter(block => block?.type === 'image' && block.attachment !== undefined).map(block => block.attachment)
+      const images = content.filter(block => block?.type === 'image' && block.attachment !== undefined && !block.offloaded).map(block => block.attachment)
       const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-      // The checks above awaited, so the normal path may have committed this exchange,
-      // started a live turn for it, or closed its work in the meantime. Check once more
-      // with nothing awaited between here and the delivery: a queued note, an inbox
-      // entry, or a live turn holding the same exchange means it was already handed back,
-      // and a closed work has nothing left to answer.
+      // Re-check synchronously after awaits so we never duplicate a live/queued/inbox delivery.
       const liveEntry = rt.live?.get(sessionId)
       const liveHeld = [
         liveEntry?.info,
         liveEntry?.pending,
         liveEntry?.carry?.info,
         ...(liveEntry?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.later ?? []).map(later => later?.info),
         ...(liveEntry?.pending?.joined ?? []).map(joined => joined?.info),
         ...(liveEntry?.carry?.joined ?? []).map(joined => joined?.info),
+        ...(liveEntry?.carry?.later ?? []).map(later => later?.info),
       ]
       const alreadyHandedBack = rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId) === true
         || [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
           .some(message => message?.source?.exchangeId === exchangeId
             || message?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId))
         || liveHeld.some(item => item?.exchangeId === exchangeId)
-      const workOpen = source.role !== 'request'
-        || (rt.ownsWork(record.botId, exchangeId) && rt.workAsker(exchangeId) !== undefined)
-      if (alreadyHandedBack || !workOpen) continue
+      const workStillValid = source.role === 'request'
+        ? (rt.ownsWork(record.botId, exchangeId) && rt.workAsker(exchangeId) !== undefined && rt.closedWorkOf?.(exchangeId)?.status !== 'cancelled')
+        : source.role === 'ask_back'
+          ? ((source.askWork ?? source.work) === undefined || rt.workStateOf?.(source.askWork ?? source.work) === 'need_input')
+          : source.role === 'answer'
+            ? (source.work === undefined || rt.workStateOf?.(source.work) === 'open')
+            : (source.role === 'reply' || source.role === 'report' || source.role === 'task-report')
+              ? (rt.ownsWork(record.botId, source.work) && rt.closedWorkOf?.(source.work)?.status !== 'cancelled')
+              : true
+      if (alreadyHandedBack || !workStillValid) continue
       try {
         await rt.deliver({
-          fromId: sender,
+          ...(validBotSender !== undefined ? { fromId: validBotSender } : {}),
+          ...(source.senderName ? { fromName: source.senderName } : {}),
           toId: record.botId,
           sessionId,
           text,
           role: source.role,
           exchangeId,
           deferred: true,
+          ...(source.replyTo ? { replyTo: source.replyTo } : {}),
+          ...(source.work ? { work: source.work } : {}),
+          ...(source.askWork ? { askWork: source.askWork } : {}),
+          ...(source.workRef ? { workRef: source.workRef } : {}),
+          ...(source.taskId ? { taskId: source.taskId } : {}),
+          ...(source.imOrigin ? { imOrigin: source.imOrigin } : {}),
           ...(source.senderPart ? { fromPart: source.senderPart } : {}),
           ...(source.senderRoomId ? { fromRoomId: source.senderRoomId } : {}),
           ...(source.roomId ? { roomId: source.roomId } : {}),
           ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+          ...(source.role === 'room' ? { note: 'you read this call during your last task; answer it now' } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
         })
       } catch (error) {
-        rt.warn('ds-bot: handing a steered request back to %s failed: %s', name, error)
+        rt.warn('ds-bot: handing a deferred %s back to %s failed: %s', source.role, name, error)
       }
     }
   }
@@ -728,6 +897,10 @@ export function install(rt) {
   }
 
   async function settleEnded(sessionId, record, ended, events) {
+    if (record.roomId !== undefined) {
+      await reconcileEndedGroupTurn(sessionId, record, ended, events).catch(error => rt.warn('ds-bot: settling the group turn of %s failed: %s', sessionId, error))
+      return
+    }
     const task = rt.taskOwners?.has(sessionId)
     if (!task || isTerminalReason(ended.reason)) {
       await reconcileEnded(sessionId, record, ended, events).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
@@ -740,8 +913,8 @@ export function install(rt) {
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
-    const { turns: noted, queued: dropped } = interrupted
-    interrupted = { turns: {}, queued: {} }
+    const { turns: noted, queued: dropped, silent: droppedSilent } = interrupted
+    interrupted = { turns: {}, queued: {}, silent: {} }
     // What the last run still had on the way is noted again first, under the
     // Session it would go to now: nothing is cleared before it is handed over.
     // A Bot that is gone takes its notes with it; what a turn already read here
@@ -756,6 +929,11 @@ export function install(rt) {
         queued = { ...queued, [key]: [...(queued[key] ?? []), item] }
       }
     }
+    persist()
+    // Restore persisted silent notices before waking Sessions via resendQueued/resumeTurn,
+    // preserving causal order without waking idle recipients (or wiping notes buffered
+    // during the startup window before resumeAll ran).
+    await rt.restoreSilentNotes?.(droppedSilent).catch(error => rt.warn('ds-bot: restoring silent notes failed: %s', error))
     persist()
     // Agents and inboxes are read before anything wakes their Sessions.
     const cut = []
@@ -774,20 +952,27 @@ export function install(rt) {
         keepTaskSessions.add(sessionId)
         continue
       }
-      // If inflight.json still held a turn whose durable log already shows a finished
-      // turn/end, or whose owed reply is already recorded in the pair ledger, settle it
-      // instead of re-running via resumeTurn.
-      if (first === undefined && record.roomId === undefined && record.trigger !== undefined) {
-        const trigger = record.trigger
-        const events = trigger.exchangeId !== undefined ? await logOf(sessionId) : undefined
-        const turn = events === undefined ? undefined : turnOf(events, trigger.exchangeId)
-        if (isTerminalReason(turn?.reason)) {
-          await settleEnded(sessionId, record, { reason: turn.reason }, events)
+      // If inflight.json still held a turn (Bot work, ordinary user turn, or group turn)
+      // whose durable log already shows a terminal turn/end, or whose owed reply is already
+      // recorded in the pair ledger, settle it instead of re-running via resumeTurn.
+      let inspectedEvents
+      let inspectedTurn
+      if (first === undefined) {
+        inspectedEvents = await logOf(sessionId)
+        inspectedTurn = inspectedEvents === undefined ? undefined : findRecordedTurn(inspectedEvents, record)
+        if (isTerminalReason(inspectedTurn?.reason)) {
+          await settleEnded(sessionId, record, { reason: inspectedTurn.reason }, inspectedEvents)
           continue
         }
-        if (await settleDeliveredTrigger(record, trigger)) continue
+        if (record.roomId === undefined && record.trigger !== undefined && await settleDeliveredTrigger(record, record.trigger)) {
+          if (inspectedTurn !== undefined) {
+            const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
+            await recoverTurnDeferred(sessionId, record, inspectedTurn, inspectedEvents, name)
+          }
+          continue
+        }
       }
-      cut.push([sessionId, record])
+      cut.push([sessionId, record, inspectedEvents, inspectedTurn])
     }
     firstTurn = undefined
     for (const [sessionId, list] of Object.entries(dropped)) {
@@ -799,12 +984,18 @@ export function install(rt) {
       for (const dest of active ?? []) keepTaskSessions.add(dest)
     }
     taken = undefined
-    for (const [sessionId, record] of cut) {
+    for (const [sessionId, record, events, turn] of cut) {
       const resumed = await resumeTurn(sessionId, record).catch((error) => {
         rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error)
         return false
       })
       if (resumed === true) keepTaskSessions.add(sessionId)
+      // Recover any other steered messages (requests, replies, ask_backs, answers, reports)
+      // that arrived during the interrupted turn so they are not dropped when only `trigger` resumes.
+      if (turn !== undefined && turn.took.length > 0) {
+        const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
+        await recoverTurnDeferred(sessionId, record, turn, events, name)
+      }
     }
     // Reconcile orphaned background tasks before settling room batches so a zombie
     // group task does not keep `hasRoomTasks` true and mask a stuck batch.
@@ -815,7 +1006,9 @@ export function install(rt) {
   }
 
   ctx.effect(() => {
-    const pending = Object.keys(interrupted.turns).length > 0 || Object.keys(interrupted.queued).length > 0
+    const pending = Object.keys(interrupted.turns).length > 0
+      || Object.keys(interrupted.queued).length > 0
+      || Object.keys(interrupted.silent).length > 0
     // With nothing to pick up, orphaned tasks and group batches a restart left are settled at once.
     const timer = pending
       ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)

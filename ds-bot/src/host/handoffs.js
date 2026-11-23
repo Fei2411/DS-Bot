@@ -7,6 +7,7 @@
 // hand-off refused. The open works are kept in state.json so a restart waits on.
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isAckLikeText, LATE_ANSWER, PAIR_LOOP_TTL_MS, TEXT_KEPT, WORK_ASK_BACK_LIMIT, WORK_REWORK_CHECKPOINT } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
@@ -93,6 +94,9 @@ export function install(rt) {
   }
   const keptName = file => (typeof file === 'string' && /^[A-Za-z0-9_-]+\.txt$/.test(file) ? file : undefined)
   const writes = () => rt.readOnly?.() === undefined
+  let savedWrites = 0
+  const tracksSaved = typeof rt.onSaved === 'function'
+  if (tracksSaved) rt.onSaved(() => { savedWrites += 1 })
 
   // The result of a work, whole, in a file of its own. The file is written before the
   // team file names it, so a result that is claimed to exist is there.
@@ -115,17 +119,59 @@ export function install(rt) {
     }
   }
 
-  // The copy of a result that is not needed any more: the answer it went into has it.
-  const dropResult = file => {
-    const name = keptName(file)
-    if (name === undefined || !writes()) return
+  const referencedInWorks = (table) => {
+    const used = new Set()
+    for (const work of Object.values(table ?? {})) {
+      for (const result of work?.results ?? []) {
+        const name = keptName(result?.file)
+        if (name !== undefined) used.add(name)
+      }
+    }
+    return used
+  }
+
+  // Drops result files that are no longer needed once the replacement state actually
+  // reached disk. When `store.js` tracks real writes via `rt.onSaved`, avoids blocking
+  // the event loop with a synchronous `readFileSync` + `JSON.parse(state.json)` per file.
+  const dropResults = (results, savedBefore) => {
+    const names = [...new Set((results ?? []).map(result => keptName(result?.file)).filter(Boolean))]
+    if (names.length === 0 || !writes()) return
+    if (tracksSaved) {
+      // save() resolved without writing to disk (shutdown / read-only): keep durable files.
+      if (savedWrites === savedBefore) return
+      const live = referencedInWorks(works())
+      for (const name of names) {
+        if (live.has(name)) continue
+        void rm(resultPath(name), { force: true }).catch(() => {})
+      }
+      return
+    }
     try {
-      // save() can resolve without writing during shutdown. Check the durable
-      // references too, so an old state can still recover its result after restart.
+      // Standalone unit-test fallback (without store.js onSaved): read state.json once per batch.
       const saved = JSON.parse(readFileSync(join(rt.home, 'state.json'), 'utf8'))
-      if (Object.values(saved.works ?? {}).some(work => (work.results ?? []).some(result => result.file === name))) return
-      rmSync(resultPath(name), { force: true })
+      const durable = referencedInWorks(saved.works)
+      for (const name of names) {
+        if (durable.has(name)) continue
+        rmSync(resultPath(name), { force: true })
+      }
     } catch {}
+  }
+
+  // Startup async sweep for orphan `handoff-results/*.txt` files left behind by a crash.
+  async function pruneOrphanResultFiles() {
+    if (!writes()) return
+    let entries
+    try {
+      entries = await readdir(resultsDir)
+    } catch {
+      return
+    }
+    const referenced = referencedInWorks(works())
+    for (const file of entries) {
+      const name = keptName(file)
+      if (name === undefined || referenced.has(name)) continue
+      await rm(resultPath(name), { force: true }).catch(() => {})
+    }
   }
 
   // What came back for a work: the whole result if it is still to be found, else the
@@ -346,8 +392,9 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    const savedBefore = savedWrites
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      dropResults(work.results, savedBefore)
     }).catch(() => {})
     return snapshot
   }
@@ -507,19 +554,21 @@ export function install(rt) {
     for (const result of work.results ?? []) whole.delete(result.id)
     // Old state can still name these files until the replacement state lands.
     // A failed save must leave them available to the next host.
+    const savedBefore = savedWrites
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      dropResults(work.results, savedBefore)
     }).catch(() => {})
     return above === undefined ? undefined : work.parent
   }
   // The subagent run a settlement notice names. The notice carries only the
   // child's id, and a child's runs end one after another, so it is the earliest
   // settled run of that child not read yet, else a run of it still out.
-  const subWorkRun = (id) => {
+  const subWorkRun = (id, exclude) => {
     let settled
     let live
     for (const [workId, work] of Object.entries(works())) {
       for (const openId of work.open) {
+        if (exclude?.has(openId)) continue
         const result = work.results?.find(result => result.id === openId)
         if ((result?.child ?? own(works(), openId)?.child ?? openId) !== id) continue
         if (result === undefined) live ??= { id: openId, parent: workId }
@@ -574,8 +623,9 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    const savedBefore = savedWrites
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      dropResults(work.results, savedBefore)
     }).catch(() => {})
   }
 
@@ -776,7 +826,13 @@ export function install(rt) {
   // is installed before the ones that load it.
   ctx?.effect?.(() => {
     const timer = setTimeout(() => {
-      void rt.load().then(() => reconcileLostWorks()).catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
+      void rt.load()
+        .then(() => {
+          reconcileLostWorks()
+          rt.pruneOrphanRequests?.()
+          return pruneOrphanResultFiles()
+        })
+        .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
     }, 0)
     return () => clearTimeout(timer)
   }, 'ds-bot: lost hand-offs')

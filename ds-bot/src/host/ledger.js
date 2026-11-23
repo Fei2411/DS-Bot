@@ -125,10 +125,12 @@ export function install(rt) {
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (entry.view !== undefined) note(entry.view, record, entry.records.length - 1)
     if (!writes()) return record
-    const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
-    entry.torn = false
-    entry.size += Buffer.byteLength(line)
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      // Construct the line inside the serialized queue so if a prior write failed
+      // and set `entry.torn = true`, this write prepends `\n` instead of fusing lines.
+      const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
+      entry.torn = false
+      entry.size += Buffer.byteLength(line)
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
@@ -138,8 +140,9 @@ export function install(rt) {
       // Memory holds only what the disk has, so a record that did not land is written again
       // when it is sent again. Part of its line may have landed: the next one starts anew.
       if (books.get(book) !== entry) return
-      const at = entry.records.indexOf(record)
-      if (at !== -1) entry.records.splice(at, 1)
+      // Replace the array reference on rollback so incremental readers (`delivery.js`) can
+      // detect mutations in O(1) via reference identity.
+      entry.records = entry.records.filter(item => item !== record)
       entry.view = undefined
       // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
       if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
@@ -170,11 +173,16 @@ export function install(rt) {
     entry.view = undefined
     for (const record of added) entry.bySeq.set(record.seq, record)
     if (!writes()) return added.length
-    const wasTorn = entry.torn
-    const snapshot = entry.records.map(record => `${JSON.stringify(record)}\n`).join('')
-    entry.torn = false
-    entry.size = Buffer.byteLength(snapshot)
+    // Snapshot membership synchronously so later queued appends are NOT included twice,
+    // while reading `entry.records` inside the serialized queue excludes any earlier
+    // queued append that failed and rolled itself out of memory before this rewrite ran.
+    const included = new Set(entry.records)
+    let wasTorn = false
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      wasTorn = entry.torn
+      const snapshot = entry.records.filter(record => included.has(record)).map(record => `${JSON.stringify(record)}\n`).join('')
+      entry.torn = false
+      entry.size = Buffer.byteLength(snapshot)
       await mkdir(dir, { recursive: true })
       const temp = `${pathOf(book)}.${process.pid}.tmp`
       await writeFile(temp, snapshot, 'utf8')
@@ -195,6 +203,7 @@ export function install(rt) {
 
   function drop(book) {
     books.delete(book)
+    lastWrite.delete(book)
     if (!writes()) return
     const run = (writing.get(book) ?? Promise.resolve()).then(() => rm(pathOf(book), { force: true }))
     writing.set(book, run.catch(() => {}))
