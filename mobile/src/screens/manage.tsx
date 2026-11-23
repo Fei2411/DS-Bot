@@ -14,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
+import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
@@ -25,23 +26,11 @@ import { ModelMenu, ModelPicker } from './model-menu.tsx'
 export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
-export const pickPhoto = async (thumbnail = false): Promise<string | null> => {
-  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true })
+export const pickPhoto = async (): Promise<string | null> => {
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
   const asset = result.canceled ? null : result.assets?.[0]
-  if (!asset?.base64) return null
-  if (thumbnail) {
-    const crop = Math.min(asset.width, asset.height)
-    const photo = await manipulateAsync(asset.uri, [
-      { crop: { originX: (asset.width - crop) / 2, originY: (asset.height - crop) / 2, width: crop, height: crop } },
-      { resize: { width: 160, height: 160 } },
-    ], { compress: 0.8, format: SaveFormat.JPEG, base64: true })
-    if (!photo.base64) throw new Error(t('That image is too large'))
-    const image = `data:image/jpeg;base64,${photo.base64}`
-    if (image.length > 160000) throw new Error(t('That image is too large'))
-    return image
-  }
-  const mime = asset.mimeType ?? 'image/jpeg'
-  return `data:${mime};base64,${asset.base64}`
+  if (!asset) return null
+  return avatarPhoto(asset, (uri, actions) => manipulateAsync(uri, actions, { compress: 0.8, format: SaveFormat.JPEG, base64: true }))
 }
 
 const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
@@ -421,10 +410,18 @@ export function BotEdit({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const save = (patch: Record<string, unknown>) => void run('update-bot', { id: bot.id, ...patch })
+  const upload = async () => {
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) save({ avatar: { ...bot.avatar, image } })
+    } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
+  }
   const shape = bot.avatar?.shape ?? 'star'
   const color = bot.color ?? 'blue'
   const main = isMain(team, bot.id)
@@ -435,7 +432,7 @@ export function BotEdit({ route, navigation }: any) {
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
           <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
         </View>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={bot.name} placeholder="Bob" onSave={name => { if (name) save({ name }) }} />
           <Field label={t('Label')} value={bot.role} placeholder={t('Research, admin…')} onSave={role => save({ role })} />
@@ -449,7 +446,7 @@ export function BotEdit({ route, navigation }: any) {
             draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
         </Section>
         <Section label={t('Photo')}>
-          <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
+          <Row label={t('Upload photo')} onPress={() => { void upload() }} />
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
@@ -632,7 +629,7 @@ export function GroupSettings({ route, navigation }: any) {
     if (!canSetAvatar) return
     setPhotoError('')
     try {
-      const image = await pickPhoto(true)
+      const image = await pickPhoto()
       if (image !== null) update({ avatar: { image } })
     } catch (failure) {
       setPhotoError(failure instanceof Error ? failure.message : String(failure))
