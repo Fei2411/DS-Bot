@@ -16,10 +16,46 @@ export const KINDS = ['acp', 'codex', 'claude']
 export const ROUTE_PREFIX = 'local-'
 
 const CLIS = {
-  'devin-cli': { name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login', signedIn: { args: ['auth', 'status'] } },
+  'devin-cli': {
+    name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login',
+    // `devin auth status` fetches remote team settings and can time out offline;
+    // `devin auth logout` deletes credentials.toml, which requires top-level `windsurf_api_key`.
+    signedIn: {
+      args: ['auth', 'status'],
+      fallback: {
+        platformFile: {
+          win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['devin', 'credentials.toml'] },
+          default: { env: 'XDG_DATA_HOME', base: ['.local', 'share'], path: ['devin', 'credentials.toml'] },
+          tomlStrings: ['windsurf_api_key'],
+        },
+      },
+    },
+  },
   'claude-code': { name: 'Claude Code', kind: 'claude', command: 'claude', args: [], version: ['--version'], signIn: 'claude', signedIn: { args: ['auth', 'status'], fallback: { file: ['.claude', '.credentials.json'] } } },
   'codex-cli': { name: 'Codex CLI', kind: 'codex', command: 'codex', args: ['app-server', '--listen', 'stdio://'], version: ['--version'], signIn: 'codex login', signedIn: { args: ['login', 'status'] } },
-  'cursor-cli': { name: 'Cursor CLI', kind: 'acp', command: 'cursor-agent', args: ['acp'], version: ['--version'], signIn: 'cursor-agent login', signedIn: { args: ['status'] } },
+  'cursor-cli': {
+    name: 'Cursor CLI', kind: 'acp', command: 'cursor-agent', args: ['acp'], version: ['--version'], signIn: 'cursor-agent login',
+    // `cursor-agent status` validates over the network and requires either both OAuth
+    // tokens (access + refresh) or an API key; fall back to macOS Keychain metadata
+    // or auth.json with the same contract if the status call is inconclusive.
+    signedIn: {
+      args: ['status'],
+      fallback: {
+        macKeychain: { services: ['cursor-access-token', 'cursor-refresh-token'], account: 'cursor-user' },
+        fallback: {
+          macKeychain: { service: 'cursor-api-key', account: 'cursor-user' },
+          fallback: {
+            platformFile: {
+              darwin: { path: ['.cursor', 'auth.json'] },
+              win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['Cursor', 'auth.json'] },
+              default: { env: 'XDG_CONFIG_HOME', base: ['.config'], path: ['cursor', 'auth.json'] },
+              stringGroups: [[['accessToken'], ['refreshToken']], [['apiKey']]],
+            },
+          },
+        },
+      },
+    },
+  },
   'copilot-cli': { name: 'GitHub Copilot', kind: 'acp', command: 'copilot', args: ['--acp'], version: ['--version'], signIn: 'copilot' },
   'gemini-cli': { name: 'Gemini CLI', kind: 'acp', command: 'gemini', args: ['--acp'], version: ['--version'], signIn: 'gemini', signedIn: { file: ['.gemini', 'oauth_creds.json'] } },
   'antigravity': {

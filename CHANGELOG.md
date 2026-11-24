@@ -4,6 +4,41 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-22
+
+### Added
+
+- **Settings console and redesign**: Settings opens on an Overview page (with an in-place API key prompt when a Bot's provider lacks a key, team status, and six summary cards), groups sections into Overview, General, Appearance, Models, Team, Connect, Tools, Usage, and About DS Bot, shows each multi-part domain as one scrolling page with jump anchors, adds a `⌘K` / `Ctrl+K` search palette (finding settings, Bots, groups, and models with a confirmed model switch), adds a live Appearance preview, provider Bot avatars, and a phone-width layout, and keeps the replayable step-by-step Settings guide and existing deep links working. ([#2006](https://github.com/Fei2411/DS-Bot/pull/2006), [#2028](https://github.com/Fei2411/DS-Bot/pull/2028))
+- **IM group cards**: when an IM chat starts a group turn, Bots' question cards, views, forms and multi-select cards show in that IM group. Forms and multi-select cards are answered with `!card <code> …`, and unknown or stale card replies are refused instead of being forwarded. ([#1118](https://github.com/Fei2411/DS-Bot/issues/1118), [#2014](https://github.com/Fei2411/DS-Bot/pull/2014), [#2018](https://github.com/Fei2411/DS-Bot/pull/2018), [#2031](https://github.com/Fei2411/DS-Bot/pull/2031))
+- **Feature packs**: Bots can keep MCP servers and skills in a feature-pack catalog and load them only when a task needs them (`use_pack`, `drop_pack`); in Bot settings, each capability is set to Always on, In catalog (loaded on demand) or Off; and ordinary Bots no longer carry the Main-only team-admin tools (`create_bot`, `stop_bot`, `create_group`, `delete_group`), keeping each request smaller. ([#2019](https://github.com/Fei2411/DS-Bot/pull/2019), [#2035](https://github.com/Fei2411/DS-Bot/pull/2035), [#2043](https://github.com/Fei2411/DS-Bot/pull/2043))
+- **Sidebar status**: Bot, group and collapsed section rows show pending approvals and questions. ([#2021](https://github.com/Fei2411/DS-Bot/pull/2021))
+
+### Changed
+
+- **Settings polish**: Settings navigation no longer shows duplicate or distorted icons (Capabilities and MCP, IM and Group chats, Bot models and Plugins, the key icon), and Settings cards have even padding, dividers and header alignment. ([#1995](https://github.com/Fei2411/DS-Bot/pull/1995))
+- **Performance**: `bot_recall` search reuses parsed memory files, and secret redaction of chat history is computed once per message; typing and streaming in long chats are smoother, phone message toolbars no longer re-render on keyboard or scroll, memory writes no longer slow down as the memory change log grows, group chats with long histories open and scroll faster, local agent CLIs that print very long lines no longer stall the host, and the desktop app stays responsive while the Bot host logs a lot. (by @AdamPlatin123; [#1955](https://github.com/Fei2411/DS-Bot/pull/1955), [#1958](https://github.com/Fei2411/DS-Bot/pull/1958), [#1987](https://github.com/Fei2411/DS-Bot/pull/1987), [#1988](https://github.com/Fei2411/DS-Bot/pull/1988), [#1990](https://github.com/Fei2411/DS-Bot/pull/1990), [#1982](https://github.com/Fei2411/DS-Bot/pull/1982), [#1984](https://github.com/Fei2411/DS-Bot/pull/1984), [#1985](https://github.com/Fei2411/DS-Bot/pull/1985), [#1991](https://github.com/Fei2411/DS-Bot/pull/1991))
+
+### Removed
+
+- **Parallel sessions and session switching**: every Bot, local CLI agents included, keeps one continuous conversation again, and its context rolls over to a new session on its own. The Bot's session list, session switching, and manual **New session** buttons (including group member **New session**) are gone; sessions opened in parallel by v0.3.8 or v0.3.9 become earlier sessions of that Bot after the upgrade. Parallel work goes to another Bot or to the Bot's background tasks. ([#1501](https://github.com/Fei2411/DS-Bot/issues/1501), [#2039](https://github.com/Fei2411/DS-Bot/pull/2039), [#2042](https://github.com/Fei2411/DS-Bot/pull/2042), reverts [#1548](https://github.com/Fei2411/DS-Bot/pull/1548))
+
+### Fixed
+
+- **Settings model picker crash**: opening a model picker in Settings no longer crashes the page with React error #310. (reported by @tuyang1; [#1997](https://github.com/Fei2411/DS-Bot/issues/1997), [#2007](https://github.com/Fei2411/DS-Bot/pull/2007))
+- **Model menu flicker**: the native tooltip no longer flickers over the model list in Settings → Models. (reported by @Fancie-Personal; [#1546](https://github.com/Fei2411/DS-Bot/issues/1546), [#1983](https://github.com/Fei2411/DS-Bot/pull/1983))
+- **Local ACP agents**: stopping a local ACP agent no longer makes later replies arrive one turn late, and an agent that does not answer a Stop no longer blocks its later turns. (reported by @mamimama701; [#1998](https://github.com/Fei2411/DS-Bot/issues/1998), [#2011](https://github.com/Fei2411/DS-Bot/pull/2011), [#2013](https://github.com/Fei2411/DS-Bot/pull/2013))
+- **Web remote**: stopping a background task from the task bar in the web remote works. ([#1959](https://github.com/Fei2411/DS-Bot/pull/1959))
+- **WeChat iLink**: queued WeChat iLink messages get their replies after a restart without the user sending another message. (reported by @darrentangdt; [#1940](https://github.com/Fei2411/DS-Bot/issues/1940), [#2010](https://github.com/Fei2411/DS-Bot/pull/2010))
+- **Feishu and Lark**: long-connection discovery uses the app credentials, brief gateway policy refusals are retried, and app-credential requests no longer follow redirects. (reported by @bigstage915; [#1957](https://github.com/Fei2411/DS-Bot/issues/1957), [#2008](https://github.com/Fei2411/DS-Bot/pull/2008))
+- **Dialog crashes**: a render error inside a dialog, menu or panel closes only that view and shows an error notice, instead of disabling the sidebar `+` button and other overlays until reload. ([#2027](https://github.com/Fei2411/DS-Bot/pull/2027))
+- **Computer handback**: after a Bot hands the computer over and the user hands it back, the conversation keeps working and its history loads again instead of failing with a session format error. (reported by @DodgeZhang; [#2009](https://github.com/Fei2411/DS-Bot/issues/2009), [#2023](https://github.com/Fei2411/DS-Bot/pull/2023))
+- **Steered requests**: a steered Bot request is no longer stranded when a restart lands between a completed turn and its delivery, and shell steering works when shell tools are registered in the Bot's own or a parent preset scope. ([#1946](https://github.com/Fei2411/DS-Bot/issues/1946), [#2001](https://github.com/Fei2411/DS-Bot/pull/2001), [#2032](https://github.com/Fei2411/DS-Bot/pull/2032))
+- **Local agents in groups**: a local agent CLI in a group round shows its current command, counts its tool work and is no longer marked missed during a long run. ([#1889](https://github.com/Fei2411/DS-Bot/issues/1889), [#2000](https://github.com/Fei2411/DS-Bot/pull/2000))
+- **Deleted Sessions**: a DSH Agent Session deleted by another plugin no longer leaves a dead row in the sidebar, and archiving an already-gone Session works. (reported by @xzjncu; [#1773](https://github.com/Fei2411/DS-Bot/issues/1773), [#1999](https://github.com/Fei2411/DS-Bot/pull/1999))
+- **New Bot greeting**: a failed greeting for a new Bot no longer stops the whole team. (by @AdamPlatin123; [#1961](https://github.com/Fei2411/DS-Bot/issues/1961), [#1979](https://github.com/Fei2411/DS-Bot/pull/1979))
+- **Antigravity models**: a Bot on the Antigravity plugin's `antigravity/*` models keeps its model across restarts instead of moving to the local Antigravity CLI route. (reported by @Pegasus02; [#2020](https://github.com/Fei2411/DS-Bot/issues/2020), [#2022](https://github.com/Fei2411/DS-Bot/pull/2022))
+- **Messages to a busy Bot**: a message sent from the desktop or web composer while a Bot is busy moves the running work to a background task instead of staying unread, and a message saved this way before a restart is delivered once the handoff finishes. ([#2025](https://github.com/Fei2411/DS-Bot/pull/2025), [#2041](https://github.com/Fei2411/DS-Bot/pull/2041))
+
 ## [0.3.9] - 2026-11-21
 
 ### Added

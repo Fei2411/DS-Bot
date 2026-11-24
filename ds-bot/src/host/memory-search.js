@@ -12,13 +12,16 @@ export const entryWords = entry => wordsOf(`${entry.text} ${entry.file?.topic ??
 export function rankEntries(entries, query) {
   const asked = wordsOf(query)
   if (asked.size === 0) return []
-  const docs = entries.map(entry => ({ entry, words: entry.words ?? entryWords(entry) }))
+  const docs = entries.map(entry => ({ entry, words: entry.words ?? entryWords(entry), hits: [] }))
   const average = docs.reduce((sum, doc) => sum + doc.words.size, 0) / Math.max(docs.length, 1)
   const seenIn = new Map()
-  for (const doc of docs) for (const word of doc.words) if (asked.has(word)) seenIn.set(word, (seenIn.get(word) ?? 0) + 1)
+  for (const doc of docs) for (const word of doc.words) if (asked.has(word)) {
+    doc.hits.push(word)
+    seenIn.set(word, (seenIn.get(word) ?? 0) + 1)
+  }
   const idf = word => Math.log(1 + (docs.length - seenIn.get(word) + 0.5) / (seenIn.get(word) + 0.5))
   return docs.flatMap((doc) => {
-    const hits = [...doc.words].filter(word => asked.has(word))
+    const hits = doc.hits
     if (hits.length === 0) return []
     const norm = K1 * (1 - B + B * doc.words.size / Math.max(average, 1))
     const score = hits.reduce((sum, word) => sum + idf(word) * (K1 + 1) / (1 + norm), 0)

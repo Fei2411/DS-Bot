@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { SvgXml } from 'react-native-svg'
 import { characterMarkup, lookOf, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
@@ -84,6 +85,9 @@ function clusterSeats(count: number, frame: number): [number, number, number][] 
 }
 
 export function RoomAvatar({ room, bots, dark, size = 44, ring }: { room: Room; bots: Bot[]; dark: boolean; size?: number; ring: string }) {
+  const [broken, setBroken] = useState('')
+  const image = room.avatar?.image
+  if (image && image !== broken) return <Image source={{ uri: image }} style={{ width: size, height: size, borderRadius: size / 2 }} onError={() => setBroken(image)} />
   const byId = new Map(bots.map(bot => [bot.id, bot]))
   const members = (room.members ?? []).map(id => byId.get(id)).filter((bot): bot is Bot => bot !== undefined)
   if (members.length === 0) {

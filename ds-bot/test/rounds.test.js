@@ -96,9 +96,10 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
     .then(async value => JSON.stringify(await afterRound(rt, roomId, value)))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
-  const answer = async (sessionId, exchangeId, text, turn) => {
+  const answer = async (sessionId, exchangeId, text, turn, { workTool } = {}) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
     await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (workTool !== undefined) await emit(sessionId, { type: 'tool/call', data: { callId: `tc-${turn}`, name: workTool, arguments: '{}' } })
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
     await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
   }
@@ -459,7 +460,7 @@ test('a relative file link a member writes reaches the group, and another Bot, a
   const chief = rt.state.mainBotIds[0]
   const writer = rt.state.rooms[room.id].members.find(id => id !== chief)
   sent.length = 0
-  await rt.teamTools.find(d => d.name === 'message_bot').execute({ to: rt.botOf(writer).name, message: 'Read [notes](notes.md#L3)', when: 'queue' }, {
+  await rt.teamTools.find(d => d.name === 'delegate_work').execute({ to: rt.botOf(writer).name, goal: 'Read [notes](notes.md#L3)', when: 'queue' }, {
     agent: { id: first.sessionId, session: { id: first.sessionId, header: { cwd: folder } }, inbox: { nextStep: [], nextTurn: [] } }, callId: 'c1',
   })
   const delivered = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
@@ -734,12 +735,12 @@ test('members call each other for as long as they call, and a user @ mid-round s
   await emit(room.id, userMessage('Start'))
   const running = relay(room.id, 'relay')
 
-  // Twenty calls back and forth, far past the old default of three per member.
+  // Twenty working calls back and forth, far past the old default of three per member.
   const spoken = []
   let turn = await turnFor(sent)
   for (let step = 0; step < 20; step += 1) {
     spoken.push(turn)
-    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1, { workTool: 'read' })
     turn = await turnFor(sent, ...spoken)
   }
   const writerSession = rt.state.rooms[room.id].sessions[writer.id]
@@ -1077,7 +1078,7 @@ test('a group stops answering its own status posts once the idle steps reach the
 
   // One status post and the status answer it gets count once: the step is the answer,
   // the post that opened the round is not a step of its own.
-  for (let step = 1; step <= 5; step += 1) {
+  for (let step = 1; step < ROOM_IDLE_RELAY_LIMIT; step += 1) {
     const { round: running } = await posted('暂无待办，静候下一步', `relay-${step}`)
     const turn = await turnFor(sent)
     assert.ok(turn, `round ${step} answers the post`)
@@ -1087,18 +1088,17 @@ test('a group stops answering its own status posts once the idle steps reach the
     assert.equal(state().idlePaused, undefined, 'not paused before the limit')
   }
 
-  // The sixth idle step is where the group stops: the round runs, and the answer that
-  // takes the count to the limit pauses the room with one notice.
-  const { round: sixth } = await posted('待命', 'relay-6')
+  // The step that reaches ROOM_IDLE_RELAY_LIMIT pauses the room with one notice.
+  const { round: lastIdle } = await posted('待命', `relay-${ROOM_IDLE_RELAY_LIMIT}`)
   const turning = await turnFor(sent)
-  assert.ok(turning, 'the round the sixth step counts in still runs')
-  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', 6)
-  await sixth
+  assert.ok(turning, 'the round the final idle step counts in still runs')
+  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', ROOM_IDLE_RELAY_LIMIT)
+  await lastIdle
   assert.equal(state().idleRelays, ROOM_IDLE_RELAY_LIMIT)
   assert.ok(state().idlePaused, 'the room is paused')
   const notices = state().log.filter(line => line.kind === 'notice' && line.reason === 'paused')
   assert.equal(notices.length, 1, 'the group hears about it once')
-  assert.match(lineText(notices[0]), /6 status updates with no new work/)
+  assert.match(lineText(notices[0]), new RegExp(`${ROOM_IDLE_RELAY_LIMIT} status updates with no new work`))
   assert.match(lineText(notices[0]), /the last from Writer/)
   assert.match(lineText(notices[0]), /until the user writes here/)
 
@@ -1692,4 +1692,52 @@ test('a stopped notice during a round closing drain still logs into the draining
   const stoppedRows = rt.roomOf(room.id).log.filter(line => line.kind === 'stopped' && line.botId === writer.id)
   assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
   assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
+})
+
+test('roomPrompt explicitly tells a member how many earlier unread group messages were omitted', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const live = rt.roomOf(room.id)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  // Seed 30 unseen earlier messages for Writer before the current round.
+  ;(live.seen ??= {})[writer.id] = 0
+  live.log = Array.from({ length: 30 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `Earlier group note ${index + 1}`,
+    time: 1000 + index,
+  }))
+  live.seq = 30
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer summarize everything we missed'))
+  const running = relay(room.id, 'relay-omitted')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+  const promptText = turn.message.content[0].text
+  // 30 earlier unread + 1 current = 31 total unseen; ROOM_DELTA_MAX=24 drops 7, then ROOM_EARLIER_MAX=8 drops 15 more -> 22 omitted!
+  assert.match(promptText, /\(22 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Got it, checking read_group_chat.', 1)
+  await running
+
+  // First-look member (`seen[id] === undefined`) uses ROOM_FIRST_LOOK (12) consistently with unseenLines/unreadCount.
+  delete live.seen[writer.id]
+  live.log = Array.from({ length: 20 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `First look msg ${index + 1}`,
+    time: 2000 + index,
+  }))
+  live.seq = 20
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer check first look'))
+  const running2 = relay(room.id, 'relay-first-look')
+  const turn2 = await turnFor(sent)
+  assert.ok(turn2)
+  // 20 earlier + 1 current = 21 total; ROOM_FIRST_LOOK=12 drops 9, then ROOM_EARLIER_MAX=8 drops 3 of the 11 earlier -> 12 omitted!
+  assert.match(turn2.message.content[0].text, /\(12 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
+  await running2
 })

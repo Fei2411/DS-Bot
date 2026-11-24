@@ -191,7 +191,7 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
   return { home, ctx, rt, agentMap, prompts, forkedCalls, createdSessions, deliveries, tool, emit, stop }
 }
 
-const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'message_bot', signal: AbortSignal.timeout(10_000) })
+const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'delegate_work', signal: AbortSignal.timeout(10_000) })
 
 test('Desktop/Web user message on busy foreground moves old Session intact into bot.tasks and forks fresh foreground', async (t) => {
   const env = await startEnv()
@@ -324,7 +324,7 @@ test('hidden peer-Bot turn moved to background gets bot-handoff origin, never le
   assert.ok(replyToChief !== undefined, 'stopping idle bot-handoff task must reply to asking Bot so handoff tree does not deadlock')
 })
 
-test('peer Bot message_bot to a busy Bot spawns a background task directly without switching user foreground', async (t) => {
+test('peer Bot delegate_work to a busy Bot spawns a background task directly without switching user foreground', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -335,8 +335,8 @@ test('peer Bot message_bot to a busy Bot spawns a background task directly witho
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc-fg', name: 'bash', arguments: '{}' })
 
-  // Chief (a) calls message_bot to Helper (b).
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Check API contract' }, execOf(dmA))
+  // Chief (a) calls delegate_work to Helper (b).
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Check API contract' }, execOf(dmA))
   assert.match(res, /background task while its foreground chat is busy/)
   assert.equal(env.rt.botOf('b').sessionId, 'dm-b', 'user foreground sessionId must NOT switch when another Bot messages')
   assert.equal(env.rt.botOf('b').tasks.length, 1)
@@ -603,7 +603,7 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
   const origOpenTaskPart = env.rt.openTaskPart
   env.rt.openTaskPart = async () => { throw new Error('disk full during openTaskPart') }
   await assert.rejects(
-    () => env.tool('message_bot').execute({ to: 'Helper', message: 'Work 1' }, execOf(dmA)),
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 1' }, execOf(dmA)),
     /disk full during openTaskPart/,
   )
   assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed openTaskPart must not leak state.works')
@@ -615,7 +615,7 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
   env.rt.forgetDelivery = (id) => { forgotten.push(id); return origForget?.(id) }
   env.rt.deliver = async () => { throw new Error('delivery exploded') }
   await assert.rejects(
-    () => env.tool('message_bot').execute({ to: 'Helper', message: 'Work 2' }, execOf(dmA)),
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 2' }, execOf(dmA)),
     /delivery exploded/,
   )
   assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed deliver must drop state.works')
@@ -714,7 +714,7 @@ test('long (>20k) completed bot-handoff reply holding attachLong does NOT trigge
 
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Long audit' }, execOf(dmA))
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Long audit' }, execOf(dmA))
   assert.match(res, /background task/)
   const task = env.rt.botOf('b').tasks[0]
   const taskSid = task.sessionId
@@ -777,7 +777,7 @@ test('plugin reload (adoptLiveWork) on running bot-handoff task restores routing
 
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Audit after reload' }, execOf(dmA))
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Audit after reload' }, execOf(dmA))
   assert.match(res, /background task/)
   const task = env.rt.botOf('b').tasks[0]
   const taskSid = task.sessionId
@@ -829,4 +829,115 @@ test('fg-handoff snapshots inheritedSegments so foreground rollover never shifts
   // 2) User opens a fresh parallel thread (clears bot.segments): task STILL keeps its frozen inherited snapshot!
   bot.segments = []
   assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
+})
+
+test('fg-handoff carries bounded moved prompt + task_send hint, and injects fallback context when !forked finishes mid-handoff', async (t) => {
+  // 1) Long running turn prompt (> 80 chars) is carried in [Background task notice] with task_send guidance.
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  const longPrompt = 'Please audit all authentication middleware files across packages/auth and packages/api, list every token validation edge case, and propose a migration plan.'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: longPrompt }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Skip packages/api for now' }] })
+  const freshSid = env.rt.botOf('a').sessionId
+  const notice = env.agentMap.get(freshSid).injected[0]?.content?.[0]?.text ?? ''
+  assert.match(notice, /Moved request: Please audit all authentication middleware files/)
+  assert.match(notice, /Use task_send\(task: "/)
+
+  // 2) When fork is unavailable (!forked) AND the moved turn finishes during forkForegroundPart,
+  //    the fresh foreground still receives fallbackContextSummary instead of starting blank.
+  let releaseFork
+  const env2 = await startEnv({
+    forkImpl: async () => new Promise((_, reject) => {
+      releaseFork = () => reject(new Error('fork unavailable'))
+    }),
+  })
+  t.after(env2.stop)
+  const dm2 = env2.agentMap.get('dm-a')
+  dm2.status = 'running'
+  await env2.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Context from turn 1: target repo is ds-bot' }] })
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  await env2.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Working on ds-bot.' }] } })
+  await env2.emit('dm-a', 'tool/call', { callId: 'tc2', name: 'bash', arguments: '{}' })
+
+  const pending = env2.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'What repo are we in?' }] })
+  await waitFor(() => typeof releaseFork === 'function')
+  // Turn finishes BEFORE fork falls back to fresh session.
+  dm2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork()
+  await pending
+  const fresh2 = env2.agentMap.get(env2.rt.botOf('a').sessionId)
+  const injected2 = fresh2.injected.map(m => m.content?.[0]?.text ?? '').join('\n')
+  assert.match(injected2, /\[Recent context from your own chat\]/, 'non-forked fresh foreground must still get fallback context even if moved turn finished mid-handoff')
+  assert.match(injected2, /target repo is ds-bot/)
+
+  // 3) When > 8 KB of prior messages exist, fallbackContextSummary preserves the newest turns instead of clipping them off.
+  const env3 = await startEnv({
+    forkImpl: async () => { throw new Error('fork unavailable') },
+  })
+  t.after(env3.stop)
+  const dm3 = env3.agentMap.get('dm-a')
+  dm3.status = 'running'
+  for (let i = 1; i <= 14; i += 1) {
+    await env3.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: `MSG_${i}_START ${'a'.repeat(850)} MSG_${i}_END` }] })
+  }
+  await env3.emit('dm-a', 'turn/start', { turn: 1 })
+  await env3.emit('dm-a', 'tool/call', { callId: 'tc3', name: 'bash', arguments: '{}' })
+  await env3.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Continue from latest' }] })
+  const injected3 = env3.agentMap.get(env3.rt.botOf('a').sessionId).injected.map(m => m.content?.[0]?.text ?? '').join('\n')
+  assert.match(injected3, /MSG_14_START/, 'newest message must survive >8KB fallback truncation')
+  assert.doesNotMatch(injected3, /MSG_1_START/, 'oldest messages past 8KB should be dropped before newest ones')
+})
+
+test('fg-handoff fork preserves inherited exchangeTurns and closedCards without hiding the new turn', async (t) => {
+  const env = await startEnv({
+    forkImpl: async () => ({ sessionId: 'fork-keep-hidden' }),
+  })
+  t.after(env.stop)
+
+  const dmA = env.agentMap.get('dm-a')
+  // Turn 1: visible user turn with a closed ask_user card.
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Check config' }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'ask-1', name: 'ask_user', arguments: '{"question":"Format?"}' })
+  await env.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } })
+  await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  env.rt.state.closedCards['dm-a'] = { 'ask-1': { status: 'answered', answer: 'Markdown' } }
+
+  // Turn 2: hidden Bot-to-Bot [PASS] turn (marked in exchangeTurns).
+  await env.emit('dm-a', 'turn/start', { turn: 2 })
+  await env.emit('dm-a', 'assistant/message', { turn: 2, message: { role: 'assistant', content: [{ type: 'text', text: '[PASS]' }] } })
+  await env.emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  env.rt.state.exchangeTurns['dm-a'] = [2, 3]
+
+  // Turn 3: currently running turn (e.g. bot-handoff / busy turn) when user interrupts.
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 3 })
+  await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Run long benchmark' }] })
+  await env.emit('dm-a', 'tool/call', { callId: 'ask-running', name: 'ask_user', arguments: '{"question":"Running?"}' })
+  env.rt.state.closedCards['dm-a']['ask-running'] = { status: 'dismissed' }
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Cancel benchmark' }] })
+  const forkedSid = env.rt.botOf('a').sessionId
+  assert.equal(forkedSid, 'fork-keep-hidden')
+  assert.deepEqual(env.rt.state.exchangeTurns[forkedSid], [2], 'forked foreground must inherit completed hidden turn 2 without carrying running turn 3')
+  assert.deepEqual(Object.keys(env.rt.state.closedCards[forkedSid] ?? {}), ['ask-1'], 'forked foreground must carry closed cards from completed turns only')
+
+  // displayItems on the forked session must NOT leak the hidden [PASS] turn 2.
+  const forkedEvents = [
+    { type: 'turn/start', seq: 1, data: { turn: 1 } },
+    { type: 'assistant/message', seq: 2, time: 100, data: { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } } },
+    { type: 'turn/end', seq: 3, data: { turn: 1 } },
+    { type: 'turn/start', seq: 4, data: { turn: 2 } },
+    { type: 'assistant/message', seq: 5, time: 200, data: { message: { role: 'assistant', content: [{ type: 'text', text: '[PASS]' }] } } },
+    { type: 'turn/end', seq: 6, data: { turn: 2 } },
+  ]
+  const items = env.rt.displayItems(forkedSid, forkedEvents, null, undefined, {})
+  assert.equal(items.some(item => item.text === '[PASS]'), false, 'hidden turn 2 must stay hidden on forked foreground even when assistant/message omits data.turn')
+  assert.equal(items.some(item => item.text === 'Done.'), true)
 })

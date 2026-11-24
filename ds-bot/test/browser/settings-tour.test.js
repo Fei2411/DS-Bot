@@ -73,7 +73,9 @@ const fixture = await build({
         const pickIm = () => { setQuery(''); setTour(null); setPage('im') }
         return h('div', { className: 'bt-settings-layer' },
           h('div', { className: 'bt-settings', ref: dialogRef },
-            h('div', { className: 'bt-settings-rail' },
+            // A stand-in for any spotlight with its own controls; the real rail hides at
+            // phone width, so it is not that rail.
+            h('div', { className: 'bt-fixture-rail' },
               h('div', { className: 'bt-set-search-wrap', 'data-tour': 'search', 'data-open': trimmed !== '' || undefined },
                 h('div', { className: 'bt-set-search' },
                   h('input', {

@@ -8,9 +8,13 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
+import { isAckLikeText, LATE_ANSWER, PAIR_LOOP_TTL_MS, TEXT_KEPT, WORK_ASK_BACK_LIMIT, WORK_REWORK_CHECKPOINT } from './constants.js'
+import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { headOf } from './text.js'
 import { ownChatSessions, threadCurrentOfPart } from './threads.js'
+
+const own = (obj, key) => (obj != null && typeof key === 'string' && Object.hasOwn(obj, key) ? obj[key] : undefined)
+const safeKey = key => typeof key === 'string' && key !== '' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype'
 
 const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
@@ -28,10 +32,53 @@ const forHowLong = since => {
 export function install(rt) {
   const { ctx, state } = rt
   const works = () => (state.works ??= {})
+  const closedWorks = () => (state.closedWorks ??= {})
+  const pairLoops = () => (state.pairLoops ??= {})
+  const CLOSED_KEPT = 100
   // What came back, whole; state.json keeps the start of each.
   const whole = new Map()
   const save = () => void rt.save().catch(() => {})
   const nameOf = id => rt.botOf(id)?.name
+  const pairKey = (a, b) => [String(a), String(b)].sort().join(':')
+  const nextWorkRef = () => {
+    state.workSeq = (Number.isInteger(state.workSeq) && state.workSeq >= 0 ? state.workSeq : 0) + 1
+    return `W${state.workSeq}`
+  }
+  const rememberClosed = (id, entry) => {
+    if (!safeKey(id)) return
+    const map = closedWorks()
+    map[id] = entry
+    const ids = Object.keys(map)
+    if (ids.length > CLOSED_KEPT) {
+      for (const old of ids.sort((a, b) => (map[a].at ?? 0) - (map[b].at ?? 0)).slice(0, ids.length - CLOSED_KEPT)) delete map[old]
+    }
+  }
+  const normalizeRef = ref => {
+    const text = String(ref ?? '').trim()
+    const match = /^#?(w\d+)$/i.exec(text)
+    return match === null ? undefined : match[1].toUpperCase()
+  }
+  function resolveWork(refOrId) {
+    const key = String(refOrId ?? '').trim()
+    if (key === '') return undefined
+    const direct = own(works(), key)
+    if (direct !== undefined) return { id: key, work: direct }
+    const ref = normalizeRef(key)
+    if (ref === undefined) return undefined
+    for (const [id, work] of Object.entries(works())) {
+      if (work?.ref === ref) return { id, work }
+    }
+    return undefined
+  }
+  function closedWorkOf(refOrId) {
+    const key = String(refOrId ?? '').trim()
+    if (key === '') return undefined
+    const direct = own(closedWorks(), key)
+    if (direct !== undefined) return direct
+    const ref = normalizeRef(key)
+    if (ref === undefined) return undefined
+    return Object.values(closedWorks()).find(entry => entry?.ref === ref)
+  }
 
   // The whole result of a work, in a file of its own: state.json is written whole on
   // every save, so it keeps only the start of a long result, and a restart would cut
@@ -108,23 +155,349 @@ export function install(rt) {
   // session id of the subagent a run of this work belongs to — the run, not the
   // child, is the sub-work, so a child that is continued hands up a result per run.
   // `fromPart`: the part of the sender's own chat it wrote from, which its answer goes
-  // back to when that is a background part.
-  function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart }) {
-    const above = parent === undefined ? undefined : works()[parent]
-    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(fromPart ? { fromPart } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), open: [], results: [], at: Date.now() }
+  // back to when that is a background part. `imOrigin`: the IM chat that asked the
+  // sender for this work, kept out of public views and Session logs.
+  function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart, toSession, toTaskId, imOrigin, goal, state: initialState = 'open', paused }) {
+    if (!safeKey(id)) return undefined
+    const above = parent === undefined ? undefined : own(works(), parent)
+    const cleanOrigin = normalizeImOrigin(imOrigin)
+    // Only assign visible #W… refs to Bot-to-Bot delegations, not internal subagents,
+    // background tasks, or group posts, so user-facing work numbers stay contiguous.
+    const ref = from !== undefined && to !== undefined && room === undefined && child === undefined ? nextWorkRef() : undefined
+    works()[id] = {
+      ...(ref !== undefined ? { ref } : {}),
+      state: initialState,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      ...(room ? { room } : {}),
+      ...(above ? { parent } : {}),
+      ...(fromRoom ? { fromRoom } : {}),
+      ...(fromPart ? { fromPart } : {}),
+      ...(toSession ? { toSession } : {}),
+      ...(toTaskId ? { toTaskId } : {}),
+      ...(name ? { name } : {}),
+      ...(child ? { child } : {}),
+      ...(cleanOrigin ? { imOrigin: cleanOrigin } : {}),
+      ...(typeof goal === 'string' && goal.trim() !== '' ? { goal: headOf(goal.trim().replace(/\s+/g, ' '), 80) } : {}),
+      ...(paused !== undefined ? { paused } : {}),
+      rounds: 0,
+      worked: false,
+      open: [],
+      results: [],
+      at: Date.now(),
+    }
     if (above !== undefined) above.open.push(id)
     save()
+    return works()[id]
+  }
+
+  function setWorkTargetSession(id, toSession, toTaskId) {
+    const work = own(works(), id)
+    if (work === undefined) return
+    if (toSession) work.toSession = toSession
+    if (toTaskId) work.toTaskId = toTaskId
+    save()
+  }
+
+  const workRefOf = id => own(works(), id)?.ref ?? own(closedWorks(), id)?.ref
+  const workStateOf = id => {
+    const work = own(works(), id)
+    return work === undefined ? undefined : (work.state ?? 'open')
+  }
+  function markWorkWorked(id) {
+    const work = own(works(), id)
+    if (work === undefined || work.worked === true) return
+    work.worked = true
+    save()
+  }
+
+  // Pair loop guard: tracks consecutive Bot-to-Bot delegations between (a, b) since the
+  // last user message to either Bot, expiring after PAIR_LOOP_TTL_MS of inactivity.
+  // Reciprocal zero-work bounces (B -> A right after A -> B) or ACK/wrap-up ping-pong
+  // pause immediately after 1 empty round-trip; substantive same-direction pure-LLM
+  // follow-ups allow 1 extra round-trip before pausing at 2; real-work rework loops
+  // pause at WORK_REWORK_CHECKPOINT so the user can continue.
+  function noteWorkCompleted(fromId, toId, { worked = false, id, text = '' } = {}) {
+    if (!fromId || !toId || fromId === toId) return
+    const key = pairKey(fromId, toId)
+    const map = pairLoops()
+    const now = Date.now()
+    const prev = own(map, key)
+    const fresh = prev !== undefined && now - (prev.lastAt ?? 0) <= PAIR_LOOP_TTL_MS
+    const entry = fresh ? prev : { idleBounces: 0, reworkBounces: 0, lastAt: 0 }
+    entry.reworkBounces = (entry.reworkBounces ?? 0) + 1
+    entry.idleBounces = worked === true ? 0 : (entry.idleBounces ?? 0) + 1
+    entry.lastWorked = worked === true
+    entry.lastFrom = fromId
+    entry.lastTo = toId
+    entry.lastAck = worked !== true && isAckLikeText(text)
+    entry.lastAt = now
+    if (id !== undefined) entry.lastWorkId = id
+    map[key] = entry
+    save()
+  }
+  function resetPairLoop(a, b) {
+    if (!a || !b) return
+    const key = pairKey(a, b)
+    if (own(pairLoops(), key) === undefined) return
+    delete pairLoops()[key]
+    save()
+  }
+  function resetBotLoops(botId) {
+    if (!botId) return
+    const map = pairLoops()
+    let changed = false
+    for (const key of Object.keys(map)) {
+      const [a, b] = key.split(':')
+      if (a === botId || b === botId) {
+        delete map[key]
+        changed = true
+      }
+    }
+    if (changed) save()
+  }
+  function checkPairLoop(fromId, toId, { callerWorked = false, text = '' } = {}) {
+    if (!fromId || !toId || fromId === toId) return { ok: true }
+    for (const [id, work] of Object.entries(works())) {
+      if (work?.state === 'paused' && ((work.from === fromId && work.to === toId) || (work.from === toId && work.to === fromId))) {
+        return { blocked: 'already_paused', id, work }
+      }
+    }
+    const entry = own(pairLoops(), pairKey(fromId, toId))
+    if (entry === undefined) return { ok: true }
+    if (Date.now() - (entry.lastAt ?? 0) > PAIR_LOOP_TTL_MS) return { ok: true }
+    if (!callerWorked) {
+      const idleBounces = entry.idleBounces ?? 0
+      const reciprocalOrAck = entry.lastFrom === toId || entry.lastAck === true || isAckLikeText(text)
+      if (idleBounces >= 2 || (idleBounces >= 1 && reciprocalOrAck)) {
+        return { pause: 'idle_loop', bounces: idleBounces + 1 }
+      }
+    }
+    if ((entry.reworkBounces ?? 0) >= WORK_REWORK_CHECKPOINT) {
+      return { pause: 'rework_limit', bounces: entry.reworkBounces }
+    }
+    return { ok: true }
+  }
+
+  // Worker asks the caller a blocking question without closing the work.
+  // Bounded by WORK_ASK_BACK_LIMIT (and pauses earlier if bouncing with zero real work).
+  function askBackWork(id, question, { worked = false, text, files, length } = {}) {
+    const work = own(works(), id)
+    if (work === undefined) return { error: 'not_found' }
+    const current = work.state ?? 'open'
+    if (current !== 'open') return { error: `state_${current}`, work }
+    if (!work.from || !work.to) return { error: 'no_caller', work }
+    const didWork = worked === true || work.worked === true
+    const rounds = (work.rounds ?? 0) + 1
+    work.rounds = rounds
+    const boundedQuestion = headOf(String(question ?? '').trim(), 400)
+    work.question = boundedQuestion
+    // Pause if clarifications hit the checkpoint, or on a 2nd ask_back with 0 real work.
+    if (rounds > WORK_ASK_BACK_LIMIT || (!didWork && rounds >= 2)) {
+      work.state = 'paused'
+      work.paused = {
+        reason: 'ask_back_limit',
+        kind: 'ask_back',
+        question: boundedQuestion,
+        ...(typeof text === 'string' && text !== '' ? { text } : {}),
+        ...(Array.isArray(files) && files.length > 0 ? { files } : {}),
+        ...(length !== undefined ? { length } : {}),
+        rounds,
+        at: Date.now(),
+      }
+      save()
+      return { status: 'paused', id, work }
+    }
+    work.state = 'need_input'
+    save()
+    return { status: 'asked', id, work }
+  }
+
+  // Caller answers an ask_back question and hands control back to the worker.
+  function answerWork(id) {
+    const work = own(works(), id)
+    if (work === undefined) return { error: 'not_found' }
+    if ((work.state ?? 'open') !== 'need_input') return { error: `state_${work.state ?? 'open'}`, work }
+    work.state = 'open'
+    delete work.question
+    work.worked = false
+    save()
+    return { status: 'answered', id, work }
+  }
+
+  // Cancels an open, need_input, or paused work cleanly (terminal state).
+  function cancelWork(id, { reason = '', by } = {}) {
+    const work = own(works(), id)
+    if (work === undefined) return undefined
+    const snapshot = { id, ...work }
+    const { parent } = work
+    delete works()[id]
+    rememberClosed(id, {
+      id,
+      ref: work.ref,
+      from: work.from,
+      to: work.to,
+      status: 'cancelled',
+      ...(by ? { by } : {}),
+      ...(reason ? { reason: headOf(reason, 200) } : {}),
+      at: Date.now(),
+    })
+    for (const child of Object.values(works())) if (child.parent === id) delete child.parent
+    const above = own(works(), parent)
+    if (above !== undefined) above.open = above.open.filter(other => other !== id)
+    for (const result of work.results ?? []) whole.delete(result.id)
+    void rt.save().then(() => {
+      for (const result of work.results ?? []) dropResult(result.file)
+    }).catch(() => {})
+    return snapshot
+  }
+
+  // Wakes a waiting parent work when one of its delegated children is cancelled or stopped
+  // externally (by the user, a Main Bot, or stop_bot), so the parent never hangs forever.
+  function notifyParentCancelled(snapshot, { reason = '', by, byLabel = 'the user' } = {}) {
+    if (snapshot?.parent === undefined) return Promise.resolve(false)
+    const parent = own(works(), snapshot.parent)
+    if (parent === undefined || parent.to === undefined) return Promise.resolve(false)
+    const parentBot = rt.botOf(parent.to)
+    if (parentBot === undefined) return Promise.resolve(false)
+    const backRoom = rt.roomOf(snapshot.fromRoom)?.sessions?.[parent.to]
+    const targetSession = backRoom
+      ?? (snapshot.fromPart ? threadCurrentOfPart(parentBot, snapshot.fromPart) : undefined)
+      ?? (parent.toSession ? threadCurrentOfPart(parentBot, parent.toSession) : undefined)
+      ?? rt.chatOf(parent.to)
+    // If the parent Bot itself cancelled this child while actively running the parent turn,
+    // its current turn already knows and will finish the parent naturally when the turn ends.
+    if (by === parent.to && targetSession !== undefined && rt.workOf?.(rt.live?.get(targetSession)?.info) === snapshot.parent) {
+      return Promise.resolve(false)
+    }
+    const targetName = rt.botOf(snapshot.to)?.name ?? snapshot.name ?? 'the teammate'
+    const label = snapshot.ref ? ` #${snapshot.ref}` : ''
+    const why = reason.trim()
+    const summary = `Delegated work${label} to ${targetName} was cancelled by ${byLabel}${why ? ` (${why})` : ''}. Continue with your own work without waiting for ${targetName}.`
+    parent.results = [...(parent.results ?? []), { id: snapshot.id, name: targetName, text: headOf(summary, TEXT_KEPT), cancelled: true, at: Date.now() }]
+    save()
+    return rt.deliver({
+      fromId: rt.botOf(snapshot.to)?.id,
+      fromName: targetName,
+      toId: parent.to,
+      ...(targetSession ? { sessionId: targetSession } : {}),
+      text: summary,
+      role: 'reply',
+      replyTo: snapshot.id,
+      work: snapshot.parent,
+      ...(snapshot.ref ? { workRef: snapshot.ref } : {}),
+      recordExchange: false,
+      exchangeId: randomUUID(),
+    }).then(() => true, (error) => {
+      rt.warn('ds-bot: parent continuation after cancel failed: %s', error)
+      return false
+    })
+  }
+
+  const needInputWorksFor = (callerId) => Object.entries(works())
+    .filter(([, work]) => work?.from === callerId && work.state === 'need_input')
+    .map(([id, work]) => ({ id, work }))
+  const openWorksBetween = (fromId, toId) => Object.entries(works())
+    .filter(([, work]) => work?.from === fromId && work.to === toId && (work.state ?? 'open') !== 'closed')
+    .map(([id, work]) => ({ id, work }))
+
+  function pausedWorksView() {
+    const out = []
+    for (const [id, work] of Object.entries(works())) {
+      if (work?.state !== 'paused' || work.paused === undefined) continue
+      out.push({
+        id,
+        ref: work.ref ?? null,
+        from: work.from ?? null,
+        fromName: nameOf(work.from) ?? null,
+        to: work.to ?? null,
+        toName: nameOf(work.to) ?? null,
+        reason: work.paused.reason,
+        kind: work.paused.kind,
+        goal: work.goal ?? headOf(work.paused.text ?? '', 200),
+        ...(work.paused.question ? { question: headOf(work.paused.question, 200) } : {}),
+        ...(work.paused.bounces !== undefined ? { bounces: work.paused.bounces } : {}),
+        ...(work.paused.rounds !== undefined ? { rounds: work.paused.rounds } : {}),
+        at: work.paused.at ?? work.at ?? Date.now(),
+      })
+    }
+    return out.sort((a, b) => a.at - b.at)
+  }
+
+  const workImOrigin = (id) => {
+    const work = own(works(), id)
+    if (work === undefined) return undefined
+    if (work.imOriginMixed === true) return { mixed: true }
+    return work.imOrigin
+  }
+
+  // Merging a second unread request into an open work keeps the IM origin only when both
+  // requests come from the same IM chat; mixing Web and IM or two IM chats clears it.
+  function mergeWorkImOrigin(id, nextImOrigin) {
+    const work = own(works(), id)
+    if (work === undefined) return
+    if (work.imOriginMixed === true) {
+      if (work.imOrigin !== undefined) {
+        delete work.imOrigin
+        save()
+      }
+      return
+    }
+    const cleanNext = normalizeImOrigin(nextImOrigin)
+    if (work.imOrigin === undefined && cleanNext === undefined) return
+    if (!sameImOrigin(work.imOrigin, cleanNext)) {
+      delete work.imOrigin
+      work.imOriginMixed = true
+      save()
+    }
+  }
+
+  // Bounded store of IM origins for returning replies/reports, kept in state.json
+  // (never in public views or Session logs) so deferred redelivery and post-restart
+  // resends can still reclaim the originating IM chat.
+  const IM_REPLY_ORIGINS_KEPT = 200
+  const IM_REPLY_ORIGIN_TTL_MS = 24 * 60 * 60_000
+  const imReplyOrigins = () => (state.imReplyOrigins ??= {})
+  function rememberImReplyOrigin(id, imOrigin) {
+    const isMixed = imOrigin?.mixed === true
+    const cleanOrigin = isMixed ? undefined : normalizeImOrigin(imOrigin)
+    if (typeof id !== 'string' || id === '' || (!isMixed && cleanOrigin === undefined)) return
+    const map = imReplyOrigins()
+    const now = Date.now()
+    for (const [key, entry] of Object.entries(map)) {
+      if (now - (entry?.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) delete map[key]
+    }
+    map[id] = isMixed ? { mixed: true, at: now } : { ...cleanOrigin, at: now }
+    const keys = Object.keys(map)
+    if (keys.length > IM_REPLY_ORIGINS_KEPT) {
+      for (const old of keys.sort((a, b) => (map[a].at ?? 0) - (map[b].at ?? 0)).slice(0, keys.length - IM_REPLY_ORIGINS_KEPT)) delete map[old]
+    }
+    save()
+  }
+  function imReplyOrigin(id) {
+    if (typeof id !== 'string' || id === '') return undefined
+    const map = state.imReplyOrigins
+    if (map === undefined || !Object.hasOwn(map, id)) return undefined
+    const entry = map[id]
+    if (entry === undefined) return undefined
+    if (Date.now() - (entry.at ?? 0) > IM_REPLY_ORIGIN_TTL_MS) {
+      delete map[id]
+      save()
+      return undefined
+    }
+    return entry
   }
 
   // The answer to work `id` is on its way, with `result` from `name`. Returns the work
   // it goes on with. That work keeps waiting until a turn reads the answer (`taken`).
   function closeWork(id, name, text, extra = {}) {
-    const work = works()[id]
+    const work = own(works(), id)
     if (work === undefined) return undefined
     delete works()[id]
+    rememberClosed(id, { id, ref: work.ref, from: work.from, to: work.to, status: 'closed', at: Date.now() })
     // What it still waits for comes back to it alone.
     for (const child of Object.values(works())) if (child.parent === id) delete child.parent
-    const above = works()[work.parent]
+    const above = own(works(), work.parent)
     if (above !== undefined) {
       // The whole result goes into a file of its own before the team file names it.
       const file = keepResult(id, text)
@@ -148,7 +521,7 @@ export function install(rt) {
     for (const [workId, work] of Object.entries(works())) {
       for (const openId of work.open) {
         const result = work.results?.find(result => result.id === openId)
-        if ((result?.child ?? works()[openId]?.child ?? openId) !== id) continue
+        if ((result?.child ?? own(works(), openId)?.child ?? openId) !== id) continue
         if (result === undefined) live ??= { id: openId, parent: workId }
         else if (settled === undefined || (result.at ?? 0) < settled.at) settled = { id: openId, parent: workId, at: result.at ?? 0 }
       }
@@ -159,8 +532,8 @@ export function install(rt) {
   // the results of the work it hung under. `id` is the run's id, `child` the
   // child's, which named the sub-work before runs did.
   function settleSubWork(id, text, child) {
-    const key = works()[id] !== undefined ? id : child
-    const work = works()[key]
+    const key = own(works(), id) !== undefined ? id : child
+    const work = own(works(), key)
     if (work === undefined) {
       // The wait was already given up: the run's closing text still reaches the
       // Bot that waited, marked late, and settles nothing a second time.
@@ -176,7 +549,7 @@ export function install(rt) {
   function lateSubWorkResult(id, child, text) {
     const late = takeAbandoned(id) ?? takeAbandoned(child)
     if (late === undefined || text === '') return
-    const waiting = late.waiting ?? works()[late.parent]?.to
+    const waiting = late.waiting ?? own(works(), late.parent)?.to
     if (waiting === undefined || rt.botOf(waiting) === undefined) return
     void rt.deliver({
       fromName: late.name ?? 'the subagent', toId: waiting, text: LATE_ANSWER + text, role: 'reply',
@@ -193,12 +566,12 @@ export function install(rt) {
   }
 
   const dropWork = (id) => {
-    const work = works()[id]
+    const work = own(works(), id)
     if (work === undefined) return
     const { parent } = work
     delete works()[id]
     for (const child of Object.values(works())) if (child.parent === id) delete child.parent
-    const above = works()[parent]
+    const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
     void rt.save().then(() => {
@@ -207,7 +580,7 @@ export function install(rt) {
   }
 
   function taken(workId, id) {
-    const work = works()[workId]
+    const work = own(works(), workId)
     if (work === undefined || !work.open.includes(id)) return
     work.open = work.open.filter(other => other !== id)
     save()
@@ -216,7 +589,7 @@ export function install(rt) {
   // A delivery the restart delayed is marked, so the answer that comes back for
   // the work says the request only arrived then.
   function lateWork(id) {
-    const work = works()[id]
+    const work = own(works(), id)
     if (work === undefined || work.late === true) return
     work.late = true
     save()
@@ -236,22 +609,22 @@ export function install(rt) {
     }
   }
 
-  const owns = (botId, workId) => workId !== undefined && works()[workId]?.to === botId
-  const waits = workId => (works()[workId]?.open.length ?? 0) > 0
+  const owns = (botId, workId) => workId !== undefined && own(works(), workId)?.to === botId
+  const waits = workId => (own(works(), workId)?.open.length ?? 0) > 0
   function hold(workId, text) {
-    const work = works()[workId]
+    const work = own(works(), workId)
     if (work === undefined || text === '') return
     work.held = headOf(text, TEXT_KEPT)
     save()
   }
   // Who asked for the work, as the turn that answers a request sees its trigger.
   const askedBy = workId => {
-    const work = works()[workId]
-    return work === undefined ? undefined : { kind: 'bot', role: 'request', exchangeId: workId, senderSessionId: work.from, ...(work.fromPart ? { senderPart: work.fromPart } : {}), ...(work.fromRoom ? { senderRoomId: work.fromRoom } : {}) }
+    const work = own(works(), workId)
+    return work === undefined ? undefined : { kind: 'bot', role: 'request', exchangeId: workId, ...(work.ref ? { workRef: work.ref } : {}), senderSessionId: work.from, ...(work.fromPart ? { senderPart: work.fromPart } : {}), ...(work.fromRoom ? { senderRoomId: work.fromRoom } : {}) }
   }
   // The answer that goes up: what the Bot said last for this work, then what came back.
   function answerText(workId, reply, botName) {
-    const work = works()[workId]
+    const work = own(works(), workId)
     const said = reply !== '' ? reply : work?.held ?? ''
     const results = (work?.results ?? []).map(result => {
       const { text, whole } = resultText(result)
@@ -270,22 +643,22 @@ export function install(rt) {
     const bots = new Set()
     for (const workId of workIds) {
       const seen = new Set()
-      for (let id = workId; id !== undefined && !seen.has(id) && works()[id] !== undefined; id = works()[id].parent) {
+      for (let id = workId; id !== undefined && !seen.has(id) && own(works(), id) !== undefined; id = own(works(), id).parent) {
         seen.add(id)
-        if (works()[id].from) bots.add(works()[id].from)
+        if (own(works(), id).from) bots.add(own(works(), id).from)
       }
     }
     return bots
   }
 
   // Two requests from one sender belong to the same work when they were sent for it.
-  const sameWork = (id, parent) => (works()[id]?.parent ?? undefined) === (works()[parent] === undefined ? undefined : parent)
+  const sameWork = (id, parent) => (own(works(), id)?.parent ?? undefined) === (own(works(), parent) === undefined ? undefined : parent)
 
   // The works their Bots wait on, outside a turn that does them (`busy`): each with what
   // it handed on that has not come back yet. One that came back waits only to be read.
   const held = busy => Object.entries(works())
     .filter(([id, work]) => work.to !== undefined && work.open.length > 0 && !busy.has(id))
-    .map(([id, work]) => ({ id, work, out: work.open.map(childId => ({ id: childId, work: works()[childId] })).filter(child => child.work !== undefined) }))
+    .map(([id, work]) => ({ id, work, out: work.open.map(childId => ({ id: childId, work: own(works(), childId) })).filter(child => child.work !== undefined) }))
   const busyWith = sessionIds => new Set(sessionIds.map(sessionId => rt.live.get(sessionId)).filter(entry => entry?.turn !== undefined).map(entry => workOf(entry.info)).filter(Boolean))
 
   // Per Bot, the Bots and groups it waits for, and the Bots it does that work for.
@@ -310,6 +683,7 @@ export function install(rt) {
   const ABANDONED_KEPT = 100
   const abandonedWorks = () => (state.abandonedWorks ??= {})
   function rememberAbandoned(id, entry) {
+    if (!safeKey(id)) return
     const map = abandonedWorks()
     map[id] = entry
     const ids = Object.keys(map)
@@ -321,7 +695,7 @@ export function install(rt) {
   // The abandoned wait a late reply is for, if any. One reply only: the note is used up.
   function takeAbandoned(id) {
     const map = abandonedWorks()
-    const entry = map[id]
+    const entry = own(map, id)
     if (entry === undefined) return undefined
     delete map[id]
     save()
@@ -336,14 +710,17 @@ export function install(rt) {
   // came back, so the work above it goes on. Only this branch settles; the parent's
   // other open works stay. `gone` is the startup sweep, whose target no longer exists.
   function abandonWork(id, reason = 'user') {
-    const work = works()[id]
-    const parent = work?.parent === undefined ? undefined : works()[work.parent]
+    const work = own(works(), id)
+    const parent = work?.parent === undefined ? undefined : own(works(), work.parent)
     if (work === undefined || parent === undefined || !parent.open.includes(id)) return false
     const target = labelOfWork(work)
     const name = rt.botOf(work.to)?.name ?? work.name ?? (work.room !== undefined ? rt.roomOf(work.room)?.name : undefined) ?? 'the other Bot'
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
       : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
+    const origin = workImOrigin(id)
+    if (origin !== undefined) rememberImReplyOrigin(id, origin)
+    if (reason === 'gone') rt.dropRoomReport?.(id)
     rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(parent.to !== undefined ? { waiting: parent.to } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
@@ -355,7 +732,10 @@ export function install(rt) {
       const said = reason === 'gone'
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
         : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
-      const targetSession = work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart)
+      const backRoom = rt.roomOf(work.fromRoom)?.sessions?.[waitingBot]
+      const targetSession = backRoom
+        ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
+        ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), parent.toSession))
       void rt.deliver({
         fromId: work.to !== undefined && rt.botOf(work.to) !== undefined ? work.to : undefined,
         fromName: name, toId: waitingBot, ...(targetSession ? { sessionId: targetSession } : {}), text: said, role: 'reply', replyTo: id,
@@ -373,8 +753,18 @@ export function install(rt) {
   function reconcileLostWorks() {
     if (rt.readOnly?.() !== undefined) return
     for (const [id, work] of Object.entries(works())) {
-      if (work.parent === undefined || works()[work.parent] === undefined) continue
-      if (!works()[work.parent].open.includes(id)) continue
+      if (work?.state === 'paused') {
+        const targetGone = work.to !== undefined && rt.botOf(work.to) === undefined
+        const senderGone = work.from !== undefined && rt.botOf(work.from) === undefined
+        if (targetGone && !senderGone && work.parent !== undefined && own(works(), work.parent)?.open?.includes(id)) {
+          abandonWork(id, 'gone')
+        } else if (targetGone || senderGone) {
+          dropWork(id)
+        }
+        continue
+      }
+      if (work.parent === undefined || own(works(), work.parent) === undefined) continue
+      if (!own(works(), work.parent).open.includes(id)) continue
       const gone = work.room !== undefined ? rt.roomOf(work.room) === undefined
         : work.to !== undefined ? rt.botOf(work.to) === undefined
           : false
@@ -393,8 +783,20 @@ export function install(rt) {
 
   // A deleted Bot answers no more work and waits for none.
   function forgetBot(botId) {
-    const waiting = Object.entries(works()).filter(([, work]) => work.to === botId).map(([id]) => askedBy(id))
-    for (const [id, work] of Object.entries(works())) if (work.from === botId && work.to !== botId) dropWork(id)
+    resetBotLoops(botId)
+    const waiting = Object.entries(works()).filter(([, work]) => work.to === botId && work.state !== 'paused').map(([id]) => askedBy(id))
+    for (const [id, work] of Object.entries(works())) {
+      if (work.to === botId && work.state === 'paused') {
+        const parent = work.parent === undefined ? undefined : own(works(), work.parent)
+        if (parent !== undefined && parent.to !== botId && parent.open.includes(id)) {
+          abandonWork(id, 'gone')
+        } else {
+          dropWork(id)
+        }
+      } else if (work.from === botId && work.to !== botId) {
+        dropWork(id)
+      }
+    }
     return waiting
   }
 
@@ -415,7 +817,7 @@ export function install(rt) {
     }
     const forWhom = (sessionId, info) => {
       if (rt.groupOwners.has(sessionId)) return info?.askedBy && nameOf(info.askedBy) ? `, for ${nameOf(info.askedBy)}` : ''
-      const asker = info?.role === 'request' || info?.role === 'stopped' ? info.senderSessionId : works()[workOf(info)]?.from
+      const asker = info?.role === 'request' || info?.role === 'stopped' ? info.senderSessionId : Object.hasOwn(works(), String(workOf(info) ?? '')) ? works()[workOf(info)]?.from : undefined
       if (asker !== undefined) return nameOf(asker) ? `, for ${nameOf(asker)}` : ''
       return info === undefined ? ', for the user' : ''
     }
@@ -440,6 +842,14 @@ export function install(rt) {
       const on = [...new Set(out.map(({ work: child }) => (child.room ? `group "${rt.roomOf(child.room)?.name ?? 'a group'}"` : child.name ?? nameOf(child.to) ?? 'a teammate')))]
       lines.push(on.length > 0 ? `waiting for ${on.join(' and ')} to hand back work${forName}` : `about to go on with work${forName}, whose results came back`)
     }
+    for (const [id, work] of Object.entries(works())) {
+      if (work?.state === 'need_input' && work.to === botId) {
+        lines.push(`waiting for ${nameOf(work.from) ?? 'the caller'} to answer a question on ${work.ref ?? id}`)
+      } else if (work?.state === 'paused' && (work.from === botId || work.to === botId)) {
+        const peer = work.from === botId ? (nameOf(work.to) ?? 'a teammate') : (nameOf(work.from) ?? 'a teammate')
+        lines.push(`paused work ${work.ref ?? id} with ${peer} (waiting for the user to continue or cancel)`)
+      }
+    }
     if (lines.length === 0) lines.push('idle')
     for (const [kind, card] of [['question', state.questions?.[chat]], ['view', state.views?.[chat]]]) {
       if (card !== undefined) lines.push(`a ${kind} card in its own chat has waited for the user's answer ${forHowLong(card.askedAt)}`)
@@ -453,5 +863,14 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork, abandonWork, abandonedWork: takeAbandoned })
+  Object.assign(rt, {
+    workOf, openWork, setWorkTargetSession, closeWork, dropWork, takenWork: taken, lateWork, answerMissed,
+    ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy,
+    workImOrigin, mergeWorkImOrigin, rememberImReplyOrigin, imReplyOrigin,
+    answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView,
+    settleSubWork, subWorkRun, nameSubWork, abandonWork, abandonedWork: takeAbandoned,
+    resolveWork, closedWorkOf, workRefOf, workStateOf, markWorkWorked,
+    askBackWork, answerWork, cancelWork, notifyParentCancelled, needInputWorksFor, openWorksBetween,
+    noteWorkCompleted, checkPairLoop, resetPairLoop, resetBotLoops, pausedWorksView,
+  })
 }

@@ -208,11 +208,11 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   const { home, rt, agents, tool, stepGate, modes, deliveries } = await createLoopRig(t)
 
   // Chief sends an initial task to Writer; Writer starts working and pauses in wait_step.
-  await tool('message_bot', { to: 'Writer', message: 'Run task 1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Run task 1' }, 'a')
   await settle(() => modes.callCount >= 1 && rt.live.get('b')?.tool === 'wait_step')
 
   // While Writer is mid-turn, Chief steers a follow-up update (default when: 'now').
-  await tool('message_bot', { to: 'Writer', message: 'Also include check 2' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Also include check 2' }, 'a')
   await settle(() => agents.get('b').inbox.nextStep.length === 1)
 
   // Let wait_step finish so Writer claims the steered follow-up and hits INVALID_REQUEST.
@@ -233,7 +233,7 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   // A subsequent turn that fails with a new request_id still notifies Chief.
   modes.b = 'fail-once'
   modes.requestId = 'req-new-456'
-  await tool('message_bot', { to: 'Writer', message: 'Retry with clean args' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Retry with clean args' }, 'a')
   await agents.get('b').whenIdle()
   await settle(() => deliveries.some(entry => entry.sessionId === 'a' && entry.source.role === 'reply' && entry.text.includes('req-new-456')))
   await agents.get('a').whenIdle()
@@ -708,7 +708,7 @@ test('a completed turn hands a steered request back after a restart', async (t) 
   assert.equal(handed[0].source.role, 'request')
   assert.equal(handed[0].source.deferred, true, 'it reads as one the Bot already read')
   assert.match(textOf(handed[0]), /second/, 'the request keeps its text')
-  assert.match(textOf(handed[0]), /answer it now/, 'it asks for the turn it still owes')
+  assert.match(textOf(handed[0]), /complete it now/, 'it asks for the turn it still owes')
   assert.deepEqual(handed[0].content.filter(block => block.type === 'image').map(block => block.attachment), [image], 'the attachments are kept')
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))

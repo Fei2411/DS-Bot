@@ -238,7 +238,7 @@ export function SettingsShell(props) {
   // A layout effect, so the Settings dialog changes hands before the next paint.
   useLayoutEffect(() => holdSeat?.(), [])
   const open = settings !== null && settings !== undefined
-  const openSettings = () => actions.openSettings('general')
+  const openSettings = () => actions.openSettings('overview')
   return h(Fragment, null,
     h('div', { className: 'bt-settings-row', 'data-rail': wide ? undefined : '' },
       renderSlot('settings.launcher', {
@@ -479,7 +479,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
-          return { status: 'handled', run: () => actions.openSettings('general') }
+          return { status: 'handled', run: () => actions.openSettings('overview') }
         },
       }), 'ds-bot: settings command')
     }),
