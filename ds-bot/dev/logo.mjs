@@ -40,7 +40,7 @@ function logo(mode) {
     return { ...look, size: RING_SIZE, x: CENTER + RING_RADIUS * Math.cos(angle), y: CENTER + RING_RADIUS * Math.sin(angle) }
   })
   const orbit = `<circle cx="${CENTER}" cy="${CENTER}" r="${RING_RADIUS}" fill="none" stroke="${ORBIT[mode]}" stroke-opacity=".22" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round"/>`
-  const marks = [...seats, { ...WHALE, x: CENTER, y: CENTER }].map((seat, index) => character(seat, mode, `m${index}`))
+  const marks = [...seats, { ...WHALE, x: CENTER, y: CENTER }].map((seat, index) => character(seat, mode, `ds-logo-${mode}-${index}`))
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BOX} ${BOX}" width="${BOX}" height="${BOX}" role="img" aria-label="DS Bot">${orbit}${marks.join('')}</svg>\n`
 }
 
