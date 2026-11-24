@@ -2439,9 +2439,14 @@ export function install(rt) {
     const open = [...rt.roomProgress.values()].find(other => other.roomId === room.id
       && other.closed !== true && other.abort?.signal.aborted !== true)
     if (open !== undefined) return
+    // Resolve the agent before taking the queue: a late post that lands while the lookup
+    // runs would otherwise see an empty queue and open a second round of its own, and a
+    // lookup that fails leaves every post waiting where the next relay finds it.
+    const resolved = agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)).catch(() => undefined)
+    if (resolved === undefined) return
     const later = laterPosts.get(room.id) ?? []
     laterPosts.delete(room.id)
-    startRound(room, later, agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)))
+    startRound(room, later, resolved)
   }
 
   // Stops the round running in a group, with the member turns it started.
@@ -2512,11 +2517,16 @@ export function install(rt) {
       const line = say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
       // Said once, here: a round that takes it up later must not say it again.
       if (line?.seq !== undefined) post.logged = line.seq
-      // The round takes the line in now; it must not go on as if the book had it.
-      await rt.ledger.written(bookOf(room.id)).catch((error) => {
-        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
-        throw new Error(`the user's line may not have been saved: ${error?.message ?? error}`)
-      })
+      // The round takes the line in now. A write that failed is reported where every said
+      // line reports it (`say`: the warning and the room's "not saved" notice), and the
+      // round goes on with the lines queued behind it, the rule the Session inbox drain
+      // follows too. The line is not handed over: the book never wrote this seq, so it
+      // cannot anchor the next relay.
+      const kept = await rt.ledger.written(bookOf(room.id)).then(() => true, () => false)
+      if (!kept) {
+        delete post.logged
+        continue
+      }
       // The write can outlast the round: one that closed meanwhile takes no more lines.
       // The line is handed to the next round, which starts at its seq, instead of waiting
       // for a relay that may never come.

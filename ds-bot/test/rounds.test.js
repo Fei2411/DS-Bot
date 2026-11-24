@@ -2155,3 +2155,56 @@ test('a composer follow-up the book did not keep waits in the session inbox', { 
   await running
   void again
 })
+
+// #2066 review (6039570462, item 3): the relay takes its batch out of the group's inbox
+// before any line is written. A line the book refuses must not take the lines queued
+// behind it with it: each one is either said in the room, still waiting in the inbox, or
+// still waiting in the Session, never gone without a trace.
+test('a line the book refused does not take the rest of its batch with it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const refused = 'the line the book refuses'
+  const behind = 'the line queued behind it'
+  chmodSync(book, 0o444)
+  let refusal
+  let mid
+  try {
+    // Two lines the Session folded into one relay: one batch, taken out of the inbox at once.
+    await emit(room.id, userMessage(refused))
+    await emit(room.id, userMessage(behind))
+    mid = relay(room.id, 'mid').catch((error) => { refusal = error })
+    // The relay says the first line and its write is the one that fails.
+    assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === refused) ? true : undefined), 'the refused line is said before its write is awaited')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // The round goes on: a fix that keeps the batch may call the members for the said
+  // lines, so answer what the round asks until it is done.
+  const answered = [first]
+  let turn = 0
+  await answer(first.sessionId, first.message.source.exchangeId, 'answer 0', 0)
+  for (; turn < 8; turn += 1) {
+    const next = await waitFor(() => sent.find(entry => !answered.includes(entry) && entry.message.source.role === 'room'))
+    if (next === undefined) break
+    answered.push(next)
+    await answer(next.sessionId, next.message.source.exchangeId, `answer ${turn + 1}`, turn + 1)
+  }
+  await running
+  await mid
+
+  const log = rt.roomOf(room.id).log
+  const queued = rt.roomInbox.get(room.id) ?? []
+  const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+  const kept = text => log.some(line => line.text === text)
+    || JSON.stringify(queued).includes(text)
+    || JSON.stringify(waiting).includes(text)
+  assert.equal(kept(refused), true, 'the refused line is not gone without a trace')
+  assert.ok(refusal !== undefined || log.some(line => line.reason === 'unsaved'), 'the room hears the line was not saved')
+  assert.equal(kept(behind), true, 'the line queued behind it is not dropped')
+})
