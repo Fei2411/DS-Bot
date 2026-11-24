@@ -1220,8 +1220,8 @@ export function apply(ctx) {
     const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined
       ? async (ids) => {
           try {
-            await actions.steerQueueBatch(sessionId, ids)
-            return 'done'
+            const result = await actions.steerQueueBatch(sessionId, ids)
+            return result?.fallback === true ? 'fallback' : 'done'
           } catch (error) {
             return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
           }

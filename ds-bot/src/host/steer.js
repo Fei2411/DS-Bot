@@ -10,6 +10,7 @@
 //  - a running model call is cancelled (hook reason) and the steer is moved to
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
+import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
 import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
@@ -162,14 +163,16 @@ export function install(rt) {
     if (messageId === track.cutAnchorId) return
     const nextTurn = agent.inbox?.nextTurn ?? []
     const incoming = nextTurn.find(message => message?.id === messageId && message?.source?.kind === 'user')
+    if (incoming === undefined) return
     const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
-    if (incoming === undefined || anchor === undefined) return
     if (!agent.inbox.remove(incoming.id)) return
-    if (!agent.inbox.remove(anchor.id)) {
-      agent.inbox.append('next-turn', incoming)
-      return
+    if (anchor !== undefined) {
+      if (!agent.inbox.remove(anchor.id)) {
+        agent.inbox.append('next-turn', incoming)
+        return
+      }
+      agent.inbox.append('next-step', anchor)
     }
-    agent.inbox.append('next-step', anchor)
     agent.inbox.prepend('next-turn', incoming)
     track.cutAnchorId = incoming.id
   }
@@ -182,37 +185,43 @@ export function install(rt) {
     if (!privateOf(id) || rt.taskOwners?.has(id)) return { steered: 0 }
     const agent = liveAgent(id)
     if (agent === undefined || agent.status !== 'running') return { steered: 0 }
+    if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
     const nextTurn = agent.inbox?.nextTurn ?? []
-    const wanted = Array.isArray(ids) && ids.length > 0 ? new Set(ids) : undefined
+    const wanted = Array.isArray(ids) ? new Set(ids) : undefined
     const selected = nextTurn.filter(message => message?.source?.kind === 'user'
       && (wanted === undefined || wanted.has(message.id)))
     if (selected.length === 0) return { steered: 0 }
     const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {
+      // Let the caller fall back to per-row steering so `bot-tasks.js`
+      // foreground handoff isolates user input from hidden peer-Bot work.
+      return { steered: 0, fallback: true }
+    }
     const entry = rt.live.get(id)
     const activeInfo = entry?.info ?? entry?.claimed?.find(item => item?.silent !== true)
-    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo) || rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {
-      return { steered: 0 }
-    }
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return { steered: 0 }
     const track = stateOf(id)
     if (track.cutting && track.cutAnchorId !== undefined) {
       const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
       const additions = selected.filter(message => message.id !== track.cutAnchorId)
-      if (anchor === undefined || additions.length === 0) return { steered: 0 }
+      if (additions.length === 0) return { steered: 0 }
       const removed = []
       for (const message of additions) {
         if (agent.inbox.remove(message.id)) removed.push(message)
       }
       if (removed.length === 0) return { steered: 0 }
-      if (!agent.inbox.remove(anchor.id)) {
+      if (anchor !== undefined && !agent.inbox.remove(anchor.id)) {
         for (const message of removed) agent.inbox.append('next-turn', message)
         return { steered: 0 }
       }
       const tail = removed.pop()
-      const toNextStep = [anchor, ...removed]
-      if (typeof agent.inbox.splice === 'function') {
-        agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
-      } else {
-        for (const message of toNextStep) agent.inbox.append('next-step', message)
+      const toNextStep = anchor !== undefined ? [anchor, ...removed] : removed
+      if (toNextStep.length > 0) {
+        if (typeof agent.inbox.splice === 'function') {
+          agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
+        } else {
+          for (const message of toNextStep) agent.inbox.append('next-step', message)
+        }
       }
       agent.inbox.prepend('next-turn', tail)
       track.cutAnchorId = tail.id
@@ -615,14 +624,20 @@ export function install(rt) {
   // Track steer-mode prompt/updateQueue RPCs so steers arriving while a
   // STEER_CUT abort is winding down (where DSH's `wakingAfterAbort` lands them
   // in `next-turn`) fold into the active cut batch instead of queuing behind
-  // unsteered items.
+  // unsteered items. Patch the unwrapped Cordis service target (not its
+  // traceable proxy, which allocates a fresh shadow function on every read) so
+  // identity checks and cleanup restore the original method cleanly on unload.
   const controller = ctx.sessionController
-  if (controller !== undefined && (typeof controller.prompt === 'function' || typeof controller.updateQueue === 'function')) {
-    const origPrompt = typeof controller.prompt === 'function' ? controller.prompt : undefined
-    const origUpdateQueue = typeof controller.updateQueue === 'function' ? controller.updateQueue : undefined
+  const controllerTarget = controller?.[cordisSymbols.original] ?? controller
+  if (controllerTarget !== undefined && (typeof controllerTarget.prompt === 'function' || typeof controllerTarget.updateQueue === 'function')) {
+    const hadOwnPrompt = Object.hasOwn(controllerTarget, 'prompt')
+    const hadOwnUpdateQueue = Object.hasOwn(controllerTarget, 'updateQueue')
+    const origPrompt = typeof controllerTarget.prompt === 'function' ? controllerTarget.prompt : undefined
+    const origUpdateQueue = typeof controllerTarget.updateQueue === 'function' ? controllerTarget.updateQueue : undefined
+    const trackable = (id) => id !== undefined && privateOf(id) && !rt.taskOwners?.has(id)
     const wrappedPrompt = origPrompt === undefined ? undefined : async function (request, ...rest) {
       const id = request?.sessionId
-      const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && privateOf(id) ? request.requestId : undefined
+      const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && request.requestId !== '' && trackable(id) ? request.requestId : undefined
       const track = rpcId === undefined ? undefined : stateOf(id)
       track?.pendingSteerRpcs.add(rpcId)
       try {
@@ -633,7 +648,7 @@ export function install(rt) {
     }
     const wrappedUpdateQueue = origUpdateQueue === undefined ? undefined : async function (request, ...rest) {
       const id = request?.sessionId
-      const itemId = request?.action?.kind === 'steer' && typeof request?.itemId === 'string' && privateOf(id) ? request.itemId : undefined
+      const itemId = request?.action?.kind === 'steer' && typeof request?.itemId === 'string' && request.itemId !== '' && trackable(id) ? request.itemId : undefined
       const track = itemId === undefined ? undefined : stateOf(id)
       track?.pendingSteerIds.add(itemId)
       try {
@@ -643,11 +658,17 @@ export function install(rt) {
       }
     }
     ctx.effect(() => {
-      if (wrappedPrompt !== undefined) controller.prompt = wrappedPrompt
-      if (wrappedUpdateQueue !== undefined) controller.updateQueue = wrappedUpdateQueue
+      if (wrappedPrompt !== undefined) controllerTarget.prompt = wrappedPrompt
+      if (wrappedUpdateQueue !== undefined) controllerTarget.updateQueue = wrappedUpdateQueue
       return () => {
-        if (wrappedPrompt !== undefined && controller.prompt === wrappedPrompt) controller.prompt = origPrompt
-        if (wrappedUpdateQueue !== undefined && controller.updateQueue === wrappedUpdateQueue) controller.updateQueue = origUpdateQueue
+        if (wrappedPrompt !== undefined && controllerTarget.prompt === wrappedPrompt) {
+          if (hadOwnPrompt) controllerTarget.prompt = origPrompt
+          else delete controllerTarget.prompt
+        }
+        if (wrappedUpdateQueue !== undefined && controllerTarget.updateQueue === wrappedUpdateQueue) {
+          if (hadOwnUpdateQueue) controllerTarget.updateQueue = origUpdateQueue
+          else delete controllerTarget.updateQueue
+        }
       }
     }, 'ds-bot: steer cut tracking')
   }

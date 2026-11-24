@@ -58737,8 +58737,8 @@ function apply(ctx) {
     if (session === void 0) return;
     const steerBatch = roster.getSnapshot().byId?.[sessionId] !== void 0 ? async (ids) => {
       try {
-        await actions.steerQueueBatch(sessionId, ids);
-        return "done";
+        const result = await actions.steerQueueBatch(sessionId, ids);
+        return result?.fallback === true ? "fallback" : "done";
       } catch (error) {
         return error?.code === "bot/not-found" ? "fallback" : "failed";
       }

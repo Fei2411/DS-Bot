@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as realDelay } from 'node:timers/promises'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service, symbols as cordisSymbols } from '@deepseek-ai/cordis'
 import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
+import { install as installSteer } from '../src/host/steer.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -20,8 +21,8 @@ const committedUserTexts = (agent) => agent.session.snapshotEvents()
 
 async function createSteerLoopRig(t, {
   holdCallNumbers = new Set(),
+  holdPrepareSteps = new Set(),
   abortExitDelayMs = 0,
-  prepareDelayMs = 0,
   toolOnFirstCall = false,
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-steer-loop-'))
@@ -56,6 +57,12 @@ async function createSteerLoopRig(t, {
     callStarted.set(n, Promise.withResolvers())
     callGates.set(n, Promise.withResolvers())
   }
+  const prepareStarted = new Map()
+  const prepareGates = new Map()
+  for (const step of holdPrepareSteps) {
+    prepareStarted.set(step, Promise.withResolvers())
+    prepareGates.set(step, Promise.withResolvers())
+  }
 
   root.tools.register({
     name: 'slow_step',
@@ -77,9 +84,22 @@ async function createSteerLoopRig(t, {
     },
   })
 
-  if (prepareDelayMs > 0) {
-    root.on('agent/request', async (_req, next) => {
-      await realDelay(prepareDelayMs)
+  if (holdPrepareSteps.size > 0) {
+    let prepareCount = 0
+    root.on('agent/request', async (req, next) => {
+      const idx = ++prepareCount
+      if (holdPrepareSteps.has(idx)) {
+        prepareStarted.get(idx).resolve()
+        await new Promise((resolve) => {
+          if (req?.signal?.aborted) { resolve(); return }
+          const onAbort = () => resolve()
+          req?.signal?.addEventListener('abort', onAbort, { once: true })
+          prepareGates.get(idx).promise.then(() => {
+            req?.signal?.removeEventListener('abort', onAbort)
+            resolve()
+          })
+        })
+      }
       return next()
     })
   }
@@ -226,12 +246,13 @@ async function createSteerLoopRig(t, {
     try { agent.cancel({ kind: 'disposed' }) } catch {}
     toolGate.resolve()
     for (const gate of callGates.values()) gate.resolve()
+    for (const gate of prepareGates.values()) gate.resolve()
     await root.fiber.dispose()
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { root, ctx, rt, agent, sessionController, seenPrompts, completedReplies, callStarted, callGates, toolStarted, toolGate }
+  return { root, ctx, rt, agent, sessionController, seenPrompts, completedReplies, callStarted, callGates, prepareStarted, prepareGates, toolStarted, toolGate }
 }
 
 test('real DSH ReactLoopAgent: rapid followup + steer during preStep never swallows the first message', async (t) => {
@@ -256,11 +277,14 @@ test('real DSH ReactLoopAgent: burst of three rapid commands keeps all messages 
 })
 
 test('real DSH ReactLoopAgent: steer arriving during slow prepareRequest never swallows claimed message', async (t) => {
-  const rig = await createSteerLoopRig(t, { prepareDelayMs: 40 })
+  const rig = await createSteerLoopRig(t, { holdPrepareSteps: new Set([1]) })
   rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'FIRST_CMD' }], source: { kind: 'user' } }))
-  // Wait until step/start has fired and prepareRequest is awaiting agent/request.
-  await realDelay(15)
+  await rig.prepareStarted.get(1).promise
+  // Steer arrives deterministically while step 1 is inside prepareRequest (after step/start, before user/message).
   rig.agent.steer(createUserMessage({ content: [{ type: 'text', text: 'SECOND_CMD' }], source: { kind: 'user' } }))
+  await Promise.resolve()
+  await Promise.resolve()
+  rig.prepareGates.get(1).resolve()
   await rig.agent.whenIdle()
 
   assert.deepEqual(committedUserTexts(rig.agent), ['FIRST_CMD', 'SECOND_CMD'])
@@ -268,15 +292,18 @@ test('real DSH ReactLoopAgent: steer arriving during slow prepareRequest never s
 })
 
 test('real DSH ReactLoopAgent: multi-step tool turn preserves both step-2 claimed steer and follow-up steer during step-2 prepareRequest', async (t) => {
-  const rig = await createSteerLoopRig(t, { prepareDelayMs: 30, toolOnFirstCall: true })
+  const rig = await createSteerLoopRig(t, { holdPrepareSteps: new Set([2]), toolOnFirstCall: true })
   rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'START' }], source: { kind: 'user' } }))
   await rig.toolStarted.promise
   // First steer lands during tool execution and will be claimed by Step 2's preStep.
   rig.agent.steer(createUserMessage({ content: [{ type: 'text', text: 'STEER_DURING_TOOL' }], source: { kind: 'user' } }))
   rig.toolGate.resolve()
-  // Second steer lands while Step 2 is in prepareRequest (before STEER_DURING_TOOL commits).
-  await realDelay(10)
+  // Second steer lands deterministically while Step 2 is inside prepareRequest (before STEER_DURING_TOOL commits).
+  await rig.prepareStarted.get(2).promise
   rig.agent.steer(createUserMessage({ content: [{ type: 'text', text: 'STEER_DURING_STEP2_PREPARE' }], source: { kind: 'user' } }))
+  await Promise.resolve()
+  await Promise.resolve()
+  rig.prepareGates.get(2).resolve()
   await rig.agent.whenIdle()
 
   assert.deepEqual(committedUserTexts(rig.agent), ['START', 'STEER_DURING_TOOL', 'STEER_DURING_STEP2_PREPARE'])
@@ -337,4 +364,133 @@ test('real DSH ReactLoopAgent: rapid steers arriving during STEER_CUT abort wind
   const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
   assert.deepEqual(secondCall?.users, ['BASE', 'STEER_1', 'STEER_2', 'STEER_3'])
   assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'STEER_1', 'STEER_2', 'STEER_3', 'QUEUED_LATER', 'QUEUED_AFTER'])
+})
+
+test('real DSH ReactLoopAgent: updateQueue steer and bot-steer-queue during STEER_CUT abort window (including deleted anchor) keep FIFO order', async (t) => {
+  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]), abortExitDelayMs: 40 })
+  rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'BASE' }], source: { kind: 'user' } }))
+  await rig.callStarted.get(1).promise
+
+  const qKeep = createUserMessage({ content: [{ type: 'text', text: 'KEEP_QUEUED' }], source: { kind: 'user' } })
+  const q1 = createUserMessage({ content: [{ type: 'text', text: 'PROMOTE_1' }], source: { kind: 'user' } })
+  const q2 = createUserMessage({ content: [{ type: 'text', text: 'PROMOTE_2' }], source: { kind: 'user' } })
+  rig.agent.followup(qKeep)
+  rig.agent.followup(q1)
+  rig.agent.followup(q2)
+
+  // First steer triggers STEER_CUT; wait for maybeCut microtask.
+  const anchor = createUserMessage({ content: [{ type: 'text', text: 'ANCHOR' }], source: { kind: 'user' } })
+  rig.agent.steer(anchor)
+  await Promise.resolve()
+  await Promise.resolve()
+
+  // Simulate QueueDock deleting the anchor while STEER_CUT is still unwinding,
+  // then steering q1 via updateQueue and q2 via bot-steer-queue.
+  assert.equal(rig.agent.inbox.remove(anchor.id), true)
+  await rig.sessionController.updateQueue({ sessionId: 'dm-a', itemId: q1.id, action: { kind: 'steer' } })
+  const batchRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: [q2.id] })
+  assert.deepEqual(batchRes, { ok: true, value: { steered: 1 } })
+
+  await rig.agent.whenIdle()
+
+  const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
+  assert.deepEqual(secondCall?.users, ['BASE', 'PROMOTE_1', 'PROMOTE_2'])
+  assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'PROMOTE_1', 'PROMOTE_2', 'KEEP_QUEUED'])
+})
+
+test('real DSH ReactLoopAgent: bot-steer-queue with empty ids does not steer queued rows and hidden peer work signals fallback', async (t) => {
+  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]) })
+  rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'BASE' }], source: { kind: 'user' } }))
+  await rig.callStarted.get(1).promise
+
+  const q1 = createUserMessage({ content: [{ type: 'text', text: 'Q1' }], source: { kind: 'user' } })
+  rig.agent.followup(q1)
+
+  // Explicit empty ids must NOT escalate to steering all queued rows.
+  const emptyRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: [] })
+  assert.deepEqual(emptyRes, { ok: true, value: { steered: 0 } })
+  assert.equal(rig.agent.inbox.nextTurn.length, 1)
+  assert.equal(rig.agent.inbox.nextStep.length, 0)
+
+  // Hidden peer-Bot work requiring foreground isolation returns fallback: true so
+  // the client invokes per-row steering and triggers foreground handoff.
+  const origIsolate = rig.rt.mustIsolateHiddenWork
+  rig.rt.mustIsolateHiddenWork = () => true
+  try {
+    const hiddenRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: [q1.id] })
+    assert.deepEqual(hiddenRes, { ok: true, value: { steered: 0, fallback: true } })
+    assert.equal(rig.agent.inbox.nextTurn.length, 1)
+  } finally {
+    rig.rt.mustIsolateHiddenWork = origIsolate
+  }
+
+  rig.callGates.get(1).resolve()
+  await rig.agent.whenIdle()
+})
+
+test('real Cordis Service proxy: steer wrappers intercept through proxy and restore cleanly on plugin reload without leaking', async (t) => {
+  class RealSessionController extends Service {
+    constructor(ctx) {
+      super(ctx, 'sessionController')
+      this.calls = []
+    }
+    async prompt(request) {
+      this.calls.push(['prompt', request.requestId])
+      return { accepted: true }
+    }
+    async updateQueue(request) {
+      this.calls.push(['updateQueue', request.itemId])
+      return { accepted: true }
+    }
+  }
+
+  const root = new Context()
+  await root.plugin(RealSessionController)
+  t.after(() => root.fiber.dispose())
+
+  const rawTarget = root.sessionController[cordisSymbols.original]
+  assert.ok(rawTarget instanceof RealSessionController)
+  assert.notEqual(root.sessionController.prompt, root.sessionController.prompt, 'Cordis traceable proxy returns fresh shadow functions per read')
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false)
+
+  const makeRt = (ctx) => ({
+    ctx,
+    state: { prefs: {} },
+    chatOwners: new Map([['dm-a', 'a']]),
+    groupOwners: new Map(),
+    taskOwners: new Map(),
+    live: new Map(),
+    isBotSession: id => id === 'dm-a',
+  })
+
+  // First plugin mount wraps on the unwrapped Cordis target.
+  const fiber1 = root.plugin({
+    name: 'steer-reload-1',
+    inject: ['sessionController'],
+    apply(ctx) { installSteer(makeRt(ctx)) },
+  })
+  await fiber1
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), true)
+  assert.equal(Object.hasOwn(rawTarget, 'updateQueue'), true)
+  await root.sessionController.prompt({ sessionId: 'dm-a', requestId: 'r1', mode: 'steer', content: [] })
+  await root.sessionController.updateQueue({ sessionId: 'dm-a', itemId: 'm1', action: { kind: 'steer' } })
+
+  // Disposing the plugin must cleanly delete own wrappers and expose prototype methods again.
+  await fiber1.dispose()
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false, 'prompt wrapper must be removed on plugin unload')
+  assert.equal(Object.hasOwn(rawTarget, 'updateQueue'), false, 'updateQueue wrapper must be removed on plugin unload')
+  assert.equal(rawTarget.prompt, RealSessionController.prototype.prompt)
+  assert.equal(rawTarget.updateQueue, RealSessionController.prototype.updateQueue)
+
+  // Reinstalling a second time must not stack or leak the first instance.
+  const fiber2 = root.plugin({
+    name: 'steer-reload-2',
+    inject: ['sessionController'],
+    apply(ctx) { installSteer(makeRt(ctx)) },
+  })
+  await fiber2
+  await root.sessionController.prompt({ sessionId: 'dm-a', requestId: 'r2', mode: 'steer', content: [] })
+  await fiber2.dispose()
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false)
+  assert.deepEqual(rawTarget.calls, [['prompt', 'r1'], ['updateQueue', 'm1'], ['prompt', 'r2']])
 })
