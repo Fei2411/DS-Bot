@@ -15,7 +15,7 @@ export function createRoomReports(rt, deps) {
   const {
     batches,
     closeBatch,
-    dropMemberFromBatch,
+    exitMemberBatches,
     activeInRoom,
     runningRound,
     isFinalizing,
@@ -203,6 +203,7 @@ export function createRoomReports(rt, deps) {
   // (`ask_user` / interactive `show_view`), or held open solely by the waiting background
   // task that sent this report (`ignoreTaskId`), is not blocking this report.
   const batchMemberBusy = (room, id, ignoreTaskId, ignoreBotId) => {
+    if (!room.members.includes(id)) return false
     if (waitingForUser(room, id)) return false
     if (ignoreTaskId !== undefined && id === ignoreBotId && !memberBusyForReport(room, id, ignoreTaskId)) return false
     return true
@@ -344,21 +345,23 @@ export function createRoomReports(rt, deps) {
     }
   }
 
-  const trackScopedReport = (room, sender, extra, ids) => {
+  const trackScopedReport = (room, sender, extra, ids, afterSeq = nextRoomSeq(room), { paused = false } = {}) => {
     const id = extra.reportId ?? extra.sub ?? randomUUID()
     const existing = reports()[id]
     if (existing !== undefined) {
       existing.status = 'tracking'
-      existing.fromSeq = nextRoomSeq(room)
+      existing.fromSeq = afterSeq
       existing.ids = ids
+      if (paused) existing.paused = true
     } else {
       reports()[id] = createReport(room, {
         id,
         botId: sender.id,
         name: sender.name,
         status: 'tracking',
-        fromSeq: nextRoomSeq(room),
+        fromSeq: afterSeq,
         ids,
+        paused,
         sub: extra.sub,
         fromTaskId: extra.fromTaskId,
         fromRoomId: extra.fromRoomId,
@@ -596,7 +599,7 @@ export function createRoomReports(rt, deps) {
     }
     if (pruned) saveSoon()
     for (const room of touchedRooms) {
-      dropMemberFromBatch(room, botId)
+      await exitMemberBatches(room, botId)
       await settleRoomReports(room.id)
     }
   }
