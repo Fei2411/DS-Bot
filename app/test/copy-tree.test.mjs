@@ -97,6 +97,39 @@ test('skip order follows the walk, and force false keeps an existing destination
   assert.equal(readFileSync(kept, 'utf8'), 'kept')
 })
 
+test('the first link wins when destination names differ only in case', async (t) => {
+  const { from, into } = setup(t)
+  const first = join(into, 'Link')
+  const second = join(into, 'link')
+  const made = new Map()
+  const attempts = []
+  const exists = { isSymbolicLink: () => true }
+  const { promises } = disk
+  t.mock.method(promises, 'cp', async (origin, _into, { filter }) => {
+    await filter(join(origin, 'Link'))
+    await filter(join(origin, 'link'))
+  })
+  t.mock.method(promises, 'lstat', async path => {
+    if (path !== first && path !== second || made.has(path.toLowerCase())) return exists
+    throw new Error('destination does not exist')
+  })
+  t.mock.method(promises, 'readlink', async path => path.endsWith('Link') ? 'first-target' : 'second-target')
+  t.mock.method(promises, 'realpath', async path => path)
+  t.mock.method(promises, 'stat', async () => ({ isDirectory: () => false }))
+  const copyTree = await mockRelink(t, async (target, path) => {
+    attempts.push(path)
+    if (path === first) await setImmediate()
+    const key = path.toLowerCase()
+    if (made.has(key)) throw new Error('destination already exists')
+    made.set(key, target)
+  })
+
+  const skipped = await copyTree(from, into, { force: false, skip: true })
+  assert.equal(made.get(first.toLowerCase()), 'first-target')
+  assert.deepEqual(attempts, [first])
+  assert.deepEqual(skipped, [])
+})
+
 for (const abort of [true, false]) {
   test(`relinking drains pending writes before reporting ${abort ? 'an abort' : 'a failure'}`, { timeout: 5000 }, async (t) => {
     const { from, into } = setup(t)

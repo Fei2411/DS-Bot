@@ -93,26 +93,38 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
     },
   })
   const roots = [...new Set([resolve(from), origin])]
+  const byDestination = new Map()
+  for (const [index, path] of links.entries()) {
+    // The source can distinguish names that the destination volume treats as one.
+    const key = path.toUpperCase().normalize()
+    const group = byDestination.get(key)
+    if (group === undefined) byDestination.set(key, [index])
+    else group.push(index)
+  }
+  const groups = [...byDestination.values()]
   const skippedLinks = []
   let next = 0
   let failure
+  const stopped = () => failure !== undefined || signal?.aborted
   const worker = async () => {
-    while (failure === undefined && !signal?.aborted && next < links.length) {
-      const index = next++
-      const path = links[index]
-      const at = join(into, path)
-      if (!force && await lstat(at).then(() => true, () => false)) continue
-      if (failure !== undefined || signal?.aborted) return
-      try {
-        await relink(join(origin, path), at, roots, resolve(as))
-      } catch (error) {
-        if (skip) skippedLinks[index] = path
-        else if (failure === undefined || index < failure.index) failure = { index, error }
+    while (next < groups.length) {
+      for (const index of groups[next++]) {
+        if (stopped()) return
+        const path = links[index]
+        const at = join(into, path)
+        if (!force && await lstat(at).then(() => true, () => false)) continue
+        if (stopped()) return
+        try {
+          await relink(join(origin, path), at, roots, resolve(as))
+        } catch (error) {
+          if (skip) skippedLinks[index] = path
+          else if (failure === undefined || index < failure.index) failure = { index, error }
+        }
       }
     }
   }
   // Callers can remove their staging folder as soon as this returns or throws.
-  await Promise.all(Array.from({ length: Math.min(4, links.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(4, groups.length) }, worker))
   if (failure !== undefined) throw failure.error
   signal?.throwIfAborted()
   return skipped.concat(skippedLinks.filter(path => path !== undefined))
