@@ -190,9 +190,11 @@ test('a computer call row names the app and the action', () => {
 test('the computer settings page sits inside the scroll container', () => {
   const src = new URL('../src/client/settings.js', import.meta.url)
   const code = String((process.getBuiltinModule('node:fs')).readFileSync(src))
-  const scroll = code.indexOf('bt-settings-scroll')
+  // Computer use is a part of Tools; every part renders inside the page's scroll box.
+  assert.match(code, /case 'computer': return h\(ComputerPage/)
+  const scroll = code.indexOf("className: 'bt-settings-scroll bt-settings-page bt-settings-parts'")
   assert.ok(scroll > 0)
-  assert.ok(code.indexOf('h(ComputerPage') > scroll)
+  assert.ok(code.indexOf('partPage(key)', scroll) > scroll)
 })
 
 // The computer styles register in their own effect, like the other style packs.

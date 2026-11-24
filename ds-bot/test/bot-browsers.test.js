@@ -367,7 +367,7 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   const post = (endpoint, payload, signal) => {
     if (endpoint === 'browser-result') {
       results.push(payload)
-      if (offline) return Promise.reject(new Error('offline'))
+      if (offline) return Promise.reject(Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' }))
       return Promise.resolve(true)
     }
     if (endpoint !== 'browser-wait') return Promise.resolve(true)
@@ -390,6 +390,79 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   assert.deepEqual(results[1], results[0])
   assert.equal(results[1].ok, true)
   stop()
+})
+
+test('serveBrowserReads bounds a stalled poll and backs off before retrying', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const polls = []
+  const browsers = { pages: createSource(null), openPages: () => ({}) }
+  const stop = serveBrowserReads({
+    browsers, clientId: 'stalled',
+    post: (endpoint, payload, signal) => new Promise((resolve, reject) => {
+      polls.push(signal)
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }),
+  })
+  t.after(stop)
+  t.mock.timers.tick(7_999)
+  assert.equal(polls[0].aborted, false)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls[0].aborted, true)
+  t.mock.timers.tick(1_999)
+  assert.equal(polls.length, 1)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls.length, 2)
+})
+
+test('serveBrowserReads backs off on update-lock 503 even when the open pages change', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pages = createSource({})
+  const calls = []
+  const locked = Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+  const stop = serveBrowserReads({
+    browsers: { pages, openPages: pages.getSnapshot }, clientId: 'locked',
+    post: async (endpoint, payload, signal) => {
+      calls.push(payload)
+      if (calls.length === 1) pages.set({ bot: { url: 'https://example.com/' } })
+      if (calls.length <= 2) throw locked
+      if (calls.length === 3) return { requests: [] }
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    },
+  })
+  t.after(stop)
+  const flush = () => new Promise(resolve => setImmediate(resolve))
+  await flush()
+  t.mock.timers.tick(1_999)
+  assert.equal(calls.length, 1)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(3_999)
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 4)
+  assert.deepEqual(calls[2], { clientId: 'locked', open: { bot: { url: 'https://example.com/' } } })
+})
+
+test('stopping browser reads cancels an update-lock backoff without another poll', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let polls = 0
+  const stop = serveBrowserReads({
+    browsers: { pages: createSource({}), openPages: () => ({}) }, clientId: 'stopping',
+    post: async () => {
+      polls += 1
+      throw Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+    },
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  stop()
+  await new Promise(resolve => setImmediate(resolve))
+  t.mock.timers.tick(30_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls, 1)
 })
 
 test('browserAddress opens hosts over https, local addresses over http, and searches the rest', () => {

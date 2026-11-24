@@ -138,7 +138,7 @@ test('tools answer an inherited Bot name like any unknown name', async (t) => {
   const prototypeNames = Object.getOwnPropertyNames(Object.prototype)
   const before = state()
   for (const id of BAD) {
-    assert.equal(await tool('message_bot', { to: id, message: 'hi' }, 'm1'), `No Bot named ${id}. Team: Chief, Writer`)
+    assert.equal(await tool('delegate_work', { to: id, goal: 'hi' }, 'm1'), `No Bot named ${id}. Team: Chief, Writer`)
     assert.equal(await tool('update_bot', { bot: id, role: 'x' }, 'm1'), `No Bot named ${id}.`)
     assert.match(await tool('create_group', { members: [id, 'Writer'] }, 'm1'), new RegExp(`^No Bot named ${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
     // Asking as a Bot named like this finds no caller either.

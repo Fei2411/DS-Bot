@@ -134,3 +134,8 @@ export const PaletteIcon = lineIcon(['M10 3.25a6.75 6.75 0 1 0 0 13.5h1.2a1.7 1.
 // Puzzle piece: built-in plugins fallback (distinct from model sliders).
 export const PuzzleIcon = lineIcon(['M8 3.5a1.5 1.5 0 0 1 3 0v1.25h3.5a1 1 0 0 1 1 1v3.5h1.25a1.5 1.5 0 0 1 0 3H15.5v3.25a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1H8z'])
 export const SETTINGS_ICONS = { guide: CompassIcon, general: GearIcon, appearance: PaletteIcon, bots: PeopleIcon, groups: ChatsIcon, im: SendIcon, usage: GaugeIcon }
+export function OverviewIcon() {
+  return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, 'aria-hidden': true },
+    h('rect', { x: 3, y: 3, width: 6, height: 6, rx: 1.8 }), h('rect', { x: 11, y: 3, width: 6, height: 6, rx: 1.8 }),
+    h('rect', { x: 3, y: 11, width: 6, height: 6, rx: 1.8 }), h('rect', { x: 11, y: 11, width: 6, height: 6, rx: 1.8 }))
+}

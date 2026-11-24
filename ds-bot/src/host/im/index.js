@@ -8,7 +8,8 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { SOURCE_KIND } from '../constants.js'
+import { isSilentTurnText, SOURCE_KIND } from '../constants.js'
+import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 import { imViewChoices } from './view-choices.js'
@@ -40,6 +41,30 @@ const SENT_ID_LEN = 100
 // bounded even with many chats, so a connection with lots of chats cannot grow
 // it without limit (#1306 review).
 const SENT_STORE_LIMIT = 200_000
+
+// Keep the global cap as well as each chat's cap, evicting the oldest entries
+// first. Empty lists still count toward the limit until eviction is done.
+export function capSentStore(sent) {
+  let size = JSON.stringify(sent).length
+  if (size <= SENT_STORE_LIMIT) return
+  const byAge = []
+  for (const [chatKey, list] of Object.entries(sent)) {
+    if (!Array.isArray(list)) continue
+    for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
+  }
+  byAge.sort((a, b) => a.age - b.age)
+  for (const { chatKey, entry } of byAge) {
+    if (size <= SENT_STORE_LIMIT) break
+    const list = sent[chatKey]
+    const at = list.indexOf(entry)
+    if (at === -1) continue
+    list.splice(at, 1)
+    size -= JSON.stringify(entry).length + (list.length > 0 ? 1 : 0)
+  }
+  for (const [chatKey, list] of Object.entries(sent)) {
+    if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
+  }
+}
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
@@ -395,32 +420,6 @@ export function install(rt) {
     capSentStore(data.sent)
     scheduleWrite(id)
   }
-  // The runtime file is one blob, so bound the whole sent store, not just each
-  // chat's list. Collect every entry with its age and drop the oldest first —
-  // a chat's last message is the one a quoted reply is most likely to name, so
-  // it must survive even when older chats have to go. A single entry is already
-  // bounded above (text, id count and id length), so the store always converges.
-  const capSentStore = (sent) => {
-    let size = JSON.stringify(sent).length
-    if (size <= SENT_STORE_LIMIT) return
-    const byAge = []
-    for (const [chatKey, list] of Object.entries(sent)) {
-      if (!Array.isArray(list)) continue
-      for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
-    }
-    byAge.sort((a, b) => a.age - b.age)
-    for (const { chatKey, entry } of byAge) {
-      if (size <= SENT_STORE_LIMIT) break
-      const list = sent[chatKey]
-      const at = list.indexOf(entry)
-      if (at === -1) continue
-      list.splice(at, 1)
-      size = JSON.stringify(sent).length
-    }
-    for (const [chatKey, list] of Object.entries(sent)) {
-      if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
-    }
-  }
   // The text a quoted reply answers: the first of its ids that names a message
   // this chat sent, else the text the platform kept of that message. An id only
   // ever matches a message this connection actually sent there, so a wrong one
@@ -592,6 +591,12 @@ export function install(rt) {
   // Session id → the chat its running turn came from.
   const origins = new Map()
   const mixed = new Set()
+  // Sessions whose current turn began with non-IM input; async dispatch/task returns
+  // coalesced into the same turn must not retroactively claim IM delivery for it.
+  const nonImTurn = new Set()
+  // Groups that started a live non-IM (Web/Desktop) round in this process; cleared once
+  // the room becomes idle or an IM chat claims it.
+  const roomWebRounds = new Set()
 
   // The target a chat currently points at, as a comparable string. A direct chat falls
   // back to the connection's Bot; an unbound group chat has no target.
@@ -622,9 +627,7 @@ export function install(rt) {
   }
   const captureImOrigin = (sessionId) => {
     if (sessionId === undefined || mixed.has(sessionId)) return undefined
-    const entry = origins.get(sessionId)
-    if (entry === undefined) return undefined
-    return { connId: entry.connId, chatKey: entry.chatKey, senderId: entry.senderId, ...(entry.binding !== undefined ? { binding: entry.binding } : {}) }
+    return normalizeImOrigin(origins.get(sessionId))
   }
   const originFromSaved = (entry) => {
     if (entry?.connId === undefined || entry?.chatKey === undefined) return undefined
@@ -670,6 +673,8 @@ export function install(rt) {
       bound = conn === undefined ? undefined : bindingOf(conn, chatKey)
     }
     origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
+    const claimedRoom = rt.roomOf(sessionId)
+    if (claimedRoom !== undefined) roomWebRounds.delete(claimedRoom.id)
   }
   const forgetHeldOrigins = (sessionId) => {
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
@@ -683,6 +688,7 @@ export function install(rt) {
   const resetOrigin = (sessionId) => {
     origins.delete(sessionId)
     mixed.delete(sessionId)
+    nonImTurn.delete(sessionId)
     withheldOrigins.delete(sessionId)
   }
   const warnWithheldOrigin = (sessionId) => {
@@ -693,6 +699,50 @@ export function install(rt) {
   const clearImOrigin = (sessionId) => {
     resetOrigin(sessionId)
     detachHeldOrigin(sessionId)
+    const room = rt.roomOf(sessionId)
+    if (room !== undefined) roomWebRounds.delete(room.id)
+  }
+  const clearRoomWebRound = (roomId) => {
+    if (roomId !== undefined) roomWebRounds.delete(roomId)
+  }
+  const taintRoomImOrigin = (roomId, incomingOrigin) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    const live = origins.get(roomSid)
+    if (live !== undefined) {
+      if (!sameImChat(live, incomingOrigin)) {
+        dropOrigin(roomSid)
+        roomWebRounds.add(room.id)
+      }
+    } else {
+      roomWebRounds.add(room.id)
+    }
+  }
+  const hasActiveWebWork = (room, excludeSessionId) => {
+    if (room === undefined) return false
+    if (rt.roomActive?.(room.id) === true) return true
+    if (!roomWebRounds.has(room.id)) return false
+    const excludeBotId = excludeSessionId === undefined ? undefined : rt.groupOwners.get(excludeSessionId)?.botId
+    const hasNonImRoomTask = (botId) => (rt.botOf(botId)?.tasks ?? [])
+      .some(task => task && task.roomId === room.id && ['running', 'waiting_work', 'waiting_approval'].includes(task.status) && task.imOrigin === undefined)
+    const roomMidTurn = rt.live.get(rt.sessionOfRoom(room))?.turn !== undefined
+    const working = (roomMidTurn && (rt.roomInbox?.get(room.id)?.length ?? 0) > 0)
+      || rt.roomBatchPending?.(room.id) === true
+      || (rt.workingInRoom?.(room) ?? []).some((entry) => {
+        const id = entry.bot?.id
+        if (id === undefined || id === excludeBotId) return false
+        const sid = room.sessions?.[id]
+        const liveTurn = sid !== undefined && (rt.live.get(sid)?.turn !== undefined || rt.live.get(sid)?.retrying === true)
+        const liveSub = sid !== undefined && rt.hasSubagents?.(sid) === true
+        return liveTurn || liveSub || hasNonImRoomTask(id)
+      })
+      || (excludeSessionId !== undefined && (rt.hasSubagents?.(excludeSessionId) === true || (excludeBotId !== undefined && hasNonImRoomTask(excludeBotId))))
+      || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && id !== excludeSessionId
+        && (rt.live.get(id)?.turn !== undefined || rt.live.get(id)?.retrying === true))
+      || [...(rt.switchJobs?.() ?? [])].some(job => job.roomId === room.id && job.botId !== excludeBotId)
+    if (!working) roomWebRounds.delete(room.id)
+    return working
   }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
@@ -738,21 +788,58 @@ export function install(rt) {
     const owner = rt.groupOwners.get(sessionId)
     if (owner === undefined || saved === undefined) return
     const room = rt.roomOf(owner.roomId)
-    const roomSid = room?.sessionId ?? owner.roomId
-    if (originFromSaved(saved) === undefined) {
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    if (originFromSaved(saved) === undefined || saved.binding !== `room:${room.id}`) {
+      dropOrigin(roomSid)
+      return
+    }
+    if (nonImTurn.has(sessionId)) {
       dropOrigin(roomSid)
       return
     }
     const live = origins.get(roomSid)
-    if (live === undefined && !mixed.has(roomSid) && rt.roomActive?.(owner.roomId) !== true) {
+    if (live === undefined && !mixed.has(roomSid) && !hasActiveWebWork(room, sessionId)) {
       claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-    } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+    } else if (live !== undefined && !sameImChat(live, saved)) {
       dropOrigin(roomSid)
     }
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
   // A card answered here continues that turn: its replies belong to this chat too.
+  // Only approvals that belong directly to this chat's bound target claim it; approvals
+  // forwarded from a background task or a dispatched group report must never claim an
+  // unrelated foreground Web or IM turn on this Bot.
+  const shouldClaimApprovalChat = (conn, chat, entry) => {
+    if (entry === undefined || entry.taskId !== undefined) return false
+    const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
+    if (target === undefined) return false
+    if (target.roomId !== undefined) return entry.roomId === target.roomId
+    return entry.roomId === undefined && entry.botId === target.botId
+  }
+  const approvalOrigin = (entry) => {
+    if (entry.taskId !== undefined) {
+      const task = rt.taskById?.(entry.taskId)?.task
+      if (task?.imOrigin !== undefined) return originFromSaved(task.imOrigin)
+      if (entry.roomId !== undefined && task?.dispatchApprovalOrigin !== undefined) {
+        const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
+        if (mixed.has(roomSid)) return undefined
+        const saved = task.dispatchApprovalOrigin
+        const liveReport = rt.roomReportImOrigin?.(entry.roomId, entry.botId)
+        if (sameImOrigin(liveReport, saved)) {
+          return originFromSaved(saved)
+        }
+      }
+      return undefined
+    }
+    if (entry.roomId !== undefined) {
+      const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
+      if (mixed.has(roomSid)) return undefined
+      return originOf(roomSid) ?? originFromSaved(rt.roomReportImOrigin?.(entry.roomId, entry.botId))
+    }
+    return originOf(chatOfBot(entry.botId))
+  }
   const claimChat = (conn, chat, senderId) => {
     const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
     const sessionId = target?.roomId !== undefined ? (rt.roomOf(target.roomId)?.sessionId ?? target.roomId) : chatOfBot(target?.botId)
@@ -1263,11 +1350,13 @@ export function install(rt) {
           if (answered !== false) return
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
-        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
-        && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
-        const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
-        if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
-        if (answered !== false) return
+        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
+        const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
+        if (entry !== undefined) {
+          const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
+          if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
+          if (answered !== false) return
+        }
       }
     }
     if (target === undefined) {
@@ -1333,8 +1422,9 @@ export function install(rt) {
     }
     if (data.startsWith('a:') && cut > 2) {
       if (choice === 'allow' || choice === 'reject') {
+        const entry = rt.approvalsView?.().find(item => `a:${item.id}` === cardKey)
         const answered = await answerApprovalCard(conn, chat, cardKey, choice)
-        if (answered === 'answered') claimChat(conn, chat, action.sender.id)
+        if (answered === 'answered' && shouldClaimApprovalChat(conn, chat, entry)) claimChat(conn, chat, action.sender.id)
         else if (answered === false) await sendCardReply(conn, chat, text('stale'))
       }
     }
@@ -1430,10 +1520,7 @@ export function install(rt) {
       for (const entry of rt.approvalsView?.() ?? []) {
         const cardKey = `a:${entry.id}`
         const bot = rt.botOf(entry.botId)
-        // A task approval belongs strictly to the IM chat that started that task (never fall back to an unrelated foreground IM chat).
-        const origin = entry.taskId !== undefined
-          ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
-          : originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        const origin = approvalOrigin(entry)
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
@@ -1944,6 +2031,70 @@ export function install(rt) {
   // can tag a message with the platform it came from. A Session's entries go
   // when it stops being the chat's current part.
   const imVia = new Map()
+  // Live-only launch facts: replayed/persisted work must not inherit a new turn's chat.
+  const turnWork = new Map()
+  const ownsNotice = (sessionId, message) => {
+    if (rt.groupOwners.has(sessionId)) return false
+    const work = turnWork.get(sessionId)
+    const source = message?.source
+    let launch
+    if (source?.kind === 'tool-jobs') {
+      const text = message.content?.[0]?.text
+      const jobId = typeof text === 'string' ? /^background job (\S+)(?=\s|$)/.exec(text)?.[1] : undefined
+      launch = work?.jobs.get(jobId)
+    } else if (source?.kind === 'subagent-settled') {
+      launch = work?.children.get(source.senderSessionId)
+    }
+    return sameImOrigin(launch, origins.get(sessionId)) && originOf(sessionId) !== undefined
+  }
+  // Shared saved-origin restoration for background task reports and IM dispatch returns
+  // (`reply` / `report`). Never lets an async return retroactively claim a turn that began
+  // with non-IM input, and never re-arms a group while a live Web round or late Web member
+  // is still working in that group.
+  const restoreSavedOrigin = (sessionId, saved, { roomId, requireBinding = false, dropWhenUnsaved = false } = {}) => {
+    if (roomId !== undefined) {
+      const room = rt.roomOf(roomId)
+      const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+      if (roomSid === undefined) return
+      const valid = saved !== undefined && saved.mixed !== true
+        && originFromSaved(saved) !== undefined
+        && (!requireBinding || saved.binding === `room:${room.id}`)
+      if (valid) {
+        if (nonImTurn.has(sessionId)) {
+          dropOrigin(roomSid)
+          return
+        }
+        const live = origins.get(roomSid)
+        if (live === undefined && !hasActiveWebWork(room, sessionId) && !mixed.has(roomSid)) {
+          // Restore after restart even while sibling IM tasks run, but never reopen
+          // an active round, live Web work, or a round blocked by conflicting IM claims.
+          claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+        } else if (live !== undefined && !sameImChat(live, saved)) {
+          // A different IM chat currently owns the room; mix so neither chat sees the other's report.
+          dropOrigin(roomSid)
+        }
+      } else {
+        const hadOrigin = origins.has(roomSid)
+        const hadActiveWeb = dropWhenUnsaved && hasActiveWebWork(room, sessionId)
+        if (!hadOrigin) nonImTurn.add(sessionId)
+        roomWebRounds.add(room.id)
+        if (saved !== undefined || hadOrigin || hadActiveWeb) {
+          dropOrigin(roomSid)
+        }
+      }
+      return
+    }
+    const ownerBotId = rt.chatOwners.get(sessionId)
+    const valid = saved !== undefined && saved.mixed !== true
+      && originFromSaved(saved) !== undefined
+      && (!requireBinding || (ownerBotId !== undefined && saved.binding === `bot:${ownerBotId}`))
+    if (!valid || nonImTurn.has(sessionId)) {
+      if (!valid && !origins.has(sessionId)) nonImTurn.add(sessionId)
+      if (nonImTurn.has(sessionId) || saved !== undefined || dropWhenUnsaved) dropOrigin(sessionId)
+      return
+    }
+    claimOrigin(sessionId, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+  }
   const imViaView = () => {
     for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
     return Object.fromEntries([...imVia.entries()].map(([sessionId, seqs]) => [sessionId, { ...seqs }]))
@@ -1952,6 +2103,8 @@ export function install(rt) {
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
+      turnWork.set(session.id, { jobs: new Map(), children: new Map() })
+      nonImTurn.delete(session.id)
       const room = rt.roomOf(session.id)
       if (room === undefined) {
         resetOrigin(session.id)
@@ -1965,34 +2118,50 @@ export function install(rt) {
         if (!working) pendingReset.add(session.id)
       }
     }
+    if (event.type === 'job/registered' && event.data?.owner === session.id && typeof event.data.jobId === 'string') {
+      const origin = captureImOrigin(session.id)
+      if (origin !== undefined) turnWork.get(session.id)?.jobs.set(event.data.jobId, origin)
+    }
+    // Catalog entries are emitted on child creation, not when an existing child resumes.
+    if (event.type === 'subagent/catalog' && event.data?.version === 0
+      && ['one-shot', 'continuable'].includes(event.data.mode) && typeof event.data.childId === 'string') {
+      const origin = captureImOrigin(session.id)
+      if (origin !== undefined) turnWork.get(session.id)?.children.set(event.data.childId, origin)
+    }
     if (event.type === 'user/message') {
       const source = event.data?.source
       if (typeof source?.rpcId === 'string' && consumedRequests.has(source.rpcId)) return
       const savedRequest = weixinRequestOf(source, session.id)
       if (savedRequest?.entry.consumedOn !== undefined) return
-      // Pure context notice injected before the user's message on a newly forked foreground;
+      // Pure context notices (foreground handoff, silent Bot notes/cancellations/stops)
       // never touch pendingReset or drop/mix the IM origin for this turn.
-      if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
+      if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || source.silent === true || source.role === 'note' || source.role === 'cancelled' || source.role === 'stopped')) {
         // intentionally ignored
       } else {
         const imOrigin = source?.imOrigin
         const rpcId = source?.rpcId
-        // A late member result, part-switch handoff, or task report continues the work the chat asked for;
-        // any other first message starts a fresh turn, which clears the previous turn's origin.
+        // A late member result, part-switch handoff, or task report continues the work the
+        // chat asked for; any other first message starts a fresh turn, which clears the
+        // previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
-        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
+        const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
+        const isOpeningPost = source?.kind === SOURCE_KIND && source.role === 'post' && source.openingPost === true
+        const continuesRoomWork = typeof imOrigin === 'string' || isTaskReport
+          || (source?.kind === SOURCE_KIND && source.role === 'post' && !isOpeningPost)
+        if (pendingReset.delete(session.id) && !continuesRoomWork) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
         if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
-          // A job notice has no launch ID; a child ID can be reused by another subagent run.
-          dropOrigin(session.id)
-          const member = rt.groupOwners.get(session.id)
-          if (member !== undefined) {
-            const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
-            if (roomSid !== undefined) {
-              pendingReset.delete(roomSid)
-              dropOrigin(roomSid)
+          if (!ownsNotice(session.id, event.data)) {
+            dropOrigin(session.id)
+            const member = rt.groupOwners.get(session.id)
+            if (member !== undefined) {
+              const roomSid = rt.sessionOfRoom(rt.roomOf(member.roomId))
+              if (roomSid !== undefined) {
+                pendingReset.delete(roomSid)
+                dropOrigin(roomSid)
+              }
             }
           }
         } else if (typeof imOrigin === 'string') {
@@ -2006,28 +2175,16 @@ export function install(rt) {
           // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
           // the group's own Session without clobbering an unrelated live group origin.
           const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-          if (typeof source.roomId === 'string' && source.roomId !== '') {
-            const room = rt.roomOf(source.roomId)
-            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-            if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
-              const live = origins.get(roomSid)
-              const activeRound = rt.roomActive?.(room.id) === true
-              if (live === undefined && !activeRound && !mixed.has(roomSid)) {
-                // Restore after restart even while sibling tasks run, but never reopen
-                // an active non-IM round or a round blocked by conflicting IM claims.
-                claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-              } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
-                // A different IM chat currently owns the room; mix so neither chat sees the other's report.
-                dropOrigin(roomSid)
-              }
-            } else if (roomSid !== undefined && (saved !== undefined || origins.has(roomSid))) {
-              dropOrigin(roomSid)
-            }
-          } else if (originFromSaved(saved) === undefined) {
-            if (saved !== undefined) dropOrigin(session.id)
-          } else {
-            claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-          }
+          const roomId = typeof source.roomId === 'string' && source.roomId !== '' ? source.roomId : undefined
+          restoreSavedOrigin(session.id, saved, { roomId, requireBinding: false, dropWhenUnsaved: false })
+        } else if (isDispatchReturn) {
+          // Restore the originating IM chat when a Bot reply or group report returns for
+          // work dispatched from an IM turn (#1836, #1894), with pairing, binding and
+          // anti-mix checks. Non-IM dispatch returns joining an IM turn drop origin, and
+          // IM dispatch returns joining a non-IM turn never hijack it.
+          const saved = rt.imReplyOrigin?.(source.replyTo)
+          const owner = rt.groupOwners.get(session.id)
+          restoreSavedOrigin(session.id, saved, { roomId: owner?.roomId, requireBinding: true, dropWhenUnsaved: true })
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
           // Unknown requests cannot claim a chat. Consumed requests are ignored above,
@@ -2047,11 +2204,41 @@ export function install(rt) {
             claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
           }
         } else {
-          // Non-IM input can join the turn, but cannot claim or withdraw its IM chat.
+          // Non-IM input can join an already-claimed IM turn, but a turn that started with
+          // non-IM input must not be retroactively claimed by an async dispatch or task return.
+          const room = rt.roomOf(session.id)
+          if (room !== undefined) {
+            if (isOpeningPost) {
+              // An external post_to_group delivers via roomReports, never via the room's
+              // direct IM group claim: drop any live group claim and mark non-group activity.
+              if (origins.has(session.id)) dropOrigin(session.id)
+              roomWebRounds.add(room.id)
+            } else if (!origins.has(session.id)) {
+              roomWebRounds.add(room.id)
+            }
+          } else {
+            const memberOwner = rt.groupOwners.get(session.id)
+            if (memberOwner !== undefined) {
+              const memberRoom = rt.roomOf(memberOwner.roomId)
+              const memberRoomSid = memberRoom === undefined ? undefined : rt.sessionOfRoom(memberRoom)
+              const imGroupCall = source?.kind === SOURCE_KIND && source.role === 'room'
+                && memberRoomSid !== undefined && origins.has(memberRoomSid) && !mixed.has(memberRoomSid)
+              if (!imGroupCall) {
+                nonImTurn.add(session.id)
+                if (memberRoom !== undefined && (memberRoomSid === undefined || !origins.has(memberRoomSid))) {
+                  roomWebRounds.add(memberRoom.id)
+                }
+              }
+            } else if (!origins.has(session.id)) {
+              nonImTurn.add(session.id)
+            }
+          }
         }
       }
     }
     if (event.type === 'turn/end') {
+      turnWork.delete(session.id)
+      nonImTurn.delete(session.id)
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
@@ -2077,6 +2264,7 @@ export function install(rt) {
         continue
       }
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
+      if (item.kind === 'bot' && rt.live?.get(session.id)?.info?.kind === SOURCE_KIND && isSilentTurnText(body)) continue
       sendReply(origin, body, { sessionId: session.id, botId })
     }
   })
@@ -2096,10 +2284,7 @@ export function install(rt) {
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
       void (async () => {
-        const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const origin = data.taskId !== undefined
-          ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
-          : originOf(sessionId)
+        const origin = approvalOrigin(data)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
@@ -2144,5 +2329,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin })
 }

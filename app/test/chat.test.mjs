@@ -126,7 +126,6 @@ const view = (prefs, ready = true, question, { ui = {} } = {}) => {
   const listeners = new Set()
   const sent = []
   const answered = []
-  const stopped = []
   const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
   const team = {
     actions: {
@@ -148,7 +147,7 @@ const view = (prefs, ready = true, question, { ui = {} } = {}) => {
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, answered, stopped, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
+  return { sent, answered, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
 }
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {
@@ -159,6 +158,26 @@ test('with Enter sending on, a plain Enter sends the draft and clears it', async
   assert.equal(event.prevented, true)
   assert.deepEqual(plain(sent), [['b1', 'hi']])
   assert.equal(textarea(tree()).props.value, '')
+})
+
+test('hello clears a stale reply and its reload preserves the replayed preview', async () => {
+  const { tree, emit } = view({})
+  await tick()
+  const textOf = () => JSON.stringify(tree())
+  const target = { botId: 'b1', sessionId: 'b1', attemptId: 'old' }
+  emit('stream', { ...target, phase: 'start' })
+  emit('stream', { ...target, text: 'stale-preview' })
+  assert.ok(textOf().includes('stale-preview'))
+  emit('hello', {})
+  assert.ok(!textOf().includes('stale-preview'))
+  emit('stream', { ...target, attemptId: 'active', phase: 'start' })
+  emit('stream', { ...target, attemptId: 'active', text: 'replayed-preview' })
+  assert.ok(textOf().includes('replayed-preview'))
+  await tick()
+  assert.ok(textOf().includes('replayed-preview'))
+  emit('hello', {})
+  await tick()
+  assert.ok(!textOf().includes('replayed-preview'))
 })
 
 test('with Enter sending off, a plain Enter is a newline and the send button sends', async () => {

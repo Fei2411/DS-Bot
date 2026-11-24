@@ -244,9 +244,9 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
     },
     on: () => () => {},
   }
-  const served = ['read', 'subagent', 'workflow', 'message_bot', 'bot_remember', 'bot_recall', 'request_secret']
+  const served = ['read', 'subagent', 'workflow', 'delegate_work', 'bot_remember', 'bot_recall', 'request_secret']
   const first = await loadPlugin(dsh, home, { served })
-  await settle(() => registered.includes('message_bot'))
+  await settle(() => registered.includes('delegate_work'))
   await first.ctx.dispose()
   // The reload lifts the old scope with the old runtime; loading again puts the same
   // scope back, before any request of the running turn assembles.
@@ -254,7 +254,7 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
   denied.length = 0
   const second = await loadPlugin(dsh, home, { served })
   cleanup(t, home, second.ctx)
-  await settle(() => registered.includes('message_bot'))
+  await settle(() => registered.includes('delegate_work'))
   for (const name of ['bot_remember', 'bot_recall', 'request_secret']) assert.equal(registered.includes(name), true, name)
   // The delegation tools a Bot Session must not use stay masked.
   assert.equal(denied.includes('subagent'), true)
@@ -283,7 +283,7 @@ test('Bot memory tools coexist with another plugin memory tools in a Bot Session
   }
   const { ctx, rt } = await loadPlugin(dsh, home)
   cleanup(t, home, ctx)
-  await settle(() => registered.has('message_bot'))
+  await settle(() => registered.has('delegate_work'))
   rt.syncScopedTools()
   for (const name of ['bot_remember', 'bot_forget', 'bot_recall']) {
     assert.equal(typeof registered.get(name)?.execute, 'function', name)

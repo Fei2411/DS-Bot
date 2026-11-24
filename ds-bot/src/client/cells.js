@@ -305,7 +305,12 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
       return h(EventLine, {
         key: relay.seq,
-        prefix: source.role === 'stopped' ? t('Stopped by') : source.role === 'reply' ? t('Reply from') : t('Message from'),
+        prefix: source.role === 'stopped' ? t('Stopped by')
+          : source.role === 'cancelled' ? t('Cancelled by')
+            : source.role === 'note' ? t('Note from')
+              : source.role === 'ask_back' ? t('Question from')
+                : source.role === 'answer' ? t('Answer from')
+                  : source.role === 'reply' ? t('Reply from') : t('Message from'),
         bots: [sender],
         onOpen: () => { if (sender.id) actions.openExchange(selfId, sender.id) },
         whole: true,
@@ -666,7 +671,14 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case 'event': {
       if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
-      const prefix = { stopped: t('Stopped by'), reply: t('Reply from') }[row.role] ?? t('Message from')
+      const prefix = {
+        stopped: t('Stopped by'),
+        cancelled: t('Cancelled by'),
+        note: t('Note from'),
+        ask_back: t('Question from'),
+        answer: t('Answer from'),
+        reply: t('Reply from'),
+      }[row.role] ?? t('Message from')
       return h(EventLine, { key, prefix, bots: [other], onOpen: () => { if (selfId && other.id) actions.openExchange(selfId, other.id) }, whole: true })
     }
     default: return null
@@ -720,6 +732,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff' || source.role === 'handback') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
+      if (source.role === 'note' || source.role === 'cancelled' || source.silent === true) return null
       // A profile notice is the user's edit landing in the Bot's chat, not a peer
       // message: show it as an event, with no exchange to open.
       if (source.role === 'update') return h('div', { className: 'bt-event' }, t('Profile updated'))
@@ -727,8 +740,8 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         // A post logged into a running round already shows there, not again as a trigger.
         if (source.logged !== undefined) return null
         // A member's late failure, its work picked up after a restart, its work the user
-        // stopped, or the end of its work shows as an event of the round it opens.
-        if (source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) return null
+        // stopped, the end of its work, or a user-continued pause shows as an event of the round.
+        if (source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) return null
         const room = roster.roomsById[sessionId]
         const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
         // A post past what a message holds came as a file, with its start only.
@@ -765,7 +778,10 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         if (!bots.some(bot => bot.id === peer.id)) bots.push(peer)
       }
       return h(EventLine, {
-        prefix: source.role === 'stopped' ? t('Stopped by') : count > 1 ? t('{count} messages with', { count }) : t('Message from'),
+        prefix: source.role === 'stopped' ? t('Stopped by')
+          : source.role === 'ask_back' ? t('Question from')
+            : source.role === 'answer' ? t('Answer from')
+              : count > 1 ? t('{count} messages with', { count }) : t('Message from'),
         bots,
         onOpen: bot => actions.openExchange(selfId, bot.id),
         whole: true,
@@ -925,9 +941,22 @@ function toolActivity(name, arg, findBot, self) {
     case 'list_secrets': return { label: t('Checking the keys'), state: 'searching' }
     case 'ask_user_question': return { label: t('Waiting for your answer'), state: 'alert' }
     case 'group_relay': return { relay: true, state: 'orbit' }
-    case 'message_bot': {
+    case 'message_bot':
+    case 'delegate_work': {
       const target = findBot(arg('to'))
-      return { label: target ? t('Asking {name}', { name: target.name }) : t('Asking another Bot'), state: 'sending' }
+      return { label: target ? t('Delegating to {name}', { name: target.name }) : t('Delegating to another Bot'), state: 'sending' }
+    }
+    case 'ask_back':
+      return { label: t('Asking a teammate'), state: 'sending' }
+    case 'answer_work':
+      return { label: t('Answering a teammate'), state: 'sending' }
+    case 'cancel_work': {
+      const target = findBot(arg('target'))
+      return { label: target ? t('Cancelling work for {name}', { name: target.name }) : t('Cancelling delegated work'), state: 'sending' }
+    }
+    case 'note_bot': {
+      const target = findBot(arg('to'))
+      return { label: target ? t('Leaving a note for {name}', { name: target.name }) : t('Leaving a note'), state: 'sending' }
     }
     case 'stop_bot': {
       const target = findBot(arg('bot'))
@@ -989,10 +1018,28 @@ function helperFailureReason(reply) {
   return reply.helper ? `${reply.helper} (${why})` : why
 }
 
+function RoomPauseEvent({ reply, bot, room, canResume, actions }) {
+  const [busy, setBusy] = useState(false)
+  const onContinue = () => {
+    if (busy || !room?.id) return
+    setBusy(true)
+    Promise.resolve(actions.resumeRoomPause(room.id))
+      .catch(error => actions.reportError?.(error, 'room-pause'))
+      .finally(() => setBusy(false))
+  }
+  return h('div', { className: 'bt-event' },
+    h('span', null, reply.idle
+      ? t('{names} went back and forth {count} times without progress and paused. Write here to go on', { count: reply.count, names: [bot.name, ...(reply.names ?? [])].join(t(' and ')) })
+      : t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) })),
+    canResume
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: onContinue }, t('Continue'))
+      : null)
+}
+
 // One non-message row of a group round: the same event line the live view draws
 // for a reply that is not a member's message or the user's own line. `bot` is the
 // resolved member the reply names.
-function RelayEvent({ reply, bot, sessionId, actions }) {
+function RelayEvent({ reply, bot, room, sessionId, actions, latestPaused = false }) {
   if (reply.kind === 'failed') {
     return h('div', { className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
       t('{name} stopped: {reason}. Switch its model or ask it to go on.', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
@@ -1015,9 +1062,8 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   // Bots that went back and forth without progress. LEGACY: rounds from when groups
   // paused at a relay limit.
   if (reply.kind === 'paused') {
-    return h('div', { className: 'bt-event' }, reply.idle
-      ? t('{names} went back and forth {count} times without progress and paused. Write here to go on', { count: reply.count, names: [bot.name, ...(reply.names ?? [])].join(t(' and ')) })
-      : t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
+    const canResume = latestPaused && room?.idlePaused !== undefined && typeof actions?.resumeRoomPause === 'function'
+    return h(RoomPauseEvent, { reply, bot, room, canResume, actions })
   }
   if (reply.kind === 'resumed') {
     return h('div', { className: 'bt-event' }, t('{name} was cut off by a restart and picked its work back up', { name: bot.name }))
@@ -1134,8 +1180,16 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     return broken ? h('div', { className: 'bt-group-replies' }, h('div', { className: 'bt-event' }, t('The group replies could not be shown'))) : h(CellEmpty)
   }
   const room = roster.roomsById[sessionId]
+  const stacked = stackReplies(replies)
+  const latestRound = range === undefined || view?.open === true
+  let lastPausedIndex = -1
+  if (latestRound) {
+    for (let at = stacked.length - 1; at >= 0; at -= 1) {
+      if (stacked[at].reply.kind === 'paused') { lastPausedIndex = at; break }
+    }
+  }
   return h('div', { className: 'bt-group-replies' },
-    stackReplies(replies).map(({ reply, index, texts, time, duration, claims, changes }) => {
+    stacked.map(({ reply, index, texts, time, duration, claims, changes }, at) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
         return h('div', { key: `user-${index}`, className: 'bt-urow' },
@@ -1147,7 +1201,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           h('span', { className: 'bt-event-ico', 'aria-hidden': true }, h(GoalIcon)), goalEventText(reply))
       }
       if (reply.kind !== undefined) {
-        return h(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions })
+        return h(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, room, sessionId, actions, latestPaused: at === lastPausedIndex })
       }
       return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims, changes })
     }),
@@ -1164,7 +1218,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
 
@@ -1205,6 +1259,33 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
       if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't message {name}", { name: target.name }))
       return h(EventLine, { prefix: t('Messaged'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
+    }
+    case 'delegate_work': {
+      const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
+      if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't delegate to {name}", { name: target.name }))
+      const result = done ? contentText(call.content) : ''
+      const paused = /^Paused work\b/.test(result)
+      return h(EventLine, { prefix: paused ? t('Paused delegation to') : t('Delegated to'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
+    }
+    case 'note_bot': {
+      const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
+      if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't leave a note for {name}", { name: target.name }))
+      return h(EventLine, { prefix: t('Left a note for'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
+    }
+    case 'cancel_work': {
+      const rawTarget = arg('target')
+      const target = findBot(rawTarget)
+      if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't cancel work"))
+      if (target) return h(EventLine, { prefix: t('Cancelled work for'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
+      return h('div', { className: 'bt-event' }, rawTarget ? t('Cancelled work {ref}', { ref: rawTarget }) : t('Cancelled work'))
+    }
+    case 'ask_back': {
+      if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't ask back"))
+      return h('div', { className: 'bt-event' }, t('Asked caller for input'))
+    }
+    case 'answer_work': {
+      if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't answer work"))
+      return h('div', { className: 'bt-event' }, t('Answered teammate'))
     }
     case 'stop_bot': {
       const target = findBot(arg('bot')) ?? { name: arg('bot') ?? '…', color: 'gray' }

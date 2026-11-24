@@ -57,7 +57,7 @@ export function install(rt) {
   // Photos staged by `stage-image`, kept until the message that names them is sent.
   const staged = new Map()
   const ok = value => ({ ok: true, value })
-  const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
+  const fail = (message, code = 'bot/error', details = {}) => ({ ok: false, error: { code, message, details } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -85,15 +85,11 @@ export function install(rt) {
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
     // ones; `parts` the members' hidden group Sessions and their earlier segments,
-    // for usage; `sessionMembers` the member ids that currently have a group Session.
+    // for usage.
     rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, parts: ownParts, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId), ...(ownParts ?? []).map(segment => segment.sessionId)]
-      const sessionMembers = (room.members ?? []).filter((id) => {
-        const sid = rt.own(sessions, id)
-        return typeof sid === 'string' && sid !== ''
-      })
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, sessionMembers, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
     }),
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
@@ -148,7 +144,7 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -170,6 +166,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Plugin runtime summary (active slots, restart status, installed count) updates
+    // asynchronously as slots reconcile, so it rides on live().
+    plugins: rt.pluginsSummary?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -187,7 +186,8 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  READS.add('chatgpt')
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -299,6 +299,16 @@ export function install(rt) {
         // Model providers and their keys, for a window without DSH's own Models page.
         case 'providers':
           return ok(await rt.providersView())
+        case 'chatgpt':
+          return ok(await rt.chatgpt())
+        case 'chatgpt-sign-in':
+          return ok(await rt.chatgptSignIn(body))
+        case 'chatgpt-cancel':
+          return ok(await rt.chatgptCancel())
+        case 'chatgpt-sign-out':
+          return ok(await rt.chatgptSignOut())
+        case 'chatgpt-models':
+          return ok(await rt.chatgptModels())
         case 'provider-key':
           if (body.value === null) await rt.clearProviderKey(String(body.provider ?? ''))
           else await rt.setProviderKey(String(body.provider ?? ''), body.value)
@@ -402,6 +412,18 @@ export function install(rt) {
           await rt.load()
           if (rt.abandonWork?.(String(body.id ?? '')) !== true) return fail('That wait is no longer open', 'bot/stale')
           return ok(true)
+        case 'resume-work':
+          await rt.load()
+          if (typeof body.id !== 'string' || body.id.trim() === '' || await rt.resumePausedWork?.(body.id.trim()) !== true) return fail('That paused work is no longer open', 'bot/stale')
+          return ok(true)
+        case 'cancel-work':
+          await rt.load()
+          if (typeof body.id !== 'string' || body.id.trim() === '' || await rt.cancelWorkByUser?.(body.id.trim(), typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined) !== true) return fail('That work is no longer open', 'bot/stale')
+          return ok(true)
+        case 'resume-room-pause':
+          await rt.load()
+          if (typeof body.roomId !== 'string' || body.roomId.trim() === '' || await rt.resumeRoomPause?.(body.roomId.trim()) !== true) return fail('That group is not paused', 'bot/stale')
+          return ok(true)
         // The repair card's Retry, once the user fixed what failed the Bot's turn.
         case 'resume': {
           await rt.load()
@@ -437,7 +459,7 @@ export function install(rt) {
           return ok(view())
         case 'create-room': {
           await rt.load()
-          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, section: body.section, sectionId: body.sectionId, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
+          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, avatar: body.avatar, section: body.section, sectionId: body.sectionId, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
           if (body.greet === true) await rt.greetRoom(room.id).catch(error => rt.warn('ds-bot: greeting in %s failed: %s', room.name, error))
           return ok(room)
         }
@@ -445,6 +467,7 @@ export function install(rt) {
           await rt.load()
           const { room, changes } = await rt.updateRoom(body.id, {
             name: body.name,
+            avatar: body.avatar,
             notice: body.notice,
             mode: body.mode,
             admin: body.admin,
@@ -767,7 +790,7 @@ export function install(rt) {
           const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 100) : ''
           if (clientId === '') return fail('A browser poll needs a clientId', 'bot/invalid')
           await rt.load()
-          const requests = await rt.browserChannel.wait(clientId, rt.browserOpen(body.open))
+          const requests = await rt.browserChannel.wait(clientId, rt.browserOpen(body.open), signal)
           return ok({ requests, holds: rt.browserChannel.holdSnapshot() })
         }
         case 'browser-result':
@@ -848,28 +871,6 @@ export function install(rt) {
         case 'local-agent-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
-        // "New session" and "open an earlier session" on an abot's chat: ordinary
-        // parts moves (parts.js), the same mechanism every Bot's chat uses. `blank`
-        // starts the fresh part without the handoff package, `handoff` asks for the
-        // handoff explicitly; a member's group Session has no blank path.
-        case 'bot-new-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id), { blank: body.blank === true, handoff: body.handoff === true }))
-          const room = rt.roomOf(String(body.roomId))
-          if (room === undefined) return fail('Unknown group chat', 'bot/not-found')
-          if (!room.members.includes(bot.id)) return fail('Not a member of that group', 'bot/invalid')
-          const member = rt.own(room.sessions, bot.id)
-          if (typeof member !== 'string' || member === '') return fail('This Bot has no session in this group yet', 'bot/invalid')
-          return ok(await rt.newPart(member, { blank: body.blank === true, handoff: body.handoff === true }))
-        }
-        case 'bot-open-part': {
-          await rt.load()
-          const bot = rt.botOf(String(body.botId ?? ''))
-          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          return ok(await rt.switchPart(bot.id, String(body.sessionId ?? '')))
-        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
@@ -910,13 +911,17 @@ export function install(rt) {
             await rt.load()
             return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
           }
+          if (endpoint.startsWith('plugins-')) {
+            return ok(await rt.pluginEndpoint(endpoint.slice('plugins-'.length), body, signal))
+          }
           return fail(`Unknown endpoint ${endpoint}`, 'bot/not-found')
       }
     } catch (error) {
       const code = errorCode(error)
       const message = error?.message ?? String(error)
+      const details = error?.details && typeof error.details === 'object' ? error.details : {}
       if (code === 'bot/internal') rt.noteFailure({ source: 'api', text: `${endpoint}: ${message}`, code: error?.code ?? error?.name, stack: error?.stack })
-      return fail(message, code)
+      return fail(message, code, details)
     }
   }
 

@@ -67,6 +67,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
+    hasPlugins: () => true,
+    openPlugins: (focus = null) => openSettings('plugins', focus),
     setPanelView: (view) => {
       if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task') return
       ui.set(state => (state.details && state.view !== view ? { ...state, view, ...(view === 'details' ? { tab: null } : {}), panelYield: yieldTo(state, view) } : state))
@@ -172,12 +174,20 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     // Give up one wait the Bot has on a hand-off that will not come back.
     abandonWork: id => after(call('abandon-work', { id })),
+    resumeWork: id => after(call('resume-work', { id })),
+    cancelWork: (id, reason) => after(call('cancel-work', { id, ...(reason ? { reason } : {}) })),
+    resumeRoomPause: roomId => after(call('resume-room-pause', { roomId })),
     refreshModels: () => after(call('models')).catch(() => {}),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
     // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
     providers: () => call('providers'),
+    chatgpt: () => call('chatgpt'),
+    chatgptSignIn: body => call('chatgpt-sign-in', body),
+    chatgptCancel: () => call('chatgpt-cancel'),
+    chatgptSignOut: () => call('chatgpt-sign-out'),
+    chatgptModels: () => call('chatgpt-models'),
     setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
     addProvider: body => after(call('provider-add', body)),
     providerModels: body => call('provider-models', body),
@@ -220,14 +230,6 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
-    // The endpoint's own options: `roomId` for a member's group conversation, and
-    // `blank` or `handoff` for a Bot's own chat (neither keeps the older behavior).
-    newPart: (botId, { roomId, blank = false, handoff = false } = {}) => after(call('bot-new-part', {
-      botId,
-      ...(roomId !== undefined ? { roomId } : {}),
-      ...(blank ? { blank: true } : {}),
-      ...(handoff ? { handoff: true } : {}),
-    })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
@@ -323,6 +325,18 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
     setBotCapability: (botId, name, attached, mode = 'always') => after(call('bot-capability', { botId, name, attached, mode })),
+    pluginsList: (refresh = false) => call('plugins-list', { refresh }),
+    pluginsCatalogRefresh: () => call('plugins-catalog-refresh', {}),
+    pluginsInstall: body => after(call('plugins-install', body)),
+    pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
+    pluginsRemove: id => after(call('plugins-remove', { id })),
+    pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
+    pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
+    pluginsCustomSave: body => after(call('plugins-custom-save', body)),
+    pluginsSourceSave: body => after(call('plugins-source-save', body)),
+    pluginsSourceRemove: id => after(call('plugins-source-remove', { id })),
+    pluginsRetry: () => after(call('plugins-retry', {})),
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),

@@ -8,23 +8,26 @@ DS Bot is a team of long-lived LLM Bots built as a plugin on DeepSeek Harness (D
 
 - **DSH Desktop / DSH Web** with the `ds-bot` plugin, on the user's own computer.
 - **Desktop app** (`app/`, Electron) that runs a pinned DSH with the plugin in its own `DSH_HOME`, and imports a team from `~/.dsh` (read only).
-- **Docker** (`docker/`, `docker-compose.yml`): `dsh web` on `0.0.0.0:3080` (published as `0.0.0.0:13080`), `DSH_PERMISSION_MODE=danger-full-access`, approval `never`. The container is the sandbox boundary.
+- **Docker** (`docker/`, `docker-compose.yml`): DSH Web on the container's concrete address at port 3080 (the entrypoint translates `DSH_HOST=0.0.0.0`; published as `0.0.0.0:13080`), `DSH_PERMISSION_MODE=danger-full-access`, approval `never`. The container is the sandbox boundary.
+
+Each Bot has its own saved model/settings profile, separate from the host's DSH installation profile. Model Bots use DSH's agent loop and model service; local-agent routes run the CLI's tools and model access. Auxiliary model calls use the model service outside the agent loop. DeepSeek OCR/TTS/ASR and web search/fetch make direct service requests, so the DSH model route is not a universal outbound-request boundary. Phone and browser clients (`mobile/`, `link/`) access the running host over an encrypted link through a relay; browser clients additionally trust the page served by that relay.
 
 Trust boundaries:
 1. Untrusted content -> model -> Bot tools. Web pages, files, search results, connector/MCP results and messages from other Bots reach the model; the model's tool calls run with the Bot's permission preset.
 2. Ordinary Bot -> Main Bot rights (create/change/stop Bots, groups, folders), enforced in `ds-bot/src/host/tools.js` via `rt.isMain`.
 3. Model/tool output -> outbound model requests (secret redaction in `ds-bot/src/host/secrets.js`).
 4. Browser renderer -> host: `POST /api/bot` channel (`ds-bot/src/host/channel.js`, `ROUTE` in `constants.js`) and Electron IPC (`app/src/main.mjs`, `preload.cjs`).
-5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-html.js`, `sandbox="allow-scripts"` iframe without same-origin).
+5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-cell.js`, `sandbox="allow-scripts"` iframe without same-origin).
 6. Bot browser pages -> app (`app/src/bot-browser.mjs`, `bot-views.mjs`: sandboxed, contextIsolation, own partition).
 
 ## Components
 
-- **host** — plugin server side: `ds-bot/index.js`, `ds-bot/src/host/` (roster, tools, turns/delivery, groups, goals, parts, memory, schedules, permissions, privacy, folders, connectors, providers).
+- **host** — plugin server side: `ds-bot/index.js`, `ds-bot/src/host/` (roster, tools, turns/delivery, background tasks, groups/ledger, goals, parts, memory, schedules, permissions, privacy, folders, capabilities/packs, connectors, providers, local-agents, computer, im, phone/mobile, mcp-server).
 - **secrets** — `ds-bot/src/host/secrets.js` (`bot/secrets.json` mode 600, optional passphrase encryption at rest in `secrets-crypto.js`, `$DSH_SECRET_<NAME>`, redactor) and API keys/providers (`providers.js`, `models.js`).
-- **client** — browser UI: `ds-bot/src/client/` (incl. widget-html, read-page, connectors UI) and generated `ds-bot/client.js`.
-- **browser** — Bot browser bridge and browser plugins: `ds-bot/src/host/browser.js`, `browser-plugins.js`, `src/host/browser/`, `browser-plugins/`.
-- **desktop-app** — Electron app: `app/src/` (main, start-window, preload, IPC, cookie import, updates, import from `~/.dsh`, move-data), `app/engine/`.
+- **client** — browser UI: `ds-bot/src/client/` (incl. settings console, widget-cell, read-page, connectors UI) and generated `ds-bot/client.js`.
+- **browser & computer** — Bot browser bridge and browser plugins (`ds-bot/src/host/browser.js`, `browser-plugins.js`, `src/host/browser/`, `browser-plugins/`) and computer-use mediation (`ds-bot/src/host/computer/`).
+- **remote & im** — encrypted phone/browser link (`link/`, `mobile/`, `ds-bot/src/host/phone.js`, `mobile.js`), IM bridges (`ds-bot/src/host/im/`), and local MCP server (`ds-bot/src/host/mcp-server.js`).
+- **desktop-app** — Electron app: `app/src/` (main, start-window, preload, IPC, cookie import, updates, import from `~/.dsh`, move-data).
 - **web-search** — `ds-bot/web-search.js`.
 - **docker** — `docker/Dockerfile`, `entrypoint.sh`, `docker.patch.yml`, `docker-compose.yml`.
 
@@ -55,7 +58,7 @@ Trust boundaries:
 - Per-Bot permission presets (`permissions.js`), set on every Session.
 - Secrets: scoped per Bot (`canUse`), redacted from tool results and outbound model requests (`redactor`, JSON/URL-encoded forms).
 - Optional encryption at rest: the secrets file can be a scrypt + AES-256-GCM envelope. A passphrase unlocks it in Settings or, for unattended starts, from `DS_BOT_SECRETS_PASSPHRASE` or `DS_BOT_SECRETS_PASSPHRASE_FILE`; a locked store has no values, refuses secret writes, and shows why in Settings.
-- Connectors refuse non-HTTPS addresses (`connectors.js`).
+- Remote connectors require HTTPS, except custom connectors can use HTTP on localhost/127.*; custom local commands are also supported (`connectors/index.js`).
 - HTML widgets in `sandbox="allow-scripts"` iframes; Electron webviews sandboxed with contextIsolation and own partitions; IPC handlers call `assertWindow(event)`.
 - Cookie values stay in the Electron main process (`cookie-import.mjs`).
 - Launch token redacted from host logs (`host-process.mjs`).

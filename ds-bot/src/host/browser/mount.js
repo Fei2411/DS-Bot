@@ -75,7 +75,8 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
   // DSH's public surface API, keeping the original log for the transcript.
-  ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+  const offPreStep = ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+    if (disposed) return next()
     const session = agent.session
     let changed = false
     for (const seq of session.surface?.nodes ?? []) {
@@ -108,13 +109,20 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     sessions.delete(botId)
     void Promise.resolve(session).then(s => s.close(), () => {}).catch(() => {})
   })
-  ctx.effect(() => async () => {
+  let closing = null
+  const closeAll = () => {
+    if (closing) return closing
     disposed = true
-    unsubscribeHolds?.()
-    const open = [...sessions.values()]
-    sessions.clear()
-    await Promise.all(open.map(session => Promise.resolve(session).then(opened => opened.close(), () => {})))
-  }, 'ds-bot: browser plugin')
+    closing = (async () => {
+      try { offPreStep?.() } catch { /* ignore */ }
+      try { unsubscribeHolds?.() } catch { /* ignore */ }
+      const open = [...sessions.values()]
+      sessions.clear()
+      await Promise.all(open.map(session => Promise.resolve(session).then(opened => opened.close(), () => {})))
+    })()
+    return closing
+  }
+  const offEffect = ctx.effect(() => () => closeAll(), 'ds-bot: browser plugin')
 
   // Closes a Bot's browser and removes its profile directory; used when the Bot is deleted.
   async function drop(botId) {
@@ -142,7 +150,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
           // Store the opening promise before resolving roots so concurrent calls share the launch.
           const opening = Promise.resolve().then(async () => {
             const roots = downloadRoots ? await downloadRoots(botId) : undefined
-            return openSession({
+            const opened = await openSession({
               botId,
               profileRoot,
               downloadDir: roots === undefined
@@ -158,6 +166,11 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
               onHold: hold => onHold?.(botId, hold),
               uploadRoots: uploadRoots ? () => uploadRoots(botId) : undefined,
             })
+            opened.signal?.throwIfAborted()
+            opened.signal?.addEventListener('abort', () => {
+              if (sessions.get(botId) === opening) sessions.delete(botId)
+            }, { once: true })
+            return opened
           })
           sessions.set(botId, opening)
           opening.catch(() => {
@@ -202,5 +215,9 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   if (api) {
     api.drop = drop
     api.frame = async botId => (await sessions.get(botId))?.frame?.()
+    api.dispose = async () => {
+      try { offEffect?.() } catch { /* ignore */ }
+      await closeAll()
+    }
   }
 }

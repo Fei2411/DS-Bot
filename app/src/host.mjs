@@ -31,6 +31,15 @@ async function main() {
   const office = check === undefined ? reconcileOfficeRuntime(profile) : { patchFiles: [] }
   // ds-bot reads the payload's Node for the Office commands it runs itself.
   if (office.node !== undefined) process.env.DS_BOT_OFFICE_NODE = office.node
+  // ds-bot's plugin runtime reuses the bundled pnpm for npm-packaged MCP presets
+  // when neither npx nor pnpm is installed on the user's PATH.
+  if (pnpm !== undefined) {
+    process.env.DS_BOT_PACKAGE_MANAGER = JSON.stringify({
+      command: process.execPath,
+      args: ['--expose-internals', pnpm],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    })
+  }
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: check === undefined ? PROFILE : CHECK_PROFILE,

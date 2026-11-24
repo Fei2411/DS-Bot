@@ -2,11 +2,13 @@
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
+import { BotAvatar } from './mark.js'
 import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { isLocalRoute } from './agent-routes.js'
 import { hostText, t } from './i18n.js'
+import { ChatGPTSettings } from './chatgpt-settings.js'
 
 const PROTOCOL_NAMES = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -22,7 +24,7 @@ const ENDPOINT_HINTS = {
 const SHOWN_MODELS = 8
 
 // A failure in the interface language; the dialog's error line shows it.
-const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
+export const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
 
 // A discovery result as a draft: what the endpoint returned is selected; entries the
 // endpoint no longer returns stay visible and selected, so a smaller upstream list never
@@ -139,6 +141,7 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
     h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn, tour: 'provider-list' },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions, roster, revision: view.revision,
+        chatgptProvider: view.providers.find(entry => entry.auth === 'chatgpt'),
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
@@ -155,7 +158,7 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
-export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle }) {
+export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle, chatgptProvider }) {
   const [confirm, setConfirm] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState('')
@@ -168,10 +171,11 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
     setRefreshError('')
     setConfirmRemove(false)
   }, [open])
-  const state = keyState(provider.key)
+  const isChatGPT = provider.auth === 'chatgpt'
+  const state = isChatGPT ? null : keyState(provider.key)
   const shown = provider.models.slice(0, SHOWN_MODELS)
   const hint = provider.error ?? (provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
-  const canRefresh = provider.refreshable === true
+  const canRefresh = provider.refreshable === true && !isChatGPT
   const refresh = () => {
     if (!canRefresh || refreshing) return
     setRefreshing(true)
@@ -239,12 +243,16 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       h('span', { className: 'bt-set-copy' },
         h('span', { className: 'bt-secret-title' }, provider.name, provider.name !== provider.id ? h('span', { className: 'bt-provider-id' }, provider.id) : null),
         h('span', { className: 'bt-set-hint', 'data-error': provider.error ? '' : undefined }, hint)),
-      state ? h('span', { className: 'bt-set-control' }, h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1])) : null),
+      h('span', { className: 'bt-set-control' },
+        h(UsedBy, { bots: usersOf(provider, roster) }),
+        state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null)),
     open ? h('div', { className: 'bt-secret-edit' },
-      provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
-      provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
-      modelsBlock,
-      provider.removable ? h('div', { className: 'bt-secret-row-actions' },
+      !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
+      !isChatGPT && provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
+      (provider.id === 'openai' || isChatGPT) && actions.chatgpt
+        ? h(ChatGPTSettings, { actions, apply, provider: isChatGPT ? provider : chatgptProvider }) : null,
+      isChatGPT ? null : modelsBlock,
+      !isChatGPT && provider.removable ? h('div', { className: 'bt-secret-row-actions' },
         confirm
           ? [
               h('span', { key: 'q', className: 'bt-set-hint' }, t('Remove {name}? Bots on its models need another model.', { name: provider.name })),
@@ -294,7 +302,21 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
       }, confirmRemove && (switching.length > 0 || failed.length > 0) ? t('Save anyway') : t('Save'))))
 }
 
-function KeyEditor({ provider, apply, actions }) {
+// The Bots whose model this provider serves, a few faces deep.
+export const usersOf = (provider, roster) => {
+  const refs = new Set(provider.models.map(model => model.ref))
+  return (roster?.bots ?? []).filter(bot => refs.has(bot.model ?? bot.appliedModel))
+}
+export function UsedBy({ bots, size = 20, max = 4 }) {
+  if (bots.length === 0) return null
+  const names = bots.map(bot => bot.name).join(t(', '))
+  return h('span', { className: 'bt-used-by', role: 'img', 'aria-label': t('Used by {names}', { names }), title: names },
+    bots.slice(0, max).map(bot => h('span', { key: bot.id, className: 'bt-used-by-face' }, h(BotAvatar, { bot, size, badge: false, live: false }))),
+    bots.length > max ? h('span', { className: 'bt-used-by-more' }, `+${bots.length - max}`) : null)
+}
+
+// `compact`: the one-line form Overview shows, without the heading or the remove button.
+export function KeyEditor({ provider, apply, actions, compact = false }) {
   const [value, setValue] = useState('')
   const [saved, setSaved] = useState(false)
   const ready = value.trim() !== ''
@@ -304,6 +326,11 @@ function KeyEditor({ provider, apply, actions }) {
   }
   const edit = (next) => { setValue(next); setSaved(false) }
   const label = t('{provider} API key', { provider: provider.name })
+  if (compact) {
+    return h('div', { className: 'bt-secret-inline bt-key-compact' },
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label })),
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save')))
+  }
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, provider.key.configured ? t('Replace the API key') : t('API key')),
     h('div', { className: 'bt-secret-inline' },
@@ -337,6 +364,8 @@ function KnownForm({ view, apply, actions, onDone }) {
     h('select', { className: 'bt-select', 'aria-label': t('Provider'), value: provider, onChange: event => setProvider(event.target.value) },
       h('option', { value: '', disabled: true }, t('Choose a provider')),
       options.map(option => h('option', { key: option.id, value: option.id }, option.name))),
+    provider === 'openai' && actions.chatgpt
+      ? h(ChatGPTSettings, { actions, apply, provider: view.providers.find(entry => entry.auth === 'chatgpt') }) : null,
     h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: key, onChange: setKey, onEnter: add, label: t('API key') })),
     h(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== '' }))
 }
@@ -404,6 +433,12 @@ function FormActions({ onCancel, onAdd, ready }) {
 
 export const PROVIDERS_CSS = `
 .bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
+.bt-chatgpt{padding:12px;border:1px solid var(--bt-line);border-radius:12px;min-width:0}
+.bt-chatgpt-account{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.bt-chatgpt .bt-set-hint{margin:0}
+.bt-chatgpt [data-error]{color:var(--bt-danger)}
+.bt-chatgpt .bt-secret-row-actions{flex-wrap:wrap}
+.bt-chatgpt button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-provider .bt-set-hint[data-error]{color:var(--bt-danger)}
 .bt-provider-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 .bt-provider-state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3)}
