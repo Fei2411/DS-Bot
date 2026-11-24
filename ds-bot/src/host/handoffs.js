@@ -262,9 +262,9 @@ export function install(rt) {
   // Pair loop guard: tracks consecutive Bot-to-Bot delegations between (a, b) since the
   // last user message to either Bot, expiring after PAIR_LOOP_TTL_MS of inactivity.
   // Reciprocal zero-work bounces (B -> A right after A -> B) or ACK/wrap-up ping-pong
-  // pause immediately after 1 empty round-trip; substantive same-direction pure-LLM
-  // follow-ups allow 1 extra round-trip before pausing at 2; real-work rework loops
-  // pause at WORK_REWORK_CHECKPOINT so the user can continue.
+  // pause immediately at 2 (after 1 empty round-trip); same-direction substantive
+  // pure-LLM delegations (neither call nor reply is ack-like) are governed by
+  // WORK_REWORK_CHECKPOINT (4) so multi-section drafting/translation/review runs smoothly.
   function noteWorkCompleted(fromId, toId, { worked = false, id, text = '' } = {}) {
     if (!fromId || !toId || fromId === toId) return
     const key = pairKey(fromId, toId)
@@ -317,7 +317,7 @@ export function install(rt) {
     if (!callerWorked) {
       const idleBounces = entry.idleBounces ?? 0
       const reciprocalOrAck = entry.lastFrom === toId || entry.lastAck === true || isAckLikeText(text)
-      if (idleBounces >= 2 || (idleBounces >= 1 && reciprocalOrAck)) {
+      if (idleBounces >= 1 && reciprocalOrAck) {
         return { pause: 'idle_loop', bounces: idleBounces + 1 }
       }
     }

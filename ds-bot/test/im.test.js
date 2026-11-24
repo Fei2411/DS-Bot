@@ -2235,45 +2235,90 @@ for (const group of [false, true]) {
     })
   }
 
-  test(`whole-turn IM origin: every reply survives mid-turn non-IM input in a ${group ? 'group' : 'direct'} turn`, async (t) => {
-    const s = await start()
-    t.after(s.stop)
-    const { one } = await pairedConn(s)
-    if (group) {
+  if (!group) {
+    test('whole-turn IM origin: every reply survives mid-turn non-IM input in a direct turn', async (t) => {
+      const s = await start()
+      t.after(s.stop)
+      await pairedConn(s)
+      await dm(s, 'u1', 'hi')
+      s.imTurn('a')
+      s.fake.sent.length = 0
+      const replies = []
+      const reply = () => {
+        const text = `reply ${replies.length + 1}`
+        replies.push(['dm-u1', text])
+        s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text }] } })
+      }
+      reply()
+      for (const source of [
+        { kind: 'user' },
+        { kind: 'web' },
+        { kind: 'phone' },
+        { kind: 'schedule', taskId: 't1' },
+        { kind: 'peer', from: 'b' },
+        { kind: 'bot', role: 'post' },
+        { kind: 'bot', role: 'task-report', taskId: 'desktop-task' },
+        undefined,
+      ]) {
+        s.emitEvent('a', 'user/message', { source })
+        reply()
+        reply()
+      }
+      await s.flush()
+      assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), replies)
+    })
+  } else {
+    test('group IM origin: same-IM follow-up, continuation post, and card answer preserve origin; non-IM inputs immediately drop forwarding', async (t) => {
+      const s = await start()
+      t.after(s.stop)
+      const { one } = await pairedConn(s)
       one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
       await s.rt.save()
+
+      // Legitimate same-IM follow-up, member continuation post, and card answer preserve active IM origin.
       await gm(s, 'u1', 'hello group')
-    } else {
-      await dm(s, 'u1', 'hi')
-    }
-    const sessionId = group ? 'r1' : 'a'
-    s.imTurn(sessionId)
-    s.fake.sent.length = 0
-    const replies = []
-    const reply = () => {
-      const text = `reply ${replies.length + 1}`
-      replies.push([group ? 'g1' : 'dm-u1', group ? `**Writer**: ${text}` : text])
-      if (group) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text })
-      else s.emitEvent(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text }] } })
-    }
-    reply()
-    for (const source of [
-      { kind: 'user' },
-      { kind: 'web' },
-      { kind: 'phone' },
-      { kind: 'schedule', taskId: 't1' },
-      { kind: 'peer', from: 'b' },
-      { kind: 'bot', role: 'post' },
-      ...(!group ? [{ kind: 'bot', role: 'task-report', taskId: 'desktop-task' }] : []),
-      undefined,
-    ]) {
-      s.emitEvent(sessionId, 'user/message', { source })
-      reply()
-      reply()
-    }
-    await s.flush()
-    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), replies)
-  })
+      s.imTurn('r1')
+      s.fake.sent.length = 0
+      s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply 1' })
+      await gm(s, 'u1', 'same IM follow-up')
+      s.emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+      s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply 2' })
+      s.emitEvent('r1', 'user/message', { source: { kind: 'bot', role: 'post' } })
+      s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply 3' })
+      s.emitEvent('r1', 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' } })
+      s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply 4' })
+      await s.flush()
+      assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [
+        ['g1', '**Writer**: reply 1'],
+        ['g1', '**Writer**: reply 2'],
+        ['g1', '**Writer**: reply 3'],
+        ['g1', '**Writer**: reply 4'],
+      ])
+
+      // Any non-IM input joining an active IM group round immediately drops IM forwarding.
+      for (const [label, source] of [
+        ['desktop/web user', { kind: 'user' }],
+        ['web', { kind: 'web' }],
+        ['phone', { kind: 'phone' }],
+        ['schedule', { kind: 'schedule', taskId: 't1' }],
+        ['goal step', { kind: 'bot', role: 'goal', goal: 'step', roomId: 'r1' }],
+        ['opening post_to_group', { kind: 'bot', role: 'post', openingPost: true }],
+        ['peer', { kind: 'peer', from: 'b' }],
+        ['undefined source', undefined],
+      ]) {
+        s.rt.clearImOrigin('r1')
+        await gm(s, 'u1', `im round before ${label}`)
+        s.imTurn('r1')
+        s.fake.sent.length = 0
+        s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: `before ${label}` })
+        s.emitEvent('r1', 'user/message', { source })
+        assert.equal(s.rt.captureImOrigin('r1'), undefined, `${label} must immediately drop active group IM origin`)
+        s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: `private after ${label}` })
+        await s.flush()
+        assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', `**Writer**: before ${label}`]], `${label} must stop subsequent replies from leaking to IM`)
+      }
+    })
+  }
 }
 
 for (const working of [true, false]) test(`desktop round after IM group round, member work=${working}`, async (t) => {
@@ -2320,26 +2365,44 @@ test('a desktop task report before an IM group message does not poison the activ
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: IM reply']])
 })
 
-for (const active of ['round', 'member']) test(`Web input joining an ongoing group ${active} keeps the IM origin`, async (t) => {
+for (const active of ['round', 'member']) test(`Web, schedule, or goal input joining an ongoing group ${active} drops the IM origin`, async (t) => {
   const s = await start()
   t.after(s.stop)
   const { one } = await pairedConn(s)
   one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
   await s.rt.save()
-  await gm(s, 'u1', 'hello group')
-  s.imTurn('r1')
-  s.emitEvent('r1', 'turn/end', {})
-  s.rt.roomActive = () => active === 'round'
-  if (active === 'member') {
-    s.rt.groupOwners.set('member-session', { roomId: 'r1', botId: 'b' })
-    s.emitEvent('member-session', 'turn/start', { turn: 1 })
+  for (const [label, source] of [
+    ['Web steer', { kind: 'user' }],
+    ['schedule', { kind: 'schedule', taskId: 't1' }],
+    ['goal', { kind: 'bot', role: 'goal', goal: 'step', roomId: 'r1' }],
+  ]) {
+    s.rt.clearImOrigin('r1')
+    s.rt.roomActive = () => false
+    await gm(s, 'u1', `hello group (${label})`)
+    s.imTurn('r1')
+    s.emitEvent('r1', 'turn/end', {})
+    s.rt.roomActive = () => active === 'round'
+    if (active === 'member') {
+      s.rt.groupOwners.set('member-session', { roomId: 'r1', botId: 'b' })
+      s.emitEvent('member-session', 'turn/start', { turn: 1 })
+    }
+    s.fake.sent.length = 0
+    s.emitEvent('r1', 'turn/start', {})
+    s.emitEvent('r1', 'user/message', { source, content: [{ type: 'text', text: label }] })
+    s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: `private reply for ${label}` })
+    s.emitEvent('r1', 'turn/end', {})
+    await s.flush()
+    assert.deepEqual(s.fake.sent, [], `${label} joining active group ${active} must cut off IM forwarding`)
+
+    // Once the group becomes idle again, a fresh IM message cleanly reclaims g1.
+    s.rt.roomActive = () => false
+    if (active === 'member') s.emitEvent('member-session', 'turn/end', { turn: 1 })
+    await gm(s, 'u1', `later IM after ${label}`)
+    s.imTurn('r1')
+    s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: `IM reply after ${label}` })
+    await s.flush()
+    assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', `**Writer**: IM reply after ${label}`]])
   }
-  s.fake.sent.length = 0
-  s.emitEvent('r1', 'turn/start', {})
-  s.emitEvent('r1', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web steer' }] })
-  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'continued answer' })
-  await s.flush()
-  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: continued answer']])
 })
 
 test('reply origin: the turn ending stops later output from going out', async (t) => {
@@ -3462,7 +3525,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await delay(30)
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: member finished after switch']])
 
-  // 5. Web UI input during the group folder switch keeps the IM origin for the ongoing work.
+  // 5. Web UI takeover during the group folder switch drops the IM origin so subsequent replies stay private.
   fake.sent.length = 0
   agentOf(roomPart2).session.header.cwd = '/tmp/stale-group-dir-2'
   let onCreateEntered
@@ -3494,7 +3557,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'reply after group web steer' })
   emitEvent(roomPart3, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await delay(30)
-  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: reply after group web steer']])
+  assert.deepEqual(fake.sent, [])
 
   // 6. Group folder switch invalidated by another IM chat while switching does not leak to the old IM chat.
   rt.state.im.connections[conn.id].chats.g2 = { kind: 'group', title: 'Group Two', target: { roomId: 'r1' }, at: 1 }
@@ -5347,4 +5410,39 @@ test('drainRoomInbox classifies drained user messages through the IM origin stat
   const deliveredReport = s.agentOf('a').lastFollowup
   assert.ok(deliveredReport?.source?.replyTo !== undefined)
   assert.equal(s.rt.imReplyOrigin(deliveredReport.source.replyTo)?.chatKey, undefined, 'Web user message drained by drainRoomInbox must taint pending IM roomReport')
+  assert.equal(s.rt.captureImOrigin(roomSid), undefined)
+
+  // 5) Active IM round from g1 + non-IM Desktop/Web user message drained via drainRoomInbox -> drops g1 origin immediately!
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u1', 'active g1 before web drain')
+  const g1Req3 = s.prompts.at(-1).requestId
+  s.emitEvent(roomSid, 'turn/start', { turn: 4 })
+  s.fake.sent.length = 0
+  await runDrainedRound(
+    { source: { kind: 'user', rpcId: g1Req3 }, content: [{ type: 'text', text: 'active g1 before web drain' }] },
+    async () => {
+      roomAgent.inbox.nextTurn.push({ id: 'm-web-active', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '@Writer private desktop follow-up' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  assert.equal(s.rt.captureImOrigin(roomSid), undefined, 'non-IM Web message drained during active g1 round must drop g1 origin')
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('Writer follow-up reply') || entry.text.includes('Reply after drained message')), false, 'replies after Web message drained into active g1 round must never leak to g1')
+
+  // 6) Active IM round from g1 + same-IM follow-up from g1 drained via drainRoomInbox -> preserves g1 origin!
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u1', 'active g1 before same-IM drain')
+  const g1Req4 = s.prompts.at(-1).requestId
+  s.emitEvent(roomSid, 'turn/start', { turn: 5 })
+  s.fake.sent.length = 0
+  await runDrainedRound(
+    { source: { kind: 'user', rpcId: g1Req4 }, content: [{ type: 'text', text: 'active g1 before same-IM drain' }] },
+    async () => {
+      await gm(s, 'u1', '@Writer same g1 follow-up')
+      const g1FollowReq = s.prompts.at(-1).requestId
+      roomAgent.inbox.nextTurn.push({ id: 'm-g1-same', role: 'user', source: { kind: 'user', rpcId: g1FollowReq }, content: [{ type: 'text', text: '@Writer same g1 follow-up' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  assert.equal(s.rt.captureImOrigin(roomSid)?.chatKey, 'g1', 'same-IM follow-up drained by drainRoomInbox must preserve g1 origin')
+  assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after same-IM follow-up drained must reach g1')
 })
