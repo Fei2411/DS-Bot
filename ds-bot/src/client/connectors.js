@@ -14,6 +14,7 @@ import { hostText, t } from './i18n.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { ViewCard } from './widget-cell.js'
+import { lruSet } from './memo.js'
 
 export { GitHubMark } from './connector-marks.js'
 import { MARKS } from './connector-marks.js'
@@ -61,10 +62,11 @@ function BrowserPanel({ connector, actions, run }) {
 // The copy has to start before the sign-in page takes the focus, and the host's
 // update can mount the panel before or after it ends. The panel watches this
 // count, so it says "copied" only for a write that worked, in either order.
-const codeCopies = new Map()
+const MAX_CODE_COPIES = 50
+export const codeCopies = new Map()
 const copyWatchers = new Set()
 const copyCode = code => navigator.clipboard?.writeText(code).then(() => {
-  codeCopies.set(code, (codeCopies.get(code) ?? 0) + 1)
+  lruSet(codeCopies, code, (codeCopies.get(code) ?? 0) + 1, MAX_CODE_COPIES)
   for (const watcher of copyWatchers) watcher()
 }, () => {})
 const watchCopies = (watcher) => { copyWatchers.add(watcher); return () => copyWatchers.delete(watcher) }

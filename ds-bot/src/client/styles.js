@@ -578,6 +578,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,texta
 .bt-drawer-model{display:flex;flex-direction:column}
 .bt-drawer-model .bt-note{margin-top:6px}
 .bt-drawer-permission{display:flex;flex-direction:column}
+.bt-seg.bt-permissions button{height:auto;min-height:30px;min-width:0;padding:6px 4px;line-height:18px;white-space:normal}
 .bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 212px searchable nav rail beside the page. */
@@ -1368,9 +1369,11 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 @keyframes bt-mem-line{from{opacity:0;transform:translateY(4px)}}
 .bt-mem-skel{display:flex;flex-direction:column;gap:24px}
 .bt-mem-skel-block{display:flex;flex-direction:column;gap:10px}
-.bt-mem-skel-block span{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--bt-hover) 25%,var(--bt-active) 50%,var(--bt-hover) 75%);background-size:200% 100%;animation:bt-mem-skel 1.4s ease-in-out infinite}
+.bt-mem-skel-block span{position:relative;overflow:hidden;display:block;height:12px;border-radius:6px;background:var(--bt-hover)}
+.bt-mem-skel-block span::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,var(--bt-active) 50%,transparent 100%);transform:translateX(-100%);animation:bt-mem-skel 1.4s ease-in-out infinite}
 .bt-mem-skel-block .bt-mem-skel-head{width:30%;height:16px;margin-bottom:2px}
-@keyframes bt-mem-skel{from{background-position:150% 0}to{background-position:-50% 0}}
+@keyframes bt-mem-skel{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-mem-skel-block span::after{animation:none}}
 .bt-mem-skel-label{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-mem-empty{margin:auto;max-width:400px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:24px 0;animation:bt-mem-line .45s cubic-bezier(.16,1,.3,1) both}
 .bt-mem-empty-mark{width:48px;height:48px;border-radius:50%;background:var(--bt-hover);display:flex;align-items:center;justify-content:center;color:var(--bt-ink-2);margin-bottom:4px}
@@ -1715,12 +1718,13 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
 [data-composer-card] button[class*="_primary"]:disabled{display:none!important}
 [data-composer-dock]{display:none!important}
-.bt-mic,.bt-voice{flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;display:inline-grid;place-items:center;cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-mic,.bt-voice{position:relative;flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;display:inline-grid;place-items:center;cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-mic{background:color-mix(in srgb,var(--bt-ink) 5%,transparent);box-shadow:inset 0 0 0 .5px var(--bt-line);color:var(--bt-ink-2)}
 .bt-mic:hover{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
-.bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
-@keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
-@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]{animation:none}}
+.bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;isolation:isolate}
+.bt-mic[aria-pressed=true]::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:inherit;pointer-events:none;animation:bt-mic-pulse 1.4s ease-in-out infinite}
+@keyframes bt-mic-pulse{0%,100%{transform:scale(1);opacity:.35}50%{transform:scale(1.36);opacity:0}}
+@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]::after{animation:none;opacity:0}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-voice:hover{background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)}
 .bt-mic:active,.bt-voice:active{scale:.9}

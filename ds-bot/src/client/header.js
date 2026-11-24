@@ -94,7 +94,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const workApprovalsKey = useWork?.(work => (room
     ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
     : bot
-      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.roomId === undefined && entry.answerable === true))
       : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
   const approvals = room
@@ -135,9 +135,17 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false
   const showGoal = room !== undefined && !away && (goal !== undefined || goalCompose)
   const showTasks = approvalTargetId !== undefined && !away && activeTasks.length > 0
-  // When active background tasks are shown, TaskIslandPod + TaskFocusOverlay already
-  // surface every pending approval for this chat in one unified deck (no double bars).
-  const showApprovals = approvalTargetId !== undefined && !away && approvals.length > 0 && !showTasks
+  const foregroundApprovals = bot && !room
+    ? approvals.filter(entry => entry.kind === 'tool' && entry.approval?.taskId === undefined)
+    : []
+  // A foreground request belongs to this chat, not to its background-task deck.
+  // Keep it actionable even while that deck also has active work to show.
+  const standaloneApprovals = foregroundApprovals.length > 0 ? foregroundApprovals : approvals
+  const taskApprovals = foregroundApprovals.length > 0
+    ? approvals.filter(entry => entry.kind !== 'tool' || entry.approval?.taskId !== undefined)
+    : approvals
+  // Background approvals live in the task deck when it is present, avoiding double bars.
+  const showApprovals = approvalTargetId !== undefined && !away && standaloneApprovals.length > 0 && (foregroundApprovals.length > 0 || !showTasks)
   const showIsland = showGoal || showApprovals || showTasks
   // Once the last approval is answered, reset approvalOpen so future approvals
   // appear as a compact bar rather than popping straight into a 560px panel.
@@ -171,9 +179,9 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
-  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
-  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, approvals.length)
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
+  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
+  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, taskApprovals.length)
   const taskBadge = taskHoverReveal
     ? h('button', {
         type: 'button',
@@ -188,7 +196,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       h('span', null, activeTasks.length))
     : null
   return h('div', { className: 'bt-head' },
-    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
+    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     room !== undefined && !away
@@ -222,16 +230,25 @@ export function pinWatch() {
 // replies land while the user is scrolled up; "N new messages ↑" points at an unread
 // divider above the viewport until it has been seen. The shell shows Back to bottom
 // only while unpinned, so its presence is the pinned signal.
-function useTranscriptView() {
+export function useTranscriptView() {
   const [view, setView] = useState(null)
   useEffect(() => {
     let frame = 0
     let watched = null
+    let headerEl = null
     const unpinned = pinWatch()
-    const observer = new MutationObserver(() => schedule())
+    const inComposer = (record) => {
+      const target = record.target
+      const el = target?.nodeType === 1 ? target : target?.parentElement
+      return typeof el?.closest === 'function' && el.closest('[data-composer-card]') !== null
+    }
+    const observer = new MutationObserver((records) => {
+      if (records.length > 0 && records.every(inComposer)) return
+      schedule()
+    })
     const measure = () => {
       frame = 0
-      const scroller = document.querySelector('[data-conversation-scroll]')
+      const scroller = watched?.isConnected ? watched : document.querySelector('[data-conversation-scroll]')
       if (scroller !== watched) {
         observer.disconnect()
         watched = scroller
@@ -239,7 +256,8 @@ function useTranscriptView() {
       }
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
-      const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50
+      const header = headerEl?.isConnected ? headerEl : (headerEl = document.querySelector('header[class*="_header"]'))
+      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50
       const sep = newDividerIn(scroller)
       let divider = null
       if (sep) {
@@ -257,7 +275,11 @@ function useTranscriptView() {
       setView(prev => (prev && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
-    document.addEventListener('scroll', schedule, true)
+    const onScroll = (event) => {
+      if (watched?.isConnected && event.target !== watched) return
+      schedule()
+    }
+    document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('scroll', schedule)
@@ -265,7 +287,7 @@ function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      document.removeEventListener('scroll', schedule, true)
+      document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('scroll', schedule)

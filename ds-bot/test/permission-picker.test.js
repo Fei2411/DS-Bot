@@ -61,6 +61,7 @@ const OPTIONS = [
   { value: 'read-only', description: 'read-only' },
   { value: 'workspace-write', description: 'workspace-write' },
   { value: 'danger-full-access', description: 'danger-full-access' },
+  { value: 'review', description: 'review' },
 ]
 const settle = () => new Promise(resolve => setImmediate(resolve))
 
@@ -153,6 +154,22 @@ test('the last remembered pick wins; it is sent once even when it repeats the se
   await picker.flush()
   assert.equal(picker.requests.length, 1, 'the pick that repeats the sent one is not sent again')
   assert.equal(picker.pressed(), 'workspace-write')
+})
+
+test('review uses the same single choice and save queue as ordinary permissions', async () => {
+  const picker = mountPicker({ catalog: { options: OPTIONS }, saved: 'danger-full-access' })
+  picker.press('review')
+  assert.equal(picker.pressed(), 'review')
+  assert.equal(picker.requests[0].value, 'review')
+  picker.press('read-only')
+  assert.equal(picker.pressed(), 'read-only')
+  picker.requests[0].resolve(true)
+  await picker.flush()
+  assert.equal(picker.requests[1].value, 'read-only')
+  picker.requests[1].resolve(true)
+  const tree = picker.rerender({ saved: 'read-only' })
+  await picker.flush()
+  assert.equal(tree.props.children.filter(button => button.props['aria-pressed']).length, 1)
 })
 
 test('repick still lets the shown preset be picked again', async () => {

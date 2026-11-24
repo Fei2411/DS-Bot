@@ -152,23 +152,42 @@ export function redactor(entries) {
 export function redactDeep(value, redact) {
   if (typeof value === 'string') return redact(value)
   if (Array.isArray(value)) {
-    let changed = false
-    const next = value.map((item) => {
+    let next = null
+    for (let i = 0; i < value.length; i += 1) {
+      if (!(i in value)) continue
+      const item = value[i]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      return replaced
-    })
-    return changed ? next : value
+      if (next !== null) {
+        next[i] = replaced
+      } else if (replaced !== item) {
+        next = []
+        next.length = value.length
+        for (let j = 0; j < i; j += 1) {
+          if (j in value) next[j] = value[j]
+        }
+        next[i] = replaced
+      }
+    }
+    return next ?? value
   }
   if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    let changed = false
-    const next = {}
-    for (const [key, item] of Object.entries(value)) {
+    let next = null
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue
+      const item = value[key]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      next[key] = replaced
+      if (next !== null) {
+        next[key] = replaced
+      } else if (replaced !== item) {
+        next = {}
+        for (const prev in value) {
+          if (prev === key) break
+          if (Object.hasOwn(value, prev)) next[prev] = value[prev]
+        }
+        next[key] = replaced
+      }
     }
-    return changed ? next : value
+    return next ?? value
   }
   return value
 }
@@ -206,8 +225,8 @@ export function install(rt) {
   let seenStamp = ''
   const fileStamp = () => {
     try {
-      const { ctimeMs, mtimeMs, size } = statSync(path)
-      return `${ctimeMs}:${mtimeMs}:${size}`
+      const { ino, ctimeMs, mtimeMs, size } = statSync(path)
+      return `${ino}:${ctimeMs}:${mtimeMs}:${size}`
     } catch {
       return ''
     }
@@ -242,8 +261,14 @@ export function install(rt) {
   // would lose every key in it. While `blocked` holds the reason nothing is written,
   // and each load reads the file again (a busy file may only be briefly unreadable).
   let blocked
+  const shouldReload = () => {
+    if (loaded === null || blocked !== undefined) return true
+    if (!loadedReadOnly && rt.readOnly() === undefined) return false
+    if (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false) return true
+    return fileStamp() !== seenStamp
+  }
   const loadSecrets = () => {
-    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
+    if (loaded !== null && shouldReload()) loaded = null
     return loaded ??= readSecrets()
   }
   // The parsed body becomes the map. Only entries that name a key are kept.
@@ -419,6 +444,7 @@ export function install(rt) {
         await writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
         await chmod(temp, 0o600)
         await replaceFile(temp, path)
+        seenStamp = fileStamp()
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -434,7 +460,7 @@ export function install(rt) {
     usedTimer = setTimeout(() => {
       usedTimer = null
       if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
-      void mutate(() => persist().then(() => rt.save())).catch(() => {})
+      void mutate(() => persist()).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
   }
@@ -856,8 +882,9 @@ export function install(rt) {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
     let messages = options.messages
     if (Array.isArray(messages)) {
-      let changed = false
-      const nextMessages = messages.map((message) => {
+      let nextMessages = null
+      for (let i = 0; i < messages.length; i += 1) {
+        const message = messages[i]
         const object = message !== null && typeof message === 'object'
         let replaced
         if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
@@ -865,10 +892,14 @@ export function install(rt) {
           replaced = redactDeep(message, redact)
           if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
         }
-        if (replaced !== message) changed = true
-        return replaced
-      })
-      if (changed) messages = nextMessages
+        if (nextMessages !== null) {
+          nextMessages[i] = replaced
+        } else if (replaced !== message) {
+          nextMessages = messages.slice(0, i)
+          nextMessages.push(replaced)
+        }
+      }
+      if (nextMessages !== null) messages = nextMessages
     } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
@@ -952,7 +983,7 @@ export function install(rt) {
   }
 
   rt.onStoreSync = () => {
-    if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) void loadSecrets()
+    if (shouldReload()) void loadSecrets()
   }
 
   ctx.effect(() => {

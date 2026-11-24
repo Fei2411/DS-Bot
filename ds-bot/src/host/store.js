@@ -222,6 +222,11 @@ export function install(rt) {
   // Bumped each time the in-memory state is replaced from the file, so a queued
   // save cannot write a snapshot taken of the state it replaced.
   let lockEpoch = 0
+  const adoptListeners = new Set()
+  const onAdopted = (listener) => {
+    adoptListeners.add(listener)
+    return () => adoptListeners.delete(listener)
+  }
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -374,6 +379,14 @@ export function install(rt) {
       }
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
+    }
+    // Null maps and null entries are repaired above. Migrating before that
+    // threw on archives that previously still loaded.
+    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
+      if (!Object.hasOwn(target, 'autoApprove')) continue
+      if (target.autoApprove === true) target.permission = 'review'
+      delete target.autoApprove
+      migrated = true
     }
     // A Bot has one conversation at a time again: a team saved with parts opened while
     // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
@@ -581,6 +594,9 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
+    for (const listener of adoptListeners) {
+      try { listener() } catch (error) { warn('ds-bot: adopted listener failed: %s', error) }
+    }
     return { migrated: migrated || stale.length > 0, stale, foldedOpenParts }
   }
 
@@ -744,6 +760,7 @@ export function install(rt) {
   const refresh = async () => {
     await load()
     const hadHolder = holder !== undefined
+    let synced = false
     if (hadHolder) {
       claimLock()
       if (holder === undefined) {
@@ -770,14 +787,18 @@ export function install(rt) {
         return
       }
       warn('ds-bot: %s', readOnly())
+      synced = true
     }
     if (adopting !== undefined) {
       await adopting
       notifyStoreSync()
       return
     }
-    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
-    notifyStoreSync()
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) {
+      adopt(readFileState())
+      synced = true
+    }
+    if (synced) notifyStoreSync()
   }
 
   const warnReadOnly = () => {
@@ -1022,6 +1043,10 @@ export function install(rt) {
     for (const segId of segIds) {
       delete state.switching[segId]
       rt.renewMemory?.(segId)
+      rt.forgetSessionParts?.(segId)
+      rt.forgetSessionTurn?.(segId)
+      rt.forgetHeldSteps?.(segId)
+      rt.forgetSessionModel?.(segId)
     }
     const notesDeleted = segIds.length > 0 ? deleteSegmentNotes(segIds) : Promise.resolve()
     if (room.segments !== undefined) delete room.segments[botId]
@@ -1033,6 +1058,10 @@ export function install(rt) {
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     rt.renewMemory?.(sessionId)
+    rt.forgetSessionParts?.(sessionId)
+    rt.forgetSessionTurn?.(sessionId)
+    rt.forgetHeldSteps?.(sessionId)
+    rt.forgetSessionModel?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
@@ -1082,7 +1111,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,

@@ -1,4 +1,5 @@
 import { INKS, GRADIENTS, isHex, inkFill } from './inks.js'
+import { lruGet, lruSet } from './lru.js'
 
 // -------------------------------------------------------------------------
 // Characters: DS Bot's own avatars, small 3D models seen from a three-quarter
@@ -129,11 +130,14 @@ export const holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" wid
 export const MASK_ID = '%MASK%'
 let markSerial = 0
 export const nextMarkSerial = () => (markSerial += 1)
+const MAX_MARKUP_CACHE = 256
+const MAX_MASK_CACHE = 128
+
 export const markupCache = new Map()
 export function characterMarkup(shape, color) {
   const resolved = shapeId(shape)
   const key = `${resolved}|${color}`
-  let markup = markupCache.get(key)
+  let markup = lruGet(markupCache, key)
   if (markup === undefined) {
     const def = SHAPES[resolved]
     // The eyes sit in the mask, untransformed by their placement, so CSS blinks and
@@ -143,7 +147,7 @@ export function characterMarkup(shape, color) {
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`
     markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`
-    markupCache.set(key, markup)
+    lruSet(markupCache, key, markup, MAX_MARKUP_CACHE)
   }
   return markup
 }
@@ -151,12 +155,12 @@ const svgUrl = (inner, size) => `url("data:image/svg+xml,${encodeURIComponent(`<
 export const maskCache = new Map()
 export function maskOf(shape) {
   const resolved = shapeId(shape)
-  let mask = maskCache.get(resolved)
+  let mask = lruGet(maskCache, resolved)
   if (mask === undefined) {
     const def = SHAPES[resolved]
     const body = `<g mask="url(#e)">${bodyOf(def, '#000', true)}</g>`
     mask = svgUrl(`<mask id="e" ${maskBox(def.size)}>${holes(def, def.eyes.map(eyeMarkup).join('').replaceAll('class="bt-eye"', 'fill="#000"'))}</mask>${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}`, def.size)
-    maskCache.set(resolved, mask)
+    lruSet(maskCache, resolved, mask, MAX_MASK_CACHE)
   }
   return mask
 }

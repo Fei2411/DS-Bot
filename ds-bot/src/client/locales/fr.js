@@ -1,6 +1,16 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Approvals": "Approbations",
+  "Approval model": "Modèle d’approbation",
+  "Review for me": "Examiner pour moi",
+  "Follow team default": "Utiliser le modèle par défaut de l’équipe",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "Examine les demandes d’approbation en attente ; en cas de doute, vous demande de décider.",
+  "Recent approval reviews": "Examens d’approbation récents",
+  "Approved once": "Autorisé une fois",
+  "Rejected": "Refusé",
+  "Manual review": "Examen manuel",
+  "Reviewing this action…": "Examen de cette action…",
   "ChatGPT plan": "Forfait ChatGPT",
   "Sign in with ChatGPT": "Se connecter avec ChatGPT",
   "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "La connexion à ChatGPT nécessite l’application de bureau DS Bot et le stockage sécurisé du système d’exploitation.",
