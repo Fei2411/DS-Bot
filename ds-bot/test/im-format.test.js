@@ -34,6 +34,24 @@ test('Telegram preserves headings and tables inside tilde and backtick code fenc
   }
 })
 
+test('a closing code fence can be indented relative to the list item', () => {
+  const markdown = '- Item\n  ~~~sh\n  # comment\n    ~~~\nAfter the list'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '- Item\n<pre><code class="language-sh"># comment</code></pre>\nAfter the list',
+    text: '- Item\n# comment\nAfter the list',
+  }])
+  const topLevel = '~~~\ncode\n    ~~~\nstill code\n~~~'
+  assert.equal(toTelegramHtml(topLevel), '<pre><code>code\n    ~~~\nstill code</code></pre>')
+})
+
+test('indented fences remove the fence indentation but preserve relative code indentation', () => {
+  const markdown = '  ```python\n  if ok:\n      run()\n  ```'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-python">if ok:\n    run()</code></pre>',
+    text: 'if ok:\n    run()',
+  }])
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',
