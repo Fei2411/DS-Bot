@@ -105,6 +105,49 @@ test('skip order follows the walk, and force false keeps an existing destination
   assert.equal(readFileSync(kept, 'utf8'), 'kept')
 })
 
+test('later links use targets made resolvable by earlier links', async (t) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ds-bot-copy-tree-')))
+  t.after(() => { rmSync(root, { recursive: true, force: true, maxRetries: 5 }) })
+  const from = join(root, 'from')
+  const into = join(root, 'into')
+  const sourceInner = join(from, 'inner')
+  const destInner = join(into, 'inner')
+  const destZ = join(into, 'z')
+  mkdirSync(sourceInner, { recursive: true })
+  mkdirSync(into)
+  symlinkSync(process.platform === 'win32' ? join(from, 'bridge') : 'bridge', join(from, 'z'), folderLink)
+  symlinkSync(sourceInner, join(from, 'bridge'), folderLink)
+  symlinkSync(destZ, join(from, 'a'), folderLink)
+  symlinkSync(sourceInner, join(into, 'bridge'), folderLink)
+
+  const { promises } = disk
+  const { cp, stat, symlink } = promises
+  const unresolved = Promise.withResolvers()
+  const watchdog = new AbortController()
+  const deadline = setTimeout(1000, undefined, { signal: watchdog.signal }).catch(() => {})
+  t.after(() => { watchdog.abort() })
+  t.mock.method(promises, 'cp', async (origin, _destination, { filter }) => {
+    await cp(sourceInner, destInner, { recursive: true })
+    for (const name of ['z', 'bridge', 'a']) await filter(join(origin, name))
+  })
+  t.mock.method(promises, 'stat', async path => {
+    try {
+      return await stat(path)
+    } catch (error) {
+      if (path === join(from, 'a')) unresolved.resolve()
+      throw error
+    }
+  })
+  const recreate = await mockRelink(t, async (target, path, type) => {
+    if (path === destZ) await Promise.race([unresolved.promise, deadline])
+    return symlink(target, path, type)
+  })
+
+  assert.deepEqual(await recreate(from, into, { force: false, skip: true }), [])
+  assert.equal(realpathSync(destZ), realpathSync(sourceInner))
+  assert.equal(realpathSync(join(into, 'a')), realpathSync(destInner))
+})
+
 for (const [kind, ...aliases] of [
   ['ASCII case', 'Link', 'link'],
   ['Unicode case', 'ß', 'ẞ'],
