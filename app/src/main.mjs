@@ -22,7 +22,7 @@ import { canonicalExecPath } from './canonical-path.mjs'
 import { disk } from './copy-tree.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
-import { readLoginShellPath } from './login-shell-env.mjs'
+import { readLoginShellEnvironment, resolveLoginShellConfig } from './login-shell-env.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
 import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
@@ -91,8 +91,12 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Finder and Dock starts inherit the session manager's sparse PATH, which the
 // Host's bash tool would inherit too. The login shell knows where node and the
-// rest are; read it now so it is ready before the Host starts.
-const loginPath = readLoginShellPath()
+// rest are; read it now so it is ready before the Host starts. A bad timeout
+// value falls back to the default instead of stopping the start.
+const loginShellRead = (() => {
+  try { return readLoginShellEnvironment(process.env, resolveLoginShellConfig(process.env)) }
+  catch (error) { console.warn(error); return readLoginShellEnvironment(process.env, { timeoutMs: 10_000 }) }
+})()
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
@@ -108,6 +112,8 @@ let logs
 // Writers to the console that bypass the log: the Host's output goes into the log on its own.
 let rawOutput
 let host
+// The environment the Host starts with: the app's own plus the login shell's.
+let hostEnvironment = process.env
 let chatgpt
 // The Host's loopback origin, which the window loads.
 let origin
@@ -314,10 +320,11 @@ async function prepare() {
     await loadModules()
     handleIpc()
   }
-  // Before the Host starts: its bash tool and every other child inherit this.
-  // A terminal start already has it; there the write changes nothing.
-  const loginShellPath = await loginPath
-  if (loginShellPath !== undefined) process.env.PATH = loginShellPath
+  // Before the Host starts: the Host copies this environment, and the bash tool
+  // and every other child inherit it. A terminal start already has it.
+  const loginShell = await loginShellRead
+  for (const failure of loginShell.failures) console.warn(`login shell: ${failure.shell} failed (${failure.reason})`)
+  hostEnvironment = loginShell.environment
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
   // that the next engine has a window to load into.
@@ -611,7 +618,7 @@ function newHost() {
   const child = new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...hostEnvironment, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -624,7 +631,7 @@ function newHost() {
 function newCheck(home, list) {
   const cwd = join(home, 'profiles', CHECK_PROFILE)
   mkdirSync(cwd, { recursive: true })
-  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
+  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...hostEnvironment, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
 }
 
 /**
