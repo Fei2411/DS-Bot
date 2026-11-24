@@ -37,29 +37,56 @@ export function normalizeName(raw) {
 export const encodeUrlComponent = value => encodeURIComponent(value).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
 
 // One function that replaces every known value in a string, longest first so a value
-// that contains another is replaced whole. JSON-escaped and URL-encoded forms are covered too.
+// that contains another is replaced whole. JSON-escaped, URL-encoded, CRLF/LF, and
+// space-folded multiline forms are covered too.
 export function redactor(entries) {
   const pairs = []
+  const add = (seen, variant, label, short) => {
+    if (variant.length < MIN_VALUE || seen.has(variant)) return
+    seen.add(variant)
+    pairs.push([variant, label, short])
+  }
+  const addEncoded = (seen, raw, label, short) => {
+    add(seen, raw, label, short)
+    const escaped = JSON.stringify(raw).slice(1, -1)
+    if (escaped !== raw) add(seen, escaped, label, short)
+    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
+    const encoded = raw.isWellFormed() ? encodeUrlComponent(raw) : raw
+    if (encoded !== raw && encoded !== escaped) add(seen, encoded, label, short)
+  }
   for (const { name, value } of entries) {
     if (typeof value !== 'string' || value.length < MIN_VALUE) continue
     const label = `[secret:${name}]`
     const short = value.length < WHOLE_VALUE
-    pairs.push([value, label, short])
-    const escaped = JSON.stringify(value).slice(1, -1)
-    if (escaped !== value) pairs.push([escaped, label, short])
-    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
-    const encoded = value.isWellFormed() ? encodeUrlComponent(value) : value
-    if (encoded !== value && encoded !== escaped) pairs.push([encoded, label, short])
+    const seen = new Set()
+    addEncoded(seen, value, label, short)
+    if (/[\r\n]/.test(value)) {
+      const lf = value.replace(/\r\n?/g, '\n')
+      const crlf = lf.replace(/\n/g, '\r\n')
+      addEncoded(seen, lf, label, short)
+      addEncoded(seen, crlf, label, short)
+      // Unquoted shell expansion (`echo $DSH_SECRET_NAME`) and single-line logs fold
+      // line breaks into spaces; cover those when long enough not to hit ordinary prose.
+      const spaced = lf.replace(/\n/g, ' ')
+      if (spaced.length >= WHOLE_VALUE) addEncoded(seen, spaced, label, false)
+      const collapsed = lf.replace(/\s+/g, ' ').trim()
+      if (collapsed.length >= WHOLE_VALUE) addEncoded(seen, collapsed, label, false)
+    }
   }
   pairs.sort((a, b) => b[0].length - a[0].length)
   if (pairs.length === 0) return text => text
   // One pass, so a label already written is never matched again.
   const labels = new Map()
-  for (const [value, label] of pairs) if (!labels.has(value)) labels.set(value, label)
+  const unique = []
+  for (const pair of pairs) {
+    if (labels.has(pair[0])) continue
+    labels.set(pair[0], pair[1])
+    unique.push(pair)
+  }
   const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(pairs.map(([value, , short]) => (short ? `(?<![\\p{L}\\p{N}])${quote(value)}(?![\\p{L}\\p{N}])` : quote(value))).join('|'), 'gu')
+  const pattern = new RegExp(unique.map(([value, , short]) => (short ? `(?<![\\p{L}\\p{N}])${quote(value)}(?![\\p{L}\\p{N}])` : quote(value))).join('|'), 'gu')
   return (text) => {
-    if (typeof text !== 'string' || !pairs.some(([value]) => text.includes(value))) return text
+    if (typeof text !== 'string' || !unique.some(([value]) => text.includes(value))) return text
     return text.replace(pattern, match => labels.get(match) ?? match)
   }
 }
@@ -426,7 +453,8 @@ export function install(rt) {
 
   const cleanValue = (raw) => {
     if (typeof raw !== 'string') throw new Error('Type the key first')
-    const value = raw.trim()
+    const value = raw.replace(/\r\n?/g, '\n').trim()
+    if (value.includes('\0')) throw new Error('A key cannot contain null bytes')
     if (value.length < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
     if (value.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
     return value
