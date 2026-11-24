@@ -88,15 +88,25 @@ export async function openCapture() {
   } catch (error) {
     throw captureError(error?.name === 'NotAllowedError' ? 'blocked' : 'failed', error)
   }
-  const audio = new AudioContext()
-  const analyser = audio.createAnalyser()
-  analyser.fftSize = 512
-  audio.createMediaStreamSource(stream).connect(analyser)
-  const frame = new Float32Array(analyser.fftSize)
-  const recorder = new MediaRecorder(stream)
+  let audio = null
+  let analyser
+  let frame
+  let recorder
   const chunks = []
-  recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data) }
-  recorder.start()
+  try {
+    audio = new AudioContext()
+    analyser = audio.createAnalyser()
+    analyser.fftSize = 512
+    audio.createMediaStreamSource(stream).connect(analyser)
+    frame = new Float32Array(analyser.fftSize)
+    recorder = new MediaRecorder(stream)
+    recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data) }
+    recorder.start()
+  } catch (error) {
+    stream.getTracks().forEach(track => track.stop())
+    void audio?.close().catch(() => {})
+    throw error
+  }
   let closed = false
   const close = () => {
     if (closed) return

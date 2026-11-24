@@ -83,7 +83,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       createPortal(h(OpeningCover, { model: opening, column: layout.column }), document.body)) : null,
     pane ? h(OverlayBoundary, {
       name: 'panel', active: shown !== null, notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}`,
+      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}`,
       onDismiss: () => actions.closePanel?.(), actions,
     }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
     ui.newChat ? h(OverlayBoundary, {

@@ -2,7 +2,7 @@
 // Bot never sees, or lets the Bot use a key that is already saved. The settings page
 // lists the saved keys and who may use them. Values only ever travel from these
 // inputs to the host; nothing here reads one back.
-import { createElement as h, useEffect, useId, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from './icons.js'
 import { BotAvatar, BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
@@ -13,6 +13,8 @@ import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 
 const MIN_VALUE = 4
+const MIN_MULTI_HEIGHT = 20
+const MAX_MULTI_HEIGHT = 160
 const NONE = {}
 
 export const KeyIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -36,15 +38,44 @@ const scopeLabel = (scope, roster) => {
 }
 const when = time => (Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
 
-export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false }) {
-  return h('input', {
-    className: 'bt-secret-input',
-    type: MASK_BY_CSS ? 'text' : 'password',
+export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false }) {
+  const ref = useRef(null)
+  const fit = () => {
+    const el = ref.current
+    if (!multiline || !el || typeof el.scrollHeight !== 'number') return
+    const scrollTop = el.scrollTop
+    const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === 'number' ? el.parentElement : null
+    const prevMinHeight = parent ? parent.style.minHeight : ''
+    if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`
+    el.style.overflowY = 'hidden'
+    el.style.height = '0px'
+    const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT)
+    el.style.height = `${next}px`
+    el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? 'auto' : 'hidden'
+    if (parent) parent.style.minHeight = prevMinHeight
+    el.scrollTop = scrollTop
+  }
+  useLayoutEffect(fit, [value, multiline])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!multiline || !el || typeof ResizeObserver !== 'function') return
+    let lastWidth = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return
+      lastWidth = el.clientWidth
+      fit()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [multiline])
+  const common = {
+    ref,
+    className: multiline ? 'bt-secret-input bt-secret-input-multi' : 'bt-secret-input',
     disabled,
-    'data-masked': MASK_BY_CSS ? '' : undefined,
+    'data-masked': MASK_BY_CSS ? '' : multiline ? 'blur' : undefined,
     value,
     autoFocus,
-    autoComplete: MASK_BY_CSS ? 'off' : 'new-password',
+    autoComplete: multiline || MASK_BY_CSS ? 'off' : 'new-password',
     autoCorrect: 'off',
     autoCapitalize: 'off',
     spellCheck: false,
@@ -57,10 +88,13 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return
+      if (multiline && !event.metaKey && !event.ctrlKey) return
       event.preventDefault()
       onEnter?.()
     },
-  })
+  }
+  if (multiline) return h('textarea', { ...common, rows: 1 })
+  return h('input', { ...common, type: MASK_BY_CSS ? 'text' : 'password' })
 }
 
 function ScopeSwitch({ value, onChange, bot }) {
@@ -118,7 +152,7 @@ export function SecretCard({ sessionId, bot, request, roster, actions, inline = 
     }),
     request.kind === 'allow' ? h('div', { className: 'bt-secret-saved' }, h(KeyIcon), t('Saved for {scope}', { scope: scopeLabel(secret?.scope, roster) })) : null,
     filling ? h('div', { className: 'bt-secret-body' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value, onChange: next => { hold(); setValue(next) }, onEnter: save, label: t('Value of {name}', { name: request.name }), autoFocus: replacing })),
+      h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: next => { hold(); setValue(next) }, onEnter: save, label: t('Value of {name}', { name: request.name }), autoFocus: replacing, multiline: true })),
       request.kind === 'fill' ? h(ScopeSwitch, { value: scope, onChange: next => { hold(); setScope(next) }, bot }) : null) : null,
     h('div', { className: 'bt-secret-note', id: noteId },
       t("{bot} never sees the value. It reaches {bot}'s shell as ", { bot: bot.name }), h('code', null, `$DSH_SECRET_${request.name}`), '.',
@@ -227,8 +261,8 @@ function ValueEditor({ secret, onSave }) {
   const edit = next => { setValue(next); setReplaced(false) }
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, t('Replace the value')),
-    h('div', { className: 'bt-secret-inline' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value, onChange: edit, onEnter: save, label: t('New value of {name}', { name: secret.name }) })),
+    h('div', { className: 'bt-secret-inline bt-secret-inline-multi' },
+      h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: edit, onEnter: save, label: t('New value of {name}', { name: secret.name }), multiline: true })),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !long, onClick: save }, t('Replace'))),
     value !== '' && !long ? h('div', { className: 'bt-set-hint' }, t('At least {count} characters.', { count: MIN_VALUE }))
       : replaced ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Replaced. Bots get the new value from their next command.')) : null)
@@ -275,7 +309,7 @@ function AddSecret({ actions, run, onDone }) {
   return h('div', { className: 'bt-set-row bt-set-paste bt-secret-add' },
     h('input', { className: 'bt-input', 'aria-label': t('Key name'), placeholder: t('NAME, e.g. GITHUB_TOKEN'), value: name, spellCheck: false, autoComplete: 'off', autoFocus: true, onChange: event => setName(event.target.value.toUpperCase()) }),
     h('input', { className: 'bt-input', 'aria-label': t('What it is for'), placeholder: t('What it is for'), value: purpose, autoComplete: 'off', onChange: event => setPurpose(event.target.value) }),
-    h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value, onChange: setValue, onEnter: save, label: t('Value') })),
+    h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: setValue, onEnter: save, label: t('Value'), multiline: true })),
     h('div', { className: 'bt-secret-row-actions' },
       h('span', { className: 'bt-set-hint' }, t('New keys are for all Bots; narrow it down afterwards.')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Cancel')),
@@ -380,9 +414,13 @@ export const SECRET_CSS = `
 .bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
 .bt-secret-field{align-items:center;min-height:36px}
+.bt-secret-field-multi{padding:7px 11px}
+.bt-secret-body>.bt-secret-field,.bt-secret-add>.bt-secret-field{flex:none}
 .bt-secret-input{flex:1;width:100%;min-width:0;margin:0;padding:0;border:0;outline:none;background:transparent;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:20px;letter-spacing:.04em}
+.bt-secret-input-multi{display:block;min-height:20px;max-height:160px;resize:none;overflow-x:hidden;overflow-y:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-secret-input[data-masked]{-webkit-text-security:disc}
-.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0}
+.bt-secret-input[data-masked="blur"]{color:transparent;text-shadow:0 0 7px var(--bt-ink);caret-color:var(--bt-ink)}
+.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0;-webkit-text-security:none;text-shadow:none}
 .bt-secret-scope{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-self:flex-start;padding:2px;border-radius:999px;background:var(--bt-hover)}
 .bt-secret-glide{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:var(--bt-main);box-shadow:0 1px 3px rgba(20,20,20,.08),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 6%,transparent);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-secret-glide[data-at="1"]{transform:translateX(100%)}
@@ -428,6 +466,8 @@ export const SECRET_CSS = `
 .bt-secret-bot[aria-pressed=true]{background:var(--bt-active);color:var(--bt-ink);border-color:var(--bt-line-2)}
 .bt-secret-bot svg{width:13px;height:13px}
 .bt-secret-inline{display:flex;gap:8px;align-items:center}
+.bt-secret-inline-multi{align-items:flex-end}
+.bt-secret-inline-multi>.bt-soft-sm{margin-bottom:4px}
 .bt-secret-inline .bt-input{flex:1;height:34px}
 .bt-secret-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .bt-secret-row-actions .bt-set-hint{flex:1}

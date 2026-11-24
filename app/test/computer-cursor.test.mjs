@@ -127,3 +127,170 @@ test('cursorHtml paints the arrow in the Bot color with the avatar and a ripple'
   assert.doesNotMatch(plain, /class="ring"/)
   assert.match(plain, /background:transparent/)
 })
+
+test('darwin point checker recycles osascript after maxChecks and skips spawning on non-integer pid', async () => {
+  let spawns = 0
+  let kills = 0
+  const spawn = () => {
+    spawns += 1
+    const child = new EventEmitter()
+    child.stdin = Object.assign(new EventEmitter(), {
+      write: (line) => {
+        const seq = line.trim().split(/\s+/)[3]
+        queueMicrotask(() => child.stdout.emit('data', `${seq} y\n`))
+      },
+    })
+    child.stdout = new EventEmitter()
+    child.kill = () => { kills += 1; child.emit('exit') }
+    return child
+  }
+  const checker = createPointChecker({ platform: 'darwin', spawn, idleMs: 0, maxChecks: 2, log: { warn: () => {} } })
+  assert.equal(await checker.check(10, 20, undefined), false)
+  assert.equal(spawns, 0, 'non-integer pid must not spawn helper')
+  assert.equal(await checker.check(10, 20, 9), true)
+  assert.equal(spawns, 1)
+  assert.equal(kills, 0)
+  assert.equal(await checker.check(11, 21, 9), true)
+  assert.equal(kills, 1, 'helper recycles after maxChecks to bound OS memory')
+  assert.equal(await checker.check(12, 22, 9), true)
+  assert.equal(spawns, 2, 'next query spawns a fresh helper')
+  checker.dispose()
+})
+
+test('pause() cancels queued checks so sleeping/locking never respawns the helper or opens a cursor', async () => {
+  let spawns = 0
+  const replies = []
+  const spawn = () => {
+    spawns += 1
+    const child = new EventEmitter()
+    child.stdin = Object.assign(new EventEmitter(), {
+      write: (line) => {
+        const seq = line.trim().split(/\s+/)[3]
+        replies.push(() => child.stdout.emit('data', `${seq} y\n`))
+      },
+    })
+    child.stdout = new EventEmitter()
+    child.kill = () => { child.emit('exit') }
+    return child
+  }
+  const { windows, BrowserWindow } = fakeElectron()
+  const cursor = createComputerCursor({ BrowserWindow, screen, platform: 'darwin', spawn, log: { warn: () => {} } })
+  const first = update(cursor, { x: 10, y: 20 })
+  const second = update(cursor, { x: 30, y: 40 })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(spawns, 1)
+  cursor.pause()
+  await Promise.all([first, second])
+  assert.equal(spawns, 1, 'queued checks cancelled by pause() must not respawn helper')
+  assert.equal(windows.length, 0, 'paused cursor must not open overlay windows')
+  cursor.dispose()
+})
+
+test('sequence ids drop stale late helper answers so slow responses never desync later checks', async () => {
+  let child
+  const writes = []
+  const spawn = () => {
+    child = new EventEmitter()
+    child.stdin = { write: (line) => { writes.push(line.trim()) } }
+    child.stdout = new EventEmitter()
+    child.kill = () => { child.emit('exit') }
+    return child
+  }
+  const checker = createPointChecker({ platform: 'darwin', spawn, log: { warn: () => {} } })
+  // First check times out (>300ms) -> resolves false.
+  const first = await checker.check(10, 20, 9)
+  assert.equal(first, false)
+  const firstSeq = writes[0].split(/\s+/)[3]
+  // Second check starts; stale 'y' from firstSeq arrives first, then real 'n' for secondSeq.
+  const secondPromise = checker.check(30, 40, 9)
+  await new Promise(resolve => setImmediate(resolve))
+  const secondSeq = writes[1].split(/\s+/)[3]
+  assert.notEqual(firstSeq, secondSeq)
+  child.stdout.emit('data', `${firstSeq} y\n`)
+  child.stdout.emit('data', `${secondSeq} n\n`)
+  assert.equal(await secondPromise, false, 'stale reply for timed-out seq must be ignored')
+  checker.dispose()
+})
+
+test('point checker auto-exits after idleMs and respawns lazily on the next check', async () => {
+  let spawns = 0
+  let kills = 0
+  const spawn = () => {
+    spawns += 1
+    const child = new EventEmitter()
+    child.stdin = { write: (line) => {
+      const seq = line.trim().split(/\s+/)[3]
+      queueMicrotask(() => child.stdout.emit('data', `${seq} y\n`))
+    } }
+    child.stdout = new EventEmitter()
+    child.kill = () => { kills += 1; child.emit('exit') }
+    return child
+  }
+  const checker = createPointChecker({ platform: 'darwin', spawn, idleMs: 40, log: { warn: () => {} } })
+  assert.equal(await checker.check(10, 20, 9), true)
+  assert.equal(spawns, 1)
+  assert.equal(kills, 0)
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.equal(kills, 1, 'idle helper exits automatically')
+  assert.equal(await checker.check(10, 20, 9), true)
+  assert.equal(spawns, 2, 'helper respawns lazily when needed again')
+  checker.dispose()
+})
+
+test('moving the cursor waits for initial loadURL before replaying ripple, retries failed loads, and honors dispose', async () => {
+  const { windows, BrowserWindow } = fakeElectron()
+  let loads = 0
+  let resolveFirstLoad
+  let failNextLoad = false
+  class ControlledWindow extends BrowserWindow {
+    constructor(opts) {
+      super(opts)
+      this.loadURL = (url) => {
+        loads += 1
+        this.url = url
+        if (failNextLoad) { failNextLoad = false; return Promise.reject(new Error('load failed')) }
+        if (loads === 1) return new Promise(resolve => { resolveFirstLoad = resolve })
+        return Promise.resolve()
+      }
+    }
+  }
+  const cursor = createComputerCursor({ BrowserWindow: ControlledWindow, screen, platform: 'darwin', spawn: fakeSpawn(), log: { warn: () => {} } })
+  await update(cursor, { x: 100, y: 200, color: '#22c55e', ripple: false })
+  assert.equal(loads, 1)
+  // Second update arrives while first loadURL is still in flight -> must wait before running ripple JS.
+  await update(cursor, { x: 150, y: 250, color: '#22c55e', ripple: true })
+  assert.equal(loads, 1, 'pure move/click with same visual skips reload')
+  assert.equal(windows[0].js.length, 0, 'ripple JS waits until initial loadURL completes')
+  resolveFirstLoad()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok(windows[0].js.some(code => code.includes('ring')), 'queued ripple replays once loadURL resolves')
+
+  // Failed loadURL clears visualKey so the next identical update retries loadURL.
+  failNextLoad = true
+  await update(cursor, { x: 160, y: 260, color: '#ff0000', ripple: false })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(loads, 2)
+  await update(cursor, { x: 170, y: 270, color: '#ff0000', ripple: false })
+  assert.equal(loads, 3, 'failed visual load retries on next update')
+
+  cursor.pause()
+  assert.equal(windows[0].closed, true, 'pause() closes live cursor overlays')
+
+  // Dispose while check() is still pending -> no window created when check resolves.
+  const { windows: windows2, BrowserWindow: BW2 } = fakeElectron()
+  let replyLater
+  const delayedSpawn = () => {
+    const child = new EventEmitter()
+    child.stdin = { write: (line) => { const seq = line.trim().split(/\s+/)[3]; replyLater = () => child.stdout.emit('data', `${seq} y\n`) } }
+    child.stdout = new EventEmitter()
+    child.kill = () => {}
+    return child
+  }
+  const cursor2 = createComputerCursor({ BrowserWindow: BW2, screen, platform: 'darwin', spawn: delayedSpawn, log: { warn: () => {} } })
+  const pending = update(cursor2)
+  await new Promise(resolve => setImmediate(resolve))
+  cursor2.dispose()
+  replyLater?.()
+  await pending
+  assert.equal(windows2.length, 0, 'disposed cursor must not open a window after check settles')
+})

@@ -106,3 +106,45 @@ test('a newer navigation ends the wait it took over', () => {
   assert.deepEqual(began, ['bot-2'])
   assert.deepEqual(finished, ['bot-2'])
 })
+
+test('repeating the same unlisted target keeps the wait steady without flashing', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, began, finished, refreshes } = rig(list)
+  show('bot-2')
+  show('bot-2')
+  show('bot-2')
+  assert.deepEqual(began, ['bot-2'])
+  assert.deepEqual(finished, [])
+  assert.equal(refreshes(), 1)
+  list.set('bot-2')
+  assert.deepEqual(opened, ['bot-2'])
+  assert.deepEqual(finished, ['bot-2'])
+})
+
+test('requesting the already-active session does not reopen it', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, began, refreshes } = rig(list)
+  show('bot-1')
+  assert.deepEqual(opened, [])
+  assert.deepEqual(began, [])
+  assert.equal(refreshes(), 0)
+})
+
+test('clearing the old main view while waiting for a fresh part keeps the wait alive', () => {
+  const list = store(['part-1'])
+  list.setMain('part-1')
+  const { show, opened, began, finished } = rig(list)
+  show('part-2')
+  assert.deepEqual(began, ['part-2'])
+  assert.deepEqual(finished, [])
+  // Archiving part-1 clears mainView before part-2 arrives in the list.
+  delete list.getSnapshot().byId['part-1']
+  list.set('unrelated')
+  assert.deepEqual(finished, [])
+  assert.deepEqual(opened, [])
+  list.set('part-2')
+  assert.deepEqual(opened, ['part-2'])
+  assert.deepEqual(finished, ['part-2'])
+})

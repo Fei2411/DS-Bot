@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
 import { own } from './store.js'
+import { activeTasksOf } from './threads.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -64,7 +65,6 @@ export function install(rt) {
   const loaded = new Map()
   const pendingDrops = new Map()
   const frozenCatalogs = new Map()
-  const toolCounts = new Map()
   let statusesCache
   let statusesKey
   let pluginPromise
@@ -385,9 +385,6 @@ export function install(rt) {
       await fiber.await()
       if (stopped || agents.get(sessionId)?.deref() !== agent || agentMounts.get(name) !== mounted) return
       statusSet(bot.id, name, sessionId, { state: 'ready' })
-      if (item.kind === 'skill') toolCounts.set(name, 0)
-      const schemas = agent.ctx.tools?.schemas?.(agent)
-      if (item.kind === 'mcp' && Array.isArray(schemas)) toolCounts.set(name, schemas.filter(tool => tool.name.startsWith(`mcp__${name}__`)).length)
     } catch (error) {
       if (agentMounts.get(name) !== mounted) return
       await drop()
@@ -468,6 +465,8 @@ export function install(rt) {
   async function reconcile() {
     if (stopped) return
     await loadInputs()
+    if (stopped) return
+    lastReconcileFingerprint = capabilityFingerprint()
     const runs = []
     for (const [sessionId, reference] of agents) {
       const agent = reference.deref()
@@ -477,6 +476,9 @@ export function install(rt) {
       }
       agents.delete(sessionId)
       clearSession(sessionId)
+      loaded.delete(sessionId)
+      pendingDrops.delete(sessionId)
+      frozenCatalogs.delete(sessionId)
     }
     await Promise.all(runs)
   }
@@ -588,12 +590,31 @@ export function install(rt) {
     }
     throw new Error('Unknown capability operation.')
   }
+  let secretsRev = 0
+  let lastReconcileFingerprint = null
+  const capabilityFingerprint = () => JSON.stringify([
+    secretsRev,
+    library(),
+    Object.values(state.bots ?? {}).map(bot => [
+      bot.id,
+      bot.sessionId,
+      bot.capabilities,
+      bot.packs,
+      activeTasksOf(bot).map(task => task.sessionId),
+    ]),
+    Object.values(state.rooms ?? {}).map(room => [room.id, room.sessions]),
+  ])
   const secretsChanged = rt.secretsChanged
   rt.secretsChanged = () => {
+    secretsRev += 1
     secretsChanged?.()
     if (loadingSecrets === 0) void scheduleReconcile()
   }
-  rt.capabilitiesStateSaved = () => { void scheduleReconcile() }
+  rt.capabilitiesStateSaved = () => {
+    const fingerprint = capabilityFingerprint()
+    if (fingerprint === lastReconcileFingerprint) return
+    void scheduleReconcile()
+  }
   const renderCatalog = sessionId => {
     const bot = botOfSession(sessionId)
     if (!bot) return ''
@@ -601,9 +622,7 @@ export function install(rt) {
       const item = own(library(), name)
       if (!item) return []
       const summary = String(item.description || (item.kind === 'mcp' ? 'MCP server' : item.kind === 'skill' ? 'Skill instructions' : `Includes ${(item.items ?? []).join(', ') || 'no items'}`)).replace(/\s+/g, ' ').trim().slice(0, 120)
-      const members = item.kind === 'pack' ? item.items ?? [] : [name]
-      const count = members.every(member => toolCounts.has(member)) ? members.reduce((sum, member) => sum + toolCounts.get(member), 0) : undefined
-      return [`- ${name}: ${summary}${count === undefined ? '' : ` (${count} tools)`}`]
+      return [`- ${name}: ${summary}`]
     })
     return lines.length ? ['# Feature packs', ...lines, 'Call use_pack when a task needs one of these packs.'].join('\n') : ''
   }
@@ -614,7 +633,7 @@ export function install(rt) {
     frozenCatalogs.set(sessionId, text)
     return text
   }
-  ctx.systemPrompt.section({ name: 'feature-packs', order: 646, text: ({ agent }) => {
+  ctx.systemPrompt.section({ name: 'feature-packs', order: 10310, text: ({ agent }) => {
     if (agent?.ctx) trackAgent(agent)
     return catalogFor(agent?.id)
   } })
@@ -667,7 +686,10 @@ export function install(rt) {
       else entries.set(name, expandCapabilityNames([name], library()))
     }
     pendingDrops.delete(sessionId)
-    if (!entries.size) loaded.delete(sessionId)
+    if (!entries.size) {
+      loaded.delete(sessionId)
+      rt.syncScopedSession?.(sessionId)
+    }
     const agent = agents.get(sessionId)?.deref()
     if (agent) {
       await pruneAgent(agent)
@@ -702,7 +724,6 @@ export function install(rt) {
       loaded.clear()
       pendingDrops.clear()
       frozenCatalogs.clear()
-      toolCounts.clear()
       statusesCache = undefined
       await Promise.all(live.flatMap(agentMounts => [...agentMounts.values()].map(disposeMount)))
     }
@@ -721,5 +742,6 @@ export function install(rt) {
     changeCapabilityAttachment: changeAttachment,
     usePack,
     dropPack,
+    hasLoadedPacks: sessionId => (loaded.get(sessionId)?.size ?? 0) > 0,
   })
 }
