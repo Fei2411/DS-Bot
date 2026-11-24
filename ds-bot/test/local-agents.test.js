@@ -519,6 +519,26 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   assert.match(out.thinking, /▸/)
 })
 
+test('codex app-server: failed thread start closes the bridge so the same session can retry', async (t) => {
+  const codexArgs = ['--fail-start']
+  const adapter = makeAdapter({ codexArgs })
+  t.after(() => adapter.dispose())
+  const request = options('s1', [user('m1', 'list-team-tools')], { provider: 'local-codex-cli' })
+  const live = await adapter.liveFor(request, adapter.deps.presetFor('s1'))
+  await live.engine.ensure()
+  const child = live.engine.child
+
+  await assert.rejects(collect(adapter.stream(request)), /thread start failed/)
+  assert.equal(live.mcp.server.listening, false)
+  assert.ok(child.exitCode !== null || child.signalCode !== null)
+  assert.equal(adapter.live.has('s1'), false)
+
+  codexArgs.length = 0
+  const out = await collect(adapter.stream(request))
+  assert.equal(out.text, 'message_bot')
+  assert.equal(out.finish.kind, 'stop')
+})
+
 test('codex app-server: idle resume reconnects team tools without disturbing another conversation', async (t) => {
   const records = {}
   const adapter = makeAdapter({ records })

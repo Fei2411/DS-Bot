@@ -21,6 +21,7 @@ const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
 const holdCompact = process.argv.includes('--hold-compact')
 const failResume = process.argv.includes('--fail-resume')
+const failStart = process.argv.includes('--fail-start')
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -183,6 +184,7 @@ process.stdin.on('data', (chunk) => {
         break
       case 'thread/start': {
         record('thread/start', params)
+        if (failStart) { replyError(id, 'thread start failed'); break }
         const extra = unknownField(params, THREAD_START)
         if (extra !== undefined) { replyError(id, extra); break }
         const thread = { id: `thr-${++nextId}`, params }

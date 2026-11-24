@@ -527,7 +527,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
-        .catch(error => { throw toLlmError(error, live) })
+        .catch(async error => {
+          if (live.spec.kind === 'codex') await this.closeLive(live)
+          throw toLlmError(error, live)
+        })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. If ACP or Codex
       // could not resume and opened a fresh session instead, replay conversation
