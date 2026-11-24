@@ -792,6 +792,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      contents: read
       packages: write
     steps:
       - name: Download the tested image
@@ -802,7 +803,7 @@ jobs:
       - run: docker load --input "$RUNNER_TEMP/ds-bot-image.tar"
       - name: Publish the tested image
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_REPOSITORY: ${{ github.repository }}
           GHCR_BRANCH: ${{ github.ref_name }}
@@ -815,8 +816,13 @@ jobs:
             dev) tag=dev ;;
             *) exit 0 ;;
           esac
-          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           docker tag ds-bot:test "$image:sha-$GHCR_SHA"
-          docker tag ds-bot:test "$image:$tag"
           docker push "$image:sha-$GHCR_SHA"
+          branch_sha="$(gh api "repos/$GHCR_REPOSITORY/git/ref/heads/$GHCR_BRANCH" --jq .object.sha)"
+          if [ "$GHCR_SHA" != "$branch_sha" ]; then
+            echo "Skipping :$tag because $GHCR_BRANCH now points to $branch_sha instead of $GHCR_SHA"
+            exit 0
+          fi
+          docker tag ds-bot:test "$image:$tag"
           docker push "$image:$tag"
