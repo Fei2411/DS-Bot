@@ -1309,10 +1309,19 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
       ['e1', 'empty-only-value-1'],
     ])
 
-    // Real dual-decoding pre-v24 v10 ciphertext: decodes cleanly under BOTH empty ("atjbBkaA") and peanuts keys.
-    const ambiguousBlob = Buffer.from('763130fa1f59d6cc4d6f882a6f3566b821a58f', 'hex')
-    assert.equal(decryptChromiumV10(ambiguousBlob, emptyKey, { stripDomainHash: false }), 'atjbBkaA')
-    assert.notEqual(decryptChromiumV10(ambiguousBlob, peanutsKey, { stripDomainHash: false }), null)
+    // Pre-v24 wrong-key collision containing ';' is rejected by Chromium's IsValidCookieValue rule,
+    // letting the valid empty-password decryption succeed cleanly without ambiguity.
+    const semiBlob = Buffer.from('763130fa1f59d6cc4d6f882a6f3566b821a58f', 'hex')
+    assert.equal(decryptChromiumV10(semiBlob, emptyKey, { stripDomainHash: false }), 'atjbBkaA')
+    assert.equal(decryptChromiumV10(semiBlob, peanutsKey, { stripDomainHash: false }), null)
+
+    // Real semicolon-free dual-decoding pre-v24 v10 ciphertext: decodes to two different Chromium-valid
+    // cookie values under empty ("3iB3EkaA") and peanuts keys.
+    const ambiguousBlob = Buffer.from('763130847a12a038abdaa8b85f31087ad058c4', 'hex')
+    const ambEmptyVal = decryptChromiumV10(ambiguousBlob, emptyKey, { stripDomainHash: false })
+    const ambPeanutsVal = decryptChromiumV10(ambiguousBlob, peanutsKey, { stripDomainHash: false })
+    assert.equal(ambEmptyVal, '3iB3EkaA')
+    assert.ok(ambPeanutsVal && ambPeanutsVal !== ambEmptyVal && !ambPeanutsVal.includes(';'))
 
     const pre24AmbPath = join(root.dir, 'Pre24AmbiguousCookies')
     const pre24AmbDb = new DatabaseSync(pre24AmbPath)
@@ -1334,27 +1343,70 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
     assert.deepEqual(ambNoExe.result.cookies.map((c) => [c.name, c.value]), [['plain_ok', 'plain-val']])
     assert.deepEqual(ambNoExe.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
 
-    // Even when a peanuts-only row makes a whole-DB peanuts pass have 0 failures, the per-row ambiguous
-    // entry must still delegate to clone-cdp when source.exe is present (never import the wrong value).
+    // With source.exe + peanuts-only row (no v11/mixed keys): linux-v10 directly skips the ambiguous entry
+    // and preserves readable rows without launching Chromium or importing a wrong guessed value.
     const pre24AmbMixedDb = new DatabaseSync(pre24AmbPath)
     pre24AmbMixedDb.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run('.amb.example', 'peanuts_only', '', encryptMacV10('peanuts-real-val', peanutsKey, { withDomainHash: false }), '/', 1, 1, futureWebkit, 1, 1, '')
     pre24AmbMixedDb.close()
 
-    const ambWithExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath }, {
+    const ambDirectWithExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath }, {
       platformOverride: 'linux',
-      cloneHarvester: async () => ({ cookies: [{ name: 'ambiguous', value: 'atjbBkaA', domain: '.amb.example', path: '/' }], origins: [], skipped: [] }),
+      cloneHarvester: async () => assert.fail('clone-cdp is unnecessary when no v11 or mixed keys exist'),
     })
-    assert.equal(ambWithExe.method, 'clone-cdp')
-    assert.equal(ambWithExe.result.cookies[0].value, 'atjbBkaA')
-
-    const ambMixedNoExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath, exe: null }, { platformOverride: 'linux' })
-    assert.equal(ambMixedNoExe.method, 'linux-v10')
-    assert.deepEqual(ambMixedNoExe.result.cookies.map((c) => [c.name, c.value]), [
+    assert.equal(ambDirectWithExe.method, 'linux-v10')
+    assert.deepEqual(ambDirectWithExe.result.cookies.map((c) => [c.name, c.value]), [
       ['plain_ok', 'plain-val'],
       ['peanuts_only', 'peanuts-real-val'],
     ])
-    assert.deepEqual(ambMixedNoExe.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
+    assert.deepEqual(ambDirectWithExe.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
+
+    // When a v11 row DOES require clone-cdp fallback, importFromBrowser must filter out any matching
+    // ambiguous cookie Chromium returns (preventing wrong-key guesses) AND preserve its skipped reason
+    // (whether Chromium returned a guessed value or silently dropped it).
+    const pre24AmbV11Db = new DatabaseSync(pre24AmbPath)
+    pre24AmbV11Db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.amb.example', 'keyring_v11', '', Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 9)]), '/', 1, 1, futureWebkit, 1, 1, '')
+    pre24AmbV11Db.close()
+
+    const cdpGuessed = await importFromBrowser({ ...source, cookieDb: pre24AmbPath }, {
+      platformOverride: 'linux',
+      cloneHarvester: async () => ({
+        cookies: [
+          { name: 'ambiguous', value: ambPeanutsVal, domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+          { name: 'plain_ok', value: 'plain-val', domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+          { name: 'peanuts_only', value: 'peanuts-real-val', domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+          { name: 'keyring_v11', value: 'v11-ok', domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+        ],
+        origins: [],
+        skipped: [],
+      }),
+    })
+    assert.equal(cdpGuessed.method, 'clone-cdp')
+    assert.deepEqual(cdpGuessed.result.cookies.map((c) => [c.name, c.value]), [
+      ['plain_ok', 'plain-val'],
+      ['peanuts_only', 'peanuts-real-val'],
+      ['keyring_v11', 'v11-ok'],
+    ])
+    assert.deepEqual(cdpGuessed.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
+
+    const cdpDropped = await importFromBrowser({ ...source, cookieDb: pre24AmbPath }, {
+      platformOverride: 'linux',
+      cloneHarvester: async () => ({
+        cookies: [
+          { name: 'plain_ok', value: 'plain-val', domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+          { name: 'keyring_v11', value: 'v11-ok', domain: '.amb.example', path: '/', secure: true, httpOnly: true },
+        ],
+        origins: [],
+        skipped: [],
+      }),
+    })
+    assert.equal(cdpDropped.method, 'clone-cdp')
+    assert.deepEqual(cdpDropped.result.cookies.map((c) => [c.name, c.value]), [
+      ['plain_ok', 'plain-val'],
+      ['keyring_v11', 'v11-ok'],
+    ])
+    assert.deepEqual(cdpDropped.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
 
     // On macOS and Linux (where closeBrowser is Windows-only), an exclusive SQLite lock rejects with
     // browser-locked instead of showing the broken Windows "Close and import" prompt.

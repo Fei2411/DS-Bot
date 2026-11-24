@@ -1152,7 +1152,8 @@ export function deriveLinuxChromiumKey(password = 'peanuts') {
 }
 
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-const INVALID_COOKIE_VALUE_CTL = /[\x00-\x08\x0a-\x1f\x7f]/
+// Chromium's ParsedCookie::IsValidCookieValue rejects control chars (except HTAB) and ';'.
+const INVALID_PRE24_COOKIE_VALUE = /[\x00-\x08\x0a-\x1f;\x7f]/
 
 /** Decrypt a single Chromium v10 cookie blob (enforcing v24+ SHA-256 domain digest and valid UTF-8 cookie bytes). */
 export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHash = false } = {}) {
@@ -1173,12 +1174,31 @@ export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHa
   } catch {
     return null
   }
-  // Reject non-tab control bytes produced by accidental 1/256 PKCS#7 padding collisions under a wrong pre-v24 key.
-  if (!stripDomainHash && INVALID_COOKIE_VALUE_CTL.test(text)) return null
+  // Reject bytes Chromium's cookie value validator forbids, filtering accidental PKCS#7 collisions under a wrong pre-v24 key.
+  if (!stripDomainHash && INVALID_PRE24_COOKIE_VALUE.test(text)) return null
   return text
 }
 
 const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
+
+function chromiumCookieIdentity(cookie) {
+  const domain = String(cookie?.domain ?? '').toLowerCase()
+  const name = String(cookie?.name ?? '')
+  const path = cookie?.path || '/'
+  const secure = cookie?.secure ? '1' : '0'
+  const topSite = cookie?.partitionKey?.topLevelSite ? String(cookie.partitionKey.topLevelSite) : ''
+  const crossSite = topSite ? (cookie.partitionKey.hasCrossSiteAncestor === false ? '0' : '1') : ''
+  const opaque = cookie?.partitionKeyOpaque === true ? '1' : '0'
+  return `${domain}\0${name}\0${path}\0${secure}\0${topSite}\0${crossSite}\0${opaque}`
+}
+
+function applyAmbiguousFilter(result, ambiguousEntries) {
+  if (!ambiguousEntries || ambiguousEntries.length === 0) return result
+  const blocked = new Set(ambiguousEntries.map((entry) => entry.key))
+  const cookies = (result.cookies ?? []).filter((cookie) => !blocked.has(chromiumCookieIdentity(cookie)))
+  const skipped = [...(result.skipped ?? []), ...ambiguousEntries.map((entry) => entry.skipped)]
+  return { ...result, cookies, skipped }
+}
 
 function decryptWithCandidateKeys(encrypted, keys, opts, { rejectAmbiguous = false } = {}) {
   let matched = null
@@ -1208,7 +1228,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
     if (!hasTable(db, 'cookies')) {
-      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, ambiguousCount: 0, usedKeyCount: 0, unsupportedEncryptionCount: 0 }
+      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, ambiguousCount: 0, ambiguousEntries: [], usedKeyCount: 0, unsupportedEncryptionCount: 0 }
     }
     let dbVersion = 0
     try {
@@ -1229,6 +1249,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
     const rows = db.prepare(`SELECT ${select.join(', ')} FROM cookies`).all()
     const cookies = []
     const skipped = []
+    const ambiguousEntries = []
     let decryptedCount = 0
     let decryptFailedCount = 0
     let ambiguousCount = 0
@@ -1244,6 +1265,14 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
           return
         }
       }
+      const partitionKey = typeof row.top_frame_site_key === 'string' && row.top_frame_site_key
+        ? {
+            topLevelSite: row.top_frame_site_key,
+            hasCrossSiteAncestor: row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
+              ? true
+              : Boolean(row.has_cross_site_ancestor),
+          }
+        : undefined
       let value = typeof row.value === 'string' ? row.value : ''
       const enc = row.encrypted_value ? Buffer.from(row.encrypted_value) : null
       if (enc && enc.length > 0) {
@@ -1265,9 +1294,28 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
             { rejectAmbiguous: rejectAmbiguous && !stripDomainHash },
           )
           if (outcome.value === null) {
-            if (outcome.ambiguous) ambiguousCount += 1
             decryptFailedCount += 1
-            skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
+            const skipEntry = {
+              where,
+              name: row.name,
+              domain: row.host_key,
+              code: 'decrypt-failed',
+              reason: outcome.ambiguous ? 'could not determine cookie decryption key unambiguously' : 'could not decrypt cookie value',
+            }
+            if (outcome.ambiguous) {
+              ambiguousCount += 1
+              ambiguousEntries.push({
+                key: chromiumCookieIdentity({
+                  domain: row.host_key,
+                  name: row.name,
+                  path: row.path || '/',
+                  secure: Boolean(row.is_secure),
+                  partitionKey,
+                }),
+                skipped: skipEntry,
+              })
+            }
+            skipped.push(skipEntry)
             return
           }
           value = outcome.value
@@ -1286,12 +1334,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
       const ss = DB_SAMESITE[row.samesite]
       if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
       if (expires !== undefined) cookie.expires = expires
-      if (typeof row.top_frame_site_key === 'string' && row.top_frame_site_key) {
-        const hasCrossSite = row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
-          ? true
-          : Boolean(row.has_cross_site_ancestor)
-        cookie.partitionKey = { topLevelSite: row.top_frame_site_key, hasCrossSiteAncestor: hasCrossSite }
-      }
+      if (partitionKey) cookie.partitionKey = partitionKey
       cookies.push(cookie)
     })
     return {
@@ -1302,6 +1345,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
       decryptedCount,
       decryptFailedCount,
       ambiguousCount,
+      ambiguousEntries,
       usedKeyCount: usedKeyIndices.size,
       unsupportedEncryptionCount,
     }
@@ -1314,12 +1358,13 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
  * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password.
  * On v24+ stores, the SHA-256 domain digest authenticates each row unambiguously across mixed keys.
  * On pre-v24 stores (no MAC), tests both keys per row so any row that validly decodes to different
- * values under both keys is flagged as ambiguous instead of guessed: when source.exe is available,
- * ambiguous, mixed pre-v24, v11/keyring, or all-failed v10 stores delegate to clone + CDP pipe so
- * Chromium itself decrypts; when no binary is available, readable rows are preserved and ambiguous
- * or unsupported rows are reported in skipped.
+ * values under both keys is flagged as ambiguous and skipped rather than guessed (Chromium itself
+ * tries "peanuts" first without a MAC, so CDP fallback cannot disambiguate those rows either).
+ * Delegates to clone + CDP pipe when source.exe is available and the store has v11/keyring rows,
+ * mixed pre-v24 keys, or all non-ambiguous v10 rows failed; reports any detected ambiguous rows via
+ * `onAmbiguous` so the caller filters them out of CDP results and keeps their skipped reasons.
  */
-export async function harvestLinuxChromiumV10(source, workDir, { signal, now } = {}) {
+export async function harvestLinuxChromiumV10(source, workDir, { signal, now, onAmbiguous } = {}) {
   throwIfAborted(signal)
   const { relCookieDir } = resolveSourceLayout(source)
   const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
@@ -1332,11 +1377,14 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
     rejectAmbiguous: true,
     now,
   })
+  if (typeof onAmbiguous === 'function' && detailed.ambiguousEntries.length > 0) {
+    onAmbiguous(detailed.ambiguousEntries)
+  }
   if (source.exe) {
-    if (detailed.ambiguousCount > 0) return null
-    if (detailed.dbVersion < 24 && detailed.usedKeyCount > 1) return null
+    const nonAmbiguousFailed = detailed.decryptFailedCount - detailed.ambiguousCount
     if (detailed.unsupportedEncryptionCount > 0) return null
-    if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) return null
+    if (detailed.dbVersion < 24 && detailed.usedKeyCount > 1) return null
+    if (nonAmbiguousFailed > 0 && detailed.decryptedCount === 0) return null
   }
   return { cookies: detailed.cookies, origins: detailed.origins, skipped: detailed.skipped }
 }
@@ -1747,6 +1795,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
     }
 
     // 3. Linux pure-JS v10 decryption ("peanuts" / empty password) without launching Chromium.
+    let linuxAmbiguous = []
     if (source.engine === 'chromium' && currentPlatform === 'linux') {
       try {
         await cloner(source, work.dir, { needLocalState: false })
@@ -1755,7 +1804,10 @@ export async function importFromBrowser(source, { close = false, platformOverrid
         throw error
       }
       throwIfAborted(signal)
-      const linuxResult = await (linuxHarvester ?? harvestLinuxChromiumV10)(source, work.dir, { signal })
+      const linuxResult = await (linuxHarvester ?? harvestLinuxChromiumV10)(source, work.dir, {
+        signal,
+        onAmbiguous: (entries) => { linuxAmbiguous = entries },
+      })
       throwIfAborted(signal)
       if (linuxResult !== null) {
         return { running: false, restarted: false, method: 'linux-v10', result: linuxResult }
@@ -1792,7 +1844,8 @@ export async function importFromBrowser(source, { close = false, platformOverrid
     throwIfAborted(signal)
     // 4. Harvest from the clone; turn Windows all-v20 into guided remote-debugging setup.
     try {
-      const result = await (cloneHarvester ?? harvestCloned)(source, work.dir, { signal })
+      const rawResult = await (cloneHarvester ?? harvestCloned)(source, work.dir, { signal })
+      const result = linuxAmbiguous.length > 0 ? applyAmbiguousFilter(rawResult, linuxAmbiguous) : rawResult
       return { running: false, restarted: closed, method: source.engine === 'firefox' ? 'firefox-sqlite' : 'clone-cdp', result }
     } catch (error) {
       if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
