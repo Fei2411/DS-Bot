@@ -1217,7 +1217,17 @@ export function apply(ctx) {
   actions.steerQueued = async (sessionId) => {
     const session = ctx.sessions.binding(sessionId)?.session
     if (session === undefined) return
-    if (await steerQueued(session) === 'failed') {
+    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined
+      ? async (ids) => {
+          try {
+            await actions.steerQueueBatch(sessionId, ids)
+            return 'done'
+          } catch (error) {
+            return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
+          }
+        }
+      : undefined
+    if (await steerQueued(session, steerBatch) === 'failed') {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }

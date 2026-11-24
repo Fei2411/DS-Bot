@@ -121,6 +121,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         ? globalThis.crypto.randomUUID()
         : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     })),
+    steerQueueBatch: (sessionId, ids) => call('bot-steer-queue', { sessionId, ids }),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,

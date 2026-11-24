@@ -206,6 +206,11 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
       listener(payload)
     }
   })
+  root.on('agent/assistant-stream', (payload) => {
+    for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) {
+      listener(payload)
+    }
+  })
   root.on('agent/pre-step', (req, next) => {
     const chain = ctx.listeners.get('agent/pre-step') ?? []
     const run = index => (index < chain.length ? chain[index](req, () => run(index + 1)) : next())

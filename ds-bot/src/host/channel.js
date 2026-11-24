@@ -970,6 +970,15 @@ export function install(rt) {
             ...(typeof body.operationId === 'string' && body.operationId !== '' ? { operationId: body.operationId } : {}),
           }))
         }
+        case 'bot-steer-queue': {
+          await rt.load()
+          const sessionId = typeof body.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
+          if (sessionId === undefined || !rt.chatOwners.has(sessionId) || rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) {
+            return fail('Unknown Bot session', 'bot/not-found')
+          }
+          const ids = Array.isArray(body.ids) ? body.ids.filter(id => typeof id === 'string' && id !== '') : undefined
+          return ok(rt.steerQueued?.(sessionId, ids) ?? { steered: 0 })
+        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
