@@ -12,6 +12,7 @@ import { isSilentTurnText, SOURCE_KIND } from '../constants.js'
 import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { boundedFetch } from './platforms/media.js'
 import { imViewChoices } from './view-choices.js'
 import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './view-form.js'
 
@@ -489,7 +490,7 @@ export function install(rt) {
   }
 
   const envFor = async (conn, runtime) => ({
-    fetch: globalThis.fetch,
+    fetch: boundedFetch(),
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
