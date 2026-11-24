@@ -1338,6 +1338,27 @@ test('a repeated @ line is stored twice and calls that member once', async (t) =
   assert.equal(logLines(host).filter(line => line.text === '@Tester ...').length, 2)
 })
 
+test('a closing mention wakes the member that answered the opening mention (#2181)', async (t) => {
+  const host = await start(t, { members: ['b', 'c'], admin: 'b' })
+  const result = host.round('c1', host.say('@Writer write a short doc, then ask Tester to review it'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '@Tester please review the doc once I finish it', 'k1')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', 'Waiting for the doc.')
+  await settle(() => rt.roomOf('r1').log.some(line => line.text === 'Waiting for the doc.'))
+
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '@Tester the doc is ready for review')
+  await settle(() => host.agentOf('gc').calls.length === 2 || result() !== undefined)
+  assert.ok(rt.roomOf('r1').log.some(line => line.text === '@Tester the doc is ready for review'))
+  assert.equal(host.agentOf('gc').calls.length, 2, 'the closing mention should deliver a second call')
+  assert.match(text(host.begin('gc')), /Writer: @Tester the doc is ready for review/)
+  host.finish('gc', 'I reviewed the doc.')
+  await settle(() => result() !== undefined)
+})
+
 test('two post_to_group calls both store the same line', async (t) => {
   const { host, first } = await busyRound(t)
   await host.tool('post_to_group', { group: 'Ops', message: '...' }, 'b')

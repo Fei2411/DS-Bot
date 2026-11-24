@@ -1671,8 +1671,8 @@ export function install(rt) {
   }
 
   // The members a member's message calls: those it names with @, or everyone when the
-  // admin writes "@all" (only the admin, so a member cannot set off a storm). A turn
-  // calls each member once, however many of its lines name it.
+  // admin writes "@all" (only the admin, so a member cannot set off a storm). A later
+  // line can call the same member again once its earlier call is no longer pending.
   // Zero-work Bot-to-Bot relays pause immediately on a graph cycle (calling a Bot that
   // already spoke without running any work tool since the last user message or real work),
   // after ROOM_IDLE_RELAY_LIMIT ack/status posts, or after ROOM_ZERO_WORK_RELAY_LIMIT
@@ -1683,7 +1683,10 @@ export function install(rt) {
     const { all, found: named } = mentionsIn(text, everyone)
     const found = named.filter(other => other.id !== member.id)
     const callees = (rt.isAdminOf(room, member.id) && all ? [...found, ...others.filter(other => !found.includes(other))] : found)
-      .filter(peer => !called.has(peer.id))
+      .filter(peer => !called.has(peer.id) || (
+        batchOf(room.id, peer.id, member.id) === undefined
+        && !room.paused?.some(entry => entry.id === peer.id && entry.by === member.id)
+      ))
     let idleStep = false
     let zeroWorkCycle = false
     let zeroWorkLimit = false
