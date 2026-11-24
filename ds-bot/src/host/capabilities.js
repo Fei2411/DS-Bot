@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { encodeUrlComponent } from './secrets.js'
+import { encodeUrlComponent, normalizeName } from './secrets.js'
+import { SECRET_REF_GLOBAL } from './secret-refs.js'
 import { own } from './store.js'
 import { activeTasksOf } from './threads.js'
 
@@ -141,10 +142,86 @@ export function install(rt) {
     items[name] = item
     return item
   }
+  const consumeSecretRefsInText = async (text, { botId, capName, field, consumed }) => {
+    const raw = String(text ?? '')
+    const matches = [...raw.matchAll(SECRET_REF_GLOBAL)]
+    if (matches.length === 0) return raw
+    if (!botId || typeof rt.secrets?.consumeRef !== 'function') {
+      throw new Error('Secret references can only be consumed by a Bot.')
+    }
+    let out = raw
+    for (const [ref, hex] of matches) {
+      let secretName = consumed.get(ref)
+      if (secretName === undefined) {
+        const value = await rt.secrets.consumeRef(ref, { botId })
+        const suffix = hex.slice(0, 8).toUpperCase()
+        const prefix = normalizeName(`CAP_${capName}_${field}`).slice(0, 50)
+        secretName = `${prefix}_${suffix}`
+        await rt.secretEndpoint('secret-set', {
+          name: secretName,
+          value,
+          purpose: `${capName} MCP capability`,
+          scope: [botId],
+        })
+        consumed.set(ref, secretName)
+      }
+      out = out.replaceAll(ref, `$DSH_SECRET_${secretName}`)
+    }
+    return out
+  }
+  const consumeSecretRefsInBody = async (body, { botId }) => {
+    if (!body || body.kind !== 'mcp' || !botId) return body
+    const capName = String(body.name ?? '').trim() || 'mcp'
+    const consumed = new Map()
+    const next = { ...body }
+    if (typeof next.url === 'string' && SECRET_REF_GLOBAL.test(next.url)) {
+      SECRET_REF_GLOBAL.lastIndex = 0
+      next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed })
+    }
+    SECRET_REF_GLOBAL.lastIndex = 0
+    if (Array.isArray(next.args)) {
+      const nextArgs = []
+      for (let i = 0; i < next.args.length; i += 1) {
+        nextArgs.push(typeof next.args[i] === 'string'
+          ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed })
+          : next.args[i])
+      }
+      next.args = nextArgs
+    }
+    if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
+      const nextEnv = {}
+      for (const [key, val] of Object.entries(next.env)) {
+        nextEnv[key] = typeof val === 'string'
+          ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed })
+          : val
+      }
+      next.env = nextEnv
+    }
+    if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
+      const nextHeaders = {}
+      for (const [key, val] of Object.entries(next.headers)) {
+        nextHeaders[key] = typeof val === 'string'
+          ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed })
+          : val
+      }
+      next.headers = nextHeaders
+    }
+    return next
+  }
   const capabilitySave = async (body, options = {}) => {
     await rt.load()
     writeCheck()
-    const item = itemInput(body ?? {}, options)
+    const input = body ?? {}
+    if (input.kind === 'mcp' && options.botId && !options.ui) {
+      const name = validateCapabilityName(input.name)
+      const previous = own(ensureLibrary(), name)
+      if (previous) {
+        editCheck(previous, options.botId, 'change')
+        if (previous.kind !== input.kind) throw new Error('A capability cannot change its kind. Delete it and save a new one.')
+      }
+    }
+    const resolvedBody = await consumeSecretRefsInBody(input, options)
+    const item = itemInput(resolvedBody, options)
     await rt.save()
     return item
   }
@@ -332,6 +409,9 @@ export function install(rt) {
       await drop()
       statusSet(bot.id, name, sessionId, { state: 'needs-approval' })
       return
+    }
+    if (item.kind === 'mcp' && typeof rt.resolveExternalForBot === 'function') {
+      await rt.resolveExternalForBot(bot.id).catch(() => {})
     }
     let config
     try {

@@ -7,6 +7,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
+import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -210,7 +211,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -295,12 +296,46 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
+    let secretShellModeChanged = false
+    let secretProvidersChanged = false
+    if (body.secretShellMode !== undefined) {
+      const prevMode = state.prefs.secretShellMode ?? 'env'
+      if (body.secretShellMode === null || body.secretShellMode === 'env') delete state.prefs.secretShellMode
+      else if (body.secretShellMode === 'file') state.prefs.secretShellMode = 'file'
+      else throw invalid('Secret shell exposure must be env or file')
+      secretShellModeChanged = (state.prefs.secretShellMode ?? 'env') !== prevMode
+    }
+    if (body.secretProviders !== undefined) {
+      const prevJson = JSON.stringify(state.prefs.secretProviders ?? {})
+      if (body.secretProviders === null) {
+        delete state.prefs.secretProviders
+      } else if (typeof body.secretProviders === 'object' && !Array.isArray(body.secretProviders)) {
+        const next = { ...(state.prefs.secretProviders ?? {}) }
+        if (body.secretProviders.onepassword !== undefined) {
+          if (body.secretProviders.onepassword === null) {
+            delete next.onepassword
+          } else {
+            const cleaned = validateOnePasswordConfig(body.secretProviders.onepassword)
+            if (cleaned.account === '') delete next.onepassword
+            else next.onepassword = cleaned
+          }
+        }
+        if (Object.keys(next).length === 0) delete state.prefs.secretProviders
+        else state.prefs.secretProviders = next
+      } else {
+        throw invalid('Secret providers settings must be an object')
+      }
+      secretProvidersChanged = JSON.stringify(state.prefs.secretProviders ?? {}) !== prevJson
+    }
     if (body.approvalModel !== undefined && requests.approvalModel === modelRequests.approvalModel) {
       rt.cancelApprovalReviews?.({})
       if (approvalModel) state.prefs.approvalModel = approvalModel
       else delete state.prefs.approvalModel
     }
     await rt.save()
+    if (secretShellModeChanged || secretProvidersChanged) {
+      rt.onSecretPrefsChanged?.({ shellModeChanged: secretShellModeChanged, providersChanged: secretProvidersChanged })
+    }
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
 
@@ -696,6 +731,7 @@ export function install(rt) {
         case 'secret-unlock':
         case 'secret-encrypt':
         case 'secret-decrypt':
+        case 'secret-refresh-external':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':

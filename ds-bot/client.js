@@ -129,6 +129,29 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Direct value": "直接入力",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "シークレットの取得元",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "このキーは現在のユーザーのみが読み取れる一時ファイルに保存され、24時間後に削除されます。",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "ワンタイム参照：設定 → シークレットには保存されず、初回使用時に削除され、24時間で期限切れになります。",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot} には値が渡されません。一時ファイルのパスのみを受け取ります。",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot} には値が渡されません。op:// 参照のみが保存され、必要時に 1Password で取得されます。",
+  " Use op://vault/item/field.": " op://vault/item/field 形式で入力してください。",
+  "Provide once": "1回だけ渡す",
+  "Save to file": "ファイルに保存",
+  "1Password reference": "1Password 参照",
+  "Provided {name} once": "{name} を1回だけ渡しました",
+  "Saved {name} to temp file": "{name} を一時ファイルに保存しました",
+  "Use op://vault/item/field.": "op://vault/item/field 形式で入力してください。",
+  "Updated.": "更新しました。",
+  "Shell & external providers": "シェルと外部プロバイダー",
+  "Shell exposure": "シェルへの渡し方",
+  "Temp file": "一時ファイル",
+  "1Password account": "1Password アカウント",
+  "Default account": "既定のアカウント",
+  "External secrets": "外部シークレット",
+  "External cache cleared.": "外部キャッシュをクリアしました。",
+  "Refresh external secrets": "外部シークレットを更新",
   "Approvals": "承認",
   "Approval model": "承認モデル",
   "Review for me": "代わりに審査",
@@ -2996,6 +3019,29 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Direct value": "직접 입력",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "시크릿 출처",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "이 키는 현재 사용자만 읽을 수 있는 임시 파일에 저장되며 24시간 후 자동으로 삭제됩니다.",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "일회용 참조: 설정 → 시크릿에 저장되지 않으며, 처음 사용 시 삭제되고 24시간 후 만료됩니다.",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot}은 여기서 값을 보지 못하며 임시 파일 경로만 받습니다.",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot}은 값을 보지 못합니다. op:// 참조만 저장되며 필요할 때 1Password에서 불러옵니다.",
+  " Use op://vault/item/field.": " op://vault/item/field 형식을 사용하세요.",
+  "Provide once": "한 번만 제공",
+  "Save to file": "파일로 저장",
+  "1Password reference": "1Password 참조",
+  "Provided {name} once": "{name}을(를) 한 번만 제공함",
+  "Saved {name} to temp file": "{name}을(를) 임시 파일에 저장함",
+  "Use op://vault/item/field.": "op://vault/item/field 형식을 사용하세요.",
+  "Updated.": "업데이트됨.",
+  "Shell & external providers": "셸 및 외부 공급자",
+  "Shell exposure": "셸 전달 방식",
+  "Temp file": "임시 파일",
+  "1Password account": "1Password 계정",
+  "Default account": "기본 계정",
+  "External secrets": "외부 시크릿",
+  "External cache cleared.": "외부 캐시가 지워졌습니다.",
+  "Refresh external secrets": "외부 시크릿 새로고침",
   "Approvals": "승인",
   "Approval model": "승인 모델",
   "Review for me": "대신 검토",
@@ -5908,6 +5954,29 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Direct value": "Valor directo",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "Origen del secreto",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "Esta clave se guardará en un archivo temporal legible solo por tu usuario y se eliminará tras 24 horas.",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "Referencia de un solo uso: no se guarda en Ajustes → Secretos, se elimina al primer uso y caduca en 24 horas.",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot} nunca ve el valor aquí. Solo recibe la ruta del archivo temporal.",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot} nunca ve el valor. Solo se guarda la referencia op://; 1Password la desbloquea bajo demanda.",
+  " Use op://vault/item/field.": " Usa el formato op://vault/item/field.",
+  "Provide once": "Entregar una vez",
+  "Save to file": "Guardar en archivo",
+  "1Password reference": "Referencia de 1Password",
+  "Provided {name} once": "{name} entregado una vez",
+  "Saved {name} to temp file": "{name} guardado en archivo temporal",
+  "Use op://vault/item/field.": "Usa el formato op://vault/item/field.",
+  "Updated.": "Actualizado.",
+  "Shell & external providers": "Shell y proveedores externos",
+  "Shell exposure": "Exposición en shell",
+  "Temp file": "Archivo temporal",
+  "1Password account": "Cuenta de 1Password",
+  "Default account": "Cuenta predeterminada",
+  "External secrets": "Secretos externos",
+  "External cache cleared.": "Caché externa borrada.",
+  "Refresh external secrets": "Actualizar secretos externos",
   "Approvals": "Aprobaciones",
   "Approval model": "Modelo de aprobación",
   "Review for me": "Revisar por mí",
@@ -8820,6 +8889,29 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Direct value": "Valeur directe",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "Source du secret",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "Cette clé sera enregistrée dans un fichier temporaire lisible uniquement par votre utilisateur et supprimée après 24 heures.",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "Référence à usage unique : non enregistrée dans Réglages → Secrets, supprimée dès la première utilisation et expirée après 24 heures.",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot} ne voit jamais la valeur ici. Il ne reçoit que le chemin du fichier temporaire.",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot} ne voit jamais la valeur. Seule la référence op:// est enregistrée ; 1Password la déverrouille à la demande.",
+  " Use op://vault/item/field.": " Utilisez le format op://vault/item/field.",
+  "Provide once": "Fournir une fois",
+  "Save to file": "Enregistrer dans un fichier",
+  "1Password reference": "Référence 1Password",
+  "Provided {name} once": "{name} fourni une fois",
+  "Saved {name} to temp file": "{name} enregistré dans un fichier temporaire",
+  "Use op://vault/item/field.": "Utilisez le format op://vault/item/field.",
+  "Updated.": "Mis à jour.",
+  "Shell & external providers": "Shell et fournisseurs externes",
+  "Shell exposure": "Exposition dans le shell",
+  "Temp file": "Fichier temporaire",
+  "1Password account": "Compte 1Password",
+  "Default account": "Compte par défaut",
+  "External secrets": "Secrets externes",
+  "External cache cleared.": "Cache externe vidé.",
+  "Refresh external secrets": "Actualiser les secrets externes",
   "Approvals": "Approbations",
   "Approval model": "Modèle d’approbation",
   "Review for me": "Examiner pour moi",
@@ -11687,6 +11779,29 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Direct value": "Direkter Wert",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "Geheimnisquelle",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "Dieser Schlüssel wird in einer temporären Datei gespeichert, die nur dein Benutzer lesen kann, und nach 24 Stunden gelöscht.",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "Einmal-Referenz: wird nicht unter Einstellungen → Geheimnisse gespeichert, bei erster Nutzung gelöscht und läuft nach 24 Stunden ab.",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot} sieht den Wert hier nie und erhält nur den Pfad der temporären Datei.",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot} sieht den Wert nie. Nur die op://-Referenz wird gespeichert; 1Password entsperrt sie bei Bedarf.",
+  " Use op://vault/item/field.": " Verwende das Format op://vault/item/field.",
+  "Provide once": "Einmalig bereitstellen",
+  "Save to file": "In Datei speichern",
+  "1Password reference": "1Password-Referenz",
+  "Provided {name} once": "{name} einmalig bereitgestellt",
+  "Saved {name} to temp file": "{name} in temporärer Datei gespeichert",
+  "Use op://vault/item/field.": "Verwende das Format op://vault/item/field.",
+  "Updated.": "Aktualisiert.",
+  "Shell & external providers": "Shell & externe Anbieter",
+  "Shell exposure": "Shell-Bereitstellung",
+  "Temp file": "Temporäre Datei",
+  "1Password account": "1Password-Konto",
+  "Default account": "Standardkonto",
+  "External secrets": "Externe Geheimnisse",
+  "External cache cleared.": "Externer Cache geleert.",
+  "Refresh external secrets": "Externe Geheimnisse aktualisieren",
   "Approvals": "Genehmigungen",
   "Approval model": "Genehmigungsmodell",
   "Review for me": "Für mich prüfen",
@@ -14600,6 +14715,29 @@ var DSH_DE = {
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Direct value": "直接输入",
+  "1Password (op://)": "1Password (op://)",
+  "Secret source": "密钥来源",
+  "This key will be saved in a temporary file only your user can read and deleted after 24 hours.": "此密钥会保存到仅当前用户可读的临时文件，并在 24 小时后自动删除。",
+  "One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours.": "一次性句柄：不会存进「设置 → 密钥」，首次使用即删除，24 小时后失效。",
+  "{bot} never sees the value here. It receives only the temporary file path.": "{bot} 不会看到这里的明文，只会收到临时文件路径。",
+  "{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.": "{bot} 看不到明文。仅保存 op:// 引用，使用时再由 1Password 按需解锁。",
+  " Use op://vault/item/field.": " 请使用 op://vault/item/field 格式。",
+  "Provide once": "仅提供一次",
+  "Save to file": "保存到临时文件",
+  "1Password reference": "1Password 引用",
+  "Provided {name} once": "已一次性提供 {name}",
+  "Saved {name} to temp file": "已将 {name} 保存到临时文件",
+  "Use op://vault/item/field.": "请使用 op://vault/item/field 格式。",
+  "Updated.": "已更新。",
+  "Shell & external providers": "Shell 与外部密钥库",
+  "Shell exposure": "Shell 注入方式",
+  "Temp file": "临时文件",
+  "1Password account": "1Password 账号",
+  "Default account": "默认账号",
+  "External secrets": "外部密钥",
+  "External cache cleared.": "外部密钥缓存已清空。",
+  "Refresh external secrets": "刷新外部密钥",
   "Approvals": "审批",
   "Approval model": "审批模型",
   "Review for me": "替我审批",
@@ -18446,6 +18584,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     secretUnlock: (passphrase) => after(call2("secret-unlock", { passphrase })),
     secretEncrypt: (passphrase) => after(call2("secret-encrypt", { passphrase })),
     secretDecrypt: (passphrase) => after(call2("secret-decrypt", { passphrase })),
+    secretRefreshExternal: (providerId, resolve2 = false) => after(call2("secret-refresh-external", { ...providerId ? { providerId } : {}, ...resolve2 ? { resolve: true } : {} })),
     connectorConnect: (id, payload = {}) => after(call2("connector-connect", { id, ...payload })),
     connectorDisconnect: (id) => after(call2("connector-disconnect", { id })),
     connectorRetry: (id) => after(call2("connector-retry", { id })),
@@ -26756,6 +26895,12 @@ var MIN_VALUE = 4;
 var MIN_MULTI_HEIGHT = 20;
 var MAX_MULTI_HEIGHT = 160;
 var NONE = {};
+var OP_REF_RE = /^op:\/\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+(?:\/[A-Za-z0-9._:@+-]+)?$/;
+var validOpRef = (value) => {
+  const trimmed2 = String(value ?? "").trim();
+  if (!OP_REF_RE.test(trimmed2)) return false;
+  return !trimmed2.slice(5).split("/").some((seg) => seg === "." || seg === "..");
+};
 var KeyIcon = () => (0, import_react19.createElement)(
   "svg",
   { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
@@ -26856,6 +27001,22 @@ function ScopeSwitch({ value, onChange, bot }) {
     }, text))
   );
 }
+function SourceSwitch({ value, onChange }) {
+  const options = [["value", t("Direct value")], ["onepassword", t("1Password (op://)")]];
+  return (0, import_react19.createElement)(
+    "div",
+    { className: "bt-secret-scope", role: "radiogroup", "aria-label": t("Secret source") },
+    (0, import_react19.createElement)("span", { className: "bt-secret-glide", "data-at": value === "value" ? 0 : 1, "aria-hidden": true }),
+    options.map(([id, text]) => (0, import_react19.createElement)("button", {
+      key: id,
+      type: "button",
+      role: "radio",
+      "aria-checked": value === id,
+      className: "bt-secret-seg",
+      onClick: () => onChange(id)
+    }, text))
+  );
+}
 function SecretHead({ bot, title, detail, name, onClose }) {
   return (0, import_react19.createElement)(
     "div",
@@ -26872,6 +27033,8 @@ function SecretHead({ bot, title, detail, name, onClose }) {
 }
 function SecretCard({ sessionId, bot, request, roster, actions, inline = false }) {
   const [value, setValue] = (0, import_react19.useState)("");
+  const [reference, setReference] = (0, import_react19.useState)("");
+  const [source, setSource] = (0, import_react19.useState)("value");
   const [scope, setScope] = (0, import_react19.useState)("all");
   const [replacing, setReplacing] = (0, import_react19.useState)(false);
   const [busy, setBusy] = (0, import_react19.useState)(false);
@@ -26879,6 +27042,11 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
   const busyRef = (0, import_react19.useRef)(false);
   const hold = useDockHold(sessionId, "secret", request.id, actions, inline);
   const noteId = (0, import_react19.useId)();
+  const delivery = request.delivery ?? "vault";
+  const isVault = delivery === "vault";
+  const isRef = delivery === "ref";
+  const isFile = delivery === "file";
+  const shellFileMode = roster?.prefs?.secretShellMode === "file";
   const secret = (roster.secrets ?? []).find((entry) => entry.name === request.name);
   const run2 = (make) => {
     if (busyRef.current) return void 0;
@@ -26886,24 +27054,55 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
     busyRef.current = true;
     setBusy(true);
     setError("");
-    return Promise.resolve().then(make).then(() => setValue(""), (failure) => setError(failure?.message ?? String(failure))).finally(() => {
+    return Promise.resolve().then(make).then(() => {
+      setValue("");
+      setReference("");
+    }, (failure) => setError(failure?.message ?? String(failure))).finally(() => {
       busyRef.current = false;
       setBusy(false);
     });
   };
   const cancel = () => run2(() => actions.secretCancel(request.id));
+  const filling = request.kind === "fill" || replacing;
+  const usingExternal = isVault && filling && source === "onepassword";
   const long = value.trim().length >= MIN_VALUE;
+  const refReady = validOpRef(reference);
+  const ready = usingExternal ? refReady : long;
   const save = () => {
-    if (long && !busy) void run2(() => actions.secretSet({ requestId: request.id, value, scope }));
+    if (!ready || busy) return;
+    if (usingExternal) {
+      void run2(() => actions.secretSet({ requestId: request.id, reference: reference.trim(), scope }));
+    } else if (isVault) {
+      void run2(() => actions.secretSet({ requestId: request.id, value, scope }));
+    } else {
+      void run2(() => actions.secretSet({ requestId: request.id, value }));
+    }
   };
   const allow = () => {
     if (!busy) void run2(() => actions.secretAllow(request.id));
   };
-  const filling = request.kind === "fill" || replacing;
   const warn = insecure() ? (0, import_react19.createElement)("div", { className: "bt-secret-warn", role: "note" }, (0, import_react19.createElement)(WarnIcon), t("This page is not on HTTPS: the key crosses the network unencrypted.")) : null;
+  const fileWarn = isFile ? (0, import_react19.createElement)("div", { className: "bt-secret-warn", role: "note" }, (0, import_react19.createElement)(WarnIcon), t("This key will be saved in a temporary file only your user can read and deleted after 24 hours.")) : null;
+  const envVar = shellFileMode ? `$DSH_SECRET_FILE_${request.name}` : `$DSH_SECRET_${request.name}`;
+  const note = isRef ? [
+    t("One-time reference: not saved to Settings → Secrets, deleted on first use, and expires in 24 hours."),
+    filling && value !== "" && !long ? t(" At least {count} characters.", { count: MIN_VALUE }) : ""
+  ] : isFile ? [
+    t("{bot} never sees the value here. It receives only the temporary file path.", { bot: bot.name }),
+    filling && value !== "" && !long ? t(" At least {count} characters.", { count: MIN_VALUE }) : ""
+  ] : usingExternal ? [
+    t("{bot} never sees the value. Only the op:// reference is saved; 1Password unlocks it on demand.", { bot: bot.name }),
+    reference !== "" && !refReady ? t(" Use op://vault/item/field.") : ""
+  ] : [
+    t("{bot} never sees the value. It reaches {bot}'s shell as ", { bot: bot.name }),
+    (0, import_react19.createElement)("code", null, envVar),
+    ".",
+    filling && value !== "" && !long ? t(" At least {count} characters.", { count: MIN_VALUE }) : ""
+  ];
+  const submitLabel = busy ? t("Saving…") : isRef ? t("Provide once") : isFile ? t("Save to file") : t("Save");
   return (0, import_react19.createElement)(
     "div",
-    { className: "bt-q bt-secret", role: "group", "aria-describedby": noteId, "data-kind": request.kind, onFocusCapture: hold, onPointerDownCapture: hold },
+    { className: "bt-q bt-secret", role: "group", "aria-describedby": noteId, "data-kind": request.kind, "data-delivery": delivery, onFocusCapture: hold, onPointerDownCapture: hold },
     (0, import_react19.createElement)(SecretHead, {
       bot,
       title: request.kind === "allow" ? t("Let {bot} use {name}?", { bot: bot.name, name: request.name }) : t("{name} needs a key", { name: bot.name }),
@@ -26912,26 +27111,42 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
       onClose: busy ? void 0 : cancel
     }),
     request.kind === "allow" ? (0, import_react19.createElement)("div", { className: "bt-secret-saved" }, (0, import_react19.createElement)(KeyIcon), t("Saved for {scope}", { scope: scopeLabel(secret?.scope, roster) })) : null,
+    fileWarn,
     filling ? (0, import_react19.createElement)(
       "div",
       { className: "bt-secret-body" },
-      (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: (next) => {
+      isVault ? (0, import_react19.createElement)(SourceSwitch, { value: source, onChange: (next) => {
+        hold();
+        setSource(next);
+      } }) : null,
+      usingExternal ? (0, import_react19.createElement)("input", {
+        className: "bt-input bt-secret-ref-input",
+        value: reference,
+        disabled: busy,
+        autoFocus: replacing,
+        spellCheck: false,
+        autoComplete: "off",
+        "aria-label": t("1Password reference"),
+        placeholder: "op://vault/item/field",
+        onChange: (event) => {
+          hold();
+          setReference(event.target.value);
+        },
+        onKeyDown: (event) => {
+          if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+          event.preventDefault();
+          save();
+        }
+      }) : (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: (next) => {
         hold();
         setValue(next);
       }, onEnter: save, label: t("Value of {name}", { name: request.name }), autoFocus: replacing, multiline: true })),
-      request.kind === "fill" ? (0, import_react19.createElement)(ScopeSwitch, { value: scope, onChange: (next) => {
+      isVault && request.kind === "fill" ? (0, import_react19.createElement)(ScopeSwitch, { value: scope, onChange: (next) => {
         hold();
         setScope(next);
       }, bot }) : null
     ) : null,
-    (0, import_react19.createElement)(
-      "div",
-      { className: "bt-secret-note", id: noteId },
-      t("{bot} never sees the value. It reaches {bot}'s shell as ", { bot: bot.name }),
-      (0, import_react19.createElement)("code", null, `$DSH_SECRET_${request.name}`),
-      ".",
-      filling && value !== "" && !long ? t(" At least {count} characters.", { count: MIN_VALUE }) : ""
-    ),
+    (0, import_react19.createElement)("div", { className: "bt-secret-note", id: noteId }, ...note),
     warn,
     error ? (0, import_react19.createElement)("div", { className: "bt-secret-error", role: "alert" }, error) : null,
     (0, import_react19.createElement)(
@@ -26942,13 +27157,14 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
         setReplacing(true);
       } }, t("Replace value")) : null,
       (0, import_react19.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: cancel }, t("Cancel")),
-      filling ? (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: !long || busy, onClick: save }, busy ? t("Saving…") : t("Save")) : (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: allow }, busy ? t("Allowing…") : t("Allow"))
+      filling ? (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: !ready || busy, onClick: save }, submitLabel) : (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: allow }, busy ? t("Allowing…") : t("Allow"))
     )
   );
 }
 function SettledSecret({ bot, request, roster }) {
   const canceled = request.status === "canceled";
-  const text = canceled ? t("{bot} asked for {name}", { bot: bot.name, name: request.name }) : request.status === "allowed" ? t("Allowed {bot} to use {name}", { bot: bot.name, name: request.name }) : t("Saved {name}", { name: request.name });
+  const delivery = request.delivery ?? "vault";
+  const text = canceled ? t("{bot} asked for {name}", { bot: bot.name, name: request.name }) : request.status === "allowed" ? t("Allowed {bot} to use {name}", { bot: bot.name, name: request.name }) : delivery === "ref" ? t("Provided {name} once", { name: request.name }) : delivery === "file" ? t("Saved {name} to temp file", { name: request.name }) : t("Saved {name}", { name: request.name });
   return (0, import_react19.createElement)(
     "div",
     { className: "bt-q bt-q-settled bt-secret bt-secret-done", role: "group", "aria-label": text, "data-status": request.status },
@@ -26960,7 +27176,7 @@ function SettledSecret({ bot, request, roster }) {
         "p",
         { className: "bt-q-title" },
         text,
-        canceled ? null : (0, import_react19.createElement)("span", { className: "bt-secret-scope-tag" }, ` · ${scopeLabel(request.scope, roster)}`)
+        canceled || delivery !== "vault" ? null : (0, import_react19.createElement)("span", { className: "bt-secret-scope-tag" }, ` · ${scopeLabel(request.scope, roster)}`)
       )),
       canceled ? (0, import_react19.createElement)("span", { className: "bt-q-badge" }, t("Canceled")) : (0, import_react19.createElement)("span", { className: "bt-q-check bt-secret-check", title: t("Done") }, (0, import_react19.createElement)(CheckIcon))
     )
@@ -27072,6 +27288,41 @@ function ValueEditor({ secret, onSave }) {
     value !== "" && !long ? (0, import_react19.createElement)("div", { className: "bt-set-hint" }, t("At least {count} characters.", { count: MIN_VALUE })) : replaced ? (0, import_react19.createElement)("div", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react19.createElement)(CheckIcon), t("Replaced. Bots get the new value from their next command.")) : null
   );
 }
+function ReferenceEditor({ secret, onSave }) {
+  const [reference, setReference] = (0, import_react19.useState)(secret.reference ?? "");
+  const [saved, setSaved] = (0, import_react19.useState)(false);
+  const trimmed2 = reference.trim();
+  const ready = validOpRef(trimmed2) && trimmed2 !== (secret.reference ?? "");
+  const save = () => {
+    if (!ready) return;
+    void Promise.resolve(onSave(trimmed2)).then((ok) => {
+      if (ok) setSaved(true);
+    });
+  };
+  return (0, import_react19.createElement)(
+    "div",
+    { className: "bt-secret-edit-block" },
+    (0, import_react19.createElement)("div", { className: "bt-secret-edit-label" }, t("1Password reference")),
+    (0, import_react19.createElement)(
+      "div",
+      { className: "bt-secret-inline" },
+      (0, import_react19.createElement)("input", {
+        className: "bt-input bt-secret-ref-input",
+        "aria-label": t("1Password reference"),
+        placeholder: "op://vault/item/field",
+        value: reference,
+        spellCheck: false,
+        autoComplete: "off",
+        onChange: (event) => {
+          setReference(event.target.value);
+          setSaved(false);
+        }
+      }),
+      (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: save }, t("Save"))
+    ),
+    trimmed2 !== "" && !validOpRef(trimmed2) ? (0, import_react19.createElement)("div", { className: "bt-set-hint" }, t("Use op://vault/item/field.")) : secret.externalError ? (0, import_react19.createElement)("div", { className: "bt-secret-error", role: "alert" }, secret.externalError) : saved ? (0, import_react19.createElement)("div", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react19.createElement)(CheckIcon), t("Updated.")) : null
+  );
+}
 function SecretRow({ secret, roster, actions, run: run2, open, onToggle }) {
   const [confirm, setConfirm] = (0, import_react19.useState)(false);
   (0, import_react19.useEffect)(() => {
@@ -27079,6 +27330,7 @@ function SecretRow({ secret, roster, actions, run: run2, open, onToggle }) {
   }, [open]);
   const asker = secret.requestedBy ? roster.byId[secret.requestedBy]?.name ?? t("a deleted Bot") : t("you");
   const allowed2 = secret.scope === "all" ? [] : secret.scope.map((id) => roster.byId[id]).filter(Boolean);
+  const external = secret.kind === "external";
   const meta = [t("Asked by {name}", { name: asker }), t("added {time}", { time: when(secret.createdAt) }), secret.lastUsedAt ? t("last used {time}", { time: when(secret.lastUsedAt) }) : t("not used yet")].join(" · ");
   return (0, import_react19.createElement)(
     "div",
@@ -27089,7 +27341,15 @@ function SecretRow({ secret, roster, actions, run: run2, open, onToggle }) {
       (0, import_react19.createElement)(
         "span",
         { className: "bt-set-copy" },
-        (0, import_react19.createElement)("span", { className: "bt-secret-title" }, (0, import_react19.createElement)(KeyIcon), (0, import_react19.createElement)("code", { className: "bt-secret-name" }, secret.name), secret.purpose ? (0, import_react19.createElement)("span", { className: "bt-secret-purpose" }, secret.purpose) : null),
+        (0, import_react19.createElement)(
+          "span",
+          { className: "bt-secret-title" },
+          (0, import_react19.createElement)(KeyIcon),
+          (0, import_react19.createElement)("code", { className: "bt-secret-name" }, secret.name),
+          external ? (0, import_react19.createElement)("span", { className: "bt-tag" }, "1Password") : null,
+          external && secret.externalStatus === "error" ? (0, import_react19.createElement)("span", { className: "bt-tag bt-secret-tag-warn" }, t("Error")) : null,
+          secret.purpose ? (0, import_react19.createElement)("span", { className: "bt-secret-purpose" }, secret.purpose) : null
+        ),
         (0, import_react19.createElement)("span", { className: "bt-set-hint" }, meta)
       ),
       (0, import_react19.createElement)(
@@ -27103,7 +27363,7 @@ function SecretRow({ secret, roster, actions, run: run2, open, onToggle }) {
       { className: "bt-secret-edit" },
       (0, import_react19.createElement)(ScopeEditor, { key: JSON.stringify(secret.scope), secret, roster, onSave: (scope) => run2(actions.secretUpdate(secret.name, { scope })) }),
       (0, import_react19.createElement)(PurposeEditor, { key: secret.purpose ?? "", secret, onSave: (purpose) => run2(actions.secretUpdate(secret.name, { purpose })) }),
-      (0, import_react19.createElement)(ValueEditor, { secret, onSave: (value) => run2(actions.secretSet({ name: secret.name, value })) }),
+      external ? (0, import_react19.createElement)(ReferenceEditor, { key: secret.reference ?? "", secret, onSave: (reference) => run2(actions.secretSet({ name: secret.name, reference })) }) : (0, import_react19.createElement)(ValueEditor, { secret, onSave: (value) => run2(actions.secretSet({ name: secret.name, value })) }),
       (0, import_react19.createElement)(
         "div",
         { className: "bt-secret-row-actions" },
@@ -27119,13 +27379,18 @@ function SecretRow({ secret, roster, actions, run: run2, open, onToggle }) {
 function AddSecret({ actions, run: run2, onDone }) {
   const [name, setName] = (0, import_react19.useState)("");
   const [purpose, setPurpose] = (0, import_react19.useState)("");
+  const [source, setSource] = (0, import_react19.useState)("value");
   const [value, setValue] = (0, import_react19.useState)("");
-  const ready = /^[A-Za-z][\w-]{0,63}$/.test(name.trim()) && value.trim().length >= MIN_VALUE;
+  const [reference, setReference] = (0, import_react19.useState)("");
+  const nameReady = /^[A-Za-z][\w-]{0,63}$/.test(name.trim());
+  const ready = nameReady && (source === "onepassword" ? validOpRef(reference) : value.trim().length >= MIN_VALUE);
   const save = () => {
     if (!ready) return;
-    void run2(actions.secretSet({ name, purpose, value, scope: "all" })).then((ok) => {
+    const payload = source === "onepassword" ? { name, purpose, reference: reference.trim(), scope: "all" } : { name, purpose, value, scope: "all" };
+    void run2(actions.secretSet(payload)).then((ok) => {
       if (ok) {
         setValue("");
+        setReference("");
         onDone();
       }
     });
@@ -27133,9 +27398,23 @@ function AddSecret({ actions, run: run2, onDone }) {
   return (0, import_react19.createElement)(
     "div",
     { className: "bt-set-row bt-set-paste bt-secret-add" },
+    (0, import_react19.createElement)(SourceSwitch, { value: source, onChange: setSource }),
     (0, import_react19.createElement)("input", { className: "bt-input", "aria-label": t("Key name"), placeholder: t("NAME, e.g. GITHUB_TOKEN"), value: name, spellCheck: false, autoComplete: "off", autoFocus: true, onChange: (event) => setName(event.target.value.toUpperCase()) }),
     (0, import_react19.createElement)("input", { className: "bt-input", "aria-label": t("What it is for"), placeholder: t("What it is for"), value: purpose, autoComplete: "off", onChange: (event) => setPurpose(event.target.value) }),
-    (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: setValue, onEnter: save, label: t("Value"), multiline: true })),
+    source === "onepassword" ? (0, import_react19.createElement)("input", {
+      className: "bt-input bt-secret-ref-input",
+      "aria-label": t("1Password reference"),
+      placeholder: "op://vault/item/field",
+      value: reference,
+      spellCheck: false,
+      autoComplete: "off",
+      onChange: (event) => setReference(event.target.value),
+      onKeyDown: (event) => {
+        if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        event.preventDefault();
+        save();
+      }
+    }) : (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: setValue, onEnter: save, label: t("Value"), multiline: true })),
     (0, import_react19.createElement)(
       "div",
       { className: "bt-secret-row-actions" },
@@ -27250,10 +27529,103 @@ function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
     )
   );
 }
+function SecretOptionsCard({ prefs, hasExternal, actions, run: run2, Section: Section2 }) {
+  const shellMode = prefs?.secretShellMode === "file" ? "file" : "env";
+  const savedAccount = prefs?.secretProviders?.onepassword?.account ?? "";
+  const [account, setAccount] = (0, import_react19.useState)(savedAccount);
+  const [refreshed, setRefreshed] = (0, import_react19.useState)(false);
+  (0, import_react19.useEffect)(() => {
+    setAccount(savedAccount);
+  }, [savedAccount]);
+  const accountText = typeof account === "string" ? account : savedAccount;
+  const accountChanged = accountText.trim() !== savedAccount;
+  const setMode = (next) => {
+    if (next === shellMode || typeof actions.setPrefs !== "function") return;
+    void run2(actions.setPrefs({ secretShellMode: next }));
+  };
+  const saveAccount = () => {
+    if (!accountChanged || typeof actions.setPrefs !== "function") return;
+    void run2(actions.setPrefs({ secretProviders: { onepassword: { account: accountText.trim() } } }));
+  };
+  const refreshExternal = () => {
+    if (typeof actions.secretRefreshExternal !== "function") return;
+    setRefreshed(false);
+    void run2(actions.secretRefreshExternal()).then((ok) => {
+      if (ok) setRefreshed(true);
+    });
+  };
+  return (0, import_react19.createElement)(
+    Section2,
+    { title: t("Shell & external providers"), tour: "secret-providers" },
+    (0, import_react19.createElement)(
+      "div",
+      { className: "bt-set-row" },
+      (0, import_react19.createElement)("span", { className: "bt-set-copy" }, (0, import_react19.createElement)("span", { className: "bt-bs-label" }, t("Shell exposure"))),
+      (0, import_react19.createElement)(
+        "span",
+        { className: "bt-set-control" },
+        (0, import_react19.createElement)(
+          "div",
+          { className: "bt-secret-scope", role: "radiogroup", "aria-label": t("Shell exposure") },
+          (0, import_react19.createElement)("span", { className: "bt-secret-glide", "data-at": shellMode === "env" ? 0 : 1, "aria-hidden": true }),
+          [["env", t("Environment")], ["file", t("Temp file")]].map(([id, text]) => (0, import_react19.createElement)("button", {
+            key: id,
+            type: "button",
+            role: "radio",
+            "aria-checked": shellMode === id,
+            className: "bt-secret-seg",
+            onClick: () => setMode(id)
+          }, text))
+        )
+      )
+    ),
+    (0, import_react19.createElement)(
+      "div",
+      { className: "bt-set-row" },
+      (0, import_react19.createElement)("span", { className: "bt-set-copy" }, (0, import_react19.createElement)("span", { className: "bt-bs-label" }, t("1Password account"))),
+      (0, import_react19.createElement)(
+        "span",
+        { className: "bt-set-control bt-secret-account-ctrl" },
+        (0, import_react19.createElement)("input", {
+          className: "bt-input bt-secret-account-input",
+          "aria-label": t("1Password account"),
+          placeholder: t("Default account"),
+          value: accountText,
+          spellCheck: false,
+          autoComplete: "off",
+          onChange: (event) => setAccount(event.target.value),
+          onKeyDown: (event) => {
+            if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+            event.preventDefault();
+            saveAccount();
+          }
+        }),
+        (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !accountChanged, onClick: saveAccount }, t("Save"))
+      )
+    ),
+    hasExternal || refreshed ? (0, import_react19.createElement)(
+      "div",
+      { className: "bt-set-row" },
+      (0, import_react19.createElement)(
+        "span",
+        { className: "bt-set-copy" },
+        (0, import_react19.createElement)("span", { className: "bt-bs-label" }, t("External secrets")),
+        refreshed ? (0, import_react19.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react19.createElement)(CheckIcon), t("External cache cleared.")) : null
+      ),
+      (0, import_react19.createElement)(
+        "span",
+        { className: "bt-set-control" },
+        (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: refreshExternal }, t("Refresh external secrets"))
+      )
+    ) : null
+  );
+}
 function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
   const [open, setOpen] = (0, import_react19.useState)(null);
   const [adding, setAdding] = (0, import_react19.useState)(false);
   const secrets = roster.secrets ?? [];
+  const shellFileMode = roster?.prefs?.secretShellMode === "file";
+  const hasExternal = secrets.some((secret) => secret.kind === "external");
   const addBtn = adding ? null : (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "secret-add", onClick: () => setAdding(true) }, (0, import_react19.createElement)(PlusIcon), t("Add a key"));
   return [
     (0, import_react19.createElement)(SecretStoreCard, { key: "store", store: roster.secretStore, actions, run: run2, Section: Section2 }),
@@ -27261,7 +27633,7 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
       "p",
       { key: "about", className: "bt-secret-about" },
       t("Keys your Bots asked for. Bots never see the values: they use them as "),
-      (0, import_react19.createElement)("code", null, "$DSH_SECRET_NAME"),
+      (0, import_react19.createElement)("code", null, shellFileMode ? "$DSH_SECRET_FILE_NAME" : "$DSH_SECRET_NAME"),
       t(" in their shell, and every value is replaced by "),
       (0, import_react19.createElement)("code", null, "[secret:NAME]"),
       t(" before anything goes to a model.")
@@ -27272,7 +27644,8 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
       secrets.length === 0 && !adding ? (0, import_react19.createElement)("div", { className: "bt-set-row" }, (0, import_react19.createElement)("span", { className: "bt-set-hint" }, t("No keys yet. When a Bot needs one, it shows a card in its chat."))) : null,
       secrets.map((secret) => (0, import_react19.createElement)(SecretRow, { key: secret.name, secret, roster, actions, run: run2, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
       adding ? (0, import_react19.createElement)(AddSecret, { actions, run: run2, onDone: () => setAdding(false) }) : null
-    )
+    ),
+    (0, import_react19.createElement)(SecretOptionsCard, { key: "options", prefs: roster.prefs, hasExternal, actions, run: run2, Section: Section2 })
   ];
 }
 var SECRET_CSS = `
@@ -27307,6 +27680,7 @@ var SECRET_CSS = `
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
+.bt-secret-warn svg{flex:none}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
 .bt-secret-done .bt-q-head{align-items:center}
@@ -27343,6 +27717,10 @@ var SECRET_CSS = `
 .bt-secret-danger{color:var(--bt-danger);display:inline-flex;align-items:center;gap:4px}
 .bt-secret-danger svg{width:13px;height:13px}
 .bt-secret-add .bt-input{height:34px}
+.bt-secret-ref-input{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.bt-secret-account-ctrl{display:flex;align-items:center;gap:8px}
+.bt-secret-account-input{width:200px;height:32px;font-size:13px}
+.bt-secret-tag-warn{color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
 @media (prefers-reduced-motion:reduce){.bt-secret-glide{transition:none}.bt-secret-check,.bt-secret-done,.bt-secret-ok,.bt-secret-edit{animation:none}}
 `;
 

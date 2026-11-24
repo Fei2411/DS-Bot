@@ -14,6 +14,7 @@ import * as oauth from './oauth.js'
 import { createGateway } from './gateway.js'
 import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
+import { SECRET_REF_GLOBAL, isSecretRef } from '../secret-refs.js'
 import { output } from '../tools.js'
 
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -222,6 +223,9 @@ export function install(rt) {
   }
 
   async function reconcile() {
+    if (typeof rt.resolveExternalForBot === 'function') {
+      await rt.resolveExternalForBot(undefined).catch(() => {})
+    }
     for (const id of mounts.keys()) {
       if (!hasCredential(id)) await unmount(id)
     }
@@ -749,16 +753,33 @@ export function install(rt) {
         return connectorsView()
       }
       if (entry.auth.kind === 'key') {
-        const key = typeof body.key === 'string' ? body.key.trim() : ''
-        if (key === '') throw new Error('Paste a key first')
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
+        const refInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.keyRef === 'string' ? body.keyRef.trim() : ''
+        const rawKey = typeof body.key === 'string' ? body.key.trim() : ''
+        const key = refInput !== ''
+          ? await rt.secrets.consumeRef(refInput, { botId: body.botId })
+          : isSecretRef(rawKey)
+            ? await rt.secrets.consumeRef(rawKey, { botId: body.botId })
+            : rawKey
+        if (key === '') throw new Error('Paste a key first')
         await writeSecret(keySecretOf(entry.id), key, `${entry.name} connector`)
         await saveState(entry.id, { connectedAt: Date.now() })
         await sync()
         return connectorsView()
       }
-      const token = typeof body.token === 'string' ? body.token.trim() : ''
+      const tokenRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.tokenRef === 'string' ? body.tokenRef.trim() : ''
+      const rawToken = typeof body.token === 'string' ? body.token.trim() : ''
+      if (tokenRef !== '' || rawToken !== '') {
+        const remote = entry.remote?.url
+        if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
+        if (entry.id === 'github' && options?.api !== undefined && insecure(options.api)) throw new Error('GitHub addresses must start with https://')
+      }
+      const token = tokenRef !== ''
+        ? await rt.secrets.consumeRef(tokenRef, { botId: body.botId })
+        : isSecretRef(rawToken)
+          ? await rt.secrets.consumeRef(rawToken, { botId: body.botId })
+          : rawToken
       if (token !== '') {
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
@@ -822,7 +843,13 @@ export function install(rt) {
       const entry = known(body.id)
       const clientId = String(body.clientId ?? '').trim()
       if (clientId === '') throw new Error('Enter the client ID')
-      const clientSecret = typeof body.clientSecret === 'string' && body.clientSecret.trim() !== '' ? body.clientSecret.trim() : undefined
+      const secretRefInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.clientSecretRef === 'string' ? body.clientSecretRef.trim() : ''
+      const rawClientSecret = typeof body.clientSecret === 'string' && body.clientSecret.trim() !== '' ? body.clientSecret.trim() : undefined
+      const clientSecret = secretRefInput !== ''
+        ? await rt.secrets.consumeRef(secretRefInput, { botId: body.botId })
+        : isSecretRef(rawClientSecret)
+          ? await rt.secrets.consumeRef(rawClientSecret, { botId: body.botId })
+          : rawClientSecret
       if (clientSecret !== undefined) await writeSecret(clientSecretOf(entry.id), clientSecret, `${entry.name} connector`)
       await saveState(entry.id, { client: { via: 'manual', clientId } })
       const pending = pendings.get(entry.id)
@@ -853,9 +880,29 @@ export function install(rt) {
       const taken = new Set(Object.keys(state.connectors ?? {}))
       const id = customId(name, taken)
       CONNECTOR_IDS.add(id)
+      const resolveRefMap = async (map, prefix) => {
+        const out = {}
+        const consumed = new Map()
+        for (const [key, val] of Object.entries(map && typeof map === 'object' ? map : {})) {
+          let text = String(val)
+          const matches = [...text.matchAll(SECRET_REF_GLOBAL)]
+          for (const [ref] of matches) {
+            let secretName = consumed.get(ref)
+            if (secretName === undefined) {
+              const resolved = await rt.secrets.consumeRef(ref, { botId: body.botId })
+              secretName = envSecretOf(id, `${prefix}_${key}`)
+              await writeSecret(secretName, resolved, `${name} connector`)
+              consumed.set(ref, secretName)
+            }
+            text = text.replaceAll(ref, `$DSH_SECRET_${secretName}`)
+          }
+          out[key] = text
+        }
+        return out
+      }
       const custom = url !== undefined
-        ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {}, ...(oauth ? { oauth: true } : {}) }
-        : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: body.env && typeof body.env === 'object' ? body.env : {} }
+        ? { name, url, headers: await resolveRefMap(body.headers, 'HEAD'), ...(oauth ? { oauth: true } : {}) }
+        : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: await resolveRefMap(body.env, 'ENV') }
       await saveState(id, { custom, connectedAt: Date.now() })
       await sync(true)
       return connectorsView()

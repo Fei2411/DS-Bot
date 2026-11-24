@@ -379,7 +379,10 @@ export function install(rt, host) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('Enter an email address')
       if (adding.has(address)) return adding.get(address)
       const pending = (async () => {
-        const password = String(body.password ?? '').trim()
+        const passwordRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.passwordRef === 'string' ? body.passwordRef.trim() : ''
+        const password = passwordRef !== ''
+          ? await rt.secrets.consumeRef(passwordRef, { botId: body.botId })
+          : String(body.password ?? '').trim()
         if (password === '') throw new Error('Enter the authorization code or app password')
         const preset = presetOf(address)
         const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
