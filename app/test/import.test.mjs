@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
@@ -126,6 +129,119 @@ describe('sessionDirs', () => {
       assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
     }
   })
+})
+
+describe('Session copies', () => {
+  function fixture(t, ids) {
+    const root = mkdtempSync(join(tmpdir(), 'ds-bot-session-copy-'))
+    const from = join(root, 'old')
+    const to = join(root, 'new')
+    const sources = ids.map(id => join(from, 'sessions', 'group', id))
+    const team = { bots: { bot: { id: ids[0], segments: ids.slice(1).map(sessionId => ({ sessionId })) } } }
+    for (const source of sources) mkdirSync(source, { recursive: true })
+    write(join(from, 'bot', 'state.json'), JSON.stringify(team))
+    t.after(() => {
+      t.mock.restoreAll()
+      syncBuiltinESMExports()
+      rmSync(root, { recursive: true, force: true })
+    })
+    return { from, to, sources, team }
+  }
+
+  test('copies four Sessions at a time and counts each completion', async (t) => {
+    const ids = Array.from({ length: 8 }, (_, i) => `session-${i}`)
+    const { from, to, sources, team } = fixture(t, ids)
+    const first = Promise.withResolvers()
+    const completed = []
+    const progress = []
+    let active = 0
+    let peak = 0
+    t.mock.method(fsp, 'cp', async (source, target) => {
+      peak = Math.max(peak, ++active)
+      if (source === sources[0]) await first.promise
+      else await nextTurn()
+      completed.push([source, target])
+      active--
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-pool')
+    const pending = copy(from, team, to, undefined, (done, total) => progress.push([done, total, completed.length]))
+    await nextTurn()
+    first.resolve()
+    assert.deepEqual(await pending, ids)
+    assert.equal(peak, 4)
+    assert.notEqual(completed[0]?.[0], sources[0])
+    assert.deepEqual(completed.toSorted(), sources.map((source, i) => [source, join(to, 'sessions', 'group', ids[i])]))
+    assert.deepEqual(progress, ids.map((_, i) => [i + 1, ids.length, i + 1]))
+  })
+
+  test('keeps overlapping Session paths in source order', async (t) => {
+    const ids = ['one', 'one/two']
+    const { from, to, sources, team } = fixture(t, ids)
+    const events = []
+    t.mock.method(fsp, 'cp', async (source, target) => {
+      events.push(['start', source, target])
+      await nextTurn()
+      events.push(['finish', source, target])
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-overlap')
+    assert.deepEqual(await copy(from, team, to), ids)
+    assert.deepEqual(events, ids.flatMap((id, i) => ['start', 'finish'].map(event =>
+      [event, sources[i], join(to, 'sessions', 'group', id)])))
+  })
+
+  for (const outcome of ['abort', 'error']) {
+    test(`drains Session copies before cleaning the stage after an ${outcome}`, async (t) => {
+      const { from, to, sources } = fixture(t, ['one', 'two', 'three', 'four', 'five'])
+      const controller = new AbortController()
+      const reason = Object.assign(new Error(outcome), { code: 'EACCES' })
+      const started = Promise.withResolvers()
+      const stopFirst = Promise.withResolvers()
+      const finishOthers = Promise.withResolvers()
+      const { cp, rm } = fsp
+      const dispatched = []
+      const active = new Set()
+      const pendingAtCleanup = []
+      let stage
+      t.mock.method(fsp, 'cp', async (source, target, options) => {
+        if (source === join(from, 'bot')) {
+          stage = dirname(target)
+          return cp(source, target, options)
+        }
+        dispatched.push(source)
+        active.add(source)
+        try {
+          if (source === sources[0]) {
+            started.resolve()
+            await stopFirst.promise
+          } else {
+            await finishOthers.promise
+          }
+        } finally {
+          active.delete(source)
+        }
+      })
+      t.mock.method(fsp, 'rm', (path, ...args) => {
+        if (path === stage) pendingAtCleanup.push([...active])
+        return rm(path, ...args)
+      })
+      syncBuiltinESMExports()
+      const { importTeam: copy } = await import(`../src/import.mjs?session-drain-${outcome}`)
+      const pending = assert.rejects(copy({ from, to, workspace: join(to, 'workspace'), signal: controller.signal }), error => error === reason)
+      await started.promise
+      if (outcome === 'abort') controller.abort(reason)
+      if (outcome === 'error') stopFirst.reject(reason)
+      else stopFirst.resolve()
+      await nextTurn()
+      finishOthers.resolve()
+      await pending
+      assert.deepEqual(dispatched, sources.slice(0, 4))
+      assert.deepEqual(pendingAtCleanup, [[]])
+      assert.deepEqual(staged(to), [])
+      assert.equal(existsSync(join(to, 'bot')), false)
+    })
+  }
 })
 
 function treeHash(dir) {
