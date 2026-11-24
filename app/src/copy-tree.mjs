@@ -14,6 +14,9 @@ export const within = (inner, outer) => {
   return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
 }
 
+// Lower first so capital sharp S also expands to SS. Extra matches only serialize more links.
+const destinationKey = path => path.normalize('NFKD').toLowerCase().toUpperCase().normalize('NFKD')
+
 /**
  * Why a copy failed, in the words of the start page's cards (reason.copy.*); the rest goes into
  * the details.
@@ -95,8 +98,7 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
   const roots = [...new Set([resolve(from), origin])]
   const byDestination = new Map()
   for (const [index, path] of links.entries()) {
-    // The source can distinguish names that the destination volume treats as one.
-    const key = path.toUpperCase().normalize()
+    const key = destinationKey(path)
     const group = byDestination.get(key)
     if (group === undefined) byDestination.set(key, [index])
     else group.push(index)
