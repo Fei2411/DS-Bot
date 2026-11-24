@@ -159,6 +159,14 @@ test('list-like prose before an indented fence does not change its boundaries', 
   }
 })
 
+test('a thematic break before a backtick fence does not expose a flush-left comment', () => {
+  const fence = '- - -\n  ```sh\n# Shell comment\n  ```'
+  assert.deepEqual(chunkTelegram(fence + '\n# Actual heading'), [{
+    html: fence + '\n<b>Actual heading</b>',
+    text: fence + '\nActual heading',
+  }])
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',

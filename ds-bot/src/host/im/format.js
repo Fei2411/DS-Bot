@@ -80,6 +80,14 @@ const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
 
 function literalFenceGuard(source) {
+  const laterClosers = { '`': new Uint32Array(source.length), '~': new Uint32Array(source.length) }
+  const widestCloser = { '`': 0, '~': 0 }
+  for (let at = source.length - 1; at >= 0; at -= 1) {
+    laterClosers['`'][at] = widestCloser['`']
+    laterClosers['~'][at] = widestCloser['~']
+    const close = LITERAL_FENCE_CLOSE.exec(source[at])?.[1]
+    if (close) widestCloser[close[0]] = Math.max(widestCloser[close[0]], close.length)
+  }
   let marker = ''
   let listIndent = 0
   return (at, canOpen = true) => {
@@ -102,10 +110,13 @@ function literalFenceGuard(source) {
     const fence = LITERAL_FENCE_OPEN.exec(listPrefix ? line.slice(listPrefix.length) : line)
     if (fence === null || (fence[1][0] === '`' && fence[2].includes('`'))) return false
     marker = fence[1]
-    if (listPrefix) listIndent = listPrefix.length
-    else if (marker[0] === '`' && indent > 0) {
-      const previousListIndent = LIST_ITEM.exec(source[at - 1] ?? '')?.[0].length ?? 0
-      if (previousListIndent <= indent) listIndent = previousListIndent
+    // Only an unmatched list fence can end on dedent instead of on a fence marker.
+    if (laterClosers[marker[0]][at] < marker.length) {
+      if (listPrefix) listIndent = listPrefix.length
+      else if (marker[0] === '`' && indent > 0) {
+        const previousListIndent = LIST_ITEM.exec(source[at - 1] ?? '')?.[0].length ?? 0
+        if (previousListIndent <= indent) listIndent = previousListIndent
+      }
     }
     return true
   }
