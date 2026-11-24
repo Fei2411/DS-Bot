@@ -73,25 +73,38 @@ function useMicLevel(enabled, targetRef) {
     let audio = null
     let frame = 0
     let stopped = false
-    const write = (value) => { targetRef.current?.style.setProperty('--bt-level', String(value)) }
+    let lastLevel = ''
+    const write = (value) => {
+      const next = String(value)
+      if (next === lastLevel) return
+      lastLevel = next
+      targetRef.current?.style.setProperty('--bt-level', next)
+    }
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) { media.getTracks().forEach(track => track.stop()); return }
       stream = media
-      audio = new AudioContext()
-      const analyser = audio.createAnalyser()
-      analyser.fftSize = 256
-      audio.createMediaStreamSource(media).connect(analyser)
-      const data = new Uint8Array(analyser.frequencyBinCount)
-      let smooth = 0
-      const tick = () => {
-        analyser.getByteTimeDomainData(data)
-        let sum = 0
-        for (const value of data) sum += ((value - 128) / 128) ** 2
-        smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2
-        write(Math.round(smooth * 100) / 100)
-        frame = requestAnimationFrame(tick)
+      try {
+        audio = new AudioContext()
+        const analyser = audio.createAnalyser()
+        analyser.fftSize = 256
+        audio.createMediaStreamSource(media).connect(analyser)
+        const data = new Uint8Array(analyser.frequencyBinCount)
+        let smooth = 0
+        const tick = () => {
+          analyser.getByteTimeDomainData(data)
+          let sum = 0
+          for (const value of data) sum += ((value - 128) / 128) ** 2
+          smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2
+          write(Math.round(smooth * 100) / 100)
+          frame = requestAnimationFrame(tick)
+        }
+        tick()
+      } catch {
+        stream.getTracks().forEach(track => track.stop())
+        stream = null
+        void audio?.close().catch(() => {})
+        audio = null
       }
-      tick()
     }).catch(() => {})
     return () => {
       stopped = true
@@ -208,7 +221,13 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
     let smooth = 0
     const detect = turnDetector()
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1000
-    const writeLevel = (value) => { orbRef.current?.style.setProperty('--bt-level', String(value)) }
+    let lastLevel = ''
+    const writeLevel = (value) => {
+      const next = String(value)
+      if (next === lastLevel) return
+      lastLevel = next
+      orbRef.current?.style.setProperty('--bt-level', next)
+    }
     const finish = (current) => {
       setPhase('transcribing')
       void transcribeUtterance({

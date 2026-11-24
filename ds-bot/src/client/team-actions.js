@@ -9,6 +9,7 @@ import { chatOfSession } from './draft-keep.js'
 export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
   // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
   let pastes = 0
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
@@ -23,6 +24,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
   const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const MAX_TURN_CLOCK_SESSIONS = 40
+  const turnClockOrder = new Set()
+  const setTurnClock = (state, sessionId, turns) => {
+    turnClockOrder.delete(sessionId)
+    turnClockOrder.add(sessionId)
+    const next = { ...state, [sessionId]: turns }
+    while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
+      const oldest = turnClockOrder.values().next().value
+      turnClockOrder.delete(oldest)
+      delete next[oldest]
+    }
+    return next
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
@@ -37,7 +51,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
+        const snap = roster.getSnapshot()
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id)
+        const details = force || !sameSubject || state.view !== 'details' ? id : null
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
@@ -46,11 +62,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id }
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'
@@ -383,7 +401,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const entry = turns[turn] ?? {}
         const next = key === 'first' && entry.first !== undefined ? Math.min(entry.first, time) : time
         if (entry[key] === next) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } })
       })
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -392,7 +410,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const turns = state[sessionId] ?? {}
         const entry = turns[turn] ?? {}
         if (entry.peer === peerId) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } })
       })
     },
     noteLive: (sessionId, id, entry) => {

@@ -98,6 +98,25 @@ export const contrastRatio = (foreground, background) => {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 }
 
+const probeCanvas = new WeakMap()
+
+function resolveCanvasColor(doc, value) {
+  let paint = probeCanvas.get(doc)
+  if (paint === undefined) {
+    const canvas = doc.createElement('canvas')
+    canvas.width = canvas.height = 1
+    paint = canvas.getContext('2d', { willReadFrequently: true }) ?? null
+    probeCanvas.set(doc, paint)
+  }
+  if (!paint) return ''
+  paint.clearRect(0, 0, 1, 1)
+  paint.fillStyle = 'black'
+  paint.fillStyle = value
+  paint.fillRect(0, 0, 1, 1)
+  const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data
+  return withAlpha({ r, g, b }, a / 255)
+}
+
 /**
  * The custom properties for the document right now: the composed DSH tokens read from
  * computed styles, and the active theme's colors. Safe to call on every theme change.
@@ -120,13 +139,7 @@ export function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = 
   const token = name => {
     const value = style?.getPropertyValue?.(name)?.trim() ?? ''
     if (value === '' || parseColor(value) !== undefined) return value
-    const canvas = doc.createElement('canvas')
-    canvas.width = canvas.height = 1
-    const paint = canvas.getContext('2d')
-    paint.fillStyle = value
-    paint.fillRect(0, 0, 1, 1)
-    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data
-    return withAlpha({ r, g, b }, a / 255)
+    return resolveCanvasColor(doc, value)
   }
   return skinSurfaceVars({ main: token('--dsw-alias-bg-base'), sidebar: token('--dsw-specific-sidebar-fill'), colors }, { minAlpha })
 }
@@ -143,17 +156,20 @@ export function writeSkinSurfaceVars(doc, read) {
     if (body === undefined) return
     const vars = read() ?? {}
     for (const name of SKIN_VARIABLES) {
-      if (vars[name] === undefined) body.style.removeProperty(name)
+      if (vars[name] === undefined) {
+        if (body.style.getPropertyValue?.(name) !== '') body.style.removeProperty(name)
       // Writing the value the body already has still mutates the style attribute and
       // notifies observers; a theme or DOM observer reacting to that could loop.
-      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name])
+      } else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name])
     }
   }
   return {
     apply,
     clear() {
       if (body === undefined) return
-      for (const name of SKIN_VARIABLES) body.style.removeProperty(name)
+      for (const name of SKIN_VARIABLES) {
+        if (body.style.getPropertyValue?.(name) !== '') body.style.removeProperty(name)
+      }
     },
   }
 }

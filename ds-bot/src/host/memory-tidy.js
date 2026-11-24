@@ -455,5 +455,8 @@ export function installTidy(rt, memory) {
       failures.delete(key)
     }
   }
-  return { tidyView, undoTidy, tidyNow, tidyTick: tick }
+  const forgetScope = (key) => {
+    if (typeof key === 'string') failures.delete(key)
+  }
+  return { tidyView, undoTidy, tidyNow, tidyTick: tick, forgetScope }
 }

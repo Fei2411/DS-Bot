@@ -9,7 +9,7 @@
 // readers that draw a conversation can stay synchronous. Writes go out in order, one
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
@@ -17,6 +17,8 @@ import { replaceFile } from './files.js'
 import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
+const MAX_BOOKS = 32
+const MAX_BYTES = 32 * 1024 * 1024
 
 // A file name for a book: readable when the id is plain, hashed when it is not.
 export const bookFile = (book) => {
@@ -42,8 +44,9 @@ export function install(rt) {
   const pathOf = book => join(dir, bookFile(book))
   const writes = () => rt.readOnly?.() === undefined
 
-  /** @type {Map<string, { records: object[], bySeq: Map<number, object>, size: number }>} */
+  /** @type {Map<string, { records: object[], bySeq: Map<number, object>, size: number, bytes: number, ino: number, dev: number, readOnly: boolean, torn: boolean, view?: object }>} */
   const books = new Map()
+  let totalBytes = 0
   /** @type {Map<string, Promise<unknown>>} */
   const writing = new Map()
   // The last write of each book as it went, failure included, for a caller that must not
@@ -56,6 +59,28 @@ export function install(rt) {
   const activeMerges = new Map()
   /** @type {Map<string, (book: string) => object[] | undefined>} */
   const importers = new Map()
+
+  const evict = (keepBook) => {
+    if (books.size <= MAX_BOOKS && totalBytes <= MAX_BYTES) return
+    for (const [key, entry] of books) {
+      if (books.size <= MAX_BOOKS && totalBytes <= MAX_BYTES) break
+      if (key === keepBook || writing.has(key)) continue
+      books.delete(key)
+      totalBytes -= entry.bytes
+    }
+  }
+  const touch = (book, entry) => {
+    books.delete(book)
+    books.set(book, entry)
+  }
+  const setBook = (book, entry) => {
+    const prev = books.get(book)
+    if (prev !== undefined) totalBytes -= prev.bytes
+    books.delete(book)
+    books.set(book, entry)
+    totalBytes += entry.bytes
+    evict(book)
+  }
 
   const index = (records) => {
     const bySeq = new Map()
@@ -70,32 +95,111 @@ export function install(rt) {
       view.first = Math.min(view.first, record.seq)
       view.last = Math.max(view.last, record.seq)
     }
-    if (record.event === 'anchor' && !view.anchors.has(record.id)) view.anchors.set(record.id, at)
+    if (record.event === 'anchor') {
+      if (!view.anchors.has(record.id)) view.anchors.set(record.id, { at, index: view.anchorEntries.length })
+      view.anchorEntries.push({ at, id: record.id, from: record.from })
+    }
   }
   const viewOf = (entry) => {
     if (entry.view !== undefined) return entry.view
-    const view = { ascending: true, first: Infinity, last: -Infinity, anchors: new Map() }
+    const view = { ascending: true, first: Infinity, last: -Infinity, anchors: new Map(), anchorEntries: [] }
     entry.records.forEach((record, at) => note(view, record, at))
     entry.view = view
     return view
   }
-  const sizeOf = (book) => {
-    try { return statSync(pathOf(book)).size } catch { return -1 }
+  const statOf = (book) => {
+    try {
+      const stat = statSync(pathOf(book))
+      return { size: stat.size, ino: stat.ino, dev: stat.dev }
+    } catch {
+      return undefined
+    }
   }
 
   // The first use of a book reads it. A book that does not exist yet starts from what
   // an importer finds of its conversation from before the ledger (writing hosts only).
   function open(book) {
     const known = books.get(book)
+    const canWrite = writes()
     // A copy read while another host wrote is stale once this host writes.
-    if (known !== undefined && (writes() ? !known.readOnly : sizeOf(book) === known.size)) return known
+    if (known !== undefined && canWrite && !known.readOnly) {
+      touch(book, known)
+      evict(book)
+      return known
+    }
+    const stat = !canWrite ? statOf(book) : undefined
+    if (known !== undefined && !canWrite) {
+      const currentSize = stat?.size ?? -1
+      const sameFile = stat !== undefined && stat.ino !== 0 && stat.ino === known.ino && stat.dev === known.dev
+      if ((stat === undefined && known.size === -1) || (!known.torn && sameFile && currentSize === known.size)) {
+        touch(book, known)
+        evict(book)
+        return known
+      }
+      // Incremental read-only tail: when the same file grew and ended cleanly, read only the appended bytes.
+      if (sameFile && currentSize > known.size && known.size > 0 && !known.torn) {
+        let fd
+        let validTail = false
+        try {
+          fd = openSync(pathOf(book), 'r')
+          const fdStat = fstatSync(fd)
+          if (fdStat.ino !== 0 && fdStat.ino === known.ino && fdStat.dev === known.dev && fdStat.size >= known.size) {
+            const length = fdStat.size - known.size
+            if (length === 0) {
+              validTail = true
+            } else {
+              const tailBuf = Buffer.alloc(length)
+              let offset = 0
+              while (offset < length) {
+                const bytesRead = readSync(fd, tailBuf, offset, length - offset, known.size + offset)
+                if (bytesRead === 0) break
+                offset += bytesRead
+              }
+              const chunk = tailBuf.subarray(0, offset)
+              const tailText = chunk.toString('utf8')
+              const added = parseBook(tailText)
+              for (const record of added) {
+                known.records.push(record)
+                if (Number.isInteger(record.seq)) known.bySeq.set(record.seq, record)
+                if (known.view !== undefined) note(known.view, record, known.records.length - 1)
+              }
+              known.size += offset
+              known.bytes += offset
+              totalBytes += offset
+              if (offset > 0 && chunk[offset - 1] !== 0x0a) known.torn = true
+              validTail = true
+            }
+          }
+        } catch {
+          // Fall back to a full read below.
+        } finally {
+          if (fd !== undefined) try { closeSync(fd) } catch {}
+        }
+        if (validTail) {
+          touch(book, known)
+          evict(book)
+          return known
+        }
+      }
+    }
+    let buf
     let text
     let size = -1
+    let ino = 0
+    let dev = 0
+    let fd
     try {
-      text = readFileSync(pathOf(book), 'utf8')
-      size = Buffer.byteLength(text)
+      fd = openSync(pathOf(book), 'r')
+      const fileStat = fstatSync(fd)
+      ino = fileStat.ino
+      dev = fileStat.dev
+      buf = readFileSync(fd)
+      size = buf.length
+      text = buf.toString('utf8')
     } catch (error) {
       if (error?.code !== 'ENOENT') rt.warn('ds-bot: ledger %s could not be read: %s', book, error?.message ?? error)
+    } finally {
+      if (fd !== undefined) try { closeSync(fd) } catch {}
     }
     let records = text === undefined ? [] : parseBook(text)
     if (text === undefined) {
@@ -103,13 +207,16 @@ export function install(rt) {
       const imported = importers.get(prefix)?.(book)
       if (imported !== undefined && imported.length > 0) {
         records = imported
-        if (writes()) {
+        if (canWrite) {
           try {
             mkdirSync(dir, { recursive: true })
             const temp = `${pathOf(book)}.${process.pid}.tmp`
             writeFileSync(temp, records.map(record => `${JSON.stringify(record)}\n`).join(''), 'utf8')
             renameSync(temp, pathOf(book))
-            size = sizeOf(book)
+            const writtenStat = statOf(book)
+            size = writtenStat?.size ?? -1
+            ino = writtenStat?.ino ?? 0
+            dev = writtenStat?.dev ?? 0
           } catch (error) {
             rt.warn('ds-bot: ledger %s could not be started from earlier messages: %s', book, error?.message ?? error)
           }
@@ -118,8 +225,17 @@ export function install(rt) {
     }
     // An interruption can leave the last line without its end; the next record starts on a
     // line of its own, or it would join the cut one and be lost with it.
-    const entry = { records, bySeq: index(records), size, readOnly: !writes(), torn: text !== undefined && text !== '' && !text.endsWith('\n') }
-    books.set(book, entry)
+    const entry = {
+      records,
+      bySeq: index(records),
+      size,
+      bytes: Math.max(size, 0),
+      ino,
+      dev,
+      readOnly: !canWrite,
+      torn: buf !== undefined && buf.length > 0 && buf[buf.length - 1] !== 0x0a,
+    }
+    setBook(book, entry)
     return entry
   }
 
@@ -134,17 +250,20 @@ export function install(rt) {
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (entry.view !== undefined) note(entry.view, record, entry.records.length - 1)
     if (!writes()) return record
+    let addedBytes = 0
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
       // Construct the line inside the serialized queue so if a prior write failed
       // and set `entry.torn = true`, this write prepends `\n` instead of fusing lines.
       const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
       entry.torn = false
-      entry.size += Buffer.byteLength(line)
+      addedBytes = Buffer.byteLength(line)
+      entry.size = (entry.size < 0 ? 0 : entry.size) + addedBytes
+      entry.bytes += addedBytes
+      if (books.get(book) === entry) totalBytes += addedBytes
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
-    lastWrite.set(book, run)
-    writing.set(book, run.catch((error) => {
+    const current = run.catch((error) => {
       rt.warn('ds-bot: a record of %s was not written: %s', book, error?.message ?? error)
       // Memory holds only what the disk has, so a record that did not land is written again
       // when it is sent again. Part of its line may have landed: the next one starts anew.
@@ -156,7 +275,20 @@ export function install(rt) {
       // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
       if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
       entry.torn = true
-    }))
+      entry.size = -1
+      const nextBytes = Math.max(0, entry.bytes - addedBytes)
+      totalBytes += nextBytes - entry.bytes
+      entry.bytes = nextBytes
+    }).finally(() => {
+      if (writing.get(book) === current) {
+        writing.delete(book)
+        evict()
+      }
+      if (lastWrite.get(book) === run) lastWrite.delete(book)
+    })
+    lastWrite.set(book, run)
+    writing.set(book, current)
+    evict(book)
     return record
   }
 
@@ -187,18 +319,22 @@ export function install(rt) {
     // queued append that failed and rolled itself out of memory before this rewrite ran.
     const included = new Set(entry.records)
     let wasTorn = false
+    let deltaBytes = 0
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
       wasTorn = entry.torn
       const snapshot = entry.records.filter(record => included.has(record)).map(record => `${JSON.stringify(record)}\n`).join('')
       entry.torn = false
-      entry.size = Buffer.byteLength(snapshot)
+      const nextBytes = Buffer.byteLength(snapshot)
+      deltaBytes = nextBytes - entry.bytes
+      if (books.get(book) === entry) totalBytes += deltaBytes
+      entry.size = nextBytes
+      entry.bytes = nextBytes
       await mkdir(dir, { recursive: true })
       const temp = `${pathOf(book)}.${process.pid}.tmp`
       await writeFile(temp, snapshot, 'utf8')
       await rename(temp, pathOf(book))
     })
-    lastWrite.set(book, run)
-    writing.set(book, run.catch((error) => {
+    const current = run.catch((error) => {
       rt.warn('ds-bot: earlier records of %s were not written: %s', book, error?.message ?? error)
       if (books.get(book) !== entry) return
       const dropped = new Set(added)
@@ -206,7 +342,20 @@ export function install(rt) {
       entry.view = undefined
       for (const record of added) if (entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
       if (wasTorn) entry.torn = true
-    }))
+      entry.size = -1
+      const rolledBytes = Math.max(0, entry.bytes - deltaBytes)
+      totalBytes += rolledBytes - entry.bytes
+      entry.bytes = rolledBytes
+    }).finally(() => {
+      if (writing.get(book) === current) {
+        writing.delete(book)
+        evict()
+      }
+      if (lastWrite.get(book) === run) lastWrite.delete(book)
+    })
+    lastWrite.set(book, run)
+    writing.set(book, current)
+    evict(book)
     return added.length
   }
 
@@ -293,18 +442,26 @@ export function install(rt) {
         // appends still update size/rollback on the live entry while pairCache detects the
         // new ref in O(1).
         const records = appendedAfter.length > 0 ? [...merged, ...appendedAfter] : merged
+        const nextBytes = Buffer.byteLength(snapshot)
         const live = books.get(book)
         if (live !== undefined && !live.readOnly) {
+          totalBytes += nextBytes - live.bytes
           live.records = records
           live.bySeq = index(records)
           live.view = undefined
-          live.size = Buffer.byteLength(snapshot)
+          live.size = nextBytes
+          live.bytes = nextBytes
           live.torn = false
+          touch(book, live)
+          evict(book)
         } else {
-          books.set(book, {
+          setBook(book, {
             records,
             bySeq: index(records),
-            size: Buffer.byteLength(snapshot),
+            size: nextBytes,
+            bytes: nextBytes,
+            ino: 0,
+            dev: 0,
             readOnly: false,
             torn: false,
           })
@@ -314,10 +471,17 @@ export function install(rt) {
         untrack()
       }
     })
-    lastWrite.set(book, run)
-    writing.set(book, run.catch((error) => {
+    const current = run.catch((error) => {
       rt.warn('ds-bot: legacy records of %s were not migrated: %s', book, error?.message ?? error)
-    }))
+    }).finally(() => {
+      if (writing.get(book) === current) {
+        writing.delete(book)
+        evict()
+      }
+      if (lastWrite.get(book) === run) lastWrite.delete(book)
+    })
+    lastWrite.set(book, run)
+    writing.set(book, current)
     try {
       return await run
     } catch {
@@ -327,16 +491,26 @@ export function install(rt) {
 
   function drop(book) {
     dropGen.set(book, (dropGen.get(book) ?? 0) + 1)
-    books.delete(book)
+    const prev = books.get(book)
+    if (prev !== undefined) {
+      books.delete(book)
+      totalBytes -= prev.bytes
+    }
     lastWrite.delete(book)
     if (!writes()) return
     const run = (writing.get(book) ?? Promise.resolve()).then(() => rm(pathOf(book), { force: true }))
-    writing.set(book, run.catch(() => {}))
+    const current = run.catch(() => {}).finally(() => {
+      if (writing.get(book) === current) {
+        writing.delete(book)
+        evict()
+      }
+    })
+    writing.set(book, current)
   }
 
   const ledger = {
     open,
-    hasBook: book => books.has(book) || sizeOf(book) >= 0,
+    hasBook: book => books.has(book) || statOf(book) !== undefined,
     append,
     prepend,
     mergeRecords,
@@ -365,11 +539,30 @@ export function install(rt) {
       return rows
     },
     // Where the anchor record with this id is in records(book), or -1.
-    anchorAt: (book, id) => viewOf(open(book)).anchors.get(id) ?? -1,
+    anchorAt: (book, id) => viewOf(open(book)).anchors.get(id)?.at ?? -1,
+    // The `from` seq of the next anchor after `anchor` (or after `from` when unanchored), or undefined.
+    nextAnchor: (book, from, anchor) => {
+      const view = viewOf(open(book))
+      if (anchor !== undefined) {
+        const hit = view.anchors.get(anchor)
+        if (hit !== undefined) {
+          const next = view.anchorEntries[hit.index + 1]
+          return next?.from
+        }
+      }
+      let min
+      for (const entry of view.anchorEntries) {
+        if (entry.from > from && (min === undefined || entry.from < min)) min = entry.from
+      }
+      return min
+    },
+    firstSeq: (book) => {
+      const first = viewOf(open(book)).first
+      return first === Infinity ? undefined : first
+    },
     lastSeq: (book) => {
-      let last = 0
-      for (const record of open(book).records) if (Number.isInteger(record.seq) && record.seq > last) last = record.seq
-      return last
+      const last = viewOf(open(book)).last
+      return last > 0 ? last : 0
     },
     // Newest first: every word has to be in the record's text. Accepts either a `pick`
     // function or `{ pick, filter, limit }`; checks `filter` before lowercasing and stops
@@ -399,8 +592,14 @@ export function install(rt) {
     // How a kind of book is started from what was kept before the ledger: `prefix`
     // is the start of its name, up to and with the first "-".
     importer: (prefix, read) => { importers.set(prefix, read) },
+    // Exposed for diagnostics/tests.
+    cachedBooks: () => books.size,
+    cachedBytes: () => totalBytes,
   }
   rt.ledger = ledger
   // What is still on its way to disk lands before the plugin goes.
-  rt.ctx?.effect?.(() => () => flush(), 'ds-bot: ledger')
+  rt.ctx?.effect?.(() => () => flush().finally(() => {
+    books.clear()
+    totalBytes = 0
+  }), 'ds-bot: ledger')
 }

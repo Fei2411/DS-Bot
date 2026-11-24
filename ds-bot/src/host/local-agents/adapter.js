@@ -4,12 +4,22 @@
 // adapter turns each request into a prompt for the CLI session the Session is
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, resolve } from 'node:path'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
+
+async function cleanupProbeDir(dir) {
+  if (typeof dir !== 'string' || dir === '') return
+  const resolved = resolve(dir)
+  if (dirname(resolved) !== resolve(tmpdir()) || !basename(resolved).startsWith('dsb-probe-')) return
+  await rm(resolved, { recursive: true, force: true }).catch(() => {})
+}
 
 export const DEFAULT_CONTEXT_WINDOW = 200_000
 // A window belongs to the model, not to the Session that reported it, and the model
@@ -131,12 +141,15 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   async askModels(route) {
     const engine = this.engine(route)
+    const cwd = this.deps.probeCwd()
     try {
-      const models = await engine.listModels({ cwd: this.deps.probeCwd(), mcp: undefined })
+      const models = await engine.listModels({ cwd, mcp: undefined })
       this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
         .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
-    } catch { /* the menu still has the CLI's default */ }
-    if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
+    } catch { /* the menu still has the CLI's default */ } finally {
+      if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
+      await cleanupProbeDir(cwd)
+    }
   }
 
   dropModelCache(route) {
@@ -218,12 +231,24 @@ export class LocalAgentAdapter extends LlmAdapter {
       // "Context compacted"); until the next prompt, text, thoughts and activity drop.
       mute: false,
     }
+    const idleCloseMs = this.deps.idleCloseMs ?? IDLE_CLOSE_MS
+    const scheduleIdle = () => {
+      clearTimeout(live.idle)
+      if (live.dead || !(idleCloseMs > 0)) return
+      live.idle = setTimeout(() => {
+        if (live.dead) return
+        if (live.state === 'suspended') {
+          scheduleIdle()
+          return
+        }
+        void this.closeLive(live, { idle: true })
+      }, idleCloseMs)
+      live.idle.unref?.()
+    }
     live.push = (event) => {
       this.observe(live, event)
       if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
-      clearTimeout(live.idle)
-      live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
-      live.idle.unref?.()
+      scheduleIdle()
       const waiter = live.waiters.shift()
       if (waiter !== undefined) waiter(event)
       else live.events.push(event)
@@ -336,6 +361,13 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
     const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
+  }
+
+  // Only driver permission callbacks populate this evidence; MCP/model arguments cannot.
+  approvalEvidence(sessionId, callId) {
+    const live = this.live.get(String(sessionId))
+    if (!live || live.dead || !live.engineSession || live.engineSession.dead) return undefined
+    return live.pending.get(callId)?.approvalEvidence
   }
 
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
@@ -511,6 +543,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         resumeId: priorCliId,
         mode,
         preset,
+        review: this.deps.reviewFor?.(sessionId) === true,
         model: options.model,
         defaultEffort: live.defaultEffort,
         effort: live.effort,
@@ -863,13 +896,24 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission': {
           // The preset answers what it already decides, also on an agent with no
           // matching mode of its own: full access allows, read-only refuses a change.
-          const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
+          const preset = this.deps.presetFor(live.sessionId)
+          const answer = this.deps.reviewFor?.(live.sessionId) && preset !== 'read-only' ? undefined : presetAnswer(preset, event)
           if (answer !== undefined) { event.reply(answer); break }
+          // Without a single-use grant, Allow once would be reported to the user but
+          // cancelled at the CLI. Fail closed instead of converting it to a saved grant.
+          if (!event.options?.some(option => option.kind === 'allow_once')) {
+            event.reply(optionOf(event.options, 'reject') ?? null)
+            break
+          }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
-          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}) }, dshCallId: event.id }
-          live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
+          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}), ...(event.evidence ? { evidence: event.evidence } : {}) }, dshCallId: event.id }
+          live.pending.set(event.id, {
+            name: APPROVE_TOOL,
+            approvalEvidence: { kind: 'external-agent', cwd: event.cwd, action: call.args },
+            resolve: (result) => event.reply(pickAllowOption(event.options, result)),
+          })
           for (const chunk of emitCalls([call])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return
@@ -1118,10 +1162,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     signal = AbortSignal.any([request.controller.signal, ...(signal === undefined ? [] : [signal])])
     const sideId = `dsbot-side-${randomUUID()}`
     let session
+    let probeDir
     try {
       signal.throwIfAborted()
+      probeDir = this.deps.probeCwd()
       session = await engine.open(sideId, {
-        cwd: this.deps.probeCwd(), mcp: undefined, mode: cliMode(spec.kind, 'read-only'), preset: 'read-only', model: record.model, ephemeral: true,
+        cwd: probeDir, mcp: undefined, mode: cliMode(spec.kind, 'read-only'), preset: 'read-only', model: record.model, ephemeral: true,
         instructions: spec.kind === 'codex' ? system : undefined,
         system: spec.kind === 'claude' ? system : undefined,
       }).catch(error => { throw toLlmError(error, { spec }) })
@@ -1145,6 +1191,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       } finally {
         engine.forget?.(sideId)
         if (isolated || !this.engineInUse(engine, request)) await engine.close?.().catch(() => {})
+        await cleanupProbeDir(probeDir)
         this.sideRequests.delete(request)
         request.done.resolve()
       }
@@ -1171,7 +1218,7 @@ function pickAllowOption(options, result) {
   let decision
   try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
   if (decision !== 'allow') return null
-  return optionOf(options, 'allow') ?? null
+  return (options ?? []).find(entry => entry.kind === 'allow_once')?.optionId ?? null
 }
 
 // The agent's one-time option of a kind ('allow' or 'reject'), else any of it.

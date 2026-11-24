@@ -1831,9 +1831,8 @@ export function install(rt) {
             delete state.switching[agent.id]
             await rt.save()
           }
-          noteFailures.delete(agent.id)
-          folderRetry.delete(agent.id)
-          engineRetry.delete(agent.id)
+          forgetSessionParts(agent.id)
+          rt.forgetSessionTurn?.(agent.id)
           if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
             void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
           }
@@ -2803,9 +2802,11 @@ export function install(rt) {
       }
     }
     const more = !hitFloor && page.hasMore && events.length > 0
-    // The line above a part's first message marks where it began.
-    if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
     if (steps === true) await applySteps(items, events, part.sessionId, options)
+    // The line above a part's first message marks where it began. Skip a bare divider
+    // for a single-page part that has no visible items or aside cards of its own.
+    const hasPartRows = items.length > 0 || options.hasBtw === true || Number.isInteger(cursor?.beforeSeq)
+    if (!more && index > 0 && hasPartRows) items.unshift({ kind: 'divider', time: part.startedAt })
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -2817,12 +2818,21 @@ export function install(rt) {
     const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
     const parts = roomId === undefined ? (botId === undefined ? [] : partsOfThread(botId, sessionId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
-    const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
+    let index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
-    // Aside cards belong to the part that was current when they were asked, so
-    // they ride along with that part's history instead of the team view.
-    const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
-    return { ...(await partPage(parts, index, cursor)), btw, startedAt: parts[at].startedAt }
+    let nextCursor = cursor
+    while (index >= 0) {
+      // Aside cards belong to the part that was current when they were asked, so
+      // they ride along with that part's history instead of the team view.
+      const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
+      const page = await partPage(parts, index, nextCursor, false, { hasBtw: btw.length > 0 })
+      const hasContent = page.items.some(item => item.kind !== 'divider') || btw.length > 0
+      const emptyWholePart = !hasContent && !Number.isInteger(nextCursor?.beforeSeq) && (page.cursor === null || page.cursor.part !== index)
+      if (!emptyWholePart || page.cursor === null) return { ...page, btw, partIndex: index, startedAt: parts[at].startedAt }
+      index = page.cursor.part
+      nextCursor = page.cursor
+    }
+    return { items: [], cursor: null, btw: [], startedAt: parts[at].startedAt }
   }
 
   // A Bot's whole own chat, newest page first: the current part, then the earlier
@@ -3105,5 +3115,25 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  const forgetSessionParts = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    partBase.delete(sessionId)
+    cliCompactions.delete(sessionId)
+    condensedUnmeasured.delete(sessionId)
+    cutOffs.delete(sessionId)
+    rescued.delete(sessionId)
+    freshParts.delete(sessionId)
+    tails.delete(sessionId)
+    noteFailures.delete(sessionId)
+    folderRetry.delete(sessionId)
+    engineRetry.delete(sessionId)
+    clearTimeout(engineWakes.get(sessionId))
+    engineWakes.delete(sessionId)
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionParts(id)
+  })
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

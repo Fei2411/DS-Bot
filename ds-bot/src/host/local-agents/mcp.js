@@ -59,6 +59,10 @@ export class LoopbackMcp {
   close() {
     this.failAll(new Error('the session closed'))
     this.server.close()
+    this.server.closeIdleConnections?.()
+    const timer = setTimeout(() => this.server.closeAllConnections?.(), 50)
+    timer.unref?.()
+    this.server.once('close', () => clearTimeout(timer))
   }
 
   async serve(request, response) {
@@ -106,17 +110,24 @@ export class LoopbackMcp {
     const progressToken = params?._meta?.progressToken ?? callId
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
     const send = (value) => { try { response.write(`data: ${JSON.stringify(value)}\n\n`) } catch {} }
+    let settled = false
+    const cleanup = () => {
+      if (settled) return
+      settled = true
+      clearInterval(timer)
+      this.calls.delete(callId)
+    }
     const entry = {
       progress: 0,
       settle: (result) => {
-        clearInterval(timer)
-        this.calls.delete(callId)
+        if (settled) return
+        cleanup()
         send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: result.text }], isError: result.isError === true } })
         response.end()
       },
       cancel: () => {
-        clearInterval(timer)
-        this.calls.delete(callId)
+        if (settled) return
+        cleanup()
         send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: 'the call was cancelled' }], isError: true } })
         response.end()
       },
@@ -126,6 +137,7 @@ export class LoopbackMcp {
       send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: entry.progress * KEEPALIVE_MS, message: 'waiting for the tool result' } })
     }, KEEPALIVE_MS)
     timer.unref?.()
+    response.on('close', cleanup)
     this.calls.set(callId, entry)
     this.onCall({ name: params?.name, arguments: params?.arguments ?? {}, callId })
       .then(entry.settle, error => entry.settle({ isError: true, text: error?.message ?? String(error) }))

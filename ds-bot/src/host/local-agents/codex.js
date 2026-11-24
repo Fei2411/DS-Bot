@@ -203,14 +203,17 @@ export class CodexEngine {
   onRequest(method, params) {
     if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval' || method === 'execCommandApproval' || method === 'patchApproval') {
       const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
-      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' || decision === 'acceptForSession' ? 'allow_once' : 'reject_once', name: decision }))
+      if (thread === undefined) return Promise.reject({ code: -32603, message: 'unknown thread' })
+      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' ? 'allow_once' : decision === 'acceptForSession' ? 'allow_always' : 'reject_once', name: decision }))
       return new Promise((resolve) => {
         const reply = (decision) => resolve({ decision: decision ?? 'decline' })
-        thread?.push({
+        thread.push({
           type: 'permission', id: `perm-${Math.random().toString(36).slice(2)}`, reply,
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
           changes: true,
           detail: detailText(params),
+          // Commands can override the thread directory; only the server's resolved cwd counts.
+          cwd: method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval' ? params?.cwd : thread?.cwd,
           options,
         })
       })
@@ -225,7 +228,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, ephemeral }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, review, ephemeral }) {
     const peer = await this.ensure()
     const prior = this.threads.get(dshSessionId)
     const created = prior === undefined || prior.dead
@@ -239,7 +242,7 @@ export class CodexEngine {
     const params = {
       cwd,
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' && !review ? 'never' : 'on-request' } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
@@ -249,6 +252,7 @@ export class CodexEngine {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.cwd = cwd
         thread.resumed = true
         return thread
       } catch {
@@ -264,6 +268,7 @@ export class CodexEngine {
     const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
     const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.cwd = cwd
     thread.resumed = false
     thread.awaitingFirstPrompt = false
     thread.lastTotal = undefined
@@ -376,10 +381,13 @@ export class CodexEngine {
 
   async close() {
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
+    this.threads.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    peer?.close?.(new Error(`${this.engine.name} closed`))
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
     this.closing = new Promise(resolve => {
@@ -433,7 +441,7 @@ const activityOf = item => {
         : (item.title ?? item.type)
   return String(kind).split('\n')[0].slice(0, 120)
 }
-const detailText = params => [params?.command, params?.reason, JSON.stringify(params?.changes ?? params?.patch ?? '')].filter(Boolean).join('\n').slice(0, 4_000)
+const detailText = params => JSON.stringify(params ?? {})
 
 function codexTotals(total) {
   if (total === null || typeof total !== 'object') return undefined

@@ -262,3 +262,37 @@ test('IPC bridge correlates requests, sanitizes failures and cancels an active s
   assert.ok(replies.find(item => item.id === 'chatgpt:route').result.secret)
   assert.equal(replies.find(item => item.id === 'chatgpt:sign-out').result.remoteRevocationConfirmed, false)
 })
+
+test('unchanged SSE frames pass through with zero JSON.stringify calls and modified frames serialize once', async t => {
+  const unchanged = [
+    'data: {"type":"response.output_text.delta","delta":"hello world"}\n\n',
+    'data: {"type":"response.output_text.delta","delta":"mentions ds_bot in plain text"}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const modified = 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"ping","namespace":"ds_bot"}}\n\n'
+  const origStringify = JSON.stringify
+  let stringifyCalls = 0
+  let counting = false
+  JSON.stringify = (...args) => { if (counting) stringifyCalls += 1; return origStringify(...args) }
+  t.after(() => { JSON.stringify = origStringify })
+
+  let payload = unchanged.join('')
+  const f = await fixture(t, { handle: (_req, res) => {
+    counting = true
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.end(payload)
+  } })
+
+  const first = await (await f.post({ input: [] })).text()
+  counting = false
+  assert.equal(first, unchanged.join(''))
+  assert.equal(stringifyCalls, 0, 'unchanged SSE frames must not call JSON.stringify')
+
+  stringifyCalls = 0
+  payload = modified
+  const second = await (await f.post({ input: [] })).text()
+  counting = false
+  assert.equal(second, 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"ping"}}\n\n')
+  assert.equal(stringifyCalls, 1, 'a modified SSE frame must serialize once, not twice')
+})
+

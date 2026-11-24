@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md) · [Docs](docs/README.md) · [Vision](docs/vision.md) · [Known issues](docs/known-issues.md) · [Contributing](CONTRIBUTING.md)
 
-![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
@@ -37,8 +37,8 @@ First install DSH and configure at least one model in it. DS Bot uses the models
 - **DSH Web** (needs Node.js `22.19` or later, and pnpm):
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.2-rc.1 web
+npx @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.2-rc.5 web
 ```
 
 **Docker (NAS, Linux server)**
@@ -68,7 +68,7 @@ In the standalone desktop app, you can use your ChatGPT plan for bot models with
 
 Each bot is a long-lived identity with one continuous conversation—no session lists or manual session switching. When context fills up, DS Bot condenses or moves to a fresh part automatically while earlier history stays readable and searchable. Each bot keeps its own saved profile (model, thinking level, instructions, working folder and permission preset), separate from the host's DSH installation profile.
 
-Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. A bot that looks after several projects can also get extra folders and work in all of them at once. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, manage them on mobile, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 

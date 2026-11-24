@@ -166,9 +166,23 @@ export function launchOf(executable, args, { platform = process.platform, readFi
 
 // spawn() for an agent CLI, also when Windows found it as a `.cmd` shim.
 export function terminateChild(child) {
-  if (child === undefined) return
+  if (child === undefined || child.exitCode != null || child.signalCode != null || child.pid === undefined) return
   try { child.kill('SIGTERM') } catch {}
-  setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+  if (child.exitCode != null || child.signalCode != null) return
+  const clear = () => {
+    clearTimeout(timer)
+    child.off?.('exit', clear)
+    child.off?.('error', clear)
+  }
+  const timer = setTimeout(() => {
+    clear()
+    if (child.exitCode == null && child.signalCode == null) {
+      try { child.kill('SIGKILL') } catch {}
+    }
+  }, 5_000)
+  timer.unref?.()
+  child.once('exit', clear)
+  child.once('error', clear)
 }
 
 export function spawnAgent(executable, args, options) {
@@ -223,13 +237,16 @@ function classifySignIn(error, stdout, stderr, check) {
 const SIGN_IN_TIMEOUT_MS = 6_000
 const KEYCHAIN_TIMEOUT_MS = 2_000
 
-function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
+function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs, signal) {
+  if (signal?.aborted) return Promise.resolve(null)
   return new Promise((resolve) => {
     try {
+      const timeoutSignal = AbortSignal.timeout(timeoutMs)
+      const combined = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal
       // Without -g or -w this looks up metadata only. A miss proves nothing:
       // the CLI may be using a fallback credential store.
       const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
-        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
+        env: cleanEnv(), stdio: 'ignore', signal: combined, killSignal: 'SIGKILL',
       })
       child.once('error', () => resolve(null))
       child.once('close', (code) => resolve(code === 0 ? true : null))
@@ -237,11 +254,11 @@ function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
   })
 }
 
-async function probeMacKeychain({ service, services, account }, spawnKeychain, timeoutMs = KEYCHAIN_TIMEOUT_MS) {
+async function probeMacKeychain({ service, services, account }, spawnKeychain, timeoutMs = KEYCHAIN_TIMEOUT_MS, signal) {
   const cap = Math.min(timeoutMs, KEYCHAIN_TIMEOUT_MS)
   const list = services ?? (service === undefined ? [] : [service])
   if (list.length === 0) return null
-  const results = await Promise.all(list.map(name => probeMacKeychainItem(name, account, spawnKeychain, cap)))
+  const results = await Promise.all(list.map(name => probeMacKeychainItem(name, account, spawnKeychain, cap, signal)))
   return results.every(result => result === true) ? true : null
 }
 
@@ -343,9 +360,10 @@ function resolvePlatformFile(spec, home, platform, env) {
   return join(base, ...entry.path)
 }
 
-function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, deadline }) {
+function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, deadline, signal }) {
+  if (signal?.aborted) return Promise.resolve(null)
   if (check.macKeychain !== undefined) {
-    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs) : Promise.resolve(null)
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs, signal) : Promise.resolve(null)
   }
   if (check.file !== undefined) return Promise.resolve(probeFile(join(home, ...check.file)))
   if (check.appDataFile !== undefined) {
@@ -361,7 +379,8 @@ function probeOne(executable, check, { home, platform, env, spawnKeychain, timeo
   return new Promise((resolve) => {
     try {
       const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: remaining, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: remaining, env: cleanEnv(), windowsHide: true, ...(signal ? { signal } : {}), ...launch.options }, (error, stdout, stderr) => {
+        if (signal?.aborted) { resolve(null); return }
         resolve(classifySignIn(error, stdout, stderr, check))
       })
     } catch { resolve(null) }
@@ -370,10 +389,11 @@ function probeOne(executable, check, { home, platform, env, spawnKeychain, timeo
 
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
-export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS } = {}) {
+export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS, signal } = {}) {
   const deadline = Date.now() + timeoutMs
   for (let current = check; current !== undefined; current = current.fallback) {
-    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, deadline })
+    if (signal?.aborted) return null
+    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, deadline, signal })
     if (result !== null) return result
   }
   return null

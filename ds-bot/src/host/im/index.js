@@ -28,6 +28,12 @@ const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const CONSUMED_REQUESTS_KEEP = 200
 const WEIXIN_REQUESTS_KEEP = 200
+const FAILED_SENDS_MAX_PER_CHAT = 10
+const FAILED_IMAGE_BYTES_MAX = 20 * 1024 * 1024
+const REQUESTS_MAX = 1_000
+const RESUMED_ORIGINS_MAX = 200
+const WITHHELD_ORIGINS_MAX = 500
+const IM_VIA_SEQS_MAX = 500
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 // A quoted reply is answered with the message it quotes: the last messages sent
 // to a chat are kept by the ids the platform named them, and only their start.
@@ -618,12 +624,56 @@ export function install(rt) {
   const withheldOrigins = new Map()
   // IM origin held across a part switch until the resumed/handoff message opens.
   const resumedOrigins = new Map()
+  const jobImageBytes = (job) => {
+    const data = job?.image?.data
+    if (data === undefined || data === null) return 0
+    return typeof data === 'string' ? Buffer.byteLength(data) : Number(data.byteLength ?? data.length ?? 0)
+  }
+  const trimFailedSends = (id, chatKey) => {
+    const list = failedSends.get(id)?.get(chatKey)
+    if (list !== undefined) {
+      while (list.length > FAILED_SENDS_MAX_PER_CHAT) {
+        const dropped = list.shift()
+        void Promise.resolve(dropped?.onDrop?.()).catch(() => {})
+      }
+      if (list.length === 0) {
+        failedSends.get(id)?.delete(chatKey)
+        if (failedSends.get(id)?.size === 0) failedSends.delete(id)
+      }
+    }
+    let imageBytes = 0
+    for (const chats of failedSends.values()) {
+      for (const jobs of chats.values()) {
+        for (const job of jobs) imageBytes += jobImageBytes(job)
+      }
+    }
+    if (imageBytes <= FAILED_IMAGE_BYTES_MAX) return
+    for (const [connId, chats] of failedSends.entries()) {
+      for (const [key, jobs] of chats.entries()) {
+        for (let i = 0; i < jobs.length && imageBytes > FAILED_IMAGE_BYTES_MAX;) {
+          const bytes = jobImageBytes(jobs[i])
+          if (bytes === 0) { i += 1; continue }
+          const [dropped] = jobs.splice(i, 1)
+          imageBytes -= bytes
+          void Promise.resolve(dropped?.onDrop?.()).catch(() => {})
+        }
+        if (jobs.length === 0) chats.delete(key)
+      }
+      if (chats.size === 0) failedSends.delete(connId)
+    }
+  }
+  const setWithheldOrigin = (sessionId, value) => {
+    withheldOrigins.delete(sessionId)
+    withheldOrigins.set(sessionId, value)
+    while (withheldOrigins.size > WITHHELD_ORIGINS_MAX) withheldOrigins.delete(withheldOrigins.keys().next().value)
+  }
   const holdImOrigin = (sessionId) => {
     if (sessionId === undefined || mixed.has(sessionId)) return undefined
     const entry = origins.get(sessionId)
     if (entry === undefined) return undefined
     const token = randomUUID()
     resumedOrigins.set(token, { ...entry, activeOn: sessionId })
+    while (resumedOrigins.size > RESUMED_ORIGINS_MAX) resumedOrigins.delete(resumedOrigins.keys().next().value)
     return token
   }
   const captureImOrigin = (sessionId) => {
@@ -655,7 +705,7 @@ export function install(rt) {
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
     if (mixed.has(sessionId)) {
-      if (!withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
+      if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
       return
     }
     const previous = origins.get(sessionId)
@@ -681,7 +731,7 @@ export function install(rt) {
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
   }
   const dropOrigin = (sessionId) => {
-    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
+    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
     origins.delete(sessionId)
     mixed.add(sessionId)
     forgetHeldOrigins(sessionId)
@@ -694,7 +744,7 @@ export function install(rt) {
   }
   const warnWithheldOrigin = (sessionId) => {
     if (withheldOrigins.get(sessionId) !== false) return
-    withheldOrigins.set(sessionId, true)
+    setWithheldOrigin(sessionId, true)
     rt.warn('ds-bot: IM reply withheld: turn origin was dropped or mixed')
   }
   const clearImOrigin = (sessionId) => {
@@ -784,6 +834,7 @@ export function install(rt) {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
     requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now(), ...(roomCardOrigin === undefined ? {} : { roomCardOrigin }) })
+    while (requests.size > REQUESTS_MAX) requests.delete(requests.keys().next().value)
   }
   const restoreCardRoomOrigin = (sessionId, saved) => {
     const owner = rt.groupOwners.get(sessionId)
@@ -871,6 +922,7 @@ export function install(rt) {
     const idx = insertBefore !== undefined ? list.indexOf(insertBefore) : -1
     if (idx !== -1) list.splice(idx, 0, job)
     else list.push(job)
+    trimFailedSends(id, chatKey)
     setSendStatus(id, chatKey, { state: 'error', error: errorText })
   }
   const clearSettledSendStatus = (id, chatKey, runner, settled) => {
@@ -1393,7 +1445,12 @@ export function install(rt) {
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
     if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
     else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-    await rt.sendUser({ sessionId, content, requestId })
+    try {
+      await rt.sendUser({ sessionId, content, requestId })
+    } catch (error) {
+      requests.delete(requestId)
+      throw error
+    }
   }
 
   const onAction = (conn) => async (action) => {
@@ -1675,8 +1732,13 @@ export function install(rt) {
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
-          for (const { chatKey, chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
-            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
+          const liveConn = fresh(conn.id) ?? conn
+          for (const { chatKey, chat, target } of targetsOf(liveConn)) {
+            if (target === undefined || !busyOf(target)) continue
+            const sessionId = target.botId !== undefined ? rt.chatOf(target.botId) : (rt.roomOf(target.roomId)?.sessionId ?? target.roomId)
+            const origin = originOf(sessionId)
+            if (origin === undefined || origin.conn.id !== liveConn.id || origin.chatKey !== chatKey) continue
+            void runner.handle.typing({ key: chat.key ?? chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
           }
         }, TYPING_MS)
         runner.typing.unref?.()
@@ -1731,6 +1793,7 @@ export function install(rt) {
       queue.firstRetained = rest[0]
       if (pending !== undefined) pending.firstRetained ??= rest[0]
       failedFor(id, chatKey).push(...rest)
+      trimFailedSends(id, chatKey)
       setSendStatus(id, chatKey, { state: 'error', error: prevError || 'Stopped before delivery' })
     }
     await Promise.all(dropped)
@@ -2097,7 +2160,16 @@ export function install(rt) {
     claimOrigin(sessionId, saved.connId, saved.chatKey, saved.senderId, saved.binding)
   }
   const admitImRpc = (sessionId, rpcId, savedRequest, eventSeq) => {
-    if (Number.isInteger(eventSeq)) imVia.set(sessionId, { ...imVia.get(sessionId), [eventSeq]: rpcId.split(':')[1] })
+    if (Number.isInteger(eventSeq)) {
+      for (const sid of imVia.keys()) if (sid !== sessionId && !rt.chatOwners.has(sid)) imVia.delete(sid)
+      const seqs = { ...imVia.get(sessionId), [eventSeq]: rpcId.split(':')[1] }
+      const keys = Object.keys(seqs)
+      if (keys.length > IM_VIA_SEQS_MAX) {
+        keys.sort((a, b) => Number(a) - Number(b))
+        for (let i = 0; i < keys.length - IM_VIA_SEQS_MAX; i += 1) delete seqs[keys[i]]
+      }
+      imVia.set(sessionId, seqs)
+    }
     // Unknown requests cannot claim a chat. Consumed requests are ignored above,
     // including redelivery after their turn ended; they must not claim it again.
     const asked = requests.get(rpcId)
@@ -2315,6 +2387,7 @@ export function install(rt) {
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
+    if (kind !== 'settled') return
     void (async () => {
       for (const conn of Object.values(connections())) {
         await settleCard(conn.id, `a:${data.id}`, data.outcome === 'allowed-once' ? text('allow') : data.outcome === 'rejected' ? text('reject') : text('answered'))

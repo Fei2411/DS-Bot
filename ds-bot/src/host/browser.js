@@ -34,6 +34,11 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
   let holdVersion = 0
 
   const present = client => client.wake !== undefined || now() - client.seen < staleMs
+  const sweepClients = () => {
+    for (const [id, client] of clients) {
+      if (!present(client) && client.queue.length === 0) clients.delete(id)
+    }
+  }
   // The most recently seen window that shows this Bot's browser.
   const clientFor = (botId) => {
     let best
@@ -65,6 +70,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     clients.set(clientId, client)
     client.open = open && typeof open === 'object' ? open : {}
     client.seen = now()
+    sweepClients()
     client.end?.()
     const ready = due(client)
     if (client.holdVersion !== holdVersion) {
@@ -127,6 +133,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
 
   /** Which Bots have a browser page open in a present window, newest report first. */
   function openPages() {
+    sweepClients()
     const pages = {}
     for (const client of [...clients.values()].sort((a, b) => b.seen - a.seen)) {
       if (!present(client)) continue
@@ -258,6 +265,9 @@ export function install(rt) {
   }
   const channel = createBrowserChannel()
   ctx.effect(() => () => channel.dispose(), 'ds-bot: browser channel')
+  rt.onBotDelete?.((botId) => {
+    if (channel.holdOf(botId) !== null) channel.setHold(botId, null)
+  })
 
   rt.teamTools.push(defineTool({
     name: 'read_browser',

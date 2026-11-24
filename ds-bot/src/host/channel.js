@@ -11,6 +11,8 @@ import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constan
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+const STAGED_MAX_ITEMS = 20
+const STAGED_MAX_BYTES = 50 * 1024 * 1024
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -56,6 +58,27 @@ export function install(rt) {
 
   // Photos staged by `stage-image`, kept until the message that names them is sent.
   const staged = new Map()
+  let stagedBytes = 0
+  let stagedTimer
+  const dropStaged = (id) => {
+    const entry = staged.get(id)
+    if (entry === undefined) return
+    staged.delete(id)
+    stagedBytes -= entry.bytes
+  }
+  const sweepStaged = (now = Date.now()) => {
+    let earliest
+    for (const [id, entry] of staged) {
+      if (entry.at <= now - STAGED_MS) dropStaged(id)
+      else if (earliest === undefined || entry.at < earliest) earliest = entry.at
+    }
+    clearTimeout(stagedTimer)
+    stagedTimer = undefined
+    if (earliest !== undefined) {
+      stagedTimer = setTimeout(() => sweepStaged(), Math.max(1, earliest + STAGED_MS - now))
+      stagedTimer.unref?.()
+    }
+  }
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error', details = {}) => ({ ok: false, error: { code, message, details } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -122,6 +145,7 @@ export function install(rt) {
     permissions: rt.permissionCatalog?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
+    approvalReviews: rt.approvalReviewsView?.() ?? [],
     // Whether a Desktop window should serve Bot browser reads (see browser.js).
     browser: rt.browserEnabled,
     // False when config.memory turns memory off: no Memory row or panel.
@@ -189,7 +213,16 @@ export function install(rt) {
   const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
-  async function setPrefs(body) {
+  const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
+
+  async function setPrefs(body, requests) {
+    let approvalModel
+    if (body.approvalModel !== undefined) {
+      const ref = body.approvalModel
+      if (ref !== null && typeof ref !== 'string') throw invalid('Choose an approval model')
+      if (rt.isLocalAgentRef?.(ref)) throw invalid('Choose a model API for approval review')
+      approvalModel = ref ? await rt.resolveModel(ref) : undefined
+    }
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -227,9 +260,15 @@ export function install(rt) {
     if (body.defaultBotModel !== undefined) {
       // The model new Bots start on when a create names none. It resolves now, so the
       // saved ref is one the catalog served at save time; a create still re-checks it.
-      if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
-      else if (rt.isLocalAgentRef?.(body.defaultBotModel) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
-      else state.prefs.defaultBotModel = await rt.resolveModel(body.defaultBotModel)
+      const ref = body.defaultBotModel
+      if (rt.isLocalAgentRef?.(ref) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
+      const model = ref === null || ref === '' ? undefined : await rt.resolveModel(ref)
+      if (requests.defaultBotModel === modelRequests.defaultBotModel) {
+        // Resolution may yield while new reviews start on the old default.
+        if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
+        if (model) state.prefs.defaultBotModel = model
+        else delete state.prefs.defaultBotModel
+      }
     }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
@@ -256,6 +295,11 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
+    if (body.approvalModel !== undefined && requests.approvalModel === modelRequests.approvalModel) {
+      rt.cancelApprovalReviews?.({})
+      if (approvalModel) state.prefs.approvalModel = approvalModel
+      else delete state.prefs.approvalModel
+    }
     await rt.save()
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
@@ -263,6 +307,10 @@ export function install(rt) {
   const handle = async (endpoint, payload, signal) => {
     try {
       const body = payload ?? {}
+      const requests = {}
+      if (endpoint === 'set-prefs') {
+        for (const key of Object.keys(modelRequests)) if (body[key] !== undefined) requests[key] = ++modelRequests[key]
+      }
       await rt.refresh()
       const readOnly = rt.readOnly()
       if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
@@ -326,7 +374,7 @@ export function install(rt) {
           return ok(await rt.duplicateBot(body.id))
         case 'set-prefs':
           await rt.load()
-          await setPrefs(body)
+          await setPrefs(body, requests)
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
@@ -386,7 +434,7 @@ export function install(rt) {
         case 'room-progress': {
           // Any part id of the group's own Session means the group itself.
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
-          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
+          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from, undefined, entry.anchor), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
         }
         // Search a group's messages, newest first, each hit with its neighbours.
         // `before` (a seq) or `offset` continues into older hits.
@@ -493,6 +541,7 @@ export function install(rt) {
             add: Array.isArray(body.add) ? body.add : undefined,
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
+            extraDirs: body.extraDirs,
             permission: body.permission,
             section: body.section,
             sectionId: body.sectionId,
@@ -735,9 +784,17 @@ export function install(rt) {
           const data = typeof body.data === 'string' ? body.data : ''
           if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
           const now = Date.now()
-          for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
+          sweepStaged(now)
+          const bytes = Buffer.byteLength(data, 'utf8')
+          while (staged.size >= STAGED_MAX_ITEMS || (staged.size > 0 && stagedBytes + bytes > STAGED_MAX_BYTES)) {
+            const oldest = staged.keys().next().value
+            if (oldest === undefined) break
+            dropStaged(oldest)
+          }
           const id = randomUUID()
-          staged.set(id, { mediaType, data, at: now })
+          staged.set(id, { mediaType, data, bytes, at: now })
+          stagedBytes += bytes
+          sweepStaged(now)
           return ok({ id })
         }
         case 'send': {
@@ -754,7 +811,11 @@ export function install(rt) {
               ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
             ],
           })
-          for (const id of ids) staged.delete(id)
+          for (const id of ids) dropStaged(id)
+          if (staged.size === 0) {
+            clearTimeout(stagedTimer)
+            stagedTimer = undefined
+          }
           return ok(true)
         }
         case 'btw-delete': {
@@ -928,7 +989,7 @@ export function install(rt) {
         default:
           if (endpoint.startsWith('computer-')) {
             await rt.load()
-            return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
+            return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body, signal))
           }
           if (endpoint.startsWith('plugins-')) {
             return ok(await rt.pluginEndpoint(endpoint.slice('plugins-'.length), body, signal))
@@ -1065,6 +1126,12 @@ export function install(rt) {
     // Registered last, so this disposer runs before the state lock is released.
     // In-flight side questions abort here; their entries stay answering for the
     // next owner.
-    return () => Promise.all([rt.btwDispose?.(), rt.sideDispose?.()])
+    return () => {
+      clearTimeout(stagedTimer)
+      stagedTimer = undefined
+      staged.clear()
+      stagedBytes = 0
+      return Promise.all([rt.btwDispose?.(), rt.sideDispose?.()])
+    }
   }, 'ds-bot: load state')
 }
