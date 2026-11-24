@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { apply, createRuntime } from '../index.js'
 import { defaultBrowserHeadless } from '../src/host/browser-plugins.js'
 import { gateScope } from '../src/host/browser/gate.js'
+import { createSession } from '../src/host/browser/session.js'
 import { appBrowserEndpoint } from '../src/host/browser-plugins.js'
 import { mountBrowserPlugin } from '../src/host/browser/mount.js'
 import { systemPrompt as refsPrompt, toolDefs as refsTools } from '../src/host/browser/refs.js'
@@ -61,6 +62,55 @@ const WRITE_ACTION = {
   origin: 'https://shop.example.com',
   host: 'shop.example.com',
 }
+
+for (const event of ['close', 'disconnected']) {
+  test(`browser cache relaunches after ${event}`, async () => {
+    const tools = new Map()
+    const entries = []
+    let cleanup
+    mountBrowserPlugin({
+      on() {},
+      effect(create) { cleanup = create() },
+      tools: { register(tool) { tools.set(tool.name, tool) } },
+    }, {
+      toolDefs: [{ name: 'open', needsBrowser: true, execute: (_, { session }) => session.open('https://example.test/') }],
+      defineTool: value => value,
+      keyOf: async () => 'b2',
+      profileRoot: '/unused',
+      openSession: async () => {
+        const entry = fakeBrowserPage()
+        const browser = new EventEmitter()
+        browser.close = async () => {}
+        entries.push({ ...entry, browser })
+        return createSession({ ...entry, browser })
+      },
+    })
+    const call = () => tools.get('open').execute({}, browserExec())
+    try {
+      await call()
+      await entries[0].page.close()
+      const emitter = event === 'close' ? entries[0].context : entries[0].browser
+      emitter.emit(event)
+      await Promise.all([call(), call()])
+      assert.equal(entries.length, 2)
+      emitter.emit(event)
+      await call()
+      assert.equal(entries.length, 2, 'late events must not evict a replacement')
+    } finally { await cleanup() }
+  })
+}
+
+test('opening with no tabs creates a page and propagates new-page failures', async () => {
+  const { context, page } = fakeBrowserPage()
+  const session = createSession({ context, page })
+  await page.close()
+  context.newPage = async () => { throw new Error('cannot create page') }
+  await assert.rejects(session.open('https://example.test/'), /cannot create page/)
+  const next = fakeBrowserPage().page
+  context.newPage = async () => next
+  context.pages = () => [next]
+  await assert.doesNotReject(session.open('https://example.test/'))
+})
 
 function browserWriter() {
   let runs = 0

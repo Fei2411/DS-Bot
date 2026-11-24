@@ -61,6 +61,35 @@ function runtime(t, saved) {
   return { rt, home, statePath, warnings, dispose }
 }
 
+test('legacy review switches migrate into the permission mode and keep the team model', async t => {
+  const { rt, statePath } = runtime(t, { version: 1,
+    bots: { b: { id: 'b', autoApprove: true, permission: 'danger-full-access' }, c: { id: 'c', autoApprove: false, permission: 'read-only' } },
+    rooms: { r: { id: 'r', members: ['b'], autoApprove: true }, s: { id: 's', members: ['b'], autoApprove: false } },
+    prefs: { approvalModel: 'mock/reviewer' }, approvalPolicies: { child: 'never' },
+  })
+  await rt.load()
+  assert.equal(rt.state.bots.b.permission, 'review')
+  assert.equal(rt.state.bots.c.permission, 'read-only')
+  assert.equal(rt.state.rooms.r.permission, 'review')
+  assert.equal(rt.state.rooms.s.permission, undefined)
+  for (const target of [...Object.values(rt.state.bots), ...Object.values(rt.state.rooms)]) assert.equal(Object.hasOwn(target, 'autoApprove'), false)
+  assert.equal(rt.state.prefs.approvalModel, 'mock/reviewer')
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).bots.b.permission, 'review')
+  assert.equal(rt.state.approvalPolicies.child, 'never')
+})
+
+test('a previously repairable null-map and null-entry team still loads', async t => {
+  const { rt } = runtime(t, { version: 1,
+    bots: { ghost: null, chief: { id: 'chief', name: 'Chief', autoApprove: true } },
+    rooms: null,
+  })
+  await rt.load()
+  assert.equal(rt.state.bots.ghost, undefined)
+  assert.equal(rt.state.bots.chief.permission, 'review')
+  assert.equal(Object.hasOwn(rt.state.bots.chief, 'autoApprove'), false)
+  assert.deepEqual(rt.state.rooms, {})
+})
+
 test('a failed state write rejects and leaves the saved file unchanged', async (t) => {
   const { rt, statePath } = runtime(t)
   await rt.load()
@@ -70,6 +99,113 @@ test('a failed state write rejects and leaves the saved file unchanged', async (
   rt.state.prefs.marker = 'not saved'
   await assert.rejects(rt.save(), { code: 'EISDIR' })
   assert.deepEqual(fs.readFileSync(statePath), original)
+})
+
+test('saves made while a write is in flight share one queued write', async (t) => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    const revision = rt.state.revision
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const later = ['a', 'b', 'c'].map(marker => {
+      rt.state.prefs.marker = marker
+      return rt.save({ required: marker === 'b' })
+    })
+    release()
+    await Promise.all([first, ...later])
+    assert.deepEqual(writes, ['first', 'c'])
+    assert.equal(rt.state.revision, revision + 2)
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'c')
+  } finally {
+    restore()
+  }
+})
+
+test('saves that joined a failed write get one more write', async (t) => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+      if (writes.length === 2) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const later = ['a', 'b', 'c'].map(marker => {
+      rt.state.prefs.marker = marker
+      return rt.save({ required: marker === 'b' })
+    })
+    release()
+    await first
+    await assert.rejects(later[0], /busy/)
+    await Promise.all(later.slice(1))
+    assert.deepEqual(writes, ['first', 'c', 'c'])
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'c')
+  } finally {
+    restore()
+  }
+})
+
+test('a joined required save that failed is not retried onto an adopted file', async (t) => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const writes = []
+  const restore = patch('writeFile', originalWrite => async (path, data, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) {
+      writes.push(JSON.parse(data).prefs.marker)
+      if (writes.length === 1) await gate
+      if (writes.length === 2) {
+        // The team file is replaced and its lock removed while this write fails.
+        fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+        fs.rmSync(join(home, 'state.lock'))
+        throw Object.assign(new Error('disk error'), { code: 'EIO' })
+      }
+    }
+    return originalWrite(path, data, ...args)
+  })
+  try {
+    rt.state.prefs.marker = 'first'
+    const first = rt.save()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    rt.state.prefs.marker = 'queued'
+    const queued = rt.save()
+    rt.state.prefs.marker = 'mine'
+    const joined = rt.save({ required: true })
+    release()
+    await first
+    await assert.rejects(queued, /disk error/)
+    // Its change is not in the adopted state, so the required save must fail.
+    await assert.rejects(joined, /disk error/)
+    await rt.save()
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
+  } finally {
+    restore()
+  }
 })
 
 test('model selection witnesses survive a saved store reload', async (t) => {

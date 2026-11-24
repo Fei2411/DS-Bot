@@ -2,7 +2,7 @@
 
 - 日期：2026-11-09
 - 相关：#797（群记忆很快满）、#925（上限写死）、#453 和 #214（已开着的会话看不到新记忆）、#1185（群整理跳过滚出日志的行）
-- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`group-log.js`
+- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`ledger.js`、`groups.js`
 
 ## 为什么
 
@@ -19,19 +19,20 @@
 | 自动召回 | 主题里和用户刚说的话相关的少量条目 | 回合第一步；没命中就不放；同一段不重复；设置里可关 |
 | 按需 | 所有条目、主题全文、别的 Bot 的记忆、群的原文 | Bot 调 `bot_recall`、`read_group_chat` |
 
+- 给当前会话构造增量时，如果读不到变更日志，本步跳过增量，不把该日志标记为已读，下次构造增量时重试。
 - 先按作用域过滤，再排序。排序在内存里算 BM25，因为聊天索引的 trigram 匹配不了两个字的中文词。
 - 普通 Bot 可以用 `bot_recall` 读公开 Bot 的记忆，不注入。隐私 Bot 的记忆只有它自己和用户能读。
 
 ### 写
 
-- 写入不因额度失败。`MEMORY.md` 到额度时，同一次写入把最旧、没固定的条目移到主题 `earlier`，到期的先移，并告诉 Bot。主题满了接着写 `<主题>-2`。Bot 和群的主题数到上限时写进 `MEMORY.md`。团队的按需条目继续写入主题。
+- 写入不因额度失败。`MEMORY.md` 到额度时，同一次写入把最旧、没固定的条目移到主题 `earlier`，到期的先移，并告诉 Bot。主题满了接着写 `<主题>-2`。Bot 和群的主题数到上限（40 个）时，无法新建或拆分的主题写入溢流到 `earlier`（满了接着写 `earlier-2` 等），不再写进常驻 `MEMORY.md` 挤占核心记忆。团队的按需条目继续写入主题。
 - 整理先做删除和修改，再做新增。
 - 额度只算条目正文，不算元数据。默认：群 12,000、Bot 8,000、团队 4,000 字符，设置里可改。每层进提示词时不超过模型可用窗口的 2%，超出的留最新和固定的，并写明还有多少条。
 - 提示词里每条只带短 id 和日期，完整来源用 `bot_recall` 取。
 
 ### 团队记忆
 
-- 团队的 `MEMORY.md` 每个 Bot 每次都读，只由用户明确要求（`bot_remember` 的 `always`）或记忆面板写入。
+- 团队的 `MEMORY.md` 每个 Bot 每次都读，只由用户明确要求（`bot_remember` / `bot_forget` 的 `always: true`）或记忆面板写入、修改或删除。
 - 其余写团队的内容进主题 `shared`，用 `bot_recall` 或自动召回读到。团队主题在提示词里只显示主题名。
 - 自动整理不改团队 `MEMORY.md`。Main Bot 的整理可以写给某个 Bot，群管理员的整理可以写给自己所在的群。只属于一个项目的规则不进记忆，走 AGENTS.md。
 - 群就是项目边界，不设项目记忆。
@@ -64,3 +65,6 @@
 - 一条记忆放错了级别，用户在记忆面板把它移到团队、别的 Bot 或群。条目带着 id、有效期和固定状态走；进团队时放主题 `shared`，要不要常驻另外选。先写新位置再删旧位置，中断时最多两处都有，不会丢。只有面板能移动，模型没有这个工具。
 
 ## 变更
+
+- 2026-11-22：群持久日志的代码入口改为现行账本与群引擎，对照 dev 代码校正。
+- 2026-11-24：Bot/群达 40 主题上限后，新建或拆分的主题溢流至 `earlier`（及 `earlier-N`）而非回落常驻 `MEMORY.md`；`bot_forget` 对团队常驻 `team/MEMORY.md` 对齐 `bot_remember(replace)`，须显式传 `always: true`。

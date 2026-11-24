@@ -1,12 +1,13 @@
 import { Children, Fragment, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorActionOf, connectorRows, type ConnectorPending, type ConnectorRow } from '../team/connectors.ts'
 import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
+import { useAppUpdate } from '../team/app-update-store.ts'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -786,8 +787,8 @@ export function Updates({ navigation }: any) {
 }
 
 export function About({ navigation }: any) {
-  const { p } = useTheme()
   const { call, computer } = useTeam()
+  const appUpdate = useAppUpdate()
   // The state carries no versions; the update check knows both.
   const [versions, setVersions] = useState<{ update?: { current?: string }; current?: string; dsh?: { current?: string } | null } | null>(null)
   useEffect(() => {
@@ -796,18 +797,25 @@ export function About({ navigation }: any) {
   const version = versions?.update?.current ?? versions?.current ?? '—'
   const dsh = versions?.dsh?.current
   const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
+  const appLabel = Platform.OS === 'android' && appUpdate.hasUpdate && appUpdate.release
+    ? `${appVersion} → ${appUpdate.release.version}`
+    : appVersion
   return (
     <Screen><Back title={t('About')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('About')}>
           <Row label={t('DS Bot')} value={version} />
           {dsh !== undefined ? <Row label={t('DSH')} value={dsh} /> : null}
-          <Row label={t('Phone app')} value={appVersion} />
+          <Row
+            label={t('Phone app')}
+            value={appLabel}
+            onPress={Platform.OS === 'android' ? () => navigation.navigate('AppUpdate') : undefined}
+          />
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>
-          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot/blob/main/LICENSE')} />
-          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot')} />
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot/blob/main/LICENSE')} />
+          <Row label={t('Repository')} hint="github.com/Fei-Craft/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot')} />
         </Section>
       </ScrollView>
     </Screen>

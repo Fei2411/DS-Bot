@@ -19,17 +19,46 @@ function childEnv() {
 }
 
 // helpers: name → async function on the host. Only JSON crosses in either direction.
-export function runIsolatedScript(body, helpers, { timeout = SCRIPT_TIMEOUT } = {}) {
+export function runIsolatedScript(body, helpers, { timeout = SCRIPT_TIMEOUT, signal } = {}) {
+  const abortError = () => {
+    const reason = signal?.reason
+    if (reason instanceof Error) return reason
+    return new Error(typeof reason === 'string' && reason ? reason : 'The browser script was aborted.')
+  }
+  if (signal?.aborted) return Promise.reject(abortError())
   return new Promise((resolve, reject) => {
     let settled = false
     let child
+    const stopChild = () => {
+      if (!child || child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return
+      const target = child
+      try { target.kill('SIGTERM') } catch {}
+      if (target.exitCode !== null || target.signalCode !== null) return
+      const clear = () => {
+        clearTimeout(killTimer)
+        target.off?.('exit', clear)
+        target.off?.('error', clear)
+      }
+      const killTimer = setTimeout(() => {
+        clear()
+        if (target.exitCode === null && target.signalCode === null) {
+          try { target.kill('SIGKILL') } catch {}
+        }
+      }, 2_000)
+      killTimer.unref?.()
+      target.once('exit', clear)
+      target.once('error', clear)
+    }
     const end = (settle, value) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      if (child?.exitCode === null && child.signalCode === null) child.kill()
+      signal?.removeEventListener('abort', onAbort)
+      stopChild()
       settle(value)
     }
+    const onAbort = () => end(reject, abortError())
+    signal?.addEventListener('abort', onAbort, { once: true })
     // kill() stops a script that never yields, which a Promise.race cannot.
     const timer = setTimeout(() => end(reject, new Error(`Script ran longer than ${timeout / 1000} seconds.`)), timeout)
     try {
@@ -71,7 +100,7 @@ export function runIsolatedScript(body, helpers, { timeout = SCRIPT_TIMEOUT } = 
       if (!settled) send(reply)
     })
     child.on('error', error => end(reject, new Error(`Script stopped: ${error?.message ?? error}`)))
-    child.on('exit', (code, signal) => end(reject, new Error(`Script stopped before it finished (${signal ?? `exit ${code}`}).`)))
+    child.on('exit', (code, exitSignal) => end(reject, new Error(`Script stopped before it finished (${exitSignal ?? `exit ${code}`}).`)))
     send({ type: 'start', body, names: Object.keys(helpers), wait: timeout })
   })
 }

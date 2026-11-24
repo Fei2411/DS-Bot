@@ -160,6 +160,26 @@ test('with Enter sending on, a plain Enter sends the draft and clears it', async
   assert.equal(textarea(tree()).props.value, '')
 })
 
+test('hello clears a stale reply and its reload preserves the replayed preview', async () => {
+  const { tree, emit } = view({})
+  await tick()
+  const textOf = () => JSON.stringify(tree())
+  const target = { botId: 'b1', sessionId: 'b1', attemptId: 'old' }
+  emit('stream', { ...target, phase: 'start' })
+  emit('stream', { ...target, text: 'stale-preview' })
+  assert.ok(textOf().includes('stale-preview'))
+  emit('hello', {})
+  assert.ok(!textOf().includes('stale-preview'))
+  emit('stream', { ...target, attemptId: 'active', phase: 'start' })
+  emit('stream', { ...target, attemptId: 'active', text: 'replayed-preview' })
+  assert.ok(textOf().includes('replayed-preview'))
+  await tick()
+  assert.ok(textOf().includes('replayed-preview'))
+  emit('hello', {})
+  await tick()
+  assert.ok(!textOf().includes('replayed-preview'))
+})
+
 test('with Enter sending off, a plain Enter is a newline and the send button sends', async () => {
   const { sent, tree } = view({ enterToSend: false })
   const event = enter()
@@ -392,5 +412,50 @@ test('group chat pending dedup does not drop repeated short messages like "ç»§ç»
     assert.equal(room.rowsOf().pending.length, 0, 'second server message clears second pending entry')
   } finally {
     room.unmount()
+  }
+})
+
+test('streaming batches intra-frame tokens onto a single rAF flush instead of re-rendering per token', async () => {
+  const rafQueue = []
+  const origRaf = sandbox.requestAnimationFrame
+  const origCancel = sandbox.cancelAnimationFrame
+  sandbox.requestAnimationFrame = (fn) => { rafQueue.push(fn); return rafQueue.length }
+  sandbox.cancelAnimationFrame = () => {}
+  try {
+    const { emit, tree } = view({})
+    await tick()
+    const target = { botId: 'b1', sessionId: 'b1', attemptId: 'batch-1' }
+    emit('stream', { ...target, phase: 'start' })
+    // Leading token renders immediately.
+    emit('stream', { ...target, text: 'A' })
+    assert.ok(JSON.stringify(tree()).includes('"A"'))
+    // Burst of 5 intra-frame tokens schedules only ONE rAF callback.
+    for (const tok of ['B', 'C', 'D', 'E', 'F']) emit('stream', { ...target, text: tok })
+    assert.equal(rafQueue.length, 1, 'multiple intra-frame deltas coalesce into one rAF flush')
+    assert.ok(!JSON.stringify(tree()).includes('ABCDEF'), 'buffered deltas wait for animation frame')
+    rafQueue.shift()()
+    assert.ok(JSON.stringify(tree()).includes('ABCDEF'), 'rAF flush applies all coalesced tokens at once')
+  } finally {
+    sandbox.requestAnimationFrame = origRaf
+    sandbox.cancelAnimationFrame = origCancel
+  }
+})
+
+test('early messages arriving before initial chat load completes are capped at 200', async () => {
+  let resolvePage
+  sandbox.__testCall = () => new Promise((resolve) => { resolvePage = resolve })
+  try {
+    const { emit, tree } = view({})
+    for (let i = 0; i < 250; i += 1) {
+      emit('message', { botId: 'b1', sessionId: 'b1', item: { id: `m-${i}`, kind: 'bot', text: `msg-${i}`, time: i } })
+    }
+    resolvePage({ sessionId: 'b1', items: [], cursor: null })
+    await tick()
+    const rows = all(tree(), child => child.type === 'chat-rows')[0]
+    assert.equal(rows.props.items.length, 200, 'early message buffer is capped at 200 newest entries')
+    assert.equal(rows.props.items[0].id, 'm-50')
+    assert.equal(rows.props.items.at(-1).id, 'm-249')
+  } finally {
+    sandbox.__testCall = defaultCall
   }
 })

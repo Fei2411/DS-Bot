@@ -79,6 +79,50 @@ test('secure codec splits and joins a large message', () => {
   assert.throws(() => new SecureMessageCodec().decode(frames[1]!))
 })
 
+test('base64url handles large payloads, sliced subarrays, and non-Buffer fallback identically', () => {
+  const backing = Uint8Array.from({ length: 120_000 }, (_, index) => (index * 37) & 0xff)
+  const slice = backing.subarray(17, 100_017)
+  const nodeEncoded = toBase64Url(slice)
+  const nodeDecoded = fromBase64Url(nodeEncoded)
+  assert.equal(Object.getPrototypeOf(nodeDecoded), Uint8Array.prototype)
+  assert.deepEqual(nodeDecoded, slice)
+
+  const savedBuffer = globalThis.Buffer
+  try {
+    // Exercise the chunked non-Node fallback path.
+    // @ts-expect-error simulate non-Node runtime without Buffer
+    globalThis.Buffer = undefined
+    const fallbackEncoded = toBase64Url(slice)
+    assert.equal(fallbackEncoded, nodeEncoded)
+    const fallbackDecoded = fromBase64Url(fallbackEncoded)
+    assert.deepEqual(fallbackDecoded, slice)
+  } finally {
+    globalThis.Buffer = savedBuffer
+  }
+})
+
+test('secure codec evicts abandoned incomplete fragment assemblies after TTL', () => {
+  let clock = 1_000
+  const encoder = new SecureMessageCodec()
+  const decoder = new SecureMessageCodec({ assemblyTtlMs: 5_000, now: () => clock })
+  const payload = Uint8Array.from({ length: 120_000 }, (_, i) => i & 0xff)
+
+  // Fill all 8 in-flight slots with incomplete (first-fragment-only) messages.
+  for (let i = 0; i < 8; i += 1) {
+    const frames = encoder.encode(payload)
+    assert.equal(decoder.decode(frames[0]!), undefined)
+  }
+  // A 9th concurrent incomplete message fails while the 8 slots are still fresh.
+  const overflow = encoder.encode(payload)
+  assert.throws(() => decoder.decode(overflow[0]!), /sequence is invalid/)
+
+  // Once TTL elapses, abandoned assemblies are swept and new fragmented messages decode cleanly.
+  clock += 5_001
+  const fresh = encoder.encode(payload)
+  const parts = fresh.map(frame => decoder.decode(frame))
+  assert.deepEqual(parts.at(-1), payload)
+})
+
 test('control frames enforce size limits', () => {
   const frame = createControlFrame('ping', { pad: 'x'.repeat(MAX_CONTROL_FRAME_BYTES) })
   assert.throws(() => encodeControlFrame(frame), /Control frame exceeds/)
@@ -168,3 +212,16 @@ function loopback(options: { answer?: boolean; hostKeys?: ReturnType<typeof gene
     hostCalls: () => calls,
   }
 }
+
+test('fromBase64Url rejects malformed characters/lengths and does not pin Buffer slabs for small keys', () => {
+  assert.throws(() => fromBase64Url('!!!invalid!!!'), /Invalid base64url/)
+  assert.throws(() => fromBase64Url('a'), /Invalid base64url/)
+  assert.throws(() => fromBase64Url('a='), /Invalid base64url/)
+  assert.throws(() => fromBase64Url('abcd=='), /Invalid base64url/)
+  assert.throws(() => fromBase64Url('ab=c'), /Invalid base64url/)
+  const pair = generateKeyPair()
+  const raw = fromBase64Url(pair.publicKey)
+  assert.equal(raw.byteLength, 32)
+  assert.equal(raw.buffer.byteLength, 32, 'small decoded keys must not retain Node 8KB Buffer pool slab')
+  assert.equal(toBase64Url(raw), pair.publicKey)
+})

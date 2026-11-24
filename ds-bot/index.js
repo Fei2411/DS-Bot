@@ -6,6 +6,7 @@ import * as diagnostics from './src/host/diagnostics.js'
 import * as store from './src/host/store.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
+import * as chatgpt from './src/host/chatgpt.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
 import * as steer from './src/host/steer.js'
@@ -26,6 +27,7 @@ import * as goals from './src/host/goals.js'
 import * as agentCommands from './src/host/agent-commands.js'
 import * as tasks from './src/host/tasks.js'
 import * as approvals from './src/host/approvals.js'
+import * as extraFolders from './src/host/extra-folders.js'
 import * as resume from './src/host/resume.js'
 import * as memory from './src/host/memory.js'
 import * as parts from './src/host/parts.js'
@@ -39,6 +41,7 @@ import * as computer from './src/host/computer/index.js'
 import * as secrets from './src/host/secrets.js'
 import * as connectors from './src/host/connectors/index.js'
 import * as capabilities from './src/host/capabilities.js'
+import * as plugins from './src/host/plugins/index.js'
 import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
@@ -54,12 +57,14 @@ import * as feed from './src/host/feed.js'
 import * as im from './src/host/im/index.js'
 import * as officeSkills from './src/host/office-skills.js'
 import * as goalSkills from './src/host/goal-skills.js'
+import * as maintenanceSkills from './src/host/maintenance-skills.js'
 import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
 export { COLORS } from './src/host/constants.js'
+export { defineBotPlugin, defineBrowserProvider } from './src/host/plugins/sdk.js'
 
 export { name, inject } from './src/host/entry.js'
 
@@ -68,7 +73,8 @@ export { name, inject } from './src/host/entry.js'
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, manualSkills, localAgents]
+// extraFolders answers an approval ahead of approvals, which would show it to the user.
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
@@ -94,7 +100,7 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of MODULES) module.install(rt)
+  for (const module of [...MODULES, chatgpt]) module.install(rt)
   rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.

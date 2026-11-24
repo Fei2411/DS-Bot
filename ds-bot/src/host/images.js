@@ -36,14 +36,41 @@ export function install(rt) {
   const ocrPath = join(home, 'ocr.json')
   let ocrCache = null
   let ocrWriting = Promise.resolve()
+  const OCR_FAILED_MAX = 500
   const ocrPending = new Map()
   const ocrFailed = new Map()
+  const checkedSessions = new WeakSet()
+  const sessionsWithImages = new Set()
+  let closed = false
+
+  const noteOcrFailed = (id) => {
+    const now = Date.now()
+    if (ocrFailed.size >= OCR_FAILED_MAX) {
+      for (const [key, entry] of ocrFailed) {
+        if (now - entry.at >= OCR_RETRY_MS) ocrFailed.delete(key)
+      }
+      while (ocrFailed.size >= OCR_FAILED_MAX) ocrFailed.delete(ocrFailed.keys().next().value)
+    }
+    if (ocrFailed.has(id)) ocrFailed.delete(id)
+    ocrFailed.set(id, { at: now })
+  }
 
   const liveImages = message => Array.isArray(message?.content)
     && message.content.some(block => block?.type === 'image' && !block.offloaded)
 
   const liveFiles = message => Array.isArray(message?.content)
     && message.content.some(block => block?.type === 'file')
+
+  const eventHasLiveImage = (session, event) => {
+    if (event?.type !== 'user/message' && event?.type !== 'tool/result') return false
+    const direct = event.type === 'user/message' ? event.data?.content : event.data?.message?.content
+    if (Array.isArray(direct)) return direct.some(block => block?.type === 'image' && block.offloaded !== true)
+    try {
+      return liveImages(session?.deriveEventMessage?.(event))
+    } catch {
+      return true
+    }
+  }
 
   async function readsImages(provider, model) {
     if (textOnlyModels.has(`${provider}/${model}`)) return false
@@ -116,7 +143,10 @@ export function install(rt) {
     const id = String(attachment.attachmentId)
     if (ocrCache.has(id)) return ocrCache.get(id)
     const failed = ocrFailed.get(id)
-    if (failed && Date.now() - failed.at < OCR_RETRY_MS) return null
+    if (failed) {
+      if (Date.now() - failed.at < OCR_RETRY_MS) return null
+      ocrFailed.delete(id)
+    }
     if (!ocrPending.has(id)) {
       ocrPending.set(id, readImage(attachment, sessionId).then((reading) => {
         ocrCache.set(id, reading)
@@ -125,7 +155,7 @@ export function install(rt) {
         return reading
       }, (error) => {
         rt.warn('ds-bot: could not read image %s: %s', id, error)
-        ocrFailed.set(id, { at: Date.now() })
+        noteOcrFailed(id)
         return null
       }).finally(() => ocrPending.delete(id)))
     }
@@ -264,23 +294,50 @@ export function install(rt) {
     })()
   })
 
+  ctx.on('session/event', (session, event) => {
+    const id = session?.id
+    if (typeof id === 'string' && eventHasLiveImage(session, event)) sessionsWithImages.add(id)
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => {
+    if (agent?.session) checkedSessions.delete(agent.session)
+    const id = agent?.session?.id ?? agent?.id
+    if (typeof id === 'string') sessionsWithImages.delete(id)
+  })
+
   ctx.on('agent/status', ({ agent, status }) => {
     if (status !== 'idle' || !agent?.session || !rt.isBotSession(agent.id) || rt.readOnly() !== undefined) return
-    const beforeSeq = agent.session.seq
+    const session = agent.session
+    const sessionId = session.id ?? agent.id
+    if (checkedSessions.has(session) && !sessionsWithImages.has(sessionId)) return
+    const beforeSeq = session.seq
+    sessionsWithImages.delete(sessionId)
     setImmediate(() => {
       void (async () => {
         try {
+          if (closed) return
           if (!ctx.sessions.messageProjections.some(projection => projection.type === 'image/offload')) return
-          const targets = offloadTargets(agent.session, beforeSeq)
-          if (targets.length === 0) return
-          agent.session.append('image/offload', { targets })
-          await ctx.sessions.flush(agent.session)
+          const targets = offloadTargets(session, beforeSeq)
+          if (targets.length === 0) {
+            checkedSessions.add(session)
+            return
+          }
+          session.append('image/offload', { targets })
+          await ctx.sessions.flush(session)
+          checkedSessions.add(session)
         } catch (error) {
+          if (!closed) sessionsWithImages.add(sessionId)
           rt.warn('ds-bot: old images for %s not offloaded: %s', agent.id, error)
         }
       })()
     })
   })
+
+  ctx.effect?.(() => () => {
+    closed = true
+    sessionsWithImages.clear()
+    ocrFailed.clear()
+  }, 'ds-bot: images cleanup')
 
   Object.assign(rt, { imagesForGroup })
 }
