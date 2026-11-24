@@ -55,6 +55,16 @@ test('a blockquote immediately after a Telegram table is not a table row', () =>
   }])
 })
 
+test('lists containing pipes end a Telegram table without losing text', () => {
+  for (const item of ['- Use A | B | C after lunch', '+ Use A | B | C', '* Use A | B | C', '2. Use A | B | C', '2) Use A | B | C']) {
+    const markdown = '| Key | Value |\n| --- | --- |\n| a | 1 |\n' + item
+    assert.deepEqual(chunkTelegram(markdown), [{
+      html: '• <b>Key:</b> a\n• <b>Value:</b> 1\n' + item,
+      text: '• Key: a\n• Value: 1\n' + item,
+    }])
+  }
+})
+
 test('Telegram leaves underline-like lines unchanged after prose and lists', () => {
   for (const markdown of [
     'item\n---',

@@ -70,6 +70,7 @@ const renderCodeHtml = block => `<pre><code${block.lang ? ` class="language-${es
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
+const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
@@ -84,6 +85,8 @@ function tableCells(line) {
   if (cells.at(-1) === '') cells.pop()
   return cells.map(cell => cell.trim())
 }
+
+const tableRow = line => LIST_ITEM.test(line) ? undefined : tableCells(line)
 
 function telegramLines(lines) {
   const rendered = []
@@ -103,15 +106,15 @@ function telegramLines(lines) {
     if (next.includes('-')) {
       const delimiters = tableCells(next)
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
-        const headers = tableCells(line)
+        const headers = tableRow(line)
         if (headers?.length === delimiters.length) {
           at += 1
-          let row = tableCells(lines[at + 1] ?? '')
+          let row = tableRow(lines[at + 1] ?? '')
           if (row === undefined) renderTableRow(headers)
           while (row !== undefined) {
             at += 1
             renderTableRow(headers, row)
-            row = tableCells(lines[at + 1] ?? '')
+            row = tableRow(lines[at + 1] ?? '')
             if (row !== undefined) rendered.push({ html: '', text: '' })
           }
           continue
