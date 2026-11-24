@@ -1,12 +1,19 @@
 import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
+import { FONT_RANGES, FONT_ROUTE, REPLY_FACES, REPLY_FAMILY } from '../shared/reply-fonts.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
 // tokens derive from them, so a registered theme recolors the whole team UI.
 
 const THEME_KEYS = ['bg', 'sidebar', 'bubble', 'card', 'text', 'user', 'userText', 'accent']
+// Bot replies in the bundled serif: Source Serif 4 for Latin, Noto Serif SC for Chinese.
+// DSH's Markdown reads --dsw-font-family, so the reply scope rebinds it; code keeps its
+// own family, and a text font the user set in Settings still wins.
+const fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`
+export const SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join('\n')}
+.bt-bubble,.bt-look-bot{--dsw-font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default);font-family:var(--dsw-font-family)}`
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
@@ -27,6 +34,12 @@ const THEMES = {
     label: 'Moonlight',
     light: { bg: '#f7f9fc', sidebar: '#eef2f8', bubble: '#e5ebf5', card: '#ffffff', text: '#121826', user: '#1e3a8a', userText: '#ffffff', accent: '#1e86ff' },
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
+  },
+  celadon: {
+    label: 'Celadon',
+    light: { bg: '#faf6ee', sidebar: '#f3ede2', bubble: '#efe8db', card: '#fdfbf7', text: '#211f1b', user: '#e2eeec', userText: '#163f46', accent: '#1e8294' },
+    dark: { bg: '#1d1c19', sidebar: '#23221e', bubble: '#2d2b26', card: '#27251f', text: '#f2ede3', user: '#1f4a51', userText: '#e6f1f0', accent: '#3fa9ba' },
+    css: SERIF_REPLIES,
   },
 }
 // Text on the accent: near-black or white, whichever has the higher WCAG contrast.

@@ -751,7 +751,7 @@ export const KO = {
   Graphite: '그래파이트', Rose: '로즈', Sky: '스카이', Tangerine: '탠저린', Cobalt: '코발트',
 
   // Themes
-  DeepSeek: 'DeepSeek', Mono: '모노', Paper: '페이퍼', Moonlight: '문라이트',
+  DeepSeek: 'DeepSeek', Mono: '모노', Paper: '페이퍼', Moonlight: '문라이트', Celadon: '청자',
 
   // Settings dialog
   General: '일반',

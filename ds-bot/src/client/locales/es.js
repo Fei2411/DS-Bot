@@ -751,7 +751,7 @@ export const ES = {
   Graphite: 'Grafito', Rose: 'Rosa', Sky: 'Cielo', Tangerine: 'Mandarina', Cobalt: 'Cobalto',
 
   // Themes
-  DeepSeek: 'DeepSeek', Mono: 'Mono', Paper: 'Papel', Moonlight: 'Luz de luna',
+  DeepSeek: 'DeepSeek', Mono: 'Mono', Paper: 'Papel', Moonlight: 'Luz de luna', Celadon: 'Celadón',
 
   // Settings dialog
   General: 'General',
