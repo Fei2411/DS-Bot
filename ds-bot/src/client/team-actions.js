@@ -24,6 +24,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
   const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const MAX_TURN_CLOCK_SESSIONS = 40
+  const turnClockOrder = new Set()
+  const setTurnClock = (state, sessionId, turns) => {
+    turnClockOrder.delete(sessionId)
+    turnClockOrder.add(sessionId)
+    const next = { ...state, [sessionId]: turns }
+    while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
+      const oldest = turnClockOrder.values().next().value
+      turnClockOrder.delete(oldest)
+      delete next[oldest]
+    }
+    return next
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
@@ -390,7 +403,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const entry = turns[turn] ?? {}
         const next = key === 'first' && entry.first !== undefined ? Math.min(entry.first, time) : time
         if (entry[key] === next) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } })
       })
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -399,7 +412,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const turns = state[sessionId] ?? {}
         const entry = turns[turn] ?? {}
         if (entry.peer === peerId) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } })
       })
     },
     noteLive: (sessionId, id, entry) => {

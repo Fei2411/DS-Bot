@@ -10,6 +10,8 @@
 // Node's built-in WebSocket sends those header names in lowercase.
 import { createDecipheriv } from 'node:crypto'
 import { chunkMarkdown } from '../format.js'
+import { discardBody, FILE_LIMIT, IMAGE_LIMIT, mediaSignal, readCappedBytes } from './media.js'
+import { retryDelay } from './retry.js'
 
 // Loaded on first WeCom check or connect so plugin startup skips `ws` when unused.
 let wsModule
@@ -17,12 +19,10 @@ const loadWs = () => (wsModule ??= import('ws').then(mod => mod.default))
 
 const WSS = 'wss://openws.work.weixin.qq.com'
 const TEXT_LIMIT = 4000
-// An attachment is read fully into memory and handed on as one Buffer, so it is
-// capped: the body is abandoned mid-transfer once it passes this, before a second
-// copy exists for the decrypt.
-const FILE_LIMIT = 100 * 1024 * 1024
-// A prompt image rides the whole request, so it gets a tighter cap of its own.
-const IMAGE_LIMIT = 20 * 1024 * 1024
+const LAST_REQ_ID_MAX = 1000
+// Known permanent WeCom credential/config errcodes (invalid secret/corpid/token/agentid/bot or disabled API).
+// Transient errors (-1, 45009/45011 rate limits, session conflicts, unknown codes) retry with backoff.
+const FATAL_SUBSCRIBE_ERRCODES = new Set([40001, 40013, 40014, 40056, 41002, 41004, 48002, 60111])
 
 const socketUrl = env => String(env.config?.gateway ?? env.config?.api ?? WSS).replace(/\/+$/, '')
 // Keep the cause on screen: a refused handshake reports its HTTP status here.
@@ -53,6 +53,7 @@ export default {
         else reject(error)
       }
       const timer = setTimeout(() => finish(new Error('WeCom did not answer the subscription')), 10_000)
+      timer.unref?.()
       try { socket = new WebSocket(socketUrl(env)) } catch (error) {
         finish(new Error(`WeCom could not open a socket: ${socketError(error)}`))
         return
@@ -76,9 +77,12 @@ export default {
     const botId = String(fields.botId ?? '').trim()
     const secret = String(fields.secret ?? '').trim()
     let stopped = false
+    const stopping = new AbortController()
     let socket
     let generation = 0
     let reconnectTimer
+    let reconnectAttempt = 0
+    let fatalAuth = false
     let pingTimer
     let reqCounter = 0
     // A refusal is kept on the status while the adapter retries.
@@ -89,7 +93,12 @@ export default {
     }
     // Passive replies reuse the last callback req_id per chat.
     const lastReqId = new Map()
-    const pending = new Map() // req_id → {resolve, reject}
+    const rememberReqId = (key, reqId) => {
+      lastReqId.delete(key)
+      lastReqId.set(key, reqId)
+      while (lastReqId.size > LAST_REQ_ID_MAX) lastReqId.delete(lastReqId.keys().next().value)
+    }
+    const pending = new Map() // req_id → {resolve, reject, timer}
 
     const nextReqId = () => `r${++reqCounter}`
     const sendFrame = (packet) => { if (socket?.readyState === 1) socket.send(JSON.stringify(packet)) }
@@ -98,17 +107,22 @@ export default {
       sendFrame({ cmd, headers: { req_id }, body })
       if (cmd === 'aibot_send_msg') {
         return new Promise((resolve, reject) => {
-          pending.set(req_id, { resolve, reject })
-          setTimeout(() => {
+          const timer = setTimeout(() => {
             if (pending.delete(req_id)) reject(new Error('WeCom did not answer the send'))
-          }, 15_000).unref?.()
+          }, 15_000)
+          timer.unref?.()
+          pending.set(req_id, {
+            timer,
+            resolve: (value) => { clearTimeout(timer); resolve(value) },
+            reject: (error) => { clearTimeout(timer); reject(error) },
+          })
         })
       }
     }
 
     const onCallback = async (headers, body) => {
       const key = String(body.chattype === 'single' ? body.from?.userid ?? '' : body.chatid ?? '')
-      lastReqId.set(key, String(headers?.req_id ?? ''))
+      rememberReqId(key, String(headers?.req_id ?? ''))
       const direct = body.chattype === 'single'
       // Groups only count when the bot was @-ed: the text keeps the mention.
       // A voice message carries its own transcription, which is all of the text
@@ -118,13 +132,13 @@ export default {
       const images = []
       const files = []
       if (body.msgtype === 'image' && body.image?.url !== undefined) {
-        const got = await downloadMedium(body.image, env, IMAGE_LIMIT).catch(() => undefined)
+        const got = await downloadMedium(body.image, env, IMAGE_LIMIT, stopping.signal).catch(() => undefined)
         if (got !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
       }
       if (body.msgtype === 'file' || body.msgtype === 'video') {
         const media = body[body.msgtype]
         if (media?.url !== undefined) {
-          const got = await downloadMedium(media, env, FILE_LIMIT).catch(error => error)
+          const got = await downloadMedium(media, env, FILE_LIMIT, stopping.signal).catch(error => error)
           if (got?.overLimit === true) env.log?.warn?.('ds-bot im: wecom %s is over the %d byte cap, skipped', body.msgtype, FILE_LIMIT)
           else if (got?.bytes !== undefined) files.push({ name: got.name || `wecom-${body.msgid ?? 'file'}`, data: got.bytes })
         }
@@ -141,7 +155,7 @@ export default {
             continue
           }
           if (item?.msgtype !== 'image' || item.image?.url === undefined) continue
-          const got = await downloadMedium(item.image, env, IMAGE_LIMIT).catch(error => error)
+          const got = await downloadMedium(item.image, env, IMAGE_LIMIT, stopping.signal).catch(error => error)
           if (got?.overLimit === true) env.log?.warn?.('ds-bot im: wecom mixed image is over the %d byte cap, skipped', IMAGE_LIMIT)
           else if (got?.bytes !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
         }
@@ -174,21 +188,35 @@ export default {
     }
 
     const open = async () => {
-      const gen = generation
+      if (stopped || fatalAuth) return
+      const gen = ++generation
+      clearInterval(pingTimer)
+      pingTimer = undefined
+      const previous = socket
+      socket = undefined
+      try { previous?.close(4001, 'reconnect') } catch { /* not open */ }
+      let next
       try {
         const WebSocket = await loadWs()
         if (stopped || generation !== gen) return
-        socket = new WebSocket(socketUrl(env))
+        next = new WebSocket(socketUrl(env))
+        socket = next
       } catch (error) {
         if (stopped || generation !== gen) return
         fail(`WeCom could not open a socket: ${socketError(error)}`)
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(reconnectAttempt++))
+        reconnectTimer.unref?.()
         return
       }
-      socket.on('open', () => {
-        sendFrame({ cmd: 'aibot_subscribe', headers: { req_id: nextReqId() }, body: { secret, bot_id: botId } })
+      let subscribeReqId
+      next.on('open', () => {
+        if (stopped || generation !== gen || socket !== next) return
+        subscribeReqId = nextReqId()
+        sendFrame({ cmd: 'aibot_subscribe', headers: { req_id: subscribeReqId }, body: { secret, bot_id: botId } })
       })
-      socket.on('message', (data) => {
-        if (stopped || generation !== gen) return
+      next.on('message', (data) => {
+        if (stopped || generation !== gen || socket !== next) return
         let packet
         try { packet = JSON.parse(String(data)) } catch { return }
         if (packet.errcode !== undefined) {
@@ -199,6 +227,12 @@ export default {
               pending.delete(packet.headers?.req_id)
               held.reject(Object.assign(new Error(String(packet.errmsg ?? 'WeCom refused')), { permanent: true }))
             }
+            if (subscribeReqId !== undefined && packet.headers?.req_id === subscribeReqId) {
+              if (FATAL_SUBSCRIBE_ERRCODES.has(Number(packet.errcode))) fatalAuth = true
+              clearInterval(pingTimer)
+              pingTimer = undefined
+              try { next.close(1000, fatalAuth ? 'auth refused' : 'subscribe failed') } catch { /* not open */ }
+            }
             return
           }
           if (packet.headers?.req_id !== undefined && pending.has(packet.headers.req_id)) {
@@ -206,6 +240,7 @@ export default {
             pending.delete(packet.headers.req_id)
             held.resolve(packet.body)
           }
+          reconnectAttempt = 0
           lastError = undefined
           handlers.onStatus({ state: 'ready', account: { id: botId, name: botId } })
           return
@@ -216,19 +251,23 @@ export default {
           void onEvent(packet.headers, packet.body ?? {}).catch(error => env.log?.warn?.('ds-bot im: wecom event failed: %s', error?.message ?? error))
         }
       })
-      socket.on('close', () => {
-        clearTimeout(pingTimer)
-        if (stopped || generation !== gen) return
+      next.on('close', () => {
+        if (socket === next) {
+          clearInterval(pingTimer)
+          pingTimer = undefined
+        }
+        if (stopped || generation !== gen || fatalAuth) return
         // A refusal stays on screen until a socket subscribes again.
         if (lastError === undefined) handlers.onStatus({ state: 'connecting' })
-        reconnectTimer = setTimeout(() => { if (!stopped) open() }, 2000)
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(reconnectAttempt++))
         reconnectTimer.unref?.()
       })
-      socket.on('error', (error) => {
-        if (stopped || generation !== gen) return
+      next.on('error', (error) => {
+        if (stopped || generation !== gen || socket !== next) return
         fail(`WeCom socket failed: ${socketError(error)}`)
       })
-      pingTimer = setInterval(() => { if (!stopped && socket?.readyState === 1) sendFrame({ cmd: 'ping', headers: { req_id: nextReqId() } }) }, 30_000)
+      pingTimer = setInterval(() => { if (!stopped && generation === gen && socket === next && next.readyState === 1) sendFrame({ cmd: 'ping', headers: { req_id: nextReqId() } }) }, 30_000)
       pingTimer.unref?.()
     }
 
@@ -264,12 +303,17 @@ export default {
       },
       stop: () => {
         stopped = true
+        stopping.abort()
         generation += 1
         clearTimeout(reconnectTimer)
-        clearTimeout(pingTimer)
+        clearInterval(pingTimer)
+        pingTimer = undefined
+        lastReqId.clear()
         for (const held of pending.values()) held.reject(new Error('stopped'))
         pending.clear()
-        try { socket?.close(1000, 'stop') } catch { /* not open */ }
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* not open */ }
       },
     }
   },
@@ -282,51 +326,18 @@ export default {
 // The body is read in chunks and abandoned the moment it passes `limit`, so an
 // oversized attachment costs neither the buffer nor the decrypt. Checking the size
 // after buffering would have guarded nothing: the memory is already spent by then.
-async function downloadMedium(medium, env, limit) {
-  const response = await env.fetch(String(medium.url))
-  if (!response.ok) return undefined
-  const overLimit = () => Object.assign(new Error('over the media cap'), { overLimit: true })
-  // A declared length settles it before a single chunk is pulled — but the body is
-  // still an open transfer, so it is cancelled rather than left downloading.
-  const declared = Number(response.headers?.get?.('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > limit) {
-    await response.body?.cancel?.().catch(() => {})
-    throw overLimit()
+async function downloadMedium(medium, env, limit, signal) {
+  const response = await env.fetch(String(medium.url), { signal: mediaSignal(signal) })
+  if (!response.ok) {
+    await discardBody(response)
+    return undefined
   }
-  const encrypted = await readCapped(response, limit, overLimit)
+  const got = await readCappedBytes(response, limit)
+  if (got.overLimit) throw Object.assign(new Error('over the media cap'), { overLimit: true })
+  if (got.bytes === undefined) return undefined
   const key = Buffer.from(String(medium.aeskey ?? ''), 'base64')
   if (key.length !== 32) return undefined
-  return { bytes: decryptMedia(encrypted, key), name: filenameOf(response.headers?.get?.('content-disposition')) }
-}
-
-// Reads the whole body, giving up as soon as the running total passes `limit`. A
-// response without a stream (a stubbed fetch in a test, an older runtime) still has
-// to be taken whole, so that path keeps the size check afterwards.
-async function readCapped(response, limit, overLimit) {
-  const body = response.body
-  if (body === undefined || typeof body.getReader !== 'function') {
-    const whole = Buffer.from(await response.arrayBuffer())
-    if (whole.length > limit) throw overLimit()
-    return whole
-  }
-  const reader = body.getReader()
-  const chunks = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const chunk = Buffer.from(value)
-      total += chunk.length
-      if (total > limit) throw overLimit()
-      chunks.push(chunk)
-    }
-  } catch (error) {
-    // Stop the transfer rather than draining a body nobody will read.
-    await reader.cancel(error).catch(() => {})
-    throw error
-  }
-  return Buffer.concat(chunks, total)
+  return { bytes: decryptMedia(got.bytes, key), name: filenameOf(response.headers?.get?.('content-disposition')) }
 }
 
 // WeCom pads to a 32-byte block, not the 16 that `setAutoPadding` assumes, so the

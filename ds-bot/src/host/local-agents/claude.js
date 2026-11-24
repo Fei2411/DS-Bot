@@ -1,7 +1,7 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
@@ -59,6 +59,7 @@ export class ClaudeEngine {
 
   async close() {
     for (const session of this.sessions.values()) session.kill()
+    this.sessions.clear()
   }
 }
 
@@ -271,9 +272,9 @@ class ClaudeSession {
 
   kill() {
     this.dead = true
-    this.child?.kill('SIGTERM')
-    setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+    const child = this.child
     this.child = undefined
+    terminateChild(child)
   }
 }
 

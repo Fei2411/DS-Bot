@@ -1832,9 +1832,8 @@ export function install(rt) {
             delete state.switching[agent.id]
             await rt.save()
           }
-          noteFailures.delete(agent.id)
-          folderRetry.delete(agent.id)
-          engineRetry.delete(agent.id)
+          forgetSessionParts(agent.id)
+          rt.forgetSessionTurn?.(agent.id)
           if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
             void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
           }
@@ -3214,5 +3213,25 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  const forgetSessionParts = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    partBase.delete(sessionId)
+    cliCompactions.delete(sessionId)
+    condensedUnmeasured.delete(sessionId)
+    cutOffs.delete(sessionId)
+    rescued.delete(sessionId)
+    freshParts.delete(sessionId)
+    tails.delete(sessionId)
+    noteFailures.delete(sessionId)
+    folderRetry.delete(sessionId)
+    engineRetry.delete(sessionId)
+    clearTimeout(engineWakes.get(sessionId))
+    engineWakes.delete(sessionId)
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionParts(id)
+  })
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
