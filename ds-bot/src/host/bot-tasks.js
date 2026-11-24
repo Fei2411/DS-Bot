@@ -565,10 +565,22 @@ export function install(rt) {
   const sourceEventCountOf = (sessionId) => {
     const session = sourceSessionOf(sessionId)
     if (session === undefined) return 0
-    const seq = Number(session.seq)
-    if (Number.isInteger(seq) && seq >= 0) return seq
+    const seq = session.seq
+    if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq
     const events = session.snapshotEvents?.()
     return Array.isArray(events) ? events.length : 0
+  }
+  const lastSeqOf = (session) => {
+    if (session === undefined || session === null) return undefined
+    const seq = session.seq
+    if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq - 1
+    const events = session.snapshotEvents?.()
+    if (Array.isArray(events)) {
+      if (events.length === 0) return -1
+      const last = events.at(-1)?.seq
+      return Number.isInteger(last) ? last : events.length - 1
+    }
+    return undefined
   }
   const resolveTaskForkMaxEvents = (options) => {
     for (const candidate of [options?.taskForkMaxEvents, rt.config?.taskForkMaxEvents]) {
@@ -941,7 +953,8 @@ export function install(rt) {
     }
 
     const shouldFork = sourceEventCountOf(fromSessionId) <= resolveTaskForkMaxEvents(options)
-    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork })
+    const fromThroughSeq = room === undefined ? lastSeqOf(sourceSessionOf(fromSessionId)) : undefined
+    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq })
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
@@ -2178,23 +2191,40 @@ export function install(rt) {
     const oldEvents = oldAgent?.session?.snapshotEvents?.() ?? []
     const runningTurn = entry?.turn
     const targetTurn = expectedTurn ?? runningTurn
-    const { startSeq, priorTurns, priorCallIds } = (() => {
+    const { startSeq, handoffCutSeq, priorTurns, priorCallIds } = (() => {
       const turns = new Set()
       const callIds = new Set()
-      if (oldEvents.length === 0) return { startSeq: 0, priorTurns: turns, priorCallIds: callIds }
+      if (oldEvents.length === 0) {
+        const oldSession = oldAgent?.session ?? ctx.sessions?.get?.(oldSid)
+        const empty = typeof oldSession?.seq === 'number' && Number.isInteger(oldSession.seq) && oldSession.seq === 0
+        return { startSeq: 0, handoffCutSeq: empty ? -1 : undefined, priorTurns: turns, priorCallIds: callIds }
+      }
       const lastStart = oldEvents.findLastIndex(ev => ev?.type === 'turn/start')
       const boundary = lastStart >= 0 ? lastStart : oldEvents.length
       let seq = 0
+      let lastCompletedSeq
       for (let i = 0; i < boundary; i += 1) {
         const ev = oldEvents[i]
         if (ev?.type === 'turn/end') {
           if (typeof ev.data?.turn === 'number' && Number.isInteger(ev.data.turn)) turns.add(ev.data.turn)
-          seq = Number.isInteger(ev.seq) ? ev.seq + 1 : i + 1
+          const endSeq = Number.isInteger(ev.seq) ? ev.seq : i
+          seq = endSeq + 1
+          lastCompletedSeq = endSeq
         } else if (ev?.type === 'tool/call' && typeof ev.data?.callId === 'string' && ev.data.callId !== '') {
           callIds.add(ev.data.callId)
         }
       }
-      return { startSeq: seq, priorTurns: turns, priorCallIds: callIds }
+      // Match DSH's latestCompletedPrefixBoundary: when a turn is in flight (`lastStart >= 0`)
+      // and no prior `turn/end` exists, there is no completed prefix before this turn (`-1`),
+      // even if Turn 1's initiating `user/message` precedes `turn/start`.
+      const cutSeq = lastCompletedSeq !== undefined
+        ? lastCompletedSeq
+        : lastStart >= 0
+          ? -1
+          : Number.isInteger(oldEvents.at(-1)?.seq)
+            ? oldEvents.at(-1).seq
+            : undefined
+      return { startSeq: seq, handoffCutSeq: cutSeq, priorTurns: turns, priorCallIds: callIds }
     })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
@@ -2311,6 +2341,32 @@ export function install(rt) {
         }
       }
       const now = Date.now()
+      const forkedSession = forked
+        ? (ctx.get('agents')?.get(newSid)?.session ?? ctx.sessions?.get?.(newSid))
+        : undefined
+      const forkedEvents = forkedSession?.snapshotEvents?.() ?? []
+      const lastForkedSeq = forkedEvents.at(-1)?.seq
+      const forkedInherited = forkedSession?.inheritedEventCount
+      const forkedCutSeq = Number.isInteger(lastForkedSeq)
+        ? lastForkedSeq
+        : (typeof forkedInherited === 'number' && Number.isInteger(forkedInherited) && forkedInherited >= 0
+            ? forkedInherited - 1
+            : undefined)
+      const effectiveCutSeq = handoffCutSeq !== undefined
+        ? handoffCutSeq
+        : (forkedCutSeq !== undefined
+            ? forkedCutSeq
+            : lastSeqOf(oldAgent?.session ?? ctx.sessions?.get?.(oldSid)))
+      // Seal any earlier task's inherited ref to `oldSid` so this moved turn and all
+      // post-handoff messages on `oldSid` never leak across task threads.
+      for (const other of bot.tasks ?? []) {
+        if (!Array.isArray(other?.inheritedSegments)) continue
+        for (const seg of other.inheritedSegments) {
+          if (seg?.sessionId !== oldSid) continue
+          if (seg.endedAt === undefined) seg.endedAt = now
+          if (seg.throughSeq === undefined && effectiveCutSeq !== undefined) seg.throughSeq = effectiveCutSeq
+        }
+      }
       const inherited = slimSegments(bot)
       const task = {
         id: newId(),
@@ -2342,9 +2398,6 @@ export function install(rt) {
       // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
       // back into the user's chat after an fg-handoff or bot-handoff fork.
       if (forked) {
-        const forkedEvents = ctx.get('agents')?.get(newSid)?.session?.snapshotEvents?.()
-          ?? ctx.sessions?.get?.(newSid)?.snapshotEvents?.()
-          ?? []
         let inheritedTurns = priorTurns
         let inheritedCallIds = priorCallIds
         const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0

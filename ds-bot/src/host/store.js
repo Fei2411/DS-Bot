@@ -79,6 +79,7 @@ export function install(rt) {
   const readSegmentNote = (segmentOrId) => {
     if (segmentOrId === undefined || segmentOrId === null) return undefined
     if (typeof segmentOrId === 'object') {
+      if (Number.isInteger(segmentOrId.throughSeq)) return undefined
       if (typeof segmentOrId.note === 'string') return segmentOrId.note
       const sid = sessionIdOf(segmentOrId.sessionId)
       if (sid === undefined) return undefined
