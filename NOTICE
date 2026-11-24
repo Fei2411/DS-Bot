@@ -10,6 +10,9 @@ Third-party code in this repository
 DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness)
 MIT License, Copyright (c) 2026 DeepSeek
 
+  - mobile/src/ui/icons.tsx FishLogo draws DSH's official mark, the path of
+    FishLogo in @deepseek-ai/dsh-client-ui-primitives (owner: DeepSeek), to
+    name the DSH Agent in the phone app as the desktop sidebar does.
   - ds-bot/dev/desktop-linux/launch.mts follows the steps of
     apps/desktop/scripts/dev.ts in DeepSeek Harness and reuses a few of its
     lines (the release record and the Electron launch arguments). It is a
@@ -265,3 +268,9 @@ GitHub Copilot (GitHub), Kimi (Moonshot AI), MiniMax (MiniMax), Mistral AI (Mist
 OpenAI (OpenAI). DS Bot is not affiliated with or endorsed by these owners.
 Vector marks from Simple Icons (https://simpleicons.org), CC0-1.0.
 Devin, OpenAI and Antigravity marks from the vendors' application icons.
+
+Plugin logos (ds-bot/src/client/plugin-marks.js)
+The browser plugin marks identify their respective projects. Each is a trademark
+of its owner: Playwright (Microsoft, official SVG mark from playwright.dev,
+Apache-2.0), Ego (CitroLabs, official geometric mark from citrolabs/ego-lite),
+and Chrome (Google). DS Bot is not affiliated with or endorsed by these owners.

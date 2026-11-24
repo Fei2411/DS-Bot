@@ -7,6 +7,11 @@ Base branch: dev. Hotfixes and releases only: main.
 
 Fixes #
 
+## Agent
+
+<!-- Required when an AI agent opens this PR. Keep human as git author. / 由 AI Agent 开 PR 时必填；git 提交作者仍保留人类。 -->
+Agent: <Agent> (<Model>)
+
 ## What changed / 改了什么
 
 

@@ -41,6 +41,7 @@ function spawningAgent(id, spawned) {
     id,
     session: { id },
     ctx: {
+      extend(meta) { return Object.assign(Object.create(this), meta) },
       effect(execute) {
         const dispose = execute()
         if (typeof dispose === 'function') disposers.push(dispose)

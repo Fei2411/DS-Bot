@@ -13,7 +13,7 @@ For the plugin, install DSH and configure at least one model first. In DSH Deskt
 
 ## Bot help and authority
 
-Call `list_bots` before proposing a new team. A Main Bot can call `create_bot` and `create_group`. Ordinary Bots can explain setup or ask a Main Bot with `message_bot`. Installing the app, importing a team and supplying model credentials are user steps, not Bot tools. Do not ask for API keys in chat.
+Call `list_bots` before proposing a new team. A Main Bot can call `create_bot` and `create_group`. Ordinary Bots can explain setup or ask a Main Bot with `delegate_work`. Installing the app, importing a team and supplying model credentials are user steps, not Bot tools. Do not ask for API keys in chat.
 
 ## Common problems
 

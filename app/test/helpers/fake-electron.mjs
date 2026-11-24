@@ -6,6 +6,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+export const safeStorage = { isEncryptionAvailable: () => false }
+
 // The data of the app in this process: a folder of its own, so that a test never writes
 // into the data of the user.
 const root = mkdtempSync(join(tmpdir(), 'ds-bot-fake-user-data-'))

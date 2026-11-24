@@ -128,6 +128,21 @@ test('the Thinking section always offers Default, so a picked level can be clear
   assert.deepEqual(picked, ['high', undefined])
 })
 
+test('nothing in the open model menu raises a native hover tooltip', () => {
+  const tree = menuRows('official/flash')
+  const rows = modelRows(tree)
+  assert.ok(rows.length > 0)
+  // A native `title` tooltip shows and hides as the pointer sweeps the rows, fighting the
+  // dropdown's own hover. The full route stays as the row's description instead.
+  assert.deepEqual(rows.filter(row => 'title' in row.props), [])
+  assert.ok(rows.every(row => typeof row.props['aria-description'] === 'string'))
+  const bar = EffortBar({
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' },
+    current: 'low', onPick: () => {},
+  })
+  assert.deepEqual(nodes(bar, node => node.props !== undefined && 'title' in node.props), [])
+})
+
 test('menu focus stepping starts from menu items or the trigger, not other controls', () => {
   const focused = []
   const item = name => ({ name, focus: () => focused.push(name) })
