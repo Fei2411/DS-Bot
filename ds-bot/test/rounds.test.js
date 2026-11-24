@@ -2208,3 +2208,50 @@ test('a line the book refused does not take the rest of its batch with it', { sk
   assert.ok(refusal !== undefined || log.some(line => line.reason === 'unsaved'), 'the room hears the line was not saved')
   assert.equal(kept(behind), true, 'the line queued behind it is not dropped')
 })
+
+// #2066 review (6043116028, item 2): the IM origin of a drained line is claimed before the
+// book is known to have it, so a line the book refused has spent its rpcId by the time the
+// next round retries it. The claim must follow the write, not precede it.
+test('the origin of a line the book did not keep is claimed once, when it is saved', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  // The real classifier consumes its rpcId on the first call: a second call is ignored.
+  const claims = []
+  const realClassify = rt.classifyRoomUserSource
+  rt.classifyRoomUserSource = (roomSid, source) => {
+    claims.push(source)
+    return claims.length === 1 ? { ignored: false, origin: { chatKey: 'g1' } } : { ignored: true, origin: undefined }
+  }
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line from IM'
+  try {
+    chmodSync(book, 0o444)
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room hears the line was not saved')
+    // The line is handed back to the Session: its origin must not be claimed yet.
+    assert.equal(claims.length, 0, 'a line the book refused does not claim its origin')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  // The next round says the line and claims its origin, once.
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const saved = await waitFor(() => claims.length === 1 && rt.roomOf(room.id).log.some(line => line.text === wrote) ? true : undefined)
+  assert.ok(saved, 'the next round saves the line and claims its origin')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 1, 'the line is said once')
+  assert.equal(claims.length, 1, 'its origin is claimed once, by the round that saves it')
+  rt.stopRoomRound?.(room.id)
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  await running
+  await again
+  rt.classifyRoomUserSource = realClassify
+})

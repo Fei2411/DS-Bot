@@ -1914,14 +1914,6 @@ export function install(rt) {
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
-      const classified = rt.classifyRoomUserSource?.(roomSid, line.source)
-      if (classified?.ignored !== true) {
-        // Only a real IM platform may keep the group's IM origin; any other external
-        // channel (the API token's posts carry via 'api') reads as non-IM input here,
-        // so replies are never forwarded out of the team for them.
-        const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
-        noteRoomUserOrigin(room, origin)
-      }
       // The Session's copy is the only one that can be said again, so the line leaves it
       // only once the book has it: a write that fails draws nothing and keeps the message.
       const record = appendLine(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
@@ -1933,6 +1925,16 @@ export function install(rt) {
         // The round goes on without the line; the Session's turn that follows says it once.
         round.inboxHeld = true
         break
+      }
+      // The line is on the book: only now is its origin claimed. A line handed back to the
+      // Session must keep its rpcId for the round that really saves it.
+      const classified = rt.classifyRoomUserSource?.(roomSid, line.source)
+      if (classified?.ignored !== true) {
+        // Only a real IM platform may keep the group's IM origin; any other external
+        // channel (the API token's posts carry via 'api') reads as non-IM input here,
+        // so replies are never forwarded out of the team for them.
+        const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
+        noteRoomUserOrigin(room, origin)
       }
       drawLine(room, record)
       if (!agent.inbox.remove(line.id)) continue
