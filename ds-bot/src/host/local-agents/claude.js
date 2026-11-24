@@ -2,6 +2,7 @@
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
 import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -69,6 +70,7 @@ class ClaudeSession {
     this.waiters = []
     this.dead = false
     this.idWaiters = []
+    this.turnCalls = new Set()
   }
 
   emit(event) {
@@ -125,17 +127,8 @@ class ClaudeSession {
       new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
       { code: 'LOCAL_AGENT_EXIT' },
     )
-    let rest = ''
     child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => {
-      rest += chunk
-      let at
-      while ((at = rest.indexOf('\n')) !== -1) {
-        const line = rest.slice(0, at).trim()
-        rest = rest.slice(at + 1)
-        if (line !== '') this.onLine(line)
-      }
-    })
+    child.stdout.on('data', lineSplitter(line => this.onLine(line)))
     // Writing to a CLI that has already exited fails asynchronously on stdin,
     // not on the child: without this listener the host dies with an unhandled
     // stream error. The failure goes into the session queue instead.
@@ -189,13 +182,14 @@ class ClaudeSession {
         // what the context holds now. A subagent's (parent_tool_use_id) is its own.
         const usage = event.message?.usage
         if (usage !== undefined && event.parent_tool_use_id == null) {
+          if (typeof event.message?.id === 'string' && event.message.id !== '') this.turnCalls.add(event.message.id)
           const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
           if (used > 0) this.emit({ type: 'context', used })
         }
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
-          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${block.name ?? 'tool'}` })
+          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
         }
         break
       }
@@ -233,9 +227,12 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        const observedCalls = this.turnCalls.size
+        this.turnCalls.clear()
+        const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
         this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
-          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
+          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
         break
       default: break
@@ -251,6 +248,7 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
+    if (this.running !== true) this.turnCalls.clear()
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
@@ -279,6 +277,17 @@ class ClaudeSession {
   }
 }
 
+function claudeActivity(block) {
+  const name = block.name ?? 'tool'
+  const input = block.input !== null && typeof block.input === 'object' ? block.input : {}
+  const command = input.command ?? input.cmd
+  const detail = typeof command === 'string' && command.trim() !== ''
+    ? `\`${command.trim().slice(0, 160)}\``
+    : [input.description, input.file_path, input.path, input.pattern, input.url, input.query]
+      .find(value => typeof value === 'string' && value.trim() !== '')?.trim().slice(0, 120)
+  return detail ? `${name} ${detail}` : name
+}
+
 function claudeContent(blocks) {
   const out = []
   for (const block of blocks) {
@@ -298,9 +307,12 @@ function claudeContent(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
-const usageOf = usage => (usage === undefined ? undefined : {
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
+
+const usageOf = (usage, calls) => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,
   outputTokens: usage.output_tokens ?? 0,
   ...(usage.cache_read_input_tokens ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
   ...(usage.cache_creation_input_tokens ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+  ...(calls !== undefined && calls > 1 ? { calls } : {}),
 })

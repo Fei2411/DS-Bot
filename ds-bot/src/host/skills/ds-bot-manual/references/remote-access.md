@@ -4,8 +4,8 @@ Remote access talks to the team running on the host computer. It does not move t
 
 ## Phone and browser pairing
 
-1. On the computer open **Settings → Phone**.
-2. Enable phone access. Under **Show a QR code**, choose **Show** and scan it with the phone app.
+1. On the computer open **Settings → Connect → Phone**.
+2. Enable phone access. Under **Pair a phone**, choose **Show QR code** (or **Turn on & pair** while offline) and scan it with the phone app.
 3. Review paired devices under **Phones**. Use **Remove** to revoke one.
 
 For browser remote, show a pairing code and use **Open in a browser** or **Copy browser link**. The Relay Server must serve the exported mobile web build. Use HTTPS/WSS outside localhost. Browser remote is preview functionality; its relay deployment must support the web page before the link works.
@@ -16,7 +16,7 @@ The link is end-to-end encrypted. Browser remote still runs a page supplied by i
 
 ## IM platforms
 
-Open **Settings → IM** to configure supported messaging-platform connections. Use the platform choices and setup fields actually shown there; do not assume every chat platform is supported. Account credentials and pairing are user UI work, not Main Bot powers. IM carries messages to the existing team; it is not a new OS sandbox or permission grant.
+Open **Settings → Connect → IM** to configure supported messaging-platform connections. Use the platform choices and setup fields actually shown there; do not assume every chat platform is supported. Account credentials and pairing are user UI work, not Main Bot powers. IM carries messages to the existing team; it is not a new OS sandbox or permission grant.
 
 ## Problems
 

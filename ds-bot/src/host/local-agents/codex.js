@@ -24,7 +24,15 @@ export class CodexEngine {
     // still waiting there: a resumed thread needs a fresh one.
     if (thread === undefined || thread.dead) {
       const queue = new EventQueue()
-      thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next() }
+      thread = {
+        dshSessionId,
+        threadId: undefined,
+        dead: false,
+        lastTotal: undefined,
+        awaitingFirstPrompt: false,
+        push: event => queue.push(event),
+        next: () => queue.next(),
+      }
       this.threads.set(dshSessionId, thread)
     }
     return thread
@@ -101,16 +109,23 @@ export class CodexEngine {
         const item = params?.item ?? {}
         if (thread === undefined) break
         // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
-        if (item.type === 'contextCompaction') {
+        if (item.type === 'contextCompaction' || item.type === 'context_compaction') {
           if (method === 'item/started') this.activateTurn(thread, params?.turnId)
           thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
+          break
         }
         // Every event names its turn, so the adapter can tell a finished turn's
         // leftovers from the turn it reads now (#1513).
         const turnId = params?.turnId
-        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '', turnId })
-        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '', turnId })
-        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId })
+        if (item.type === 'agentMessage' || item.type === 'agent_message') {
+          if ((item.text ?? '') !== '') thread.push({ type: 'text', text: item.text, turnId })
+        } else if (item.type === 'reasoning') {
+          const thought = (item.content ?? []).join('') || item.text || ''
+          if (thought !== '') thread.push({ type: 'thought', text: thought, turnId })
+        } else if (method === 'item/started' && item.type !== undefined && !NON_ACTIVITY_ITEMS.has(item.type)) {
+          const team = item.type === 'mcpToolCall' && (item.server === MCP_SERVER || item.serverName === MCP_SERVER)
+          thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId, ...(team ? { team: true } : {}) })
+        }
         break
       }
       case 'turn/completed': {
@@ -128,22 +143,53 @@ export class CodexEngine {
       case 'thread/tokenUsage/updated': {
         // {total, last, modelContextWindow}: `last` is the request that just ran, and
         // its totalTokens is what the thread's context holds now (after a compaction,
-        // what is left).
+        // what is left). `total` is cumulative across the thread and deduplicates
+        // repeated or catch-up notifications so billed tokens are never double-counted.
         const last = params?.tokenUsage?.last
         if (thread === undefined || last === undefined) break
         const size = params.tokenUsage.modelContextWindow
         if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}), turnId: params?.turnId })
-        const cached = last.cachedInputTokens ?? 0
-        if (last.inputTokens > 0 || last.outputTokens > 0) {
+        const total = codexTotals(params?.tokenUsage?.total)
+        if (thread.awaitingFirstPrompt === true) {
+          if (total !== undefined) thread.lastTotal = total
+          break
+        }
+        let step = last
+        if (total !== undefined) {
+          const prev = thread.lastTotal
+          thread.lastTotal = total
+          if (prev !== undefined) {
+            const regressed = total.inputTokens < prev.inputTokens || total.outputTokens < prev.outputTokens
+            if (!regressed) {
+              const delta = {
+                inputTokens: total.inputTokens - prev.inputTokens,
+                outputTokens: total.outputTokens - prev.outputTokens,
+                cachedInputTokens: Math.max(0, total.cachedInputTokens - prev.cachedInputTokens),
+                cacheWriteInputTokens: Math.max(0, total.cacheWriteInputTokens - prev.cacheWriteInputTokens),
+                reasoningOutputTokens: Math.max(0, total.reasoningOutputTokens - prev.reasoningOutputTokens),
+              }
+              if (delta.inputTokens === 0 && delta.outputTokens === 0 && delta.cachedInputTokens === 0 && delta.cacheWriteInputTokens === 0 && delta.reasoningOutputTokens === 0) {
+                break
+              }
+              step = delta
+            }
+          }
+        }
+        const cached = step.cachedInputTokens ?? 0
+        const cacheWrite = step.cacheWriteInputTokens ?? 0
+        const totalInput = step.inputTokens ?? 0
+        // Codex folds cached input into inputTokens; DSH counts cached buckets apart.
+        const uncached = Math.max(0, totalInput - cached - (cached + cacheWrite <= totalInput ? cacheWrite : 0))
+        if (uncached > 0 || cached > 0 || cacheWrite > 0 || (step.outputTokens ?? 0) > 0) {
           thread.push({
             type: 'usage',
             turnId: params?.turnId,
             usage: {
-              // Codex folds cached input into inputTokens; DSH counts it apart.
-              inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
-              outputTokens: last.outputTokens ?? 0,
+              inputTokens: uncached,
+              outputTokens: step.outputTokens ?? 0,
               ...(cached > 0 ? { cacheReadTokens: cached } : {}),
-              ...(last.reasoningOutputTokens ? { reasoningTokens: last.reasoningOutputTokens } : {}),
+              ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+              ...(step.reasoningOutputTokens ? { reasoningTokens: step.reasoningOutputTokens } : {}),
             },
           })
         }
@@ -179,8 +225,10 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, ephemeral }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, ephemeral }) {
     const peer = await this.ensure()
+    const prior = this.threads.get(dshSessionId)
+    const created = prior === undefined || prior.dead
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
     // Codex 0.166 reads `ThreadStartParams` from the top level and takes the MCP
@@ -195,17 +243,30 @@ export class CodexEngine {
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
+      thread.awaitingFirstPrompt = true
+      thread.lastTotal = undefined
       try {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.resumed = true
         return thread
       } catch {
+        thread.awaitingFirstPrompt = false
+        thread.lastTotal = undefined
         thread.threadId = undefined
+        if (resumeOnly) {
+          if (created && this.threads.get(dshSessionId) === thread) this.threads.delete(dshSessionId)
+          throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+        }
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
+    const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
+    const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.resumed = false
+    thread.awaitingFirstPrompt = false
+    thread.lastTotal = undefined
     return thread
   }
 
@@ -217,6 +278,7 @@ export class CodexEngine {
 
   async prompt(thread, blocks, { signal, effort }) {
     const peer = await this.ensure()
+    thread.awaitingFirstPrompt = false
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
       input: codexInput(blocks),
@@ -238,6 +300,7 @@ export class CodexEngine {
 
   activateTurn(thread, turnId) {
     if (turnId === undefined) return
+    thread.awaitingFirstPrompt = false
     thread.turnId = turnId
     thread.pendingCompaction = false
     const cancelled = thread.compactionCancel
@@ -254,6 +317,7 @@ export class CodexEngine {
   // The thread's own compaction: a turn of its own, which ends with turn/completed.
   compact(thread) {
     if (this.peer === undefined) return false
+    thread.awaitingFirstPrompt = false
     thread.turnId = undefined
     thread.pendingCompaction = true
     this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
@@ -341,11 +405,44 @@ function codexInput(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
+const NON_ACTIVITY_ITEMS = new Set(['userMessage', 'user_message', 'developerMessage', 'developer_message', 'contextCompaction', 'context_compaction'])
+
+export function unwrapShellCommand(raw) {
+  if (Array.isArray(raw)) {
+    if (raw.length >= 3 && /(?:^|\/)(?:ba|z|da|k)?sh$/.test(String(raw[0])) && /^-[a-z]*c$/i.test(String(raw[1]))) {
+      return String(raw[2])
+    }
+    return raw.join(' ')
+  }
+  const text = String(raw ?? '').trim()
+  const match = /^(?:\/\S+\/)?(?:ba|z|da|k)?sh\s+-[a-z]*c\s+([\s\S]+)$/i.exec(text)
+  if (!match) return text
+  const body = match[1].trim()
+  if ((body.startsWith('"') && body.endsWith('"')) || (body.startsWith("'") && body.endsWith("'"))) {
+    const quote = body[0]
+    const inner = body.slice(1, -1)
+    return quote === '"' ? inner.replace(/\\(["\\$`])/g, '$1') : inner.replace(/'\\''/g, "'")
+  }
+  return body
+}
+
 const activityOf = item => {
-  const kind = item.type === 'commandExecution' ? (item.command ?? 'command')
+  const kind = item.type === 'commandExecution' ? unwrapShellCommand(item.command ?? 'command')
     : item.type === 'fileChange' ? 'edit'
       : item.type === 'mcpToolCall' ? (item.tool ?? 'tool')
         : (item.title ?? item.type)
   return String(kind).split('\n')[0].slice(0, 120)
 }
 const detailText = params => [params?.command, params?.reason, JSON.stringify(params?.changes ?? params?.patch ?? '')].filter(Boolean).join('\n').slice(0, 4_000)
+
+function codexTotals(total) {
+  if (total === null || typeof total !== 'object') return undefined
+  if (typeof total.inputTokens !== 'number' && typeof total.outputTokens !== 'number') return undefined
+  return {
+    inputTokens: Math.max(0, total.inputTokens ?? 0),
+    outputTokens: Math.max(0, total.outputTokens ?? 0),
+    cachedInputTokens: Math.max(0, total.cachedInputTokens ?? 0),
+    cacheWriteInputTokens: Math.max(0, total.cacheWriteInputTokens ?? 0),
+    reasoningOutputTokens: Math.max(0, total.reasoningOutputTokens ?? 0),
+  }
+}

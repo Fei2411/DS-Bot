@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { HANDOFF_ACK, SOURCE_KIND } from '../src/host/constants.js'
+import { HANDOFF_ACK, SOURCE_KIND, TASK_FORK_MAX_EVENTS } from '../src/host/constants.js'
 import { ownChatSessions, pushThreadPart, threadCurrentOfPart } from '../src/host/threads.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -36,7 +36,7 @@ const makeTeam = (over = {}) => ({
   revision: 0,
 })
 
-async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], approvalOutcome = 'allowed-once', services = {} } = {}) {
+async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], approvalOutcome = 'allowed-once', services = {}, config = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-tasks-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -156,7 +156,7 @@ async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], appr
   ctx.connection.fetch.register = (route) => { apiRoute = route; return () => {} }
   Object.assign(ctx, { get: name => (name === 'agents' ? agentMap : origGet(name)) })
 
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home, ...config })
   await rt.load()
   const origDeliver = rt.deliver
   rt.deliver = async (opts) => {
@@ -308,7 +308,7 @@ test('turn/end state machine ignores disposed, switched/blocked, HANDOFF_ACK, ru
   assert.match(env.deliveries.find(d => d.role === 'task-report').text, /Final verified answer\./)
 })
 
-test('nested task_* tools, interactive cards (ask_user/show_view/request_secret), and switchPart are blocked for tasks', async (t) => {
+test('nested task_* tools and interactive cards (ask_user/show_view/request_secret) are blocked for tasks, and tasks stay read-only', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -327,8 +327,8 @@ test('nested task_* tools, interactive cards (ask_user/show_view/request_secret)
   const secRes = await env.tool('request_secret').execute({ name: 'MY_API_KEY', purpose: 'call api' }, execOf(taskAgent))
   assert.match(secRes, /Background tasks cannot show secret cards/)
 
-  // Clicking/opening a task via switchPart or bot-open-part must fail instead of swapping bot.sessionId.
-  await assert.rejects(env.rt.switchPart('a', task.sessionId), /read-only/i)
+  // Session switching is removed, so tasks can never swap bot.sessionId.
+  assert.equal(env.rt.switchPart, undefined)
   const openRes = await env.callApi('bot-open-part', { botId: 'a', sessionId: task.sessionId })
   assert.equal(openRes.ok, false)
   assert.equal(env.rt.botOf('a').sessionId, 'dm-a', 'bot.sessionId must remain unchanged')
@@ -648,9 +648,7 @@ test('partsOfThread, settled task pastOwners routing, post_to_group(report_back)
   const task = botA.tasks[0]
   const taskAgent = env.agentMap.get(task.sessionId)
 
-  // 1. partsOfThread handles task threads cleanly even when openParts is empty or populated.
-  assert.deepEqual(env.rt.partsOfThread('a', task.sessionId).map(p => p.sessionId), [task.sessionId])
-  botA.openParts = [{ sessionId: 'open-1', segments: [] }]
+  // 1. partsOfThread isolates a task thread cleanly from foreground segments.
   assert.deepEqual(env.rt.partsOfThread('a', task.sessionId).map(p => p.sessionId), [task.sessionId])
 
   // 2. setPermission propagates to active background task sessions too.
@@ -832,4 +830,178 @@ test('bot-task-read excludes inherited foreground chat history, renders task-bri
   assert.equal(roSend.ok, false)
   assert.equal(roSend.error?.code, 'bot/read-only')
   env.rt.readOnly = () => undefined
+})
+
+test('spawnBotHandoffTask never forks busy foreground session, passes delegation prompt cleanly, and isolates foreground chat', async (t) => {
+  const team = makeTeam({
+    bots: {
+      b: {
+        id: 'b',
+        name: 'Helper',
+        role: 'Dev',
+        sessionId: 'dm-b',
+        createdAt: 2,
+        segments: [{ sessionId: 'dm-b-p1', endedAt: 50, note: 'Earlier helper note' }],
+      },
+    },
+  })
+  const env = await startEnv({ team })
+  t.after(env.stop)
+
+  const dmA = env.agentMap.get('dm-a')
+  const dmB = env.agentMap.get('dm-b')
+  dmB.status = 'running'
+  // Simulate a huge busy foreground user session on Helper.
+  dmB.session.seq = 25_000
+  await env.emit('dm-b', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Private foreground user chat' }] })
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  await env.emit('dm-b', 'tool/call', { callId: 'tc-busy', name: 'bash', arguments: '{}' })
+
+  const res = await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Run isolated contract check' }, execOf(dmA))
+  assert.match(res, /background task while its foreground chat is busy/)
+  assert.equal(env.forkedCalls.length, 0, 'spawnBotHandoffTask must NEVER fork the target Bot foreground session')
+  assert.equal(env.createdSessions.length, 1, 'spawnBotHandoffTask must open a fresh lightweight Session')
+
+  const task = env.rt.botOf('b').tasks[0]
+  assert.equal(task.origin, 'bot-handoff')
+  assert.equal(task.startSeq, 0)
+  assert.deepEqual(task.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }], 'bot-handoff must not leak live foreground user chat into inheritedSegments')
+
+  const delivered = env.deliveries.find(d => d.sessionId === task.sessionId && d.role === 'request')
+  assert.ok(delivered !== undefined)
+  assert.match(delivered.text, /Run isolated contract check/)
+  assert.doesNotMatch(delivered.text, /Private foreground user chat/)
+
+  // Verify the lightweight bot-handoff task settles and returns its answer to Chief cleanly.
+  await env.emit(task.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(task.sessionId, 'user/message', {
+    content: [{ type: 'text', text: delivered.text }],
+    source: { kind: SOURCE_KIND, role: 'request', exchangeId: task.exchangeId, senderSessionId: 'a', senderName: 'Chief' },
+  })
+  await env.emit(task.sessionId, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Contract check passed.' }] } })
+  await env.emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => task.status === 'completed' && env.deliveries.some(d => d.toId === 'a' && d.role === 'reply'))
+
+  const reply = env.deliveries.find(d => d.toId === 'a' && d.role === 'reply' && d.replyTo === task.exchangeId)
+  assert.ok(reply !== undefined)
+  assert.match(reply.text, /Contract check passed\./)
+})
+
+test('task_start forks compact parents, skips fork above TASK_FORK_MAX_EVENTS with fallback summary + parent read_own_chat recall, while fg-handoff keeps forking', async (t) => {
+  const team = makeTeam({
+    bots: {
+      a: {
+        id: 'a',
+        name: 'Chief',
+        role: 'Boss',
+        sessionId: 'dm-a',
+        createdAt: 1,
+        segments: [{ sessionId: 'dm-a-p1', endedAt: 100, note: 'Part 1 summary note.' }],
+      },
+    },
+    rooms: {
+      r1: { id: 'r1', name: 'OpsGroup', named: true, members: ['a', 'b'], admin: 'a', sessionId: 'room-1', sessions: { a: 'grp-a', b: 'grp-b' }, log: [], seen: {}, seq: 0, createdAt: 1 },
+    },
+  })
+  const env = await startEnv({ team })
+  t.after(env.stop)
+
+  // Wire real DSH sessionController.page contract (0-based contiguous seqs) for SQLite FTS5 chat index.
+  const pageStore = new Map([
+    ['dm-a-p1', [
+      { type: 'user/message', seq: 0, time: 10, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Archived codename FALCON-42 in part 1.' }] } },
+      { type: 'assistant/message', seq: 1, time: 11, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Stored FALCON-42.' }] } } },
+    ]],
+  ])
+  env.ctx.sessionController.page = async ({ address, throughSeq, beforeSeq }) => {
+    const raw = pageStore.get(address.sessionId) ?? env.agentMap.get(address.sessionId)?.session.snapshotEvents() ?? []
+    const filtered = raw.filter(ev => (throughSeq === undefined || ev.seq <= throughSeq) && (beforeSeq === undefined || ev.seq < beforeSeq))
+    return { records: filtered.map(event => ({ event })), hasMore: false }
+  }
+
+  const dmA = env.agentMap.get('dm-a')
+  // Seed contiguous 0-based events in dm-a including a structured handoff note and a unique fact.
+  dmA.session.events.push(
+    {
+      type: 'user/message',
+      seq: 0,
+      time: 200,
+      data: {
+        source: { kind: SOURCE_KIND, role: 'handoff', handoff: true },
+        content: [{ type: 'text', text: '[Handoff · part 2]\n\n## Handoff note\n## Decisions\n- Keep lightweight background tasks.' }],
+      },
+    },
+    {
+      type: 'user/message',
+      seq: 1,
+      time: 201,
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Parent foreground fact: deploy token bucket is COBALT-77.' }] },
+    },
+    {
+      type: 'assistant/message',
+      seq: 2,
+      time: 202,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Noted COBALT-77.' }] } },
+    },
+  )
+
+  // 1) Compact parent (seq === 5 <= options.taskForkMaxEvents 5): MUST fork and NOT duplicate dm-a in inheritedSegments.
+  dmA.session.seq = 5
+  const compact = await env.rt.startTask('dm-a', { title: 'Compact fork', brief: 'Small session job' }, execOf(dmA), { taskForkMaxEvents: 5 })
+  assert.equal(compact.forked, true, 'sourceEventCount === threshold must still fork')
+  assert.equal(env.forkedCalls.length, 1)
+  assert.deepEqual(compact.inheritedSegments, [{ sessionId: 'dm-a-p1', endedAt: 100 }], 'forked task must not duplicate parent dm-a in inheritedSegments')
+
+  // 2) Above configurable threshold (seq === 6 > 5): MUST skip fork, seed structured fallbackContextSummary,
+  // append slim parent ref { sessionId: 'dm-a' }, and allow read_own_chat to search both part 1 AND live dm-a!
+  dmA.session.seq = 6
+  const overOpt = await env.rt.startTask('dm-a', { title: 'Threshold fresh', brief: 'Large session job' }, execOf(dmA), { taskForkMaxEvents: 5 })
+  assert.equal(overOpt.forked, false, 'sourceEventCount > options.taskForkMaxEvents must skip fork')
+  assert.equal(env.forkedCalls.length, 1, 'no new sessionController.fork call when above threshold')
+  assert.deepEqual(overOpt.inheritedSegments, [{ sessionId: 'dm-a-p1', endedAt: 100 }, { sessionId: 'dm-a' }])
+  const overDelivery = env.deliveries.find(d => d.sessionId === overOpt.sessionId && d.role === 'task')
+  assert.match(overDelivery.text, /## Decisions\n- Keep lightweight background tasks\./)
+  assert.match(overDelivery.text, /COBALT-77/)
+
+  // Use real read_own_chat (backed by SQLite FTS5 index) from inside the non-forked task!
+  const taskAgent = env.agentMap.get(overOpt.sessionId)
+  // Reset dmA.session.seq to match its 3 real events (0..2) so FTS5 contiguous check indexes dm-a cleanly.
+  dmA.session.seq = dmA.session.events.length
+  const foundParent = await env.tool('read_own_chat').execute({ query: 'COBALT-77' }, execOf(taskAgent))
+  assert.match(foundParent, /COBALT-77/, 'non-forked task_start must search live parent foreground session via read_own_chat')
+  const foundArchived = await env.tool('read_own_chat').execute({ query: 'FALCON-42' }, execOf(taskAgent))
+  assert.match(foundArchived, /FALCON-42/, 'non-forked task_start must search archived bot.segments via read_own_chat')
+  const part1Note = await env.tool('read_own_chat').execute({ part: 1 }, execOf(taskAgent))
+  assert.match(part1Note, /Part 1 summary note\./)
+  const parentPartStatus = await env.tool('read_own_chat').execute({ part: 2 }, execOf(taskAgent))
+  assert.match(parentPartStatus, /still open and has no closing handoff note yet/)
+
+  // 3) Default TASK_FORK_MAX_EVENTS (600): seq = 601 skips fork cleanly via task_start tool.
+  dmA.session.seq = TASK_FORK_MAX_EVENTS + 1
+  const outDefault = await env.tool('task_start').execute({ title: 'Huge parent task', brief: 'Run audit' }, execOf(dmA))
+  assert.match(outDefault, /in a fresh session with recent summary/)
+  assert.equal(env.forkedCalls.length, 1, 'default TASK_FORK_MAX_EVENTS threshold must prevent forking')
+
+  // 4) Group task_start above threshold skips fork, includes group recent summary, and does NOT put group session in inheritedSegments.
+  const grpA = (await env.ctx.sessionController.resolveAgent('grp-a')).agent
+  grpA.session.events.push({ type: 'user/message', seq: 0, time: 300, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Group context: release v0.4' }] } })
+  grpA.session.seq = TASK_FORK_MAX_EVENTS + 10
+  const grpRes = await env.tool('task_start').execute({ title: 'Group heavy job', brief: 'Check release' }, execOf(grpA))
+  assert.match(grpRes, /in a fresh session with recent summary/)
+  assert.equal(env.forkedCalls.length, 1)
+  const grpTask = env.rt.botOf('a').tasks.at(-1)
+  assert.equal(grpTask.roomId, 'r1')
+  assert.equal(grpTask.inheritedSegments, undefined, 'group task_start must not put group session into inheritedSegments')
+  const grpDelivery = env.deliveries.find(d => d.sessionId === grpTask.sessionId && d.role === 'task')
+  assert.match(grpDelivery.text, /\[Recent context from group "OpsGroup"\]/)
+  assert.match(grpDelivery.text, /release v0\.4/)
+
+  // 5) Foreground handoff (`handoffForeground`) STILL calls fork even when parent session has > TASK_FORK_MAX_EVENTS events!
+  dmA.status = 'running'
+  dmA.session.seq = TASK_FORK_MAX_EVENTS + 500
+  await env.emit('dm-a', 'turn/start', { turn: 9 })
+  await env.emit('dm-a', 'tool/call', { callId: 'tc-fg-huge', name: 'bash', arguments: '{}' })
+  const newFgSid = await env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [])
+  assert.match(newFgSid, /^fork-/, 'fg-handoff must keep forking foreground chats to retain KV cache')
+  assert.equal(env.forkedCalls.length, 2)
 })

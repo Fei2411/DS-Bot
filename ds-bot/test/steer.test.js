@@ -5,12 +5,13 @@ import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as toolExecutorNative from '@deepseek-ai/dsh-tool-executor-native'
 import * as toolJobs from '@deepseek-ai/dsh-tool-jobs'
 import * as toolPwsh from '@deepseek-ai/dsh-tool-pwsh'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
 import { install as installSteer } from '../src/host/steer.js'
 import { turnOf } from '../src/host/resume.js'
@@ -73,10 +74,25 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
   const calls = []
   const agentOf = (id, over = {}) => {
     const inbox = inboxOf()
+    const agentListeners = new Map()
     const agent = {
       id,
       session: { id, header: { cwd: '/team' } },
-      ctx: { tools: { register: t => (calls.push(['register', t]), () => {}), restrict: () => () => {} }, on: () => () => {}, effect: execute => execute?.() },
+      ctx: {
+        tools: { register: t => (calls.push(['register', t]), () => {}), restrict: () => () => {} },
+        on: (event, fn) => {
+          calls.push(['on', event, fn])
+          const list = agentListeners.get(event) ?? []
+          list.push(fn)
+          agentListeners.set(event, list)
+          return () => {
+            const at = list.indexOf(fn)
+            if (at !== -1) list.splice(at, 1)
+          }
+        },
+        effect: execute => execute?.(),
+      },
+      agentListeners,
       status: 'running',
       followup: msg => calls.push(['followup', msg]),
       inject: msg => calls.push(['inject', msg]),
@@ -92,6 +108,7 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
   ctx.tools.register({ ...def })
   ctx.tools.schemas = () => [{ name: 'pwsh' }, { name: 'bash' }, { name: 'ask_user_question' }]
   ctx.tools.get = (name) => (name === def.name ? def : undefined)
+  ctx.tools.executable = (name) => (name === def.name ? def : undefined)
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => ({ id: 'w1', path: '/team' }), list: () => [{ id: 'w1', path: '/team' }], resolveByPath: async () => undefined, create: async p => ({ id: 'w1', path: p }), archiveSession: async () => {} },
@@ -118,7 +135,23 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
     await new Promise(r => setTimeout(r, 0))
   }
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
-  const shadowOf = () => calls.find(c => c[0] === 'register')?.[1]
+  const shadowOf = (target = agentById) => {
+    const handler = (target.agentListeners?.get('tools/execute') ?? []).at(-1)
+    if (handler === undefined) return undefined
+    return {
+      calls: def.calls,
+      async execute(args, exec) {
+        const dispatchExec = { ...exec, arguments: args }
+        const res = await handler(dispatchExec, async () => ({ isError: false, value: await def.execute(args, dispatchExec) }))
+        if (res?.isError) {
+          const err = new Error(res.error?.message ?? 'tool error')
+          if (res.error?.code) err.code = res.error.code
+          throw err
+        }
+        return res?.value
+      },
+    }
+  }
   return { ctx, emit, stop, rt, agent: agentById, agentMap, calls, deliveries, shadowOf, call }
 }
 
@@ -204,15 +237,15 @@ test('shell shadow: a native rejection before any steer propagates unchanged', a
   const err = new Error('spawn failed')
   const pending = shadow.execute({ command: 'pwd' }, execOf(agent))
   shadow.calls[0].rej(err)
-  await assert.rejects(pending, e => e === err)
+  await assert.rejects(pending, /spawn failed/)
   await stop()
 })
 
 test('shell shadow: non-private session, run_in_background and no jobs are passthrough', async () => {
-  const { rt, agent, calls } = await start({ services: { jobs: jobsService(() => { throw new Error('x') }) } })
+  const { rt, agent, shadowOf } = await start({ services: { jobs: jobsService(() => { throw new Error('x') }) } })
   const { rt: rt2, stop: stop2, agent: noJobsAgent, shadowOf: noJobsShadow } = await start({ services: {} })
   rt.shadowShells(agent)
-  const shadow = calls.find(c => c[0] === 'register')?.[1]
+  const shadow = shadowOf()
   const NATIVE = { kind: 'foreground' }
   // run_in_background on the private chat is untouched.
   const p1 = shadow.execute({ command: 'pwd', run_in_background: true }, execOf(agent))
@@ -232,12 +265,22 @@ test('shell shadow: non-private session, run_in_background and no jobs are passt
   await stop2()
 })
 
-test('shell shadow: a def without a promoted variant is not shadowed', async () => {
+test('shell shadow: a def without a promoted variant passes through without promoting', async () => {
   const def = shellDef()
   def.output.schema = { oneOf: [{ properties: { kind: { const: 'foreground' } } }] }
-  const { rt, agent, calls } = await start({ services: { jobs: jobsService(() => ({})) }, def })
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(() => ({
+    job: { id: 'j1', status: 'running', output: {} }, chunks: [],
+  })) }, def })
+  rt.state.prefs.backgroundAfterSec = 0.02
   rt.shadowShells(agent)
-  assert.equal(calls.find(c => c[0] === 'register' && c[1].name === 'pwsh'), undefined)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'sleep 1' }, execOf(agent))
+  await emit('dm-a', 'job/registered', { jobId: 'j1', toolCall: { callId: 'c1' } })
+  await new Promise(r => setTimeout(r, 50))
+  const NATIVE = { kind: 'foreground', exitCode: 0 }
+  shadow.calls[0].res(NATIVE)
+  assert.equal(await pending, NATIVE)
+  await stop()
 })
 
 test('shell shadow: a killed job gets no notice', async () => {
@@ -309,11 +352,11 @@ test('shell shadow: a native promoted after detach injects only with output', as
 
 test('shell shadow: bash is shadowed the same way', async () => {
   const def = shellDef('bash')
-  const { emit, stop, rt, agent, calls, } = await start({ services: { jobs: jobsService(jobId => ({
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
     job: { id: jobId, status: 'running', output: {} }, chunks: [],
   })) }, def })
   rt.shadowShells(agent)
-  const shadow = calls.find(c => c[0] === 'register' && c[1].name === 'bash')?.[1]
+  const shadow = shadowOf()
   assert.ok(shadow !== undefined)
   const pending = shadow.execute({ command: 'sleep 5' }, { agent, callId: 'b1', name: 'bash' })
   await emit('dm-a', 'job/registered', { jobId: 'jb', toolCall: { callId: 'b1' } })
@@ -632,10 +675,11 @@ test('setPrefs validates backgroundAfterSec bounds and integer requirement', asy
 // dsh-tool-bash so we exercise real waitOnJob, job/registered lifecycle,
 // job_output, tool-jobs completion delivery, approveEscalation, and AbortSignal
 // handling instead of mocking bash's internal behavior.
-async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 10, delayJobsPlugin = false, wireToolsChange = false, redactSecrets, shellPlugin = toolBash, toolName = 'bash' } = {}) {
+async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 10, delayJobsPlugin = false, wireToolsChange = false, redactSecrets, shellPlugin = toolBash, toolName = 'bash', agentScoped = false, presetParent = false, beforeShadow } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(toolExecutorNative)
   const agents = new Map()
   ctx.provide('agents', agents)
   const spawned = []
@@ -722,14 +766,6 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
       })
     },
   })
-  const mountJobs = async () => {
-    await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10, maxConcurrentJobsPerOwner })
-    await ctx.plugin(toolJobs)
-  }
-  if (!delayJobsPlugin) await mountJobs()
-  const shellFiber = ctx.plugin(shellPlugin)
-  await shellFiber
-
   const notices = []
   const inboxNextStep = []
   const inboxNextTurn = []
@@ -764,6 +800,22 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
   }
   const agentScope = createScope(ctx, agent)
   await agentScope.ctx.plugin({ inject: ['tools'], apply(scoped) { agent.ctx = scoped } })
+  let presetScope
+  let parentLink
+  if (presetParent) {
+    const presetKey = {}
+    presetScope = createScope(ctx, presetKey)
+    parentLink = bindScopeParent(agent, presetKey)
+  }
+  const toolHost = presetParent ? presetScope.ctx : agentScoped ? agentScope.ctx : ctx
+  const mountJobs = async () => {
+    await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10, maxConcurrentJobsPerOwner })
+    await toolHost.plugin(toolJobs)
+  }
+  if (!delayJobsPlugin) await mountJobs()
+  const shellFiber = toolHost.plugin(shellPlugin)
+  await shellFiber
+
   agents.set('dm-a', agent)
   const warnings = []
   const rt = {
@@ -771,6 +823,7 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
     state: { prefs: { backgroundAfterSec: 0.05 } },
     chatOwners: new Map([['dm-a', 'a']]),
     groupOwners: new Map(),
+    taskOwners: new Map(),
     live: new Map(),
     isBotSession: (id) => id === 'dm-a',
     sessionFolder: () => '/team',
@@ -787,18 +840,42 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
     && promoted?.properties?.timeoutMs !== undefined
     && promoted?.properties?.output !== undefined
   if (!hasPromoted) {
+    parentLink?.dispose?.()
+    await presetScope?.dispose()
     await agentScope.dispose()
     await ctx.fiber.dispose()
     return null
   }
+  beforeShadow?.(ctx)
   const disposers = rt.shadowShells(agent)
-  assert.equal(disposers?.length, 1, `expected ${toolName} shadow to register; warnings: ${JSON.stringify(warnings)}`)
-  const bash = () => ctx.tools.get(toolName, agent)
+  assert.equal(disposers?.length, 1, `expected ${toolName} interceptor to attach; warnings: ${JSON.stringify(warnings)}`)
+  const execShellRaw = async (args, { callId = 'c1', signal = AbortSignal.timeout(5000), name = toolName, targetAgent = agent, rawArguments } = {}) => {
+    const batch = await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: callId, name, arguments: rawArguments ?? JSON.stringify(args) }],
+      agent: targetAgent,
+      signal,
+    })
+    return batch.results[0]?.result
+  }
+  const execShell = async (args, opts = {}) => {
+    const outcome = await execShellRaw(args, opts)
+    if (outcome?.isError) {
+      const err = new Error(outcome.error?.message ?? outcome.content?.[0]?.text ?? 'tool failed')
+      if (outcome.error?.info?.code) err.code = outcome.error.info.code
+      err.info = outcome.error?.info
+      throw err
+    }
+    return outcome?.value
+  }
+  const bash = () => ({
+    ...ctx.tools.get(toolName, agent),
+    execute: (args, exec = {}) => execShell(args, { callId: exec.callId, signal: exec.signal, name: exec.name ?? toolName, targetAgent: exec.agent ?? agent }),
+  })
   const jobOutput = () => ctx.tools.get('job_output', agent)
-  assert.ok(bash() !== undefined, `shadowed ${toolName} tool should be registered on agent scope`)
-  const stop = async () => { await agentScope.dispose(); await ctx.fiber.dispose() }
+  assert.ok(ctx.tools.get(toolName, agent) !== undefined, `${toolName} tool should be visible on agent scope`)
+  const stop = async () => { parentLink?.dispose?.(); await presetScope?.dispose(); await agentScope.dispose(); await ctx.fiber.dispose() }
   const unloadShell = () => shellFiber.dispose()
-  return { ctx, rt, agent, bash, jobOutput, spawned, resolvedSpecs, notices, warnings, disposers, mountJobs, unloadShell, setBehavior: (fn) => { nextBehavior = fn }, stop }
+  return { ctx, rt, agent, bash, execShell, execShellRaw, jobOutput, spawned, resolvedSpecs, notices, warnings, disposers, mountJobs, unloadShell, setBehavior: (fn) => { nextBehavior = fn }, stop }
 }
 
 test('real dsh-tool-bash + dsh-tool-jobs contract: native promotion survives STEER_CUT, keeps job_output valid, and delivers one bounded notice', async (t) => {
@@ -885,7 +962,8 @@ test('real dsh-tool-bash + dsh-tool-jobs contract: backgroundAfterSec = 0 uses n
     },
     { agent: env.agent, callId: 'call-zero', name: 'bash', signal: AbortSignal.timeout(5000) },
   )
-  assert.equal(result.kind, 'background', '0s wait should delegate directly to native run_in_background')
+  assert.equal(result.kind, 'promoted', '0s wait should delegate to native run_in_background and present as 0ms promoted')
+  assert.equal(result.timeoutMs, 0)
   assert.ok(result.jobId)
   env.agent.status = 'idle'
   env.spawned[0].finish(0, 'bg done\n')
@@ -984,13 +1062,16 @@ test('real dsh-tool-bash contract: abort before detach still cancels and kills t
   env.rt.state.prefs.backgroundAfterSec = 0.5
   env.setBehavior(() => {})
   const turn = new AbortController()
-  const pending = env.bash().execute(
+  const pending = env.execShellRaw(
     { description: 'Run cancellable command', command: 'sleep 10' },
-    { agent: env.agent, callId: 'call-abort', name: 'bash', signal: turn.signal },
+    { callId: 'call-abort', signal: turn.signal },
   )
   await new Promise(r => setTimeout(r, 25))
   turn.abort('user stop')
-  await assert.rejects(pending, /aborted/i)
+  const raw = await pending
+  assert.equal(raw.isError, true)
+  assert.match(raw.error.message, /aborted/i)
+  assert.deepEqual(raw.error.info, { name: 'AbortError', code: TOOL_ABORTED }, 'abort must preserve canonical DSH error.info')
   assert.equal(env.spawned[0].killed, true, 'abort before detach must kill the running job')
   assert.equal(env.ctx.jobs.list('dm-a').length, 0)
 })
@@ -1048,9 +1129,8 @@ test('real dsh-tool-bash contract: tools/change re-entry during mount, late jobs
   env.spawned[0].finish(0, 'ok\n')
   await new Promise(r => setTimeout(r, 30))
 
-  // Disposing the shadow removes it cleanly and later tools/change events must not revive it.
+  // Disposing the interceptor removes it cleanly and later tools/change events must not revive it.
   for (const dispose of env.disposers) dispose()
-  assert.equal(env.ctx.tools.get('bash', env.agent), env.ctx.tools.get('bash'))
   const liftDummy = env.ctx.tools.register({
     name: 'dummy_reentry_probe',
     description: 'probe',
@@ -1059,7 +1139,14 @@ test('real dsh-tool-bash contract: tools/change re-entry during mount, late jobs
     execute: async () => '',
   })
   liftDummy()
-  assert.equal(env.ctx.tools.get('bash', env.agent), env.ctx.tools.get('bash'), 'disposed shadow must not revive on later tools/change')
+  // Prove via real execution that the disposed interceptor no longer tightens timeoutMs or promotes.
+  env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'ran without interceptor\n'), 80) })
+  const afterDispose = await env.execShell(
+    { description: 'Run after dispose', command: 'echo after' },
+    { callId: 'call-after-dispose', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(afterDispose.kind, 'foreground', 'disposed interceptor must not revive on later tools/change')
+  assert.equal(env.resolvedSpecs[1].timeoutMs, 30_000, 'disposed interceptor must not tighten timeoutMs')
   assert.deepEqual(env.warnings, [])
 })
 
@@ -1177,11 +1264,23 @@ test('real dsh-tool-bash contract: shadow respects tools.restrict() and clears w
   assert.equal(env.ctx.tools.get('bash', restrictedAgent), undefined)
   env.rt.shadowShells(restrictedAgent)
   assert.equal(env.ctx.tools.get('bash', restrictedAgent), undefined, 'shadowShells must not revive a restricted bash tool')
+  const restrictedRes = await env.execShellRaw(
+    { description: 'Should be unknown', command: 'echo no' },
+    { callId: 'call-restricted', targetAgent: restrictedAgent },
+  )
+  assert.equal(restrictedRes.isError, true, 'restricted bash must fail as unknown tool through tools.execute')
+  assert.equal(env.spawned.length, 0)
 
-  // Unloading global bash plugin must dispose the shadow on the active agent (no zombie shadow).
+  // Unloading global bash plugin must make execution fail cleanly without reviving a zombie shell.
   await env.unloadShell()
   assert.equal(env.ctx.tools.get('bash'), undefined)
-  assert.equal(env.ctx.tools.get('bash', env.agent), undefined, 'unloading global bash must remove its agent shadow')
+  assert.equal(env.ctx.tools.get('bash', env.agent), undefined, 'unloading global bash must remove its visibility')
+  const unloadedRes = await env.execShellRaw(
+    { description: 'Should be unloaded', command: 'echo gone' },
+    { callId: 'call-unloaded' },
+  )
+  assert.equal(unloadedRes.isError, true, 'unloaded bash must fail cleanly through tools.execute')
+  assert.equal(env.spawned.length, 0)
 })
 
 test('real dsh-tool-bash + dsh-tool-jobs contract: backgroundAfterSec = 0 presents background card and invalid timeoutMs passes through', async (t) => {
@@ -1191,9 +1290,12 @@ test('real dsh-tool-bash + dsh-tool-jobs contract: backgroundAfterSec = 0 presen
   env.rt.state.prefs.backgroundAfterSec = 0
   env.setBehavior(() => {})
   const origArgs = { description: 'Immediate bg', command: 'echo bg' }
-  const value = await env.bash().execute(origArgs, { agent: env.agent, callId: 'call-bg-card', name: 'bash', signal: AbortSignal.timeout(5000) })
-  assert.equal(value.kind, 'background')
-  const card = env.bash().presentResult(origArgs, { isError: false, value, content: env.bash().output.render(origArgs, value) })
+  const rawResult = await env.execShellRaw(origArgs, { callId: 'call-bg-card', signal: AbortSignal.timeout(5000) })
+  assert.equal(rawResult.isError, false)
+  assert.equal(rawResult.value.kind, 'promoted')
+  assert.equal(rawResult.value.timeoutMs, 0)
+  const card = env.ctx.tools.get('bash', env.agent).presentResult(origArgs, rawResult)
+  assert.equal(card?.card, 'generic', '0s native background start must render as a generic background card')
   assert.notEqual(card?.exitCode, 0, '0s native background start must not render as an exited exitCode:0 terminal card')
   env.spawned[0].finish(0, 'ok\n')
   await new Promise(r => setTimeout(r, 30))
@@ -1246,4 +1348,284 @@ test('real dsh-tool-bash + dsh-tool-jobs contract: in-flight job_output(wait:tru
   await new Promise(r => setTimeout(r, 60))
   assert.equal(env.notices.length, 1, 'fallback notice must fire instead of being dropped by unconfirmed in-flight activeWaitReads')
   assert.match(env.notices[0].msg.content[0].text, /final output preserved/)
+})
+
+test('preset-standard (agent-scoped dsh-tool-bash): slow command promotes without duplicate-registration error and delivers one notice', async (t) => {
+  const env = await startRealBash({ agentScoped: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  // Confirm bash is registered ONLY on the agent scope, matching app/engine/preset-standard.patch.yml.
+  assert.equal(env.ctx.tools.get('bash'), undefined, 'preset-standard must not register bash globally')
+  assert.ok(env.ctx.tools.get('bash', env.agent) !== undefined, 'preset-standard must register bash on agent scope')
+  assert.deepEqual(env.warnings, [], 'attaching steer interceptor on agent-scoped bash must emit zero warnings')
+
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior((proc) => { proc.observed.stdout.push('preset building...\n') })
+  const turn = new AbortController()
+  const raw = await env.execShellRaw(
+    { description: 'Run slow preset build', command: 'npm run build' },
+    { callId: 'call-preset-1', signal: turn.signal },
+  )
+  assert.equal(raw.isError, false)
+  assert.equal(raw.value.kind, 'promoted')
+  assert.ok(raw.value.jobId)
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50, 'tools/execute must tighten timeoutMs on agent-scoped bash')
+  assert.match(raw.content[0].text, /moved to background job/)
+  assert.equal(env.ctx.jobs.get(raw.value.jobId, 'dm-a').status, 'running')
+
+  // Original turn STEER_CUT must not kill the promoted job.
+  turn.abort({ kind: 'hook', reason: STEER_CUT })
+  await new Promise(r => setTimeout(r, 25))
+  assert.equal(env.spawned[0].killed, false)
+
+  // Command settles later and tool-jobs delivers exactly one completion notice.
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'preset build ok\n')
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /preset build ok/)
+})
+
+test('preset-standard (agent-scoped dsh-tool-pwsh): slow command promotes without duplicate-registration error', async (t) => {
+  const env = await startRealBash({ agentScoped: true, shellPlugin: toolPwsh, toolName: 'pwsh' })
+  if (env === null) return t.skip('dsh-tool-pwsh in this DSH version has no promoted result format')
+  t.after(env.stop)
+  assert.equal(env.ctx.tools.get('pwsh'), undefined)
+  assert.ok(env.ctx.tools.get('pwsh', env.agent) !== undefined)
+  assert.deepEqual(env.warnings, [])
+
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior(() => {})
+  const result = await env.execShell(
+    { description: 'Run slow preset pwsh', command: 'Start-Sleep 5' },
+    { callId: 'call-preset-pwsh', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(result.kind, 'promoted')
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50)
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'preset pwsh ok\n')
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /preset pwsh ok/)
+})
+
+test('preset-standard (agent-scoped dsh-tool-bash): backgroundAfterSec = 0 starts immediately and presents generic card', async (t) => {
+  const env = await startRealBash({ agentScoped: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0
+  env.setBehavior(() => {})
+  const origArgs = { description: 'Immediate preset bg', command: 'echo hi' }
+  const raw = await env.execShellRaw(origArgs, { callId: 'call-preset-zero', signal: AbortSignal.timeout(5000) })
+  assert.equal(raw.isError, false)
+  assert.equal(raw.value.kind, 'promoted')
+  assert.equal(raw.value.timeoutMs, 0)
+  const card = env.ctx.tools.get('bash', env.agent).presentResult(origArgs, raw)
+  assert.equal(card?.card, 'generic')
+  assert.notEqual(card?.exitCode, 0)
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'zero bg done\n')
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /zero bg done/)
+})
+
+test('preset-standard (agent-scoped dsh-tool-bash): host privacy/secrets tools/execute wrappers see content+meta outside steerShellExecute and background tasks are not cut at 5s', async (t) => {
+  const order = []
+  let outerSawContent = false
+  let outerSawMetaCwd
+  let offHost
+  const env = await startRealBash({
+    agentScoped: true,
+    beforeShadow: (ctx) => {
+      offHost = ctx.on('tools/execute', async (exec, next) => {
+        order.push('host-before')
+        if (exec.arguments?.command === 'blocked-by-privacy') {
+          throw new Error('blocked by privacy')
+        }
+        const res = await next()
+        order.push('host-after')
+        if (!res?.isError) {
+          outerSawContent = Array.isArray(res?.content) && res.content.length > 0 && typeof res.content[0]?.text === 'string'
+          outerSawMetaCwd = res?.meta?.cwd
+        }
+        if (!res?.isError && typeof res?.value?.output === 'string') {
+          return { ...res, value: { ...res.value, output: res.value.output.replaceAll('RAW_SECRET', '[redacted]') } }
+        }
+        return res
+      })
+    },
+  })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(() => { offHost?.(); return env.stop() })
+
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior((proc) => { proc.observed.stdout.push('out RAW_SECRET\n') })
+
+  // 1. Privacy denial stops execution BEFORE bash spawns.
+  const denied = await env.execShellRaw({ description: 'Blocked cmd', command: 'blocked-by-privacy' }, { callId: 'call-priv' })
+  assert.equal(denied.isError, true)
+  assert.equal(env.spawned.length, 0, 'blocked command must never spawn')
+
+  // 2. Allowed slow command promotes, outer wrapper sees content + meta, and host redacts output.
+  order.length = 0
+  const promoted = await env.execShellRaw({ description: 'Secret cmd', command: 'echo RAW_SECRET' }, { callId: 'call-sec' })
+  assert.equal(promoted.isError, false)
+  assert.equal(promoted.value.kind, 'promoted')
+  assert.deepEqual(order, ['host-before', 'host-after'])
+  assert.equal(outerSawContent, true, 'outer tools/execute wrapper must receive rendered content array')
+  assert.equal(outerSawMetaCwd, '/team', 'outer tools/execute wrapper must receive presentationMeta')
+  assert.ok(!promoted.content[0].text.includes('RAW_SECRET'), 'host redaction wrapper must run after steerShellExecute')
+  assert.match(promoted.content[0].text, /\[redacted\]/)
+  env.spawned[0].finish(0, '')
+
+  // 3. Background tasks (taskOwners) run shell commands to completion without 5s auto-background interruption.
+  env.rt.taskOwners.set('dm-a', { botId: 'a', taskId: 't1' })
+  env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'task ran straight through\n'), 80) })
+  const taskResult = await env.execShell({ description: 'Task build', command: 'npm test' }, { callId: 'call-task' })
+  assert.equal(taskResult.kind, 'foreground', 'background task shell command must not be cut at backgroundAfterSec')
+  assert.equal(taskResult.stdout.text, 'task ran straight through\n')
+})
+
+test('preset-standard (two-level parent preset scope): slow command promotes and late jobs reload needs no re-shadow', async (t) => {
+  const env = await startRealBash({ presetParent: true, delayJobsPlugin: true, wireToolsChange: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  assert.equal(env.ctx.tools.get('bash'), undefined, 'preset parent scope must not register bash globally')
+  assert.ok(env.ctx.tools.get('bash', env.agent) !== undefined, 'agent must inherit bash from parent preset scope')
+  assert.deepEqual(env.warnings, [])
+
+  // Mount jobs after initial scope attach; parent preset re-registers bash(jobs) cleanly.
+  await env.mountJobs()
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior((proc) => { proc.observed.stdout.push('parent preset...\n') })
+  const raw = await env.execShellRaw(
+    { description: 'Parent preset build', command: 'npm test' },
+    { callId: 'call-parent-1', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(raw.isError, false)
+  assert.equal(raw.value.kind, 'promoted')
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50)
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'parent preset done\n')
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /parent preset done/)
+})
+
+test('real dsh-tool-bash contract: malformed non-object arguments pass through untouched with DSH error.info intact', async (t) => {
+  const env = await startRealBash({ agentScoped: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+
+  for (const [label, rawArguments] of [['malformed JSON', '{not json'], ['null JSON', 'null'], ['array JSON', '["echo"]']]) {
+    const res = await env.execShellRaw(undefined, { callId: `call-bad-${label}`, rawArguments })
+    assert.equal(res.isError, true, `${label} must fail validation`)
+    assert.equal(res.error?.info?.code, 'INVALID_ARGS', `${label} must preserve DSH INVALID_ARGS error.info`)
+  }
+  assert.equal(env.spawned.length, 0, 'malformed arguments must never spawn a command')
+})
+
+test('createRuntime with pre-existing live agent: steerShellExecute defers until after secrets.js so shell results are still redacted on reload', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-steer-reload-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    ...TEAM,
+    prefs: { backgroundAfterSec: 0.05 },
+  }))
+
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(toolExecutorNative)
+  await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10 })
+
+  const spawned = []
+  ctx.provide('shell', {
+    sandboxMode: 'workspace-write',
+    resolve: req => ({ ...req, workdir: req.workdir ?? '/team', timeoutMs: req.timeoutMs ?? 30_000 }),
+    async execute(spec) {
+      let text = 'secret=RELOAD_LIVE_SECRET_VALUE\n'
+      const stdout = {
+        readFrom(from) {
+          const buf = Buffer.from(text, 'utf8')
+          return { text: from >= buf.length ? '' : buf.subarray(from).toString('utf8'), nextOffset: buf.length, lossy: false }
+        },
+      }
+      const stderr = { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) }
+      let resolveDone
+      const done = new Promise(r => { resolveDone = r })
+      const proc = {
+        status: 'running',
+        observed: { stdout, stderr },
+        done,
+        finish() { if (proc.status === 'running') { proc.status = 'completed'; resolveDone() } },
+        kill() { if (proc.status === 'running') { proc.status = 'killed'; resolveDone() } },
+        async result() {
+          await done
+          return { exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: spec.timeoutMs, stdout: { text, truncated: false }, stderr: { text: '', truncated: false } }
+        },
+      }
+      spawned.push(proc)
+      return proc
+    },
+  })
+  ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'workspace-write' }) })
+  ctx.provide('shellEnv', { collect: () => ({}), register: () => () => {} })
+  ctx.provide('workingDirectory', { ensure: async () => '/team' })
+
+  // Pre-existing live Bot agent present BEFORE createRuntime installs MODULES (plugin reload scenario).
+  const agentsMap = new Map()
+  const agent = {
+    id: 'dm-a',
+    ctx: null,
+    status: 'running',
+    inbox: { nextStep: [], nextTurn: [], prepend() {}, append() {}, remove() { return false } },
+    followup() {},
+    inject() {},
+    send() {},
+    cancel() {},
+    session: {
+      id: 'dm-a',
+      header: { cwd: '/team' },
+      append(type, data) { ctx.emit('session/event', agent.session, { type, data }) },
+      snapshotEvents: () => [],
+    },
+  }
+  const agentScope = createScope(ctx, agent)
+  await agentScope.ctx.plugin({ inject: ['tools'], apply(scoped) { agent.ctx = scoped } })
+  await agentScope.ctx.plugin(toolJobs)
+  await agentScope.ctx.plugin(toolBash)
+  agentsMap.set('dm-a', agent)
+  t.after(async () => { await agentScope.dispose(); await ctx.fiber.dispose() })
+
+  let listCalls = 0
+  ctx.provide('agents', {
+    get: id => agentsMap.get(id),
+    list: () => { listCalls += 1; return [...agentsMap.values()] },
+  })
+  ctx.provide('llm', { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) })
+  ctx.provide('workspaceRegistry', { get: () => ({ id: 'w1', path: '/team' }), list: () => [{ id: 'w1', path: '/team' }], resolveByPath: async () => undefined, create: async p => ({ id: 'w1', path: p }), archiveSession: async () => {} })
+  ctx.provide('sessionController', { create: async () => ({ sessionId: 'dm-a' }), resolveAgent: async () => ({ agent }), selectModel: async () => {}, page: async () => ({ records: [], hasMore: false }) })
+  ctx.provide('sessionTitle', { rename: async () => {} })
+  ctx.provide('sessions', { flush: async () => {} })
+  ctx.provide('connection', { fetch: { register: () => () => {} } })
+
+  const rt = createRuntime(ctx, { home })
+  assert.ok(listCalls >= 2, 'reload must walk live agents both during install (deferred) and post-install (after secrets.js)')
+  await rt.load()
+  await rt.secretEndpoint('secret-set', { name: 'RELOAD_TOKEN', value: 'RELOAD_LIVE_SECRET_VALUE' })
+
+  const batch = await ctx.tools.execute({
+    calls: [{ type: 'tool-call', id: 'call-reload-sec', name: 'bash', arguments: JSON.stringify({ description: 'Echo secret', command: 'echo secret' }) }],
+    agent,
+    signal: AbortSignal.timeout(5000),
+  })
+  const result = batch.results[0]?.result
+  assert.equal(result.isError, false)
+  assert.equal(result.value.kind, 'promoted')
+  assert.ok(!result.content[0].text.includes('RELOAD_LIVE_SECRET_VALUE'), 'secrets.js must redact promoted shell output even when live agent pre-existed createRuntime')
+  assert.match(result.content[0].text, /\[secret:RELOAD_TOKEN\]/)
+  for (const proc of spawned) proc.finish()
 })

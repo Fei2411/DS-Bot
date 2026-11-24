@@ -53,6 +53,8 @@ Error: configured web provider "auto" is not registered
 
 The error code is `WEB_PROVIDER_CONFIGURED_MISSING`.
 
+The standalone desktop app reconciles this selector on its next launch when its own base bundles supply another search provider (`app/src/search-patch.mjs`). Restart the app first. The manual recovery below is for plugin hosts, or when no usable base selection exists.
+
 **Why:** DS Bot's `cordis.patch.yml` sets the `web` row's `searchProvider` to `auto` whether or not the `web-search-auto` row is on, and DeepSeek Harness does not fall back to another provider when the one it names is missing.
 
 **What to do:** the profile folder is the same as in the entry above.

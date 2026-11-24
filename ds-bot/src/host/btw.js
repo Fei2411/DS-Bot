@@ -9,6 +9,7 @@ import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
+import { clip, textOf } from './text.js'
 
 export const RESTART_ERROR = 'DS Bot restarted before this answer finished.'
 export const TOOL_ERROR = 'The model called a tool again after being told not to, so this aside was not answered.'
@@ -148,11 +149,99 @@ export function snapshotOf(session, projections) {
   return { header, messages, toolHistory, sessionId, atSeq: committedSeq(session), anchorSeq, turn }
 }
 
+const ASIDE_TRANSCRIPT_BYTES = 48_000
+const ASIDE_EXTRA_BYTES = 24_000
+const ASIDE_LINE_MAX = 4_000
+const ASIDE_LOCAL_SYSTEM = 'You are answering a side-chat question from a snapshot of the conversation. Answer in plain text only, without running any tools or changing any files.'
+
+// Bounded plain-text snapshot transcript for isolated local-agent side-chat calls,
+// newest messages kept within budget and ordered oldest first. Always preserves the
+// latest handoff message even when newer turns exceed the byte budget.
+function formatAsideTranscript(snapshotMessages, extra, prompt) {
+  const body = (snapshotMessages ?? []).filter(message => message?.role !== 'system' && message?.source?.kind !== 'runtime-context')
+  const latestHandoff = [...body].reverse().find(message => message?.source?.handoff === true)
+  const kept = []
+  let keptHandoff = false
+  let used = 0
+  let truncated = false
+  for (const message of [...body].reverse()) {
+    const raw = textOf(message?.content).trim()
+    if (raw === '') continue
+    const label = message.role === 'assistant' ? 'Assistant' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'
+    const keepWhole = message === latestHandoff
+    const line = `${label}: ${keepWhole ? raw : clip(raw, ASIDE_LINE_MAX, 'truncated')}`
+    if (!keepWhole && kept.length > 0 && used + line.length > ASIDE_TRANSCRIPT_BYTES) {
+      truncated = true
+      break
+    }
+    kept.unshift(line)
+    if (keepWhole) keptHandoff = true
+    else used += line.length + 1
+  }
+  const sections = []
+  if (kept.length > 0 || latestHandoff !== undefined) {
+    const handoffRaw = !keptHandoff && latestHandoff !== undefined ? textOf(latestHandoff.content).trim() : ''
+    const head = handoffRaw !== '' ? `User: ${handoffRaw}\n\n` : ''
+    sections.push(`Conversation snapshot (oldest first):\n${head}${truncated ? '…\n' : ''}${kept.join('\n\n')}`)
+  }
+  const sideKept = []
+  let sideUsed = 0
+  let sideTruncated = false
+  for (const message of [...(extra ?? [])].reverse()) {
+    const text = textOf(message?.content).trim()
+    if (text === '') continue
+    const line = `${message.role === 'assistant' ? 'Side assistant' : 'Side user'}: ${clip(text, ASIDE_LINE_MAX, 'truncated')}`
+    if (sideKept.length > 0 && sideUsed + line.length > ASIDE_EXTRA_BYTES) {
+      sideTruncated = true
+      break
+    }
+    sideKept.unshift(line)
+    sideUsed += line.length + 1
+  }
+  if (sideKept.length > 0) {
+    sections.push(`Earlier side chat (oldest first):\n${sideTruncated ? '…\n' : ''}${sideKept.join('\n\n')}`)
+  }
+  sections.push(prompt)
+  return sections.join('\n\n')
+}
+
 // The same route as the conversation, including temperature, stop, and the output
 // budget: thinking shares it, so an aside must not set a small one of its own. The
 // messages array is tagged for usage. `extra` messages sit between the snapshot
 // and the prompt; a side chat's earlier finished pairs go there.
+// Local-agent routes never share the live CLI session; they run in an isolated
+// read-only one-off session via `rt.localAgentAsk`.
 export async function callAside(ctx, rt, snapshot, { extra = [], question, promptFor, kind, retry = false, signal }) {
+  const route = snapshot.header?.config
+  const isLocal = route?.provider !== undefined && (
+    rt?.isLocalAgentRoute?.(route.provider) === true
+    || (route.model !== undefined && rt?.isLocalAgentRef?.(`${route.provider}/${route.model}`) === true)
+  )
+  if (isLocal) {
+    if (typeof rt?.localAgentAsk !== 'function') {
+      return { failed: 'Side chat is not available for this local agent.' }
+    }
+    const baseSystem = (snapshot.messages ?? [])
+      .filter(message => message?.role === 'system')
+      .map(message => textOf(message.content).trim())
+      .filter(Boolean)
+      .join('\n\n')
+    const system = baseSystem === '' ? ASIDE_LOCAL_SYSTEM : `${baseSystem}\n\n${ASIDE_LOCAL_SYSTEM}`
+    const prompt = formatAsideTranscript(snapshot.messages, extra, promptFor(question, retry))
+    try {
+      const raw = await rt.localAgentAsk(snapshot.sessionId, {
+        system,
+        prompt,
+        signal,
+        route: route.provider,
+        model: route.model,
+        kind,
+      })
+      return { text: String(raw ?? '').trim(), toolCalls: false }
+    } catch (error) {
+      return { failed: error?.message ?? String(error) }
+    }
+  }
   const messages = rt.tagUsage([
     ...snapshot.messages,
     ...extra,
@@ -160,11 +249,12 @@ export async function callAside(ctx, rt, snapshot, { extra = [], question, promp
   ], { sessionId: snapshot.sessionId, kind })
   const tools = snapshot.header?.tools
   const callOptions = {
-    ...snapshot.header?.config,
+    ...route,
     messages,
     toolHistory: snapshot.toolHistory,
     ...(tools ? { tools: [...tools] } : {}),
     sessionId: snapshot.sessionId,
+    purpose: 'aside',
     signal,
   }
   const assembler = await (rt?.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt?.config?.llmRetryBackoff }))

@@ -11,7 +11,7 @@ Collaborators of this repository push branches here and open pull requests into 
 ## The rules that matter most
 
 1. **Build on DSH; never patch it.** The Bot features are a DSH plugin: use the plugin APIs that DSH documents (Cordis services, the plugin client entry, profile patches). The desktop app starts DSH only through the entry points that DSH documents (`@deepseek-ai/dsh/profile-boot`, the `dsh` command). Do not patch DeepSeek Harness, and do not depend on files inside a DSH install. When a feature needs something that DSH does not offer, open an issue here first; the fix can belong in DSH.
-2. **Bots run in DSH Sessions.** A Bot keeps its identity while its work runs in DSH Sessions: one for its own chat, one for each group, a fresh one when the context fills up. Every turn goes through the normal DSH agent loop, tools and model routes. Do not add a second agent runtime.
+2. **Bots run in DSH Sessions.** Each Bot has its own saved profile (including model, thinking level, instructions, folder and permissions), distinct from the host's DSH profile. Its chat, group work and background tasks use separate Sessions; long context can be condensed in place or continued in a fresh part. Model Bots use DSH's agent loop and model service; local-agent routes delegate tools, model access and context to the CLI. Auxiliary model calls bypass the agent loop, and DeepSeek OCR/TTS/ASR and web search/fetch make direct service requests. Do not assume all requests use DSH model routing or add an unrelated runtime.
 3. **No real secrets anywhere.** Do not commit API keys, tokens, cookies, `DSH_HOME` folders, logs or screenshots with personal data. The tests and the test bench use a scripted mock model and need no key.
 4. **Only original material.** Do not copy code, text, icons, logos or other graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to a `NOTICE` file. This rule is about DS Bot's own interface. To name a third-party product that DS Bot connects to (for example the agent CLI a Bot runs on), use that product's official logo, and list it in `NOTICE` with its source and owner.
 5. **Every change is tested.** Run the unit tests and the client check for every change (see [Test a change](#test-a-change)).
@@ -60,7 +60,7 @@ An issue that spans several areas, or none, gets no area label.
 
 1. Open the pull request into `dev` and fill in the template. Link the issue with `Fixes #<number>`; a bug fix always names the bug it fixes. When opening a pull request from a fork, keep **Allow edits from maintainers** turned on so that the maintainer can resolve conflicts or make small adjustments before merging.
 2. Write one sentence about what users will notice in the **Changelog** field of the template, or "none". Do not edit `CHANGELOG.md`: the maintainer writes it from these sentences at release time.
-3. When CI passes, merge it yourself with **Create a merge commit**, then delete the branch. A review is not required; if you want one, ask a teammate in the pull request.
+3. When CI passes and independent review is approved (`review/approved`), merge into `dev` with **Create a merge commit**, then delete the branch.
 4. A fix that is merged into `dev` does not close its issue: `Fixes #<number>` acts only on the default branch. The issue stays open until the release, which means "fixed in `dev`, not released yet".
 
 Keep one pull request to one issue. Split a large change into several pull requests.
@@ -72,7 +72,7 @@ Keep one pull request to one issue. Split a large change into several pull reque
 
 ### Releases (maintainer)
 
-1. In a pull request into `dev`, set the version in `ds-bot/package.json` and write the `CHANGELOG.md` section from the Changelog sentences of the merged pull requests.
+1. In a pull request into `dev`, update the version in `ds-bot/package.json`, `app/package.json`, and the `README.md` / `README.zh.md` badges, and write the `CHANGELOG.md` section from the Changelog sentences of the merged pull requests.
 2. Open a pull request from `dev` into `main` titled `release: vX.Y.Z`. List every `Fixes #<number>` of the release in its description, so that these issues close when it is merged.
 3. Before you merge it, run the [release checklist](docs/dev/release-checklist.md) (in Chinese) on a real Windows machine, and on macOS when the change touches it, and post the result in the pull request. Merge it with a merge commit and publish a GitHub release `vX.Y.Z` on `main`, with "Set as the latest release" turned off: the workflow marks it latest itself once the installers, `SHA256SUMS.txt` and the download table are attached. The Release workflow checks that the tag matches the version and is on `main`, runs the checks and publishes the package to npm (a pre-release version under the npm tag `next`). Do not run `npm publish` by hand.
 4. For a hotfix, start `fix/hot-<name>` from `main`, open the pull request into `main`, release a patch version, then merge `main` into `dev`.
@@ -116,13 +116,16 @@ The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH 
 
 | Path | What it is |
 |---|---|
-| `ds-bot/index.js`, `ds-bot/src/host/` | The server side: Bot roster and store, tools, turns and delivery, group chats, conversation parts and the search index, images, the Bot browser bridge, the `api/bot` channel |
-| `ds-bot/src/client/` | The browser side: sidebar, chat, panels and dialogs, themes, characters, the Bot browser panel |
-| `ds-bot/client.js` | Generated from `src/client/` by `scripts/build-client.mjs`. It is committed, so that Git installs need no build step |
-| `ds-bot/web-search.js` | The `auto` web-search provider. It does not depend on the Bot team code |
+| `ds-bot/index.js`, `ds-bot/src/host/` | The server side: Bot roster and store, tools, turns and delivery, background tasks, group chats and ledger, memory, capabilities and feature packs, connectors, IM, phone and MCP gateways, the `api/bot` channel |
+| `ds-bot/src/client/` | The browser side: sidebar, chat, settings console, panels and dialogs, themes, 8-language i18n, characters, the Bot browser panel |
+| `ds-bot/client.js` | Generated from `src/client/` by `scripts/build-client.mjs`. Committed so that Git installs need no build step |
+| `ds-bot/web-search.js` | The `auto` web-search provider. Independent of the Bot team code |
 | `ds-bot/cordis.patch.yml` | The profile patch that the plugin brings |
-| `ds-bot/test/` | Unit tests and fixtures |
-| `ds-bot/dev/` | The DSH packages for the unit tests (`harness/`), the mock model, the test bench, the smoke test, the character generator, the Desktop scripts for Linux, and two tools for real models: the steward evaluation and a logging pass-through |
+| `ds-bot/test/`, `ds-bot/dev/` | Unit tests, browser tests, mock model, test bench, smoke test, character generator and evaluation tools |
+| `app/` | Standalone desktop app (Electron main process, start window, import and move-data, auto-updates, installers) |
+| `mobile/`, `link/` | Mobile app (Expo React Native + browser remote export) and encrypted relay transport |
+| `browser-plugins/`, `docker/` | Optional interactive browser plugins (`refs` / `script` / `task`) and Docker deployment |
+| `docs/` | [Docs index](docs/README.md), vision, UI standard, decided design plans and release checklist |
 
 ## Test a change
 
@@ -181,7 +184,7 @@ For a change to the Bot browser, check it in DSH Desktop. On Linux, the scripts 
 
 ## Report a problem
 
-The easiest way is from DS Bot itself: open **Settings → Feedback**, write what happened and select **Report on GitHub**. It opens a new issue with the DS Bot and DSH versions, your system, the models and the recent errors already filled in. **Copy** puts the same text on the clipboard, and **Download** saves the full error log (`<DSH_HOME>/bot/logs/diagnostics.jsonl`).
+The easiest way is from DS Bot itself: open **Settings → About DS Bot → Feedback**, write what happened and select **Report on GitHub**. It opens a new issue with the DS Bot and DSH versions, your system, the models and the recent errors already filled in. **Copy** puts the same text on the clipboard, and **Download** saves the full error log (`<DSH_HOME>/bot/logs/diagnostics.jsonl`).
 
 If you open an issue by hand, include:
 
