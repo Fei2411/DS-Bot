@@ -95,17 +95,26 @@ const TABLE_DELIMITER = /^:?-+:?$/
 function tableCells(line) {
   if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
   const cells = ['']
-  for (const part of line.trim().match(/\\.|[^\\|]+|\\|\|/g) ?? []) {
+  for (const part of line.trim().match(/\\.|(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|[^\\`|]+|`+|\\|\|/g) ?? []) {
     if (part === '|') cells.push('')
-    else cells[cells.length - 1] += part === '\\|' ? '|' : part
+    else cells[cells.length - 1] += part.replace(/\\./g, escape => escape === '\\|' ? '|' : escape)
   }
   if (cells.length === 1) return undefined
-  if (cells[0] === '') cells.shift()
-  if (cells.at(-1) === '') cells.pop()
-  return cells.map(cell => cell.trim())
+  const leadingPipe = cells[0] === ''
+  const trailingPipe = cells.at(-1) === ''
+  if (leadingPipe) cells.shift()
+  if (trailingPipe) cells.pop()
+  return { cells: cells.map(cell => cell.trim()), leadingPipe, trailingPipe }
 }
 
-const tableRow = line => LIST_ITEM.test(line) ? undefined : tableCells(line)
+function tableRow(line, header) {
+  if (LIST_ITEM.test(line)) return undefined
+  const row = tableCells(line)
+  if (row === undefined || header === undefined) return row
+  return row.cells.length === header.cells.length
+    && (!header.leadingPipe || row.leadingPipe)
+    && (!header.trailingPipe || row.trailingPipe) ? row : undefined
+}
 
 function telegramLines(lines) {
   const rendered = []
@@ -123,17 +132,17 @@ function telegramLines(lines) {
     const line = lines[at]
     const next = lines[at + 1] ?? ''
     if (next.includes('-')) {
-      const delimiters = tableCells(next)
+      const delimiters = tableCells(next)?.cells
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
-        const headers = tableRow(line)
-        if (headers?.length === delimiters.length) {
+        const header = tableRow(line)
+        if (header?.cells.length === delimiters.length) {
           at += 1
-          let row = tableRow(lines[at + 1] ?? '')
-          if (row === undefined) renderTableRow(headers)
+          let row = tableRow(lines[at + 1] ?? '', header)
+          if (row === undefined) renderTableRow(header.cells)
           while (row !== undefined) {
             at += 1
-            renderTableRow(headers, row)
-            row = tableRow(lines[at + 1] ?? '')
+            renderTableRow(header.cells, row.cells)
+            row = tableRow(lines[at + 1] ?? '', header)
             if (row !== undefined) rendered.push({ html: '', text: '' })
           }
           continue

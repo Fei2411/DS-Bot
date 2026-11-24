@@ -131,6 +131,24 @@ test('lists containing pipes end a Telegram table without losing text', () => {
   }
 })
 
+test('Telegram table cells keep pipes in inline code and escaped pipes', () => {
+  const markdown = "| Key | Value |\n| --- | --- |\n| mode | `'auto' | 'manual'` |\n| owner | R&D \\| Ops |"
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: "• <b>Key:</b> mode\n• <b>Value:</b> <code>'auto' | 'manual'</code>\n\n• <b>Key:</b> owner\n• <b>Value:</b> R&amp;D | Ops",
+    text: "• Key: mode\n• Value: 'auto' | 'manual'\n\n• Key: owner\n• Value: R&D | Ops",
+  }])
+})
+
+test('lines with a different column count or missing border end a Telegram table', () => {
+  const table = '| Key | Value |\n| --- | --- |\n| a | 1 |'
+  for (const line of ['Use A | B | C in config.', '| a | b | c |', 'Use A | B in config.', '| Use A | B in config.', '| only one cell |']) {
+    assert.deepEqual(chunkTelegram(table + '\n' + line), [{
+      html: '• <b>Key:</b> a\n• <b>Value:</b> 1\n' + line,
+      text: '• Key: a\n• Value: 1\n' + line,
+    }])
+  }
+})
+
 test('Telegram leaves underline-like lines unchanged after prose and lists', () => {
   for (const markdown of [
     'item\n---',
