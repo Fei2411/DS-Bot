@@ -35,7 +35,7 @@ Inspect paths read-only while the host is running; mutate only offline after ver
 - `<bot-home>/state.json` — Team roster, Bot configs, groups, schedules metadata, and connector bindings.
 - `<bot-home>/state.lock` — Host lock file (refreshed every 15s; considered stale after 60s). Presence of a fresh lock means another host owns `<DSH_HOME>`.
 - `<bot-home>/state.json.broken-<ts>` — Automatic quarantine copy created if `state.json` failed JSON parse on load.
-- `<bot-home>/secrets.json` — Encrypted secret store (`0o600`). **Do not open or print this file**; inspect names only via `list_secrets`.
+- `<bot-home>/secrets.json` — Secret store (`0o600`, plaintext by default; at-rest encryption is opt-in). **Do not open or print this file**; inspect names only via `list_secrets`.
 - `<bot-home>/logs/diagnostics.jsonl` & `diagnostics.jsonl.1` — Structured Bot diagnostic events (rotates when exceeding 1 MiB or 200 entries; secrets and home paths redacted).
 - `<bot-home>/chat-index.sqlite` — SQLite FTS/conversation index queried by `read_own_chat`.
 - `<bot-home>/memory/` — Agent memory files: `journal.jsonl`, `journal.torn`, `reviewed.json`, `retired.jsonl`, `bots/<botId>/`, `groups/<roomId>/`, and `team/`.
