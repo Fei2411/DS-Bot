@@ -223,6 +223,34 @@ test('acp: a stalled prompt fails instead of ending normally or being replayed',
   assert.equal(adapter.providerRetryPolicy().maxRetries, 0)
 })
 
+test('acp: tool output without a label or status change keeps the turn alive', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  const promptId = peer.nextId
+  const tool = { toolCallId: 'tool', kind: 'execute', title: 'Run tests', status: 'in_progress' }
+  const update = (sessionUpdate, content) => peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate, ...tool, content } },
+  }))
+  update('tool_call')
+  await delay(0)
+  t.mock.timers.tick(9 * 60_000)
+  update('tool_call_update', [{ type: 'content', content: { type: 'text', text: 'More tests passed' } }])
+  await delay(0)
+  t.mock.timers.tick(60_000)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } }))
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'stop')
+  assert.equal(outcome.thinking.trim().split('\n').length, 1)
+  assert.match(outcome.thinking, /Run tests/)
+})
+
 test('acp: a stall after approval leaves the queued follow-up for explicit retry', async (t) => {
   const records = {}
   const adapter = makeAdapter({ records, review: true, acpArgs: ['--stall-after-permission'] })

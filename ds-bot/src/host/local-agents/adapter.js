@@ -838,7 +838,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     // events carry another id and are dropped instead of answering this one (#1513).
     live.turnTag = undefined
     try {
-      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort, onProgress: live.scheduleIdle }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
         .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
       return live.spec.kind === 'acp' ? Promise.resolve() : started
