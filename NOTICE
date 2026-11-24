@@ -32,6 +32,12 @@ MIT License, Copyright (c) 2026 DeepSeek
     verification, the wheel test pruning and the Office skill asset copy.
   - app/src/host-process.mjs follows apps/desktop/src/host-process.ts: the
     Host in Electron's Node mode and the shutdown escalation.
+  - app/src/login-shell-env.mjs follows
+    apps/desktop/src/login-shell-environment.ts: reading the account's login
+    shell environment once at startup and merging it into the Host's, except
+    the probe's own and launcher-owned variables, so a Finder or Dock start
+    reaches the node and pnpm the user installed instead of the session
+    manager's sparse PATH.
   - app/src/main.mjs and app/src/window-frame.mjs follow apps/desktop/src/main.ts
     for the window options (the Windows caption-button overlay, its colors and
     the native theme; the macOS traffic lights and sidebar vibrancy, and the
