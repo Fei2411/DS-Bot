@@ -327,6 +327,14 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
       basicDsh.includes('composer-enter') ? dshItem(dsh, 'composer-enter') : null),
+    h(SetSection, { key: 'approvals', title: t('Approvals') },
+      h(SetRow, { label: t('Approval model'), className: 'bt-set-model' },
+        h(ModelMenu, {
+          bot: { id: 'approval-model', name: t('Approval model'), model: prefs.approvalModel || prefs.defaultBotModel || roster.defaultModel },
+          roster: { ...roster, models: (roster.models ?? []).filter(model => !isLocalRoute(model.ref)) }, actions, run, wide: true, withEfforts: false,
+          onPick: ref => run(actions.setPrefs({ approvalModel: ref })),
+        }),
+        prefs.approvalModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ approvalModel: null })) }, t('Follow team default')) : null)),
     h(LocationsSection, { key: 'places', actions, run }),
     h(SetSection, { key: 'more', className: 'bt-dsh-items' },
       h('button', {

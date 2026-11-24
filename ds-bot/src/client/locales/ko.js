@@ -1,6 +1,16 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "Approvals": "승인",
+  "Approval model": "승인 모델",
+  "Review for me": "대신 검토",
+  "Follow team default": "팀 기본 모델 사용",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "승인 대기 중인 작업을 검토합니다. 판단이 어려우면 사용자에게 확인을 요청합니다.",
+  "Recent approval reviews": "최근 승인 검토",
+  "Approved once": "이번만 허용됨",
+  "Rejected": "거부됨",
+  "Manual review": "수동 검토",
+  "Reviewing this action…": "이 작업을 검토 중…",
   "ChatGPT plan": "ChatGPT 요금제",
   "Sign in with ChatGPT": "ChatGPT로 로그인",
   "ChatGPT sign-in requires the DS Bot desktop app and OS-backed secure storage.": "ChatGPT 로그인에는 DS Bot 데스크톱 앱과 OS 보안 저장소가 필요합니다.",

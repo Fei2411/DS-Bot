@@ -398,6 +398,8 @@ export function install(rt) {
   async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.permission !== undefined && actorId !== undefined) throw new Error('Only the user can change approval and sandbox settings')
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
@@ -759,6 +761,7 @@ export function install(rt) {
     }
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.

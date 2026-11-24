@@ -28,7 +28,10 @@ const VERSION_FAIL_TTL_MS = 30_000
 export function presetOf(rt, sessionId) {
   const bot = rt.botOf(rt.selfOf(sessionId))
   const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
-  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  // Approval review is DS Bot's own policy, not a sandbox preset: the Session
+  // runs on workspace-write while the review policy does the asking.
+  const permission = room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  return permission === 'review' ? 'workspace-write' : permission
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
@@ -330,6 +333,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     isLocalAgentAvailable: route => registeredRoutes.has(route),
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,
     // The parts module's view of a CLI session's context, and the requests it makes of
     // the CLI when the conversation grows long: condense, write the handoff note, and
     // answer the context steward when the team has no model of its own.

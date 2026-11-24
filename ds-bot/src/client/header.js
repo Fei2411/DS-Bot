@@ -94,7 +94,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const workApprovalsKey = useWork?.(work => (room
     ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
     : bot
-      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.roomId === undefined && entry.answerable === true))
       : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
   const approvals = room
@@ -135,9 +135,17 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false
   const showGoal = room !== undefined && !away && (goal !== undefined || goalCompose)
   const showTasks = approvalTargetId !== undefined && !away && activeTasks.length > 0
-  // When active background tasks are shown, TaskIslandPod + TaskFocusOverlay already
-  // surface every pending approval for this chat in one unified deck (no double bars).
-  const showApprovals = approvalTargetId !== undefined && !away && approvals.length > 0 && !showTasks
+  const foregroundApprovals = bot && !room
+    ? approvals.filter(entry => entry.kind === 'tool' && entry.approval?.taskId === undefined)
+    : []
+  // A foreground request belongs to this chat, not to its background-task deck.
+  // Keep it actionable even while that deck also has active work to show.
+  const standaloneApprovals = foregroundApprovals.length > 0 ? foregroundApprovals : approvals
+  const taskApprovals = foregroundApprovals.length > 0
+    ? approvals.filter(entry => entry.kind !== 'tool' || entry.approval?.taskId !== undefined)
+    : approvals
+  // Background approvals live in the task deck when it is present, avoiding double bars.
+  const showApprovals = approvalTargetId !== undefined && !away && standaloneApprovals.length > 0 && (foregroundApprovals.length > 0 || !showTasks)
   const showIsland = showGoal || showApprovals || showTasks
   // Once the last approval is answered, reset approvalOpen so future approvals
   // appear as a compact bar rather than popping straight into a 560px panel.
@@ -171,9 +179,9 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
-  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
-  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, approvals.length)
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
+  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
+  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, taskApprovals.length)
   const taskBadge = taskHoverReveal
     ? h('button', {
         type: 'button',
@@ -188,7 +196,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       h('span', null, activeTasks.length))
     : null
   return h('div', { className: 'bt-head' },
-    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
+    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     room !== undefined && !away
