@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { setImmediate, setTimeout } from 'node:timers/promises'
-import { disk } from '../src/copy-tree.mjs'
+import { copyTree, disk } from '../src/copy-tree.mjs'
 
 // Only Electron's fs shows the bug, and this job has no Electron: check-packed.mjs runs the copy
 // itself. This keeps the files that touch the user's folders from going back to that fs.
@@ -197,3 +197,19 @@ for (const abort of [true, false]) {
     assert.deepEqual([...finished].sort(), [...started].sort())
   })
 }
+
+test('links into a folder starting with .. lead into the copy', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-copy-tree-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const from = join(root, 'workspace')
+  const into = join(root, 'copy')
+  const notes = join(from, '..notes')
+  mkdirSync(notes, { recursive: true })
+  writeFileSync(join(notes, 'note.txt'), 'a note')
+  symlinkSync(notes, join(from, 'notes'), process.platform === 'win32' ? 'junction' : 'dir')
+
+  await copyTree(from, into)
+  rmSync(from, { recursive: true })
+
+  assert.equal(readFileSync(join(into, 'notes', 'note.txt'), 'utf8'), 'a note')
+})

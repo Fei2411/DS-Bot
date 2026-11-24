@@ -11,7 +11,7 @@ const { cp, lstat, readlink, realpath, stat, symlink } = disk.promises
 
 export const within = (inner, outer) => {
   const path = relative(resolve(outer), resolve(inner))
-  return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
+  return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 /**

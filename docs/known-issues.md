@@ -77,7 +77,7 @@ The standalone desktop app reconciles this selector on its next launch when its 
 
 To check the result, run `npx @deepseek-ai/dsh@0.2.2-rc.5 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
 
-See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei2411/DS-Bot/issues/128).
+See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei-Craft/DS-Bot/issues/128).
 
 ## Linux: "GLIBC_2.27 not found" loading libghostty-vt.so
 

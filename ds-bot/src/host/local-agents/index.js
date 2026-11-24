@@ -14,7 +14,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
-import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
+import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
@@ -55,6 +55,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  let nextProbeEpoch = 0
   let disposed = false
   async function scan() {
     await refreshSearchDirs()
@@ -70,27 +71,39 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   }
   async function probeVersions({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      if (entry.version !== undefined) return
+      if (!force && entry.version !== undefined) return
       if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
-      if (entry.versionProbe === undefined) {
+      if (force || entry.versionProbe === undefined) {
+        const epoch = ++nextProbeEpoch
+        entry.versionEpoch = epoch
+        entry.versionAbort?.abort()
+        const controller = new AbortController()
+        entry.versionAbort = controller
         const spec = ENGINES[entry.route]
         const probe = Promise.resolve()
-          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})))
+          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
           .catch(() => undefined)
           .then((result) => {
+            if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
             if (result?.version !== undefined) {
               entry.version = result.version
               delete entry.versionFailedAt
             } else {
+              if (force) entry.version = undefined
               entry.versionFailedAt = now()
             }
           })
           .finally(() => {
-            if (entry.versionProbe === probe) delete entry.versionProbe
+            if (entry.versionProbe === probe) {
+              delete entry.versionProbe
+              delete entry.versionAbort
+            }
           })
         entry.versionProbe = probe
       }
-      await entry.versionProbe
+      while (entry.versionProbe !== undefined) {
+        await entry.versionProbe
+      }
     }))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
@@ -106,6 +119,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
       }
       if (force || entry.signInProbe === undefined) {
+        const epoch = ++nextProbeEpoch
+        entry.signInEpoch = epoch
         entry.signInAbort?.abort()
         const controller = new AbortController()
         entry.signInAbort = controller
@@ -113,7 +128,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
           .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
           .catch(() => null)
           .then((result) => {
-            if (entry.signInProbe !== probe) return
+            if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
             entry.signedIn = result
             entry.signedInAt = now()
           })
@@ -131,8 +146,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList({ forceSignIn = false } = {}) {
-    await Promise.all([probeVersions({ force: forceSignIn }), probeSignIns({ force: forceSignIn })])
+  async function freshList({ forceSignIn = false, forceVersion = forceSignIn } = {}) {
+    await Promise.all([probeVersions({ force: forceVersion }), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -208,7 +223,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
     disposed = true
-    for (const entry of found.values()) entry.signInAbort?.abort()
+    for (const entry of found.values()) {
+      entry.versionAbort?.abort()
+      entry.signInAbort?.abort()
+    }
     registration?.()
     await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
@@ -290,7 +308,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         adapter.dropModelCache()
         await scan()
         await rt.catalog?.({ fresh: true })
-        return freshList({ forceSignIn: true })
+        return freshList({ forceSignIn: true, forceVersion: true })
       }
       case 'local-agent-models': {
         const models = await localAgentModels(String(body.route ?? ''))
