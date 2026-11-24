@@ -526,6 +526,8 @@ export function install(rt) {
       return foldedOpenParts
     })
     writing = run.catch(() => {})
+    // A save queued before this adopt must not take in later saves: they write the adopted state.
+    queued = undefined
     const tracked = run.then((foldedOpenParts) => {
       if (adopting === tracked) adopting = undefined
       void retireParts()
@@ -614,18 +616,39 @@ export function install(rt) {
     return warnReadOnly()
   }
 
+  let queued
   const save = ({ required = false } = {}) => {
     if (stopped) return required ? Promise.reject(new Error('The Bot team cannot be saved after this host stopped.')) : writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
+    // A save made while another waits in the queue joins it: that write takes its
+    // snapshot when it runs, so it already holds this caller's change.
+    const joined = queued !== undefined
+    const epoch = lockEpoch
+    queued ??= queueWrite()
+    const settle = skipped => {
+      if (skipped !== undefined && required) throw new Error(`This host cannot save the Bot team: ${skipped}`)
+    }
+    // A caller that joined would have had a write of its own, so a shared write
+    // that failed (e.g. a rename blocked on Windows) gets one more try for it. Not
+    // once an adopt replaced or is about to replace the state: that state lacks the
+    // caller's change, and writing it must not settle a required save.
+    const replaced = () => adopting !== undefined || lockEpoch !== epoch
+    return queued.then(settle, error => {
+      if (!joined || error?.code === 'ELOCKLOST' || stopped || replaced() || !writable() || replaced()) throw error
+      queued ??= queueWrite()
+      return queued.then(settle)
+    })
+  }
+  const queueWrite = () => {
     const run = writing.then(async () => {
+      if (queued === job) queued = undefined
       // Re-check writability once the queued write runs: an adopt queued before
       // it may have made this host read-only (e.g. a file a newer DS Bot wrote).
       if (stuck !== undefined || holder !== undefined) {
-        if (required) throw new Error(`This host cannot save the Bot team: ${readOnly()}`)
         warnReadOnly()
-        return
+        return readOnly()
       }
       // The snapshot is taken here, so a save made while an adopt was pending
       // writes the adopted state, not the stale one it had.
@@ -666,10 +689,11 @@ export function install(rt) {
       }
     })
     writing = run.catch(() => {})
-    return run.catch(error => {
+    const job = run.catch(error => {
       warn('ds-bot: state write failed: %s', error)
       throw error
     })
+    return job
   }
 
   ctx.effect(() => () => {
