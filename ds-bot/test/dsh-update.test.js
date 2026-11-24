@@ -51,8 +51,8 @@ function fakeChild(code) {
 
 const registryLatest = dsBot => ({ [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: PKG.version, dsBot } })
 const githubLatest = (tag, manifest) => ({
-  'https://api.github.com/repos/Fei2411/DS-Bot/releases/latest': { tag_name: tag },
-  [`https://raw.githubusercontent.com/Fei2411/DS-Bot/${tag}/ds-bot/package.json`]: manifest,
+  'https://api.github.com/repos/Fei-Craft/DS-Bot/releases/latest': { tag_name: tag },
+  [`https://raw.githubusercontent.com/Fei-Craft/DS-Bot/${tag}/ds-bot/package.json`]: manifest,
 })
 
 test('the newest released bot declares the verified DSH, offered to an older npm install', async () => {
@@ -103,8 +103,8 @@ test('a git or local install asks the public repo\'s latest release for its decl
     const view = await rt.dshUpdateCheck()
     assert.equal(view.verified, '8.8.8')
     assert.deepEqual(fetched, [
-      'https://api.github.com/repos/Fei2411/DS-Bot/releases/latest',
-      'https://raw.githubusercontent.com/Fei2411/DS-Bot/v9.0.0/ds-bot/package.json',
+      'https://api.github.com/repos/Fei-Craft/DS-Bot/releases/latest',
+      'https://raw.githubusercontent.com/Fei-Craft/DS-Bot/v9.0.0/ds-bot/package.json',
     ])
   }
 })

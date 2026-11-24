@@ -112,37 +112,54 @@ function pidAlive(pid) {
 export function sessionDirs(from, ids) {
   const root = join(from, 'sessions')
   const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
-  let candidates
-  const always = new Set()
-  if (process.platform !== 'win32' && ids.length >= 32 && ids.length * groups.length >= 512) {
-    candidates = new Map()
-    for (const group of groups) {
-      let names
-      try {
-        names = readdirSync(join(root, group))
-      } catch {
-        always.add(group)
-        continue
-      }
-      for (const name of names) {
-        // Native lookup can fold non-ASCII names differently on each filesystem.
-        if (/[^\x00-\x7f]/u.test(name)) always.add(group)
-        const key = name.toLowerCase()
-        if (!candidates.has(key)) candidates.set(key, new Set())
-        candidates.get(key).add(group)
-      }
-    }
-  }
+  const minIndexIds = 32
+  const findGroup = process.platform !== 'win32' && ids.length >= minIndexIds && ids.length * groups.length >= 512
+    ? sessionFinder(root, groups, ids.length === minIndexIds)
+    : id => groups.find(name => existsSync(join(root, name, id)))
   const found = []
   const missing = []
   for (const id of ids) {
-    const indexed = candidates !== undefined && id !== '' && id !== '.' && id !== '..' && !/[^\x01-\x7f]|[/\\]/u.test(id)
-    const matches = indexed ? candidates.get(id.toLowerCase()) : undefined
-    const group = groups.find(name => (!indexed || always.has(name) || matches?.has(name)) && existsSync(join(root, name, id)))
+    const group = findGroup(id)
     if (group === undefined) missing.push(id)
     else found.push({ id, group })
   }
   return { found, missing }
+}
+
+function sessionFinder(root, groups, probeFirst) {
+  const indexes = []
+  const paths = []
+  // At the indexing threshold, a single group's native probes can be cheaper than a listing.
+  const first = probeFirst ? join(root, groups[0]) : undefined
+  const start = probeFirst ? 1 : 0
+  return (id) => {
+    if (first !== undefined && existsSync(join(first, id))) return groups[0]
+    const key = id !== '' && id !== '.' && id !== '..' && !/[^\x01-\x7f]|[/\\]/u.test(id) ? id.toLowerCase() : undefined
+    for (let i = start; i < groups.length; i++) {
+      const path = paths[i] ??= join(root, groups[i])
+      if (key !== undefined) {
+        if (indexes[i] === undefined) indexes[i] = sessionIndex(path)
+        if (indexes[i] !== null && !indexes[i].has(key)) continue
+      }
+      if (existsSync(join(path, id))) return groups[i]
+    }
+  }
+}
+
+function sessionIndex(path) {
+  let names
+  try {
+    names = readdirSync(path)
+  } catch {
+    return null
+  }
+  const index = new Set()
+  for (const name of names) {
+    // Native lookup can fold non-ASCII names differently on each filesystem.
+    if (/[^\x00-\x7f]/u.test(name)) return null
+    index.add(name.toLowerCase())
+  }
+  return index
 }
 
 // fs.cp that tells `seen` the size of each file it is about to copy.
@@ -161,11 +178,38 @@ function cpSeen(source, target, { filter = () => true, seen, ...options }) {
 }
 
 async function copySessionDirs(from, to, sessions, signal, seen, each = () => {}) {
-  for (const [index, { id, group }] of sessions.entries()) {
-    signal?.throwIfAborted()
-    await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen })
-    each(index + 1, sessions.length)
+  // Keep the original order if two IDs could address the same path or nest inside each other.
+  const names = new Set()
+  const distinct = sessions.every(({ id }) => {
+    const name = id.toLowerCase()
+    if (!/^[A-Za-z0-9_-]+$/u.test(id) || names.has(name)) return false
+    names.add(name)
+    return true
+  })
+  let next = 0
+  let done = 0
+  let failure
+  const reportBytes = seen === undefined || signal === undefined ? seen : (size) => {
+    if (!signal.aborted) seen(size)
   }
+  const worker = async () => {
+    while (failure === undefined && next < sessions.length) {
+      const index = next++
+      const { id, group } = sessions[index]
+      try {
+        signal?.throwIfAborted()
+        await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen: reportBytes })
+        if (signal?.aborted) return
+        each(++done, sessions.length)
+      } catch (error) {
+        if (failure === undefined || index < failure.index) failure = { index, error }
+      }
+    }
+  }
+  // The caller can remove the destination as soon as this returns or throws.
+  await Promise.all(Array.from({ length: Math.min(distinct ? 4 : 1, sessions.length) }, worker))
+  if (failure !== undefined) throw failure.error
+  signal?.throwIfAborted()
 }
 
 async function moveSessionDirs(stage, to, sessions, signal) {
@@ -179,7 +223,7 @@ async function moveSessionDirs(stage, to, sessions, signal) {
 }
 
 /**
- * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
+ * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort lets active copies finish before rejecting.
  * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
  * @param {(done: number, total: number) => void} [onProgress] after each Session
  * @returns {Promise<string[]>} their ids

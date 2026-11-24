@@ -96,9 +96,10 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
     .then(async value => JSON.stringify(await afterRound(rt, roomId, value)))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
-  const answer = async (sessionId, exchangeId, text, turn) => {
+  const answer = async (sessionId, exchangeId, text, turn, { workTool } = {}) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
     await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (workTool !== undefined) await emit(sessionId, { type: 'tool/call', data: { callId: `tc-${turn}`, name: workTool, arguments: '{}' } })
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
     await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
   }
@@ -459,7 +460,7 @@ test('a relative file link a member writes reaches the group, and another Bot, a
   const chief = rt.state.mainBotIds[0]
   const writer = rt.state.rooms[room.id].members.find(id => id !== chief)
   sent.length = 0
-  await rt.teamTools.find(d => d.name === 'message_bot').execute({ to: rt.botOf(writer).name, message: 'Read [notes](notes.md#L3)', when: 'queue' }, {
+  await rt.teamTools.find(d => d.name === 'delegate_work').execute({ to: rt.botOf(writer).name, goal: 'Read [notes](notes.md#L3)', when: 'queue' }, {
     agent: { id: first.sessionId, session: { id: first.sessionId, header: { cwd: folder } }, inbox: { nextStep: [], nextTurn: [] } }, callId: 'c1',
   })
   const delivered = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
@@ -734,12 +735,12 @@ test('members call each other for as long as they call, and a user @ mid-round s
   await emit(room.id, userMessage('Start'))
   const running = relay(room.id, 'relay')
 
-  // Twenty calls back and forth, far past the old default of three per member.
+  // Twenty working calls back and forth, far past the old default of three per member.
   const spoken = []
   let turn = await turnFor(sent)
   for (let step = 0; step < 20; step += 1) {
     spoken.push(turn)
-    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1, { workTool: 'read' })
     turn = await turnFor(sent, ...spoken)
   }
   const writerSession = rt.state.rooms[room.id].sessions[writer.id]
@@ -1077,7 +1078,7 @@ test('a group stops answering its own status posts once the idle steps reach the
 
   // One status post and the status answer it gets count once: the step is the answer,
   // the post that opened the round is not a step of its own.
-  for (let step = 1; step <= 5; step += 1) {
+  for (let step = 1; step < ROOM_IDLE_RELAY_LIMIT; step += 1) {
     const { round: running } = await posted('暂无待办，静候下一步', `relay-${step}`)
     const turn = await turnFor(sent)
     assert.ok(turn, `round ${step} answers the post`)
@@ -1087,18 +1088,17 @@ test('a group stops answering its own status posts once the idle steps reach the
     assert.equal(state().idlePaused, undefined, 'not paused before the limit')
   }
 
-  // The sixth idle step is where the group stops: the round runs, and the answer that
-  // takes the count to the limit pauses the room with one notice.
-  const { round: sixth } = await posted('待命', 'relay-6')
+  // The step that reaches ROOM_IDLE_RELAY_LIMIT pauses the room with one notice.
+  const { round: lastIdle } = await posted('待命', `relay-${ROOM_IDLE_RELAY_LIMIT}`)
   const turning = await turnFor(sent)
-  assert.ok(turning, 'the round the sixth step counts in still runs')
-  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', 6)
-  await sixth
+  assert.ok(turning, 'the round the final idle step counts in still runs')
+  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', ROOM_IDLE_RELAY_LIMIT)
+  await lastIdle
   assert.equal(state().idleRelays, ROOM_IDLE_RELAY_LIMIT)
   assert.ok(state().idlePaused, 'the room is paused')
   const notices = state().log.filter(line => line.kind === 'notice' && line.reason === 'paused')
   assert.equal(notices.length, 1, 'the group hears about it once')
-  assert.match(lineText(notices[0]), /6 status updates with no new work/)
+  assert.match(lineText(notices[0]), new RegExp(`${ROOM_IDLE_RELAY_LIMIT} status updates with no new work`))
   assert.match(lineText(notices[0]), /the last from Writer/)
   assert.match(lineText(notices[0]), /until the user writes here/)
 
@@ -1740,4 +1740,80 @@ test('roomPrompt explicitly tells a member how many earlier unread group message
   assert.match(turn2.message.content[0].text, /\(12 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
   await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
   await running2
+})
+
+test('waitingLines preserves strict FIFO across nextStep, nextTurn, images, and non-user posts', async (t) => {
+  const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-fifo')
+  const first = await turnFor(sent)
+  assert.ok(first)
+
+  // 1) A steered image in nextStep must block draining a plain-text message queued in nextTurn.
+  await compose(room.id, [{ type: 'text', text: 'image in steer' }, { type: 'image', data: 'AAAA', mediaType: 'image/png' }], 'steer')
+  await compose(room.id, 'plain text in nextTurn', 'queue')
+  await answer(first.sessionId, first.message.source.exchangeId, 'chief done', 1)
+
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  assert.doesNotMatch(second.message.content[0].text, /plain text in nextTurn/, 'nextTurn text must not jump ahead of nextStep image')
+  assert.equal(inboxOf(room.id).nextStep.length, 1)
+  assert.equal(inboxOf(room.id).nextTurn.length, 1)
+
+  // 2) Clear nextStep image, place a non-user post ahead of a plain-text user message in nextTurn -> user message must not jump ahead.
+  inboxOf(room.id).nextStep.length = 0
+  inboxOf(room.id).nextTurn.unshift({ id: randomUUID(), role: 'user', source: { kind: 'bot', role: 'post', senderName: 'Chief' }, content: [{ type: 'text', text: '[Group post from Chief]\nqueued bot post' }] })
+  await answer(second.sessionId, second.message.source.exchangeId, 'writer done', 2)
+  const result = JSON.parse(await running)
+  assert.equal(result.replies.some(reply => reply.text?.includes('plain text in nextTurn')), false, 'user message behind a non-user post must wait in FIFO order')
+  assert.equal(inboxOf(room.id).nextTurn.length, 2)
+})
+
+test('removing or deleting a speaking member immediately resolves its round waiter, cleans cards, and lets the round continue', async (t) => {
+  for (const action of ['remove', 'delete']) {
+    const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+    t.after(stop)
+    const chief = (await call('state', {})).value.mainBotId
+    const writer = (await call('create-bot', { name: 'Writer' })).value
+    const tester = (await call('create-bot', { name: 'Tester' })).value
+    const room = (await call('create-room', { name: `R-${action}`, members: [chief, writer.id, tester.id] })).value
+    await call('update-room', { id: room.id, mode: 'everyone' })
+    sent.length = 0
+
+    await emit(room.id, userMessage('Count off'))
+    const running = relay(room.id, `relay-${action}`)
+    const chiefTurn = await turnFor(sent)
+    assert.ok(chiefTurn)
+    await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, 'Chief 1', 1)
+
+    // Writer is now speaking in ordered everyone mode (Tester is blocked behind Writer).
+    const writerTurn = await turnFor(sent, chiefTurn)
+    assert.ok(writerTurn)
+    const writerSid = writerTurn.sessionId
+    rt.state.questions[writerSid] = { id: 'q-stale', question: 'Stale?' }
+    ;(rt.state.views ??= {})[writerSid] = { id: 'v-stale', title: 'Stale' }
+    ;(rt.state.closedCards ??= {})[writerSid] = [{ id: 'c-stale' }]
+
+    // Remove or delete Writer mid-turn: waiter must settle immediately without 4-minute timeout!
+    if (action === 'remove') await rt.updateRoom(room.id, { members: [chief, tester.id] })
+    else await rt.deleteBot(writer.id)
+
+    assert.equal(rt.state.questions[writerSid], undefined, 'stale question card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.views[writerSid], undefined, 'stale view card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.closedCards[writerSid], undefined, 'stale closedCards must be cleaned on dropGroupSession')
+
+    // Tester must immediately get its turn right after Writer leaves, with no bogus 'missed' notice!
+    const testerTurn = await turnFor(sent, chiefTurn, writerTurn)
+    assert.ok(testerTurn, `Tester must immediately proceed after Writer is ${action}d`)
+    assert.match(testerTurn.message.content[0].text, /Writer \(left the group\)/)
+    await answer(testerTurn.sessionId, testerTurn.message.source.exchangeId, 'Tester 3', 2)
+
+    const result = JSON.parse(await running)
+    assert.equal(result.replies.some(reply => reply.kind === 'missed'), false, 'left member must never emit a missed timeout notice')
+    assert.deepEqual(rt.state.roomBatches ?? {}, {})
+    assert.equal(rt.roomWaiters.size, 0)
+  }
 })

@@ -64,16 +64,47 @@ export function pageThinkingMs(events, { atTip = false } = {}) {
 }
 
 const COALESCE_TURN_SPAN = 50
+const SETTLED_MAX = 10_000
 
 export function install(rt) {
-  // A closed turn's events do not change; cache its answer once turn/end exists.
+  // A closed turn's events do not change; cache its answer once turn/end exists,
+  // bounded by LRU eviction and cleared when a Bot is deleted.
   const settled = new Map()
   const pending = new Map()
   const queued = new Map()
 
+  const getSettled = (key) => {
+    const value = settled.get(key)
+    settled.delete(key)
+    settled.set(key, value)
+    return value
+  }
+  const setSettled = (key, value) => {
+    settled.delete(key)
+    settled.set(key, value)
+    if (settled.size > SETTLED_MAX) settled.delete(settled.keys().next().value)
+  }
+
+  rt.onBotDelete?.((botId) => {
+    const bot = rt.botOf?.(botId)
+    const prefixes = new Set([
+      botId,
+      rt.chatOf?.(botId),
+      ...(bot?.segments ?? []).map(seg => seg?.sessionId),
+      ...(bot?.tasks ?? []).flatMap(task => [task?.sessionId, ...(task?.segments ?? []).map(seg => seg?.sessionId)]),
+      ...(rt.groupSessionsOf?.(botId) ?? []),
+    ].filter(Boolean).map(sid => `${sid}:`))
+    if (prefixes.size === 0) return
+    for (const key of settled.keys()) {
+      for (const prefix of prefixes) {
+        if (key.startsWith(prefix)) { settled.delete(key); break }
+      }
+    }
+  })
+
   const readThinking = async (sessionId, turn) => {
     const key = `${sessionId}:${turn}`
-    if (settled.has(key)) return settled.get(key)
+    if (settled.has(key)) return getSettled(key)
     // Widen slightly to include nearby queued waiters for the same Session so one scan answers all of them.
     let stopBefore = turn
     for (const waiter of queued.get(sessionId) ?? []) {
@@ -99,15 +130,15 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/end' && typeof event.data?.turn === 'number' && event.data.turn >= stopBefore) {
         const closedTurn = event.data.turn
-        settled.set(`${sessionId}:${closedTurn}`, thinkingMs(byTurn.get(closedTurn) ?? [], closedTurn))
+        setSettled(`${sessionId}:${closedTurn}`, thinkingMs(byTurn.get(closedTurn) ?? [], closedTurn))
       }
     }
-    return settled.has(key) ? settled.get(key) : thinkingMs(byTurn.get(turn) ?? [], turn)
+    return settled.has(key) ? getSettled(key) : thinkingMs(byTurn.get(turn) ?? [], turn)
   }
 
   rt.thinkingOf = (sessionId, turn) => {
     const key = `${sessionId}:${turn}`
-    if (settled.has(key)) return Promise.resolve(settled.get(key))
+    if (settled.has(key)) return Promise.resolve(getSettled(key))
     let waiters = queued.get(sessionId)
     if (waiters === undefined) {
       waiters = new Set()

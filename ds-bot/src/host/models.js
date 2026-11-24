@@ -186,8 +186,9 @@ export function install(rt) {
   // The thinking levels a model serves: `{efforts: [{id, name, description?}],
   // defaultEffort?}`, or undefined when it has none or the provider cannot say.
   async function reasoningOf(ref) {
+    const now = Date.now()
     const cached = reasoningCache.get(ref)
-    if (cached !== undefined && Date.now() - cached.at < CATALOG_TTL_MS) return cached.value
+    if (cached !== undefined && now - cached.at < CATALOG_TTL_MS) return cached.value
     const route = splitRef(ref)
     const service = llm()
     if (service === undefined) return undefined
@@ -196,7 +197,11 @@ export function install(rt) {
       efforts: (info.reasoning.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name ?? effort.id, ...(effort.description ? { description: effort.description } : {}) })),
       ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
     }
-    reasoningCache.set(ref, { at: Date.now(), value })
+    const at = Date.now()
+    for (const [key, entry] of reasoningCache) {
+      if (at - entry.at >= CATALOG_TTL_MS) reasoningCache.delete(key)
+    }
+    reasoningCache.set(ref, { at, value })
     return value
   }
 
@@ -613,8 +618,30 @@ export function install(rt) {
     if (bot !== undefined) await applyModel(bot, { force: true })
   }
 
+  const forgetSessionModel = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    sessionSelections.delete(sessionId)
+    selectedSessions.delete(sessionId)
+    roomRetry.delete(sessionId)
+    if (state.sessionModelSelections !== undefined) delete state.sessionModelSelections[sessionId]
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    sessionSelections.delete(id)
+    selectedSessions.delete(id)
+  })
+
   const lifetime = new AbortController()
-  ctx.effect?.(() => () => { closing = true; lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  ctx.effect?.(() => () => {
+    closing = true
+    lifetime.abort()
+    reasoningCache.clear()
+    sessionSelections.clear()
+    selectedSessions.clear()
+    roomRetry.clear()
+    refused.clear()
+  }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
@@ -622,6 +649,6 @@ export function install(rt) {
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm, forgetSessionModel,
   })
 }

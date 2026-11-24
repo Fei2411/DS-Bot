@@ -37,7 +37,7 @@ export const SEARCH_ENTRIES = [
   { id: 'secrets', label: 'Secrets', group: 'Tools', page: 'secrets', icon: 'secrets', keywords: 'encrypt passphrase password keys 密钥 加密 口令' },
   { id: 'plugins', label: 'Plugins', group: 'Plugins', page: 'plugins', icon: 'plugins', keywords: 'plugin extension browser ego playwright mcp registry catalog 插件 扩展 浏览器 市场 仓库' },
   { id: 'usage', label: 'Usage', group: 'Usage', page: 'usage', icon: 'usage', keywords: 'tokens cost stats chart 用量 统计 消耗' },
-  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update release github guide walkthrough 关于 版本 更新 引导' },
+  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update auto-update automatic release github guide walkthrough 关于 版本 更新 自动更新 引导' },
   { id: 'feedback', label: 'Feedback', group: 'About DS Bot', page: 'feedback', icon: 'feedback', keywords: 'bug error log diagnostics issue 反馈 报错 日志 诊断' },
 ]
 

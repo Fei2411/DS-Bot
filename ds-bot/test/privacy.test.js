@@ -130,6 +130,51 @@ async function start({ services = {}, privateBot = true, archives, memberPick = 
 
 const CLOSED = /private Bot/
 
+for (const child of [false, true]) test('private relative file approvals include their actual destination; child=' + child, async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const evidence = []
+  env.rt.requestActionApproval = async (_request, action) => { evidence.push(action); return 'allowed-once' }
+  const agent = env.agentOf(child ? 'private-child' : P)
+  if (child) Object.assign(agent.session.header, { parentSession: P, origin: 'subagent' })
+  for (const cwd of [env.project, env.team]) {
+    agent.session.header.cwd = cwd
+    assert.equal((await env.run('write', { file_path: 'report.txt', content: 'report' }, agent.id, agent)).ran, true)
+  }
+  assert.equal(evidence[0].cwd, env.project)
+  assert.equal(evidence[0].path, join(env.project, 'report.txt'))
+  assert.equal(evidence[0].resolvedPath, join(env.project, 'report.txt'))
+  assert.equal(evidence[1].path, join(env.team, 'report.txt'))
+  assert.notDeepEqual(evidence[0], evidence[1])
+})
+
+test('private file approval cannot be reused after a link target changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  const path = join(env.project, 'report.txt')
+  const realBeyond = env.rt.realBeyond
+  let moved = false
+  env.rt.realBeyond = value => value === path && moved ? Promise.resolve(join(env.team, 'report.txt')) : realBeyond(value)
+  env.rt.requestActionApproval = async () => { moved = true; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+test('private file approval cannot be reused after its effective directory changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  env.rt.requestActionApproval = async () => { agent.session.header.cwd = env.team; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+
 test('only the user makes a Bot private, and the Bot needs a folder of its own', async (t) => {
   const { rt, project, team, state, stop } = await start({ privateBot: false })
   t.after(stop)
@@ -254,6 +299,27 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   // Its own Bot still reads that part, and so does a search that names it.
   assert.deepEqual(await run('session_trace', { session_id: 'p-bg' }, P), { ran: true })
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
+})
+
+test('pruned private task history stays protected after reloading state and deleting its Bot', async (t) => {
+  const { rt, run, state, stop } = await start()
+  t.after(stop)
+  const bot = rt.botOf(P)
+  bot.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `task-${n}`, sessionId: `retired-private-${n}`, status: 'completed',
+  }))
+  bot.tasks[0].segments = [{ sessionId: 'retired-private-earlier' }]
+  await rt.reconcileTasksAfterRestart()
+  const saved = state().bots[P]
+  assert.equal(saved.tasks.length, 50)
+  assert.deepEqual(saved.retiredTaskSessions, ['retired-private-0', 'retired-private-earlier'])
+  rt.state.bots[P] = saved
+  const ids = { session_ids: saved.retiredTaskSessions }
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.deepEqual(await run('session_search', ids, P), { ran: true })
+  await rt.deleteBot(P)
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.ok(ids.session_ids.every(id => state().privateArchives[0].sessionIds.includes(id)))
 })
 
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {

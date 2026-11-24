@@ -4,6 +4,7 @@ import {
   createControlFrame,
   decodeControlFrame,
   encodeControlFrame,
+  utf8ByteLength,
   type ConnectAcceptedPayload,
   type ConnectRequestPayload,
   type ControlFrameByteLimits,
@@ -89,9 +90,16 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       // link the socket's own close event can take minutes to arrive.
       let ended = false
       let watchdog: ReturnType<typeof setInterval> | undefined
+      const detachHandlers = () => {
+        socket.onopen = null
+        socket.onmessage = null
+        socket.onerror = null
+        socket.onclose = null
+      }
       const endSocket = (reason?: Error, emit = true) => {
         if (ended) return
         ended = true
+        detachHandlers()
         if (reason !== undefined) this.closeReason = reason
         socket.close()
         if (this.socket === socket) {
@@ -125,6 +133,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
         // failConnection or close() cleared still has to report the close.
         if (this.socket !== undefined && stale()) return
         ended = true
+        detachHandlers()
         if (watchdog !== undefined) clearInterval(watchdog)
         this.clearProbe()
         if (this.readyReject !== undefined) this.failConnection(Object.assign(new Error('Relay control channel closed before it was ready'), { code: 'SERVER_UNREACHABLE' }))
@@ -156,7 +165,8 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       counter: this.relayCounter,
       ciphertext: toBase64Url(data),
     } satisfies RelayPayload), this.controlFrameLimits)
-    await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength)
+    await waitForRelayCapacity(socket, utf8ByteLength(frame))
+    if (this.socket !== socket || socket.readyState !== 1) throw new Error('relay transport is not connected')
     socket.send(frame)
     this.bytesSent += data.byteLength
     this.relayCounter += 1

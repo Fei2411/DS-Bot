@@ -8,9 +8,11 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { SOURCE_KIND } from '../constants.js'
+import { isSilentTurnText, REPLY_KIND, SOURCE_KIND } from '../constants.js'
+import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { boundedFetch } from './platforms/media.js'
 import { imViewChoices } from './view-choices.js'
 import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './view-form.js'
 
@@ -26,6 +28,12 @@ const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const CONSUMED_REQUESTS_KEEP = 200
 const WEIXIN_REQUESTS_KEEP = 200
+const FAILED_SENDS_MAX_PER_CHAT = 10
+const FAILED_IMAGE_BYTES_MAX = 20 * 1024 * 1024
+const REQUESTS_MAX = 1_000
+const RESUMED_ORIGINS_MAX = 200
+const WITHHELD_ORIGINS_MAX = 500
+const IM_VIA_SEQS_MAX = 500
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 // A quoted reply is answered with the message it quotes: the last messages sent
 // to a chat are kept by the ids the platform named them, and only their start.
@@ -91,6 +99,10 @@ export function install(rt) {
         connected: `Connected — you can talk to ${values.target} now.`,
         stopped: 'Stopped.',
         idle: 'Nothing is running.',
+        backgrounded: 'Moved the current turn to the background. Send a new message whenever you are ready.',
+        backgroundGroupOnly: 'Moving a turn to the background is only available in a Bot private chat.',
+        backgroundFailed: 'Could not move the current turn to the background right now.',
+        steerUsage: 'Write a message after /steer.',
         stale: 'This card was already answered.',
         noFile: 'This file cannot be sent here; send it on the computer.',
         greeting: `Hello, I am ${values.name}.`,
@@ -113,6 +125,10 @@ export function install(rt) {
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
         stopped: '已停下。',
         idle: '现在没有在做的活。',
+        backgrounded: '已将当前工作转到后台，现在可以继续发新消息。',
+        backgroundGroupOnly: '转到后台仅支持 Bot 私聊。',
+        backgroundFailed: '当前暂时无法将这一轮转到后台。',
+        steerUsage: '请在 /steer 后写要插话的内容。',
         stale: '这张卡已经答过了。',
         noFile: '这个文件发不过去，请在电脑上发。',
         greeting: `你好，我是 ${values.name}。`,
@@ -135,6 +151,10 @@ export function install(rt) {
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
         stopped: '已停下。',
         idle: '現在沒有在做的活。',
+        backgrounded: '已將目前工作轉到背景，現在可以繼續發新訊息。',
+        backgroundGroupOnly: '轉到背景僅支援 Bot 私聊。',
+        backgroundFailed: '目前暫時無法將這一輪轉到背景。',
+        steerUsage: '請在 /steer 後寫要插話的內容。',
         stale: '這張卡已經答過了。',
         noFile: '這個檔案傳不過去，請在電腦上傳。',
         greeting: `你好，我是 ${values.name}。`,
@@ -157,6 +177,10 @@ export function install(rt) {
         connected: `接続しました。${values.target} と話せます。`,
         stopped: '停止しました。',
         idle: '実行中のタスクはありません。',
+        backgrounded: '現在の作業をバックグラウンドへ移動しました。新しいメッセージを送れます。',
+        backgroundGroupOnly: 'バックグラウンドへの移動は Bot との個別チャットでのみ使えます。',
+        backgroundFailed: '今は現在のターンをバックグラウンドへ移動できません。',
+        steerUsage: '/steer の後にメッセージを入力してください。',
         stale: 'このカードは回答済みです。',
         noFile: 'このファイルはここでは送信できません。PC から送信してください。',
         greeting: `こんにちは、${values.name} です。`,
@@ -179,6 +203,10 @@ export function install(rt) {
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
         stopped: '중지되었습니다.',
         idle: '진행 중인 작업이 없습니다.',
+        backgrounded: '현재 작업을 백그라운드로 옮겼습니다. 새 메시지를 보낼 수 있습니다.',
+        backgroundGroupOnly: '백그라운드로 옮기기는 Bot 개인 채팅에서만 사용할 수 있습니다.',
+        backgroundFailed: '지금은 현재 턴을 백그라운드로 옮길 수 없습니다.',
+        steerUsage: '/steer 뒤에 보낼 메시지를 입력해 주세요.',
         stale: '이미 응답한 카드입니다.',
         noFile: '이 파일은 여기서 보낼 수 없습니다. 컴퓨터에서 보내 주세요.',
         greeting: `안녕하세요, ${values.name}입니다.`,
@@ -201,6 +229,10 @@ export function install(rt) {
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
         stopped: 'Detenido.',
         idle: 'No hay nada en curso.',
+        backgrounded: 'El turno actual pasó a segundo plano. Puedes enviar un nuevo mensaje cuando quieras.',
+        backgroundGroupOnly: 'Pasar un turno a segundo plano solo está disponible en un chat privado con un Bot.',
+        backgroundFailed: 'No se pudo pasar el turno actual a segundo plano ahora mismo.',
+        steerUsage: 'Escribe un mensaje después de /steer.',
         stale: 'Esta tarjeta ya fue respondida.',
         noFile: 'Este archivo no se puede enviar por aquí; envíalo desde el ordenador.',
         greeting: `Hola, soy ${values.name}.`,
@@ -223,6 +255,10 @@ export function install(rt) {
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
         stopped: 'Arrêté.',
         idle: 'Rien n’est en cours.',
+        backgrounded: 'Le tour en cours a été déplacé en arrière-plan. Vous pouvez envoyer un nouveau message.',
+        backgroundGroupOnly: 'Le déplacement en arrière-plan n’est disponible que dans une discussion privée avec un Bot.',
+        backgroundFailed: 'Impossible de déplacer le tour en cours en arrière-plan pour le moment.',
+        steerUsage: 'Écrivez un message après /steer.',
         stale: 'Cette carte a déjà reçu une réponse.',
         noFile: 'Ce fichier ne peut pas être envoyé ici ; envoyez-le depuis l’ordinateur.',
         greeting: `Bonjour, je suis ${values.name}.`,
@@ -245,6 +281,10 @@ export function install(rt) {
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
         stopped: 'Gestoppt.',
         idle: 'Aktuell läuft nichts.',
+        backgrounded: 'Der aktuelle Durchlauf wurde in den Hintergrund verschoben. Du kannst jetzt eine neue Nachricht senden.',
+        backgroundGroupOnly: 'Das Verschieben in den Hintergrund ist nur im Einzelchat mit einem Bot verfügbar.',
+        backgroundFailed: 'Der aktuelle Durchlauf kann gerade nicht in den Hintergrund verschoben werden.',
+        steerUsage: 'Schreibe eine Nachricht nach /steer.',
         stale: 'Diese Karte wurde bereits beantwortet.',
         noFile: 'Diese Datei kann hier nicht gesendet werden; sende sie am Computer.',
         greeting: `Hallo, ich bin ${values.name}.`,
@@ -267,6 +307,16 @@ export function install(rt) {
   // ---------------------------------------------------------------- runtime file
   const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
   const resendCards = new WeakSet()
+  const MAX_SEEN_INBOUND_IDS = 1000
+  const seenInboundIds = new Set()
+  const markInboundSeen = (key) => {
+    if (seenInboundIds.has(key)) return false
+    seenInboundIds.add(key)
+    while (seenInboundIds.size > MAX_SEEN_INBOUND_IDS) {
+      seenInboundIds.delete(seenInboundIds.values().next().value)
+    }
+    return true
+  }
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -488,7 +538,7 @@ export function install(rt) {
   }
 
   const envFor = async (conn, runtime) => ({
-    fetch: globalThis.fetch,
+    fetch: boundedFetch(),
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
@@ -590,6 +640,12 @@ export function install(rt) {
   // Session id → the chat its running turn came from.
   const origins = new Map()
   const mixed = new Set()
+  // Sessions whose current turn began with non-IM input; async dispatch/task returns
+  // coalesced into the same turn must not retroactively claim IM delivery for it.
+  const nonImTurn = new Set()
+  // Groups that started a live non-IM (Web/Desktop) round in this process; cleared once
+  // the room becomes idle or an IM chat claims it.
+  const roomWebRounds = new Set()
 
   // The target a chat currently points at, as a comparable string. A direct chat falls
   // back to the connection's Bot; an unbound group chat has no target.
@@ -611,19 +667,61 @@ export function install(rt) {
   const withheldOrigins = new Map()
   // IM origin held across a part switch until the resumed/handoff message opens.
   const resumedOrigins = new Map()
+  const jobImageBytes = (job) => {
+    const data = job?.image?.data
+    if (data === undefined || data === null) return 0
+    return typeof data === 'string' ? Buffer.byteLength(data) : Number(data.byteLength ?? data.length ?? 0)
+  }
+  const trimFailedSends = (id, chatKey) => {
+    const list = failedSends.get(id)?.get(chatKey)
+    if (list !== undefined) {
+      while (list.length > FAILED_SENDS_MAX_PER_CHAT) {
+        const dropped = list.shift()
+        void Promise.resolve(dropped?.onDrop?.()).catch(() => {})
+      }
+      if (list.length === 0) {
+        failedSends.get(id)?.delete(chatKey)
+        if (failedSends.get(id)?.size === 0) failedSends.delete(id)
+      }
+    }
+    let imageBytes = 0
+    for (const chats of failedSends.values()) {
+      for (const jobs of chats.values()) {
+        for (const job of jobs) imageBytes += jobImageBytes(job)
+      }
+    }
+    if (imageBytes <= FAILED_IMAGE_BYTES_MAX) return
+    for (const [connId, chats] of failedSends.entries()) {
+      for (const [key, jobs] of chats.entries()) {
+        for (let i = 0; i < jobs.length && imageBytes > FAILED_IMAGE_BYTES_MAX;) {
+          const bytes = jobImageBytes(jobs[i])
+          if (bytes === 0) { i += 1; continue }
+          const [dropped] = jobs.splice(i, 1)
+          imageBytes -= bytes
+          void Promise.resolve(dropped?.onDrop?.()).catch(() => {})
+        }
+        if (jobs.length === 0) chats.delete(key)
+      }
+      if (chats.size === 0) failedSends.delete(connId)
+    }
+  }
+  const setWithheldOrigin = (sessionId, value) => {
+    withheldOrigins.delete(sessionId)
+    withheldOrigins.set(sessionId, value)
+    while (withheldOrigins.size > WITHHELD_ORIGINS_MAX) withheldOrigins.delete(withheldOrigins.keys().next().value)
+  }
   const holdImOrigin = (sessionId) => {
     if (sessionId === undefined || mixed.has(sessionId)) return undefined
     const entry = origins.get(sessionId)
     if (entry === undefined) return undefined
     const token = randomUUID()
     resumedOrigins.set(token, { ...entry, activeOn: sessionId })
+    while (resumedOrigins.size > RESUMED_ORIGINS_MAX) resumedOrigins.delete(resumedOrigins.keys().next().value)
     return token
   }
   const captureImOrigin = (sessionId) => {
     if (sessionId === undefined || mixed.has(sessionId)) return undefined
-    const entry = origins.get(sessionId)
-    if (entry === undefined) return undefined
-    return { connId: entry.connId, chatKey: entry.chatKey, senderId: entry.senderId, ...(entry.binding !== undefined ? { binding: entry.binding } : {}) }
+    return normalizeImOrigin(origins.get(sessionId))
   }
   const originFromSaved = (entry) => {
     if (entry?.connId === undefined || entry?.chatKey === undefined) return undefined
@@ -651,7 +749,7 @@ export function install(rt) {
     if (sessionId === undefined || connId === undefined) return
     if (apiOrigins.has(sessionId)) return
     if (mixed.has(sessionId)) {
-      if (!withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
+      if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
       return
     }
     const previous = origins.get(sessionId)
@@ -670,12 +768,14 @@ export function install(rt) {
       bound = conn === undefined ? undefined : bindingOf(conn, chatKey)
     }
     origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
+    const claimedRoom = rt.roomOf(sessionId)
+    if (claimedRoom !== undefined) roomWebRounds.delete(claimedRoom.id)
   }
   const forgetHeldOrigins = (sessionId) => {
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
   }
   const dropOrigin = (sessionId) => {
-    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) withheldOrigins.set(sessionId, false)
+    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
     origins.delete(sessionId)
     mixed.add(sessionId)
     forgetHeldOrigins(sessionId)
@@ -684,16 +784,61 @@ export function install(rt) {
     apiOrigins.delete(sessionId)
     origins.delete(sessionId)
     mixed.delete(sessionId)
+    nonImTurn.delete(sessionId)
     withheldOrigins.delete(sessionId)
   }
   const warnWithheldOrigin = (sessionId) => {
     if (withheldOrigins.get(sessionId) !== false) return
-    withheldOrigins.set(sessionId, true)
+    setWithheldOrigin(sessionId, true)
     rt.warn('ds-bot: IM reply withheld: turn origin was dropped or mixed')
   }
   const clearImOrigin = (sessionId) => {
     resetOrigin(sessionId)
     detachHeldOrigin(sessionId)
+    const room = rt.roomOf(sessionId)
+    if (room !== undefined) roomWebRounds.delete(room.id)
+  }
+  const clearRoomWebRound = (roomId) => {
+    if (roomId !== undefined) roomWebRounds.delete(roomId)
+  }
+  const taintRoomImOrigin = (roomId, incomingOrigin) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    const live = origins.get(roomSid)
+    if (live !== undefined) {
+      if (!sameImChat(live, incomingOrigin)) {
+        dropOrigin(roomSid)
+        roomWebRounds.add(room.id)
+      }
+    } else {
+      roomWebRounds.add(room.id)
+    }
+  }
+  const hasActiveWebWork = (room, excludeSessionId) => {
+    if (room === undefined) return false
+    if (rt.roomActive?.(room.id) === true) return true
+    if (!roomWebRounds.has(room.id)) return false
+    const excludeBotId = excludeSessionId === undefined ? undefined : rt.groupOwners.get(excludeSessionId)?.botId
+    const hasNonImRoomTask = (botId) => (rt.botOf(botId)?.tasks ?? [])
+      .some(task => task && task.roomId === room.id && ['running', 'waiting_work', 'waiting_approval'].includes(task.status) && task.imOrigin === undefined)
+    const roomMidTurn = rt.live.get(rt.sessionOfRoom(room))?.turn !== undefined
+    const working = (roomMidTurn && (rt.roomInbox?.get(room.id)?.length ?? 0) > 0)
+      || rt.roomBatchPending?.(room.id) === true
+      || (rt.workingInRoom?.(room) ?? []).some((entry) => {
+        const id = entry.bot?.id
+        if (id === undefined || id === excludeBotId) return false
+        const sid = room.sessions?.[id]
+        const liveTurn = sid !== undefined && (rt.live.get(sid)?.turn !== undefined || rt.live.get(sid)?.retrying === true)
+        const liveSub = sid !== undefined && rt.hasSubagents?.(sid) === true
+        return liveTurn || liveSub || hasNonImRoomTask(id)
+      })
+      || (excludeSessionId !== undefined && (rt.hasSubagents?.(excludeSessionId) === true || (excludeBotId !== undefined && hasNonImRoomTask(excludeBotId))))
+      || [...rt.groupOwners].some(([id, owner]) => owner.roomId === room.id && id !== excludeSessionId
+        && (rt.live.get(id)?.turn !== undefined || rt.live.get(id)?.retrying === true))
+      || [...(rt.switchJobs?.() ?? [])].some(job => job.roomId === room.id && job.botId !== excludeBotId)
+    if (!working) roomWebRounds.delete(room.id)
+    return working
   }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
@@ -734,20 +879,26 @@ export function install(rt) {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
     requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now(), ...(roomCardOrigin === undefined ? {} : { roomCardOrigin }) })
+    while (requests.size > REQUESTS_MAX) requests.delete(requests.keys().next().value)
   }
   const restoreCardRoomOrigin = (sessionId, saved) => {
     const owner = rt.groupOwners.get(sessionId)
     if (owner === undefined || saved === undefined) return
     const room = rt.roomOf(owner.roomId)
-    const roomSid = room?.sessionId ?? owner.roomId
-    if (originFromSaved(saved) === undefined) {
+    if (room === undefined) return
+    const roomSid = rt.sessionOfRoom(room)
+    if (originFromSaved(saved) === undefined || saved.binding !== `room:${room.id}`) {
+      dropOrigin(roomSid)
+      return
+    }
+    if (nonImTurn.has(sessionId)) {
       dropOrigin(roomSid)
       return
     }
     const live = origins.get(roomSid)
-    if (live === undefined && !mixed.has(roomSid) && rt.roomActive?.(owner.roomId) !== true) {
+    if (live === undefined && !mixed.has(roomSid) && !hasActiveWebWork(room, sessionId)) {
       claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-    } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+    } else if (live !== undefined && !sameImChat(live, saved)) {
       dropOrigin(roomSid)
     }
   }
@@ -773,8 +924,7 @@ export function install(rt) {
         if (mixed.has(roomSid)) return undefined
         const saved = task.dispatchApprovalOrigin
         const liveReport = rt.roomReportImOrigin?.(entry.roomId, entry.botId)
-        if (liveReport !== undefined && liveReport.connId === saved.connId && liveReport.chatKey === saved.chatKey
-          && liveReport.senderId === saved.senderId && liveReport.binding === saved.binding) {
+        if (sameImOrigin(liveReport, saved)) {
           return originFromSaved(saved)
         }
       }
@@ -817,6 +967,7 @@ export function install(rt) {
     const idx = insertBefore !== undefined ? list.indexOf(insertBefore) : -1
     if (idx !== -1) list.splice(idx, 0, job)
     else list.push(job)
+    trimFailedSends(id, chatKey)
     setSendStatus(id, chatKey, { state: 'error', error: errorText })
   }
   const clearSettledSendStatus = (id, chatKey, runner, settled) => {
@@ -996,6 +1147,7 @@ export function install(rt) {
         return
       }
       const prepared = await prepareOutboundReply(body, {
+        maxBytes: adapters[conn.platform]?.imageMaxBytes,
         resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
           sessionId,
           ...(botId !== undefined ? { botId } : {}),
@@ -1258,88 +1410,175 @@ export function install(rt) {
     const body = raw.trim()
     const chat = conn.chats[msg.chat.key]
     const target = resolveTarget(conn, chat)
-    if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) return
-    if (/^\/start(?:@\S+)?\s*$/.test(body)) {
-      const name = target === undefined ? undefined : targetName(conn, target)
-      await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
-      return
+    const platformMsgId = msg.messageId !== undefined && String(msg.messageId).trim() !== '' ? String(msg.messageId).trim() : ''
+    const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
+    // Deduplicate platform redeliveries BEFORE card-answer or command handlers so a
+    // redelivered ordinary message (e.g. "1") can never answer a newly opened card (#2077).
+    if (inboundKey !== '' && Array.isArray(conn.seenInbound) && conn.seenInbound.includes(inboundKey)) return
+    if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
+    const persistInboundSeen = async () => {
+      if (inboundKey === '') return
+      const seen = Array.isArray(conn.seenInbound) ? conn.seenInbound : (conn.seenInbound = [])
+      if (!seen.includes(inboundKey)) {
+        seen.push(inboundKey)
+        while (seen.length > 200) seen.shift()
+        await rt.save().catch(() => {})
+      }
     }
-    if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
+    const releaseInboundSeen = () => {
+      if (inboundKey !== '') seenInboundIds.delete(inboundKey)
+    }
+    try {
+      if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) {
+        await persistInboundSeen()
+        return
+      }
+      if (/^\/start(?:@\S+)?\s*$/.test(body)) {
+        const name = target === undefined ? undefined : targetName(conn, target)
+        await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
+        await persistInboundSeen()
+        return
+      }
+      if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
+        await persistInboundSeen()
+        await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
+        return
+      }
+      if (/^\/(?:background|bg)(?:@\S+)?\s*$/.test(body)) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        if (target.botId === undefined) {
+          await sendText(conn, msg.chat, text('backgroundGroupOnly'))
+          await persistInboundSeen()
+          return
+        }
+        const operationId = inboundKey !== '' ? `im:${conn.platform}:bg:${inboundKey}` : undefined
+        let res
+        try {
+          res = await rt.moveForegroundToBackground({ botId: target.botId, operationId })
+        } catch (error) {
+          const terminal = ['bot/idle', 'bot/stale', 'bot/card-open', 'bot/pending-input', 'bot/unsupported', 'bot/read-only'].includes(error?.code)
+          if (!terminal) releaseInboundSeen()
+          else await persistInboundSeen()
+          await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
+          return
+        }
+        await persistInboundSeen()
+        await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
+        return
+      }
+      let promptMode = 'queue'
+      let effectiveBody = body
+      const steerCommand = /^\/steer(?:@\S+)?(?:\s+([\s\S]*))?$/.exec(body)
+      if (steerCommand !== null) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        const steerText = (steerCommand[1] ?? '').trim()
+        if (steerText === '' && (msg.images ?? []).length === 0 && (msg.files ?? []).length === 0) {
+          await sendText(conn, msg.chat, text('steerUsage'))
+          await persistInboundSeen()
+          return
+        }
+        effectiveBody = steerText
+        if (target.botId !== undefined) promptMode = 'steer'
+      }
+      if (NUMBERS.test(body)) {
+        const picked = body.trim().split(/\s+/).map(Number)
+        const held = newestOpenCard(conn, msg.chat.key)
+        // Anything that does not clearly answer the newest open card — a stale
+        // source, an out-of-range pick, several picks on a single choice — is a
+        // normal message for the Bot, never swallowed and never 'stale'.
+        if (held !== undefined && held.cardKey.startsWith('q:')) {
+          const found = questionById(held.cardKey.slice(2))
+          if (found !== undefined) {
+            const options = found.question.options ?? []
+            const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
+              && picked.every(index => options[index - 1] !== undefined)
+            if (inRange) {
+              const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
+              if (answered !== false) { await persistInboundSeen(); return }
+            }
+          }
+        } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
+          const found = viewById(held.cardKey.slice(2))
+          if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
+            const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
+            if (answered !== false) { await persistInboundSeen(); return }
+          }
+        } else if (held !== undefined && held.cardKey.startsWith('a:')
+          && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
+          const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
+          if (entry !== undefined) {
+            const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
+            if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
+            if (answered !== false) { await persistInboundSeen(); return }
+          }
+        }
+      }
       if (target === undefined) {
         await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
         return
       }
-      const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
-      await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
-      return
-    }
-    if (NUMBERS.test(body)) {
-      const picked = body.trim().split(/\s+/).map(Number)
-      const held = newestOpenCard(conn, msg.chat.key)
-      // Anything that does not clearly answer the newest open card — a stale
-      // source, an out-of-range pick, several picks on a single choice — is a
-      // normal message for the Bot, never swallowed and never 'stale'.
-      if (held !== undefined && held.cardKey.startsWith('q:')) {
-        const found = questionById(held.cardKey.slice(2))
-        if (found !== undefined) {
-          const options = found.question.options ?? []
-          const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
-            && picked.every(index => options[index - 1] !== undefined)
-          if (inRange) {
-            const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
-            if (answered !== false) return
+      const sessionId = target.botId ?? target.roomId
+      let requestId
+      try {
+        // The receipt has to sit on the Session that takes the message. A group's own
+        // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
+        // first one, so uploading under the id leaves the receipt on a Session the
+        // message never reaches and DSH drops the file (#1121).
+        const uploadTo = target.botId !== undefined
+          ? rt.chatOf(target.botId)
+          : rt.sessionOfRoom(rt.roomOf(target.roomId))
+        const content = []
+        // A quoted reply goes in as the quoted message, then what the user said:
+        // commands above are read from the reply alone.
+        const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
+        const said = quoted === undefined ? effectiveBody : composeQuoted(effectiveBody, quoted)
+        if (said !== '') content.push({ type: 'text', text: said })
+        for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+        const env = await envFor(conn)
+        for (const file of msg.files ?? []) {
+          try {
+            const receiptId = await env.uploadFile(uploadTo, file)
+            content.push({ type: 'file', receiptId })
+          } catch {
+            await sendText(conn, msg.chat, text('noFile'))
           }
         }
-      } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
-        const found = viewById(held.cardKey.slice(2))
-        if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
-          const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
-          if (answered !== false) return
+        if (content.length === 0) {
+          releaseInboundSeen()
+          return
         }
-      } else if (held !== undefined && held.cardKey.startsWith('a:')
-        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
-        const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
-        if (entry !== undefined) {
-          const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
-          if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
-          if (answered !== false) return
+        requestId = inboundKey !== ''
+          ? `im:${conn.platform}:${inboundKey}`
+          : `im:${conn.platform}:${randomUUID()}`
+        // The turn this starts belongs to this chat: its replies go back here and nowhere else.
+        if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
+        else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
+        await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
+        // Persist `conn.seenInbound` ONLY after the receiving DSH Session confirms flush() === true
+        // so a crash before session durability can never leave a persisted seen key that suppresses
+        // redelivery of a lost prompt.
+        if (inboundKey !== '' && await rt.confirmSessionFlushed?.(sessionId) === true) {
+          await persistInboundSeen()
         }
+      } catch (error) {
+        if (requestId !== undefined) requests.delete(requestId)
+        throw error
       }
+    } catch (error) {
+      releaseInboundSeen()
+      throw error
     }
-    if (target === undefined) {
-      await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
-      return
-    }
-    const sessionId = target.botId ?? target.roomId
-    // The receipt has to sit on the Session that takes the message. A group's own
-    // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
-    // first one, so uploading under the id leaves the receipt on a Session the
-    // message never reaches and DSH drops the file (#1121).
-    const uploadTo = target.botId !== undefined
-      ? rt.chatOf(target.botId)
-      : rt.sessionOfRoom(rt.roomOf(target.roomId))
-    const content = []
-    // A quoted reply goes in as the quoted message, then what the user said:
-    // commands above are read from the reply alone.
-    const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
-    const said = quoted === undefined ? body : composeQuoted(body, quoted)
-    if (said !== '') content.push({ type: 'text', text: said })
-    for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
-    const env = await envFor(conn)
-    for (const file of msg.files ?? []) {
-      try {
-        const receiptId = await env.uploadFile(uploadTo, file)
-        content.push({ type: 'file', receiptId })
-      } catch {
-        await sendText(conn, msg.chat, text('noFile'))
-      }
-    }
-    if (content.length === 0) return
-    const requestId = `im:${conn.platform}:${randomUUID()}`
-    // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
-    else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-    await rt.sendUser({ sessionId, content, requestId })
   }
 
   const onAction = (conn) => async (action) => {
@@ -1621,8 +1860,13 @@ export function install(rt) {
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
-          for (const { chatKey, chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
-            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
+          const liveConn = fresh(conn.id) ?? conn
+          for (const { chatKey, chat, target } of targetsOf(liveConn)) {
+            if (target === undefined || !busyOf(target)) continue
+            const sessionId = target.botId !== undefined ? rt.chatOf(target.botId) : (rt.roomOf(target.roomId)?.sessionId ?? target.roomId)
+            const origin = originOf(sessionId)
+            if (origin === undefined || origin.conn.id !== liveConn.id || origin.chatKey !== chatKey) continue
+            void runner.handle.typing({ key: chat.key ?? chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
           }
         }, TYPING_MS)
         runner.typing.unref?.()
@@ -1677,6 +1921,7 @@ export function install(rt) {
       queue.firstRetained = rest[0]
       if (pending !== undefined) pending.firstRetained ??= rest[0]
       failedFor(id, chatKey).push(...rest)
+      trimFailedSends(id, chatKey)
       setSendStatus(id, chatKey, { state: 'error', error: prevError || 'Stopped before delivery' })
     }
     await Promise.all(dropped)
@@ -1980,9 +2225,6 @@ export function install(rt) {
   const imVia = new Map()
   // Live-only launch facts: replayed/persisted work must not inherit a new turn's chat.
   const turnWork = new Map()
-  const sameClaim = (a, b) => a !== undefined && b !== undefined
-    && a.connId === b.connId && a.chatKey === b.chatKey
-    && a.senderId === b.senderId && a.binding === b.binding
   const ownsNotice = (sessionId, message) => {
     if (rt.groupOwners.has(sessionId)) return false
     const work = turnWork.get(sessionId)
@@ -1995,7 +2237,100 @@ export function install(rt) {
     } else if (source?.kind === 'subagent-settled') {
       launch = work?.children.get(source.senderSessionId)
     }
-    return sameClaim(launch, origins.get(sessionId)) && originOf(sessionId) !== undefined
+    return sameImOrigin(launch, origins.get(sessionId)) && originOf(sessionId) !== undefined
+  }
+  // Shared saved-origin restoration for background task reports and IM dispatch returns
+  // (`reply` / `report`). Never lets an async return retroactively claim a turn that began
+  // with non-IM input, and never re-arms a group while a live Web round or late Web member
+  // is still working in that group.
+  const restoreSavedOrigin = (sessionId, saved, { roomId, requireBinding = false, dropWhenUnsaved = false } = {}) => {
+    if (roomId !== undefined) {
+      const room = rt.roomOf(roomId)
+      const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+      if (roomSid === undefined) return
+      const valid = saved !== undefined && saved.mixed !== true
+        && originFromSaved(saved) !== undefined
+        && (!requireBinding || saved.binding === `room:${room.id}`)
+      if (valid) {
+        if (nonImTurn.has(sessionId)) {
+          dropOrigin(roomSid)
+          return
+        }
+        const live = origins.get(roomSid)
+        if (live === undefined && !hasActiveWebWork(room, sessionId) && !mixed.has(roomSid)) {
+          // Restore after restart even while sibling IM tasks run, but never reopen
+          // an active round, live Web work, or a round blocked by conflicting IM claims.
+          claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+        } else if (live !== undefined && !sameImChat(live, saved)) {
+          // A different IM chat currently owns the room; mix so neither chat sees the other's report.
+          dropOrigin(roomSid)
+        }
+      } else {
+        const hadOrigin = origins.has(roomSid)
+        const hadActiveWeb = dropWhenUnsaved && hasActiveWebWork(room, sessionId)
+        if (!hadOrigin) nonImTurn.add(sessionId)
+        roomWebRounds.add(room.id)
+        if (saved !== undefined || hadOrigin || hadActiveWeb) {
+          dropOrigin(roomSid)
+        }
+      }
+      return
+    }
+    const ownerBotId = rt.chatOwners.get(sessionId)
+    const valid = saved !== undefined && saved.mixed !== true
+      && originFromSaved(saved) !== undefined
+      && (!requireBinding || (ownerBotId !== undefined && saved.binding === `bot:${ownerBotId}`))
+    if (!valid || nonImTurn.has(sessionId)) {
+      if (!valid && !origins.has(sessionId)) nonImTurn.add(sessionId)
+      if (nonImTurn.has(sessionId) || saved !== undefined || dropWhenUnsaved) dropOrigin(sessionId)
+      return
+    }
+    claimOrigin(sessionId, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+  }
+  const admitImRpc = (sessionId, rpcId, savedRequest, eventSeq) => {
+    if (Number.isInteger(eventSeq)) {
+      for (const sid of imVia.keys()) if (sid !== sessionId && !rt.chatOwners.has(sid)) imVia.delete(sid)
+      const seqs = { ...imVia.get(sessionId), [eventSeq]: rpcId.split(':')[1] }
+      const keys = Object.keys(seqs)
+      if (keys.length > IM_VIA_SEQS_MAX) {
+        keys.sort((a, b) => Number(a) - Number(b))
+        for (let i = 0; i < keys.length - IM_VIA_SEQS_MAX; i += 1) delete seqs[keys[i]]
+      }
+      imVia.set(sessionId, seqs)
+    }
+    // Unknown requests cannot claim a chat. Consumed requests are ignored above,
+    // including redelivery after their turn ended; they must not claim it again.
+    const asked = requests.get(rpcId)
+    requests.delete(rpcId)
+    if (savedRequest !== undefined) {
+      const { conn, entry } = savedRequest
+      entry.consumedOn = sessionId
+      void rt.save().catch(() => {})
+      claimOrigin(sessionId, conn.id, entry.chatKey, entry.senderId, entry.binding)
+    } else if (asked === undefined) dropOrigin(sessionId)
+    else {
+      consumedRequests.add(rpcId)
+      if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
+      restoreCardRoomOrigin(sessionId, asked.roomCardOrigin)
+      claimOrigin(sessionId, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+    }
+  }
+  // Classifies a user message pulled directly from a room Session's inbox (drainRoomInbox)
+  // through the same IM claim/drop/consume state machine as a normal user/message event.
+  const classifyRoomUserSource = (roomSid, source) => {
+    const room = rt.roomOf(roomSid)
+    if (room === undefined) return { ignored: true, origin: undefined }
+    const rpcId = source?.rpcId
+    if (typeof rpcId === 'string' && consumedRequests.has(rpcId)) return { ignored: true, origin: undefined }
+    const savedRequest = weixinRequestOf(source, roomSid)
+    if (savedRequest?.entry.consumedOn !== undefined) return { ignored: true, origin: undefined }
+    if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
+      admitImRpc(roomSid, rpcId, savedRequest)
+      return { ignored: false, origin: captureImOrigin(roomSid) }
+    }
+    if (origins.has(roomSid)) dropOrigin(roomSid)
+    roomWebRounds.add(room.id)
+    return { ignored: false, origin: undefined }
   }
   const imViaView = () => {
     for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
@@ -2006,6 +2341,7 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
       turnWork.set(session.id, { jobs: new Map(), children: new Map() })
+      nonImTurn.delete(session.id)
       const room = rt.roomOf(session.id)
       if (room === undefined) {
         resetOrigin(session.id)
@@ -2034,9 +2370,9 @@ export function install(rt) {
       if (typeof source?.rpcId === 'string' && consumedRequests.has(source.rpcId)) return
       const savedRequest = weixinRequestOf(source, session.id)
       if (savedRequest?.entry.consumedOn !== undefined) return
-      // Pure context notice injected before the user's message on a newly forked foreground;
+      // Pure context notices (foreground handoff, silent Bot notes/cancellations/stops)
       // never touch pendingReset or drop/mix the IM origin for this turn.
-      if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
+      if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || source.silent === true || source.role === 'note' || source.role === 'cancelled' || source.role === 'stopped')) {
         // intentionally ignored
       } else {
         const imOrigin = source?.imOrigin
@@ -2046,7 +2382,10 @@ export function install(rt) {
         // previous turn's origin.
         const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
         const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
-        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) {
+        const isOpeningPost = source?.kind === SOURCE_KIND && source.role === 'post' && source.openingPost === true
+        const continuesRoomWork = typeof imOrigin === 'string' || isTaskReport
+          || (source?.kind === SOURCE_KIND && source.role === 'post' && !isOpeningPost)
+        if (pendingReset.delete(session.id) && !continuesRoomWork) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
@@ -2074,90 +2413,56 @@ export function install(rt) {
           // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
           // the group's own Session without clobbering an unrelated live group origin.
           const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-          if (typeof source.roomId === 'string' && source.roomId !== '') {
-            const room = rt.roomOf(source.roomId)
-            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-            if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
-              const live = origins.get(roomSid)
-              const activeRound = rt.roomActive?.(room.id) === true
-              if (live === undefined && !activeRound && !mixed.has(roomSid)) {
-                // Restore after restart even while sibling tasks run, but never reopen
-                // an active non-IM round or a round blocked by conflicting IM claims.
-                claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-              } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
-                // A different IM chat currently owns the room; mix so neither chat sees the other's report.
-                dropOrigin(roomSid)
-              }
-            } else if (roomSid !== undefined && (saved !== undefined || origins.has(roomSid))) {
-              dropOrigin(roomSid)
-            }
-          } else if (originFromSaved(saved) === undefined) {
-            if (saved !== undefined) dropOrigin(session.id)
-          } else {
-            claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-          }
+          const roomId = typeof source.roomId === 'string' && source.roomId !== '' ? source.roomId : undefined
+          restoreSavedOrigin(session.id, saved, { roomId, requireBinding: false, dropWhenUnsaved: false })
         } else if (isDispatchReturn) {
           // Restore the originating IM chat when a Bot reply or group report returns for
-          // work dispatched from an IM turn (#1836, #1894), with the same pairing, binding
-          // and anti-mix checks as task-report. A non-IM (Web) dispatch return joining an
-          // active IM turn drops origin so Web results never leak into IM summaries.
+          // work dispatched from an IM turn (#1836, #1894), with pairing, binding and
+          // anti-mix checks. Non-IM dispatch returns joining an IM turn drop origin, and
+          // IM dispatch returns joining a non-IM turn never hijack it.
           const saved = rt.imReplyOrigin?.(source.replyTo)
           const owner = rt.groupOwners.get(session.id)
-          if (saved !== undefined) {
-            if (owner !== undefined) {
-              const room = rt.roomOf(owner.roomId)
-              const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-              if (saved.mixed !== true && roomSid !== undefined && originFromSaved(saved) !== undefined && saved.binding === `room:${room.id}`) {
-                const live = origins.get(roomSid)
-                const activeRound = rt.roomActive?.(room.id) === true
-                if (live === undefined && !activeRound && !mixed.has(roomSid)) {
-                  claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-                } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey || live.senderId !== saved.senderId)) {
-                  dropOrigin(roomSid)
-                }
-              } else if (roomSid !== undefined) {
-                dropOrigin(roomSid)
-              }
-            } else {
-              const ownerBotId = rt.chatOwners.get(session.id)
-              if (saved.mixed === true || ownerBotId === undefined || originFromSaved(saved) === undefined || saved.binding !== `bot:${ownerBotId}`) {
-                dropOrigin(session.id)
-              } else {
-                claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-              }
-            }
-          } else if (owner !== undefined) {
-            const room = rt.roomOf(owner.roomId)
-            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-            if (roomSid !== undefined && (origins.has(roomSid) || rt.roomActive?.(room.id) === true)) dropOrigin(roomSid)
-          } else {
-            dropOrigin(session.id)
-          }
+          restoreSavedOrigin(session.id, saved, { roomId: owner?.roomId, requireBinding: true, dropWhenUnsaved: true })
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
-          if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
-          // Unknown requests cannot claim a chat. Consumed requests are ignored above,
-          // including redelivery after their turn ended; they must not claim it again.
-          const asked = requests.get(rpcId)
-          requests.delete(rpcId)
-          if (savedRequest !== undefined) {
-            const { conn, entry } = savedRequest
-            entry.consumedOn = session.id
-            void rt.save().catch(() => {})
-            claimOrigin(session.id, conn.id, entry.chatKey, entry.senderId, entry.binding)
-          } else if (asked === undefined) dropOrigin(session.id)
-          else {
-            consumedRequests.add(rpcId)
-            if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
-            restoreCardRoomOrigin(session.id, asked.roomCardOrigin)
-            claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
-          }
+          admitImRpc(session.id, rpcId, savedRequest, event.seq)
         } else {
-          // Non-IM input can join the turn, but cannot claim or withdraw its IM chat.
+          // Non-IM input can join an already-claimed IM turn, but a turn that started with
+          // non-IM input must not be retroactively claimed by an async dispatch or task return.
+          const room = rt.roomOf(session.id)
+          if (room !== undefined) {
+            const preservesRoomOrigin = continuesRoomWork || source?.kind === REPLY_KIND
+            if (!preservesRoomOrigin) {
+              // Any non-IM input joining a group (Web/Desktop/App user message, external
+              // post_to_group, schedule, or goal step) immediately cuts off external IM
+              // forwarding so private group replies never leak to an IM chat.
+              if (origins.has(session.id)) dropOrigin(session.id)
+              roomWebRounds.add(room.id)
+            } else if (!origins.has(session.id)) {
+              roomWebRounds.add(room.id)
+            }
+          } else {
+            const memberOwner = rt.groupOwners.get(session.id)
+            if (memberOwner !== undefined) {
+              const memberRoom = rt.roomOf(memberOwner.roomId)
+              const memberRoomSid = memberRoom === undefined ? undefined : rt.sessionOfRoom(memberRoom)
+              const imGroupCall = source?.kind === SOURCE_KIND && source.role === 'room'
+                && memberRoomSid !== undefined && origins.has(memberRoomSid) && !mixed.has(memberRoomSid)
+              if (!imGroupCall) {
+                nonImTurn.add(session.id)
+                if (memberRoom !== undefined && (memberRoomSid === undefined || !origins.has(memberRoomSid))) {
+                  roomWebRounds.add(memberRoom.id)
+                }
+              }
+            } else if (!origins.has(session.id)) {
+              nonImTurn.add(session.id)
+            }
+          }
         }
       }
     }
     if (event.type === 'turn/end') {
       turnWork.delete(session.id)
+      nonImTurn.delete(session.id)
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
@@ -2183,6 +2488,7 @@ export function install(rt) {
         continue
       }
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
+      if (item.kind === 'bot' && rt.live?.get(session.id)?.info?.kind === SOURCE_KIND && isSilentTurnText(body)) continue
       sendReply(origin, body, { sessionId: session.id, botId })
     }
   })
@@ -2210,6 +2516,7 @@ export function install(rt) {
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
+    if (kind !== 'settled') return
     void (async () => {
       for (const conn of Object.values(connections())) {
         await settleCard(conn.id, `a:${data.id}`, data.outcome === 'allowed-once' ? text('allow') : data.outcome === 'rejected' ? text('reject') : text('answered'))
@@ -2247,5 +2554,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
 }

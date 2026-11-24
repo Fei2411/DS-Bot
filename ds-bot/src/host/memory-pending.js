@@ -89,7 +89,13 @@ const wellFormed = (value) => {
   if (typeof value.op !== 'string' || typeof value.scope !== 'string') return false
   if (!Array.isArray(value.steps) || value.steps.length === 0) return false
   if (!value.steps.every(step => step !== null && typeof step === 'object' && typeof step.path === 'string' && step.path !== ''
-    && (step.action === 'remove' ? step.text === undefined : step.action === 'write' && typeof step.text === 'string'))) return false
+    && (step.action === 'remove'
+      ? step.text === undefined
+      : step.action === 'write'
+        ? typeof step.text === 'string'
+        : step.action === 'append'
+          ? typeof step.text === 'string' && Number.isInteger(step.offset) && step.offset >= 0
+          : step.action === 'truncate' && step.text === undefined && Number.isInteger(step.offset) && step.offset >= 0))) return false
   if (value.row === null || typeof value.row !== 'object' || Array.isArray(value.row)) return false
   return typeof value.row.id === 'string' && value.row.id !== ''
 }

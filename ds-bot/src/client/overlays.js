@@ -83,7 +83,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       createPortal(h(OpeningCover, { model: opening, column: layout.column }), document.body)) : null,
     pane ? h(OverlayBoundary, {
       name: 'panel', active: shown !== null, notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}`,
+      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}`,
       onDismiss: () => actions.closePanel?.(), actions,
     }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
     ui.newChat ? h(OverlayBoundary, {
@@ -103,7 +103,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.exchange ? h(OverlayBoundary, {
       name: 'exchange', reset: Array.isArray(ui.exchange) ? ui.exchange.join(':') : String(ui.exchange),
       onDismiss: () => (actions.closeExchange ?? actions.closeOverlay)?.(), actions,
-    }, createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body)) : null,
+    }, createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
     ui.voice ? h(OverlayBoundary, {
       name: 'voice', reset: ui.voice,
       onDismiss: () => actions.closeVoice?.(), actions,

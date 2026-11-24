@@ -862,7 +862,7 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     assert.match(textOf(pairTree), /Only use a Server you trust/)
     const download = findAll(pairTree, n => n.type === 'a' && textOf(n) === 'Download')
     assert.equal(download.length, 1)
-    assert.equal(download[0].props.href, 'https://github.com/Fei2411/DS-Bot/releases/latest')
+    assert.equal(download[0].props.href, 'https://github.com/Fei-Craft/DS-Bot/releases/latest')
     assert.equal(findAll(pairTree, n => n.props?.['aria-label'] === 'Pairing QR code').length, 1)
     harness.unmount()
   })
