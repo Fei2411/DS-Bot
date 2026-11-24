@@ -6,31 +6,33 @@ const escapeHtml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&l
 
 // Inline Markdown inside one line or block: `code`, **bold**, _italic_, ~~strike~~,
 // [label](url). Code spans are pulled out first so markers inside them stay literal.
-function inlineHtml(line) {
+function withCodeSpans(line, renderCode, renderInline) {
   const spans = []
   const kept = line.replace(/`([^`]+)`/g, (_all, code) => {
-    spans.push(`<code>${escapeHtml(code)}</code>`)
+    spans.push(renderCode(code))
     return `\x00${spans.length - 1}\x00`
   })
-  const html = escapeHtml(kept)
+  return renderInline(kept).replace(/\u0000(\d+)\u0000/g, (_all, index) => spans[Number(index)])
+}
+
+function inlineHtml(line) {
+  return withCodeSpans(line, code => `<code>${escapeHtml(code)}</code>`, kept => escapeHtml(kept)
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => `<a href="${escapeHtml(url)}">${label}</a>`)
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
     .replace(/__([^_]+)__/g, '<b>$1</b>')
     .replace(/\*([^*]+)\*/g, '<i>$1</i>')
     .replace(/\b_([^_]+)_\b/g, '<i>$1</i>')
-    .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-  return html.replace(/\u0000(\d+)\u0000/g, (_all, index) => spans[Number(index)])
+    .replace(/~~([^~]+)~~/g, '<s>$1</s>'))
 }
 
 function inlinePlain(line) {
-  return line
-    .replace(/`([^`]+)`/g, '$1')
+  return withCodeSpans(line, code => code, kept => kept
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => (label === url ? label : `${label} (${url})`))
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/\b_([^_]+)_\b/g, '$1')
-    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1'))
 }
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking

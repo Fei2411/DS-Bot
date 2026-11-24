@@ -73,6 +73,14 @@ test('long Telegram table cells keep their text and do not split HTML entities',
   }
 })
 
+test('Telegram preserves Markdown-like characters in oversized inline code', () => {
+  const value = 'cat *.log *.txt ' + 'x'.repeat(4200)
+  const chunks = chunkTelegram('Command | Output\n--- | ---\nRun | `' + value + '`')
+  assert.equal(chunks.slice(1).map(chunk => chunk.html).join(''), '• Output: ' + value)
+  assert.equal(chunks.slice(1).map(chunk => chunk.text).join(''), '• Output: ' + value)
+  assert.equal(toPlain('**Run `cat *.log *.txt` now**'), 'Run cat *.log *.txt now')
+})
+
 test('chunks stay under the limit and keep whole fences', () => {
   const fence = '```\n' + 'x'.repeat(200) + '\n```'
   const chunks = chunkTelegram(`start\n\n${fence}\n\nend`, 100)
