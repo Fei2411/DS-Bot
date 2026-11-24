@@ -111,7 +111,8 @@ function ShapeRing({ shape, size }) {
 
 // Every character shape, five to a row (four on narrow screens), then the color swatches.
 export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !Object.hasOwn(CHARACTERS, id))]
+  const builtIn = new Set(PICKER_SHAPES)
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === 'function'))]
   return h(Fragment, null,
     h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, shapes.map(id => h('button', {
       key: id, type: 'button', className: 'bt-shape', 'aria-label': t(shapeOf(id).label), title: t(shapeOf(id).label), 'aria-pressed': !hasPhoto && look.shape === id,

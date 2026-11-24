@@ -5,7 +5,10 @@ import { test } from 'node:test'
 import { build } from 'esbuild'
 
 const { outputFiles } = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/bot-settings.js', import.meta.url))],
+  stdin: {
+    contents: "export * from './src/client/bot-settings.js'; export { registerShape } from './src/client/themes.js'",
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+  },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -20,7 +23,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AvatarEditor, BotSettingsForm, CharacterGrid, InlineText } = module.exports
+const { AvatarEditor, BotSettingsForm, CharacterGrid, InlineText, registerShape } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -182,4 +185,21 @@ test('CharacterGrid stays a flat 20-button grid for legacy and aliased Bot shape
   const pressed = buttons.filter(node => node.props['aria-pressed'])
   assert.equal(pressed.length, 1)
   assert.equal(pressed[0].props['aria-label'], 'Octopus')
+
+  // Plugin-registered shapes overriding a retired legacy id still appear in the picker,
+  // and disappear again when unregistered.
+  const unregisterRing = registerShape('ring', {
+    label: 'Custom Ring',
+    body: paint => `<circle cx="50" cy="50" r="36" fill="${paint}"/>`,
+    eyes: { at: [[40, 45], [60, 45]] },
+  })
+  try {
+    const withCustom = walk(CharacterGrid({ look: { shape: 'ring', color: 'blue' }, onShape() {}, onColor() {} })).filter(node => node.props?.className === 'bt-shape')
+    assert.equal(withCustom.length, 21)
+    assert.equal(withCustom.some(node => node.props['aria-label'] === 'Custom Ring' && node.props['aria-pressed']), true)
+  } finally {
+    unregisterRing()
+  }
+  const afterUnregister = walk(CharacterGrid({ look: { shape: 'ring', color: 'blue' }, onShape() {}, onColor() {} })).filter(node => node.props?.className === 'bt-shape')
+  assert.equal(afterUnregister.length, 20)
 })

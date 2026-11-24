@@ -29791,7 +29791,8 @@ function ShapeRing({ shape, size }) {
   return (0, import_react27.createElement)("svg", { className: "bt-ring", viewBox: `0 0 ${def.size} ${def.size}`, "aria-hidden": true, dangerouslySetInnerHTML: { __html: markup } });
 }
 function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter((id) => !Object.hasOwn(CHARACTERS, id))];
+  const builtIn = new Set(PICKER_SHAPES);
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter((id) => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === "function"))];
   return (0, import_react27.createElement)(
     import_react27.Fragment,
     null,
