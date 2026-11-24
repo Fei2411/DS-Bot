@@ -634,6 +634,10 @@ test('CDP debugger attaches lazily on first WS attach, short-circuits idle messa
   const done = closed(socket)
   socket.close()
   await done
+  const deadline = Date.now() + 2000
+  while (dbg.attached && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(dbg.detachCount, 2, 'closing WS client detaches CDP debugger')
   assert.equal(dbg.attached, false)
 })
