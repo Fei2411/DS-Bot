@@ -102,6 +102,9 @@ test('automatic updates switch calls setOwnAppAutoUpdate and stays hidden outsid
 
   const webView = page({ source: 'registry', checkedAt: Date.now(), latest: '0.2.1', ownApp: { phase: 'current', autoUpdate: true } })
   assert.equal(webView.autoSwitch, null)
+
+  const legacyView = page({ source: 'app', ownApp: { phase: 'current' } })
+  assert.equal(legacyView.autoSwitch, null)
 })
 
 test('without an app update state the row keeps today\'s text and no button', () => {

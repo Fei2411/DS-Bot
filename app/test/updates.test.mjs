@@ -448,6 +448,28 @@ describe('watchReleases', () => {
     await updates.latest()
     assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
   })
+
+  test('turning autoUpdate off while a check is in flight suppresses prompt and clears latest', async (t) => {
+    const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
+    let gate
+    const asked = []
+    const updates = watchReleases({
+      current: '0.1.7', arch: 'arm64',
+      fetch: () => new Promise(resolve => { gate = resolve }),
+      ask: async version => { asked.push(version); return true },
+      open: () => {},
+      log: quietLog(),
+    })
+    t.after(updates.stop)
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
+
+    updates.setAutoUpdate(false)
+    assert.equal(await updates.latest(), null)
+    gate(releaseResponse([release('0.1.9', { page })]))
+    await sleep(10)
+    assert.deepEqual(asked, [])
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', page, autoUpdate: false })
+  })
 })
 
 describe('watchUpdates', () => {
@@ -727,5 +749,121 @@ describe('watchUpdates', () => {
     updates.setAutoUpdate(true)
     assert.equal(updater.autoInstallOnAppQuit, true)
     assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
+
+    // Monotonicity: once BaseUpdater registered its quit handler, a later download while
+    // autoUpdate is off does not unregister it; re-enabling still reports autoInstall=true.
+    updates.setAutoUpdate(false)
+    updater.emit('update-downloaded', { version: '0.1.10' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.10', autoInstall: false, autoUpdate: false })
+    updates.setAutoUpdate(true)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.10', autoInstall: true, autoUpdate: true })
+  })
+
+  test('manual download waits for cancelled background download cleanup before invoking downloadUpdate', async (t) => {
+    const updater = new FakeUpdater()
+    let finishCleanup
+    // Model real AppUpdater.downloadPromise: stays occupied until async cleanup settles.
+    let internalLock = null
+    updater.found = () => {
+      let rejectDownload
+      const promise = new Promise((_resolve, reject) => { rejectDownload = reject })
+      internalLock = promise
+      const cleanup = promise.catch(() => {}).finally(() => { internalLock = null })
+      return {
+        isUpdateAvailable: true,
+        updateInfo: { version: '0.1.9' },
+        cancellationToken: {
+          cancel: () => {
+            finishCleanup = async () => {
+              rejectDownload(new Error('cancelled'))
+              await cleanup
+            }
+          },
+        },
+        downloadPromise: promise,
+      }
+    }
+    updater.downloadHandler = () => {
+      if (internalLock !== null) return internalLock
+      updater.emit('update-downloaded', { version: '0.1.9' })
+      return Promise.resolve(['installer.exe'])
+    }
+
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    await sleep(0)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: true })
+
+    // Cancel background download; cleanup is still pending.
+    updates.setAutoUpdate(false)
+    assert.equal(await updates.latest(), null, 'disabling clears latest() so fail/offerUpdate never acts on stale download')
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+
+    // User immediately clicks manual Download before cleanup completes.
+    updates.download()
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+    // Stale progress from cancelled background download is ignored during cleanup.
+    updater.emit('download-progress', { percent: 91, transferred: 91 * 1024 * 1024, total: 100 * 1024 * 1024 })
+    assert.equal(updates.state().percent, undefined)
+    assert.equal(updater.downloads, 0, 'waits until cleanup frees AppUpdater.downloadPromise')
+
+    await finishCleanup()
+    await sleep(10)
+    assert.equal(updater.downloads, 1)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: false, autoUpdate: false })
+  })
+
+  test('disabling autoUpdate mid-check cancels a newly started download, and manual download is not cancelled by toggles', async (t) => {
+    let resolveCheck
+    let cancelled = 0
+    const updater = new FakeUpdater()
+    updater.checkForUpdates = () => {
+      updater.checks += 1
+      return new Promise(resolve => { resolveCheck = resolve })
+    }
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+
+    updates.setAutoUpdate(false)
+    let rejectBg
+    const bgPromise = new Promise((_res, rej) => { rejectBg = rej })
+    resolveCheck({
+      isUpdateAvailable: true,
+      updateInfo: { version: '0.1.9' },
+      cancellationToken: { cancel: () => { cancelled += 1; rejectBg(new Error('cancelled')) } },
+      downloadPromise: bgPromise,
+    })
+    await sleep(10)
+    assert.equal(cancelled, 1)
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+
+    // Start manual download that rejects without emitting an error event.
+    let rejectManual
+    updater.downloadHandler = () => new Promise((_res, rej) => { rejectManual = rej })
+    updates.download()
+    await sleep(0)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+    // Toggling autoUpdate on and back off does not cancel a manual download.
+    updates.setAutoUpdate(true)
+    updates.setAutoUpdate(false)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+
+    rejectManual(new Error('network reset'))
+    await sleep(10)
+    assert.deepEqual(updates.state(), { phase: 'failed', autoUpdate: false })
+  })
+
+  test('enabling autoUpdate from idle or failed runs check even when checkForUpdates settles without events', async (t) => {
+    const updater = new FakeUpdater()
+    updater.checkForUpdates = () => { updater.checks += 1; return Promise.resolve(null) }
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog(), autoUpdate: false })
+    t.after(updates.stop)
+    assert.deepEqual(updates.state(), { phase: 'idle', autoUpdate: false })
+
+    updates.setAutoUpdate(true)
+    assert.equal(updater.checks, 1)
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
+    await updates.latest()
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
   })
 })

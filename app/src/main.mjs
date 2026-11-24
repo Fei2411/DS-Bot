@@ -1333,12 +1333,12 @@ const afterHandoff = async () => { await startWindow.teamShown; return !failed }
 // An update question that the page cannot show counts as 「以后再说」: the update installs at the
 // next quit, and the About row still offers it.
 async function askRestartNow(version) {
-  if (failed || !await afterHandoff()) return false
+  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
   return await askInWindow({ message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [{ label: tx('btn.restart'), primary: true }, { label: tx('btn.notNowRestart') }], cancel: 1 }) === 0
 }
 
 async function askDownloadNow(version) {
-  if (failed || !await afterHandoff()) return false
+  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
   return await askInWindow({ message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [{ label: tx('btn.download'), primary: true }, { label: tx('btn.notNowDownload') }], cancel: 1 }) === 0
 }
 
@@ -1675,8 +1675,9 @@ async function fail(error) {
 // version that cannot install itself (macOS, a Linux deb); one that can is downloading already,
 // and installs once it is downloaded, unless the user has tried again meanwhile.
 async function offerUpdate(mine) {
+  if (updates?.state()?.autoUpdate === false) return
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
-  const still = () => failed && mine === attempt
+  const still = () => failed && mine === attempt && updates?.state()?.autoUpdate !== false
   offered = found ?? undefined
   if (!found || !still()) return
   const { version } = found

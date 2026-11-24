@@ -1,13 +1,13 @@
 // Toggling automatic updates from the About page persists to userData, stops auto-download
 // and auto-install-on-quit, cancels queued update cards, and still allows manual check/download.
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { app, paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
 import { state as updaterState, updater } from './helpers/fake-updater.mjs'
-import { handOff, startApp, trayMenu, waitFor, window, windowCards } from './helpers/app-harness.mjs'
+import { handOff, startApp, startState, trayMenu, waitFor, window, windowCards } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -89,6 +89,26 @@ test('saved autoUpdate=false skips startup check, lets manual check/download run
   await waitFor(() => win.visible === true, 'show the window again')
   await new Promise(resolve => { setTimeout(resolve, 40) })
   assert.deepEqual(windowCards(win), [], 'cleared prompt must not pop when the window returns')
+
+  // Rejects non-boolean payloads without mutating state.
+  assert.throws(() => state.ipc.get('ds-bot:app-update-auto')(winEvent(win), 'yes'), /boolean/)
+  assert.equal((await state.ipc.get('ds-bot:app-update-state')(winEvent(win))).autoUpdate, false)
+
+  // Persistence failure does not mutate in-memory autoUpdate state.
+  const prefsPath = join(paths.userData, 'update-prefs.json')
+  rmSync(prefsPath, { force: true })
+  mkdirSync(prefsPath)
+  assert.throws(() => state.ipc.get('ds-bot:app-update-auto')(winEvent(win), true))
+  assert.equal((await state.ipc.get('ds-bot:app-update-state')(winEvent(win))).autoUpdate, false)
+  assert.equal(updaterState.autoDownload, false)
+  rmSync(prefsPath, { recursive: true, force: true })
+
+  // A Host failure while autoUpdate is off must never auto-install a downloaded update.
+  hostState.crash(new Error('host crashed'))
+  await waitFor(() => startState()?.view === 'failed', 'show the failure page')
+  await new Promise(resolve => { setTimeout(resolve, 60) })
+  assert.equal(startState()?.update, undefined, 'no update banner when autoUpdate is off')
+  assert.deepEqual(updaterState.quitAndInstall, [], 'must not install when autoUpdate is off')
 })
 
 test('the app ends cleanly', async () => {

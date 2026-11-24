@@ -56467,8 +56467,7 @@ function apply(ctx) {
     await ownAppUpdates?.download?.();
   };
   actions.setOwnAppAutoUpdate = async (enabled) => {
-    const next = await ownAppUpdates?.setAutoUpdate?.(enabled === true);
-    if (next) update.set((previous) => ({ ...previous, ownApp: next }));
+    await ownAppUpdates?.setAutoUpdate?.(enabled === true);
   };
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});

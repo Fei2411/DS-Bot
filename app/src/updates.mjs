@@ -127,10 +127,14 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
         }
         log.info(`DS Bot: update ${found.version} available`)
         if (!manual && auto && ask !== undefined && asked !== found.version) {
-          asked = found.version
-          void Promise.resolve().then(() => ask(found.version))
-            .then(yes => (yes ? open(found.page) : undefined))
-            .catch((error) => { log.error(`DS Bot: update ${found.version} not opened: ${error instanceof Error ? error.message : String(error)}`) })
+          const { version, page } = found
+          void Promise.resolve().then(() => {
+            if (!auto || asked === version) return false
+            asked = version
+            return ask(version)
+          })
+            .then(yes => (yes && auto ? open(page) : undefined))
+            .catch((error) => { log.error(`DS Bot: update ${version} not opened: ${error instanceof Error ? error.message : String(error)}`) })
         }
         set({ phase: 'available', version: found.version, page: found.page })
         return found
@@ -158,7 +162,10 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
     if (next === auto) return holder.state()
     auto = next
     if (auto) startTimer()
-    else stopTimer()
+    else {
+      stopTimer()
+      latest = Promise.resolve(null)
+    }
     const phase = holder.state().phase
     if (auto && (phase === 'idle' || phase === 'failed')) run({ manual: false })
     else set(holder.state())
@@ -201,6 +208,8 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   let auto = autoUpdate !== false
   let timer = null
   let activeCancel = null
+  let activeDownload = null
+  let cancelling = null
   let manualDownload = false
   let autoInstallReady = false
   updater.autoDownload = auto
@@ -208,19 +217,36 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   if (feed) updater.setFeedURL({ provider: 'generic', url: feed })
   const holder = stateHolder(log, { phase: auto ? 'checking' : 'idle', autoUpdate: auto })
   const set = (next) => { holder.set({ ...next, autoUpdate: auto }) }
+  const cancelBackgroundDownload = (cancel, downloadPromise) => {
+    if (downloadPromise) {
+      const wait = Promise.resolve(downloadPromise).catch(() => {})
+      cancelling = wait
+      void wait.finally(() => { if (cancelling === wait) cancelling = null })
+    }
+    try { cancel?.cancel?.() } catch { /* ignore */ }
+  }
   const install = async () => {
     await beforeInstall()
     updater.quitAndInstall(true, true)
   }
   let asked
-  updater.on('checking-for-update', () => { set({ phase: 'checking' }) })
-  updater.on('update-not-available', () => { activeCancel = null; set({ phase: 'current' }) })
+  updater.on('checking-for-update', () => {
+    const current = holder.state()
+    if (current.phase === 'checking' && current.autoUpdate === auto) return
+    set({ phase: 'checking' })
+  })
+  updater.on('update-not-available', () => {
+    activeCancel = null
+    activeDownload = null
+    set({ phase: 'current' })
+  })
   updater.on('update-available', (info) => {
     if (auto && updater.autoDownload) set({ phase: 'downloading', version: info?.version })
     else set({ phase: 'available', version: info?.version, canDownload: true })
   })
   // The download's progress, for the failure page's update banner: once per whole per cent.
   updater.on('download-progress', (progress) => {
+    if (cancelling !== null) return
     const current = holder.state()
     const percent = Math.floor(Number(progress?.percent))
     if (current.phase !== 'downloading' || !Number.isFinite(percent) || percent === current.percent) return
@@ -228,10 +254,12 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   })
   updater.on('update-downloaded', ({ version }) => {
     activeCancel = null
+    activeDownload = null
     manualDownload = false
-    // electron-updater skips adding its quit handler when autoInstallOnAppQuit is false at
-    // download time, so toggling autoUpdate back on later will not arm quit-install.
-    autoInstallReady = updater.autoInstallOnAppQuit === true
+    // electron-updater adds its quit handler at most once per process, and only when
+    // autoInstallOnAppQuit is true at download time; once registered, the quit handler stays
+    // armed and reads autoInstallOnAppQuit dynamically at quit.
+    autoInstallReady = autoInstallReady || updater.autoInstallOnAppQuit === true
     log.info(`DS Bot: update ${version} downloaded`)
     set({ phase: 'downloaded', version, autoInstall: auto && autoInstallReady })
     if (!auto || ask === undefined || asked === version) return
@@ -242,6 +270,7 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   // A downloaded update stays ready: a later failed check does not hide it.
   updater.on('error', (error) => {
     activeCancel = null
+    activeDownload = null
     manualDownload = false
     log.error(`DS Bot: update failed: ${error instanceof Error ? error.message : String(error)}`)
     if (holder.state().phase !== 'downloaded') set({ phase: 'failed' })
@@ -252,27 +281,35 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   // on `checking`, or the busy guard would also stop the timer's checks.
   const settled = (next) => { if (holder.state().phase === 'checking') set(next) }
   const run = () => {
+    const prev = holder.state()
+    if (prev.phase !== 'checking' || prev.autoUpdate !== auto) set({ phase: 'checking' })
     latest = updater.checkForUpdates().then((result) => {
+      const version = result?.updateInfo?.version
       activeCancel = result?.cancellationToken ?? null
+      activeDownload = result?.downloadPromise ?? null
       if (result?.isUpdateAvailable && result.downloadPromise) {
         if (!auto && !manualDownload) {
           const cancel = activeCancel
+          const dl = activeDownload
           activeCancel = null
-          try { cancel?.cancel?.() } catch { /* ignore */ }
-          void result.downloadPromise.catch(() => {})
-          set({ phase: 'available', version: result.updateInfo.version, canDownload: true })
+          activeDownload = null
+          cancelBackgroundDownload(cancel, dl)
+          if (holder.state().phase !== 'downloaded') set(version ? { phase: 'available', version, canDownload: true } : { phase: 'idle' })
           return null
         }
-        settled({ phase: 'downloading', version: result.updateInfo.version })
-        return { version: result.updateInfo.version, downloaded: result.downloadPromise.then(() => true, () => false) }
+        settled({ phase: 'downloading', version })
+        return { version, downloaded: result.downloadPromise.then(() => true, () => false) }
       }
       if (result?.isUpdateAvailable) {
-        settled({ phase: 'available', version: result.updateInfo.version, canDownload: true })
+        activeDownload = null
+        settled({ phase: 'available', version, canDownload: true })
         return null
       }
+      activeCancel = null
+      activeDownload = null
       settled({ phase: 'current' })
       return null
-    }, () => { activeCancel = null; settled({ phase: 'failed' }); return null })
+    }, () => { activeCancel = null; activeDownload = null; settled({ phase: 'failed' }); return null })
   }
   const stopTimer = () => {
     if (timer === null) return
@@ -290,13 +327,22 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
     if (current.phase !== 'available' || typeof updater.downloadUpdate !== 'function') return
     manualDownload = true
     set({ phase: 'downloading', version: current.version })
-    void Promise.resolve().then(() => updater.downloadUpdate()).catch((error) => {
-      manualDownload = false
-      if (holder.state().phase === 'downloading') {
-        log.error(`DS Bot: update failed: ${error instanceof Error ? error.message : String(error)}`)
-        set({ phase: 'failed' })
+    void (async () => {
+      try {
+        // Wait for any cancelled background download's cleanup so electron-updater clears its
+        // internal downloadPromise slot before starting the manual download.
+        if (cancelling !== null) await cancelling
+        if (holder.state().phase !== 'downloading') return
+        await updater.downloadUpdate()
+      } catch (error) {
+        if (holder.state().phase === 'downloading') {
+          log.error(`DS Bot: update failed: ${error instanceof Error ? error.message : String(error)}`)
+          set({ phase: 'failed' })
+        }
+      } finally {
+        manualDownload = false
       }
-    })
+    })()
   }
   const setAutoUpdate = (enabled) => {
     const next = Boolean(enabled)
@@ -305,13 +351,18 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
     updater.autoDownload = auto
     updater.autoInstallOnAppQuit = auto
     if (auto) startTimer()
-    else stopTimer()
+    else {
+      stopTimer()
+      latest = Promise.resolve(null)
+    }
     const current = holder.state()
     if (!auto) {
       if (current.phase === 'downloading' && !manualDownload) {
         const cancel = activeCancel
+        const dl = activeDownload
         activeCancel = null
-        try { cancel?.cancel?.() } catch { /* ignore */ }
+        activeDownload = null
+        cancelBackgroundDownload(cancel, dl)
         set(current.version ? { phase: 'available', version: current.version, canDownload: true } : { phase: 'idle' })
       } else if (current.phase === 'downloaded') {
         set({ phase: 'downloaded', version: current.version, autoInstall: false })
@@ -320,7 +371,6 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
       }
     } else if (current.phase === 'idle' || current.phase === 'failed') {
       run()
-      if (holder.state().autoUpdate !== auto) set({ phase: 'checking' })
     } else if (current.phase === 'downloaded') {
       set({ phase: 'downloaded', version: current.version, autoInstall: autoInstallReady })
     } else {

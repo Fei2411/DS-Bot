@@ -1,6 +1,6 @@
 // Persists the desktop app's auto-update preference under userData so the main process knows
 // whether to check and download updates before the DSH Host starts.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 /** Whether automatic updates are enabled; missing or unreadable files default to true. */
@@ -17,6 +17,11 @@ export function readAutoUpdate(file) {
 export function writeAutoUpdate(file, enabled) {
   mkdirSync(dirname(file), { recursive: true })
   const temporary = `${file}.tmp`
-  writeFileSync(temporary, `${JSON.stringify({ autoUpdate: enabled === true }, null, 2)}\n`)
-  renameSync(temporary, file)
+  try {
+    writeFileSync(temporary, `${JSON.stringify({ autoUpdate: enabled === true }, null, 2)}\n`)
+    renameSync(temporary, file)
+  } catch (error) {
+    try { unlinkSync(temporary) } catch { /* ignore cleanup failure */ }
+    throw error
+  }
 }
