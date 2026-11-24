@@ -191,6 +191,34 @@ describe('Session copies', () => {
       [event, sources[i], join(to, 'sessions', 'group', id)])))
   })
 
+  test('stops reporting progress and rejects when every Session was dispatched before cancellation', async (t) => {
+    const { from, to, sources, team } = fixture(t, ['one', 'two', 'three', 'four'])
+    const controller = new AbortController()
+    const finishOthers = Promise.withResolvers()
+    const dispatched = []
+    const completed = []
+    const progress = []
+    t.mock.method(fsp, 'cp', async (source) => {
+      dispatched.push(source)
+      if (source !== sources[0]) await finishOthers.promise
+      completed.push(source)
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-all-dispatched')
+    const pending = copy(from, team, to, controller.signal, (done, total) => {
+      progress.push([done, total])
+      controller.abort()
+    })
+    const settled = pending.then(() => ({ completed: [...completed] }), error => ({ completed: [...completed], error }))
+    await nextTurn()
+    finishOthers.resolve()
+    const result = await settled
+    assert.deepEqual(dispatched, sources)
+    assert.deepEqual(result.completed, sources)
+    assert.deepEqual(progress, [[1, 4]])
+    assert.equal(result.error, controller.signal.reason)
+  })
+
   for (const outcome of ['abort', 'error']) {
     test(`drains Session copies before cleaning the stage after an ${outcome}`, async (t) => {
       const { from, to, sources } = fixture(t, ['one', 'two', 'three', 'four', 'five'])
@@ -203,6 +231,7 @@ describe('Session copies', () => {
       const dispatched = []
       const active = new Set()
       const pendingAtCleanup = []
+      const bytesAfterAbort = []
       let stage
       t.mock.method(fsp, 'cp', async (source, target, options) => {
         if (source === join(from, 'bot')) {
@@ -217,6 +246,9 @@ describe('Session copies', () => {
             await stopFirst.promise
           } else {
             await finishOthers.promise
+            const file = join(source, 'data')
+            writeFileSync(file, 'data')
+            await options.filter(file)
           }
         } finally {
           active.delete(source)
@@ -228,7 +260,10 @@ describe('Session copies', () => {
       })
       syncBuiltinESMExports()
       const { importTeam: copy } = await import(`../src/import.mjs?session-drain-${outcome}`)
-      const pending = assert.rejects(copy({ from, to, workspace: join(to, 'workspace'), signal: controller.signal }), error => error === reason)
+      const pending = assert.rejects(copy({
+        from, to, workspace: join(to, 'workspace'), signal: controller.signal,
+        onProgress: (bytes) => { if (controller.signal.aborted) bytesAfterAbort.push(bytes) },
+      }), error => error === reason)
       await started.promise
       if (outcome === 'abort') controller.abort(reason)
       if (outcome === 'error') stopFirst.reject(reason)
@@ -238,6 +273,7 @@ describe('Session copies', () => {
       await pending
       assert.deepEqual(dispatched, sources.slice(0, 4))
       assert.deepEqual(pendingAtCleanup, [[]])
+      assert.deepEqual(bytesAfterAbort, [])
       assert.deepEqual(staged(to), [])
       assert.equal(existsSync(join(to, 'bot')), false)
     })
