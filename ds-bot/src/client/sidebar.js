@@ -1261,20 +1261,20 @@ export function landingPlan({ mainView, roster, isAgentSession, last }) {
     const target = currentPart(bot)
     const nextLast = { kind: 'bot', id: bot.id, botId: bot.id, sessionId: id }
     return target !== id
-      ? { kind: 'follow-bot', id: bot.id, key: `follow-bot:${bot.id}:${target}`, nextLast }
-      : { kind: 'stay', key: `stay:${id}`, nextLast }
+      ? { kind: 'follow-bot', id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-bot:${bot.id}:${id}`, nextLast }
   }
   const room = id === '' ? undefined : roster.roomsById[id]
   if (room !== undefined) {
     const target = room.sessionId ?? room.id
     const nextLast = { kind: 'room', id: room.id, roomId: room.id, sessionId: id }
     return target !== id
-      ? { kind: 'follow-room', id: room.id, key: `follow-room:${room.id}:${target}`, nextLast }
-      : { kind: 'stay', key: `stay:${id}`, nextLast }
+      ? { kind: 'follow-room', id: room.id, key: `follow-room:${room.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-room:${room.id}:${id}`, nextLast }
   }
   // A DSH Agent Session, blank or not, is a real destination: it stays.
   if (id !== '' && ((isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
-    return { kind: 'stay', key: `stay:${id}`, nextLast: null }
+    return { kind: 'stay', key: `stay-other:${id}`, nextLast: null }
   }
   const lastOwner = last?.kind === 'room' ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : undefined
   const lastTarget = lastOwner === undefined ? '' : (last.kind === 'room' ? (lastOwner.sessionId ?? lastOwner.id) : currentPart(lastOwner))
@@ -1313,7 +1313,8 @@ function useLandOnMainBot(roster, useSessions, actions) {
       return undefined
     }
     if (current.kind !== 'home') return undefined
-    const timer = setTimeout(() => actions.landOn(current.id, current.last), current.delay)
+    const armedSeq = actions.navSeq?.()
+    const timer = setTimeout(() => actions.landOn(current.id, current.last, armedSeq), current.delay)
     return () => clearTimeout(timer)
   }, [plan.key])
 }

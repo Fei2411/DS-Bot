@@ -269,3 +269,30 @@ test('followPanel keeps view, tab, task, and rename state when the same Bot move
   assert.equal(ui.getSnapshot().tab, null)
   assert.equal(ui.getSnapshot().task, null)
 })
+
+test('toggleDetails closes the details panel when toggled with another part of the same Bot or group', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const room = { id: 'room-1', sessionId: 'room-p2', ownParts: ['room-p1'] }
+  const ui = createSource({ details: 'chief', view: 'details', renaming: false, tab: null, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({
+    byId: { chief, 'chief-p1': chief, 'chief-p2': chief },
+    roomsById: { 'room-1': room, 'room-p1': room, 'room-p2': room },
+    sideChats: {},
+  })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  // Opened with bot.id ('chief'), header pill toggles with active part ('chief-p2') -> closes on first click.
+  actions.toggleDetails('chief-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // Same for a group chat opened with room.id and toggled with room.sessionId.
+  actions.showDetails('room-1')
+  assert.equal(ui.getSnapshot().details, 'room-1')
+  actions.toggleDetails('room-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // force=true keeps it open on the requested part.
+  actions.showDetails('chief')
+  actions.toggleDetails('chief-p2', true)
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
+})

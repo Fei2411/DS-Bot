@@ -525,6 +525,40 @@ function EarlierUser({ row, actions }) {
     row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
+// Pure helpers for EarlierParts: merging skipped/multi-page earlier responses,
+// keeping the closed-card reload key stable across later part switches, and trimming
+// orphan part dividers.
+export function earlierClosedKey(botParts, sessionId, closedCards) {
+  const parts = Array.isArray(botParts) ? botParts : []
+  const earlierParts = parts.includes(sessionId) ? parts.slice(0, parts.indexOf(sessionId)) : parts
+  return JSON.stringify(earlierParts.map(part => [part, closedCards?.[part] ?? null]).filter(([, value]) => value !== null))
+}
+
+export function mergeEarlierPage(pages, page, fallbackPartIndex) {
+  const incoming = Array.isArray(page.items) ? page.items : []
+  const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : fallbackPartIndex
+  const next = pages.slice()
+  const at = next.findIndex(entry => entry.partIndex === actualPartIndex)
+  // The host sends a part's aside cards on every page of that part.
+  const btw = Array.isArray(page.btw) ? page.btw : (at >= 0 ? next[at].btw : [])
+  if (at >= 0) next[at] = { partIndex: actualPartIndex, items: [...incoming, ...next[at].items], btw }
+  else next.push({ partIndex: actualPartIndex, items: incoming, btw })
+  next.sort((a, b) => a.partIndex - b.partIndex)
+  return next
+}
+
+export function earlierItems(pages, { cursor, loading } = {}) {
+  const items = []
+  for (const page of pages) items.push(...withBtwRows(page.items, page.btw))
+  // Drop trailing dividers from empty earlier parts right above the current part's own
+  // divider, and drop leading dividers once all earlier history is loaded with nothing above.
+  while (items.at(-1)?.kind === 'divider') items.pop()
+  if (!cursor && !loading) {
+    while (items[0]?.kind === 'divider') items.shift()
+  }
+  return { items, hasContent: items.some(item => item.kind !== 'divider') }
+}
+
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
@@ -551,27 +585,20 @@ function EarlierParts({ sessionId, roster, actions }) {
       // so the page keeps its distance from the end by hand.
       const scroller = top.current && scrollParent(top.current)
       if (scroller) restore.current = { scroller, fromEnd: scroller.scrollHeight - scroller.scrollTop }
-      const incoming = Array.isArray(page.items) ? page.items : []
-      const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : partIndex
-      setView(current => {
-        const pages = current.pages.slice()
-        const at = pages.findIndex(entry => entry.partIndex === actualPartIndex)
-        // The host sends a part's aside cards on every page of that part.
-        const btw = Array.isArray(page.btw) ? page.btw : (at >= 0 ? pages[at].btw : [])
-        if (at >= 0) pages[at] = { partIndex: actualPartIndex, items: [...incoming, ...pages[at].items], btw }
-        else pages.push({ partIndex: actualPartIndex, items: incoming, btw })
-        pages.sort((a, b) => a.partIndex - b.partIndex)
-        return { pages, cursor: page.cursor, loading: false, failed: false, startedAt: page.startedAt ?? current.startedAt }
-      })
+      setView(current => ({
+        pages: mergeEarlierPage(current.pages, page, partIndex),
+        cursor: page.cursor,
+        loading: false,
+        failed: false,
+        startedAt: page.startedAt ?? current.startedAt,
+      }))
     }, () => {
       if (mine !== generation.current) return
       busy.current = false
       setView(current => ({ ...current, loading: false, failed: true }))
     })
   }
-  const botParts = roster.byId[sessionId]?.parts ?? []
-  const earlierParts = botParts.includes(sessionId) ? botParts.slice(0, botParts.indexOf(sessionId)) : botParts
-  const closedEarlier = JSON.stringify(earlierParts.map(part => [part, roster.closedCards?.[part] ?? null]).filter(([, value]) => value !== null))
+  const closedEarlier = earlierClosedKey(roster.byId[sessionId]?.parts, sessionId, roster.closedCards)
   useEffect(() => {
     generation.current += 1
     busy.current = false
@@ -597,15 +624,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     ...current,
     pages: current.pages.map(page => ({ ...page, btw: page.btw.filter(card => card?.id !== cardId) })),
   }))
-  const items = []
-  for (const page of view.pages) items.push(...withBtwRows(page.items, page.btw))
-  // Drop trailing dividers from empty earlier parts right above the current part's own
-  // divider, and drop leading dividers once all earlier history is loaded with nothing above.
-  while (items.at(-1)?.kind === 'divider') items.pop()
-  if (!view.cursor && !view.loading) {
-    while (items[0]?.kind === 'divider') items.shift()
-  }
-  const hasContent = items.some(item => item.kind !== 'divider')
+  const { items, hasContent } = earlierItems(view.pages, view)
   return h('div', { className: 'bt-earlier', role: 'feed', 'aria-label': t('Earlier messages'), 'aria-busy': view.loading },
     h('div', { ref: top, className: 'bt-earlier-top' },
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))

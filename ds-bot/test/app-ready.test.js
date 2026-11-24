@@ -265,4 +265,23 @@ test('landingPlan keeps a stable key across unrelated roster updates and tracks 
   assert.equal(roomHome.kind, 'home')
   assert.equal(roomHome.delay, 0)
   assert.equal(roomHome.last.id, 'room-1')
+  // An unindexed non-blank session that later appears in roster as a Bot or Room changes plan.key so lastChat updates.
+  const unindexed = { ready: true, mainBotId: 'chief', byId: { chief: { id: 'chief', sessionId: 'chief' } }, roomsById: {}, agentOf: {} }
+  const beforeBot = landingPlan({ mainView: 'p2|0', roster: unindexed, last: null })
+  const afterBot = landingPlan({ mainView: 'p2|0', roster: roster1, last: beforeBot.nextLast })
+  assert.equal(beforeBot.kind, 'stay')
+  assert.equal(afterBot.kind, 'stay')
+  assert.equal(beforeBot.nextLast, null)
+  assert.equal(afterBot.nextLast.id, 'chief')
+  assert.notEqual(beforeBot.key, afterBot.key)
+  // Moving between two non-current parts updates key so lastChat.sessionId stays accurate.
+  const multiPartRoster = {
+    ready: true, mainBotId: 'chief',
+    byId: { chief: { id: 'chief', sessionId: 'p3' }, p1: { id: 'chief', sessionId: 'p3' }, p2: { id: 'chief', sessionId: 'p3' }, p3: { id: 'chief', sessionId: 'p3' } },
+    roomsById: {}, agentOf: {},
+  }
+  const followP1 = landingPlan({ mainView: 'p1|0', roster: multiPartRoster, last: null })
+  const followP2 = landingPlan({ mainView: 'p2|0', roster: multiPartRoster, last: followP1.nextLast })
+  assert.notEqual(followP1.key, followP2.key)
+  assert.equal(followP2.nextLast.sessionId, 'p2')
 })

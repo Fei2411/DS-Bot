@@ -692,9 +692,11 @@ export function apply(ctx) {
       if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
       return result
     },
+    navSeq: () => navSeq,
     // `last` is the Bot or group conversation the view held before it cleared: when that
     // part was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== undefined && expectedSeq !== navSeq) return
       const seq = ++navSeq
       const currentOfLast = (snap) => {
         if (!last) return undefined
@@ -713,11 +715,13 @@ export function apply(ctx) {
       const now = mainView()
       if (last && now !== undefined && now !== last.sessionId) {
         const snap = roster.getSnapshot()
+        const list = ctx.sessions.list.getSnapshot()
         const nowBot = snap.byId[now]
         const nowRoom = snap.roomsById[now]
         if ((nowBot !== undefined && currentPart(nowBot) === now)
           || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
-          || isAgentSessionId(now)) return
+          || isAgentSessionId(now)
+          || (nowBot === undefined && nowRoom === undefined && list.byId?.[now]?.blank !== true)) return
       }
       setPlain(false)
       const target = moved !== undefined && moved !== last?.sessionId ? moved : partFor(id)

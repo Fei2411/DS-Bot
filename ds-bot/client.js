@@ -17873,6 +17873,7 @@ function forgetKeptFiles() {
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id;
   let pastes = 0;
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
@@ -17912,7 +17913,9 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== "details" ? id : null;
+        const snap = roster.getSnapshot();
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id);
+        const details = force || !sameSubject || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
       });
@@ -17925,9 +17928,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       ui.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
-        const prevSubject = snap.byId[state.details]?.id ?? snap.roomsById[state.details]?.id ?? state.details;
-        const nextSubject = snap.byId[id]?.id ?? snap.roomsById[id]?.id ?? id;
-        if (prevSubject === nextSubject) return { ...state, details: id };
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id };
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
         return { ...state, details: id, view, task: null, renaming: false, tab: null };
       });
@@ -32699,6 +32700,31 @@ function EarlierUser({ row, actions }) {
     row.via ? (0, import_react34.createElement)("div", { className: "bt-utime" }, (0, import_react34.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
 }
+function earlierClosedKey(botParts, sessionId, closedCards) {
+  const parts = Array.isArray(botParts) ? botParts : [];
+  const earlierParts = parts.includes(sessionId) ? parts.slice(0, parts.indexOf(sessionId)) : parts;
+  return JSON.stringify(earlierParts.map((part) => [part, closedCards?.[part] ?? null]).filter(([, value]) => value !== null));
+}
+function mergeEarlierPage(pages, page, fallbackPartIndex) {
+  const incoming = Array.isArray(page.items) ? page.items : [];
+  const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : fallbackPartIndex;
+  const next = pages.slice();
+  const at = next.findIndex((entry) => entry.partIndex === actualPartIndex);
+  const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? next[at].btw : [];
+  if (at >= 0) next[at] = { partIndex: actualPartIndex, items: [...incoming, ...next[at].items], btw };
+  else next.push({ partIndex: actualPartIndex, items: incoming, btw });
+  next.sort((a, b) => a.partIndex - b.partIndex);
+  return next;
+}
+function earlierItems(pages, { cursor, loading } = {}) {
+  const items = [];
+  for (const page of pages) items.push(...withBtwRows(page.items, page.btw));
+  while (items.at(-1)?.kind === "divider") items.pop();
+  if (!cursor && !loading) {
+    while (items[0]?.kind === "divider") items.shift();
+  }
+  return { items, hasContent: items.some((item) => item.kind !== "divider") };
+}
 function EarlierParts({ sessionId, roster, actions }) {
   const [view, setView] = (0, import_react34.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react34.useRef)(null);
@@ -32718,26 +32744,20 @@ function EarlierParts({ sessionId, roster, actions }) {
       busy.current = false;
       const scroller = top.current && scrollParent(top.current);
       if (scroller) restore.current = { scroller, fromEnd: scroller.scrollHeight - scroller.scrollTop };
-      const incoming = Array.isArray(page.items) ? page.items : [];
-      const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : partIndex;
-      setView((current2) => {
-        const pages = current2.pages.slice();
-        const at = pages.findIndex((entry) => entry.partIndex === actualPartIndex);
-        const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? pages[at].btw : [];
-        if (at >= 0) pages[at] = { partIndex: actualPartIndex, items: [...incoming, ...pages[at].items], btw };
-        else pages.push({ partIndex: actualPartIndex, items: incoming, btw });
-        pages.sort((a, b) => a.partIndex - b.partIndex);
-        return { pages, cursor: page.cursor, loading: false, failed: false, startedAt: page.startedAt ?? current2.startedAt };
-      });
+      setView((current2) => ({
+        pages: mergeEarlierPage(current2.pages, page, partIndex),
+        cursor: page.cursor,
+        loading: false,
+        failed: false,
+        startedAt: page.startedAt ?? current2.startedAt
+      }));
     }, () => {
       if (mine !== generation.current) return;
       busy.current = false;
       setView((current2) => ({ ...current2, loading: false, failed: true }));
     });
   };
-  const botParts = roster.byId[sessionId]?.parts ?? [];
-  const earlierParts = botParts.includes(sessionId) ? botParts.slice(0, botParts.indexOf(sessionId)) : botParts;
-  const closedEarlier = JSON.stringify(earlierParts.map((part) => [part, roster.closedCards?.[part] ?? null]).filter(([, value]) => value !== null));
+  const closedEarlier = earlierClosedKey(roster.byId[sessionId]?.parts, sessionId, roster.closedCards);
   (0, import_react34.useEffect)(() => {
     generation.current += 1;
     busy.current = false;
@@ -32765,13 +32785,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     ...current2,
     pages: current2.pages.map((page) => ({ ...page, btw: page.btw.filter((card) => card?.id !== cardId) }))
   }));
-  const items = [];
-  for (const page of view.pages) items.push(...withBtwRows(page.items, page.btw));
-  while (items.at(-1)?.kind === "divider") items.pop();
-  if (!view.cursor && !view.loading) {
-    while (items[0]?.kind === "divider") items.shift();
-  }
-  const hasContent = items.some((item) => item.kind !== "divider");
+  const { items, hasContent } = earlierItems(view.pages, view);
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-earlier", role: "feed", "aria-label": t("Earlier messages"), "aria-busy": view.loading },
@@ -36057,16 +36071,16 @@ function landingPlan({ mainView, roster, isAgentSession: isAgentSession2, last }
   if (bot !== void 0) {
     const target = currentPart(bot);
     const nextLast = { kind: "bot", id: bot.id, botId: bot.id, sessionId: id };
-    return target !== id ? { kind: "follow-bot", id: bot.id, key: `follow-bot:${bot.id}:${target}`, nextLast } : { kind: "stay", key: `stay:${id}`, nextLast };
+    return target !== id ? { kind: "follow-bot", id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-bot:${bot.id}:${id}`, nextLast };
   }
   const room2 = id === "" ? void 0 : roster.roomsById[id];
   if (room2 !== void 0) {
     const target = room2.sessionId ?? room2.id;
     const nextLast = { kind: "room", id: room2.id, roomId: room2.id, sessionId: id };
-    return target !== id ? { kind: "follow-room", id: room2.id, key: `follow-room:${room2.id}:${target}`, nextLast } : { kind: "stay", key: `stay:${id}`, nextLast };
+    return target !== id ? { kind: "follow-room", id: room2.id, key: `follow-room:${room2.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-room:${room2.id}:${id}`, nextLast };
   }
   if (id !== "" && ((isAgentSession2?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
-    return { kind: "stay", key: `stay:${id}`, nextLast: null };
+    return { kind: "stay", key: `stay-other:${id}`, nextLast: null };
   }
   const lastOwner = last?.kind === "room" ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : void 0;
   const lastTarget = lastOwner === void 0 ? "" : last.kind === "room" ? lastOwner.sessionId ?? lastOwner.id : currentPart(lastOwner);
@@ -36100,7 +36114,8 @@ function useLandOnMainBot(roster, useSessions, actions) {
       return void 0;
     }
     if (current2.kind !== "home") return void 0;
-    const timer = setTimeout(() => actions.landOn(current2.id, current2.last), current2.delay);
+    const armedSeq = actions.navSeq?.();
+    const timer = setTimeout(() => actions.landOn(current2.id, current2.last, armedSeq), current2.delay);
     return () => clearTimeout(timer);
   }, [plan.key]);
 }
@@ -56940,9 +56955,11 @@ function apply(ctx) {
       if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
       return result;
     },
+    navSeq: () => navSeq,
     // `last` is the Bot or group conversation the view held before it cleared: when that
     // part was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== void 0 && expectedSeq !== navSeq) return;
       const seq = ++navSeq;
       const currentOfLast = (snap) => {
         if (!last) return void 0;
@@ -56962,9 +56979,10 @@ function apply(ctx) {
       const now = mainView();
       if (last && now !== void 0 && now !== last.sessionId) {
         const snap = roster.getSnapshot();
+        const list = ctx.sessions.list.getSnapshot();
         const nowBot = snap.byId[now];
         const nowRoom = snap.roomsById[now];
-        if (nowBot !== void 0 && currentPart(nowBot) === now || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now || isAgentSessionId(now)) return;
+        if (nowBot !== void 0 && currentPart(nowBot) === now || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now || isAgentSessionId(now) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now]?.blank !== true) return;
       }
       setPlain(false);
       const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);

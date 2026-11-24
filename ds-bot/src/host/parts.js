@@ -2803,11 +2803,11 @@ export function install(rt) {
       }
     }
     const more = !hitFloor && page.hasMore && events.length > 0
+    if (steps === true) await applySteps(items, events, part.sessionId, options)
     // The line above a part's first message marks where it began. Skip a bare divider
     // for a single-page part that has no visible items or aside cards of its own.
     const hasPartRows = items.length > 0 || options.hasBtw === true || Number.isInteger(cursor?.beforeSeq)
     if (!more && index > 0 && hasPartRows) items.unshift({ kind: 'divider', time: part.startedAt })
-    if (steps === true) await applySteps(items, events, part.sessionId, options)
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
