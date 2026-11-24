@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { describe, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { isNewer, RELEASES_URL, watchReleases, watchUpdates } from '../src/updates.mjs'
+import { isNewer, watchReleases, watchUpdates } from '../src/updates.mjs'
 
 // electron-updater's AppUpdater, as far as the app uses it. `found` makes the answer of a
 // check that finds a version, with the download that autoDownload starts.
@@ -90,7 +90,7 @@ describe('watchReleases', () => {
     t.after(updates.stop)
     assert.equal(await updates.latest(), null)
     assert.deepEqual(calls[0], {
-      url: RELEASES_URL,
+      url: 'https://api.github.com/repos/Fei-Craft/DS-Bot/releases?per_page=20',
       options: { headers: { accept: 'application/vnd.github+json', 'user-agent': 'DS-Bot/0.1.7' } },
     })
 

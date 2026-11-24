@@ -25,7 +25,7 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 **桌面应用（Windows、macOS、Linux）**
 
-桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
+桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
 
 如果安装或打开时提示未签名拦截：Windows 点 **更多信息** → **仍要运行**；macOS 在 **系统设置** → **隐私与安全性** 里点 **仍要打开**。
 
@@ -128,7 +128,7 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ### 手机 App 与浏览器远程访问
 
-通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
+通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
 
 无需安装 App 也可使用**浏览器远程访问（预览）**：在同一配对页点 **Open in a browser** 或 **Copy browser link**。自建中转服务器与安全限制见 [`link/README.md`](link/README.md) 和 [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md)。
 
