@@ -519,8 +519,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     // What the request carries past the last handed message. When the marker is
     // gone the CLI session is stale or new: it gets a replay instead of a delta.
     const messages = options.messages ?? []
-    const at = live.handed === undefined ? -1 : messages.findIndex(message => message.id === live.handed)
-    const fresh = live.handed === undefined || at === -1
+    const queuedDelivery = live.queue.at(-1)?.delivery
+    const handed = queuedDelivery?.id ?? live.handed
+    const at = handed === undefined ? -1 : messages.findIndex(message => message.id === handed)
+    const fresh = at === -1
     const delta = fresh ? [] : messages.slice(at + 1)
 
     // Results of the calls the last step emitted answer the suspended CLI calls.
@@ -684,9 +686,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
       : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
+    let nextPromptHash = queuedDelivery === undefined ? live.promptHash : queuedDelivery.promptHash
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
+    if (instructions !== undefined && !startedFreshCli && nextPromptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -711,7 +714,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // message — because context alone would carry the turn without the decision.
       const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...promptBlocks])
       this.discardTurnOutput(live)
-      if (sentInstructions) live.promptHash = promptHash
+      if (sentInstructions) nextPromptHash = promptHash
       promptBlocks = []
       await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
@@ -721,23 +724,23 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     if (promptBlocks.length > 0) {
       await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
-      if (sentInstructions) live.promptHash = promptHash
+      if (sentInstructions) nextPromptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
-      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) live.promptHash = promptHash
+      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) nextPromptHash = promptHash
     }
     if (live.spec.kind === 'acp' && startedFreshCli && promptBlocks.length === 0 && instructions !== undefined) {
       await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
-      live.promptHash = promptHash
+      nextPromptHash = promptHash
     }
 
-    // The last DSH message is handed now; a later call sends only what follows.
-    // The marker before it is kept: a start that fails before the CLI reads
-    // anything must not count that message as delivered.
+    // A queued ACP input is not handed until drain sends its prompt.
     const last = messages.at(-1)
-    if (last !== undefined) {
-      live.handedBefore = live.handed
-      live.handed = last.id
-      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+    const queued = live.queue.at(-1)
+    if (queued !== undefined) {
+      if (last !== undefined) queued.delivery = { id: last.id, promptHash: nextPromptHash }
+    } else {
+      live.promptHash = nextPromptHash
+      if (last !== undefined && live.closeFailure === undefined) this.markHanded(live, last.id, nextPromptHash ?? promptHash)
     }
 
     try {
@@ -761,6 +764,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  markHanded(live, id, promptHash) {
+    live.handedBefore = live.handed
+    live.handed = id
+    this.deps.saveRecord(live.sessionId, this.recordOf(live, { promptHash }))
+  }
+
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
   // waits on a bridged call, steering for Codex and Claude, or a queued prompt
   // for ACP (it speaks one prompt at a time; the drain sends it when the turn
@@ -781,7 +790,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? blocks
       : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(blocks); return Promise.resolve() }
+      if (live.spec.kind === 'acp') { live.queue.push({ blocks }); return Promise.resolve() }
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -1012,7 +1021,11 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next, options.signal, options.reasoningEffort)
+            this.sendInput(live, next.blocks, options.signal, options.reasoningEffort)
+            if (next.delivery !== undefined) {
+              live.promptHash = next.delivery.promptHash
+              this.markHanded(live, next.delivery.id, live.promptHash)
+            }
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }

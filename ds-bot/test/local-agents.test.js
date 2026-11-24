@@ -223,6 +223,36 @@ test('acp: a stalled prompt fails instead of ending normally or being replayed',
   assert.equal(adapter.providerRetryPolicy().maxRetries, 0)
 })
 
+test('acp: a stall after approval leaves the queued follow-up for explicit retry', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--stall-after-permission'] })
+  t.after(() => adapter.dispose())
+  const first = user('m1', 'ask-permission')
+  const ask = await collect(adapter.stream(options('s1', [first])))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  const approval = toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))
+  const followup = user('m3', 'also check the logs')
+  const live = adapter.live.get('s1')
+  const cliSessionId = records.s1.cliSessionId
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [first, approval, followup]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; live.state !== 'running' && attempt < 300; attempt++) await delay(10)
+  assert.equal(live.state, 'running')
+  assert.equal(live.engineSession.running, true)
+  assert.equal(live.queue.length, 1)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m4', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  const out = await collect(adapter.stream(options('s1', [first, approval, followup, retry])))
+  assert.equal(adapter.live.get('s1').engineSession.resumed, true)
+  assert.equal(records.s1.cliSessionId, cliSessionId)
+  assert.match(out.text, /also check the logs/)
+  assert.equal(records.s1.handedId, 'm4')
+})
+
 test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())

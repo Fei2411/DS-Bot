@@ -202,6 +202,10 @@ async function runPrompt(session, prompt, requestId) {
       ],
     })
     const outcome = answer?.result?.outcome
+    if (process.argv.includes('--stall-after-permission')) {
+      session.pendingPrompt = requestId
+      return
+    }
     finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
     return
   }
