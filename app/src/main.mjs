@@ -22,6 +22,7 @@ import { canonicalExecPath } from './canonical-path.mjs'
 import { disk } from './copy-tree.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
+import { readLoginShellPath } from './login-shell-env.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
 import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
@@ -88,6 +89,10 @@ const material = materialOf(process.platform, release())
 configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
+// Finder and Dock starts inherit the session manager's sparse PATH, which the
+// Host's bash tool would inherit too. The login shell knows where node and the
+// rest are; read it now so it is ready before the Host starts.
+const loginPath = readLoginShellPath()
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
@@ -309,6 +314,10 @@ async function prepare() {
     await loadModules()
     handleIpc()
   }
+  // Before the Host starts: its bash tool and every other child inherit this.
+  // A terminal start already has it; there the write changes nothing.
+  const loginShellPath = await loginPath
+  if (loginShellPath !== undefined) process.env.PATH = loginShellPath
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
   // that the next engine has a window to load into.
