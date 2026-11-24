@@ -250,10 +250,17 @@ export class AcpEngine {
     if (method !== 'session/update') return
     const update = params?.update ?? {}
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
-      case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
+      case 'agent_message_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'text', text: textOf(update.content) })
+        break
+      case 'agent_thought_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: textOf(update.content) })
+        break
       case 'tool_call':
       case 'tool_call_update': {
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
         // A permission request names the call only by id; its title, kind and
         // input came with the call's own updates, so they are kept here.
         const id = update.toolCallId
@@ -278,12 +285,26 @@ export class AcpEngine {
         }
         break
       }
-      case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
+      case 'plan':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: planText(update.entries) })
+        break
       case 'usage_update': {
         // Devin sends each one twice, the second marked as a subagent's; a real
         // subagent's context is not the session's.
         if (update._meta?.['cognition.ai/subagent_context'] !== undefined) break
-        if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+        if (typeof update.used === 'number') {
+          session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+          // Count internal LLM steps during an active prompt turn (ignoring session/load
+          // replays, zero-token placeholders, and back-to-back duplicate snapshots).
+          const turn = session.promptTurn
+          if (turn !== undefined && session.running === true && update.used > 0
+            && (turn.steps === 0 || update.used !== turn.lastUsed || turn.sawStepWork)) {
+            turn.steps += 1
+            turn.lastUsed = update.used
+            turn.sawStepWork = false
+          }
+        }
         break
       }
       case 'config_option_update': {
@@ -415,7 +436,7 @@ export class AcpEngine {
   }
 
   // Resumes an ACP session across the same MCP transport fallback ladder as newSession.
-  async loadSession(peer, { cwd, mcp, resumeId }) {
+  async loadSession(peer, { cwd, mcp, resumeId, resumeOnly = false }) {
     const modes = this.mcpModes(mcp)
     for (let i = 0; i < modes.length; i++) {
       const mode = modes[i]
@@ -426,7 +447,10 @@ export class AcpEngine {
       } catch (error) {
         const text = String(error?.message ?? error)
         if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
-        if (i === modes.length - 1) return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        if (i === modes.length - 1) {
+          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        }
       }
     }
   }
@@ -434,16 +458,17 @@ export class AcpEngine {
   // A new or resumed ACP session for one DS Bot Session.
   async open(dshSessionId, openArgs) {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
-    const { cwd, mcp, resumeId, preset, model } = openArgs
+    const { cwd, mcp, resumeId, resumeOnly = false, preset, model } = openArgs
     const peer = await this.ensure()
     const prior = this.sessions.get(dshSessionId)
     const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
-        ? await this.loadSession(peer, { cwd, mcp, resumeId })
+        ? await this.loadSession(peer, { cwd, mcp, resumeId, resumeOnly })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
+      session.resumed = loaded
       const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
       // Some agents list nothing on session/load: the session reads what this CLI
       // listed before rather than guessing a mode or model list.
@@ -568,13 +593,27 @@ export class AcpEngine {
       }
     }
     signal?.throwIfAborted()
-    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
+    const turn = session.promptTurn = {
+      cancelled: false,
+      controller: new AbortController(),
+      steps: 0,
+      lastUsed: undefined,
+      sawStepWork: false,
+    }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
     const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
-      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      (result) => {
+        if (turn.cancelled) return
+        const calls = positiveInt(result?.usage?.calls)
+          ?? positiveInt(result?.numTurns)
+          ?? positiveInt(result?.num_turns)
+          ?? (turn.steps > 0 ? turn.steps : undefined)
+        const usage = usageOf(result?.usage, calls)
+        session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usage ? { usage } : {}) })
+      },
       error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
     ).finally(() => {
       if (session.promptTurn === turn) session.running = false
@@ -850,21 +889,24 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
 // A prompt's usage. Some CLIs fold cached input into inputTokens (Devin: totalTokens is
 // inputTokens + outputTokens), while others (Antigravity) count cachedReadTokens apart.
-export const usageOf = (usage) => {
+export const usageOf = (usage, calls) => {
   if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
   const read = usage.cachedReadTokens ?? 0
   const write = usage.cachedWriteTokens ?? 0
   const input = usage.inputTokens ?? 0
   const output = usage.outputTokens ?? 0
   const separate = typeof usage.totalTokens === 'number' && read + write > 0 && usage.totalTokens >= input + read + write + output
+  const resolvedCalls = positiveInt(calls) ?? positiveInt(usage.calls)
   return {
     inputTokens: !separate && read + write <= input ? input - read - write : input,
     outputTokens: output,
     ...(read > 0 ? { cacheReadTokens: read } : {}),
     ...(write > 0 ? { cacheWriteTokens: write } : {}),
     ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),
+    ...(resolvedCalls !== undefined && resolvedCalls > 1 ? { calls: resolvedCalls } : {}),
   }
 }
 const compactionStatus = status => (status === 'completed' ? 'completed' : status === 'started' || status === 'in_progress' ? 'started' : 'failed')

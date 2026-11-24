@@ -1,7 +1,7 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useLayoutEffect, useRef, useState } from 'react'
 import { BotMark, colorOf, toolState } from './mark.js'
 import { inkText } from './inks.js'
-import { CheckIcon, ChevronDownIcon } from './icons.js'
+import { ChevronDownIcon } from './icons.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
@@ -16,7 +16,6 @@ const NO_WORK = { bots: {}, rooms: {}, approvals: [] }
 const NO_COMPUTER = { asks: {} }
 const FACES_MAX = 3
 const DOCK_EXIT_MS = 160
-const FRESH_DONE_MS = 1800
 
 // Pending approvals belonging to this group alone: DSH tool approvals and computer
 // app-access consents raised from members' hidden group Sessions, oldest first.
@@ -230,74 +229,6 @@ export function StopMemberWork({ entry, bot, room, actions }) {
   return h('button', { type: 'button', className: 'bt-member-stop', disabled: stopping, 'aria-label': `${t('Stop')} · ${bot.name}`, onClick: stop }, t('Stop'))
 }
 
-// A member stuck in this group, on an error its own chat cannot reach, starts a fresh
-// part of its group conversation from here, as New session does in its own chat.
-// Only members that already have a group Session here show it.
-export function FreshMemberPart({ entry, bot, room, actions }) {
-  const scope = `${room?.id ?? ''}:${bot?.id ?? ''}`
-  const [status, setStatus] = useState(null)
-  const timer = useRef(null)
-  const mounted = useRef(true)
-  const scopeRef = useRef(scope)
-  const inFlight = useRef(null)
-  scopeRef.current = scope
-  const clear = () => {
-    if (timer.current !== null) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-  }
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-      inFlight.current = null
-      clear()
-    }
-  }, [])
-  useEffect(() => () => {
-    clear()
-    inFlight.current = null
-  }, [scope])
-  const phase = status?.scope === scope ? status.phase : 'idle'
-  const hasSession = Array.isArray(room?.sessionMembers) && room.sessionMembers.includes(bot.id)
-  if (actions.newPart === undefined || !hasSession || (entry !== undefined && entry.state !== 'idle')) return null
-  const start = () => {
-    if (phase !== 'idle' || inFlight.current === scope) return
-    clear()
-    const current = scope
-    inFlight.current = current
-    setStatus({ scope: current, phase: 'starting' })
-    void Promise.resolve(actions.newPart(bot.id, { roomId: room.id })).then(
-      () => {
-        if (!mounted.current || scopeRef.current !== current) return
-        setStatus({ scope: current, phase: 'done' })
-        timer.current = setTimeout(() => {
-          timer.current = null
-          if (inFlight.current === current) inFlight.current = null
-          if (!mounted.current) return
-          setStatus(prev => (prev?.scope === current && prev.phase === 'done' ? null : prev))
-        }, FRESH_DONE_MS)
-      },
-      (error) => {
-        if (inFlight.current === current) inFlight.current = null
-        if (mounted.current && scopeRef.current === current) setStatus(null)
-        actions.reportError?.(error, 'new-part')
-      },
-    )
-  }
-  const done = phase === 'done'
-  return h('button', {
-    type: 'button',
-    className: 'bt-member-stop bt-member-fresh',
-    'data-state': phase === 'idle' ? undefined : phase,
-    disabled: phase !== 'idle',
-    title: done ? t('Started a new session for {name} in this group', { name: bot.name }) : t('Start a new session for {name} in this group', { name: bot.name }),
-    'aria-label': `${done ? t('Started') : t('New session')} · ${bot.name}`,
-    onClick: start,
-  }, done ? [h('span', { key: 'ok', className: 'bt-member-fresh-ok bt-pop-in' }, h(CheckIcon)), t('Started')] : t('New session'))
-}
-
 // The group's work stops all at once from its details: DSH's own stop reaches only the
 // round, and a member the round moved on from keeps working.
 export function StopRoomWork({ room, entries, actions }) {
@@ -409,13 +340,6 @@ export const MEMBER_CSS = `
 .bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
-.bt-member-fresh{position:absolute;right:8px;top:0;bottom:0;z-index:1;margin:auto 0;display:inline-flex;align-items:center;gap:4px;box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
-.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh[data-state]{opacity:1;pointer-events:auto}
-.bt-member-fresh[data-state=done]{color:var(--bt-ink)}
-.bt-member-fresh[data-state=done]:disabled{opacity:1}
-.bt-member-fresh-ok{display:inline-flex;color:var(--bt-green)}
-.bt-member-fresh-ok svg{width:13px;height:13px}
-@media (hover:none){.bt-member-fresh{position:static;margin:0;box-shadow:inset 0 0 0 .5px var(--bt-line-2);opacity:1;pointer-events:auto}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-head{display:flex;align-items:center;gap:6px;min-width:0}
@@ -428,5 +352,5 @@ export const MEMBER_CSS = `
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop,.bt-member-fresh{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `

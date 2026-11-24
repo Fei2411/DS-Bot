@@ -41,7 +41,7 @@ DS Bot 的基础路径不依赖官方 API：回复由系统语音朗读，听写
 
 ### 界面
 
-- Settings → DeepSeek services：key 状态与 endpoint、每项能力的开关 / 选择与就绪原因，不渲染任何 key 值或 token。语音页与 [DeepSeek 文档识别](2026-11-14-read-document.md) 的 OCR 分区同页。
+- Settings → Models → DeepSeek services：key 状态与 endpoint、每项能力的开关 / 选择与就绪原因，不渲染任何 key 值或 token。语音页与 [DeepSeek 文档识别](2026-11-14-read-document.md) 的 OCR 分区同页。
 - 英文源文案 + `t()`；`zh / zh-TW / ja / ko / es / fr / de` 全部有真实译文（`zh-TW` 由 `convertDict` 派生），`i18n.test.js` 强制覆盖，不允许回落英文或英文占位。
 - 复用 `SetSection` / `SetRow` / `Switch` / `Segmented`，只用 `--bt-*` 变量（light / dark 跟随主题），原生键盘可用控件、`:focus-visible` 焦点环、保存中 / 已保存 / 错误状态；分区沿用设置页留白（`display:grid;gap:20px`）。
 
@@ -75,3 +75,4 @@ DS Bot 的基础路径不依赖官方 API：回复由系统语音朗读，听写
 ## 变更
 
 - 2026-11-14：初版。
+- 2026-11-22：补齐 DeepSeek services 所在的 Models 设置分组，对照 dev 代码校正。

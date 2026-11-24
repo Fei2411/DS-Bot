@@ -119,12 +119,12 @@ export const hasSectionTour = page => Object.hasOwn(SECTION_TOURS, page)
 export function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } = {}) {
   if (mode === 'full') {
     return [
-      { page: 'general', target: 'search', title: 'Search settings', cue: 'Type a keyword here to jump straight to any setting.' },
+      { page: 'overview', target: 'search', title: 'Search settings', cue: 'Click here to search any setting, Bot, or model.' },
       hasProviders
         ? { page: 'models', target: 'provider-list', title: 'Models', cue: 'Click a provider to enter your API key, or click "+ Add a provider".' }
         : { page: 'bot-models', target: 'bm-bar', title: 'Bot models', cue: 'Select Bots below and pick a model here to switch them together.' },
       { page: 'bots', target: 'new-bot', title: 'Team', cue: 'Click "+ New Bot" to add a member, or click any Bot row to edit it.' },
-      { page: 'phone', target: 'phone-pair', title: 'Connect', cue: 'Use the tabs above for connectors or IM, or click here to pair your phone.' },
+      { page: 'phone', target: 'phone-pair', title: 'Connect', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
       { page: 'appearance', target: 'theme-grid', title: 'Appearance', cue: 'Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.' },
     ]
   }
@@ -148,11 +148,14 @@ function sameSpot(a, b) {
 
 function findTourTarget(dialogEl, targetKey) {
   if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== 'function') return null
-  const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`)
-  if (!el || typeof el.getBoundingClientRect !== 'function') return null
-  const rect = el.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return null
-  return el
+  // The same target can sit in two places (the rail and, at phone width, Overview);
+  // the one on screen wins.
+  const all = typeof dialogEl.querySelectorAll === 'function' ? [...dialogEl.querySelectorAll(`[data-tour="${targetKey}"]`)] : [dialogEl.querySelector(`[data-tour="${targetKey}"]`)].filter(Boolean)
+  return all.find((el) => {
+    if (typeof el.getBoundingClientRect !== 'function') return false
+    const rect = el.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0
+  }) ?? null
 }
 
 function resolveStep(dialogEl, step) {

@@ -6,12 +6,20 @@ export interface HandshakeHello {
   pairingCode?: string
 }
 
+export interface PushSubscription {
+  kind: 'unifiedpush' | 'fcm'
+  endpoint?: string
+  token?: string
+  updatedAt: number
+}
+
 export interface PairedDevice {
   deviceId: string
   identityKey: string
   name: string
   pairedAt: number
   kind?: 'phone' | 'browser'
+  push?: PushSubscription
 }
 
 /** What the computer's pairing QR code carries to the phone. */
@@ -111,12 +119,36 @@ export class DeviceRegistry {
   private readonly now: () => number
 
   constructor(devices: PairedDevice[] = [], onChange?: (devices: PairedDevice[]) => void, now: () => number = Date.now) {
-    for (const device of devices) this.devices.set(device.deviceId, { ...device, kind: device.kind === 'browser' ? 'browser' : 'phone' })
+    for (const device of devices) {
+      this.devices.set(device.deviceId, {
+        ...device,
+        kind: device.kind === 'browser' ? 'browser' : 'phone',
+        ...(device.push !== undefined ? { push: { ...device.push } } : {}),
+      })
+    }
     this.onChange = onChange
     this.now = now
   }
 
-  list(): PairedDevice[] { return [...this.devices.values()].map(device => ({ ...device })) }
+  list(): PairedDevice[] {
+    return [...this.devices.values()].map(device => ({
+      ...device,
+      ...(device.push !== undefined ? { push: { ...device.push } } : {}),
+    }))
+  }
+
+  setPush(deviceId: string, push: PushSubscription | undefined): boolean {
+    const device = this.devices.get(deviceId)
+    if (device === undefined || device.kind !== 'phone') return false
+    if (push === undefined) {
+      if (device.push === undefined) return true
+      delete device.push
+    } else {
+      device.push = { ...push }
+    }
+    this.onChange?.(this.list())
+    return true
+  }
 
   openPairing(ttlMs = 5 * 60_000): { code: string; browserCode: string; expiresAt: number } {
     this.pairing = { code: randomToken(18), browserCode: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 }

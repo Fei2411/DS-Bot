@@ -64,7 +64,7 @@ const GUIDES = {
   },
 }
 
-const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
+export const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
 
 export function ImMark({ id, size = 36 }) {
   const Brand = MARKS[BRAND[id]]

@@ -19,7 +19,7 @@
 
 ### 配对与身份
 
-- 电脑 Settings → Phone 的二维码旁增加 **Open in a browser** 和 **Copy browser link**。浏览器地址从当前 Server 的 ws/wss URL 转换为 http/https，保留 `/v1/link` 之前的前缀，打开 `/web/#pair=<编码后的配对 URI>`。
+- 电脑 Settings → Connect → Phone 的二维码旁提供 **Open in a browser** 和 **Copy browser link**。浏览器地址从当前 Server 的 ws/wss URL 转换为 http/https，保留 `/v1/link` 之前的前缀，打开 `/web/#pair=<编码后的配对 URI>`。
 - 每次配对同时发出手机码和浏览器码；二维码仍使用手机码，浏览器链接使用浏览器码。任一个成功使用都会关闭这轮配对。电脑按使用的码记录 `kind: phone | browser`，不相信客户端自报的名字；旧设备缺少 kind 时视为手机。列表按 kind 把浏览器显示为 **Web browser**。
 - 一次性配对码只在 fragment，不进入 HTTP 路径或查询串。网页启动时取出并用 `history.replaceState` 清掉 fragment，再走和手机一样的配对流程。已有其他电脑的浏览器也能配对新电脑。
 - 网页不申请摄像头权限，也可手动粘贴 `dsbot://pair?...` 或复制的浏览器链接。每个浏览器 origin 保存自己的身份和电脑列表，作为一台额外设备出现在电脑的已配对列表，可从电脑撤销。同 origin 通过独占 Web Lock 只让一个标签页持有身份和链路，其余标签页等候，持有者关闭后接管。
@@ -46,3 +46,7 @@
 - 下载会在内存中累积 Blob，大文件受浏览器内存和保存策略限制。添加到 iOS 主屏幕可用网页名称和主题色，不代表原生 App 或完整离线 PWA。
 - `relay.dsbot.app` 必须另外部署非 demo 网页构建并配置 `DSBOT_LINK_WEB_DIR`，否则浏览器链接仍是 404；本仓库的改动不会自动部署线上服务。
 - 带路径前缀的反向代理需要对应前缀的 Expo 资源基址；默认构建只适用于 origin 根下的 `/web/`。正式环境需要 HTTPS/WSS，localhost 的 HTTP/WS 仅用于本机测试。
+
+## 变更
+
+- 2026-11-22：补齐浏览器配对入口所在的 Connect 设置分组，对照 dev 代码校正。

@@ -1,4 +1,4 @@
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ModelMenu, modelOf } from './model-menu.js'
@@ -14,6 +14,13 @@ export const modelLine = (bot, roster) => {
   const shown = modelOf(bot, roster)
   if (shown === undefined) return t('No model picked yet')
   return shown.served ? shown.name : t('{model} (not available)', { model: shown.name })
+}
+
+// A model's name, with its provider when another usable model shares the name.
+export const modelName = (entry, catalog) => {
+  const name = entry.name ?? entry.ref
+  const twin = catalog.some(other => other.ref !== entry.ref && (other.name ?? other.ref) === name)
+  return twin ? `${name} · ${entry.providerName ?? entry.ref.split('/')[0]}` : name
 }
 
 export const resultLine = (entry) => {
@@ -32,7 +39,8 @@ export const summaryLine = (results) => {
   return parts.join(' · ')
 }
 
-export function BotModelsPage({ roster, actions, run, Section }) {
+// `preset`: a model search offered to switch to; the page asks before it moves any Bot.
+export function BotModelsPage({ roster, actions, run, Section, preset = null }) {
   const bots = roster.bots ?? []
   const [selected, setSelected] = useState(() => new Set())
   const [target, setTarget] = useState(undefined)
@@ -49,9 +57,13 @@ export function BotModelsPage({ roster, actions, run, Section }) {
       return next
     })
   }
-  const apply = (ref) => {
+  const [offer, setOffer] = useState(preset)
+  useEffect(() => { setOffer(preset) }, [preset])
+  const offered = offer ? (roster.models ?? []).find(entry => entry.ref === offer) : undefined
+  // Only the Bots that would change: one already on the model is not counted.
+  const moving = offered ? eligible.filter(bot => modelRefOf(bot) !== offered.ref) : []
+  const apply = (ref, chosen = bots.filter(bot => selected.has(bot.id))) => {
     if (busy) return
-    const chosen = bots.filter(bot => selected.has(bot.id))
     if (chosen.length === 0) return
     setTarget(ref)
     setBusy(true)
@@ -65,6 +77,11 @@ export function BotModelsPage({ roster, actions, run, Section }) {
   })
   return [
     h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
+      offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
+        h('div', { className: 'bt-set-control bt-bm-actions' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
+          h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
       h('div', { className: 'bt-set-row bt-bm-bar' },
         h('span', { className: 'bt-set-copy' },
           h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
