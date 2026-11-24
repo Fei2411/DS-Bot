@@ -525,6 +525,27 @@ test('restart finds an unread task follow-up in the task’s successor inbox', a
   assert.equal(host.rt.state.bots.b.tasks[0].status, 'running')
 })
 
+test('restart replays an unread Bot reply to the foreground when its task failed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-failed-task-'))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Background task', status: 'failed' }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const args = { fromId: 'a', toId: 'b', sessionId: 'b-task', role: 'reply', exchangeId: 'reply', text: 'Result for the failed task' }
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({ turns: {}, queued: { 'b-task': [{ at: 1, args }] } }))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  const reconciliation = t.mock.method(host.rt, 'reconcileTasksAfterRestart')
+  t.mock.timers.tick(3000)
+  await settle(() => reconciliation.mock.callCount() > 0)
+  await reconciliation.mock.calls[0].result
+  assert.deepEqual(host.agentOf('b').calls.map(({ source }) => source.exchangeId), ['reply'])
+  assert.deepEqual(host.agentOf('b-task').calls, [])
+})
+
 test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-parents-'))
   const seed = baseSeed()

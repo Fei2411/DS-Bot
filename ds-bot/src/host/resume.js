@@ -353,8 +353,8 @@ export function install(rt) {
   const sessionFor = (sessionId, args) => {
     if (rt.isBotSession(sessionId)) return sessionId
     const bot = rt.botOf(args.toId)
-    if (threadOfPart(bot, sessionId)?.thread === 'task') return threadCurrentOfPart(bot, sessionId)
-    return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
+    const successor = threadOfPart(bot, sessionId)?.thread === 'task' ? threadCurrentOfPart(bot, sessionId) : undefined
+    return successor ?? (args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
   }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
