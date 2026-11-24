@@ -69,11 +69,15 @@
   - `message`：Bot 在自己的私聊里说了话（Bot 之间的隐藏回合和换段时的固定回复不算）。
   - `group`：成员在群里发言。
   - `done`：成员做完了派给它的活。
-  - `question`、`view`：Bot 的私聊里有提问卡、视图卡在等用户。
+  - `question`、`view`、`secret`、`connector`、`handoff`、`learning`：Bot 有提问卡、视图卡、密钥请求、连接器登录、浏览器接管或学习提议在等用户。
   - `approval`：Bot 在等用户批准（在群里时带群）。
 - 每条：`{ seq, kind, botId, name, roomId?, title?, sessionId?, text, time }`。`name` 是 Bot 现在的名字，`title` 是群名，`text` 压成一行；超过 300 个 UTF-16 码元时保留前 300 个并加 `…`，不是总长最多 300 字。
 - `notices`：`{ boot?, since? }` → `{ boot, seq, reset, notices }`。`boot` 不一致（重启过）或者 `since` 之后的提醒已经被挤掉时，`reset` 为真，客户端重读团队。内存里最多留 200 条。
 - 提醒只说「有事」，不记已读。已读和通知怎么弹由客户端决定。
+- 离线推送登记（仅原生手机 App，能力标识 `push-register`，浏览器端拒绝）：
+  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许 `https://`）或 `{ kind: 'fcm', token }` → `{ registered: true, kind, relayFcm }`。
+  - `push-unregister`：`{}` → `{ registered: false }`。
+  - 手机离线且登记了推送时，宿主用手机的 X25519 公钥（HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发出；收到 `404`/`410` 或 `UNREGISTERED` 时自动清理失效登记。
 
 ### 直播（feed）
 
@@ -99,7 +103,7 @@
 ## 不做什么
 
 - 不把已读状态存在服务端：每台设备各看各的。
-- 不推送到手机系统（FCM 之类）：客户端连着时才收得到，后台靠客户端自己的保活。
+- 不向中转服务器或第三方推送服务发送明文消息内容：离线推送只发端到端加密信封。
 - 不给群聊单独算用量：成员在群里的用量记在成员自己名下。
 - 不改网页版和桌面应用用的接口和事件。
 
@@ -124,4 +128,5 @@ the existing whole-file response and its 16 MiB compatibility limit.
 
 ## 变更
 
+- 2026-11-23：补齐 `secret`、`connector`、`handoff`、`learning` 提醒种类与手机端 `push-register` / `push-unregister` 端到端密封离线推送。
 - 2026-11-22：明确提醒摘要按 JavaScript 字符串长度截取并另加省略号，标记已解决的旧 PTC 群轮次识别限制，对照 dev 代码校正。

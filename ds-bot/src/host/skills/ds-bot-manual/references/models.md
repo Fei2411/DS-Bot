@@ -10,6 +10,8 @@ Each Bot's profile is its own saved configuration, not a separate DSH installati
 2. Open **Settings → Bots**, select the Bot, then **Model** to choose its model and supported thinking level.
 3. Use **Settings → Bot models** to review model choices across the team. **Settings → Usage** shows usage information.
 
+In the standalone desktop app, the user can open **OpenAI** (or select it under **Add a provider → Known provider**) and choose **Sign in with ChatGPT** to use their ChatGPT plan without an OpenAI API key. This requires OS-backed secure storage. If prompted, choose **Enable plan usage**, then select a model from **ChatGPT (plan)** for the Bot. The user can refresh models or sign out from that provider row.
+
 Call `list_bot_models` for exact provider/model refs and supported thinking levels for models in use. Call `list_bots` to see the current assignment. Use `update_bot` with model or effort only for the user's requested choice. An empty effort returns to the model's default. Every Bot can change itself; a Main Bot can change another Bot.
 
 For `create_bot`, if the user has not named a model, leave model out. The host chooses a usable team default or the creator's model. Do not silently select a more expensive model. Only the user moves a Bot between DS Bot models and a local CLI. Provider credentials, account sign-in and global provider setup are user-controlled UI work; there is no general Bot provider-settings tool described here.

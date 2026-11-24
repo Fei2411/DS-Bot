@@ -20,5 +20,13 @@ export function install(rt) {
   rt.ctx.on('agent/created', ({ agent }) => {
     agent.ctx?.effect?.(() => () => mainBySession.delete(agent.session?.id))
   })
+  // Filter built-in packs once at host level by the request's own Session id so
+  // per-Agent hooks cannot accumulate or strip another Session's tools.
+  rt.ctx.on('llm/stream', function filterBuiltinTools(options, next) {
+    if (options.sessionId === undefined || !Array.isArray(options.tools) || options.tools.length === 0) return next()
+    const hidden = rt.hiddenBuiltinTools(options.sessionId)
+    if (!options.tools.some(tool => hidden.has(tool?.name))) return next()
+    return rt.ctx.llm.stream({ ...options, tools: options.tools.filter(tool => !hidden.has(tool?.name)) })
+  })
   rt.ctx.effect(() => () => mainBySession.clear(), 'ds-bot: built-in pack roles')
 }

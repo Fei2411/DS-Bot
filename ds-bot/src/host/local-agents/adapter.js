@@ -5,6 +5,8 @@
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { SOURCE_KIND } from '../constants.js'
+import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
@@ -13,9 +15,15 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 // A window belongs to the model, not to the Session that reported it, and the model
 // card reads it from resolveModel rather than from the Session's own figures.
 const windowKey = (route, model) => `${route}\u0000${model}`
-// The replay window when a CLI session is new or its resume failed.
+// The replay window when a CLI session is new or its resume failed: 12 recent user/assistant
+// turns (not counting tool results or memory snapshots) within a 24 KB cap, plus a
+// dedicated bounded cap for incremental memory updates.
 const REPLAY_MESSAGES = 12
+const REPLAY_TOTAL_MAX = 36
 const REPLAY_BYTES = 24 * 1024
+const REPLAY_LINE_MAX = 2_000
+const MEMORY_UPDATE_REPLAY_MAX = 4
+const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
 const APPROVE_TOOL = 'approve_agent_action'
 // A CLI that answers its compaction command first and condenses after (Devin) says
@@ -35,19 +43,20 @@ function titleChunk(text) {
   ]
 }
 
-// A compaction request neither: a deterministic digest of the messages.
+// A compaction request neither: a deterministic digest of the newest messages.
 function digestChunks(messages) {
   const lines = []
   let used = 0
-  for (const message of messages ?? []) {
+  for (const message of [...(messages ?? [])].reverse()) {
+    if (message?.role === 'system') continue
     const text = textOf(message.content).replace(/\s+/g, ' ').trim()
     if (text === '') continue
     const line = `${message.role}: ${text.slice(0, 300)}`
-    if (used + line.length > 8 * 1024) break
+    if (lines.length > 0 && used + line.length > 8 * 1024) break
     lines.push(line)
     used += line.length
   }
-  const text = `[Earlier conversation, condensed]\n${lines.join('\n')}`
+  const text = `[Earlier conversation, condensed]\n${lines.reverse().join('\n')}`
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text },
@@ -365,6 +374,8 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (session.resumeMissing === true) {
       live.cliSessionId = undefined
       live.handed = undefined
+      live.context = live.context?.size === undefined ? undefined : { size: live.context.size }
+      live.compactions = 0
       live.resumeLost = true
     } else live.handed = live.handedBefore
     this.deps.saveRecord(sessionId, this.recordOf(live))
@@ -401,6 +412,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       yield* digestChunks(options.messages)
       return
     }
+    if (options.purpose === 'aside') {
+      throw new LlmError('aside requests must not run on a live local-agent session', 'INVALID_REQUEST')
+    }
     const sessionId = options.sessionId
     if (sessionId === undefined) throw new LlmError('a local agent request needs a session', 'INVALID_REQUEST')
     const preset = this.deps.presetFor(sessionId)
@@ -427,12 +441,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       pending.resolve({ text, isError: message.isError === true })
       settled.push({ name: pending.name, text, isError: message.isError === true })
     }
-    // The loop's runtime-context user messages are context, not input: they
-    // fold into the next prompt or steer, never start a prompt on their own.
+    // The loop's runtime-context user messages and silent Bot notices (note/cancelled/stopped)
+    // are context, not input: they fold into the next prompt or steer, never start a prompt
+    // on their own, and never hijack an open ask_user / bridged MCP call.
+    const isContextOnly = message => message.role === 'user' && (
+      message.source?.kind === 'runtime-context'
+      || (message.source?.kind === SOURCE_KIND && (message.source?.silent === true || ['note', 'cancelled', 'stopped'].includes(message.source?.role)))
+    )
     const contextText = delta
-      .filter(message => message.role === 'user' && message.source?.kind === 'runtime-context')
+      .filter(isContextOnly)
       .map(message => textOf(message.content)).filter(text => text !== '').join('\n')
-    const users = delta.filter(message => message.role === 'user' && message.source?.kind !== 'runtime-context')
+    const users = delta.filter(message => message.role === 'user' && !isContextOnly(message))
     // The first open bridged call that is not an approval may take the user's
     // next message as its answer; the rest of the input is new.
     const openCall = [...live.pending.entries()].find(([, entry]) => entry.name !== APPROVE_TOOL)
@@ -453,37 +472,76 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
 
-    const system = messages.filter(message => message.role === 'system').map(message => textOf(message.content)).join('\n').trim()
-    const promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
+    const rawSystem = messages.filter(message => message.role === 'system').map(message => textOf(message.content)).join('\n').trim()
+    const hasMemoryDelta = messages.some(message => message.source?.kind === MEMORY_UPDATE_SOURCE || message.source?.kind === GROUP_MEMORY_SOURCE)
     const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options))
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
 
     const mode = cliMode(live.spec.kind, preset)
-    const instructions = system === '' ? undefined : system
-
-    const freshCli = live.cliSessionId === undefined
+    const priorCliId = live.cliSessionId
+    const freshCli = priorCliId === undefined
+    let freshMemory
+    let memoryRefreshed = false
+    let appliedMemory = { system: rawSystem, note: '' }
+    let system = rawSystem
+    let promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
+    let instructions = system === '' ? undefined : system
+    const refreshMemory = () => {
+      if (memoryRefreshed) return
+      memoryRefreshed = true
+      freshMemory = this.deps.freshMemoryView?.(sessionId)
+      if (freshMemory === undefined) return
+      appliedMemory = applyFreshMemory(rawSystem, freshMemory)
+      system = appliedMemory.system
+      instructions = system === '' ? undefined : system
+      promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
+    }
+    // When starting a fresh CLI session that replays history with memory changes
+    // (including Claude's post-resumeMissing retry), refresh the authorized memory
+    // snapshot before open() so deleted entries never resurrect from an old prompt.
+    if ((fresh || options[RESUME_RETRIED] === true) && (options[RESUME_RETRIED] === true || hasMemoryDelta)) {
+      refreshMemory()
+    }
+    let resumeDropped = false
     if (live.engineSession === undefined) {
       const openArgs = {
         cwd,
         mcp,
-        resumeId: live.cliSessionId,
+        resumeId: priorCliId,
         mode,
         preset,
         model: options.model,
         defaultEffort: live.defaultEffort,
         effort: live.effort,
         // Codex carries the team instructions as developer config on a new
-        // thread; Claude gets them appended at spawn; ACP reads them in the
-        // first prompt below.
-        instructions: live.spec.kind === 'codex' && freshCli ? instructions : undefined,
+        // thread (including when thread/resume falls back to thread/start, where
+        // the callback refreshes memory before thread/start sends startup config;
+        // thread/resume itself ignores `instructions`); Claude gets them
+        // appended at spawn; ACP reads them in the first prompt below.
+        instructions: live.spec.kind === 'codex'
+          ? () => {
+              if (!freshCli) refreshMemory()
+              return instructions
+            }
+          : undefined,
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
-      // in the meantime, or a resume that fails would erase it.
+      // in the meantime, or a resume that fails would erase it. If ACP or Codex
+      // could not resume and opened a fresh session instead, replay conversation
+      // history and team instructions rather than sending only the latest delta.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      if (!freshCli && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
+        resumeDropped = true
+        live.context = live.context?.size === undefined ? undefined : { size: live.context.size }
+        live.compactions = 0
+        live.promptHash = undefined
+        refreshMemory()
+        this.deps.rt?.warn?.('local-agents: %s did not resume session %s for %s (opened %s); replaying conversation history', live.spec.kind, priorCliId, sessionId, reportedId ?? 'new')
+      }
       if (reportedId !== undefined) live.cliSessionId = reportedId
       if (live.spec.kind === 'acp') {
         if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
@@ -500,8 +558,9 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.pumpToken === token && !live.dead) live.push(event)
         }
       })()
-      if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
-      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+      if (live.spec.kind === 'claude' && instructions !== undefined) live.promptHash = promptHash
+      else if (live.spec.kind === 'codex' && (freshCli || resumeDropped) && instructions !== undefined) live.promptHash = promptHash
+      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, model: options.model }))
       // Claude reports its session id with `system/init`, after start() resolved:
       // the record above has no id yet, so persist it when it lands or the next
       // host has nothing to resume and the conversation starts over.
@@ -510,20 +569,22 @@ export class LocalAgentAdapter extends LlmAdapter {
         void pendingId.then((id) => {
           if (id === undefined || live.dead) return
           live.cliSessionId = id
-          this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+          this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, model: options.model }))
         })
       }
     }
 
+    const startedFreshCli = freshCli || resumeDropped
+    const needsReplay = fresh || resumeDropped
     const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
     const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
-    let promptBlocks = fresh
-      ? await renderReplay(messages, system, resolveImage)
+    let promptBlocks = needsReplay
+      ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
       : await renderDelta(contextText, remaining, resolveImage)
-    let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
+    let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !freshCli && live.promptHash !== promptHash) {
+    if (instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -560,9 +621,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
-      if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
+      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) live.promptHash = promptHash
     }
-    if (live.spec.kind === 'acp' && freshCli && promptBlocks.length === 0 && instructions !== undefined) {
+    if (live.spec.kind === 'acp' && startedFreshCli && promptBlocks.length === 0 && instructions !== undefined) {
       await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
@@ -889,10 +950,18 @@ export class LocalAgentAdapter extends LlmAdapter {
     let opened = false
     if (live === undefined || live.engineSession === undefined || live.engineSession.dead === true) {
       live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model }, this.deps.presetFor(sessionId))
-      await this.openFor(live, sessionId)
       opened = true
+      try {
+        await this.openFor(live, sessionId)
+      } catch (error) {
+        await this.closeLive(live, { idle: true }).catch(() => {})
+        throw error
+      }
     }
-    if (live.state !== 'idle' || live.pending.size > 0) throw new LlmError('the local agent is in the middle of a turn', 'LOCAL_AGENT_BUSY')
+    if (live.state !== 'idle' || live.pending.size > 0) {
+      if (opened) await this.closeLive(live, { idle: true }).catch(() => {})
+      throw new LlmError('the local agent is in the middle of a turn', 'LOCAL_AGENT_BUSY')
+    }
     // What a finished turn left behind is not this request's answer.
     live.events.length = 0
     try {
@@ -909,10 +978,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   async openFor(live, sessionId) {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
+    const priorCliId = live.cliSessionId
     live.engineSession = await live.engine.open(sessionId, {
       cwd,
       mcp: undefined,
-      resumeId: live.cliSessionId,
+      resumeId: priorCliId,
+      resumeOnly: priorCliId !== undefined,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
       model: live.model,
@@ -920,6 +991,14 @@ export class LocalAgentAdapter extends LlmAdapter {
       effort: live.effort,
     })
       .catch(error => { throw toLlmError(error, live) })
+    const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+    if (priorCliId !== undefined && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
+      const opened = live.engineSession
+      live.engineSession = undefined
+      await live.engine.closeSession?.(opened).catch(() => {})
+      live.engine.forget?.(sessionId)
+      throw new LlmError('the saved local agent session could not be resumed for maintenance', 'LOCAL_AGENT_EXIT')
+    }
     if (live.spec.kind === 'acp') {
       if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
       live.effort = live.engineSession.effort
@@ -1123,7 +1202,27 @@ function mergeTextBlocks(blocks) {
   return out
 }
 
-async function blocksOfMessage(message, { maxText, resolveImage }) {
+const REPLAY_ARG_KEYS = ['path', 'file_path', 'file', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'task', 'topic']
+
+function briefToolCall(block) {
+  const name = typeof block?.name === 'string' ? block.name : 'tool'
+  let args = block?.arguments ?? block?.input
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { args = undefined }
+  }
+  if (args !== null && typeof args === 'object') {
+    for (const key of REPLAY_ARG_KEYS) {
+      const value = args[key]
+      if (typeof value === 'string' && value.trim() !== '') {
+        const clean = value.replace(/\s+/g, ' ').trim()
+        return `[tool: ${name}(${clean.length > 100 ? `${clean.slice(0, 100)}…` : clean})]`
+      }
+    }
+  }
+  return `[tool: ${name}]`
+}
+
+async function blocksOfMessage(message, { maxText, resolveImage, includeToolCalls = false }) {
   const raw = Array.isArray(message.content) ? message.content : []
   const out = []
   let textParts = []
@@ -1138,6 +1237,11 @@ async function blocksOfMessage(message, { maxText, resolveImage }) {
       const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
       if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
       textParts.push(piece)
+    } else if (includeToolCalls && block?.type === 'tool-call') {
+      const note = briefToolCall(block)
+      const piece = textLeft === Infinity ? note : note.slice(0, textLeft)
+      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      if (piece !== '') textParts.push(piece)
     } else if (block?.type === 'image') {
       flushText()
       out.push(await resolveImage(block))
@@ -1156,36 +1260,87 @@ async function renderDelta(contextText, remaining, resolveImage) {
   return mergeTextBlocks(parts)
 }
 
+function applyFreshMemory(system, freshMemory) {
+  if (freshMemory === undefined) return { system, note: '' }
+  if (freshMemory.previous !== undefined && system.includes(freshMemory.previous)) {
+    const updated = system.replace(freshMemory.previous, () => freshMemory.own)
+    return {
+      system: updated,
+      note: updated === system ? '' : 'Note: The "# Your memory" section above reflects current memory and supersedes any earlier memory snapshot or updates.',
+    }
+  }
+  if (system.includes(freshMemory.own)) return { system, note: '' }
+  return {
+    system,
+    note: `Current memory (supersedes any earlier memory section or updates):\n${freshMemory.own}`,
+  }
+}
+
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text and images, newest first, always with the latest input
-// and the handoff a new part opens with, both word for word.
-async function renderReplay(messages, system, resolveImage) {
+// recent messages rendered as text and images, newest first, always keeping the
+// current unread input, the latest group memory snapshot, and the latest handoff
+// word for word while bounding historical messages and incremental memory updates.
+async function renderReplay(messages, system, resolveImage, { preserve = [], freshMemory, memoryNote = '' } = {}) {
   const picked = []
   let used = 0
+  let conversationCount = 0
+  let memoryUpdates = 0
+  let memoryUpdateBytes = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
+  const latestNonClock = [...body].reverse().find(message => message.source?.kind !== 'runtime-context')
+  const latestGroupMem = freshMemory?.group !== undefined ? undefined : [...body].reverse().find(message => message.source?.kind === GROUP_MEMORY_SOURCE)
+  const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
+  const preserveSet = new Set(preserve)
   let full = false
   for (const message of [...body].reverse()) {
-    const whole = message === latest || message.source?.handoff === true
+    const sourceKind = message.source?.kind
+    const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
+    if (!isCurrentInput && sourceKind === 'runtime-context') continue
+    if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
-    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, 2_000))
+    if (sourceKind === MEMORY_UPDATE_SOURCE) {
+      if (freshMemory !== undefined) continue
+      const len = prefix.length + 1 + text.length
+      if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes + len > MEMORY_UPDATE_REPLAY_BYTES)) continue
+      const maxText = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
+      const blocks = await blocksOfMessage(message, { maxText, resolveImage, includeToolCalls: true })
+      if (blocks.length === 0) continue
+      const entry = blocks[0].type === 'text'
+        ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
+        : [{ type: 'text', text: prefix }, ...blocks]
+      picked.unshift(entry)
+      memoryUpdates += 1
+      memoryUpdateBytes += Math.min(len, maxText)
+      continue
+    }
+    const whole = isCurrentInput || message === latestHandoff || message === latestGroupMem
+    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
     if (!whole) {
-      full ||= picked.length >= REPLAY_MESSAGES || used + approxLen > REPLAY_BYTES
+      full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
       if (full) continue
     }
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
+    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
+    if (blocks.length === 0 && !whole) continue
     const entry = blocks.length > 0 && blocks[0].type === 'text'
       ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
       : blocks.length > 0
         ? [{ type: 'text', text: prefix }, ...blocks]
         : [{ type: 'text', text: `${prefix} ` }]
     picked.unshift(entry)
-    used += approxLen
+    if (!whole) used += approxLen
+    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== 'runtime-context') {
+      conversationCount += 1
+    }
   }
   if (picked.length === 0) return []
-  const head = system === '' ? '' : `The team instructions for this conversation:\n${system}\n\n`
-  return mergeTextBlocks([{ type: 'text', text: `${head}The conversation so far (oldest first):` }, ...picked.flat()])
+  const headerParts = []
+  if (system !== '') headerParts.push(`The team instructions for this conversation:\n${system}`)
+  if (memoryNote !== '') headerParts.push(memoryNote)
+  if (freshMemory?.group !== undefined) headerParts.push(freshMemory.group)
+  headerParts.push('The conversation so far (oldest first):')
+  return mergeTextBlocks([{ type: 'text', text: headerParts.join('\n\n') }, ...picked.flat()])
 }
 
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS

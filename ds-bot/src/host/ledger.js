@@ -125,10 +125,12 @@ export function install(rt) {
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (entry.view !== undefined) note(entry.view, record, entry.records.length - 1)
     if (!writes()) return record
-    const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
-    entry.torn = false
-    entry.size += Buffer.byteLength(line)
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      // Construct the line inside the serialized queue so if a prior write failed
+      // and set `entry.torn = true`, this write prepends `\n` instead of fusing lines.
+      const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
+      entry.torn = false
+      entry.size += Buffer.byteLength(line)
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
@@ -138,8 +140,9 @@ export function install(rt) {
       // Memory holds only what the disk has, so a record that did not land is written again
       // when it is sent again. Part of its line may have landed: the next one starts anew.
       if (books.get(book) !== entry) return
-      const at = entry.records.indexOf(record)
-      if (at !== -1) entry.records.splice(at, 1)
+      // Replace the array reference on rollback so incremental readers (`delivery.js`) can
+      // detect mutations in O(1) via reference identity.
+      entry.records = entry.records.filter(item => item !== record)
       entry.view = undefined
       // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
       if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
@@ -170,11 +173,16 @@ export function install(rt) {
     entry.view = undefined
     for (const record of added) entry.bySeq.set(record.seq, record)
     if (!writes()) return added.length
-    const wasTorn = entry.torn
-    const snapshot = entry.records.map(record => `${JSON.stringify(record)}\n`).join('')
-    entry.torn = false
-    entry.size = Buffer.byteLength(snapshot)
+    // Snapshot membership synchronously so later queued appends are NOT included twice,
+    // while reading `entry.records` inside the serialized queue excludes any earlier
+    // queued append that failed and rolled itself out of memory before this rewrite ran.
+    const included = new Set(entry.records)
+    let wasTorn = false
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      wasTorn = entry.torn
+      const snapshot = entry.records.filter(record => included.has(record)).map(record => `${JSON.stringify(record)}\n`).join('')
+      entry.torn = false
+      entry.size = Buffer.byteLength(snapshot)
       await mkdir(dir, { recursive: true })
       const temp = `${pathOf(book)}.${process.pid}.tmp`
       await writeFile(temp, snapshot, 'utf8')
@@ -195,6 +203,7 @@ export function install(rt) {
 
   function drop(book) {
     books.delete(book)
+    lastWrite.delete(book)
     if (!writes()) return
     const run = (writing.get(book) ?? Promise.resolve()).then(() => rm(pathOf(book), { force: true }))
     writing.set(book, run.catch(() => {}))
@@ -210,7 +219,7 @@ export function install(rt) {
     drop,
     records: book => open(book).records,
     record: (book, seq) => open(book).bySeq.get(seq),
-    after: (book, since) => open(book).records.filter(record => since === undefined || (Number.isInteger(record.seq) && record.seq > since)),
+    after: (book, since) => (since === undefined ? [...open(book).records] : ledger.range(book, Math.floor(since) + 1)),
     range: (book, from, to) => {
       const entry = open(book)
       const view = viewOf(entry)
@@ -235,17 +244,30 @@ export function install(rt) {
       for (const record of open(book).records) if (Number.isInteger(record.seq) && record.seq > last) last = record.seq
       return last
     },
-    // Newest first: every word has to be in the record's text.
-    search: (book, query, pick = record => record.text) => {
+    // Newest first: every word has to be in the record's text. Accepts either a `pick`
+    // function or `{ pick, filter, limit }`; checks `filter` before lowercasing and stops
+    // as soon as `limit` hits are collected from the tail.
+    search: (book, query, pickOrOptions) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
+      const pick = typeof pickOrOptions === 'function' ? pickOrOptions : (pickOrOptions?.pick ?? (record => record.text))
+      const filter = typeof pickOrOptions === 'object' && typeof pickOrOptions?.filter === 'function' ? pickOrOptions.filter : undefined
+      const limit = typeof pickOrOptions === 'object' && Number.isInteger(pickOrOptions?.limit) && pickOrOptions.limit > 0 ? pickOrOptions.limit : SEARCH_MAX
       const records = open(book).records
       const lower = searchTextFor(records)
-      return records.filter((record, at) => {
+      const hits = []
+      for (let at = records.length - 1; at >= 0; at -= 1) {
+        const record = records[at]
+        if (filter !== undefined && !filter(record)) continue
         const text = pick(record)
+        if (typeof text !== 'string' || text === '') continue
         const value = lower(at, text)
-        return typeof text === 'string' && words.every(word => value.includes(word))
-      }).slice(-SEARCH_MAX).reverse()
+        if (words.every(word => value.includes(word))) {
+          hits.push(record)
+          if (hits.length === limit) break
+        }
+      }
+      return hits
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`
     // is the start of its name, up to and with the first "-".

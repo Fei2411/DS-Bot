@@ -10,7 +10,7 @@ import { fakeContext } from './fake-ctx.js'
 const QUESTION = 'ask_user_question'
 const AGENT_TEAMS = ['spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
 const DELEGATION = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', ...AGENT_TEAMS]
-const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
+const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or delegate it to another Bot with delegate_work.'
 
 const team = () => ({
   version: 1,
@@ -281,22 +281,27 @@ test('a delegation name restrict() cannot mask keeps the other masks and stays r
 })
 
 // The standard preset registers subagent (model selection) in the Agent's own scope,
-// which restrict() and a same-name section cannot reach, so Bot Sessions filter the
-// hidden tools and their guidance sections out of the assembled prompt instead.
+// which restrict() and a same-name section cannot reach, so the host assembly hook
+// filters the hidden tools and their guidance sections out of Bot Sessions instead.
 test('Bot Sessions filter the hidden tools and their guidance out of the prompt assembly', async (t) => {
-  const { rt, agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
+  const { ctx, rt, agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
   t.after(stop)
-  for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
+  const chief = await agentFor('chief')
+  await agentFor('room-writer')
+  const plain = await agentFor('plain')
   const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  // Bot Sessions get the hidden-tools filter and the computer-use filter. The room's own
-  // Session and a plain Agent get neither while DS Bot has mounted no provider.
-  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'chief', 'room-writer', 'room-writer'])
+  // Only the computer-use filter attaches per Bot Session; hidden-tool assembly
+  // filtering runs once at host level, and a plain Agent gets neither.
+  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'room-writer'])
+  assert.deepEqual(scopedListeners.filter(record => record.event === 'llm/stream'), [])
   // Resolving the same Agent again adds no listener.
   const before = scopedListeners.length
   await rt.resolveAgent('chief')
   assert.equal(scopedListeners.length, before)
-  assert.equal(scopedListeners.filter(record => record.event === 'system-prompt/assemble').length, 4)
-  const filtered = await filters[0].listener({}, {}, async () => ({
+  assert.equal(scopedListeners.filter(record => record.event === 'system-prompt/assemble').length, 2)
+  const hostAssemble = ctx.listeners.get('system-prompt/assemble').find(listener => listener.name === 'scopeTeamTools')
+  assert.ok(hostAssemble)
+  const filtered = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],
     tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
@@ -306,23 +311,29 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.tools.map(tool => tool.name), ['read', 'message_bot'])
   assert.deepEqual(filtered.contexts, [{ name: 'x' }])
   assert.deepEqual(filtered.variables, { a: 1 })
+  // Plain Sessions pass through the host assembly filter untouched.
+  const plainAssembly = {
+    sections: [{ name: 'tool:subagent' }, { name: 'team:policy' }],
+    tools: [{ name: 'subagent' }, { name: 'ask_user_question' }],
+  }
+  assert.equal(await hostAssemble({}, { agent: plain }, async () => plainAssembly), plainAssembly)
   // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
   // assembly it passes has none; the guidance is still filtered and no tools appear.
-  const current = await filters[0].listener({}, {}, async () => ({
+  const current = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   // Fei2411/DS-Bot#973: Agent Teams' Team Lead guidance goes too.
-  const team = await filters[0].listener({}, {}, async () => ({
+  const team = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'team:policy' }, { name: 'tool:spawn_teammate' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(team.sections.map(section => section.name), ['bot-identity'])
   // The computer-use filter keeps everything but the provider's own sections.
-  const computer = await filters[1].listener({}, {}, async () => ({
+  const computer = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'computer-use:dsh-cua' }],
     contexts: [],
     variables: {},

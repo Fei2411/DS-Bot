@@ -82,15 +82,38 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   const addBtn = adding || bots.length === 0 ? null
     : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
+  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? 'builtin:readonly'
+  const KNOWN_BROWSER_LABELS = {
+    'builtin:readonly': t('Read-only Browser'),
+    'builtin:refs': t('Playwright (Refs)'),
+    'builtin:script': t('Playwright (Script)'),
+    'builtin:task': t('Playwright (Task)'),
+    'dsh:dsh-ego-browser': 'Ego Lite Browser',
+    'mcp:playwright-mcp': 'Playwright MCP',
+    'mcp:chrome-devtools-mcp': 'Chrome DevTools MCP',
+  }
+  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId]
+    ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, '')
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, { title: t('Browser access') },
       h('p', { className: 'bt-browser-note' }, t('A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.')),
       h(Row, {
+        label: t('Browser plugin'),
+        hint: activeBrowserLabel,
+      },
+      h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        onClick: () => actions.openSettings?.('plugins', 'browser'),
+      }, t('Switch browser plugin'))),
+      activeBrowserId === 'builtin:readonly' ? h(Row, {
         label: t('How to enable interactive browsing'),
         hint: t('In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.'),
-      }),
-      h('p', { className: 'bt-browser-note' }, t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
+      }) : null,
+      h('p', { className: 'bt-browser-note' }, activeBrowserId.startsWith('builtin:')
+        ? t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
+        : t('External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.'))),
     adding ? h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },

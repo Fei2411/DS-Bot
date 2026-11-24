@@ -75,16 +75,44 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
   // DSH's public surface API, keeping the original log for the transcript.
-  ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+  // Track the highest checked seq per Session so subsequent steps skip already-verified nodes.
+  // Surface replacements splice higher seqs in place (incrementing replaceGeneration), so the
+  // O(1) fast path requires tail stability and unchanged replaceGeneration/contentGeneration.
+  const checkedState = new WeakMap()
+  const offPreStep = ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+    if (disposed) return next()
     const session = agent.session
+    const nodes = session.surface?.nodes ?? []
+    if (nodes.length === 0) return next()
+    const prev = checkedState.get(session)
+    const replaceGen = session.surface?.replaceGeneration
+    const contentGen = session.surface?.contentGeneration
+    const lastSeq = nodes.at(-1)
+    if (
+      prev !== undefined
+      && typeof replaceGen === 'number'
+      && prev.replaceGen === replaceGen
+      && prev.contentGen === contentGen
+      && prev.nodesLen === nodes.length
+      && prev.lastSeq === lastSeq
+    ) return next()
+    const through = prev?.through ?? -1
     let changed = false
-    for (const seq of session.surface?.nodes ?? []) {
+    let highest = through
+    let initialMax = through
+    let skippedUnowned = false
+    const replacedSeqs = new Set()
+    const snapshot = nodes.slice()
+    for (const seq of snapshot) {
+      if (seq > initialMax) initialMax = seq
+      if (seq <= through) continue
+      if (seq > highest) highest = seq
       const event = session.eventAt(seq)
       if (event.type !== 'tool/result') continue
       if (!event.sourceEventSeqs?.some(source => names.has(session.eventAt(source)?.data?.name))) continue
       const message = session.deriveEventMessage(event)
       if (!message.content.some(block => block.type === 'image' && !block.attachment && typeof block.data === 'string')) continue
-      if (!await keyOf({ agent })) continue
+      if (!await keyOf({ agent })) { skippedUnowned = true; continue }
       const content = []
       for (const block of message.content) {
         if (block.type !== 'image' || block.attachment || typeof block.data !== 'string') { content.push(block); continue }
@@ -93,10 +121,31 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
           ? { type: 'image', attachment: saved.attachment, ...(block.offloaded ? { offloaded: true } : {}) }
           : { type: 'text', text: saved.text.trim() })
       }
-      session.append('tool/result', { ...event.data, message: { ...message, content } }, {
+      const replacement = session.append('tool/result', { ...event.data, message: { ...message, content } }, {
         surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq],
       })
+      if (typeof replacement?.seq === 'number') {
+        replacedSeqs.add(replacement.seq)
+        if (replacement.seq > highest) highest = replacement.seq
+      }
       changed = true
+    }
+    if (!skippedUnowned) {
+      const updated = session.surface?.nodes ?? nodes
+      const sawConcurrent = updated.some(seq => seq > initialMax && !replacedSeqs.has(seq))
+      if (sawConcurrent) {
+        // An unrelated event arrived while awaiting keyOf/saveShot: only mark the initial
+        // snapshot as checked and leave the O(1) fast path uncached so the next step inspects it.
+        checkedState.set(session, { through: initialMax })
+      } else {
+        checkedState.set(session, {
+          through: highest,
+          replaceGen: session.surface?.replaceGeneration,
+          contentGen: session.surface?.contentGeneration,
+          nodesLen: updated.length,
+          lastSeq: updated.at(-1),
+        })
+      }
     }
     if (changed) await ctx.sessions.flush(session)
     return next()
@@ -108,13 +157,20 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     sessions.delete(botId)
     void Promise.resolve(session).then(s => s.close(), () => {}).catch(() => {})
   })
-  ctx.effect(() => async () => {
+  let closing = null
+  const closeAll = () => {
+    if (closing) return closing
     disposed = true
-    unsubscribeHolds?.()
-    const open = [...sessions.values()]
-    sessions.clear()
-    await Promise.all(open.map(session => Promise.resolve(session).then(opened => opened.close(), () => {})))
-  }, 'ds-bot: browser plugin')
+    closing = (async () => {
+      try { offPreStep?.() } catch { /* ignore */ }
+      try { unsubscribeHolds?.() } catch { /* ignore */ }
+      const open = [...sessions.values()]
+      sessions.clear()
+      await Promise.all(open.map(session => Promise.resolve(session).then(opened => opened.close(), () => {})))
+    })()
+    return closing
+  }
+  const offEffect = ctx.effect(() => () => closeAll(), 'ds-bot: browser plugin')
 
   // Closes a Bot's browser and removes its profile directory; used when the Bot is deleted.
   async function drop(botId) {
@@ -207,5 +263,9 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   if (api) {
     api.drop = drop
     api.frame = async botId => (await sessions.get(botId))?.frame?.()
+    api.dispose = async () => {
+      try { offEffect?.() } catch { /* ignore */ }
+      await closeAll()
+    }
   }
 }

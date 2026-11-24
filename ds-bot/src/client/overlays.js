@@ -103,7 +103,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.exchange ? h(OverlayBoundary, {
       name: 'exchange', reset: Array.isArray(ui.exchange) ? ui.exchange.join(':') : String(ui.exchange),
       onDismiss: () => (actions.closeExchange ?? actions.closeOverlay)?.(), actions,
-    }, createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body)) : null,
+    }, createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
     ui.voice ? h(OverlayBoundary, {
       name: 'voice', reset: ui.voice,
       onDismiss: () => actions.closeVoice?.(), actions,

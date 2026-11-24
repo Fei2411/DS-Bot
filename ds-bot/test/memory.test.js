@@ -969,7 +969,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   const opened = first.section('b2')
   assert.match(opened, /^# Your memory\n/)
   assert.match(opened, /## Your memory \(MEMORY\.md\)\n- Likes tea \[[0-9a-f]{4} · \d\d-\d\d\]\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
-  assert.match(opened, /when the whole team should know something, tell a Main Bot with message_bot/)
+  assert.match(opened, /when the whole team should know something, ask a Main Bot with delegate_work/)
   assert.match(first.section('m1'), /As a Main Bot you write it with bot_remember scope "team"/)
   assert.match(first.section('g3'), /As a group admin you write it/)
   assert.equal(first.section('nobody'), '')
@@ -1053,24 +1053,24 @@ test('a change of role freezes the section again, so its team rule matches the t
   t.after(() => stop())
   await tool('bot_remember', { text: 'Likes tea' }, 'b2')
   const before = section('b2')
-  assert.match(before, /tell a Main Bot with message_bot/)
+  assert.match(before, /ask a Main Bot with delegate_work/)
   await tool('bot_remember', { text: 'Lives in Hangzhou' }, 'b2')
   assert.equal(section('b2'), before)
 
   assert.equal((await call('set-main', { id: 'b2', main: true })).ok, true)
   const promoted = section('b2')
   assert.match(promoted, /As a Main Bot you write it with bot_remember scope "team"/)
-  assert.doesNotMatch(promoted, /tell a Main Bot with message_bot/)
+  assert.doesNotMatch(promoted, /ask a Main Bot with delegate_work/)
   // Frozen anew, so entries saved since come along; then it holds still again.
   assert.match(promoted, /- Lives in Hangzhou \[/)
   assert.equal(section('b2'), promoted)
 
   assert.equal((await call('set-main', { id: 'b2', main: false })).ok, true)
-  assert.match(section('b2'), /tell a Main Bot with message_bot/)
+  assert.match(section('b2'), /ask a Main Bot with delegate_work/)
   // Coder loses the admin seat of Launch, and with it the team rule in its group Session.
   assert.match(section('g3'), /As a group admin you write it/)
   assert.equal((await call('update-room', { id: 'r1', admin: 'b2' })).ok, true)
-  assert.match(section('g3'), /tell a Main Bot with message_bot/)
+  assert.match(section('g3'), /ask a Main Bot with delegate_work/)
   assert.match(section('b2'), /As a group admin you write it/)
 })
 
@@ -1547,9 +1547,9 @@ test('a group review that gets no list of changes is not re-armed by every membe
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
-  // The batch is marked read even though nothing could be saved: the next member
-  // to go idle finds nothing new and starts no model call.
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
+  // The cursor stays before the unparseable batch for backoff retry, while other
+  // members going idle immediately do not re-arm another model call during backoff.
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 0 })
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
   ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
@@ -1572,7 +1572,7 @@ test('a first group review reads back to the user\'s line past a round of replie
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 7 })
 })
 
-test('an answer that is no list of changes is said and passed over, never read again', async (t) => {
+test('an answer that is no list of changes keeps the cursor and backs off instead of dropping the batch', async (t) => {
   const replies = ['Nothing worth keeping here.', JSON.stringify({ changes: [{ op: 'add', text: 'The user wants this remembered' }] })]
   const { ctx, call, read, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
   t.after(() => stop())
@@ -1581,9 +1581,10 @@ test('an answer that is no list of changes is said and passed over, never read a
   await reviewed(call)
   assert.equal(requests.length, 1)
   assert.throws(() => read('bots', 'b2', 'MEMORY.md'), { code: 'ENOENT' })
-  // The miss is said, and the batch is marked read: a later turn does not read it again.
+  // The miss is logged, the cursor stays before seq 10 instead of skipping the batch,
+  // and an immediate idle during backoff does not spin another model call.
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
@@ -2406,7 +2407,10 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
   await rt.tidyMemoryNow('bot:b2')
   assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from your memory by the memory review: Fact number 3/)
   assert.equal(requests.length, 1)
-  assert.doesNotMatch(requests[0].messages[0].content[0].text, /Keep this forever|Over now/)
+  const tidyPrompt = requests[0].messages[0].content[0].text
+  assert.doesNotMatch(tidyPrompt, /Over now/)
+  assert.doesNotMatch(tidyPrompt, /\[\d+\][^\n]*Keep this forever/)
+  assert.match(tidyPrompt, /Pinned entries \(read-only context; never change or reference these\):\n- \(MEMORY\.md · pinned\) Keep this forever/)
   const main = read('bots', 'b2', 'MEMORY.md')
   assert.match(main, /- Facts one and two \[id: a000;.*merged: a000 a001/)
   assert.doesNotMatch(main, /Fact number 2 |Fact number 3 |Fact number 4 |Over now/)

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
@@ -53,8 +53,9 @@ export const CAPABILITIES = [
   'markdown-image',
   'file-download-chunks',
   'write-state',
+  'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -129,7 +130,7 @@ export function roomItems(events, rowsOf = () => []) {
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
         // A post a running round logged shows inside that round; a member's late failure,
         // picked-up work, stopped work or finished work is an event of the round it opens.
-        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
+        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
@@ -222,6 +223,12 @@ export function install(rt) {
     const room = rt.roomOf(entry.roomId)
     botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
   }
+  rt.learningProposed = (proposal) => {
+    if (!proposal?.botId) return
+    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
+    const sessionId = rt.chatOf?.(proposal.botId)
+    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
+  }
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -236,6 +243,8 @@ export function install(rt) {
     const botId = rt.chatOwners.get(id)
     if (botId === undefined || rt.taskOwners?.has(id) || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
     const text = textOf(event.data?.message?.content)
+    const info = rt.live?.get(id)?.info
+    if (info?.kind === SOURCE_KIND && info.audience !== 'user' && isSilentTurnText(text)) return
     // The fixed reply that opens a fresh part is not the Bot speaking.
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })
   })
@@ -249,7 +258,18 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const seenHolds = new Map()
+  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
+    liveChanged()
+    if (hold === null || hold?.callId === undefined) {
+      seenHolds.delete(botId)
+      return
+    }
+    if (seenHolds.get(botId) === hold.callId) return
+    seenHolds.set(botId, hold.callId)
+    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
+    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
+  })
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
