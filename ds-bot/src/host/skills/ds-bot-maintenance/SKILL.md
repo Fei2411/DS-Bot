@@ -12,7 +12,7 @@ Operational runbook for Main Bots diagnosing, inspecting, upgrading, backing up,
 - **Online vs. offline boundary:** While the host is running, limit actions to read-only Bot tools (`list_bots`, `list_bot_models`, `list_secrets`, `bot_recall`) and read-only checks on logs and configs.
 - **No live state mutation:** NEVER create, edit, delete, or overwrite `<DSH_HOME>`, `bot/state.json`, `bot/secrets.json`, `bot/ledger/`, `sessions/*.jsonl`, `profiles/`, or `cordis.patch.yml` behind a running host.
 - **Lock awareness:** Respect `bot/state.lock` (15s heartbeat, 60s stale window). Damaged state files are quarantined as `state.json.broken-<ts>`.
-- **Zero secret exposure:** NEVER read, print, commit, or transmit `bot/secrets.json` (mode `0o600`, encrypted with `DS_BOT_SECRETS_PASSPHRASE` or `DS_BOT_SECRETS_PASSPHRASE_FILE`), `.env` keys, tokens, cookies, or `credentials/`. Use `list_secrets` for names and presence only.
+- **Zero secret exposure:** NEVER read, print, commit, or transmit `bot/secrets.json` (mode `0o600`, plaintext by default; at-rest encryption is opt-in, and `DS_BOT_SECRETS_PASSPHRASE` / `DS_BOT_SECRETS_PASSPHRASE_FILE` only unlock an already-encrypted store), `.env` keys, tokens, cookies, or `credentials/`. Use `list_secrets` for names and presence only.
 - **Private Bot isolation:** NEVER read, summarize, export, or expose a Private Bot's sessions or memory for another Bot. A Private Bot's memory stays with it: `bot_recall` refuses a Private Bot's scope outright, Private Bots cannot join group chats, and their change log stays in their own `memory/bots/<id>/journal.jsonl`. There is no Bot-side way to open another Bot's private data; ask the user to share what is needed.
 - **Confirmation gate:** Always obtain explicit user confirmation before stopping DSH, switching deployments, deleting workspaces, rotating secrets, restoring backups, or running `npx ds-bot doctor --fix`.
 - **No hand-edited bundles:** NEVER edit generated `ds-bot/client.js` or `ds-bot/link.js` directly; edit `ds-bot/src/client/` and rebuild with `npm run build`.
@@ -50,7 +50,7 @@ Load **only** the single reference file under `references/` matching the user's 
 5. **Act safely offline:**
    - Summarize exact findings, risks, and rollback plan first.
    - Wait for explicit user confirmation and confirm the host has exited cleanly.
-   - Take a timestamped backup outside `<DSH_HOME>` before touching `bot/` or `profiles/`.
+   - Take a timestamped backup outside `<DSH_HOME>` before touching `bot/` or `profiles/`. A backup containing `secrets.json` is sensitive even when the file is only copied, never opened.
 6. **Verify and report:** Re-check with `npx ds-bot doctor` (expect exit `0`), inspect startup logs / `diagnostics.jsonl`, and report only observed commands, files, and results.
 
 ## Scope & Escalation Boundaries

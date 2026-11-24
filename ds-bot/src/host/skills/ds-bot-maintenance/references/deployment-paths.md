@@ -25,7 +25,7 @@ Use this reference when locating DS Bot installations, `DSH_HOME`, `DS_BOT_HOME`
 - `DS_BOT_APP=1`: Set when running under the Desktop App host.
 - `DSH_HARNESS`: Points source-checkout unit tests and `ds-bot/dev/bench.sh` to a DSH checkout or `ds-bot/dev/harness`.
 - `DSH_TRUSTED_HOST`: Reverse-proxy / headless host allowlist for remote Web deployments (e.g., Docker behind a custom domain/IP).
-- `DS_BOT_SECRETS_PASSPHRASE` / `DS_BOT_SECRETS_PASSPHRASE_FILE`: Optional passphrase override or key-file path encrypting `<DSH_HOME>/bot/secrets.json`.
+- `DS_BOT_SECRETS_PASSPHRASE` / `DS_BOT_SECRETS_PASSPHRASE_FILE`: Optional passphrase or key-file path that unlocks an already-encrypted `<DSH_HOME>/bot/secrets.json` (the store is plaintext by default; encryption is opt-in under Settings → Secrets).
 
 ## Runtime Directory Layout (`<bot-home>` = `<DSH_HOME>/bot`)
 
