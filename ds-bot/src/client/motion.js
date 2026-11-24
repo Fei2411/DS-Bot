@@ -1,11 +1,8 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { effectsTier, reducedEffects, reducedMotion } from './effects.js'
 
-export const effectsTier = () => {
-  const tier = typeof document === 'undefined' ? undefined : (document.body?.dataset?.btEffects || document.documentElement?.dataset?.btEffects)
-  return tier === 'reduced' || tier === 'off' ? tier : 'full'
-}
-export const reducedMotion = () => effectsTier() === 'off' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true)
-export const reducedEffects = () => effectsTier() !== 'full' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true)
+export { effectsTier, reducedEffects, reducedMotion }
+
 // Touch devices never hover: controls revealed on hover need a tap path instead.
 export const noHover = () => window.matchMedia?.('(hover: none)').matches === true
 

@@ -36,17 +36,29 @@ export function shapesOf(rig, frame, scratch = {}) {
     return out
   })
 
-  const paints = rig.paints.map(({ fill, opacity, faces }) => {
-    const polys = []
+  // A decal is many small faces; the ones facing the viewer go into one buffer per decal,
+  // kept in `scratch`, as polygons ending at `ends[0 .. count - 1]`.
+  if (scratch.paintRig !== rig) {
+    scratch.paintRig = rig
+    scratch.paints = rig.paints.map(({ fill, opacity, faces }) => ({
+      fill, opacity, count: 0,
+      points: new Float32Array(faces.reduce((sum, face) => sum + (face.points.length / 3) * 2, 0)),
+      ends: new Int32Array(faces.length),
+    }))
+  }
+  const paints = scratch.paints
+  rig.paints.forEach(({ faces }, index) => {
+    const paint = paints[index]
+    let j = 0
+    paint.count = 0
     for (const { points, normal } of faces) {
       if (normal[0] * dir[0] + normal[1] * dir[1] + normal[2] * dir[2] <= 0) continue
-      const out = new Float32Array((points.length / 3) * 2)
-      for (let i = 0, j = 0; i < points.length; i += 3, j += 2) {
-        place(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2], out, j)
+      for (let i = 0; i < points.length; i += 3, j += 2) {
+        place(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2], paint.points, j)
       }
-      polys.push(out)
+      paint.ends[paint.count] = j
+      paint.count += 1
     }
-    return { fill, opacity, polys }
   })
 
   const eyes = []
@@ -144,10 +156,17 @@ function smoothLoop(ctx, pts) {
   }
   ctx.closePath()
 }
-function polygon(ctx, pts) {
-  ctx.moveTo(pts[0], pts[1])
-  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1])
+function polygon(ctx, pts, from = 0, to = pts.length) {
+  ctx.moveTo(pts[from], pts[from + 1])
+  for (let i = from + 2; i < to; i += 2) ctx.lineTo(pts[i], pts[i + 1])
   ctx.closePath()
+}
+// The polygons of a decal: [from, to) ranges of its points.
+function* decalPolys(paint) {
+  for (let k = 0, from = 0; k < paint.count; k += 1) {
+    yield [from, paint.ends[k]]
+    from = paint.ends[k]
+  }
 }
 
 // `ink` is the body's paint: a color string or a CanvasGradient.
@@ -160,11 +179,11 @@ export function drawShapes(ctx, shapes, ink) {
   // while the smooth surface has already turned away.
   ctx.globalCompositeOperation = 'source-atop'
   for (const paint of shapes.paints) {
-    if (paint.polys.length === 0) continue
+    if (paint.count === 0) continue
     ctx.globalAlpha = paint.opacity
     ctx.fillStyle = paint.fill
     ctx.beginPath()
-    for (const poly of paint.polys) polygon(ctx, poly)
+    for (let k = 0, from = 0; k < paint.count; from = paint.ends[k], k += 1) polygon(ctx, paint.points, from, paint.ends[k])
     ctx.fill('nonzero')
     ctx.globalAlpha = 1
   }
@@ -255,14 +274,14 @@ export function pathsOf(shapes) {
     }
     return `${d}Z`
   }
-  const poly = (pts) => {
-    let d = `M${fmt(pts[0])} ${fmt(pts[1])}`
-    for (let i = 2; i < pts.length; i += 2) d += `L${fmt(pts[i])} ${fmt(pts[i + 1])}`
+  const poly = (pts, from = 0, to = pts.length) => {
+    let d = `M${fmt(pts[from])} ${fmt(pts[from + 1])}`
+    for (let i = from + 2; i < to; i += 2) d += `L${fmt(pts[i])} ${fmt(pts[i + 1])}`
     return `${d}Z`
   }
   return {
     body: shapes.body.map(loop).join(''),
-    paints: shapes.paints.map(paint => ({ fill: paint.fill, opacity: paint.opacity, d: paint.polys.map(poly).join('') })),
+    paints: shapes.paints.map(paint => ({ fill: paint.fill, opacity: paint.opacity, d: [...decalPolys(paint)].map(([from, to]) => poly(paint.points, from, to)).join('') })),
     eyes: shapes.eyes.map(poly).join(''),
   }
 }

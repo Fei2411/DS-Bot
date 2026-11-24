@@ -18751,14 +18751,17 @@ function writeSkinSurfaceVars(doc, read) {
   };
 }
 
-// src/client/motion.js
-var import_react = require("react");
+// src/client/effects.js
 var effectsTier = () => {
   const tier = typeof document === "undefined" ? void 0 : document.body?.dataset?.btEffects || document.documentElement?.dataset?.btEffects;
   return tier === "reduced" || tier === "off" ? tier : "full";
 };
-var reducedMotion = () => effectsTier() === "off" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-var reducedEffects = () => effectsTier() !== "full" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var systemReducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var reducedMotion = () => effectsTier() === "off" || systemReducedMotion();
+var reducedEffects = () => effectsTier() !== "full" || systemReducedMotion();
+
+// src/client/motion.js
+var import_react = require("react");
 var noHover = () => window.matchMedia?.("(hover: none)").matches === true;
 var viewBottom = () => window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight;
 function useViewport(enabled = true) {
@@ -19128,6 +19131,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 /* Lively: a question badge rides on the head. */
 body[data-bt-motion=lively] .bt-badge-alert{right:auto;bottom:auto;left:50%;top:calc(var(--bt-size,36px) * -.14);translate:-50% 0;animation:bt-q-ride 1.3s cubic-bezier(.3,.7,.4,1) infinite}
 body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert{animation:none}
+@media (prefers-reduced-motion:reduce){.bt-badge-alert{animation:none}}
 @keyframes bt-q-ride{0%,55%,100%{transform:translateY(0)}20%{transform:translateY(calc(var(--bt-size,36px) * -.14))}40%{transform:translateY(0)}}
 .bt-badge{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-badge-admin{background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar))}
@@ -21722,6 +21726,16 @@ var Avatar = class {
   get follows() {
     return !this.calm && this.tier !== "quiet";
   }
+  // Whether the frame is the flat art: nothing playing, every channel at zero, and open
+  // neutral eyes. Until a mark leaves this pose it needs no model.
+  get atRest() {
+    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== "neutral") return false;
+    for (const name of CHANNELS) {
+      const spring2 = this.springs[name];
+      if (spring2.x !== 0 || spring2.v !== 0 || spring2.target !== 0) return false;
+    }
+    return true;
+  }
   setOptions({ size, live, tier, effects }) {
     if (size !== void 0) {
       this.size = size;
@@ -21735,6 +21749,7 @@ var Avatar = class {
       this.gazeTarget = null;
       this.petting = null;
     }
+    if (this.calm && this.frame.accent && this.frame.accent.kind !== "sparkle") this.frame.accent = null;
     if (!Number.isFinite(this.nextLoop)) this.nextLoop = this.time + 0.3;
     this.retarget();
   }
@@ -21917,7 +21932,7 @@ var Avatar = class {
     });
     const held = STATES[this.state].accent;
     let accent = this.frame.accent;
-    if (accent && accent.kind !== "sparkle" && accent.kind !== held) accent = this.frame.accent = null;
+    if (accent && accent.kind !== "sparkle" && (accent.kind !== held || this.calm)) accent = this.frame.accent = null;
     if (!accent && held && this.lod === "hero" && !this.calm) accent = this.frame.accent = { kind: held, t: 0 };
     if (accent) {
       if (accent.kind === "sparkle") {
@@ -21935,18 +21950,18 @@ var Avatar = class {
   // Seconds until the next thing this mark will do on its own.
   wakeIn() {
     if (this.clips.length > 0 || this.face.swap || this.face.mix < 1) return 0;
-    if (this.still || this.resting && !this.petting) return Infinity;
     const times = [];
+    const def = STATES[this.state];
+    if (def.next) times.push(this.stateSince + def.hold);
+    if (this.override.face) times.push(this.override.faceUntil);
+    if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time);
     if (this.loopOf(STATES[this.state])) times.push(this.nextLoop);
     if (this.blinks()) times.push(this.nextBlink);
     if (this.glances()) times.push(this.saccade.until > this.time ? this.saccade.until : this.saccade.next);
-    if (this.override.face) times.push(this.override.faceUntil);
-    const def = STATES[this.state];
-    if (def.next) times.push(this.stateSince + def.hold);
     return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time);
   }
   // Resting: nobody has touched the window for a while. Moves under way finish, but
-  // nothing new starts until it is lifted.
+  // nothing new starts until it is lifted, even under a pointer left on the mark.
   rest(on) {
     this.resting = on;
     if (!on) {
@@ -21958,7 +21973,7 @@ var Avatar = class {
   schedule() {
     if (this.still) return;
     const def = STATES[this.state];
-    if (this.resting && !this.petting) return;
+    if (this.resting) return;
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink();
       this.nextBlink = this.time + def.blink[0] + this.rng() * (def.blink[1] - def.blink[0]);
@@ -21991,11 +22006,12 @@ var Avatar = class {
     const dur = played?.clip.dur ?? 0;
     this.nextLoop = this.time + dur + loop2.gap[0] + this.rng() * (loop2.gap[1] - loop2.gap[0]);
   }
-  // Blinks are part of every state's motion; at rest only a lively mark blinks.
+  // Blinks are part of every state's motion (they repeat, so reduced motion has none);
+  // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state];
     const ambient = this.state === "idle" || this.state === "sleeping";
-    return !!def.blink && (!ambient || !!this.petting || this.live && this.tier === "lively");
+    return !!def.blink && !this.calm && (!ambient || !!this.petting || this.live && this.tier === "lively");
   }
   // Small glances while resting, on large lively marks.
   glances() {
@@ -22801,51 +22817,90 @@ var dist2 = (positions, a, b) => {
 };
 
 // src/client/avatar/silhouette.js
+var EDGES2 = /* @__PURE__ */ new WeakMap();
+function edgesOf(mesh) {
+  let edges = EDGES2.get(mesh);
+  if (edges) return edges;
+  const { tri } = mesh;
+  const vertexCount = mesh.pos.length / 3;
+  const ids = /* @__PURE__ */ new Map();
+  const a = [];
+  const b = [];
+  const of = new Int32Array(tri.length);
+  for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    for (let k = 0; k < 3; k += 1) {
+      const p = tri[t2 + k];
+      const q = tri[t2 + (k + 1) % 3];
+      const key = p < q ? p * vertexCount + q : q * vertexCount + p;
+      let id = ids.get(key);
+      if (id === void 0) {
+        id = a.length;
+        ids.set(key, id);
+        a.push(p);
+        b.push(q);
+      }
+      of[t2 + k] = id;
+    }
+  }
+  edges = { a: Int32Array.from(a), b: Int32Array.from(b), of, count: a.length };
+  EDGES2.set(mesh, edges);
+  return edges;
+}
 function silhouette(mesh, view, scratch = {}) {
   const { pos, nrm, tri } = mesh;
   const vertexCount = pos.length / 3;
-  const facing = scratch.facing?.length >= vertexCount ? scratch.facing : scratch.facing = new Float32Array(vertexCount);
+  const edges = edgesOf(mesh);
+  if (scratch.edgeMesh !== mesh) {
+    scratch.edgeMesh = mesh;
+    scratch.facing = new Float32Array(vertexCount);
+    scratch.next = new Int32Array(edges.count).fill(-1);
+    scratch.used = new Int32Array(edges.count);
+  }
+  const { facing, next, used } = scratch;
   const [dx, dy, dz] = view;
   for (let v = 0; v < vertexCount; v += 1) {
     const g = nrm[v * 3] * dx + nrm[v * 3 + 1] * dy + nrm[v * 3 + 2] * dz;
     facing[v] = g === 0 ? -1e-7 : g;
   }
-  const next = /* @__PURE__ */ new Map();
-  const point = /* @__PURE__ */ new Map();
-  const crossing = (a, b) => {
-    const key = a < b ? a * vertexCount + b : b * vertexCount + a;
-    if (!point.has(key)) {
+  let usedCount = 0;
+  const { of } = edges;
+  for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    const fa = facing[tri[t2]] > 0, fb = facing[tri[t2 + 1]] > 0, fc = facing[tri[t2 + 2]] > 0;
+    if (fa === fb && fb === fc) continue;
+    let l, lm, nl;
+    if (fb !== fa && fb !== fc) {
+      l = tri[t2 + 1];
+      lm = of[t2 + 1];
+      nl = of[t2];
+    } else if (fc !== fa && fc !== fb) {
+      l = tri[t2 + 2];
+      lm = of[t2 + 2];
+      nl = of[t2 + 1];
+    } else {
+      l = tri[t2];
+      lm = of[t2];
+      nl = of[t2 + 2];
+    }
+    const from = facing[l] > 0 ? lm : nl;
+    next[from] = facing[l] > 0 ? nl : lm;
+    used[usedCount] = from;
+    usedCount += 1;
+  }
+  const loops = [];
+  for (let u = 0; u < usedCount; u += 1) {
+    let key = used[u];
+    if (next[key] === -1) continue;
+    const loop2 = [];
+    while (next[key] !== -1) {
+      const a = edges.a[key], b = edges.b[key];
       const t2 = facing[a] / (facing[a] - facing[b]);
-      point.set(key, [
+      loop2.push(
         pos[a * 3] + (pos[b * 3] - pos[a * 3]) * t2,
         pos[a * 3 + 1] + (pos[b * 3 + 1] - pos[a * 3 + 1]) * t2,
         pos[a * 3 + 2] + (pos[b * 3 + 2] - pos[a * 3 + 2]) * t2
-      ]);
-    }
-    return key;
-  };
-  for (let t2 = 0; t2 < tri.length; t2 += 3) {
-    const a = tri[t2], b = tri[t2 + 1], c = tri[t2 + 2];
-    const fa = facing[a] > 0, fb = facing[b] > 0, fc = facing[c] > 0;
-    if (fa === fb && fb === fc) continue;
-    let [l, m, n] = [a, b, c];
-    if (fb !== fa && fb !== fc) [l, m, n] = [b, c, a];
-    else if (fc !== fa && fc !== fb) [l, m, n] = [c, a, b];
-    const lm = crossing(l, m);
-    const nl = crossing(n, l);
-    if (facing[l] > 0) next.set(lm, nl);
-    else next.set(nl, lm);
-  }
-  const loops = [];
-  for (const start of next.keys()) {
-    if (!next.has(start)) continue;
-    const loop2 = [];
-    let key = start;
-    while (next.has(key)) {
-      const p = point.get(key);
-      loop2.push(p[0], p[1], p[2]);
-      const to = next.get(key);
-      next.delete(key);
+      );
+      const to = next[key];
+      next[key] = -1;
       key = to;
     }
     if (loop2.length >= 9) loops.push(loop2);
@@ -22983,17 +23038,29 @@ function shapesOf(rig, frame3, scratch = {}) {
     }
     return out;
   });
-  const paints = rig.paints.map(({ fill: fill2, opacity, faces }) => {
-    const polys = [];
+  if (scratch.paintRig !== rig) {
+    scratch.paintRig = rig;
+    scratch.paints = rig.paints.map(({ fill: fill2, opacity, faces }) => ({
+      fill: fill2,
+      opacity,
+      count: 0,
+      points: new Float32Array(faces.reduce((sum, face) => sum + face.points.length / 3 * 2, 0)),
+      ends: new Int32Array(faces.length)
+    }));
+  }
+  const paints = scratch.paints;
+  rig.paints.forEach(({ faces }, index) => {
+    const paint = paints[index];
+    let j = 0;
+    paint.count = 0;
     for (const { points, normal } of faces) {
       if (normal[0] * dir[0] + normal[1] * dir[1] + normal[2] * dir[2] <= 0) continue;
-      const out = new Float32Array(points.length / 3 * 2);
-      for (let i = 0, j = 0; i < points.length; i += 3, j += 2) {
-        place(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2], out, j);
+      for (let i = 0; i < points.length; i += 3, j += 2) {
+        place(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2], paint.points, j);
       }
-      polys.push(out);
+      paint.ends[paint.count] = j;
+      paint.count += 1;
     }
-    return { fill: fill2, opacity, polys };
   });
   const eyes = [];
   const pupil = 1 + frame3.pupil;
@@ -23079,10 +23146,16 @@ function smoothLoop(ctx, pts) {
   }
   ctx.closePath();
 }
-function polygon(ctx, pts) {
-  ctx.moveTo(pts[0], pts[1]);
-  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+function polygon(ctx, pts, from = 0, to = pts.length) {
+  ctx.moveTo(pts[from], pts[from + 1]);
+  for (let i = from + 2; i < to; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
   ctx.closePath();
+}
+function* decalPolys(paint) {
+  for (let k = 0, from = 0; k < paint.count; k += 1) {
+    yield [from, paint.ends[k]];
+    from = paint.ends[k];
+  }
 }
 function drawShapes(ctx, shapes, ink) {
   ctx.fillStyle = ink;
@@ -23091,11 +23164,11 @@ function drawShapes(ctx, shapes, ink) {
   ctx.fill("nonzero");
   ctx.globalCompositeOperation = "source-atop";
   for (const paint of shapes.paints) {
-    if (paint.polys.length === 0) continue;
+    if (paint.count === 0) continue;
     ctx.globalAlpha = paint.opacity;
     ctx.fillStyle = paint.fill;
     ctx.beginPath();
-    for (const poly of paint.polys) polygon(ctx, poly);
+    for (let k = 0, from = 0; k < paint.count; from = paint.ends[k], k += 1) polygon(ctx, paint.points, from, paint.ends[k]);
     ctx.fill("nonzero");
     ctx.globalAlpha = 1;
   }
@@ -23178,14 +23251,14 @@ function pathsOf(shapes) {
     }
     return `${d}Z`;
   };
-  const poly = (pts) => {
-    let d = `M${fmt(pts[0])} ${fmt(pts[1])}`;
-    for (let i = 2; i < pts.length; i += 2) d += `L${fmt(pts[i])} ${fmt(pts[i + 1])}`;
+  const poly = (pts, from = 0, to = pts.length) => {
+    let d = `M${fmt(pts[from])} ${fmt(pts[from + 1])}`;
+    for (let i = from + 2; i < to; i += 2) d += `L${fmt(pts[i])} ${fmt(pts[i + 1])}`;
     return `${d}Z`;
   };
   return {
     body: shapes.body.map(loop2).join(""),
-    paints: shapes.paints.map((paint) => ({ fill: paint.fill, opacity: paint.opacity, d: paint.polys.map(poly).join("") })),
+    paints: shapes.paints.map((paint) => ({ fill: paint.fill, opacity: paint.opacity, d: [...decalPolys(paint)].map(([from, to]) => poly(paint.points, from, to)).join("") })),
     eyes: shapes.eyes.map(poly).join("")
   };
 }
@@ -23381,32 +23454,33 @@ var MARGIN = 0.3;
 var marks = /* @__PURE__ */ new Set();
 var frame = 0;
 var timer = 0;
+var looping = false;
 var lastInput = typeof performance === "undefined" ? 0 : performance.now();
 var resting = false;
 var dozing = false;
 var watching = false;
 var restTimer = 0;
 var observer = null;
-var themeObserver = null;
+var settingsObserver = null;
+var reduceQuery = null;
+var shownSettings = "";
+var shownDark = null;
 var themeEpoch = 0;
 var pointer = null;
 var aimed = true;
 var followers = 0;
-function motionSettings(doc = document) {
-  const body = doc.body;
-  const tier = body?.dataset?.btMotion;
-  const effects = body?.dataset?.btEffects || doc.documentElement?.dataset?.btEffects;
-  const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+function motionSettings() {
+  const tier = typeof document === "undefined" ? void 0 : document.body?.dataset?.btMotion;
   return {
     tier: tier === "quiet" || tier === "lively" ? tier : "normal",
-    effects: reduce || effects === "off" ? "off" : effects === "reduced" ? "reduced" : "full"
+    effects: reducedMotion() ? "off" : reducedEffects() ? "reduced" : "full"
   };
 }
 function now() {
   return performance.now();
 }
 function kick() {
-  if (frame || marks.size === 0) return;
+  if (frame || looping || marks.size === 0) return;
   if (timer) {
     clearTimeout(timer);
     timer = 0;
@@ -23415,12 +23489,17 @@ function kick() {
 }
 function loop(time) {
   frame = 0;
+  looping = true;
   let soonest = Infinity;
   const hidden = document.hidden === true;
-  if (!aimed && !hidden) aim();
-  for (const mark2 of marks) {
-    if (hidden || !mark2.visible) continue;
-    soonest = Math.min(soonest, mark2.step(time));
+  try {
+    if (!aimed && !hidden) aim();
+    for (const mark2 of marks) {
+      if (hidden || !mark2.visible) continue;
+      soonest = Math.min(soonest, mark2.step(time));
+    }
+  } finally {
+    looping = false;
   }
   if (hidden || marks.size === 0) return;
   if (soonest <= 0.03) frame = requestAnimationFrame(loop);
@@ -23488,7 +23567,12 @@ function onVisibility() {
 }
 function onSettings() {
   const settings = motionSettings();
-  themeEpoch += 1;
+  const key = `${settings.tier}|${settings.effects}`;
+  const dark = document.body?.hasAttribute("data-ds-dark-theme") === true;
+  if (key === shownSettings && dark === shownDark) return;
+  if (dark !== shownDark) themeEpoch += 1;
+  shownSettings = key;
+  shownDark = dark;
   aimed = false;
   for (const mark2 of marks) {
     mark2.engine.setOptions(settings);
@@ -23500,6 +23584,9 @@ var INPUTS2 = ["pointerdown", "keydown", "wheel", "touchstart"];
 function watch() {
   if (watching) return;
   watching = true;
+  const settings = motionSettings();
+  shownSettings = `${settings.tier}|${settings.effects}`;
+  shownDark = document.body?.hasAttribute("data-ds-dark-theme") === true;
   window.addEventListener("pointermove", onPointer, { passive: true, capture: true });
   for (const type of INPUTS2) window.addEventListener(type, onInput, { passive: true, capture: true });
   document.documentElement.addEventListener("pointerleave", onPointerLeave);
@@ -23520,10 +23607,12 @@ function watch() {
     });
   }
   if (typeof MutationObserver === "function" && document.body) {
-    themeObserver = new MutationObserver(onSettings);
-    themeObserver.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "data-bt-motion", "data-bt-effects", "data-bt-theme", "style", "class"] });
+    settingsObserver = new MutationObserver(onSettings);
+    settingsObserver.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "data-bt-motion", "data-bt-effects"] });
+    settingsObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-bt-effects"] });
   }
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener?.("change", onSettings);
+  reduceQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  reduceQuery?.addEventListener?.("change", onSettings);
 }
 function unwatch() {
   if (!watching || marks.size > 0) return;
@@ -23536,9 +23625,10 @@ function unwatch() {
   clearInterval(restTimer);
   observer?.disconnect();
   observer = null;
-  themeObserver?.disconnect();
-  themeObserver = null;
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").removeEventListener?.("change", onSettings);
+  settingsObserver?.disconnect();
+  settingsObserver = null;
+  reduceQuery?.removeEventListener?.("change", onSettings);
+  reduceQuery = null;
   if (frame) cancelAnimationFrame(frame);
   if (timer) clearTimeout(timer);
   frame = 0;
@@ -23547,11 +23637,14 @@ function unwatch() {
 var queue = [];
 var job = null;
 var building = false;
+var idleSoon = (fn) => typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(fn) : setTimeout(() => {
+  const start = now();
+  fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
+}, 16);
 function buildSoon(mark2) {
   if (!queue.includes(mark2)) queue.push(mark2);
   if (building) return;
   building = true;
-  const idle = window.requestIdleCallback ?? ((fn) => setTimeout(() => fn({ timeRemaining: () => 6 }), 16));
   const work = (deadline) => {
     while (deadline.timeRemaining() > 2) {
       const mark3 = queue[0];
@@ -23568,9 +23661,9 @@ function buildSoon(mark2) {
         if (marks.has(waiting)) waiting.attachRig();
       }
     }
-    idle(work);
+    idleSoon(work);
   };
-  idle(work);
+  idleSoon(work);
 }
 function flatTransform(frame3) {
   const sy = 1 - Math.max(-0.4, Math.min(0.4, frame3.sq));
@@ -23590,21 +23683,19 @@ var LiveMark = class {
     this.visible = true;
     this.dirty = true;
     this.tickedAt = 0;
-    this.drawnAt = 0;
     this.rig = void 0;
     this.inkEpoch = -1;
     this.wantsCanvas = canvas;
-    const settings = motionSettings();
-    this.engine = new Avatar({ seed, size, live, state, ...settings });
+    this.engine = new Avatar({ seed, size, live, state: "idle", ...motionSettings() });
     if (resting) this.engine.rest(true);
+    if (state !== "idle") this.engine.setState(state);
     this.follow = false;
     host.__btLive = this;
     marks.add(this);
     watch();
     this.setFollow(follow);
     observer?.observe(host);
-    if (rigReady(look.shape, def)) this.attachRig();
-    else buildSoon(this);
+    if (!canvas) this.attachRig();
     kick();
   }
   attachRig() {
@@ -23629,6 +23720,22 @@ var LiveMark = class {
     this.host.dataset.live3d = "";
     this.dirty = true;
     kick();
+  }
+  // Back to the flat art, for a new shape; the model is built again when it moves.
+  detachRig() {
+    this.rig = void 0;
+    this.canvas?.remove();
+    this.canvas = null;
+    this.ctx = null;
+    this.scratch = null;
+    if (this.flat) {
+      this.flat.style.transform = "";
+      this.flat.style.transformOrigin = "";
+    }
+    this.flat = null;
+    delete this.host.dataset.live3d;
+    const at2 = queue.indexOf(this);
+    if (at2 >= 0) queue.splice(at2, 1);
   }
   resize() {
     if (!this.canvas) return;
@@ -23656,20 +23763,11 @@ var LiveMark = class {
   }
   update({ look, def, size, live, state, follow }) {
     if (look && (look.shape !== this.look.shape || def !== this.def)) {
+      this.detachRig();
       this.look = look;
       this.def = def;
-      this.rig = void 0;
-      this.canvas?.remove();
-      this.canvas = null;
-      this.ctx = null;
-      if (this.flat) {
-        this.flat.style.transform = "";
-        this.flat.style.transformOrigin = "";
-      }
-      this.flat = null;
-      delete this.host.dataset.live3d;
-      if (rigReady(look.shape, def)) this.attachRig();
-      else buildSoon(this);
+      this.inkEpoch = -1;
+      if (!this.wantsCanvas) this.attachRig();
     } else if (look && look.color !== this.look.color) {
       this.look = look;
       this.inkEpoch = -1;
@@ -23689,6 +23787,14 @@ var LiveMark = class {
   step(time) {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1e3 : 1 / 60;
     if (this.engine.lod === "chip" && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed;
+    if (this.rig === void 0 && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
+      if (!rigReady(this.look.shape, this.def)) {
+        buildSoon(this);
+        this.tickedAt = 0;
+        return Infinity;
+      }
+      this.attachRig();
+    }
     this.tickedAt = time;
     const moving = this.engine.tick(elapsed);
     if (moving || this.dirty) this.draw();
@@ -23707,7 +23813,7 @@ var LiveMark = class {
       value = this.ctx.createLinearGradient(18, 10, 78, 92);
       for (const [offset, stop] of GRADIENTS[color]) value.addColorStop(offset, stop);
     } else if (isHex(color)) value = color;
-    else value = getComputedStyle(this.host).getPropertyValue(`--bt-ink-${color}`).trim() || getComputedStyle(this.host).getPropertyValue("--bt-ink-gray").trim() || INKS.gray[0];
+    else value = getComputedStyle(this.host).getPropertyValue(`--bt-ink-${inkName(color)}`).trim() || INKS[inkName(color)][0];
     this.inkValue = value;
     this.inkEpoch = themeEpoch;
     return value;
@@ -23733,17 +23839,10 @@ var LiveMark = class {
   }
   destroy() {
     this.setFollow(false);
+    this.detachRig();
     marks.delete(this);
     observer?.unobserve(this.host);
-    this.canvas?.remove();
-    if (this.flat) {
-      this.flat.style.transform = "";
-      this.flat.style.transformOrigin = "";
-    }
-    delete this.host.dataset.live3d;
     delete this.host.__btLive;
-    const at2 = queue.indexOf(this);
-    if (at2 >= 0) queue.splice(at2, 1);
     unwatch();
   }
 };
@@ -23778,11 +23877,12 @@ var botState = (running, activity, alert) => running ? STATES2.includes(activity
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
 function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
-  const active = live || gaze || pokeable || state !== "idle";
+  const awake = (0, import_react2.useRef)(false);
+  if (live || gaze || pokeable || state !== "idle") awake.current = true;
   const shape = image ? `image:${image}` : look.shape;
   (0, import_react2.useEffect)(() => {
     const node = ref.current;
-    if (!active || !node) return void 0;
+    if (!awake.current || !node) return void 0;
     const def = image ? void 0 : shapeOf(look.shape);
     const mark2 = new LiveMark(node, { look: { shape: image ? "image" : shapeId(look.shape), color: look.color }, def, size, seed, live, state, canvas: !image, follow: gaze });
     const zone = live || pokeable ? node.parentElement?.closest(PET_ZONE) ?? (node.matches(PET_ZONE) ? node : pokeable ? node : null) : null;
@@ -23798,7 +23898,7 @@ function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) 
       zone?.removeEventListener("pointerleave", leave);
       mark2.destroy();
     };
-  }, [active, shape]);
+  }, [awake.current, shape]);
   (0, import_react2.useEffect)(() => {
     ref.current?.__btLive?.update({ look: image ? void 0 : { shape: shapeId(look.shape), color: look.color }, def: image ? void 0 : shapeOf(look.shape), size, live, state, follow: gaze });
   }, [look.color, size, live, state, gaze]);

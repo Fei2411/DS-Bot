@@ -1,7 +1,8 @@
 import { Avatar } from './engine.js'
 import { rigFor, rigJob, rigReady } from './rig.js'
 import { drawShapes, shapesOf } from './render.js'
-import { GRADIENTS, INKS, isHex } from '../inks.js'
+import { GRADIENTS, INKS, inkName, isHex } from '../inks.js'
+import { reducedEffects, reducedMotion } from '../effects.js'
 import { REST_MS } from '../motion-rest.js'
 
 // Live marks in the page: a canvas over the mark's flat art, drawn by one shared clock.
@@ -13,6 +14,10 @@ import { REST_MS } from '../motion-rest.js'
 // nobody has touched the window for REST_MS (as for the page's other loops,
 // motion-rest.js), marks finish what they are doing and hold still; after DOZE_MS a
 // lively mark at rest nods off, and wakes on input.
+//
+// A mark shows its flat art until it first leaves the rest pose. Only then is its
+// model built (in idle slices) and the canvas put over the art; the move waits for
+// the model, so it never starts on the art and jumps.
 
 export const DOZE_MS = 150_000
 // The canvas reaches past the mark on each side, so hops and spins are not cut off.
@@ -21,48 +26,56 @@ export const MARGIN = 0.3
 const marks = new Set()
 let frame = 0
 let timer = 0
+let looping = false
 let lastInput = typeof performance === 'undefined' ? 0 : performance.now()
 let resting = false
 let dozing = false
 let watching = false
 let restTimer = 0
 let observer = null
-let themeObserver = null
+let settingsObserver = null
+let reduceQuery = null
+// What the settings were when the marks last heard of them; the inks follow the theme.
+let shownSettings = ''
+let shownDark = null
 let themeEpoch = 0
 // The pointer, for marks that follow it: a new position is read on the next frame.
 let pointer = null
 let aimed = true
 let followers = 0
 
-// Motion settings come from the page: `data-bt-motion` (quiet, normal, lively) and
-// the interface effects level, or the system's reduced-motion request.
-export function motionSettings(doc = document) {
-  const body = doc.body
-  const tier = body?.dataset?.btMotion
-  const effects = body?.dataset?.btEffects || doc.documentElement?.dataset?.btEffects
-  const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+// Motion settings come from the page: `data-bt-motion` (quiet, normal, lively) and the
+// interface motion level, or the system's reduced-motion request (effects.js).
+export function motionSettings() {
+  const tier = typeof document === 'undefined' ? undefined : document.body?.dataset?.btMotion
   return {
     tier: tier === 'quiet' || tier === 'lively' ? tier : 'normal',
-    effects: reduce || effects === 'off' ? 'off' : effects === 'reduced' ? 'reduced' : 'full',
+    effects: reducedMotion() ? 'off' : reducedEffects() ? 'reduced' : 'full',
   }
 }
 
 function now() { return performance.now() }
 
 function kick() {
-  if (frame || marks.size === 0) return
+  // Inside the loop the loop itself asks for the next frame.
+  if (frame || looping || marks.size === 0) return
   if (timer) { clearTimeout(timer); timer = 0 }
   frame = requestAnimationFrame(loop)
 }
 
 function loop(time) {
   frame = 0
+  looping = true
   let soonest = Infinity
   const hidden = document.hidden === true
-  if (!aimed && !hidden) aim()
-  for (const mark of marks) {
-    if (hidden || !mark.visible) continue
-    soonest = Math.min(soonest, mark.step(time))
+  try {
+    if (!aimed && !hidden) aim()
+    for (const mark of marks) {
+      if (hidden || !mark.visible) continue
+      soonest = Math.min(soonest, mark.step(time))
+    }
+  } finally {
+    looping = false
   }
   if (hidden || marks.size === 0) return
   if (soonest <= 0.03) frame = requestAnimationFrame(loop)
@@ -127,9 +140,15 @@ function onVisibility() {
   if (!document.hidden) { for (const mark of marks) mark.sync(); kick() }
 }
 
+// Only a change the marks show counts: the motion levels, and dark mode for the inks.
 function onSettings() {
   const settings = motionSettings()
-  themeEpoch += 1
+  const key = `${settings.tier}|${settings.effects}`
+  const dark = document.body?.hasAttribute('data-ds-dark-theme') === true
+  if (key === shownSettings && dark === shownDark) return
+  if (dark !== shownDark) themeEpoch += 1
+  shownSettings = key
+  shownDark = dark
   aimed = false
   for (const mark of marks) { mark.engine.setOptions(settings); mark.dirty = true }
   kick()
@@ -140,6 +159,9 @@ const INPUTS = ['pointerdown', 'keydown', 'wheel', 'touchstart']
 function watch() {
   if (watching) return
   watching = true
+  const settings = motionSettings()
+  shownSettings = `${settings.tier}|${settings.effects}`
+  shownDark = document.body?.hasAttribute('data-ds-dark-theme') === true
   window.addEventListener('pointermove', onPointer, { passive: true, capture: true })
   for (const type of INPUTS) window.addEventListener(type, onInput, { passive: true, capture: true })
   document.documentElement.addEventListener('pointerleave', onPointerLeave)
@@ -156,10 +178,13 @@ function watch() {
     })
   }
   if (typeof MutationObserver === 'function' && document.body) {
-    themeObserver = new MutationObserver(onSettings)
-    themeObserver.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-motion', 'data-bt-effects', 'data-bt-theme', 'style', 'class'] })
+    settingsObserver = new MutationObserver(onSettings)
+    settingsObserver.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-motion', 'data-bt-effects'] })
+    settingsObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bt-effects'] })
   }
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').addEventListener?.('change', onSettings)
+  // The same query object both ways: each matchMedia call returns a new one.
+  reduceQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
+  reduceQuery?.addEventListener?.('change', onSettings)
 }
 
 function unwatch() {
@@ -173,9 +198,10 @@ function unwatch() {
   clearInterval(restTimer)
   observer?.disconnect()
   observer = null
-  themeObserver?.disconnect()
-  themeObserver = null
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').removeEventListener?.('change', onSettings)
+  settingsObserver?.disconnect()
+  settingsObserver = null
+  reduceQuery?.removeEventListener?.('change', onSettings)
+  reduceQuery = null
   if (frame) cancelAnimationFrame(frame)
   if (timer) clearTimeout(timer)
   frame = 0
@@ -188,11 +214,14 @@ function unwatch() {
 const queue = []
 let job = null
 let building = false
+// Without requestIdleCallback, a slice gets a few milliseconds of its own.
+const idleSoon = fn => (typeof window.requestIdleCallback === 'function'
+  ? window.requestIdleCallback(fn)
+  : setTimeout(() => { const start = now(); fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) }) }, 16))
 function buildSoon(mark) {
   if (!queue.includes(mark)) queue.push(mark)
   if (building) return
   building = true
-  const idle = window.requestIdleCallback ?? (fn => setTimeout(() => fn({ timeRemaining: () => 6 }), 16))
   const work = (deadline) => {
     while (deadline.timeRemaining() > 2) {
       const mark = queue[0]
@@ -206,9 +235,9 @@ function buildSoon(mark) {
         if (marks.has(waiting)) waiting.attachRig()
       }
     }
-    idle(work)
+    idleSoon(work)
   }
-  idle(work)
+  idleSoon(work)
 }
 
 // A mark with nothing to turn (an uploaded photo, a shape another plugin draws) moves
@@ -232,21 +261,22 @@ export class LiveMark {
     this.visible = true
     this.dirty = true
     this.tickedAt = 0
-    this.drawnAt = 0
     this.rig = undefined
     this.inkEpoch = -1
     this.wantsCanvas = canvas
-    const settings = motionSettings()
-    this.engine = new Avatar({ seed, size, live, state, ...settings })
+    // The engine starts from the flat art's pose and goes into the state from there,
+    // so a state's opening move (a done hop, a call for attention) plays as it appears.
+    this.engine = new Avatar({ seed, size, live, state: 'idle', ...motionSettings() })
     if (resting) this.engine.rest(true)
+    if (state !== 'idle') this.engine.setState(state)
     this.follow = false
     host.__btLive = this
     marks.add(this)
     watch()
     this.setFollow(follow)
     observer?.observe(host)
-    if (rigReady(look.shape, def)) this.attachRig()
-    else buildSoon(this)
+    // A photo has nothing to build; a character builds its model when it first moves.
+    if (!canvas) this.attachRig()
     kick()
   }
 
@@ -275,6 +305,20 @@ export class LiveMark {
     kick()
   }
 
+  // Back to the flat art, for a new shape; the model is built again when it moves.
+  detachRig() {
+    this.rig = undefined
+    this.canvas?.remove()
+    this.canvas = null
+    this.ctx = null
+    this.scratch = null
+    if (this.flat) { this.flat.style.transform = ''; this.flat.style.transformOrigin = '' }
+    this.flat = null
+    delete this.host.dataset.live3d
+    const at = queue.indexOf(this)
+    if (at >= 0) queue.splice(at, 1)
+  }
+
   resize() {
     if (!this.canvas) return
     const dpr = Math.min(3, window.devicePixelRatio || 1)
@@ -300,17 +344,11 @@ export class LiveMark {
 
   update({ look, def, size, live, state, follow }) {
     if (look && (look.shape !== this.look.shape || def !== this.def)) {
+      this.detachRig()
       this.look = look
       this.def = def
-      this.rig = undefined
-      this.canvas?.remove()
-      this.canvas = null
-      this.ctx = null
-      if (this.flat) { this.flat.style.transform = ''; this.flat.style.transformOrigin = '' }
-      this.flat = null
-      delete this.host.dataset.live3d
-      if (rigReady(look.shape, def)) this.attachRig()
-      else buildSoon(this)
+      this.inkEpoch = -1
+      if (!this.wantsCanvas) this.attachRig()
     } else if (look && look.color !== this.look.color) { this.look = look; this.inkEpoch = -1 }
     if (size !== undefined && size !== this.size) { this.size = size; this.engine.setOptions({ size }); this.resize() }
     if (live !== undefined) this.engine.setOptions({ live })
@@ -325,6 +363,12 @@ export class LiveMark {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1000 : 1 / 60
     // Small marks draw at most 30 times a second.
     if (this.engine.lod === 'chip' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
+    // Still on the flat art: time runs on while nothing would move. A move waits for the
+    // model; the mark's clock starts again once the model is in (attachRig kicks it).
+    if (this.rig === undefined && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
+      if (!rigReady(this.look.shape, this.def)) { buildSoon(this); this.tickedAt = 0; return Infinity }
+      this.attachRig()
+    }
     this.tickedAt = time
     const moving = this.engine.tick(elapsed)
     if (moving || this.dirty) this.draw()
@@ -342,7 +386,7 @@ export class LiveMark {
       value = this.ctx.createLinearGradient(18, 10, 78, 92)
       for (const [offset, stop] of GRADIENTS[color]) value.addColorStop(offset, stop)
     } else if (isHex(color)) value = color
-    else value = getComputedStyle(this.host).getPropertyValue(`--bt-ink-${color}`).trim() || getComputedStyle(this.host).getPropertyValue('--bt-ink-gray').trim() || INKS.gray[0]
+    else value = getComputedStyle(this.host).getPropertyValue(`--bt-ink-${inkName(color)}`).trim() || INKS[inkName(color)][0]
     this.inkValue = value
     this.inkEpoch = themeEpoch
     return value
@@ -364,14 +408,10 @@ export class LiveMark {
 
   destroy() {
     this.setFollow(false)
+    this.detachRig()
     marks.delete(this)
     observer?.unobserve(this.host)
-    this.canvas?.remove()
-    if (this.flat) { this.flat.style.transform = ''; this.flat.style.transformOrigin = '' }
-    delete this.host.dataset.live3d
     delete this.host.__btLive
-    const at = queue.indexOf(this)
-    if (at >= 0) queue.splice(at, 1)
     unwatch()
   }
 }

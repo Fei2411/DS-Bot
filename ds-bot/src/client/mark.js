@@ -27,14 +27,16 @@ export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_w
 const PET_ZONE = ':is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone'
 
 // The live layer: made once the mark has something to show (a state, life at rest, the
-// pointer), kept until the mark goes, so it plays its way back to rest. Marks that
-// follow the pointer share one listener in the live clock (avatar/live.js).
+// pointer), kept until the mark goes, so it plays its way back to rest instead of
+// jumping there when the state ends. Marks that follow the pointer share one listener
+// in the live clock (avatar/live.js).
 function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
-  const active = live || gaze || pokeable || state !== 'idle'
+  const awake = useRef(false)
+  if (live || gaze || pokeable || state !== 'idle') awake.current = true
   const shape = image ? `image:${image}` : look.shape
   useEffect(() => {
     const node = ref.current
-    if (!active || !node) return undefined
+    if (!awake.current || !node) return undefined
     const def = image ? undefined : shapeOf(look.shape)
     const mark = new LiveMark(node, { look: { shape: image ? 'image' : shapeId(look.shape), color: look.color }, def, size, seed, live, state, canvas: !image, follow: gaze })
     const zone = live || pokeable ? node.parentElement?.closest(PET_ZONE) ?? (node.matches(PET_ZONE) ? node : pokeable ? node : null) : null
@@ -50,7 +52,7 @@ function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) 
       zone?.removeEventListener('pointerleave', leave)
       mark.destroy()
     }
-  }, [active, shape])
+  }, [awake.current, shape])
   useEffect(() => { ref.current?.__btLive?.update({ look: image ? undefined : { shape: shapeId(look.shape), color: look.color }, def: image ? undefined : shapeOf(look.shape), size, live, state, follow: gaze }) }, [look.color, size, live, state, gaze])
 }
 

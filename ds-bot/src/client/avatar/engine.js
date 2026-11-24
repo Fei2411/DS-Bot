@@ -75,6 +75,16 @@ export class Avatar {
   get calm() { return this.effects !== 'full' }
   // Whether the mark answers the pointer (petting, following it).
   get follows() { return !this.calm && this.tier !== 'quiet' }
+  // Whether the frame is the flat art: nothing playing, every channel at zero, and open
+  // neutral eyes. Until a mark leaves this pose it needs no model.
+  get atRest() {
+    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== 'neutral') return false
+    for (const name of CHANNELS) {
+      const spring = this.springs[name]
+      if (spring.x !== 0 || spring.v !== 0 || spring.target !== 0) return false
+    }
+    return true
+  }
 
   setOptions({ size, live, tier, effects }) {
     if (size !== undefined) { this.size = size; this.lod = lodOf(size) }
@@ -83,6 +93,8 @@ export class Avatar {
     if (effects !== undefined) this.effects = effects
     if (this.still) this.clips = []
     if (!this.follows) { this.gazeTarget = null; this.petting = null }
+    // Reduced motion keeps one-shots (a sparkle) but no running flourish.
+    if (this.calm && this.frame.accent && this.frame.accent.kind !== 'sparkle') this.frame.accent = null
     if (!Number.isFinite(this.nextLoop)) this.nextLoop = this.time + 0.3
     this.retarget()
   }
@@ -259,7 +271,7 @@ export class Avatar {
     // runs while someone is around and holds still once the window rests.
     const held = STATES[this.state].accent
     let accent = this.frame.accent
-    if (accent && accent.kind !== 'sparkle' && accent.kind !== held) accent = this.frame.accent = null
+    if (accent && accent.kind !== 'sparkle' && (accent.kind !== held || this.calm)) accent = this.frame.accent = null
     if (!accent && held && this.lod === 'hero' && !this.calm) accent = this.frame.accent = { kind: held, t: 0 }
     if (accent) {
       if (accent.kind === 'sparkle') {
@@ -278,20 +290,21 @@ export class Avatar {
   // Seconds until the next thing this mark will do on its own.
   wakeIn() {
     if (this.clips.length > 0 || this.face.swap || this.face.mix < 1) return 0
-    if (this.still || (this.resting && !this.petting)) return Infinity
-    // Only what would really happen counts, or a still mark would wake for nothing.
+    // Only what would really happen counts, or a still mark would wake for nothing. A
+    // still or resting mark starts nothing new, but a held face ends and done hands on.
     const times = []
+    const def = STATES[this.state]
+    if (def.next) times.push(this.stateSince + def.hold)
+    if (this.override.face) times.push(this.override.faceUntil)
+    if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time)
     if (this.loopOf(STATES[this.state])) times.push(this.nextLoop)
     if (this.blinks()) times.push(this.nextBlink)
     if (this.glances()) times.push(this.saccade.until > this.time ? this.saccade.until : this.saccade.next)
-    if (this.override.face) times.push(this.override.faceUntil)
-    const def = STATES[this.state]
-    if (def.next) times.push(this.stateSince + def.hold)
     return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time)
   }
 
   // Resting: nobody has touched the window for a while. Moves under way finish, but
-  // nothing new starts until it is lifted.
+  // nothing new starts until it is lifted, even under a pointer left on the mark.
   rest(on) {
     this.resting = on
     if (!on) { this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2); this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng()) }
@@ -301,7 +314,7 @@ export class Avatar {
   schedule() {
     if (this.still) return
     const def = STATES[this.state]
-    if (this.resting && !this.petting) return
+    if (this.resting) return
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink()
       this.nextBlink = this.time + def.blink[0] + this.rng() * (def.blink[1] - def.blink[0])
@@ -328,11 +341,12 @@ export class Avatar {
     this.nextLoop = this.time + dur + loop.gap[0] + this.rng() * (loop.gap[1] - loop.gap[0])
   }
 
-  // Blinks are part of every state's motion; at rest only a lively mark blinks.
+  // Blinks are part of every state's motion (they repeat, so reduced motion has none);
+  // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state]
     const ambient = this.state === 'idle' || this.state === 'sleeping'
-    return !!def.blink && (!ambient || !!this.petting || (this.live && this.tier === 'lively'))
+    return !!def.blink && !this.calm && (!ambient || !!this.petting || (this.live && this.tier === 'lively'))
   }
 
   // Small glances while resting, on large lively marks.

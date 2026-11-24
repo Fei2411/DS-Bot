@@ -257,3 +257,23 @@ test('the pointer: eyes follow it, petting turns the Bot to you with a smile', (
   calm.gaze({ x: -6, y: 0 })
   assert.equal(calm.gazeTarget, null)
 })
+
+test('done hands back to idle with motion off or the window resting, and reduced motion repeats nothing', () => {
+  for (const options of [{ effects: 'off' }, { resting: true }]) {
+    const avatar = new Avatar({ seed: 2, size: 44, effects: options.effects ?? 'full' })
+    if (options.resting) avatar.rest(true)
+    avatar.setState('done')
+    // As the clock runs it: frames while it moves, else a wake-up when it asks for one.
+    for (let step = 0; step < 2000 && avatar.state === 'done'; step += 1) {
+      const wait = avatar.wakeIn()
+      assert.ok(Number.isFinite(wait), `${JSON.stringify(options)}: the clock is woken for the hand-off`)
+      avatar.tick(wait === 0 ? 1 / 60 : wait + 0.01)
+    }
+    assert.equal(avatar.state, 'idle')
+  }
+  const calm = new Avatar({ seed: 2, size: 64, effects: 'reduced', state: 'working' })
+  let repeated = 0
+  run(calm, 20, (a) => { repeated += a.clips.length + (a.frame.accent ? 1 : 0) })
+  assert.equal(repeated, 0, 'no loop, blink or flourish under reduced motion')
+  assert.equal(calm.wakeIn(), Infinity)
+})

@@ -5,59 +5,89 @@
 // whose winding number at a point counts the front sheets over it. Filled with the
 // nonzero rule they cover exactly the silhouette: holes stay open (a ring, a magnet),
 // and a limb in front of the body adds a sheet instead of cutting one away.
+//
+// It runs every frame, so the mesh's edges are numbered once (edgesOf) and a frame
+// only fills typed arrays kept in `scratch`.
+
+// The mesh's edges: `a`/`b` the vertices of each edge, `of[t + k]` the edge from corner
+// k of the triangle at t to corner k + 1.
+const EDGES = new WeakMap()
+function edgesOf(mesh) {
+  let edges = EDGES.get(mesh)
+  if (edges) return edges
+  const { tri } = mesh
+  const vertexCount = mesh.pos.length / 3
+  const ids = new Map()
+  const a = []
+  const b = []
+  const of = new Int32Array(tri.length)
+  for (let t = 0; t < tri.length; t += 3) {
+    for (let k = 0; k < 3; k += 1) {
+      const p = tri[t + k]
+      const q = tri[t + (k + 1) % 3]
+      const key = p < q ? p * vertexCount + q : q * vertexCount + p
+      let id = ids.get(key)
+      if (id === undefined) { id = a.length; ids.set(key, id); a.push(p); b.push(q) }
+      of[t + k] = id
+    }
+  }
+  edges = { a: Int32Array.from(a), b: Int32Array.from(b), of, count: a.length }
+  EDGES.set(mesh, edges)
+  return edges
+}
 
 // `view` [dx, dy, dz]: toward the viewer, in object space. Returns loops of object-space
 // points as flat arrays [x0, y0, z0, x1, ...].
 export function silhouette(mesh, view, scratch = {}) {
   const { pos, nrm, tri } = mesh
   const vertexCount = pos.length / 3
-  const facing = scratch.facing?.length >= vertexCount ? scratch.facing : (scratch.facing = new Float32Array(vertexCount))
+  const edges = edgesOf(mesh)
+  if (scratch.edgeMesh !== mesh) {
+    scratch.edgeMesh = mesh
+    scratch.facing = new Float32Array(vertexCount)
+    scratch.next = new Int32Array(edges.count).fill(-1)
+    scratch.used = new Int32Array(edges.count)
+  }
+  const { facing, next, used } = scratch
   const [dx, dy, dz] = view
   for (let v = 0; v < vertexCount; v += 1) {
     const g = nrm[v * 3] * dx + nrm[v * 3 + 1] * dy + nrm[v * 3 + 2] * dz
     // Exact zeros would put a crossing on a vertex; nudge them to the back.
     facing[v] = g === 0 ? -1e-7 : g
   }
-  // Each segment runs from a crossing on one edge to a crossing on another; edges are
-  // keyed by their vertex pair, so the next segment starts where this one ends.
-  const next = new Map()
-  const point = new Map()
-  const crossing = (a, b) => {
-    const key = a < b ? a * vertexCount + b : b * vertexCount + a
-    if (!point.has(key)) {
+  // Each segment runs from the crossing on one edge to the crossing on another, so the
+  // next segment starts on the edge where this one ends.
+  let usedCount = 0
+  const { of } = edges
+  for (let t = 0; t < tri.length; t += 3) {
+    const fa = facing[tri[t]] > 0, fb = facing[tri[t + 1]] > 0, fc = facing[tri[t + 2]] > 0
+    if (fa === fb && fb === fc) continue
+    // The odd corner l, with the edges l→m and n→l of the turned triangle (l, m, n).
+    let l, lm, nl
+    if (fb !== fa && fb !== fc) { l = tri[t + 1]; lm = of[t + 1]; nl = of[t] }
+    else if (fc !== fa && fc !== fb) { l = tri[t + 2]; lm = of[t + 2]; nl = of[t + 1] }
+    else { l = tri[t]; lm = of[t]; nl = of[t + 2] }
+    // A lone front corner is bounded lm → nl; a lone back corner the other way.
+    const from = facing[l] > 0 ? lm : nl
+    next[from] = facing[l] > 0 ? nl : lm
+    used[usedCount] = from
+    usedCount += 1
+  }
+  const loops = []
+  for (let u = 0; u < usedCount; u += 1) {
+    let key = used[u]
+    if (next[key] === -1) continue
+    const loop = []
+    while (next[key] !== -1) {
+      const a = edges.a[key], b = edges.b[key]
       const t = facing[a] / (facing[a] - facing[b])
-      point.set(key, [
+      loop.push(
         pos[a * 3] + (pos[b * 3] - pos[a * 3]) * t,
         pos[a * 3 + 1] + (pos[b * 3 + 1] - pos[a * 3 + 1]) * t,
         pos[a * 3 + 2] + (pos[b * 3 + 2] - pos[a * 3 + 2]) * t,
-      ])
-    }
-    return key
-  }
-  for (let t = 0; t < tri.length; t += 3) {
-    const a = tri[t], b = tri[t + 1], c = tri[t + 2]
-    const fa = facing[a] > 0, fb = facing[b] > 0, fc = facing[c] > 0
-    if (fa === fb && fb === fc) continue
-    // Turn the triangle (keeping its order) so its odd vertex comes first.
-    let [l, m, n] = [a, b, c]
-    if (fb !== fa && fb !== fc) [l, m, n] = [b, c, a]
-    else if (fc !== fa && fc !== fb) [l, m, n] = [c, a, b]
-    const lm = crossing(l, m)
-    const nl = crossing(n, l)
-    // A lone front corner is bounded lm → nl; a lone back corner the other way.
-    if (facing[l] > 0) next.set(lm, nl)
-    else next.set(nl, lm)
-  }
-  const loops = []
-  for (const start of next.keys()) {
-    if (!next.has(start)) continue
-    const loop = []
-    let key = start
-    while (next.has(key)) {
-      const p = point.get(key)
-      loop.push(p[0], p[1], p[2])
-      const to = next.get(key)
-      next.delete(key)
+      )
+      const to = next[key]
+      next[key] = -1
       key = to
     }
     if (loop.length >= 9) loops.push(loop)

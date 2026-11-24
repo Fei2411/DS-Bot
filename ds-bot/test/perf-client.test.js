@@ -1631,7 +1631,6 @@ test('mark.js shares one pointer listener and one observer across marks, skips a
     nodes.push(node)
     return node
   }
-  let refCount = 0
   const { exports, flushEffects, unmount } = await loadClientModule('mark.js', {
     window: fakeWin,
     document: dom.window.document,
@@ -1646,11 +1645,8 @@ test('mark.js shares one pointer listener and one observer across marks, skips a
     cancelAnimationFrame: () => {},
   }, {
     memo: (comp, compare) => Object.assign(props => comp(props), { compare }),
-    useRef: (init) => {
-      const idx = refCount++
-      if (init === null && idx % 2 === 0) return { current: mkNode() }
-      return { current: init }
-    },
+    // The mark's element ref is the one made with null.
+    useRef: init => ({ current: init === null ? mkNode() : init }),
   })
   for (let k = 0; k < 5; k += 1) {
     exports.BotMark({ bot: { id: `b${k}`, name: `B${k}`, color: 'blue', avatar: { shape: 'whale' } }, size: 36, gaze: true })

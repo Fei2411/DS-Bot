@@ -1,8 +1,8 @@
 // Writes the generated blocks of the start page in src/start from the plugin's client modules
 // in ../ds-bot (read only, as scripts/icon.mjs does):
-// - start.html, between <!-- whale --> markers: the Main Bot's whale from characterMarkup('whale',
-//   'deepseek'), cut at the tail stock into two copies so the tail can move on its own. The mask
-//   is st-eyes, the clips st-tail-cut and st-torso-cut; the fill stays var(--bt-ink-deepseek).
+// - start.html, between <!-- whale --> markers: the Main Bot's whale from CHARACTERS.whale, cut at
+//   the tail stock into two copies so the tail can move on its own. The mask is st-eyes, the
+//   clips st-tail-cut and st-torso-cut; the fill stays var(--bt-ink-deepseek).
 // - start.css, between /* tokens */ markers: the DeepSeek theme's light and dark colors.
 // - start.css, between /* springs */ markers: motion.js's springs as linear() curves.
 // - ../page-card.css, between the same two markers: the same colors and springs, scoped to the
@@ -10,8 +10,8 @@
 // Usage: node scripts/start-assets.mjs [--check]   (--check exits 1 when a block is stale and
 // writes nothing)
 import { readFileSync, writeFileSync } from 'node:fs'
-import { CHARACTERS, characterMarkup, MASK_ID } from '../../ds-bot/src/client/characters.js'
-import { INKS } from '../../ds-bot/src/client/inks.js'
+import { CHARACTERS, holes, maskBox, shapeOf } from '../../ds-bot/src/client/characters.js'
+import { INKS, inkFill } from '../../ds-bot/src/client/inks.js'
 import { allThemes, themeCss } from '../../ds-bot/src/client/themes.js'
 
 const client = new URL('../../ds-bot/src/client/', import.meta.url)
@@ -43,13 +43,19 @@ function group(markup, start) {
   throw new Error('unclosed group')
 }
 
+// The start whale's own eyes, cut out of the body: the open eyes (.bt-eye) and, on the same
+// spots, closed happy arcs (.bt-eye-happy) that whale.js fades in, inside #gaze, which follows
+// the pointer. The app's marks draw their eyes with the avatar engine instead, so the plain
+// character markup carries none of these hooks.
+const eyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}"/></g>`
+const happyEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h * 0.14}Q0 ${-h * 0.42} ${w * 0.62} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`
+
 function rig() {
   const whale = CHARACTERS.whale
-  const raw = characterMarkup('whale', 'deepseek').replaceAll(MASK_ID, 'st-eyes')
-  if (!raw.includes('fill="var(--bt-ink-deepseek)"')) throw new Error('the whale no longer fills with var(--bt-ink-deepseek)')
-  const mask = raw.slice(raw.indexOf('<mask'), raw.indexOf('</mask>') + 7)
-    .replace('<g class="bt-gaze">', '<g id="gaze" class="bt-gaze">')
-    .replace('<g class="bt-eyes" fill="#000">', '<g id="eye-pair" class="bt-eyes" fill="#000">')
+  if (inkFill('deepseek') !== 'var(--bt-ink-deepseek)') throw new Error('the whale no longer fills with var(--bt-ink-deepseek)')
+  const def = shapeOf('whale')
+  const eyes = `<g id="gaze" class="bt-gaze"><g id="eye-pair" class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
+  const mask = `<mask id="st-eyes" ${maskBox(def.size)}>${holes(def, eyes)}</mask>`
   // The start whale keeps the highlight layer and the stronger shade it was designed
   // with; the runtime characters draw the body without them.
   let layers = `<g fill-rule="evenodd"><path d="${whale.body}" fill="var(--bt-ink-deepseek)"/>`
@@ -106,14 +112,18 @@ function tokens(scope = ':root') {
 }
 
 // motion.js imports React for its hooks; its springs are plain arithmetic, so the module runs
-// here with the React names stubbed out.
+// here with the React names stubbed out and its own modules imported from their files.
 async function motion() {
   const source = readFileSync(new URL('motion.js', client), 'utf8')
   const imports = source.match(/^import .*$/gmu) ?? []
-  const react = imports.length === 1 ? imports[0].match(/^import \{([^}]*)\} from 'react'\r?$/u) : null
-  if (!react) throw new Error('motion.js: expected its only import to be from react')
-  const stub = `const {${react[1].replaceAll(' as ', ': ')}} = {}`
-  return import(`data:text/javascript,${encodeURIComponent(source.replace(imports[0], stub))}`)
+  const react = imports.map(line => line.match(/^import \{([^}]*)\} from 'react'\r?$/u)).filter(Boolean)
+  const others = imports.filter(line => !/from 'react'\r?$/u.test(line))
+  if (react.length !== 1 || !others.every(line => / from '\.\/[\w-]+\.js'\r?$/u.test(line))) {
+    throw new Error('motion.js: expected one import from react and the rest from ./ modules')
+  }
+  let code = source.replace(react[0][0], `const {${react[0][1].replaceAll(' as ', ': ')}} = {}`)
+  for (const line of others) code = code.replace(line, line.replace(/'\.\/([\w-]+\.js)'/u, (_, file) => `'${new URL(file, client).href}'`))
+  return import(`data:text/javascript,${encodeURIComponent(code)}`)
 }
 
 async function springs(scope = ':root') {
