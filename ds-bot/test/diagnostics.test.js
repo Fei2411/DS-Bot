@@ -282,7 +282,18 @@ test('a failed group turn fails its waiter; a stopped one counts as no answer', 
 
 // The failures the repair card is for, as the client reads them from `bot.blocked`.
 test('the failures that block a Bot are the ones only the user can fix', () => {
-  assert.deepEqual([...BLOCKING_CODES], ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT'])
+  assert.deepEqual([...BLOCKING_CODES], ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR'])
+})
+
+test('a local-agent error is reported and blocks the Bot', () => {
+  const { rt, emit, noted } = turnsHost()
+  const session = { id: 'b', requestHeader: () => ({ config: { provider: 'local-acp-fake', model: 'default' } }) }
+  const error = { code: 'LOCAL_AGENT_ERROR', message: 'the local agent failed' }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error } }, session)
+  assert.deepEqual(noted.map(entry => [entry.code, entry.text]), [[error.code, error.message]])
+  assert.equal(rt.bots.b.blocked?.code, error.code)
+  assert.equal(rt.bots.b.blocked?.provider, 'local-acp-fake')
 })
 
 test('a failure only the user can fix blocks its Bot with the facts, never the message, until a turn completes', () => {

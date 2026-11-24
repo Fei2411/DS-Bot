@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
@@ -191,6 +193,133 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+test('acp: a stalled prompt fails instead of ending normally or being replayed', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-stall-'))
+  const record = join(dir, 'requests.jsonl')
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const exited = once(engine.child, 'exit')
+  const live = adapter.live.get('s1')
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  live.push({ type: 'status' })
+  const prompts = () => readFileSync(record, 'utf8').trim().split('\n').map(JSON.parse).filter(entry => entry.method === 'session/prompt')
+  const pending = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; prompts().length < 2 && attempt < 300; attempt++) await delay(10)
+  assert.equal(prompts().length, 2)
+  assert.equal(live.engineSession.running, true)
+  t.mock.timers.tick(10 * 60_000)
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'LOCAL_AGENT_EXIT')
+  assert.match(outcome.error.message, /stalled/)
+  await exited
+  assert.equal(adapter.live.has('s1'), false)
+  assert.equal(prompts().length, 2)
+  assert.equal(adapter.providerRetryPolicy().maxRetries, 0)
+})
+
+test('acp: tool output without a label or status change keeps the turn alive', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  const promptId = peer.nextId
+  const tool = { toolCallId: 'tool', kind: 'execute', title: 'Run tests', status: 'in_progress' }
+  const update = (sessionUpdate, content) => peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate, ...tool, content } },
+  }))
+  update('tool_call')
+  await delay(0)
+  t.mock.timers.tick(9 * 60_000)
+  update('tool_call_update', [{ type: 'content', content: { type: 'text', text: 'More tests passed' } }])
+  await delay(0)
+  t.mock.timers.tick(60_000)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } }))
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'stop')
+  assert.equal(outcome.thinking.trim().split('\n').length, 1)
+  assert.match(outcome.thinking, /Run tests/)
+})
+
+test('acp: a stall after approval leaves the queued follow-up for explicit retry', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--stall-after-permission'] })
+  t.after(() => adapter.dispose())
+  const first = user('m1', 'ask-permission')
+  const ask = await collect(adapter.stream(options('s1', [first])))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  const approval = toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))
+  const followup = user('m3', 'also check the logs')
+  const live = adapter.live.get('s1')
+  const cliSessionId = records.s1.cliSessionId
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [first, approval, followup]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; live.state !== 'running' && attempt < 300; attempt++) await delay(10)
+  assert.equal(live.state, 'running')
+  assert.equal(live.engineSession.running, true)
+  assert.equal(live.queue.length, 1)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m4', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  const out = await collect(adapter.stream(options('s1', [first, approval, followup, retry])))
+  assert.equal(adapter.live.get('s1').engineSession.resumed, true)
+  assert.equal(records.s1.cliSessionId, cliSessionId)
+  assert.match(out.text, /also check the logs/)
+  assert.equal(records.s1.handedId, 'm4')
+})
+
+test('acp: a queued follow-up without instructions does not undo compaction invalidation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--compact-after-permission'] })
+  t.after(() => adapter.dispose())
+  const messages = [system('sys', 'Brief.'), user('m1', 'ask-permission')]
+  const ask = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  assert.notEqual(records.s1.promptHash, undefined)
+  messages.push(toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' })), user('m3', 'also check the logs'))
+  const followed = await collect(adapter.stream(options('s1', messages)))
+  assert.match(followed.text, /also check the logs/)
+  assert.doesNotMatch(followed.text, /Updated team instructions/)
+  assert.equal(records.s1.compactions, 1)
+  messages.push(user('m4', 'what did you find?'))
+  const next = await collect(adapter.stream(options('s1', messages)))
+  assert.match(next.text, /Updated team instructions.*\n\nBrief\./)
+})
+
+test('acp: a forgotten stalled prompt releases its RPC without closing a shared peer', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'] })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('other', [user('other1', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const peer = engine.peer
+  const child = engine.child
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hang')]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  const promptId = peer.nextId
+  assert.equal(peer.pending.has(promptId), true)
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  assert.equal(engine.peer, peer)
+  assert.equal(engine.child, child)
+  assert.equal(peer.pending.has(promptId), false)
+  const next = await collect(adapter.stream(options('other', [user('other1', 'hello'), user('other2', 'still here')])))
+  assert.equal(next.text, 'ok: still here')
 })
 
 test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
@@ -931,6 +1060,29 @@ test('claude: the retry flow replays the unanswered message', async (t) => {
   const prompts = readFileSync(`${runs}.prompts`, 'utf8')
   assert.match(prompts, /fix the login/)
   assert.match(prompts, /last unanswered message/)
+})
+
+test('claude: an explicit retry includes the message from a pre-init stall', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-stall-'))
+  const runs = join(dir, 'runs')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '', '', '--stall-first'] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const asked = user('m1', 'fix the login')
+  const request = messages => options('s1', messages, { provider: 'local-claude-code' })
+  const stalled = assert.rejects(collect(adapter.stream(request([asked]))), error => error.code === 'LOCAL_AGENT_EXIT' && /stalled/.test(error.message))
+  for (let attempt = 0; statSync(runs, { throwIfNoEntry: false })?.size !== 1 && attempt < 300; attempt++) await delay(10)
+  assert.equal(readFileSync(runs, 'utf8'), '1')
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m2', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  assert.equal((await collect(adapter.stream(request([asked, retry])))).finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
 })
 
 // The rollback is saved, not only kept in memory: a host that restarts after a
