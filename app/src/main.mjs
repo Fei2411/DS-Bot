@@ -49,6 +49,7 @@ const IPC = {
   browserImportSources: 'ds-bot:browser-import-sources', browserImportProbe: 'ds-bot:browser-import-probe',
   browserImportPick: 'ds-bot:browser-import-pick',
   browserImportPaste: 'ds-bot:browser-import-paste', browserImportLaunch: 'ds-bot:browser-import-launch',
+  browserImportOpenPermission: 'ds-bot:browser-import-open-permission',
   browserImportLive: 'ds-bot:browser-import-live', browserImportApply: 'ds-bot:browser-import-apply',
   browserImportCancel: 'ds-bot:browser-import-cancel',
   appUpdateState: 'ds-bot:app-update-state', appUpdateCheck: 'ds-bot:app-update-check',
@@ -89,7 +90,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
@@ -323,7 +324,7 @@ async function loadModules() {
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
-  ;({ checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources } = sources)
+  ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
   ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
@@ -896,6 +897,8 @@ function handleIpc() {
       profileName: s.profileName,
       email: s.email ?? null,
       hasCookies: s.hasCookies,
+      cookieCount: typeof s.cookieCount === 'number' ? s.cookieCount : null,
+      needsPermission: s.needsPermission === true,
       inspectUrl: s.inspectUrl ?? null,
       liveDebugReady: s.liveDebugReady === true,
       hasExe: Boolean(s.exe),
@@ -903,9 +906,14 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportProbe, async (event, sourceId) => {
     assertWindow(event)
-    const source = await resolveImportSource(sourceId)
-    if (!source) return { liveDebugReady: false }
-    return { liveDebugReady: await checkSourceLiveDebug(source) }
+    const id = String(sourceId ?? '')
+    let source = await resolveImportSource(id)
+    if (!source && id === 'safari:permission' && process.platform === 'darwin') {
+      source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: true }
+    }
+    if (!source) return { liveDebugReady: false, permissionGranted: false }
+    // Keep probe read-only: do not overwrite cachedImportSources here.
+    return probeSource(source)
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)
@@ -933,6 +941,16 @@ function handleIpc() {
     if (!source) return { launched: false }
     return { launched: launchBrowserForDebug(source) }
   })
+  ipcMain.handle(IPC.browserImportOpenPermission, async (event) => {
+    assertWindow(event)
+    if (process.platform !== 'darwin') return { opened: false }
+    try {
+      await electronShell.openExternal(SAFARI_FULL_DISK_ACCESS_URL)
+      return { opened: true }
+    } catch {
+      return { opened: false }
+    }
+  })
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close, requestId) => {
     assertWindow(event)
     // Abort any older in-flight live import so Keychain / browser Allow prompts never stack.
@@ -944,20 +962,49 @@ function handleIpc() {
     const controller = new AbortController()
     activeLiveImports.set(reqKey, controller)
     try {
-      const source = await resolveImportSource(sourceId)
+      const id = String(sourceId ?? '')
+      let source = await resolveImportSource(id)
       if (controller.signal.aborted) return { canceled: true }
+      // The pre-permission placeholder has its own dedicated id ('safari:permission') distinct
+      // from real Safari profiles ('safari:Default', 'safari:<UUID>'), so retrying it always
+      // re-enumerates Safari profiles cleanly and can never accidentally bypass profile choice.
+      if (id === 'safari:permission') {
+        const fresh = await refreshImportSources()
+        if (controller.signal.aborted) return { canceled: true }
+        const safariSources = fresh.filter((item) => item.engine === 'safari')
+        if (safariSources.length === 1) {
+          source = safariSources[0]
+        } else if (safariSources.length > 1) {
+          return { needsProfileChoice: true }
+        } else {
+          return {
+            ...cookieImports.store({ format: 'live', entries: 0, cookies: [], origins: [], skipped: [], warnings: [], info: {} }, { kind: 'safari', label: 'Safari', id: 'safari:Default' }),
+            restarted: false,
+            method: 'safari-binarycookies',
+          }
+        }
+      }
       if (!source) throw new Error('DS Bot: an unknown browser profile')
       let outcome
       try {
         outcome = await importFromBrowser(source, { close: close === true, signal: controller.signal })
       } catch (error) {
         if (error?.code === 'import-cancelled' || controller.signal.aborted) return { canceled: true }
-        if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile'].includes(error?.code)) {
+        if (['app-bound', 'browser-locked', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile', 'safari-corrupt'].includes(error?.code)) {
           return { error: error.code }
         }
         throw error
       }
       if (controller.signal.aborted) return { canceled: true }
+      if (outcome.needsFullDiskAccess) {
+        return {
+          needsFullDiskAccess: true,
+          sourceId: source.id,
+          browserName: outcome.browserName ?? source.name,
+          label: source.label,
+          kind: source.kind,
+        }
+      }
       if (outcome.needsRemoteDebugging) {
         return {
           needsRemoteDebugging: true,

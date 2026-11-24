@@ -816,6 +816,7 @@ export function apply(ctx) {
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),

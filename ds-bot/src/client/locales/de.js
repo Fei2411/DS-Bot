@@ -605,6 +605,16 @@ export const DE = {
   '{count} sites storage': 'Speicher von {count} Websites',
   'page reloaded': 'Seite neu geladen',
   '{count}': '{count}',
+  '{count} cookies': '{count} Cookies',
+  'Permission needed': 'Berechtigung nötig',
+  'Safari cookies could not be read. Try again or import from a file.': 'Safari-Cookies konnten nicht gelesen werden. Versuche es erneut oder importiere aus einer Datei.',
+  'Allow Safari access': 'Safari-Zugriff erlauben',
+  'macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.': 'macOS schützt Safari-Cookies mit Festplattenvollzugriff. Aktiviere DS Bot einmalig in den Systemeinstellungen, um aus Safari zu importieren.',
+  '1. Open Full Disk Access in System Settings and turn on DS Bot.': '1. Öffne in den Systemeinstellungen „Festplattenvollzugriff“ und aktiviere DS Bot.',
+  '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. Falls macOS fragt, DS Bot zu beenden und neu zu öffnen, bestätige dies und versuche es erneut.',
+  'Full Disk Access granted — ready to import.': 'Festplattenvollzugriff erteilt – bereit zum Importieren.',
+  'Open System Settings': 'Systemeinstellungen öffnen',
+  'This browser’s cookie database is busy. Quit the browser and try again.': 'Die Cookie-Datenbank dieses Browsers ist belegt. Beende den Browser und versuche es erneut.',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': 'Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild',
