@@ -227,6 +227,37 @@ test('pruning after a task stops archives only its oldest retired task’s exclu
   assert.equal(existsSync(report), false)
 })
 
+test('a stopped running task can be pruned after its cancelled turn ends', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(50)
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  await env.tool('task_start').execute({ title: 'Running task', brief: 'Wait for cancellation' }, execOf(env.agentMap.get('dm-a')))
+  const tasks = env.rt.botOf('a').tasks
+  const task = tasks.pop()
+  tasks.unshift(task)
+  const agent = env.agentMap.get(task.sessionId)
+  agent.status = 'running'
+  await env.emit(task.sessionId, 'turn/start', { turn: 1 })
+  const { source, content } = agent.followups[0]
+  await env.emit(task.sessionId, 'user/message', { source, content })
+  assert.deepEqual(env.rt.unreadOf(task.sessionId), [])
+  assert.equal(env.rt.hasPendingRecovery(task.sessionId), true)
+
+  assert.equal((await env.callApi('bot-stop-task', { botId: 'a', taskId: task.id })).ok, true)
+  assert.equal(env.rt.isBotSession(task.sessionId), false)
+  assert.equal(agent.cancelled.length, 1)
+  assert.equal(env.archivedSessions.length, 0)
+
+  await env.emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: agent.cancelled[0] } })
+  agent.status = 'idle'
+  env.ctx.emit('agent/status', { agent, status: 'idle' })
+  await waitFor(() => env.archivedSessions.some(({ sid }) => sid === task.sessionId))
+  assert.equal(env.rt.hasPendingRecovery(task.sessionId), false)
+  assert.equal(env.rt.botOf('a').tasks.length, 50)
+  assert.deepEqual(env.archivedSessions.map(({ sid }) => sid), [task.sessionId])
+})
+
 test('unfinished work keeps a task readable and the retirement record retries only unfinished parts', async (t) => {
   const team = makeTeam()
   team.bots.a.tasks = settledTasks(51)

@@ -356,6 +356,13 @@ export function install(rt) {
       taken?.add(event.data.source.exchangeId)
       forgetQueued(event.data.source.exchangeId)
     }
+    if (event.type === 'turn/end') {
+      // A stopped task has already left the active index. Only a turn cut by
+      // DSH shutdown is kept to pick up at the next start.
+      const reason = event.data?.reason
+      if (reason?.kind !== 'aborted' || reason.reason?.kind !== 'disposed') update(id, () => undefined)
+      return
+    }
     if (!rt.isBotSession(id)) return
     switch (event.type) {
       case 'turn/start': {
@@ -378,13 +385,6 @@ export function install(rt) {
         const info = rt.live.get(id)?.info
         update(id, record => (record === undefined || record.trigger !== undefined || info === undefined ? record
           : { ...record, trigger: triggerOf(info), ...(info.resumed ? { resumed: true } : {}) }))
-        break
-      }
-      case 'turn/end': {
-        // DSH stops every turn as it shuts down; that one is picked up at the next start.
-        const reason = event.data?.reason
-        if (reason?.kind === 'aborted' && reason.reason?.kind === 'disposed') break
-        update(id, () => undefined)
         break
       }
     }
