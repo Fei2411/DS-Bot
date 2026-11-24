@@ -167,6 +167,11 @@ test('a thematic break before a backtick fence does not expose a flush-left comm
   }])
 })
 
+test('a thematic break before an unclosed backtick fence keeps its contents literal', () => {
+  const markdown = '- - -\n  ```sh\n# Literal comment\n| A | B |\n| --- | --- |\n| x | y |'
+  assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',

@@ -75,6 +75,7 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
+const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})\r?$/
 const TABLE_DELIMITER = /^:?-+:?$/
 const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
@@ -114,7 +115,8 @@ function literalFenceGuard(source) {
     if (laterClosers[marker[0]][at] < marker.length) {
       if (listPrefix) listIndent = listPrefix.length
       else if (marker[0] === '`' && indent > 0) {
-        const previousListIndent = LIST_ITEM.exec(source[at - 1] ?? '')?.[0].length ?? 0
+        const previous = source[at - 1] ?? ''
+        const previousListIndent = THEMATIC_BREAK.test(previous) ? 0 : LIST_ITEM.exec(previous)?.[0].length ?? 0
         if (previousListIndent <= indent) listIndent = previousListIndent
       }
     }
