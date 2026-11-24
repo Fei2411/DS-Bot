@@ -1787,9 +1787,13 @@ export function install(rt) {
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
-          await rt.moveSchedules?.(sessionId, target)
+          const finishMove = await rt.moveSchedules?.(sessionId, target, { stopActivity: true })
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-            .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
+            .then(() => finishMove?.())
+            .catch(error => {
+              if (finishMove !== undefined) throw error
+              rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
+            })
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
         }
@@ -1898,8 +1902,9 @@ export function install(rt) {
     if (job.moved) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
+      let finishMove
       try {
-        await rt.moveSchedules(agent.id, job.next ?? currentOf(job))
+        finishMove = await rt.moveSchedules(agent.id, job.next ?? currentOf(job), { stopActivity: true })
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
@@ -1907,7 +1912,11 @@ export function install(rt) {
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
+        .then(() => finishMove?.())
+        .catch(error => {
+          if (finishMove !== undefined) job.kept = true
+          rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error)
+        })
     }
   }
 
@@ -2564,6 +2573,7 @@ export function install(rt) {
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') rt.retireSettledTasksAfterIdle?.(agent.id)
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
       const end = lastTurnEnd(agent)

@@ -656,7 +656,8 @@ export function install(rt) {
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
-            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            const finishMove = target === undefined || target === sessionId ? undefined
+              : await rt.moveSchedules(sessionId, target, { stopActivity: true })
             if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
             try {
               await registry.archiveSession(sessionId, { stopActivity: true })
@@ -664,6 +665,7 @@ export function install(rt) {
               // Session already gone from DSH live registry and persistence: treat as retired.
               if (archiveError?.name !== 'WorkspaceUnknownSessionError') throw archiveError
             }
+            await finishMove?.()
           }
           dropEntry(entry, sessionId)
         } catch (error) {
@@ -906,10 +908,16 @@ export function install(rt) {
     return job
   }
 
+  const teamWriteAccess = () => {
+    if (stopped || readOnly() !== undefined) return undefined
+    if (lockBroken) return 'unlocked'
+    return lock.owns() ? 'locked' : undefined
+  }
+
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -1113,6 +1121,7 @@ export function install(rt) {
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
+    teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
