@@ -150,8 +150,9 @@ export function install(rt) {
 
   // Every place (its live Session, if made yet, and the preset its fresh part gets) that
   // would work in the folder being set. A group with its own folder or a member's own
-  // folder pick there does not inherit the Bot's folder.
-  const folderPlaces = ({ botId, room, botIds, places, sessions = [] }) => {
+  // folder pick there does not inherit the Bot's folder; extra folders still do, so
+  // their approval passes extra: true to keep such picks (matching extraDirsOf).
+  const folderPlaces = ({ botId, room, botIds, places, sessions = [], extra = false }) => {
     if (places !== undefined) return places
     if (botId !== undefined) {
       const bot = rt.botOf(botId)
@@ -160,7 +161,7 @@ export function install(rt) {
         ? [{ preset: bot?.permission }]
         : own.map(sessionId => ({ sessionId, preset: bot?.permission }))
       for (const entry of Object.values(state.rooms)) {
-        if (!entry.members.includes(botId) || entry.workDir !== undefined || Object.hasOwn(entry.memberDirs ?? {}, botId)) continue
+        if (!entry.members.includes(botId) || entry.workDir !== undefined || (!extra && Object.hasOwn(entry.memberDirs ?? {}, botId))) continue
         list.push({ sessionId: entry.sessions?.[botId], preset: entry.permission ?? bot?.permission })
       }
       return list
@@ -246,7 +247,9 @@ export function install(rt) {
           if (workspace.path !== team) known.set(workspace.path, workspace.title)
         }
         for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
-          if (entry.workDir && !known.has(entry.workDir)) known.set(entry.workDir, basename(entry.workDir) || entry.workDir)
+          for (const dir of [entry.workDir, ...(entry.extraDirs ?? [])]) {
+            if (dir && !known.has(dir)) known.set(dir, basename(dir) || dir)
+          }
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))
         const kind = picker()?.kind
@@ -272,5 +275,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, approveFolder, folderEndpoint })
 }
