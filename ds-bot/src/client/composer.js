@@ -169,7 +169,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
   useEffect(() => {
     let steering = false
     const onKey = (event) => {
-      if (steering || event.defaultPrevented || open) return
+      if (event.defaultPrevented || open) return
       // Check key/steerability before touching the DOM so regular typing does zero queries (#1812).
       const plainEnter = enterSteers(event, inputNow.current, enterToSend)
       const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current)
@@ -183,7 +183,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return
       event.preventDefault()
       event.stopPropagation()
-      if (!steerable(inputNow.current)) return
+      if (steering || !steerable(inputNow.current)) return
       steering = true
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => { steering = false })
     }

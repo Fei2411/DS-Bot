@@ -36,7 +36,7 @@ const makeTeam = (over = {}) => ({
   revision: 0,
 })
 
-async function startEnv({ team = makeTeam(), forkImpl } = {}) {
+async function startEnv({ team = makeTeam(), forkImpl, resolveAgentImpl } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-fg-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -143,12 +143,15 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
         makeAgent(sessionId)
         return { sessionId }
       },
-      resolveAgent: async (sessionId) => ({ agent: agentMap.get(sessionId) ?? makeAgent(sessionId) }),
+      resolveAgent: async (sessionId) => {
+        if (resolveAgentImpl !== undefined) return resolveAgentImpl(sessionId, () => agentMap.get(sessionId) ?? makeAgent(sessionId))
+        return { agent: agentMap.get(sessionId) ?? makeAgent(sessionId) }
+      },
       selectModel: async () => {},
       prompt: async (req) => { prompts.push(req) },
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: async () => true },
   })
   const origGet = ctx.get
   ctx.connection.fetch.register = () => () => {}
@@ -385,7 +388,9 @@ test('peer Bot delegate_work to a busy Bot spawns a background task directly wit
   assert.match(reply.text, /API contract verified\./)
 })
 
-test('rapid double Desktop messages during explicit handoff share one handoff and post-commit race settles finished task', async (t) => {
+test('rapid double Desktop messages during explicit handoff restore cleanly if old turn finishes mid-fork, and hidden-work handoff settles finished task', async (t) => {
+  // 1) Explicit move whose old turn finishes mid-fork discards candidate fork (no ghost task)
+  //    and restores both intercepted messages onto dm-a in FIFO order.
   let releaseFork
   const env = await startEnv({
     forkImpl: async (_opts, make) => new Promise((resolve) => {
@@ -415,19 +420,54 @@ test('rapid double Desktop messages during explicit handoff share one handoff an
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   releaseFork()
-  await moveP
-  await waitFor(() => env.rt.botOf('a').sessionId === 'fork-1'
-    && env.agentMap.get('fork-1')?.followups.filter(m => m.source?.kind === 'user').length === 2
-    && env.rt.botOf('a').tasks[0]?.status === 'completed'
-    && env.agentMap.get('fork-1')?.followups.some(m => m.source?.role === 'task-report'))
-
-  assert.equal(env.forkedCalls.length, 1, 'two rapid messages must trigger only one fork')
+  const res = await moveP
+  assert.equal(res.moved, false, 'explicit move must not create a ghost task once old turn finished mid-fork')
+  assert.equal(env.rt.botOf('a').sessionId, 'dm-a')
+  assert.equal(env.rt.botOf('a').tasks?.length ?? 0, 0)
   assert.deepEqual(
-    env.agentMap.get('fork-1').followups.filter(m => m.source?.kind === 'user').map(m => m.content[0].text),
+    dmA.inbox.nextStep.map(m => m.content[0].text),
+    ['First msg', 'Second msg'],
+    'both intercepted messages must be restored onto dm-a in FIFO order',
+  )
+
+  // 2) Non-explicit hidden peer-Bot isolation handoff shares one fork for rapid double messages
+  //    and still settles the finished task cleanly on fork-1.
+  let releaseFork2
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => {
+      releaseFork2 = () => resolve({ sessionId: make() })
+    }),
+  })
+  t.after(env2.stop)
+  const dm2 = env2.agentMap.get('dm-a')
+  dm2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  env2.rt.live.get('dm-a').info = { kind: SOURCE_KIND, role: 'request', fromId: 'b', toId: 'a', exchangeId: 'ex-hidden-race' }
+  env2.rt.isHiddenBotWorkTurn = () => true
+
+  const h1 = { id: 'hu1', role: 'user', content: [{ type: 'text', text: 'First msg' }], source: { kind: 'user' } }
+  const h2 = { id: 'hu2', role: 'user', content: [{ type: 'text', text: 'Second msg' }], source: { kind: 'user' } }
+  dm2.inbox.nextStep.push(h1)
+  await env2.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [h1] })
+  await waitFor(() => typeof releaseFork2 === 'function')
+  dm2.inbox.nextStep.push(h2)
+  await env2.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [h2] })
+
+  dm2.status = 'idle'
+  await env2.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Finished mid-fork.' }] } })
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  releaseFork2()
+  await waitFor(() => env2.rt.botOf('a').sessionId === 'fork-1'
+    && env2.agentMap.get('fork-1')?.followups.filter(m => m.source?.kind === 'user').length === 2
+    && env2.rt.botOf('a').tasks[0]?.status === 'completed')
+
+  assert.equal(env2.forkedCalls.length, 1, 'two rapid messages must trigger only one fork')
+  assert.deepEqual(
+    env2.agentMap.get('fork-1').followups.filter(m => m.source?.kind === 'user').map(m => m.content[0].text),
     ['First msg', 'Second msg'],
   )
-  assert.equal(env.rt.botOf('a').tasks[0].status, 'completed', 'turn finished mid-fork must still settle cleanly')
-  assert.ok(env.agentMap.get('fork-1').followups.some(m => m.source?.role === 'task-report' && m.content[0].text.includes('Finished mid-fork.')))
+  assert.equal(env2.rt.botOf('a').tasks[0].status, 'completed', 'turn finished mid-fork must still settle cleanly')
 })
 
 test('client indexRoster indexes task sessions so mainView auto-follows new foreground sessionId', () => {
@@ -963,4 +1003,182 @@ test('fg-handoff fork preserves inherited exchangeTurns and closedCards without 
   const items = env.rt.displayItems(forkedSid, forkedEvents, null, undefined, {})
   assert.equal(items.some(item => item.text === '[PASS]'), false, 'hidden turn 2 must stay hidden on forked foreground even when assistant/message omits data.turn')
   assert.equal(items.some(item => item.text === 'Done.'), true)
+})
+
+test('explicit move revalidates captured turn and open interactive cards before commit, discarding candidate fork on change', async (t) => {
+  // 1) Turn 1 finishes and Turn 2 starts while fork is paused -> reject bot/stale, keep Turn 2 on dm-a, archive candidate.
+  let releaseFork1
+  const archived1 = []
+  const env1 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => {
+      releaseFork1 = () => resolve({ sessionId: make() })
+    }),
+  })
+  t.after(env1.stop)
+  env1.ctx.workspaceRegistry.archiveSession = async (sid) => { archived1.push(sid) }
+  const dm1 = env1.agentMap.get('dm-a')
+  dm1.status = 'running'
+  await env1.emit('dm-a', 'turn/start', { turn: 1 })
+
+  const move1 = env1.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-turn-drift' })
+  await waitFor(() => typeof releaseFork1 === 'function')
+  await env1.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await env1.emit('dm-a', 'turn/start', { turn: 2 })
+  releaseFork1()
+  await assert.rejects(() => move1, err => err?.code === 'bot/stale')
+  assert.equal(env1.rt.botOf('a').sessionId, 'dm-a', 'Turn 2 must stay on dm-a')
+  assert.equal(env1.rt.botOf('a').tasks?.length ?? 0, 0, 'no background task may be created for Turn 2')
+  assert.deepEqual(archived1, ['fork-1'])
+
+  // 2) An interactive question card opens while fork is paused -> reject bot/card-open, keep card open, restore intercepted message.
+  let releaseFork2
+  const archived2 = []
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => {
+      releaseFork2 = () => resolve({ sessionId: make() })
+    }),
+  })
+  t.after(env2.stop)
+  env2.ctx.workspaceRegistry.archiveSession = async (sid) => { archived2.push(sid) }
+  const dm2 = env2.agentMap.get('dm-a')
+  dm2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+
+  const move2 = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-card-opened' })
+  await waitFor(() => typeof releaseFork2 === 'function')
+  const midMsg = { id: 'u-mid-card', role: 'user', content: [{ type: 'text', text: 'Wait for me' }], source: { kind: 'user' } }
+  dm2.inbox.nextStep.push(midMsg)
+  await env2.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [midMsg] })
+  env2.rt.state.questions['dm-a'] = { id: 'q-mid', question: 'Confirm?' }
+  releaseFork2()
+  await assert.rejects(() => move2, err => err?.code === 'bot/card-open')
+  assert.equal(env2.rt.botOf('a').sessionId, 'dm-a', 'foreground must stay on dm-a when card opened mid-fork')
+  assert.equal(env2.rt.state.questions['dm-a']?.id, 'q-mid', 'open interactive card must NOT be dismissed')
+  assert.equal(dm2.inbox.nextStep.some(m => m.id === 'u-mid-card'), true, 'intercepted input must be restored onto dm-a')
+  assert.deepEqual(archived2, ['fork-1'])
+})
+
+test('polling-gap redirect revalidates foreground target after resolveAgent await when a second move occurs mid-forward', async (t) => {
+  let releaseResolve
+  let holdFork1Resolve = false
+  const env = await startEnv({
+    resolveAgentImpl: async (sessionId, fallback) => {
+      if (sessionId === 'fork-1' && holdFork1Resolve) {
+        holdFork1Resolve = false
+        await new Promise((resolve) => { releaseResolve = resolve })
+      }
+      return { agent: fallback() }
+    },
+  })
+  t.after(env.stop)
+
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
+
+  // Stale tab sends a message to dm-a (now a background task); forward pauses inside resolveAgent('fork-1').
+  holdFork1Resolve = true
+  const staleMsg = { id: 'u-stale-reroute', role: 'user', content: [{ type: 'text', text: 'Follow me to newest foreground' }], source: { kind: 'user', rpcId: 'rpc-reroute-1' } }
+  dmA.inbox.nextTurn.push(staleMsg)
+  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-turn', inserted: [staleMsg] })
+  await waitFor(() => typeof releaseResolve === 'function')
+
+  // While forward is paused on fork-1, fork-1 starts a turn and explicitly moves to background (bot.sessionId -> fork-2).
+  const fork1 = env.agentMap.get('fork-1')
+  fork1.status = 'running'
+  await env.emit('fork-1', 'turn/start', { turn: 1 })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1' })
+  assert.equal(env.rt.botOf('a').sessionId, 'fork-2')
+
+  releaseResolve()
+  await waitFor(() => env.agentMap.get('fork-2').followups.length > 0 && env.rt.state.pendingHandoffInputs === undefined)
+  assert.equal(fork1.followups.length, 0, 'moved background task fork-1 must receive zero redirected messages')
+  assert.equal(env.agentMap.get('fork-2').followups.length, 1, 'newest foreground fork-2 must receive the redirected message')
+  assert.equal(env.agentMap.get('fork-2').followups[0].content[0].text, 'Follow me to newest foreground')
+  assert.equal(env.rt.state.pendingHandoffInputs, undefined)
+})
+
+test('moveForegroundToBackground only caches operationId after rt.save() succeeds and lets retry finish unsaved commit', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'user/message', { content: [{ type: 'text', text: 'Long job' }], source: { kind: 'user' } })
+
+  const origSave = env.rt.save
+  let saveCalls = 0
+  let failSaves = 2
+  env.rt.save = async (...args) => {
+    saveCalls += 1
+    if (failSaves > 0) {
+      failSaves -= 1
+      throw new Error('simulated state.json write failure')
+    }
+    return origSave(...args)
+  }
+
+  // Attempt 1 and Attempt 2 both fail to persist state -> MUST reject, never falsely report moved: true.
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-save-retry' }),
+    /simulated state\.json write failure/,
+  )
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-save-retry' }),
+    /simulated state\.json write failure/,
+  )
+
+  // Attempt 3 succeeds -> completes save + post-save notice once.
+  const res3 = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-save-retry' })
+  assert.equal(res3.moved, true)
+  assert.equal(res3.sessionId, 'fork-1')
+  assert.equal(env.agentMap.get('fork-1').injected.length, 1)
+
+  // Attempt 4 returns cached result without calling rt.save() again.
+  const savesAfter3 = saveCalls
+  const res4 = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-save-retry' })
+  assert.deepEqual(res4, res3)
+  assert.equal(saveCalls, savesAfter3)
+})
+
+test('Mobile sendUser retry with same requestId stays idempotent across an explicit foreground handoff', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Ship release notes' }], requestId: 'req-mobile-move' })
+  assert.equal(env.prompts.length, 1)
+  // Simulate DSH admitting req-mobile-move on dm-a as Turn 1 (real DSH user/message event shape: data.id + data.source.rpcId).
+  await env.emit('dm-a', 'user/message', { id: 'msg-m1', content: [{ type: 'text', text: 'Ship release notes' }], source: { kind: 'user', rpcId: 'req-mobile-move' } })
+
+  // Move dm-a to background; fork-1 does NOT inherit Turn 1.
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
+
+  // Mobile drops the original response and retries with the same requestId (targeting either dm-a or bot id 'a').
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Ship release notes' }], requestId: 'req-mobile-move' })
+  await env.rt.sendUser({ sessionId: 'a', content: [{ type: 'text', text: 'Ship release notes' }], requestId: 'req-mobile-move' })
+  assert.equal(env.prompts.length, 1, 'retried requestId already admitted before move must NOT execute again on fork-1')
+})
+
+test('shouldSpawnPeerTask is decoupled from shell backgroundAfterSec setting', async (t) => {
+  const env0 = await startEnv({ team: makeTeam({ prefs: { backgroundAfterSec: 0 } }) })
+  const env600 = await startEnv({ team: makeTeam({ prefs: { backgroundAfterSec: 600 } }) })
+  t.after(async () => { await env0.stop(); await env600.stop() })
+
+  await env0.emit('dm-a', 'turn/start', { turn: 1 })
+  await env600.emit('dm-a', 'turn/start', { turn: 1 })
+  env0.rt.live.get('dm-a').since = Date.now() - 1000
+  env600.rt.live.get('dm-a').since = Date.now() - 1000
+  assert.equal(env0.rt.shouldSpawnPeerTask(env0.rt.botOf('a'), 'dm-a'), false)
+  assert.equal(env600.rt.shouldSpawnPeerTask(env600.rt.botOf('a'), 'dm-a'), false)
+
+  env0.rt.live.get('dm-a').since = Date.now() - 6000
+  env600.rt.live.get('dm-a').since = Date.now() - 6000
+  assert.equal(env0.rt.shouldSpawnPeerTask(env0.rt.botOf('a'), 'dm-a'), true)
+  assert.equal(env600.rt.shouldSpawnPeerTask(env600.rt.botOf('a'), 'dm-a'), true)
 })

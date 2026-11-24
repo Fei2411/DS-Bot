@@ -48937,7 +48937,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
   (0, import_react68.useEffect)(() => {
     let steering = false;
     const onKey = (event) => {
-      if (steering || event.defaultPrevented || open) return;
+      if (event.defaultPrevented || open) return;
       const plainEnter = enterSteers(event, inputNow.current, enterToSend);
       const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current);
       if (!plainEnter && !accelEnter) return;
@@ -48950,7 +48950,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
-      if (!steerable(inputNow.current)) return;
+      if (steering || !steerable(inputNow.current)) return;
       steering = true;
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => {
         steering = false;

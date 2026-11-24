@@ -28,6 +28,7 @@ const CONTEXT_FALLBACK_NOTE_MIN = 5000
 const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
 const MAX_REPLACED_IDS = 1000
+const PEER_BUSY_WAIT_MS = 5000
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 // Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
@@ -74,7 +75,7 @@ export function install(rt) {
   const delivering = new Set()
   // Message IDs currently being restored to an old foreground Agent (pre-commit failure)
   // or forwarded onto a newly forked foreground Agent, so `interceptForegroundUserMessage`
-  // never re-intercepts its own writes (including when `backgroundAfterSec === 0`).
+  // never re-intercepts its own writes.
   const skipInterceptIds = new Set()
   // Message IDs replaced in-place by `inbox.replace()` (e.g. QueueDock Edit); tagged
   // during `session/event` (`agent/inbox/spliced` with removedCount > 0 && inserted.length > 0)
@@ -90,20 +91,35 @@ export function install(rt) {
   // (covers the window after `inbox.claim()` removes the item from inbox and before
   // `step()` appends `user/message` to the session log).
   const admittedRpcIds = new Map()
+  // Logical chat (bot:<id> / room:<id>) admission cache so send retries with the same
+  // `requestId` stay idempotent across foreground-to-background handoffs.
+  const admittedLogicalRpcIds = new Map()
   // In-flight foreground-to-background handoffs per Bot:
-  // botId -> { oldSid, committed, newSid, taskId, explicit, operationId, promise, messages }.
+  // botId -> { oldSid, committed, aborted, saved, newSid, taskId, explicit, operationId, promise, messages }.
   const handoffing = new Map()
   // Monotonic foreground epoch per Bot (incremented on foreground handoff commit).
   const foregroundEpochs = new Map()
-  // Bounded idempotency cache for explicit moveForegroundToBackground operations.
+  // Bounded idempotency caches for explicit moveForegroundToBackground operations:
+  // `completedMoveOps` records operations whose team state was durably saved (or no-op);
+  // `pendingSaveMoveOps` holds committed-in-memory moves whose `rt.save()` failed so a
+  // retry with the same `operationId` finishes saving instead of falsely returning success.
   const MAX_MOVE_OPS = 64
   const completedMoveOps = new Map()
+  const pendingSaveMoveOps = new Map()
   const rememberMoveOp = (operationId, result) => {
     if (typeof operationId !== 'string' || operationId === '') return
     completedMoveOps.delete(operationId)
     completedMoveOps.set(operationId, result)
     while (completedMoveOps.size > MAX_MOVE_OPS) {
       completedMoveOps.delete(completedMoveOps.keys().next().value)
+    }
+  }
+  const rememberPendingSaveMoveOp = (operationId, entry) => {
+    if (typeof operationId !== 'string' || operationId === '') return
+    pendingSaveMoveOps.delete(operationId)
+    pendingSaveMoveOps.set(operationId, entry)
+    while (pendingSaveMoveOps.size > MAX_MOVE_OPS) {
+      pendingSaveMoveOps.delete(pendingSaveMoveOps.keys().next().value)
     }
   }
   const listeners = new Set()
@@ -903,7 +919,10 @@ export function install(rt) {
             msg: { id: entry.messageId ?? id, content: entry.content, source: entry.source },
             target: entry.target === 'next-step' ? 'next-step' : 'next-turn',
             transferId: id,
-          }], label)
+          }], label, {
+            ...(entry.botId !== undefined ? { botId: entry.botId } : {}),
+            ...(entry.roomId !== undefined ? { roomId: entry.roomId } : {}),
+          })
         } finally {
           inFlightTransferIds.delete(id)
         }
@@ -932,6 +951,9 @@ export function install(rt) {
   ctx.effect?.(() => () => {
     offApproval?.()
     admittedRpcIds.clear()
+    admittedLogicalRpcIds.clear()
+    pendingSaveMoveOps.clear()
+    completedMoveOps.clear()
     rejectEmptyTaskWake.clear()
     replacedIds.clear()
     skipInterceptIds.clear()
@@ -949,7 +971,8 @@ export function install(rt) {
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
     if (isLocalCliBot(bot, session)) return false
-    if (handoffing.get(bot.id)?.oldSid === sessionId) return true
+    const activeHandoff = handoffing.get(bot.id)
+    if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
     if (entry?.turn === undefined || entry.cut !== undefined) return false
     return rt.isHiddenBotWorkTurn?.(bot.id, activeTurnInfo(entry)) === true
@@ -964,13 +987,13 @@ export function install(rt) {
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
     if (isLocalCliBot(bot, session)) return false
-    if (handoffing.get(bot.id)?.oldSid === sessionId) return true
+    const activeHandoff = handoffing.get(bot.id)
+    if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
     if (entry?.turn === undefined || entry.cut !== undefined) return false
     if ((entry.toolCount ?? 0) > 0 || (entry.calls?.size ?? 0) > 0) return true
     if ((rt.runningJobs?.(sessionId)?.length ?? 0) > 0) return true
-    const waitMs = rt.backgroundWaitMs?.() ?? 5000
-    return typeof entry.since === 'number' && Date.now() - entry.since >= waitMs
+    return typeof entry.since === 'number' && Date.now() - entry.since >= PEER_BUSY_WAIT_MS
   }
 
   // Explains why an explicit user-triggered move-to-background is currently unavailable,
@@ -1106,6 +1129,21 @@ export function install(rt) {
     await rt.save().catch(() => {})
   }
 
+  const logicalOwnerOf = (ref) => {
+    if (ref === undefined) return undefined
+    const botId = rt.chatOwners.get(ref)
+    if (botId !== undefined) return `bot:${botId}`
+    const groupOwner = rt.groupOwners.get(ref)
+    if (groupOwner !== undefined) return `room:${groupOwner.roomId}`
+    const taskOwner = rt.taskOwners?.get(ref)
+    if (taskOwner !== undefined) return taskOwner.roomId !== undefined ? `room:${taskOwner.roomId}` : `bot:${taskOwner.botId}`
+    const past = rt.pastOwners?.get(ref)
+    if (past !== undefined) return past.roomId !== undefined ? `room:${past.roomId}` : `bot:${past.botId}`
+    if (rt.botOf(ref) !== undefined) return `bot:${ref}`
+    if (rt.roomOf(ref) !== undefined) return `room:${ref}`
+    return undefined
+  }
+
   const noteAdmittedRpc = (sessionId, rpcId) => {
     if (sessionId === undefined || rpcId === undefined) return
     let set = admittedRpcIds.get(sessionId)
@@ -1115,6 +1153,27 @@ export function install(rt) {
     }
     set.add(rpcId)
     if (set.size > 200) set.delete(set.values().next().value)
+    const ownerKey = logicalOwnerOf(sessionId)
+    if (ownerKey !== undefined) {
+      let logical = admittedLogicalRpcIds.get(ownerKey)
+      if (logical === undefined) {
+        logical = new Set()
+        admittedLogicalRpcIds.set(ownerKey, logical)
+      }
+      logical.add(rpcId)
+      if (logical.size > 400) logical.delete(logical.values().next().value)
+    }
+  }
+
+  const isAdmittedOnSession = (session, rpcId) => {
+    if (rpcId === undefined || session === undefined) return false
+    for (const ev of session.snapshotEvents?.() ?? []) {
+      if (ev?.type === 'user/message'
+        && (ev.data?.id === rpcId || ev.data?.message?.id === rpcId || ev.data?.source?.rpcId === rpcId)) {
+        return true
+      }
+    }
+    return false
   }
 
   const isAdmittedOn = (agent, rpcId) => {
@@ -1124,8 +1183,36 @@ export function install(rt) {
     for (const list of [agent.inbox?.nextStep ?? [], agent.inbox?.nextTurn ?? []]) {
       if (list.some(msg => msg?.id === rpcId || msg?.source?.rpcId === rpcId)) return true
     }
-    for (const ev of agent.session?.snapshotEvents?.() ?? []) {
-      if (ev?.type === 'user/message' && (ev.data?.message?.id === rpcId || ev.data?.source?.rpcId === rpcId)) return true
+    return isAdmittedOnSession(agent.session, rpcId)
+  }
+
+  // Checks whether `requestId` was already admitted on the target logical chat —
+  // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`
+  // and `sessionId` is the freshly forked foreground that did not inherit the running turn.
+  const isAdmittedForSend = ({ ref, sessionId, requestId } = {}) => {
+    if (requestId === undefined) return false
+    const ownerKey = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
+    if (ownerKey !== undefined && admittedLogicalRpcIds.get(ownerKey)?.has(requestId)) return true
+    const candidates = new Set()
+    if (sessionId !== undefined) candidates.add(sessionId)
+    if (ref !== undefined) candidates.add(ref)
+    if (ownerKey !== undefined && ownerKey.startsWith('bot:')) {
+      const bot = rt.botOf(ownerKey.slice(4))
+      for (const task of bot?.tasks ?? []) {
+        if (task?.origin !== 'fg-handoff') continue
+        if (task.sessionId !== undefined) candidates.add(task.sessionId)
+        for (const seg of task.segments ?? []) {
+          if (seg?.sessionId !== undefined) candidates.add(seg.sessionId)
+        }
+      }
+    }
+    const agents = ctx.get('agents')
+    for (const sid of candidates) {
+      if (admittedRpcIds.get(sid)?.has(requestId)) return true
+      const agent = agents?.get(sid)
+      if (agent !== undefined && isAdmittedOn(agent, requestId)) return true
+      const session = ctx.sessions?.get?.(sid)
+      if (session !== undefined && isAdmittedOnSession(session, requestId)) return true
     }
     return false
   }
@@ -1142,8 +1229,16 @@ export function install(rt) {
       && item.msg.id !== excludeId
       && !skipInterceptIds.has(item.msg.id))
     const pulled = []
+    const sid = agent.id ?? agent.session?.id
+    const sidSet = sid === undefined ? undefined : admittedRpcIds.get(sid)
     for (const item of pending) {
-      if (agent.inbox.remove(item.msg.id)) pulled.push({ msg: item.msg, target: item.target, oldAgent: agent })
+      if (agent.inbox.remove(item.msg.id)) {
+        if (sidSet !== undefined) {
+          sidSet.delete(item.msg.id)
+          if (item.msg.source?.rpcId !== undefined) sidSet.delete(item.msg.source.rpcId)
+        }
+        pulled.push({ msg: item.msg, target: item.target, oldAgent: agent })
+      }
     }
     return pulled
   }
@@ -1173,6 +1268,8 @@ export function install(rt) {
         if (key !== undefined) skipInterceptIds.delete(key)
       }
       if (accepted && item.oldAgent !== undefined) {
+        const oldSid = item.oldAgent.id ?? item.oldAgent.session?.id
+        if (item.msg?.source?.rpcId !== undefined) noteAdmittedRpc(oldSid, item.msg.source.rpcId)
         let group = byAgent.get(item.oldAgent)
         if (group === undefined) { group = []; byAgent.set(item.oldAgent, group) }
         group.push(item)
@@ -1182,10 +1279,10 @@ export function install(rt) {
     }
     const confirmedIds = []
     for (const [oldAgent, group] of byAgent) {
-      let flushed = true
+      let flushed = false
       try {
         if (typeof ctx.sessions?.flush === 'function' && oldAgent.session !== undefined) {
-          await ctx.sessions.flush(oldAgent.session)
+          flushed = (await ctx.sessions.flush(oldAgent.session)) === true
         }
       } catch {
         flushed = false
@@ -1201,17 +1298,87 @@ export function install(rt) {
   }
 
   // Delivers pulled user messages onto a target foreground Session, retrying transient
-  // destination failures without duplicating already-admitted items. Preserves `next-step`
-  // steer intent when landing on a live non-hidden foreground turn, and never clears
-  // `pendingHandoffInputs` unless DSH `sessions.flush()` confirms persistence (#2087).
-  const forwardPulledMessages = async (targetSid, items, botName) => {
+  // destination failures without duplicating already-admitted items. Revalidates the live
+  // foreground after every async step so concurrent moves never strand inputs on a moved
+  // background task, and clears `pendingHandoffInputs` only when `sessions.flush()` returns `true` (#2087).
+  const forwardPulledMessages = async (initialTargetSid, items, botName, owner = {}) => {
     if (items.length === 0) return
+    const resolveOwner = (sid) => {
+      if (owner.roomId !== undefined) return { roomId: owner.roomId }
+      if (owner.botId !== undefined) return { botId: owner.botId }
+      const taskOwner = rt.taskOwners?.get(sid)
+      if (taskOwner !== undefined) return taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId }
+      const groupOwner = rt.groupOwners.get(sid)
+      if (groupOwner !== undefined) return { roomId: groupOwner.roomId }
+      const botId = rt.chatOwners.get(sid)
+      if (botId !== undefined) return { botId }
+      const past = rt.pastOwners?.get(sid)
+      if (past !== undefined) return past.roomId !== undefined ? { roomId: past.roomId } : { botId: past.botId }
+      return {}
+    }
+    const currentTargetFor = (sid, resolvedOwner) => {
+      if (resolvedOwner.roomId !== undefined) {
+        const room = rt.roomOf(resolvedOwner.roomId)
+        return room === undefined ? undefined : rt.sessionOfRoom(room)
+      }
+      if (resolvedOwner.botId !== undefined) {
+        const bot = rt.botOf(resolvedOwner.botId)
+        return bot === undefined ? undefined : rt.chatOf(bot.id)
+      }
+      return sid
+    }
+    const resolvedOwner = resolveOwner(initialTargetSid)
+    let targetSid = initialTargetSid
     let nextIndex = 0
     const delays = [50, 250]
     for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       try {
-        await rt.ensureCapabilities(targetSid)
-        const freshAgent = await rt.resolveAgent(targetSid)
+        let freshAgent
+        let hops = 0
+        while (true) {
+          if (resolvedOwner.botId !== undefined) {
+            const active = handoffing.get(resolvedOwner.botId)
+            if (active !== undefined && !active.aborted && active.oldSid === targetSid) {
+              await active.promise.catch(() => {})
+            }
+          }
+          const latestBefore = currentTargetFor(targetSid, resolvedOwner)
+          if (latestBefore === undefined) {
+            await clearPendingTransfers(items.map(item => item.transferId))
+            return
+          }
+          if (latestBefore !== targetSid) targetSid = latestBefore
+          await rt.ensureCapabilities(targetSid)
+          freshAgent = await rt.resolveAgent(targetSid)
+          if (resolvedOwner.botId !== undefined) {
+            const activeAfter = handoffing.get(resolvedOwner.botId)
+            if (activeAfter !== undefined && !activeAfter.aborted && activeAfter.oldSid === targetSid) {
+              await activeAfter.promise.catch(() => {})
+              hops += 1
+              if (hops <= 8) continue
+            }
+          }
+          const latestAfter = currentTargetFor(targetSid, resolvedOwner)
+          if (latestAfter === undefined) {
+            await clearPendingTransfers(items.map(item => item.transferId))
+            return
+          }
+          if (latestAfter !== targetSid || rt.taskOwners?.has(targetSid)) {
+            targetSid = latestAfter
+            hops += 1
+            if (hops <= 8) continue
+            throw new Error(`foreground target ${targetSid} moved repeatedly while forwarding`)
+          }
+          if (resolvedOwner.botId !== undefined) {
+            const ownerBot = rt.botOf(resolvedOwner.botId)
+            if (mustIsolateHiddenWork(ownerBot, targetSid)) {
+              const remaining = items.slice(nextIndex).map(item => ({ ...item, oldAgent: freshAgent }))
+              await handoffForeground(ownerBot, targetSid, remaining)
+              return
+            }
+          }
+          break
+        }
         // Snapshot whether `targetSid` was ALREADY running a non-hidden foreground turn
         // before this batch begins, so forwarding multiple pulled messages onto a freshly
         // forked idle session delivers all of them as FIFO `followup` turns instead of
@@ -1243,8 +1410,16 @@ export function install(rt) {
           }
           nextIndex += 1
         }
-        await ctx.sessions.flush(freshAgent.session)
-        await clearPendingTransfers(items.map(item => item.transferId))
+        const flushed = typeof ctx.sessions?.flush === 'function' && freshAgent.session !== undefined
+          ? (await ctx.sessions.flush(freshAgent.session)) === true
+          : false
+        if (flushed) {
+          await clearPendingTransfers(items.map(item => item.transferId))
+        } else {
+          for (const item of items) {
+            if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
+          }
+        }
         return
       } catch (error) {
         if (attempt < delays.length) {
@@ -1263,13 +1438,13 @@ export function install(rt) {
   // Session from the pre-turn completed boundary, updates `bot.sessionId`, drains any
   // concurrent intercepted Desktop/Web messages onto the new foreground, and returns
   // the new foreground sessionId. Serialized per Bot so rapid messages share one handoff.
-  async function handoffForeground(bot, oldSid, initialMessages = [], { explicit = false, operationId } = {}) {
+  async function handoffForeground(bot, oldSid, initialMessages = [], { explicit = false, operationId, expectedTurn } = {}) {
     const existing = handoffing.get(bot.id)
-    if (existing !== undefined && existing.oldSid === oldSid) {
+    if (existing !== undefined && existing.oldSid === oldSid && !existing.aborted) {
       if (initialMessages.length > 0) {
         recordPendingTransfers(initialMessages, { botId: bot.id })
         if (existing.committed && existing.newSid !== undefined) {
-          void forwardPulledMessages(existing.newSid, initialMessages, bot.name)
+          void forwardPulledMessages(existing.newSid, initialMessages, bot.name, { botId: bot.id })
         } else {
           existing.messages.push(...initialMessages)
         }
@@ -1289,6 +1464,7 @@ export function install(rt) {
     const title = titleFromRunningTurn(oldAgent?.session, entry)
     const oldEvents = oldAgent?.session?.snapshotEvents?.() ?? []
     const runningTurn = entry?.turn
+    const targetTurn = expectedTurn ?? runningTurn
     const { startSeq, priorTurns, priorCallIds } = (() => {
       const turns = new Set()
       const callIds = new Set()
@@ -1312,6 +1488,8 @@ export function install(rt) {
     const record = {
       oldSid,
       committed: false,
+      aborted: false,
+      saved: false,
       newSid: undefined,
       taskId: undefined,
       explicit,
@@ -1319,24 +1497,35 @@ export function install(rt) {
       messages: seededMessages,
       promise: undefined,
     }
+    const releaseRecord = () => {
+      record.aborted = true
+      if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
+    }
+    const restoreAll = async (forceNextTurn = isBotHandoff) => {
+      releaseRecord()
+      while (record.messages.length > 0) {
+        await restorePulledMessages(record.messages.splice(0), { forceNextTurn })
+      }
+    }
     const run = (async () => {
       if (record.messages.length > 0) await rt.save().catch(() => {})
       let forkedResult
       try {
         forkedResult = await rt.forkForegroundPart(bot, oldSid)
       } catch (error) {
-        await restorePulledMessages(record.messages.splice(0), { forceNextTurn: isBotHandoff })
+        await restoreAll(isBotHandoff)
         throw error
       }
       const { sessionId: newSid, forked, syncRoute } = forkedResult
       // Bot might have moved, started a part switch, or been deleted while forking.
       if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== oldSid || rt.isSwitchingPart?.(oldSid)) {
+        releaseRecord()
         await ctx.workspaceRegistry.archiveSession(newSid, { stopActivity: true }).catch(() => {})
         const currentSid = rt.chatOf(bot.id)
-        const pending = record.messages.splice(0)
-        if (pending.length > 0) {
+        while (record.messages.length > 0) {
+          const pending = record.messages.splice(0)
           if (currentSid !== undefined && currentSid !== oldSid && !rt.taskOwners?.has(currentSid)) {
-            await forwardPulledMessages(currentSid, pending, bot.name)
+            await forwardPulledMessages(currentSid, pending, bot.name, { botId: bot.id })
           } else if (rt.botOf(bot.id) === bot) {
             await restorePulledMessages(pending, { forceNextTurn: isBotHandoff })
           } else {
@@ -1345,17 +1534,32 @@ export function install(rt) {
         }
         return currentSid ?? newSid
       }
-      // For an explicit move with no intercepted messages, if the old turn already finished
-      // naturally while forking, keep the original foreground and discard the unused candidate.
-      if (explicit && record.messages.length === 0) {
-        const oldStillActive = rt.live.get(oldSid)?.turn !== undefined
-          || oldAgent?.status === 'running'
-          || (rt.runningJobs?.(oldSid)?.length ?? 0) > 0
-          || rt.waitsForApproval?.(oldSid)
-        if (!oldStillActive) {
+      // For an explicit move, revalidate the captured turn and open interactive cards
+      // right before committing so we never move a newer turn, dismiss an interactive
+      // card that opened mid-fork, or create a ghost task for a turn that just finished.
+      if (explicit) {
+        const curLive = rt.live.get(oldSid)
+        const curTurn = curLive?.turn
+        const sameTurnActive = targetTurn !== undefined
+          ? curTurn === targetTurn && curLive?.cut === undefined
+          : (curTurn !== undefined && curLive?.cut === undefined)
+        const cardOpened = hasBlockingInteractiveCard(bot, oldSid)
+        if (!sameTurnActive || cardOpened) {
+          releaseRecord()
           await ctx.workspaceRegistry.archiveSession(newSid, { stopActivity: true }).catch(() => {})
-          rememberMoveOp(operationId, { sessionId: oldSid, taskId: null, moved: false })
-          return oldSid
+          await restoreAll(false)
+          if (cardOpened) {
+            throw Object.assign(new Error('Answer or dismiss the open card first'), { code: 'bot/card-open' })
+          }
+          const stillIdle = curTurn === undefined
+            && oldAgent?.status !== 'running'
+            && (rt.runningJobs?.(oldSid)?.length ?? 0) === 0
+            && !rt.waitsForApproval?.(oldSid)
+          if (stillIdle) {
+            rememberMoveOp(operationId, { sessionId: oldSid, taskId: null, moved: false })
+            return oldSid
+          }
+          throw Object.assign(new Error('This turn has already ended'), { code: 'bot/stale' })
         }
       }
       const now = Date.now()
@@ -1423,7 +1627,6 @@ export function install(rt) {
       record.committed = true
       record.newSid = newSid
       record.taskId = task.id
-      rememberMoveOp(operationId, { sessionId: newSid, taskId: task.id, moved: true })
       // Clear live IM origin on the moved background session so it never streams raw lines
       // directly to IM; `task.imOrigin` handles approvals and the final `task-report`.
       rt.clearImOrigin?.(oldSid)
@@ -1438,86 +1641,118 @@ export function install(rt) {
       rt.clearActivity?.(oldSid)
       const liveOld = rt.live.get(oldSid)
       if (liveOld !== undefined) liveOld.steeredAt = undefined
-      await rt.save()
-      await rt.moveSchedules?.(oldSid, newSid)
-        .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
-      await syncRoute?.().catch(error => rt.warn('ds-bot: route sync for foreground part of %s failed: %s', bot.name, error))
-      emitTaskEvent('task.started', bot, task, { origin })
 
-      // Check whether the moved turn already finished during `await forkForegroundPart`
-      // BEFORE injecting the "still running" notice, and inspect its actual `turn/end`
-      // reason so failed/stopped/max-tokens turns settle with the right status.
-      const stillRunning = rt.live.get(oldSid)?.turn !== undefined
-        || oldAgent?.status === 'running'
-        || hasWakingInboxInput(oldAgent)
-        || hasPendingTaskUnread(oldSid)
-        || (rt.runningJobs?.(oldSid)?.length ?? 0) > 0
-        || rt.waitsForApproval?.(oldSid)
-        || hasOpenOutgoingWorks(bot, task)
-        || isAwaitingHandoffInput(task)
-        || (origin === 'bot-handoff' && activeWork !== undefined && rt.live.get(oldSid)?.lastAskedBackWork === activeWork)
+      let postSaveDone = false
+      const finishPostSave = async () => {
+        if (postSaveDone) return
+        postSaveDone = true
+        await rt.moveSchedules?.(oldSid, newSid)
+          .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
+        await syncRoute?.().catch(error => rt.warn('ds-bot: route sync for foreground part of %s failed: %s', bot.name, error))
+        emitTaskEvent('task.started', bot, task, { origin })
 
-      if (!stillRunning) {
-        // When the new foreground could not fork history (e.g. first turn, workdir change,
-        // or local CLI), still carry recent context so the fresh foreground is not blank.
-        if (!forked && origin === 'fg-handoff') {
-          const contextNote = fallbackContextSummary(oldSid)
-          if (contextNote !== '') {
-            try {
-              const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) just finished in the background; its result is being delivered next.${contextNote}`
-              await rt.ensureCapabilities(newSid)
-              const freshAgent = await rt.resolveAgent(newSid)
-              freshAgent.inject?.(createUserMessage({
-                content: [{ type: 'text', text: notice }],
-                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
-              }))
-            } catch (error) {
-              rt.warn('ds-bot: injecting fallback context on %s failed: %s', newSid, error)
+        // Check whether the moved turn already finished during `await forkForegroundPart`
+        // BEFORE injecting the "still running" notice, and inspect its actual `turn/end`
+        // reason so failed/stopped/max-tokens turns settle with the right status.
+        const stillRunning = rt.live.get(oldSid)?.turn !== undefined
+          || oldAgent?.status === 'running'
+          || hasWakingInboxInput(oldAgent)
+          || hasPendingTaskUnread(oldSid)
+          || (rt.runningJobs?.(oldSid)?.length ?? 0) > 0
+          || rt.waitsForApproval?.(oldSid)
+          || hasOpenOutgoingWorks(bot, task)
+          || isAwaitingHandoffInput(task)
+          || (origin === 'bot-handoff' && activeWork !== undefined && rt.live.get(oldSid)?.lastAskedBackWork === activeWork)
+
+        if (!stillRunning) {
+          // When the new foreground could not fork history (e.g. first turn, workdir change,
+          // or local CLI), still carry recent context so the fresh foreground is not blank.
+          if (!forked && origin === 'fg-handoff') {
+            const contextNote = fallbackContextSummary(oldSid)
+            if (contextNote !== '') {
+              try {
+                const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) just finished in the background; its result is being delivered next.${contextNote}`
+                await rt.ensureCapabilities(newSid)
+                const freshAgent = await rt.resolveAgent(newSid)
+                freshAgent.inject?.(createUserMessage({
+                  content: [{ type: 'text', text: notice }],
+                  source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+                }))
+              } catch (error) {
+                rt.warn('ds-bot: injecting fallback context on %s failed: %s', newSid, error)
+              }
             }
           }
+          if (isActiveTask(task)) {
+            const events = oldAgent?.session?.snapshotEvents?.() ?? []
+            const lastEnd = events.findLast(ev => ev?.type === 'turn/end')
+            const endReason = lastEnd?.data?.reason
+            const endFailure = endReason?.kind === 'error' ? turnFailure(endReason.error) : undefined
+            const said = lastReplyOf(oldAgent?.session, task.workDir)
+            queueMicrotask(() => void handleTurnEnd(bot, task, endReason, endFailure, said)
+              .catch(error => rt.warn('ds-bot: post-handoff settle failed for %s: %s', task.id, error)))
+          }
+        } else if (origin === 'fg-handoff') {
+          // Inform the new foreground only when the user's own previous turn moved to
+          // background and is still running (never leak hidden Bot-to-Bot work).
+          try {
+            const contextNote = forked ? '' : fallbackContextSummary(oldSid)
+            const movedPromptBlock = movedPrompt !== '' && movedPrompt.length > task.title.length
+              ? `\nMoved request: ${movedPrompt}`
+              : ''
+            const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes. Use task_send(task: "${task.id}", ...) if the user's next message corrects or redirects that work.${movedPromptBlock}${contextNote}`
+            await rt.ensureCapabilities(newSid)
+            const freshAgent = await rt.resolveAgent(newSid)
+            freshAgent.inject?.(createUserMessage({
+              content: [{ type: 'text', text: notice }],
+              source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+            }))
+          } catch (error) {
+            rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)
+          }
         }
-        if (isActiveTask(task)) {
-          const events = oldAgent?.session?.snapshotEvents?.() ?? []
-          const lastEnd = events.findLast(ev => ev?.type === 'turn/end')
-          const endReason = lastEnd?.data?.reason
-          const endFailure = endReason?.kind === 'error' ? turnFailure(endReason.error) : undefined
-          const said = lastReplyOf(oldAgent?.session, task.workDir)
-          queueMicrotask(() => void handleTurnEnd(bot, task, endReason, endFailure, said)
-            .catch(error => rt.warn('ds-bot: post-handoff settle failed for %s: %s', task.id, error)))
-        }
-      } else if (origin === 'fg-handoff') {
-        // Inform the new foreground only when the user's own previous turn moved to
-        // background and is still running (never leak hidden Bot-to-Bot work).
-        try {
-          const contextNote = forked ? '' : fallbackContextSummary(oldSid)
-          const movedPromptBlock = movedPrompt !== '' && movedPrompt.length > task.title.length
-            ? `\nMoved request: ${movedPrompt}`
-            : ''
-          const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes. Use task_send(task: "${task.id}", ...) if the user's next message corrects or redirects that work.${movedPromptBlock}${contextNote}`
-          await rt.ensureCapabilities(newSid)
-          const freshAgent = await rt.resolveAgent(newSid)
-          freshAgent.inject?.(createUserMessage({
-            content: [{ type: 'text', text: notice }],
-            source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
-          }))
-        } catch (error) {
-          rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)
+
+        // Drain any Desktop/Web messages intercepted while the handoff was running
+        // (including when `channel.js:sendUser` initiated the handoff).
+        while (record.messages.length > 0) {
+          const batch = record.messages.splice(0)
+          await forwardPulledMessages(newSid, batch, bot.name, { botId: bot.id })
         }
       }
 
-      // Drain any Desktop/Web messages intercepted while the handoff was running
-      // (including when `channel.js:sendUser` initiated the handoff).
-      while (record.messages.length > 0) {
-        const batch = record.messages.splice(0)
-        await forwardPulledMessages(newSid, batch, bot.name)
+      if (typeof operationId === 'string' && operationId !== '') {
+        rememberPendingSaveMoveOp(operationId, {
+          botId: bot.id,
+          oldSid,
+          newSid,
+          taskId: task.id,
+          finishPostSave,
+          savingPromise: undefined,
+        })
       }
+      await rt.save()
+      record.saved = true
+      if (typeof operationId === 'string' && operationId !== '') {
+        pendingSaveMoveOps.delete(operationId)
+        rememberMoveOp(operationId, { sessionId: newSid, taskId: task.id, moved: true })
+      }
+      await finishPostSave()
       return newSid
     })()
 
     record.promise = run.finally(() => {
       if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
       if (record.committed && record.newSid !== undefined && record.messages.length > 0) {
-        void forwardPulledMessages(record.newSid, record.messages.splice(0), bot.name)
+        void forwardPulledMessages(record.newSid, record.messages.splice(0), bot.name, { botId: bot.id })
+      } else if (!record.committed && record.messages.length > 0) {
+        const leftover = record.messages.splice(0)
+        if (rt.botOf(bot.id) === bot) {
+          void restorePulledMessages(leftover, { forceNextTurn: isBotHandoff })
+        } else {
+          for (const item of leftover) {
+            if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
+          }
+        }
       }
     })
     handoffing.set(bot.id, record)
@@ -1528,24 +1763,40 @@ export function install(rt) {
   // to a background task and open a fresh foreground part. Idempotent on `operationId`
   // and concurrent clicks on the same running turn.
   async function moveForegroundToBackground({ botId, expectedSessionId, expectedTurn, operationId } = {}) {
-    if (typeof operationId === 'string' && operationId !== '' && completedMoveOps.has(operationId)) {
-      return completedMoveOps.get(operationId)
+    if (typeof operationId === 'string' && operationId !== '') {
+      if (completedMoveOps.has(operationId)) return completedMoveOps.get(operationId)
+      const pendingSave = pendingSaveMoveOps.get(operationId)
+      if (pendingSave !== undefined) {
+        if (pendingSave.savingPromise === undefined) {
+          pendingSave.savingPromise = (async () => {
+            await rt.save()
+            pendingSaveMoveOps.delete(operationId)
+            const result = { sessionId: pendingSave.newSid, taskId: pendingSave.taskId, moved: true }
+            rememberMoveOp(operationId, result)
+            await pendingSave.finishPostSave()
+            return result
+          })().finally(() => {
+            pendingSave.savingPromise = undefined
+          })
+        }
+        return pendingSave.savingPromise
+      }
     }
     const bot = rt.botOf(botId)
     if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const oldSid = rt.chatOf(bot.id)
     if (expectedSessionId !== undefined && expectedSessionId !== oldSid) {
       const inFlight = handoffing.get(bot.id)
-      if (inFlight !== undefined && inFlight.oldSid === expectedSessionId) {
+      if (inFlight !== undefined && !inFlight.aborted && inFlight.oldSid === expectedSessionId) {
         const sid = await inFlight.promise
-        return { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true }
+        return { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
       }
       throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
     }
     const inFlight = handoffing.get(bot.id)
-    if (inFlight !== undefined && inFlight.oldSid === oldSid) {
+    if (inFlight !== undefined && !inFlight.aborted && inFlight.oldSid === oldSid) {
       const sid = await inFlight.promise
-      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true }
+      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
       rememberMoveOp(operationId, result)
       return result
     }
@@ -1556,7 +1807,7 @@ export function install(rt) {
     if (blocked !== undefined) {
       throw Object.assign(new Error(blocked.message), { code: blocked.code })
     }
-    const newSid = await handoffForeground(bot, oldSid, [], { explicit: true, operationId })
+    const newSid = await handoffForeground(bot, oldSid, [], { explicit: true, operationId, expectedTurn })
     const task = (bot.tasks ?? []).findLast(item => item?.sessionId === oldSid)
     const moved = newSid !== oldSid && task !== undefined
     const result = { sessionId: newSid, taskId: moved ? task.id : null, moved }
@@ -1641,9 +1892,9 @@ export function install(rt) {
     // old sessionId after `bot.sessionId` moved on. Redirect user messages to foreground.
     const taskOwner = rt.taskOwners?.get(id)
     if (taskOwner !== undefined) {
-      if (agent?.inbox?.remove === undefined) return
+      if (agent?.inbox?.remove === undefined) return false
       const wasIdle = agent.status === 'idle'
-      if (!agent.inbox.remove(msg.id)) return
+      if (!agent.inbox.remove(msg.id)) return false
       if (wasIdle && !hasWakingInboxInput(agent)) rejectEmptyTaskWake.add(id)
       clearSteeredAt()
       const pulled = [{ msg, target, oldAgent: agent }]
@@ -1652,7 +1903,7 @@ export function install(rt) {
         if (taskOwner.roomId !== undefined) {
           const room = rt.roomOf(taskOwner.roomId)
           const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
-          if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name)
+          if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name, { roomId: taskOwner.roomId })
           else await clearPendingTransfers(pulled.map(item => item.transferId))
           return
         }
@@ -1672,9 +1923,9 @@ export function install(rt) {
           fgSid = await handoffForeground(ownerBot, fgSid, rebased)
           return
         }
-        await forwardPulledMessages(fgSid, pulled, ownerBot?.name)
+        await forwardPulledMessages(fgSid, pulled, ownerBot?.name, { botId: taskOwner.botId })
       })().catch(error => rt.warn('ds-bot: redirecting user input from background task %s failed: %s', id, error))
-      return
+      return true
     }
 
     // Case 2: Audience isolation or in-flight handoff — ordinary user messages (`steer`
@@ -1701,13 +1952,13 @@ export function install(rt) {
           }
         }
       }
-      return
+      return false
     }
-    if (agent?.inbox?.remove === undefined) return
+    if (agent?.inbox?.remove === undefined) return false
     const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
     if (!agent.inbox.remove(msg.id)) {
       if (earlier.length > 0) void restorePulledMessages(earlier)
-      return
+      return false
     }
     clearSteeredAt()
     const pulled = [...earlier, { msg, target, oldAgent: agent }]
@@ -1716,16 +1967,24 @@ export function install(rt) {
     void handoffForeground(bot, id, pulled).catch((error) => {
       rt.warn('ds-bot: foreground handoff for %s failed; restored input: %s', bot.name, error)
     })
+    return true
   }
 
   // Desktop/Web foreground busy auto-handoff runs on `agent/inbox/inserted` (outside
   // `Session.append()`), avoiding DSH's reentrancy guard on `session/event`.
   ctx.on('agent/inbox/inserted', ({ agent, message }) => {
-    interceptForegroundUserMessage(agent, message)
+    const pulled = interceptForegroundUserMessage(agent, message) === true
+    if (!pulled && message?.source?.rpcId !== undefined) {
+      noteAdmittedRpc(agent?.id ?? agent?.session?.id, message.source.rpcId)
+    }
   })
 
   // Strict turn/end state machine guard + in-place queue edit (`inbox.replace`) tagging.
   ctx.on('session/event', (session, event) => {
+    if (event?.type === 'user/message') {
+      if (event.data?.source?.rpcId !== undefined) noteAdmittedRpc(session?.id, event.data.source.rpcId)
+      return
+    }
     if (event?.type === 'agent/inbox/spliced') {
       if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0
         && (rt.chatOwners.has(session?.id) || rt.taskOwners?.has(session?.id))) {
@@ -1964,7 +2223,9 @@ export function install(rt) {
     shouldMoveForeground,
     isLocalCliSession,
     isAdmittedOn,
-    isHandingOff: id => id !== undefined && [...handoffing.values()].some(record => record.oldSid === id),
+    isAdmittedForSend,
+    noteAdmittedRpc,
+    isHandingOff: id => id !== undefined && [...handoffing.values()].some(record => !record.aborted && record.oldSid === id),
     consumeEmptyTaskWake: id => id !== undefined && rejectEmptyTaskWake.delete(id),
     handoffForeground,
     moveForegroundToBackground,

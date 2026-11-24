@@ -1421,6 +1421,7 @@ export function install(rt) {
       await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
       return
     }
+    const platformMsgId = msg.messageId !== undefined && String(msg.messageId).trim() !== '' ? String(msg.messageId).trim() : ''
     if (/^\/(?:background|bg)(?:@\S+)?\s*$/.test(body)) {
       if (target === undefined) {
         await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
@@ -1430,12 +1431,19 @@ export function install(rt) {
         await sendText(conn, msg.chat, text('backgroundGroupOnly'))
         return
       }
+      const bgKey = platformMsgId !== '' ? `bg:${conn.id}:${msg.chat.key}:bot:${target.botId}:${platformMsgId}` : ''
+      if (bgKey !== '' && !markInboundSeen(bgKey)) return
+      const operationId = bgKey !== '' ? `im:${conn.platform}:${bgKey}` : undefined
+      let res
       try {
-        const res = await rt.moveForegroundToBackground({ botId: target.botId })
-        await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
+        res = await rt.moveForegroundToBackground({ botId: target.botId, operationId })
       } catch (error) {
+        const terminal = ['bot/idle', 'bot/stale', 'bot/card-open', 'bot/pending-input', 'bot/unsupported', 'bot/read-only'].includes(error?.code)
+        if (!terminal && bgKey !== '') seenInboundIds.delete(bgKey)
         await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
+        return
       }
+      await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
       return
     }
     let promptMode = 'queue'
@@ -1493,47 +1501,47 @@ export function install(rt) {
     }
     const sessionId = target.botId ?? target.roomId
     const bindingKey = target.botId !== undefined ? `bot:${target.botId}` : `room:${target.roomId}`
-    const platformMsgId = msg.messageId !== undefined && String(msg.messageId).trim() !== '' ? String(msg.messageId).trim() : ''
     const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${bindingKey}:${platformMsgId}` : ''
     if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
-    // The receipt has to sit on the Session that takes the message. A group's own
-    // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
-    // first one, so uploading under the id leaves the receipt on a Session the
-    // message never reaches and DSH drops the file (#1121).
-    const uploadTo = target.botId !== undefined
-      ? rt.chatOf(target.botId)
-      : rt.sessionOfRoom(rt.roomOf(target.roomId))
-    const content = []
-    // A quoted reply goes in as the quoted message, then what the user said:
-    // commands above are read from the reply alone.
-    const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
-    const said = quoted === undefined ? effectiveBody : composeQuoted(effectiveBody, quoted)
-    if (said !== '') content.push({ type: 'text', text: said })
-    for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
-    const env = await envFor(conn)
-    for (const file of msg.files ?? []) {
-      try {
-        const receiptId = await env.uploadFile(uploadTo, file)
-        content.push({ type: 'file', receiptId })
-      } catch {
-        await sendText(conn, msg.chat, text('noFile'))
-      }
-    }
-    if (content.length === 0) {
-      if (inboundKey !== '') seenInboundIds.delete(inboundKey)
-      return
-    }
-    const requestId = inboundKey !== ''
-      ? `im:${conn.platform}:${inboundKey}`
-      : `im:${conn.platform}:${randomUUID()}`
-    // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
-    else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
+    let requestId
     try {
+      // The receipt has to sit on the Session that takes the message. A group's own
+      // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
+      // first one, so uploading under the id leaves the receipt on a Session the
+      // message never reaches and DSH drops the file (#1121).
+      const uploadTo = target.botId !== undefined
+        ? rt.chatOf(target.botId)
+        : rt.sessionOfRoom(rt.roomOf(target.roomId))
+      const content = []
+      // A quoted reply goes in as the quoted message, then what the user said:
+      // commands above are read from the reply alone.
+      const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
+      const said = quoted === undefined ? effectiveBody : composeQuoted(effectiveBody, quoted)
+      if (said !== '') content.push({ type: 'text', text: said })
+      for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+      const env = await envFor(conn)
+      for (const file of msg.files ?? []) {
+        try {
+          const receiptId = await env.uploadFile(uploadTo, file)
+          content.push({ type: 'file', receiptId })
+        } catch {
+          await sendText(conn, msg.chat, text('noFile'))
+        }
+      }
+      if (content.length === 0) {
+        if (inboundKey !== '') seenInboundIds.delete(inboundKey)
+        return
+      }
+      requestId = inboundKey !== ''
+        ? `im:${conn.platform}:${inboundKey}`
+        : `im:${conn.platform}:${randomUUID()}`
+      // The turn this starts belongs to this chat: its replies go back here and nowhere else.
+      if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
+      else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
       await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
     } catch (error) {
       if (inboundKey !== '') seenInboundIds.delete(inboundKey)
-      requests.delete(requestId)
+      if (requestId !== undefined) requests.delete(requestId)
       throw error
     }
   }

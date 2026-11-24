@@ -1054,14 +1054,14 @@ export function install(rt) {
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
+    if (rt.isAdmittedForSend?.({ ref, sessionId, requestId })) return
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.mustIsolateHiddenWork?.(bot, sessionId)) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
-    const existingAgent = ctx.get('agents')?.get(sessionId)
-    if (existingAgent !== undefined && rt.isAdmittedOn?.(existingAgent, requestId)) return
+    if (rt.isAdmittedForSend?.({ ref, sessionId, requestId })) return
     await rt.ensureCapabilities(sessionId)
     const promptMode = mode === 'steer' ? 'steer' : 'queue'
     try {
@@ -1071,6 +1071,7 @@ export function install(rt) {
         mode: promptMode,
         content,
       }, AbortSignal.timeout(30_000))
+      rt.noteAdmittedRpc?.(sessionId, requestId)
     } catch (error) {
       if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
         await ctx.sessionController.prompt({
@@ -1079,6 +1080,7 @@ export function install(rt) {
           mode: 'queue',
           content,
         }, AbortSignal.timeout(30_000))
+        rt.noteAdmittedRpc?.(sessionId, requestId)
         return
       }
       throw error

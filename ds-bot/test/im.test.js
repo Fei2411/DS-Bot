@@ -4097,7 +4097,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
 test('IM /steer, /background, and platform messageId redelivery deduplication (#2077)', async (t) => {
   const s = await start()
   t.after(s.stop)
-  await pairedConn(s)
+  const { one } = await pairedConn(s)
 
   // 1) /steer <text> sends with mode: 'steer'; bare /steer prints usage without prompting.
   await dm(s, 'u1', '/steer')
@@ -4118,15 +4118,36 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   await dm(s, 'u1', '?', { messageId: 'qq-msg-2' })
   assert.equal(s.prompts.length, 3, 'distinct platform messageId with identical text must still deliver')
 
-  // 3) /background calls moveForegroundToBackground explicitly and reports result.
-  let movedBotId
-  s.rt.moveForegroundToBackground = async ({ botId }) => {
-    movedBotId = botId
-    return { sessionId: 'a-new', taskId: 'k_im_bg', moved: true }
+  // 3) /background calls moveForegroundToBackground explicitly with operationId, and redelivery with the same messageId does NOT move a later turn.
+  const bgCalls = []
+  s.rt.moveForegroundToBackground = async ({ botId, operationId }) => {
+    bgCalls.push({ botId, operationId })
+    return { sessionId: `a-new-${bgCalls.length}`, taskId: `k_im_bg_${bgCalls.length}`, moved: true }
   }
-  await dm(s, 'u1', '/background')
-  assert.equal(movedBotId, 'a')
+  await dm(s, 'u1', '/background', { messageId: 'im-bg-1' })
+  await dm(s, 'u1', '/bg', { messageId: 'im-bg-1' })
+  assert.equal(bgCalls.length, 1, 'redelivered /bg with same messageId must NOT move a second turn')
+  assert.equal(bgCalls[0].botId, 'a')
+  assert.ok(bgCalls[0].operationId?.includes('im-bg-1'), '/background must pass a stable operationId derived from platform messageId')
   assert.match(s.fake.sent.at(-1).text, /background/i)
+
+  // 4) If origin persistence fails before sendUser (e.g. Weixin save failure), seenInboundIds is cleared so redelivery succeeds.
+  const origPlatform = one.platform
+  const origSave = s.rt.save
+  one.platform = 'weixin'
+  let failOnce = true
+  s.rt.save = async (...args) => {
+    if (failOnce) { failOnce = false; throw new Error('disk full during rememberWeixinRequest') }
+    return origSave(...args)
+  }
+  const promptsBeforeWx = s.prompts.length
+  await dm(s, 'u1', 'weixin retryable text', { messageId: 'wx-retry-1' })
+  assert.equal(s.prompts.length, promptsBeforeWx, 'failed rememberWeixinRequest must not prompt')
+  await dm(s, 'u1', 'weixin retryable text', { messageId: 'wx-retry-1' })
+  one.platform = origPlatform
+  s.rt.save = origSave
+  assert.equal(s.prompts.length, promptsBeforeWx + 1, 'redelivery after rememberWeixinRequest failure must not be swallowed')
+  assert.equal(s.prompts.at(-1).content[0].text, 'weixin retryable text')
 })
 
 

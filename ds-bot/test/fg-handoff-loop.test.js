@@ -19,7 +19,7 @@ const settle = async (check, ms = 4000, label = 'condition not reached') => {
 
 const textOf = message => (message?.content ?? []).map(block => block.text ?? '').join('\n')
 
-async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0 } = {}) {
+async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0, enableFlushPersistence = true } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-fg-loop-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -133,6 +133,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
   }
   root.llm.registerAdapter(['fg-test'], new TestAdapter())
   await mountAgentLoopTestHarness(root)
+  let offFlush = enableFlushPersistence ? root.on('session/flush', async () => {}) : undefined
 
   const agents = new Map()
   const makeRealAgent = async (sid) => {
@@ -224,7 +225,11 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, forkStarted, forkGate, repliesBySession, modelCallsBySession }
+  const setFlushPersistence = (enabled, fn = async () => {}) => {
+    offFlush?.()
+    offFlush = enabled ? root.on('session/flush', fn) : undefined
+  }
+  return { home, root, rootWarnings, rt, agents, toolStarted, toolGate, firstModelStarted, firstModelGate, forkStarted, forkGate, repliesBySession, modelCallsBySession, setFlushPersistence }
 }
 
 test('real DSH SessionStore + ReactLoopAgent: Desktop steer and queue while busy stay on the same session without auto fg-handoff (#2077)', async (t) => {
@@ -707,4 +712,127 @@ test('real DSH SessionStore + ReactLoopAgent: #2087 restorePulledMessages keeps 
     'reconcile must deliver the retained journal entry once session is writable again',
   )
   assert.equal(rig.rt.state.pendingHandoffInputs, undefined)
+})
+
+test('real DSH SessionStore + ReactLoopAgent: flush() returning false keeps pendingHandoffInputs and releases retry lock on both forward and rollback', async (t) => {
+  // 1) Forward path with NO persistence listener -> real SessionStore.flush() returns false -> journal MUST stay.
+  const rig = await createRealLoopRig(t, { holdFork: true, enableFlushPersistence: false })
+  const dmA = rig.agents.get('dm-a')
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
+  await rig.toolStarted.promise
+
+  const movePromise = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  await rig.forkStarted.promise
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Need flush confirmation' }], source: { kind: 'user', rpcId: 'rpc-no-flush-fwd' } }))
+  rig.forkGate.resolve()
+  await movePromise
+
+  const fgSid = rig.rt.botOf('a').sessionId
+  await settle(() => (rig.repliesBySession.get(fgSid) ?? []).some(r => r.includes('Need flush confirmation')), 4000)
+  assert.equal(
+    rig.rt.state.pendingHandoffInputs?.some(item => item?.id === 'rpc-no-flush-fwd'),
+    true,
+    'forwardPulledMessages must NOT clear journal when real SessionStore.flush() returns false',
+  )
+  // Once a persistence listener is active, reconcile sees the message is already admitted on fgSid, flushes true, and clears journal without duplicating.
+  rig.setFlushPersistence(true)
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined)
+  assert.equal((rig.repliesBySession.get(fgSid) ?? []).filter(r => r.includes('Need flush confirmation')).length, 1)
+
+  // 2) Rollback path with NO persistence listener -> real SessionStore.flush() returns false -> journal MUST stay.
+  const rig2 = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true, enableFlushPersistence: false })
+  const dm2 = rig2.agents.get('dm-a')
+  dm2.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
+  await rig2.toolStarted.promise
+  const failMove = rig2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }).catch(err => err)
+  await rig2.forkStarted.promise
+  dm2.steer(createUserMessage({ content: [{ type: 'text', text: 'Rollback needs real flush' }], source: { kind: 'user', rpcId: 'rpc-no-flush-rb' } }))
+  rig2.forkGate.resolve()
+  await failMove
+  assert.equal(
+    rig2.rt.state.pendingHandoffInputs?.some(item => item?.id === 'rpc-no-flush-rb'),
+    true,
+    'restorePulledMessages must NOT clear journal when real SessionStore.flush() returns false',
+  )
+  rig2.setFlushPersistence(true)
+  await rig2.rt.reconcileTasksAfterRestart()
+  assert.equal(rig2.rt.state.pendingHandoffInputs, undefined, 'reconcile must clear after verifying admission with real flush')
+})
+
+test('real DSH SessionStore + ReactLoopAgent: isAdmittedOn recognizes real user/message data.id without rpcId so reconcile does not replay consumed input', async (t) => {
+  const rig = await createRealLoopRig(t)
+  const dmA = rig.agents.get('dm-a')
+
+  const userMsg = createUserMessage({ content: [{ type: 'text', text: 'Consumed without rpcId' }], source: { kind: 'user' } })
+  dmA.followup(userMsg)
+  await settle(() => (rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Consumed without rpcId')), 4000)
+
+  // Verify real DSH event layout: ev.data.id === userMsg.id (no ev.data.message wrapper, no rpcId).
+  const userEv = dmA.session.snapshotEvents().find(ev => ev.type === 'user/message' && ev.data?.id === userMsg.id)
+  assert.ok(userEv !== undefined, 'real DSH user/message event must carry data.id directly')
+  assert.equal(userEv.data.message, undefined)
+  assert.equal(rig.rt.isAdmittedOn(dmA, userMsg.id), true)
+
+  // Simulate restart recovery entry referencing that consumed message id (no rpcId).
+  rig.rt.state.pendingHandoffInputs = [{
+    id: userMsg.id,
+    messageId: userMsg.id,
+    originalSessionId: 'dm-a',
+    botId: 'a',
+    content: userMsg.content,
+    source: { kind: 'user' },
+    at: Date.now() - 5000,
+  }]
+  await rig.rt.reconcileTasksAfterRestart()
+  await realDelay(50)
+  assert.equal(
+    (rig.repliesBySession.get('dm-a') ?? []).filter(r => r.includes('Consumed without rpcId')).length,
+    1,
+    'already-consumed real DSH user/message without rpcId must NOT be replayed',
+  )
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined)
+})
+
+test('real DSH SessionStore + ReactLoopAgent: second message arriving while rollback awaits flush is never stranded', async (t) => {
+  const rig = await createRealLoopRig(t, { failForkAndCreate: true, holdFork: true })
+  const dmA = rig.agents.get('dm-a')
+
+  dmA.followup(createUserMessage({ content: [{ type: 'text', text: 'Please run slow work' }], source: { kind: 'user' } }))
+  await rig.toolStarted.promise
+
+  const rollbackFlushStarted = Promise.withResolvers()
+  const rollbackFlushGate = Promise.withResolvers()
+  let pauseNextFlush = false
+  rig.setFlushPersistence(true, async () => {
+    if (pauseNextFlush) {
+      pauseNextFlush = false
+      rollbackFlushStarted.resolve()
+      await rollbackFlushGate.promise
+    }
+  })
+
+  const movePromise = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }).catch(err => err)
+  await rig.forkStarted.promise
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'First during fork' }], source: { kind: 'user', rpcId: 'rpc-rb-1' } }))
+
+  pauseNextFlush = true
+  rig.forkGate.resolve()
+  await rollbackFlushStarted.promise
+
+  // Second message arrives while rollback of first message is awaiting flush().
+  dmA.steer(createUserMessage({ content: [{ type: 'text', text: 'Second during rollback flush' }], source: { kind: 'user', rpcId: 'rpc-rb-2' } }))
+  rollbackFlushGate.resolve()
+  await movePromise
+
+  rig.toolGate.resolve()
+  await settle(() => {
+    const userTexts = dmA.session.snapshotEvents()
+      .filter(ev => ev.type === 'user/message')
+      .map(ev => textOf(ev.data))
+    return dmA.status === 'idle'
+      && userTexts.some(msg => msg.includes('First during fork'))
+      && userTexts.some(msg => msg.includes('Second during rollback flush'))
+  }, 5000, 'both messages must be consumed on dm-a without stranding the second message')
+  assert.equal(rig.rt.state.pendingHandoffInputs, undefined, 'no journal entry may be left stranded after rollback')
 })
