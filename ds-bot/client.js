@@ -19131,7 +19131,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 /* Lively: a question badge rides on the head. */
 body[data-bt-motion=lively] .bt-badge-alert{right:auto;bottom:auto;left:50%;top:calc(var(--bt-size,36px) * -.14);translate:-50% 0;animation:bt-q-ride 1.3s cubic-bezier(.3,.7,.4,1) infinite}
 body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert{animation:none}
-@media (prefers-reduced-motion:reduce){.bt-badge-alert{animation:none}}
+@media (prefers-reduced-motion:reduce){body[data-bt-motion=lively] .bt-badge-alert{animation:none}}
 @keyframes bt-q-ride{0%,55%,100%{transform:translateY(0)}20%{transform:translateY(calc(var(--bt-size,36px) * -.14))}40%{transform:translateY(0)}}
 .bt-badge{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-badge-admin{background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar))}
@@ -23637,7 +23637,8 @@ function unwatch() {
 var queue = [];
 var job = null;
 var building = false;
-var idleSoon = (fn) => typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(fn) : setTimeout(() => {
+var IDLE_WAIT_MS = 300;
+var idleSoon = (fn) => typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS }) : setTimeout(() => {
   const start = now();
   fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
 }, 16);
@@ -23646,7 +23647,9 @@ function buildSoon(mark2) {
   if (building) return;
   building = true;
   const work = (deadline) => {
-    while (deadline.timeRemaining() > 2) {
+    let forced = deadline.didTimeout === true;
+    while (forced || deadline.timeRemaining() > 2) {
+      forced = false;
       const mark3 = queue[0];
       if (!mark3) {
         building = false;

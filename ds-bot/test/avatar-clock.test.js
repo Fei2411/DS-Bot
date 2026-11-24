@@ -27,7 +27,7 @@ const bundle = (await build({
   logLevel: 'silent',
 })).outputFiles[0].text
 
-function page({ motion = 'normal', effects = 'full' } = {}) {
+function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { document } = dom.window
   let hidden = false
@@ -42,6 +42,8 @@ function page({ motion = 'normal', effects = 'full' } = {}) {
   const timers = new Map()
   let nextTimer = 1
   const setTimer = every => (fn, ms = 0) => { const id = nextTimer++; timers.set(id, { fn, at: clock() + ms, every: every ? ms : 0 }); return id }
+  // The longest single timer callback, so a test can time one build slice alone.
+  let longestTimer = 0
   const runTimers = () => {
     for (let guard = 0; guard < 10_000; guard += 1) {
       let due = null
@@ -50,9 +52,12 @@ function page({ motion = 'normal', effects = 'full' } = {}) {
       const [id, timer] = due
       if (timer.every) timer.at += timer.every
       else timers.delete(id)
+      const start = performance.now()
       timer.fn()
+      longestTimer = Math.max(longestTimer, performance.now() - start)
     }
   }
+  const idleAsks = []
   const rafs = new Map()
   let nextRaf = 1
   let frames = 0
@@ -71,6 +76,14 @@ function page({ motion = 'normal', effects = 'full' } = {}) {
     addEventListener() {},
     removeEventListener() {},
     dispatch(type, init = {}) { for (const fn of winListeners.get(type) ?? []) fn({ type, ...init }) },
+    // A busy page: idle callbacks come only when their timeout runs out, with no
+    // time left.
+    ...(busy ? {
+      requestIdleCallback: (fn, options) => {
+        idleAsks.push(options)
+        return setTimer(false)(() => fn({ didTimeout: true, timeRemaining: () => 0 }), options?.timeout ?? 1e9)
+      },
+    } : {}),
     matchMedia: () => {
       const query = { matches: false, addEventListener: (type) => { live.set(`media:${type}`, (live.get(`media:${type}`) ?? 0) + 1); query.added = true }, removeEventListener: (type) => { if (query.added) live.set(`media:${type}`, (live.get(`media:${type}`) ?? 0) - 1); query.added = false } }
       return query
@@ -159,6 +172,8 @@ function page({ motion = 'normal', effects = 'full' } = {}) {
     skip(ms) { skipped += ms; runTimers() },
     get asking() { return rafs.size > 0 },
     get timers() { return timers.size },
+    get longestTimer() { return longestTimer },
+    idleAsks,
     get frames() { return frames },
     get drawn() { return drawn },
     get observers() { return observers },
@@ -234,14 +249,22 @@ test('without requestIdleCallback a build slice stays short', () => {
   const mark = p.mount('whale')
   mark.update({ state: 'working' })
   p.frame()
-  let longest = 0
-  for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) {
-    const start = performance.now()
-    p.frame(20)
-    longest = Math.max(longest, performance.now() - start)
-  }
+  for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) p.frame(20)
   assert.notEqual(mark.rig, undefined)
-  assert.ok(longest < 40, `slices stay short (${longest.toFixed(1)} ms)`)
+  // An 8 ms budget plus the one step that may start just before it runs out.
+  assert.ok(p.longestTimer < 30, `slices stay short (${p.longestTimer.toFixed(1)} ms)`)
+})
+
+test('a page that is never idle still builds the model, one step per timeout', () => {
+  const p = page({ busy: true })
+  const mark = p.mount('whale')
+  mark.update({ state: 'working' })
+  p.frame()
+  assert.ok(p.idleAsks.length > 0)
+  assert.ok(p.idleAsks.every(options => options?.timeout > 0), 'every idle request has a timeout')
+  for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) p.frame(400)
+  assert.notEqual(mark.rig, undefined, 'the model is built')
+  assert.ok(p.frame() > 0, 'and the move plays')
 })
 
 test('after REST_MS without input a petted mark finishes and holds still; input wakes it', () => {

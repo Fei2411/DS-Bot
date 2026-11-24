@@ -214,16 +214,20 @@ function unwatch() {
 const queue = []
 let job = null
 let building = false
-// Without requestIdleCallback, a slice gets a few milliseconds of its own.
+// A page that is never idle still gets one step after IDLE_WAIT_MS. Without
+// requestIdleCallback, a slice gets a few milliseconds of its own.
+const IDLE_WAIT_MS = 300
 const idleSoon = fn => (typeof window.requestIdleCallback === 'function'
-  ? window.requestIdleCallback(fn)
+  ? window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS })
   : setTimeout(() => { const start = now(); fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) }) }, 16))
 function buildSoon(mark) {
   if (!queue.includes(mark)) queue.push(mark)
   if (building) return
   building = true
   const work = (deadline) => {
-    while (deadline.timeRemaining() > 2) {
+    let forced = deadline.didTimeout === true
+    while (forced || deadline.timeRemaining() > 2) {
+      forced = false
       const mark = queue[0]
       if (!mark) { building = false; job = null; return }
       job ??= rigJob(mark.look.shape, mark.def)
