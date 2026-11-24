@@ -115,15 +115,22 @@ export function install(rt) {
     }
   }
 
+  const isFileReferencedInMemory = (name) => Object.values(works()).some(work => (work.results ?? []).some(result => result.file === name))
   // The copy of a result that is not needed any more: the answer it went into has it.
-  const dropResult = file => {
+  const dropResult = (file, revBefore) => {
     const name = keptName(file)
     if (name === undefined || !writes()) return
     try {
-      // save() can resolve without writing during shutdown. Check the durable
-      // references too, so an old state can still recover its result after restart.
-      const saved = JSON.parse(readFileSync(join(rt.home, 'state.json'), 'utf8'))
-      if (Object.values(saved.works ?? {}).some(work => (work.results ?? []).some(result => result.file === name))) return
+      // save() can resolve without writing during shutdown or read-only mode.
+      // Check that a newer revision actually landed on disk and no open work still
+      // references this file before unlinking it.
+      if (typeof rt.persistedRevision === 'function' && revBefore !== undefined) {
+        if (rt.persistedRevision() <= revBefore) return
+        if (isFileReferencedInMemory(name)) return
+      } else {
+        const saved = JSON.parse(readFileSync(join(rt.home, 'state.json'), 'utf8'))
+        if (Object.values(saved.works ?? {}).some(work => (work.results ?? []).some(result => result.file === name))) return
+      }
       rmSync(resultPath(name), { force: true })
     } catch {}
   }
@@ -224,6 +231,9 @@ export function install(rt) {
     const key = pairKey(fromId, toId)
     const map = pairLoops()
     const now = Date.now()
+    for (const [entryKey, item] of Object.entries(map)) {
+      if (entryKey !== key && now - (item?.lastAt ?? 0) > PAIR_LOOP_TTL_MS) delete map[entryKey]
+    }
     const prev = own(map, key)
     const fresh = prev !== undefined && now - (prev.lastAt ?? 0) <= PAIR_LOOP_TTL_MS
     const entry = fresh ? prev : { idleBounces: 0, reworkBounces: 0, lastAt: 0 }
@@ -348,8 +358,9 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    const revBefore = state.revision ?? 0
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      for (const result of work.results ?? []) dropResult(result.file, revBefore)
     }).catch(() => {})
     return snapshot
   }
@@ -566,8 +577,9 @@ export function install(rt) {
     for (const result of work.results ?? []) whole.delete(result.id)
     // Old state can still name these files until the replacement state lands.
     // A failed save must leave them available to the next host.
+    const revBefore = state.revision ?? 0
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      for (const result of work.results ?? []) dropResult(result.file, revBefore)
     }).catch(() => {})
     return above === undefined ? undefined : work.parent
   }
@@ -633,8 +645,9 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    const revBefore = state.revision ?? 0
     void rt.save().then(() => {
-      for (const result of work.results ?? []) dropResult(result.file)
+      for (const result of work.results ?? []) dropResult(result.file, revBefore)
     }).catch(() => {})
   }
 
@@ -855,6 +868,7 @@ export function install(rt) {
       if (gone) abandonWork(id, 'gone')
     }
   }
+  const offAdopted = rt.onAdopted?.(() => whole.clear())
   // A host without a context (the narrow tests) has no startup to reconcile. The sweep
   // waits a tick: the team file loads through every module's own setup, and this module
   // is installed before the ones that load it.
@@ -862,7 +876,11 @@ export function install(rt) {
     const timer = setTimeout(() => {
       void rt.load().then(() => reconcileLostWorks()).catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
     }, 0)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      offAdopted?.()
+      whole.clear()
+    }
   }, 'ds-bot: lost hand-offs')
 
   // A deleted Bot answers no more work and waits for none.

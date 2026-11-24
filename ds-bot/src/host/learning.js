@@ -26,6 +26,7 @@ export const LEARNING = {
   descriptionMax: 300,
   contentMax: 8_000,
   declinedMax: 20,
+  settledMax: 60,
   agentsFileMax: 16_000,
   agentsEditMax: 400,
 }
@@ -653,10 +654,18 @@ export function install(rt) {
     return () => {
       stopped = true
       clearInterval(timer)
+      started.clear()
+      noted.clear()
       // A new host may take over after disposal; finish only writes already queued.
       return writing
     }
   }, 'ds-bot: learning')
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    started.delete(id)
+    noted.delete(id)
+  })
 
   // The user's answer to a card.
   async function answer({ id, approve }) {
@@ -669,6 +678,11 @@ export function install(rt) {
       delete store.proposals[id]
       const { saved: _saved, ...kept } = proposal
       store.settled[id] = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
+      const entries = Object.entries(store.settled)
+      if (entries.length > settings.settledMax) {
+        entries.sort(([, a], [, b]) => (b?.settledAt ?? b?.at ?? 0) - (a?.settledAt ?? a?.at ?? 0))
+        store.settled = Object.fromEntries(entries.slice(0, settings.settledMax))
+      }
     }
     if (approve !== true) {
       settle('declined')
@@ -768,6 +782,51 @@ export function install(rt) {
     }
     await persist()
   }
+
+  async function dropBot(botId) {
+    const bot = rt.botOf(botId)
+    const sessions = new Set([
+      botId,
+      rt.chatOf?.(botId),
+      ...(bot?.segments ?? []).map(segment => segment?.sessionId),
+      ...(bot?.tasks ?? []).flatMap(task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]),
+    ].filter(Boolean))
+    for (const sessionId of sessions) {
+      started.delete(sessionId)
+      noted.delete(sessionId)
+    }
+    const store = data()
+    let changed = false
+    if (Object.hasOwn(store.pending, botId)) {
+      for (const sessionId of store.pending[botId] ?? []) sessions.add(sessionId)
+      delete store.pending[botId]
+      changed = true
+    }
+    if (Object.hasOwn(store.learned, botId)) {
+      delete store.learned[botId]
+      changed = true
+    }
+    for (const sessionId of sessions) {
+      if (Object.hasOwn(store.cursors, sessionId)) {
+        delete store.cursors[sessionId]
+        changed = true
+      }
+    }
+    for (const [id, entry] of Object.entries(store.proposals)) {
+      if (entry?.botId === botId) {
+        delete store.proposals[id]
+        changed = true
+      }
+    }
+    for (const [id, entry] of Object.entries(store.settled)) {
+      if (entry?.botId === botId) {
+        delete store.settled[id]
+        changed = true
+      }
+    }
+    if (changed) await persist()
+  }
+  rt.onBotDelete?.(dropBot)
 
   // Per Bot, its proposals waiting for the user.
   const learningView = () => {

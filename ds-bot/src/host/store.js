@@ -41,6 +41,12 @@ export function install(rt) {
   // Bumped each time the in-memory state is replaced from the file, so a queued
   // save cannot write a snapshot taken of the state it replaced.
   let lockEpoch = 0
+  let persistedRevision = 0
+  const adoptListeners = new Set()
+  const onAdopted = (listener) => {
+    adoptListeners.add(listener)
+    return () => adoptListeners.delete(listener)
+  }
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -114,6 +120,7 @@ export function install(rt) {
   // groups whose Session titles still need the new name.
   const adopt = (parsed) => {
     lockEpoch += 1
+    pendingSave = null
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
@@ -395,6 +402,10 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
+    persistedRevision = state.revision ?? 0
+    for (const listener of adoptListeners) {
+      try { listener() } catch (error) { warn('ds-bot: adopted listener failed: %s', error) }
+    }
     return { migrated: migrated || stale.length > 0, stale, foldedOpenParts }
   }
 
@@ -510,7 +521,10 @@ export function install(rt) {
   // `writing` — and behind any adopt already queued — so no save or second
   // refresh slips between finding the change and the adopt.
   let adopting
+  let pendingSave = null
+  const READ_ONLY_RESULT = Symbol('read-only')
   const adoptAfterReclaim = () => {
+    pendingSave = null
     const run = (adopting ?? writing).then(async () => {
       if (stamp() !== seen) {
         const aside = `${statePath}.replaced-${Date.now()}`
@@ -554,6 +568,7 @@ export function install(rt) {
   const refresh = async () => {
     await load()
     const hadHolder = holder !== undefined
+    let synced = false
     if (hadHolder) {
       claimLock()
       if (holder === undefined) {
@@ -579,14 +594,18 @@ export function install(rt) {
         return
       }
       warn('ds-bot: %s', readOnly())
+      synced = true
     }
     if (adopting !== undefined) {
       await adopting
       notifyStoreSync()
       return
     }
-    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
-    notifyStoreSync()
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) {
+      adopt(readFileState())
+      synced = true
+    }
+    if (synced) notifyStoreSync()
   }
 
   const warnReadOnly = () => {
@@ -614,23 +633,33 @@ export function install(rt) {
     return warnReadOnly()
   }
 
+  const wrapSave = (job, required) => job.then((outcome) => {
+    if (outcome === READ_ONLY_RESULT) {
+      if (required) {
+        const error = new Error(`This host cannot save the Bot team: ${readOnly()}`)
+        warn('ds-bot: state write failed: %s', error)
+        throw error
+      }
+      warnReadOnly()
+    }
+  })
+
   const save = ({ required = false } = {}) => {
     if (stopped) return required ? Promise.reject(new Error('The Bot team cannot be saved after this host stopped.')) : writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
+    if (pendingSave !== null) return wrapSave(pendingSave, required)
     const run = writing.then(async () => {
+      if (pendingSave === tracked) pendingSave = null
       // Re-check writability once the queued write runs: an adopt queued before
       // it may have made this host read-only (e.g. a file a newer DS Bot wrote).
-      if (stuck !== undefined || holder !== undefined) {
-        if (required) throw new Error(`This host cannot save the Bot team: ${readOnly()}`)
-        warnReadOnly()
-        return
-      }
+      if (stuck !== undefined || holder !== undefined) return READ_ONLY_RESULT
       // The snapshot is taken here, so a save made while an adopt was pending
       // writes the adopted state, not the stale one it had.
       const epoch = lockEpoch
       state.revision += 1
+      const savedRevision = state.revision
       state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
       const temp = `${statePath}.${process.pid}.tmp`
@@ -656,6 +685,7 @@ export function install(rt) {
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
+        persistedRevision = savedRevision
         rt.capabilitiesStateSaved?.()
         for (const listener of savedListeners) {
           try { listener() } catch (error) { warn('ds-bot: saved listener failed: %s', error) }
@@ -665,11 +695,13 @@ export function install(rt) {
         throw error
       }
     })
-    writing = run.catch(() => {})
-    return run.catch(error => {
+    const tracked = run.catch(error => {
       warn('ds-bot: state write failed: %s', error)
       throw error
     })
+    pendingSave = tracked
+    writing = tracked.catch(() => {})
+    return wrapSave(tracked, required)
   }
 
   ctx.effect(() => () => {
@@ -806,6 +838,10 @@ export function install(rt) {
     for (const segment of segments) {
       delete state.switching[segment.sessionId]
       rt.renewMemory?.(segment.sessionId)
+      rt.forgetSessionParts?.(segment.sessionId)
+      rt.forgetSessionTurn?.(segment.sessionId)
+      rt.forgetHeldSteps?.(segment.sessionId)
+      rt.forgetSessionModel?.(segment.sessionId)
     }
     if (room.segments !== undefined) delete room.segments[botId]
     delete state.switching[sessionId]
@@ -815,6 +851,10 @@ export function install(rt) {
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     rt.renewMemory?.(sessionId)
+    rt.forgetSessionParts?.(sessionId)
+    rt.forgetSessionTurn?.(sessionId)
+    rt.forgetHeldSteps?.(sessionId)
+    rt.forgetSessionModel?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
@@ -863,7 +903,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, persistedRevision: () => persistedRevision, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

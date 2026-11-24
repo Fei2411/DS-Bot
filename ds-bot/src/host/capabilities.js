@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
 import { own } from './store.js'
+import { activeTasksOf } from './threads.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -464,6 +465,8 @@ export function install(rt) {
   async function reconcile() {
     if (stopped) return
     await loadInputs()
+    if (stopped) return
+    lastReconcileFingerprint = capabilityFingerprint()
     const runs = []
     for (const [sessionId, reference] of agents) {
       const agent = reference.deref()
@@ -473,6 +476,9 @@ export function install(rt) {
       }
       agents.delete(sessionId)
       clearSession(sessionId)
+      loaded.delete(sessionId)
+      pendingDrops.delete(sessionId)
+      frozenCatalogs.delete(sessionId)
     }
     await Promise.all(runs)
   }
@@ -584,12 +590,31 @@ export function install(rt) {
     }
     throw new Error('Unknown capability operation.')
   }
+  let secretsRev = 0
+  let lastReconcileFingerprint = null
+  const capabilityFingerprint = () => JSON.stringify([
+    secretsRev,
+    library(),
+    Object.values(state.bots ?? {}).map(bot => [
+      bot.id,
+      bot.sessionId,
+      bot.capabilities,
+      bot.packs,
+      activeTasksOf(bot).map(task => task.sessionId),
+    ]),
+    Object.values(state.rooms ?? {}).map(room => [room.id, room.sessions]),
+  ])
   const secretsChanged = rt.secretsChanged
   rt.secretsChanged = () => {
+    secretsRev += 1
     secretsChanged?.()
     if (loadingSecrets === 0) void scheduleReconcile()
   }
-  rt.capabilitiesStateSaved = () => { void scheduleReconcile() }
+  rt.capabilitiesStateSaved = () => {
+    const fingerprint = capabilityFingerprint()
+    if (fingerprint === lastReconcileFingerprint) return
+    void scheduleReconcile()
+  }
   const renderCatalog = sessionId => {
     const bot = botOfSession(sessionId)
     if (!bot) return ''

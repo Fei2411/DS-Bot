@@ -407,6 +407,7 @@ export function install(rt) {
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
+    subagentParent.delete(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
     const label = map?.get(childId)?.label
@@ -450,6 +451,7 @@ export function install(rt) {
     subagentsByParent.delete(sessionId)
     stoppedSubagentParents.add(sessionId)
     for (const childId of childIds) {
+      subagentParent.delete(childId)
       rememberStopped(stoppedSubagents, childId)
       // Not in the plugin's inject list, where ctx.subagents throws; interrupt can throw too.
       try { await ctx.get?.('subagents')?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId }) } catch {}
@@ -745,6 +747,7 @@ export function install(rt) {
         if (source?.kind === SOURCE_KIND && expectsReply(source) && !answersUser(source)) waiting.set(source.exchangeId, [id, source])
       }
       live.delete(id)
+      stoppedSubagentParents.delete(id)
       setActivity(id, undefined)
     }
     // Work it was asked for and still waits on, outside any running turn, plus outgoing
@@ -1032,10 +1035,11 @@ export function install(rt) {
       text: `Your last turn failed${code ? ` (${code})` : ''} and the user has fixed it. Answer the user's last unanswered message.`,
     })
   }
-  ctx.on?.('subagent/start', (info) => {
+  ctx.on?.('subagent/start', function (info) {
     const childId = info?.id
     if (typeof childId !== 'string' || childId === '' || stoppedSubagents.has(childId)) return
-    const parentId = subagentParent.get(childId)
+    const parentId = carrierKeyOf(this)?.session?.id
+      ?? subagentParent.get(childId)
       ?? ctx.get?.('agents')?.get?.(childId)?.session?.header?.parentSession
       ?? [...live.entries()].find(([, entry]) => [...(entry.calls?.values() ?? [])].some(call => call.name === 'subagent'))?.[0]
     if (parentId === undefined) return
@@ -1587,6 +1591,7 @@ export function install(rt) {
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && !rt.taskOwners?.has(id) && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
         }
+        if (owner !== undefined && info?.role === 'kickoff') rt.clearSentKickoff?.(owner)
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
         // round or sender gets the real answer; a second time, the text goes on without
@@ -1915,5 +1920,16 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
+  const forgetSessionTurn = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    const entry = live.get(sessionId)
+    if (entry !== undefined && entry.turn === undefined && entry.carry === undefined && entry.pending === undefined) live.delete(sessionId)
+    stoppedSubagentParents.delete(sessionId)
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionTurn(id)
+  })
+
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
 }

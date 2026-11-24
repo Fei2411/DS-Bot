@@ -94,7 +94,8 @@ export function install(rt) {
     try {
       const agent = await resolveAgent(sessionId).catch(() => undefined)
       if (agent === undefined) {
-        if (rt.selfOf?.(sessionId) === undefined) pendingSilent.delete(sessionId)
+        const activeSession = rt.chatOwners?.has(sessionId) || rt.groupOwners?.has(sessionId) || rt.taskOwners?.has(sessionId)
+        if (!activeSession) pendingSilent.delete(sessionId)
         return
       }
       if (isBusyAgent(agent, sessionId)) {
@@ -139,23 +140,49 @@ export function install(rt) {
   rt.ledger.importer('pair-', book => state.exchanges
     .filter(entry => entry.from !== undefined && entry.to !== undefined && pairBook(entry.from, entry.to) === book)
     .map(entry => ({ ...entry, delivered: true })))
-  // A message shows the text its delivery carried: the last record of its id written before
-  // a delivery mark. A merged request whose replacement never went out keeps the text that did.
-  function pairRecords(a, b) {
-    const written = new Map()
-    const shown = new Map()
-    const marks = []
-    for (const record of rt.ledger.records(pairBook(a, b))) {
+  // Incremental index keyed by the ledger's records array so lookups advance only over
+  // newly appended records and automatically reset on eviction, rollback, or reload.
+  const pairIndexes = new WeakMap()
+  function pairIndex(book) {
+    const records = rt.ledger.records(book)
+    let idx = pairIndexes.get(records)
+    if (idx === undefined || idx.length > records.length || (idx.length > 0 && records[idx.length - 1] !== idx.lastRecord)) {
+      idx = { length: 0, lastRecord: undefined, written: new Map(), shown: new Map(), marks: [], replies: new Map(), failureMarks: new Map() }
+      pairIndexes.set(records, idx)
+    }
+    for (let i = idx.length; i < records.length; i += 1) {
+      const record = records[i]
       if (record.event === 'delivered') {
-        if (written.has(record.id)) shown.set(record.id, written.get(record.id))
-        marks.push(record)
+        const msg = idx.written.get(record.id)
+        if (msg !== undefined) {
+          idx.shown.set(record.id, msg)
+          if (msg.role === 'reply' && typeof msg.replyTo === 'string' && msg.replyTo !== '') {
+            idx.replies.set(`${msg.from}\0${msg.to}\0${msg.replyTo}`, msg)
+          }
+        }
+        idx.marks.push(record)
+        if (typeof record.failureRequestId === 'string' && record.failureRequestId !== '') {
+          let list = idx.failureMarks.get(record.failureRequestId)
+          if (list === undefined) idx.failureMarks.set(record.failureRequestId, list = [])
+          list.push(record)
+        }
       } else if (record.event === undefined) {
-        written.set(record.id, record)
-        if (record.delivered === true) shown.set(record.id, record)
+        idx.written.set(record.id, record)
+        if (record.delivered === true) {
+          idx.shown.set(record.id, record)
+          if (record.role === 'reply' && typeof record.replyTo === 'string' && record.replyTo !== '') {
+            idx.replies.set(`${record.from}\0${record.to}\0${record.replyTo}`, record)
+          }
+        }
       }
     }
-    return { written, shown, marks }
+    idx.length = records.length
+    idx.lastRecord = records.length > 0 ? records[records.length - 1] : undefined
+    return idx
   }
+  // A message shows the text its delivery carried: the last record of its id written before
+  // a delivery mark. A merged request whose replacement never went out keeps the text that did.
+  const pairRecords = (a, b) => pairIndex(pairBook(a, b))
   const pairMessages = (a, b) => [...pairRecords(a, b).shown.values()]
 
   function deliveredReplyOf(fromId, toId, replyTo) {
@@ -164,12 +191,12 @@ export function install(rt) {
       if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
         return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
       }
-      return pairMessages(fromId, toId).findLast(record => record.from === fromId && record.to === toId && record.role === 'reply' && record.replyTo === replyTo)
+      return pairRecords(fromId, toId).replies.get(`${fromId}\0${toId}\0${replyTo}`)
     }
     if (rt.botOf(fromId) !== undefined) {
       for (const otherId of Object.keys(state.bots ?? {})) {
         if (otherId === fromId) continue
-        const found = pairMessages(fromId, otherId).findLast(record => record.from === fromId && record.to === otherId && record.role === 'reply' && record.replyTo === replyTo)
+        const found = pairRecords(fromId, otherId).replies.get(`${fromId}\0${otherId}\0${replyTo}`)
         if (found !== undefined) return found
       }
     }
@@ -182,10 +209,9 @@ export function install(rt) {
     if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof requestId !== 'string' || requestId === '') return []
     if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) return []
     const wantedWork = typeof parentWork === 'string' && parentWork !== '' ? parentWork : undefined
-    const { written, marks } = pairRecords(fromId, toId)
+    const { written, failureMarks } = pairRecords(fromId, toId)
     const matches = []
-    for (const mark of marks) {
-      if (mark.failureRequestId !== requestId) continue
+    for (const mark of failureMarks.get(requestId) ?? []) {
       const markWork = typeof mark.work === 'string' && mark.work !== '' ? mark.work : undefined
       if (markWork !== wantedWork) continue
       const message = written.get(mark.id)
@@ -256,7 +282,7 @@ export function install(rt) {
     const book = bookPeer !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(bookPeer, toId) : undefined
     let enqueued = false
     try {
-      if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
+      if (book !== undefined && (merged || !pairIndex(book).written.has(exchangeId))) {
         rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
         await rt.ledger.written(book)
       }
@@ -387,7 +413,7 @@ export function install(rt) {
     return { ...rest, text: kept, ...(record.length === undefined && kept.length < (record.text ?? '').length ? { length: record.text.length } : {}) }
   })
   const exchangeOf = (id, a, b) => {
-    const record = pairMessages(a, b).find(item => item.id === id)
+    const record = pairRecords(a, b).shown.get(id)
     if (record === undefined) return undefined
     // Imported from before the ledger: as whole as it was kept then.
     if (record.sessionId !== undefined || (record.length !== undefined && !(record.files?.length > 0))) return record

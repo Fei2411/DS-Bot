@@ -316,6 +316,9 @@ export function install(rt) {
     ledger?.close()
     ledger = undefined
     opening = undefined
+    listed = []
+    journaled.clear()
+    unreadable.clear()
   }, 'ds-bot: usage ledger')
 
   // Who each Session's calls belong to, from the team as it is now. Sessions forked or
@@ -354,7 +357,10 @@ export function install(rt) {
     return owners
   }
 
+  const JOURNALED_MAX = 5_000
+  const UNREADABLE_MAX = 2_000
   let listed = []
+  let listedVersion = 0
   let scanning
   let scannedAt = 0
 
@@ -373,6 +379,11 @@ export function install(rt) {
       : { kind: 'subagent', parentSessionId: item.parentSessionId, childSessionId: item.sessionId, mode: 'unknown' })
   // Sessions that already failed to read, so each one warns once, not every scan.
   const unreadable = new Set()
+  const rememberUnreadable = (sessionId) => {
+    if (unreadable.has(sessionId)) unreadable.delete(sessionId)
+    else if (unreadable.size >= UNREADABLE_MAX) unreadable.delete(unreadable.keys().next().value)
+    unreadable.add(sessionId)
+  }
 
   async function scanSession(ledger, address, asOfSeq, seal, signal) {
     const sessionId = address.kind === 'session' ? address.sessionId : address.childSessionId
@@ -431,8 +442,13 @@ export function install(rt) {
       const ledger = await openLedger()
       await rt.load()
       const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS)
+      let items = []
       try {
-        listed = (await ctx.sessionController.list({}, signal)).items ?? []
+        items = (await ctx.sessionController.list({}, signal)).items ?? []
+        listed = items
+          .filter(item => item?.parentSessionId)
+          .map(item => ({ sessionId: item.sessionId, parentSessionId: item.parentSessionId }))
+        listedVersion += 1
       } catch (error) {
         rt.warn('ds-bot: usage could not list the Sessions: %s', error)
       }
@@ -461,15 +477,15 @@ export function install(rt) {
       // checkpoint, which DSH rewrites at each turn end and when the Session is detached, so
       // the watermark moves when the log does. A cold Session seals at that watermark only:
       // the watermark is compared with an earlier listing, never with a log sequence.
-      const coldWatermarks = new Map(listed
+      const coldWatermarks = new Map(items
         .filter(item => item.agentAvailable !== true && item.running !== true && item.projections?.kind === 'cached' && Number.isSafeInteger(item.projections.asOfSeq))
         .map(item => [item.sessionId, item.projections.asOfSeq]))
       // An ended part is complete, so it seals for good.
       const sealOf = sessionId => (ended.has(sessionId) ? { listed: null } : coldWatermarks.has(sessionId) ? { listed: coldWatermarks.get(sessionId) } : undefined)
       const targets = new Map()
-      for (const item of listed) if (item.blank !== true) targets.set(item.sessionId, listedCursor(item))
+      for (const item of items) if (item.blank !== true) targets.set(item.sessionId, listedCursor(item))
       for (const sessionId of owners.keys()) if (!targets.has(sessionId)) targets.set(sessionId, undefined)
-      const addresses = new Map(listed.map(item => [item.sessionId, addressOf(item)]))
+      const addresses = new Map(items.map(item => [item.sessionId, addressOf(item)]))
       let cut = 0
       const failed = []
       await eachLimited([...targets], SCAN_PARALLEL, async ([sessionId, asOfSeq]) => {
@@ -490,7 +506,7 @@ export function install(rt) {
             return
           }
           if (unreadable.has(sessionId)) return
-          unreadable.add(sessionId)
+          rememberUnreadable(sessionId)
           failed.push([sessionId, error])
         }
       })
@@ -609,26 +625,42 @@ export function install(rt) {
   // Owner and group use are journaled with the call itself: a Bot or room that
   // is deleted before the first scan still leaves its calls under its own name.
   const journaled = new Map()
+  const rememberJournaled = (sessionId, entry) => {
+    if (journaled.has(sessionId)) journaled.delete(sessionId)
+    else if (journaled.size >= JOURNALED_MAX) journaled.delete(journaled.keys().next().value)
+    journaled.set(sessionId, entry)
+  }
   const journal = (book, sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
-    const owner = liveOwners(listed, book.owners()).get(sessionId)
+    const rev = state.revision ?? 0
+    const cached = journaled.get(sessionId)
+    if (cached !== undefined && cached.rev === rev && cached.listedVersion === listedVersion) return
+    let owner = liveOwners(listed).get(sessionId)
+    if (owner === undefined && listed.some(item => item.sessionId === sessionId)) {
+      owner = liveOwners(listed, book.owners()).get(sessionId)
+    }
+    let stamp = cached?.stamp
     if (owner !== undefined && owner.name !== '') {
-      const stamp = `${owner.owner}\n${owner.name}`
-      if (journaled.get(sessionId) !== stamp) {
-        journaled.set(sessionId, stamp)
+      const nextStamp = `${owner.owner}\n${owner.name}`
+      if (stamp !== nextStamp) {
+        stamp = nextStamp
         book.setOwner(sessionId, owner)
       }
     }
-    if (inGroup().has(sessionId) && journaled.get(`${sessionId}\ngroup`) === undefined) {
-      journaled.set(`${sessionId}\ngroup`, true)
+    let group = cached?.group === true
+    if (!group && inGroup().has(sessionId)) {
+      group = true
       book.setKind(sessionId, 'group')
     }
+    rememberJournaled(sessionId, { rev, listedVersion, stamp, group })
   }
   // Plain Session requests skip the meter, so every caller notes its Session
   // here. The journal needs the team state and the ledger; both load behind
   // the request, and `journaled` keeps the repeat calls from writing again.
   const noteSession = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
+    const cached = journaled.get(sessionId)
+    if (ledger !== undefined && rt.hasLoaded?.() !== false && cached !== undefined && cached.rev === (state.revision ?? 0) && cached.listedVersion === listedVersion) return
     void (async () => {
       await rt.load()
       const book = ledger ?? await openLedger().catch(() => undefined)

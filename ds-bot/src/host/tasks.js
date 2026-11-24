@@ -11,6 +11,7 @@ const GOAL_MAX = 200
 const PROGRESS_MAX = 300
 const RESULT_MAX = 2000
 const NOTE_MAX = 500
+const NOTES_MAX = 50
 const REASON_MAX = 500
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -91,6 +92,7 @@ export function install(rt) {
     const line = oneLine(text, NOTE_MAX)
     if (line === '') return undefined
     ;(task.notes ??= []).push({ at: Date.now(), by, text: line })
+    if (task.notes.length > NOTES_MAX) task.notes.splice(0, task.notes.length - NOTES_MAX)
     task.updatedAt = Date.now()
     return task
   }

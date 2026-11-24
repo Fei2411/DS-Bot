@@ -137,5 +137,13 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { requestIdentity: identity, knownRequest: known, admitRequest: admit })
+  const forgetBotRequests = (botId) => {
+    if (typeof botId !== 'string' || botId === '' || state.requests === undefined) return
+    const prefix = `${botId}\u0000`
+    for (const key of Object.keys(state.requests)) {
+      if (key.startsWith(prefix)) delete state.requests[key]
+    }
+  }
+
+  Object.assign(rt, { requestIdentity: identity, knownRequest: known, admitRequest: admit, forgetBotRequests })
 }

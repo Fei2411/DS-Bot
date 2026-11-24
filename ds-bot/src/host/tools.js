@@ -2186,11 +2186,25 @@ export function install(rt) {
     }
   }
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/end') {
+      const id = session?.id
+      if (id !== undefined) {
+        calledInPosts.delete(id)
+        keptUp.delete(id)
+      }
+      return
+    }
     if (event.type !== 'goal/change' || event.data?.goal?.phase !== 'active') return
     const id = session?.id
     if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) return
     // block() appends to the same log, so it waits until every listener has seen this change.
     setTimeout(() => void blockGoal(id), 0)
+  })
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    calledInPosts.delete(id)
+    keptUp.delete(id)
   })
 
   rt.teamTools.push(defineTool({

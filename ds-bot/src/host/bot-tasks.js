@@ -27,6 +27,7 @@ const CONTEXT_FALLBACK_MAX = 8000
 const CONTEXT_FALLBACK_NOTE_MIN = 5000
 const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
+const MAX_REPLACED_IDS = 1000
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 // Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
@@ -170,14 +171,35 @@ export function install(rt) {
     try { rmSync(join(reportsDir, file), { force: true }) } catch {}
   }
 
+  const taskSessionIds = task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
+    .filter(sid => typeof sid === 'string' && sid !== '')
+  const forgetTaskSession = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    admittedRpcIds.delete(sessionId)
+    rejectEmptyTaskWake.delete(sessionId)
+  }
+
   const pruneSettledTasks = (bot) => {
     const list = tasksOf(bot)
     const settled = list.filter(task => !isActiveTask(task))
     if (settled.length <= MAX_SETTLED_TASKS) return
     const dropCount = settled.length - MAX_SETTLED_TASKS
-    const toDrop = new Set(settled.slice(0, dropCount).map(task => task.id))
-    for (const task of settled.slice(0, dropCount)) {
+    const dropped = settled.slice(0, dropCount)
+    const toDrop = new Set(dropped.map(task => task.id))
+    for (const task of dropped) {
       dropReportFile(task.reportFile)
+      for (const sid of taskSessionIds(task)) {
+        if (state.closedCards !== undefined) delete state.closedCards[sid]
+        if (state.exchangeTurns !== undefined) delete state.exchangeTurns[sid]
+        if (state.questions !== undefined) delete state.questions[sid]
+        if (state.views !== undefined) delete state.views[sid]
+        if (state.switching !== undefined) delete state.switching[sid]
+        forgetTaskSession(sid)
+        rt.renewMemory?.(sid)
+        rt.forgetSessionParts?.(sid)
+        rt.forgetSessionTurn?.(sid)
+        rt.forgetSessionModel?.(sid)
+      }
     }
     bot.tasks = list.filter(task => !toDrop.has(task.id))
   }
@@ -447,6 +469,12 @@ export function install(rt) {
         throw error
       }
     } finally {
+      for (const sid of taskSessionIds(task)) {
+        forgetTaskSession(sid)
+        rt.renewMemory?.(sid)
+        rt.forgetSessionParts?.(sid)
+        rt.forgetSessionTurn?.(sid)
+      }
       settling.delete(task.id)
     }
   }
@@ -643,9 +671,12 @@ export function install(rt) {
 
   // Cleanup reports when a Bot is deleted.
   const forgetBotTasks = (bot) => {
+    forgetTaskSession(bot?.id)
+    forgetTaskSession(rt.chatOf?.(bot?.id))
     for (const task of tasksOf(bot)) {
       rt.cancelApprovals?.(task.sessionId)
       dropReportFile(task.reportFile)
+      for (const sid of taskSessionIds(task)) forgetTaskSession(sid)
     }
   }
 
@@ -827,7 +858,14 @@ export function install(rt) {
       emitTaskEvent('task.resumed', bot, task, { approvalId: data.id, outcome: data.outcome })
     }
   })
-  ctx.effect?.(() => () => { offApproval?.() }, 'ds-bot: bot-tasks approval bridge')
+  ctx.effect?.(() => () => {
+    offApproval?.()
+    admittedRpcIds.clear()
+    rejectEmptyTaskWake.clear()
+    replacedIds.clear()
+    skipInterceptIds.clear()
+    inFlightTransferIds.clear()
+  }, 'ds-bot: bot-tasks approval bridge')
 
   // Determines whether a Bot's foreground chat is busy enough to move its running turn
   // intact into `bot.tasks[]` (or spawn a peer-Bot background task) rather than doing
@@ -1439,9 +1477,12 @@ export function install(rt) {
   // Strict turn/end state machine guard + in-place queue edit (`inbox.replace`) tagging.
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'agent/inbox/spliced') {
-      if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0) {
+      if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0
+        && (rt.chatOwners.has(session?.id) || rt.taskOwners?.has(session?.id))) {
         for (const msg of event.data.inserted) {
-          if (msg?.id !== undefined) replacedIds.add(msg.id)
+          if (msg?.id === undefined) continue
+          if (replacedIds.size >= MAX_REPLACED_IDS) replacedIds.delete(replacedIds.values().next().value)
+          replacedIds.add(msg.id)
         }
       }
       return
@@ -1464,6 +1505,9 @@ export function install(rt) {
     const said = lastReplyOf(session, task.workDir)
     queueMicrotask(() => void handleTurnEnd(bot, task, reason, failure, said)
       .catch(error => rt.warn('ds-bot: settling task %s failed: %s', task.id, error)))
+  })
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    if (agent?.id !== undefined) forgetTaskSession(agent.id)
   })
 
   async function handleTurnEnd(bot, task, reason, failure, said) {

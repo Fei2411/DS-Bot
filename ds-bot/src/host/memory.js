@@ -197,17 +197,31 @@ export function install(rt) {
     const parsed = { topic, file, path, content, ...parseMemory(content) }
     return { revision, entries: parsed.entries.map(entry => ({ ...entry, file: parsed })).map(entry => ({ ...entry, words: entryWords(entry) })) }
   }
+  const EMPTY_ENTRIES = []
   const recallEntries = (scope, names = topicNames(scope)) => {
     const dir = dirOf(scope)
-    const cached = recallCache.get(dir)
+    if (names.length === 0) {
+      recallCache.delete(dir)
+      return EMPTY_ENTRIES
+    }
+    const prev = recallCache.get(dir)
+    const prevTopics = prev?.topics
+    let unchanged = prevTopics !== undefined && prevTopics.size === names.length
     const topics = new Map()
     for (const topic of names) {
-      const parsed = parsedFile(dir, topic, cached?.get(topic))
+      const prevParsed = prevTopics?.get(topic)
+      const parsed = parsedFile(dir, topic, prevParsed)
+      if (!prevTopics?.has(topic) || parsed !== prevParsed) unchanged = false
       if (parsed !== undefined) topics.set(topic, parsed)
     }
-    if (topics.size === 0) recallCache.delete(dir)
-    else recallCache.set(dir, topics)
-    return [...topics.values()].flatMap(parsed => parsed.entries)
+    if (unchanged) return prev.entries
+    if (topics.size === 0) {
+      recallCache.delete(dir)
+      return EMPTY_ENTRIES
+    }
+    const entries = [...topics.values()].flatMap(parsed => parsed.entries)
+    recallCache.set(dir, { topics, entries })
+    return entries
   }
   // Every entry of a scope, MEMORY.md first, read in loadScope's order so an unreadable
   // file fails the same way.
@@ -384,12 +398,23 @@ export function install(rt) {
 
   // Recent changes, for the memory updates a running conversation gets.
   const recentRows = []
+  const recentRowIds = new Set()
   const tailsRead = new Set()
+  const cmpRowTime = (a, b) => {
+    const ta = String(a.time)
+    const tb = String(b.time)
+    return ta < tb ? -1 : ta > tb ? 1 : 0
+  }
+  const trimRecentRows = () => {
+    if (recentRows.length <= RECENT_ROWS_MAX) return
+    for (const dropped of recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)) recentRowIds.delete(dropped.id)
+  }
   const rememberRow = (row) => {
-    if (recentRows.some(known => known.id === row.id)) return
+    if (recentRowIds.has(row.id)) return
+    recentRowIds.add(row.id)
     recentRows.push(row)
-    recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
-    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+    if (recentRows.length > 1 && cmpRowTime(recentRows[recentRows.length - 2], row) > 0) recentRows.sort(cmpRowTime)
+    trimRecentRows()
   }
   // Opens a regular file for reading; checks `statSync` first so a directory at
   // `path` reports `EISDIR` consistently across POSIX and Windows (where `openSync`
@@ -439,11 +464,21 @@ export function install(rt) {
 
   function readTail(path) {
     if (tailsRead.has(path)) return
+    const added = []
     for (const line of readTailText(path, RECENT_TAIL_CHARS).split('\n')) {
+      if (line === '') continue
       try {
         const row = JSON.parse(line)
-        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+        if (typeof row?.id === 'string' && typeof row.time === 'string' && !recentRowIds.has(row.id)) {
+          recentRowIds.add(row.id)
+          added.push(row)
+        }
       } catch { /* a line cut by the tail, or half-written */ }
+    }
+    if (added.length > 0) {
+      recentRows.push(...added)
+      recentRows.sort(cmpRowTime)
+      trimRecentRows()
     }
     tailsRead.add(path)
   }
@@ -783,23 +818,37 @@ export function install(rt) {
   // A deleted Bot's memory moves to the archive, whole.
   function archiveBotMemory(botId) {
     const bot = rt.botOf(botId)
-    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
+    const sessions = [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)].filter(Boolean)
+    for (const sessionId of sessions) renewMemory(sessionId)
+    forgetBotReview?.(sessions)
+    forgetTidyScope?.(scopeKey(ownScope(botId)))
+    const dir = dirOf(ownScope(botId))
     summaries.delete(botId)
+    summaryFailures.delete(botId)
     news.delete(botId)
+    windows.delete(botId)
+    const prefix = `${botId}:`
+    for (const key of modelWindows.keys()) if (key.startsWith(prefix)) modelWindows.delete(key)
+    for (const key of windowAsked.keys()) if (key.startsWith(prefix)) windowAsked.delete(key)
+    mainCache.delete(dir)
+    recallCache.delete(dir)
+    tailsRead.delete(join(dir, 'journal.jsonl'))
     return queued(async () => {
       if (rt.readOnly() !== undefined) return
       // A change that was interrupted is finished first, so the archive holds it.
       await recoverPending()
       await unlink(join(root, 'summaries', `${safeId(botId)}.json`)).catch(() => {})
-      const dir = dirOf(ownScope(botId))
       if (!existsSync(dir)) {
+        mainCache.delete(dir)
         recallCache.delete(dir)
         return
       }
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
+      mainCache.delete(dir)
       recallCache.delete(dir)
+      tailsRead.delete(join(dir, 'journal.jsonl'))
       // The memory is in the archive from here: a log row that cannot be written must not
       // hide where it went, which the privacy guard needs to keep a private archive closed.
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
@@ -811,24 +860,33 @@ export function install(rt) {
   // A deleted group chat's memory moves to the archive, whole. Called before the
   // group's Sessions leave the state, whose snapshots go with them.
   function archiveGroupMemory(room) {
-    for (const sessionId of [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId), ...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)].filter(Boolean)) renewMemory(sessionId)
+    const sessions = [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId), ...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)].filter(Boolean)
+    for (const sessionId of sessions) renewMemory(sessionId)
+    forgetGroupReview?.(room.id, sessions)
+    forgetTidyScope?.(scopeKey(groupScope(room.id)))
+    const dir = dirOf(groupScope(room.id))
     summaries.delete(room.id)
     summaryFailures.delete(room.id)
     news.delete(room.id)
+    mainCache.delete(dir)
+    recallCache.delete(dir)
+    tailsRead.delete(join(dir, 'journal.jsonl'))
     return queued(async () => {
       if (rt.readOnly() !== undefined) return
       // A change that was interrupted is finished first, so the archive holds it.
       await recoverPending()
       await unlink(summaryPath(room.id)).catch(() => {})
-      const dir = dirOf(groupScope(room.id))
       if (!existsSync(dir)) {
+        mainCache.delete(dir)
         recallCache.delete(dir)
         return
       }
       const name = `group-${safeId(room.id)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
+      mainCache.delete(dir)
       recallCache.delete(dir)
+      tailsRead.delete(join(dir, 'journal.jsonl'))
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
     }).catch(error => rt.warn('ds-bot: memory of group %s not archived: %s', room.name, error))
   }
@@ -1129,12 +1187,19 @@ export function install(rt) {
     if (bot === undefined) return decision
     await noteWindow(bot, agent.id)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    let derivedHistory
+    const historyOf = () => {
+      if (derivedHistory === undefined) {
+        try { derivedHistory = agent.session?.deriveMessages?.() ?? [] } catch { derivedHistory = [] }
+      }
+      return derivedHistory
+    }
     const front = []
-    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
+    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision, historyOf) : undefined
     if (snapshot !== undefined) front.push(snapshot)
     const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
     if (update !== undefined) front.push(update)
-    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front, historyOf)
     if (recalled !== undefined) front.push(recalled)
     return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
   })
@@ -1202,13 +1267,14 @@ export function install(rt) {
       })
       .map(entry => ({ ...entry, tag }))
   }
-  function autoRecall(agent, bot, roomId, decision, front = []) {
+  function autoRecall(agent, bot, roomId, decision, front = [], historyOf) {
     if (state.prefs.memoryAutoRecall === false) return undefined
     const said = decision.messages.findLast(isRecallTrigger)
     const query = said === undefined ? '' : recallQueryOf(said, { group: roomId !== undefined })
     if (query.trim() === '') return undefined
-    let history = []
-    try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
+    const history = historyOf !== undefined
+      ? historyOf()
+      : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
     const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
     const own = ownScope(bot.id)
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
@@ -1250,11 +1316,12 @@ export function install(rt) {
     })
   }
 
-  function groupSnapshot(agent, roomId, bot, decision) {
+  function groupSnapshot(agent, roomId, bot, decision, historyOf) {
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
-    try {
-      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
-    } catch { /* no history to look in: the snapshot goes in */ }
+    const history = historyOf !== undefined
+      ? historyOf()
+      : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
+    if (history.some(isGroupMemory)) return undefined
     const group = groupSection(roomId, bot)
     if (group.failed) return undefined
     return createUserMessage({
@@ -2309,9 +2376,9 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+  const { memoryReviews, forgetBotReview, forgetGroupReview } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
-  const { tidyView, undoTidy, tidyNow, tidyTick } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
+  const { tidyView, undoTidy, tidyNow, tidyTick, forgetScope: forgetTidyScope } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
 
   async function memoryTidyUndo(body) {
     const panel = panelOf(body)

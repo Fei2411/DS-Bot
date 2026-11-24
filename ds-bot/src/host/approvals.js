@@ -64,15 +64,20 @@ export function install(rt) {
       const linked = new AbortController()
       request.signal = linked.signal
       return new Promise((resolve, reject) => {
-        const complete = (outcome) => {
-          if (!settle(outcome)) return
-          resolve(outcome)
+        const onAbort = () => entry.answer('cancelled')
+        const cleanup = () => {
+          original?.removeEventListener('abort', onAbort)
           linked.abort()
           if (request.signal === linked.signal) request.signal = original
         }
+        const complete = (outcome) => {
+          if (!settle(outcome)) return
+          cleanup()
+          resolve(outcome)
+        }
         entry.answer = complete
         if (original?.aborted) entry.answer('cancelled')
-        else original?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
+        else original?.addEventListener('abort', onAbort, { once: true })
         Promise.resolve(next()).then(
           (outcome) => {
             if (!pending.has(id)) return
@@ -82,9 +87,8 @@ export function install(rt) {
           // the way the pre-race code did, instead of hanging forever.
           (error) => {
             if (!settle('cancelled')) return
+            cleanup()
             reject(error)
-            linked.abort()
-            if (request.signal === linked.signal) request.signal = original
           },
         )
       })
@@ -95,12 +99,14 @@ export function install(rt) {
       if (groupSid !== undefined) rt.yieldRoomTurn?.(groupSid)
     }
     return new Promise((resolve) => {
+      const onAbort = () => entry.answer('cancelled')
       entry.answer = (outcome) => {
         if (!settle(outcome)) return
+        request.signal?.removeEventListener('abort', onAbort)
         resolve(outcome)
       }
       if (request.signal?.aborted) entry.answer('cancelled')
-      request.signal?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
+      else request.signal?.addEventListener('abort', onAbort, { once: true })
     })
   }, { prepend: true })
 
@@ -129,6 +135,12 @@ export function install(rt) {
       if (entry.sessionId === sessionId) entry.answer?.('cancelled')
     }
   }
+
+  ctx.effect?.(() => () => {
+    for (const entry of Array.from(pending.values())) entry.answer?.('cancelled')
+    pending.clear()
+    approvalListeners.clear()
+  }, 'ds-bot: approvals')
 
   Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, onApproval })
 }
