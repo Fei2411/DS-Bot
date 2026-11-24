@@ -524,6 +524,7 @@ export function installReview(rt, memory) {
     const map = cursorsNow()
     for (const key of keys) {
       clearReviewTimer(key)
+      clearFailure(key)
       overflowed.delete(key)
       reviewQueue.delete(key)
       if (Object.hasOwn(map, key)) {
@@ -606,7 +607,7 @@ export function installReview(rt, memory) {
       const id = agent?.id
       if (id === undefined) return
       activeSessions.delete(id)
-      if (!reviewTimers.has(`chat:${id}`)) turnOwners.delete(id)
+      turnOwners.delete(id)
     })
     // Catch up any current chats, recently switched segments with prior cursors, or
     // active groups that hold unreviewed lines after a restart or aborted debounce.
@@ -656,6 +657,7 @@ export function installReview(rt, memory) {
       reviewTimers.clear()
       for (const timer of retryTimers.values()) clearTimeout(timer)
       retryTimers.clear()
+      reviewFailures.clear()
       activeSessions.clear()
       turnOwners.clear()
       overflowed.clear()

@@ -1020,7 +1020,6 @@ export function install(rt) {
       for (const hook of botDeleteHooks) await hook(id)
       rt.forgetBotTasks?.(bot)
       rt.forgetBotPermissions?.(id)
-      rt.forgetBotRequests?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)

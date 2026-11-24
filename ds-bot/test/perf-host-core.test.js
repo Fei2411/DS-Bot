@@ -20,6 +20,7 @@ import { install as installFolders } from '../src/host/folders.js'
 import { install as installGroups } from '../src/host/groups.js'
 import { install as installHandoffs } from '../src/host/handoffs.js'
 import { install as installImages } from '../src/host/images.js'
+import { install as installLearning } from '../src/host/learning.js'
 import { install as installLedger } from '../src/host/ledger.js'
 import { install as installMcpServer, mcpHttpServer, closeServer } from '../src/host/mcp-server.js'
 import { install as installMemory } from '../src/host/memory.js'
@@ -1088,7 +1089,7 @@ test('mcp-server.js backs off EADDRINUSE with cooldown recovery, awaits stop on 
   assert.equal(callResolved, true, 'wait_for_reply promise must settle immediately after client disconnect')
 })
 
-test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and drops/retains result files based on persistedRevision', async (t) => {
+test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and drops/retains result files based on onSaved', async (t) => {
   const home = tempDir(t, 'ds-bot-perf-handoffs-')
   const ctx = fakeContext()
   const adoptListeners = new Set()
@@ -1125,7 +1126,7 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   assert.equal(rt.state.pairLoops['a:b'], undefined, 'expired pairLoops entry was swept')
   assert.ok(rt.state.pairLoops['b:c'])
 
-  // 1. closeWork stores long result on disk; dropWork when save() does NOT advance persistedRevision
+  // 1. closeWork stores long result on disk; dropWork when save() does NOT fire onSaved
   // MUST retain the result file on disk.
   const longText = 'x'.repeat(25_000)
   rt.openWork('parent-retain', { from: 'user', to: 'a' })
@@ -1143,9 +1144,9 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   persistOnSave = false
   rt.dropWork('parent-retain')
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(existsSync(retainedPath), true, 'result file must be retained when persistedRevision did not advance')
+  assert.equal(existsSync(retainedPath), true, 'result file must be retained when onSaved did not fire')
 
-  // 2. When save() advances persistedRevision, closing/dropping parent deletes result file on disk
+  // 2. When save() fires onSaved, closing/dropping parent deletes result file on disk
   // WITHOUT needing state.json to exist on disk!
   persistOnSave = true
   rt.openWork('parent-drop', { from: 'user', to: 'a' })
@@ -1159,7 +1160,7 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
 
   rt.closeWork('parent-drop', 'Chief', 'all done')
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once persistedRevision advances')
+  assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
 })
 
 test('ledger.js bounds LRU, handles prepend rename TOCTOU, broken UTF-8 byte boundaries, torn recovery, and write-failure rollback', async (t) => {
@@ -2091,3 +2092,115 @@ test('mcp-server.js reconcilingKey clears even if readOnly flips before settle()
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(rt.mcpView().status, 'off', 'mcp-server must stop cleanly when flipping back to readOnly')
 })
+
+test('ledger.js mergeRecords releases writing pin for LRU eviction and concurrent drop does not leak totalBytes', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-ledger-merge-')
+  const ctx = fakeContext()
+  const rt = { ctx, home, readOnly: () => undefined, warn() {} }
+  installLedger(rt)
+  t.after(() => ctx.dispose())
+
+  // 1. Migrate 40 books via mergeRecords(): writing/lastWrite must clear in finally() so LRU stays <= 32.
+  for (let i = 0; i < 40; i += 1) {
+    const ok = await rt.ledger.mergeRecords(`pair-m${i}`, [{ id: `r${i}`, seq: 1, text: 'migrated' }])
+    assert.equal(ok, true)
+  }
+  await rt.ledger.flush()
+  assert.ok(rt.ledger.cachedBooks() <= 32, `migrated books must be evicted to <= 32, got ${rt.ledger.cachedBooks()}`)
+
+  // 2. Drop all remaining books and verify queued append/prepend raced with drop() leaves cachedBytes === 0.
+  for (let i = 0; i < 40; i += 1) rt.ledger.drop(`pair-m${i}`)
+  await rt.ledger.flush()
+  assert.equal(rt.ledger.cachedBooks(), 0)
+  assert.equal(rt.ledger.cachedBytes(), 0)
+
+  rt.ledger.append('pair-race', { id: 'a1', seq: 2, text: 'hello world' })
+  rt.ledger.prepend('pair-race', [{ id: 'a0', seq: 1, text: 'earlier record' }])
+  rt.ledger.drop('pair-race')
+  await rt.ledger.flush()
+  assert.equal(rt.ledger.cachedBooks(), 0)
+  assert.equal(rt.ledger.cachedBytes(), 0, 'queued append/prepend after drop must not leak totalBytes')
+})
+
+test('learning.js dropBot preserves stuck guard when learning/state.json is malformed', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-learning-stuck-')
+  mkdirSync(join(home, 'learning'), { recursive: true })
+  const stateFile = join(home, 'learning', 'state.json')
+  writeFileSync(stateFile, '{not valid json')
+
+  const ctx = fakeContext()
+  const onDeleteHooks = []
+  const rt = {
+    ctx,
+    home,
+    config: {},
+    state: seedState(),
+    readOnly: () => undefined,
+    load: async () => {},
+    save: async () => {},
+    chatOf: id => id,
+    botOf: id => rt.state.bots[id],
+    onBotDelete: fn => { onDeleteHooks.push(fn) },
+    warn() {},
+  }
+  installLearning(rt)
+  t.after(() => ctx.dispose())
+
+  for (const hook of onDeleteHooks) await hook('b')
+  assert.equal(readFileSync(stateFile, 'utf8'), '{not valid json', 'malformed learning state must not be overwritten on dropBot')
+})
+
+test('memory-review.js forgetBotReview cancels pending failure retry timers', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-review-retry-')
+  const { ctx } = minimalCtx()
+  let attempts = 0
+  const rt = {
+    ctx,
+    home,
+    config: { memoryReview: true, memoryReviewDelayMs: 5, memoryReviewRetryMs: 40, memoryReviewRetryMax: 3, memoryReviewCatchupDelayMs: 60_000, memoryTidy: false },
+    state: seedState(),
+    readOnly: () => undefined,
+    load: async () => {},
+    teamTools: [],
+    chatOwners: new Map([['b', 'b']]),
+    groupOwners: new Map(),
+    pastOwners: new Map(),
+    taskOwners: new Map(),
+    botOf: id => rt.state.bots[id],
+    roomOf: id => rt.state.rooms[id],
+    chatOf: id => id,
+    sessionOfRoom: room => room.sessionId ?? room.id,
+    groupSessionsOf: () => [],
+    selfOf: id => id,
+    isBotSession: id => id === 'b',
+    isMain: id => id === 'a',
+    isPrivate: () => false,
+    partsOfThread: id => [{ sessionId: id }],
+    async *partLines() {
+      yield { seq: 1, who: 'user', text: 'Remember my test preference.' }
+    },
+    desiredModel: async () => 'deepseek/deepseek-chat',
+    defaultModel: async () => 'deepseek/deepseek-chat',
+    tagUsage: msgs => msgs,
+    assembleLlm: async () => {
+      attempts += 1
+      throw new Error('transient model error')
+    },
+    warn() {},
+  }
+  installMemory(rt)
+  t.after(() => ctx.dispose())
+
+  const [onStatus] = ctx.listeners.get('agent/status')
+  onStatus({ agent: { id: 'b' }, status: 'running' })
+  onStatus({ agent: { id: 'b' }, status: 'idle' })
+  const waitFirst = Date.now() + 1000
+  while (attempts === 0 && Date.now() < waitFirst) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(attempts, 1, 'initial review attempt ran and scheduled retry')
+
+  // Deleting the Bot invokes forgetBotReview -> clearFailure() cancels the 40ms retry timer.
+  await rt.archiveBotMemory('b')
+  await new Promise(resolve => setTimeout(resolve, 120))
+  assert.equal(attempts, 1, 'forgetBotReview must cancel pending failure retry timer')
+})
+

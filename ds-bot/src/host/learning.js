@@ -874,7 +874,9 @@ export function install(rt) {
       started.delete(sessionId)
       noted.delete(sessionId)
     }
+    if (stuck !== undefined) return
     const store = data()
+    if (stuck !== undefined) return
     let changed = false
     if (Object.hasOwn(store.pending, botId)) {
       for (const sessionId of store.pending[botId] ?? []) sessions.add(sessionId)

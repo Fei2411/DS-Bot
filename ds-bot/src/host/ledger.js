@@ -259,7 +259,7 @@ export function install(rt) {
       addedBytes = Buffer.byteLength(line)
       entry.size = (entry.size < 0 ? 0 : entry.size) + addedBytes
       entry.bytes += addedBytes
-      totalBytes += addedBytes
+      if (books.get(book) === entry) totalBytes += addedBytes
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
@@ -326,7 +326,7 @@ export function install(rt) {
       entry.torn = false
       const nextBytes = Buffer.byteLength(snapshot)
       deltaBytes = nextBytes - entry.bytes
-      totalBytes += deltaBytes
+      if (books.get(book) === entry) totalBytes += deltaBytes
       entry.size = nextBytes
       entry.bytes = nextBytes
       await mkdir(dir, { recursive: true })
@@ -452,27 +452,36 @@ export function install(rt) {
           live.size = nextBytes
           live.bytes = nextBytes
           live.torn = false
+          touch(book, live)
+          evict(book)
         } else {
-          totalBytes += nextBytes - (live?.bytes ?? 0)
-          books.set(book, {
+          setBook(book, {
             records,
             bySeq: index(records),
             size: nextBytes,
             bytes: nextBytes,
+            ino: 0,
+            dev: 0,
             readOnly: false,
             torn: false,
           })
         }
-        evict(book)
         return true
       } finally {
         untrack()
       }
     })
-    lastWrite.set(book, run)
-    writing.set(book, run.catch((error) => {
+    const current = run.catch((error) => {
       rt.warn('ds-bot: legacy records of %s were not migrated: %s', book, error?.message ?? error)
-    }))
+    }).finally(() => {
+      if (writing.get(book) === current) {
+        writing.delete(book)
+        evict()
+      }
+      if (lastWrite.get(book) === run) lastWrite.delete(book)
+    })
+    lastWrite.set(book, run)
+    writing.set(book, current)
     try {
       return await run
     } catch {
@@ -585,6 +594,7 @@ export function install(rt) {
     importer: (prefix, read) => { importers.set(prefix, read) },
     // Exposed for diagnostics/tests.
     cachedBooks: () => books.size,
+    cachedBytes: () => totalBytes,
   }
   rt.ledger = ledger
   // What is still on its way to disk lands before the plugin goes.

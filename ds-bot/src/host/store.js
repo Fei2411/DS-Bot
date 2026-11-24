@@ -222,7 +222,6 @@ export function install(rt) {
   // Bumped each time the in-memory state is replaced from the file, so a queued
   // save cannot write a snapshot taken of the state it replaced.
   let lockEpoch = 0
-  let persistedRevision = 0
   const adoptListeners = new Set()
   const onAdopted = (listener) => {
     adoptListeners.add(listener)
@@ -587,7 +586,6 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
-    persistedRevision = state.revision ?? 0
     for (const listener of adoptListeners) {
       try { listener() } catch (error) { warn('ds-bot: adopted listener failed: %s', error) }
     }
@@ -858,7 +856,6 @@ export function install(rt) {
       // writes the adopted state, not the stale one it had.
       const epoch = lockEpoch
       state.revision += 1
-      const savedRevision = state.revision
       if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
       const temp = `${statePath}.${process.pid}.tmp`
@@ -884,7 +881,6 @@ export function install(rt) {
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
-        persistedRevision = savedRevision
         rt.capabilitiesStateSaved?.()
         for (const listener of savedListeners) {
           try { listener() } catch (error) { warn('ds-bot: saved listener failed: %s', error) }
@@ -1107,7 +1103,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, persistedRevision: () => persistedRevision, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
