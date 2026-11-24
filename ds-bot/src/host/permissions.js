@@ -242,5 +242,7 @@ export function install(rt) {
     return next()
   }, { prepend: true })
 
-  Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission, applyReviewPolicy })
+  const forgetBotPermissions = botId => requests.delete(botId)
+
+  Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission, forgetBotPermissions, applyReviewPolicy })
 }

@@ -3,9 +3,11 @@ window.__ModuleLoader__.load({
   id: 'ds-bot',
   factory: (require) => {
 const module = { exports: {} }
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -19,6 +21,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/client/index.js
@@ -17159,6 +17169,20 @@ var inkFill = (color) => isHex(color) ? color : `var(--bt-ink-${inkName(color)})
 var inkText = (color) => color === "black" ? "var(--bt-ink-gray)" : inkFill(color);
 var paintCss = (color) => GRADIENTS[color] ? `linear-gradient(135deg,${GRADIENTS[color].map(([offset, value]) => `${value} ${offset * 100}%`).join(",")})` : inkFill(color);
 
+// src/client/lru.js
+function lruGet(map, key) {
+  if (!map.has(key)) return void 0;
+  const value = map.get(key);
+  map.delete(key);
+  map.set(key, value);
+  return value;
+}
+function lruSet(map, key, value, max) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > max) map.delete(map.keys().next().value);
+}
+
 // src/client/characters.js
 var CHARACTERS = {
   whale: { label: "Whale", body: "M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z", paints: [["M93.3 55.8l1-.3 .1 1.2-2.4 5.3-3.4 4.8-3.8 3.8-4.8 3.4-5.7 2.8-4.8 1.5-4.8 .4 20.1-17.4 5.2-3.7z", "#fff", 1]], shade: "M88.6 29.5l2.4 2.9 1.9 2.8 2.4 6.3 .5 3.3 .1 5.3-1.5 6.6-1.9 4.3-2 3.3-4.8 5.4-5.7 4.3-7.2 3.3-6.2 1.5-6.7 .1-3.3-.2-9.6-1.8-3.3-1.5-2.4-1.9-8.6-8.9-5.3-3.9-3.3-.1-2.9 .2-3.3 .8-5.8 0-4.3-1-2.9-1.9 .6-.6 3.8-1.3 10.5-2.5 4.3 .9 1.4-.1 2.2-1.7 .5-1.4-.3-1.5-1.2-1.4-2.2-1.4-1.2-1.9-.6-12 .4-3.3 .5-.5 2.9 3.8 2.4 4.8 1.9 5.7 .7 5.8 .7 2.8 2.1 2.4 2.7 5.5 3.8 4.3 2.9 2.2 3.3 1 3.4-.4 6.2-3 7.1-4.5 7.3-5.6 6.6-5.9 5.9-6.5 3.7-5.3 1.7-4.2 .1-2.9z", light: "M55.6 22.8l1.9-.3 1.5 .3 .6 1 .1 .9-2 4.3-3.8 5.3-5.8 6.2-5.4 4.4-4.8 2.3-1.4 0-1.2-.5-.8-1.9 .5-3.3 2.5-4.8 3.3-4.3 2.4-2.4 5.3-3.9zM19.3 28.1l-1.4 2 .3-1.1zM21.7 49.1l.6 .5-.3 .5-.8 0zM35.8 52l1.2-.4 .9 .7 .7 1.6-.4 .9-1.2 .1-2.6-.5zM7.2 52.9l-2.9 2.9 1.2-1.6z", eyes: [[72.5, 48.4, 9.3, 23, -15.8], [85.6, 43.4, 7, 22.9, -21.2]] },
@@ -17250,10 +17274,12 @@ var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def
 var MASK_ID = "%MASK%";
 var markSerial = 0;
 var nextMarkSerial = () => markSerial += 1;
+var MAX_MARKUP_CACHE = 256;
+var MAX_MASK_CACHE = 128;
 var markupCache = /* @__PURE__ */ new Map();
 function characterMarkup(shape, color) {
   const key = `${shape}|${color}`;
-  let markup = markupCache.get(key);
+  let markup = lruGet(markupCache, key);
   if (markup === void 0) {
     const def = shapeOf(shape);
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}${def.eyes.map(happyEyeMarkup).join("")}</g></g>`;
@@ -17261,19 +17287,19 @@ function characterMarkup(shape, color) {
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`;
     markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`;
-    markupCache.set(key, markup);
+    lruSet(markupCache, key, markup, MAX_MARKUP_CACHE);
   }
   return markup;
 }
 var svgUrl = (inner, size) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`)}")`;
 var maskCache = /* @__PURE__ */ new Map();
 function maskOf(shape) {
-  let mask = maskCache.get(shape);
+  let mask = lruGet(maskCache, shape);
   if (mask === void 0) {
     const def = shapeOf(shape);
     const body = `<g mask="url(#e)">${bodyOf(def, "#000", true)}</g>`;
     mask = svgUrl(`<mask id="e" ${maskBox(def.size)}>${holes(def, def.eyes.map(eyeMarkup).join("").replaceAll('class="bt-eye"', 'fill="#000"'))}</mask>${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}`, def.size);
-    maskCache.set(shape, mask);
+    lruSet(maskCache, shape, mask, MAX_MASK_CACHE);
   }
   return mask;
 }
@@ -17896,21 +17922,98 @@ function runStatsOf(values) {
 // src/client/draft-keep.js
 var NO_FILES = [];
 var keptFiles = /* @__PURE__ */ new Map();
-var readTexts = (storage) => {
+var storageCache = /* @__PURE__ */ new WeakMap();
+var listeningStorage = false;
+var parseTexts = (raw) => {
   try {
-    const value = JSON.parse(storage?.getItem(STORAGE.drafts) ?? "{}");
+    const value = JSON.parse(raw ?? "{}");
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
   } catch {
     return {};
   }
 };
-var writeTexts = (storage, value) => {
+var mergeIncoming = (entry, raw) => {
+  const incoming = parseTexts(raw);
+  if (entry.dirtyKeys.size === 0) {
+    entry.raw = raw;
+    entry.texts = incoming;
+    return;
+  }
+  const merged = { ...incoming };
+  for (const key of entry.dirtyKeys) {
+    if (Object.prototype.hasOwnProperty.call(entry.texts, key)) merged[key] = entry.texts[key];
+    else delete merged[key];
+  }
+  entry.raw = raw;
+  entry.texts = merged;
+};
+var watchStorage = () => {
+  if (listeningStorage || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  listeningStorage = true;
+  window.addEventListener("storage", (event) => {
+    if (event.key !== null && event.key !== STORAGE.drafts) return;
+    const local = globalThis.localStorage;
+    if (!local) return;
+    const entry = storageCache.get(local);
+    if (entry !== void 0) mergeIncoming(entry, event.newValue ?? null);
+  });
+};
+var entryFor = (storage, { sync = false } = {}) => {
+  if (!storage || typeof storage !== "object") return { texts: {}, raw: null, dirtyKeys: /* @__PURE__ */ new Set(), timer: 0 };
+  if (storage === globalThis.localStorage) watchStorage();
+  let entry = storageCache.get(storage);
+  if (entry === void 0) {
+    let raw = null;
+    try {
+      raw = storage.getItem(STORAGE.drafts) ?? null;
+    } catch {
+    }
+    entry = { texts: parseTexts(raw), raw, dirtyKeys: /* @__PURE__ */ new Set(), timer: 0 };
+    storageCache.set(storage, entry);
+    return entry;
+  }
+  if (sync) {
+    let raw = null;
+    try {
+      raw = storage.getItem(STORAGE.drafts) ?? null;
+    } catch {
+    }
+    if (raw !== entry.raw) mergeIncoming(entry, raw);
+  }
+  return entry;
+};
+var writeEntry = (storage, entry) => {
+  if (entry.timer && typeof clearTimeout === "function") {
+    clearTimeout(entry.timer);
+    entry.timer = 0;
+  }
+  if (entry.dirtyKeys.size === 0) return;
+  if (storage && typeof storage.getItem === "function") {
+    try {
+      const latestRaw = storage.getItem(STORAGE.drafts) ?? null;
+      if (latestRaw !== entry.raw) mergeIncoming(entry, latestRaw);
+    } catch {
+    }
+  }
+  const raw = JSON.stringify(entry.texts);
   try {
-    storage?.setItem(STORAGE.drafts, JSON.stringify(value));
+    storage?.setItem(STORAGE.drafts, raw);
   } catch {
   }
+  entry.raw = raw;
+  entry.dirtyKeys.clear();
 };
 var textEntry = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string";
+function flushDrafts(storage = globalThis.localStorage) {
+  if (!storage || typeof storage !== "object") return;
+  const entry = storageCache.get(storage);
+  if (entry === void 0) return;
+  if (entry.timer && typeof clearTimeout === "function") {
+    clearTimeout(entry.timer);
+    entry.timer = 0;
+  }
+  if (entry.dirtyKeys.size > 0) writeEntry(storage, entry);
+}
 function chatOfSession(roster, sessionId) {
   if (typeof sessionId !== "string" || sessionId === "") return void 0;
   const bots = Object.values(roster?.byId ?? {});
@@ -17921,35 +18024,56 @@ function chatOfSession(roster, sessionId) {
   if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
   return void 0;
 }
-function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
-  const texts2 = readTexts(storage);
+  const entry = entryFor(storage);
+  const texts2 = entry.texts;
   const before = texts2[chatId];
+  let changed = false;
   if (text === "") {
-    if (before === void 0) return;
-    delete texts2[chatId];
-  } else {
-    if (before?.part === part && before?.text === text) return;
+    if (before !== void 0) {
+      delete texts2[chatId];
+      changed = true;
+    }
+  } else if (before?.part !== part || before?.text !== text) {
     texts2[chatId] = { part, text };
+    changed = true;
   }
-  writeTexts(storage, texts2);
+  if (!changed) {
+    if (deferMs <= 0 && entry.dirtyKeys.size > 0) writeEntry(storage, entry);
+    return;
+  }
+  entry.dirtyKeys.add(chatId);
+  if (deferMs > 0 && typeof setTimeout === "function" && typeof clearTimeout === "function") {
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => {
+      entry.timer = 0;
+      if (entry.dirtyKeys.size > 0) writeEntry(storage, entry);
+    }, deferMs);
+    return;
+  }
+  writeEntry(storage, entry);
 }
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
   const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
-  const entry = readTexts(storage)[chatId];
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
   const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
   return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
 }
 function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
   for (const chatId of gone) keptFiles.delete(chatId);
-  const texts2 = readTexts(storage);
+  const entry = entryFor(storage, { sync: true });
+  const texts2 = entry.texts;
   const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
   if (listed.length === 0) return;
-  for (const chatId of listed) delete texts2[chatId];
-  writeTexts(storage, texts2);
+  for (const chatId of listed) {
+    delete texts2[chatId];
+    entry.dirtyKeys.add(chatId);
+  }
+  writeEntry(storage, entry);
 }
 function forgetKeptFiles() {
   keptFiles.clear();
@@ -17967,6 +18091,19 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   };
   const openSettings = (page = "general", id = null) => {
     ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+  };
+  const MAX_TURN_CLOCK_SESSIONS = 40;
+  const turnClockOrder = /* @__PURE__ */ new Set();
+  const setTurnClock = (state, sessionId, turns) => {
+    turnClockOrder.delete(sessionId);
+    turnClockOrder.add(sessionId);
+    const next = { ...state, [sessionId]: turns };
+    while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
+      const oldest = turnClockOrder.values().next().value;
+      turnClockOrder.delete(oldest);
+      delete next[oldest];
+    }
+    return next;
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -18367,7 +18504,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
         const entry = turns[turn] ?? {};
         const next = key === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
         if (entry[key] === next) return state;
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } };
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } });
       });
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -18376,7 +18513,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
         const turns = state[sessionId] ?? {};
         const entry = turns[turn] ?? {};
         if (entry.peer === peerId) return state;
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } };
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } });
       });
     },
     noteLive: (sessionId, id, entry) => {
@@ -18591,6 +18728,23 @@ var contrastRatio = (foreground, background) => {
   const b = luminance2(background);
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 };
+var probeCanvas = /* @__PURE__ */ new WeakMap();
+function resolveCanvasColor(doc, value) {
+  let paint = probeCanvas.get(doc);
+  if (paint === void 0) {
+    const canvas = doc.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    paint = canvas.getContext("2d", { willReadFrequently: true }) ?? null;
+    probeCanvas.set(doc, paint);
+  }
+  if (!paint) return "";
+  paint.clearRect(0, 0, 1, 1);
+  paint.fillStyle = "black";
+  paint.fillStyle = value;
+  paint.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+  return withAlpha({ r, g, b }, a / 255);
+}
 function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
   const body = doc?.body;
   if (body === void 0) return {};
@@ -18601,13 +18755,7 @@ function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
   const token = (name) => {
     const value = style?.getPropertyValue?.(name)?.trim() ?? "";
     if (value === "" || parseColor(value) !== void 0) return value;
-    const canvas = doc.createElement("canvas");
-    canvas.width = canvas.height = 1;
-    const paint = canvas.getContext("2d");
-    paint.fillStyle = value;
-    paint.fillRect(0, 0, 1, 1);
-    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
-    return withAlpha({ r, g, b }, a / 255);
+    return resolveCanvasColor(doc, value);
   };
   return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
 }
@@ -18617,15 +18765,18 @@ function writeSkinSurfaceVars(doc, read) {
     if (body === void 0) return;
     const vars = read() ?? {};
     for (const name of SKIN_VARIABLES) {
-      if (vars[name] === void 0) body.style.removeProperty(name);
-      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
+      if (vars[name] === void 0) {
+        if (body.style.getPropertyValue?.(name) !== "") body.style.removeProperty(name);
+      } else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
     }
   };
   return {
     apply: apply2,
     clear() {
       if (body === void 0) return;
-      for (const name of SKIN_VARIABLES) body.style.removeProperty(name);
+      for (const name of SKIN_VARIABLES) {
+        if (body.style.getPropertyValue?.(name) !== "") body.style.removeProperty(name);
+      }
     }
   };
 }
@@ -20340,9 +20491,11 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 @keyframes bt-mem-line{from{opacity:0;transform:translateY(4px)}}
 .bt-mem-skel{display:flex;flex-direction:column;gap:24px}
 .bt-mem-skel-block{display:flex;flex-direction:column;gap:10px}
-.bt-mem-skel-block span{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--bt-hover) 25%,var(--bt-active) 50%,var(--bt-hover) 75%);background-size:200% 100%;animation:bt-mem-skel 1.4s ease-in-out infinite}
+.bt-mem-skel-block span{position:relative;overflow:hidden;display:block;height:12px;border-radius:6px;background:var(--bt-hover)}
+.bt-mem-skel-block span::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,var(--bt-active) 50%,transparent 100%);transform:translateX(-100%);animation:bt-mem-skel 1.4s ease-in-out infinite}
 .bt-mem-skel-block .bt-mem-skel-head{width:30%;height:16px;margin-bottom:2px}
-@keyframes bt-mem-skel{from{background-position:150% 0}to{background-position:-50% 0}}
+@keyframes bt-mem-skel{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-mem-skel-block span::after{animation:none}}
 .bt-mem-skel-label{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-mem-empty{margin:auto;max-width:400px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:24px 0;animation:bt-mem-line .45s cubic-bezier(.16,1,.3,1) both}
 .bt-mem-empty-mark{width:48px;height:48px;border-radius:50%;background:var(--bt-hover);display:flex;align-items:center;justify-content:center;color:var(--bt-ink-2);margin-bottom:4px}
@@ -20686,12 +20839,13 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
 [data-composer-card] button[class*="_primary"]:disabled{display:none!important}
 [data-composer-dock]{display:none!important}
-.bt-mic,.bt-voice{flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;display:inline-grid;place-items:center;cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, "scale")}}
+.bt-mic,.bt-voice{position:relative;flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;display:inline-grid;place-items:center;cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, "scale")}}
 .bt-mic{background:color-mix(in srgb,var(--bt-ink) 5%,transparent);box-shadow:inset 0 0 0 .5px var(--bt-line);color:var(--bt-ink-2)}
 .bt-mic:hover{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
-.bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
-@keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
-@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]{animation:none}}
+.bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;isolation:isolate}
+.bt-mic[aria-pressed=true]::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:inherit;pointer-events:none;animation:bt-mic-pulse 1.4s ease-in-out infinite}
+@keyframes bt-mic-pulse{0%,100%{transform:scale(1);opacity:.35}50%{transform:scale(1.36);opacity:0}}
+@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]::after{animation:none;opacity:0}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-voice:hover{background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)}
 .bt-mic:active,.bt-voice:active{scale:.9}
@@ -21048,76 +21202,171 @@ var RETURN_TOKENS = `
 body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
 `;
 
+// src/client/memo.js
+var React = __toESM(require("react"), 1);
+function memo(component, compare, displayName) {
+  if (displayName && component.name !== displayName) {
+    Object.defineProperty(component, "name", { value: displayName, configurable: true });
+  }
+  if (typeof React.memo === "function") {
+    const wrapped = React.memo(component, compare);
+    if (displayName) wrapped.displayName = displayName;
+    return wrapped;
+  }
+  return component;
+}
+function useRosterPick(useRoster, fields) {
+  const prev = React.useRef(null);
+  return useRoster((roster) => {
+    const last = prev.current;
+    if (last !== null && roster !== null && roster !== void 0 && fields.every((key) => last[key] === roster[key])) return last;
+    prev.current = roster;
+    return roster;
+  });
+}
+
 // src/client/mark.js
 var import_react2 = require("react");
 var STATES = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "alert", "done"];
 var botState = (running, activity, alert) => running ? STATES.includes(activity) && activity !== "waiting" ? activity : "working" : alert ? "alert" : activity === "waiting" ? "waiting" : "idle";
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
+var gazeEntries = /* @__PURE__ */ new Map();
+var gazeHub = {
+  frame: 0,
+  point: null,
+  active: false,
+  mounted: false,
+  mutationObserver: null,
+  intersectionObserver: null,
+  media: null
+};
+var gazeDisabled = () => reducedEffects() || document.body?.dataset.btMotion === "quiet";
+var clampGaze = (value) => Math.max(-1, Math.min(1, value));
+function flushGaze() {
+  gazeHub.frame = 0;
+  const point = gazeHub.point;
+  if (!point || gazeDisabled()) return;
+  const measured = [];
+  for (const entry of gazeEntries.values()) {
+    if (!entry.visible || !entry.node.isConnected) continue;
+    measured.push([entry, entry.node.getBoundingClientRect()]);
+  }
+  for (const [entry, box] of measured) {
+    const gx = clampGaze((point.x - box.left - box.width / 2) / 160).toFixed(2);
+    const gy = clampGaze((point.y - box.top - box.height / 2) / 160).toFixed(2);
+    if (gx !== entry.gx) {
+      entry.gx = gx;
+      entry.node.style.setProperty("--bt-gx", gx);
+    }
+    if (gy !== entry.gy) {
+      entry.gy = gy;
+      entry.node.style.setProperty("--bt-gy", gy);
+    }
+  }
+}
+function onGazeMove(event) {
+  if (gazeDisabled()) return;
+  gazeHub.point = { x: event.clientX, y: event.clientY };
+  if (!gazeHub.frame) gazeHub.frame = requestAnimationFrame(flushGaze);
+}
+function onGazeLeave() {
+  gazeHub.point = null;
+  for (const entry of gazeEntries.values()) {
+    if (entry.gx !== "0") {
+      entry.gx = "0";
+      entry.node.style.setProperty("--bt-gx", "0");
+    }
+    if (entry.gy !== "0") {
+      entry.gy = "0";
+      entry.node.style.setProperty("--bt-gy", "0");
+    }
+  }
+}
+function clearGazeOffsets() {
+  gazeHub.point = null;
+  if (gazeHub.frame) {
+    cancelAnimationFrame(gazeHub.frame);
+    gazeHub.frame = 0;
+  }
+  for (const entry of gazeEntries.values()) {
+    if (entry.gx !== "") {
+      entry.gx = "";
+      entry.node.style.removeProperty("--bt-gx");
+    }
+    if (entry.gy !== "") {
+      entry.gy = "";
+      entry.node.style.removeProperty("--bt-gy");
+    }
+  }
+}
+function attachGazePointer() {
+  if (gazeHub.active) return;
+  gazeHub.active = true;
+  window.addEventListener("pointermove", onGazeMove, { passive: true });
+  document.documentElement.addEventListener("pointerleave", onGazeLeave);
+}
+function detachGazePointer() {
+  if (!gazeHub.active) return;
+  gazeHub.active = false;
+  window.removeEventListener("pointermove", onGazeMove);
+  document.documentElement.removeEventListener("pointerleave", onGazeLeave);
+  clearGazeOffsets();
+}
+function syncGazeHub() {
+  if (gazeEntries.size === 0 || gazeDisabled()) detachGazePointer();
+  else attachGazePointer();
+}
+function mountGazeHub() {
+  if (gazeHub.mounted) return;
+  gazeHub.mounted = true;
+  if (typeof MutationObserver === "function" && document.body) {
+    gazeHub.mutationObserver = new MutationObserver(syncGazeHub);
+    gazeHub.mutationObserver.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects", "data-bt-motion"] });
+  }
+  if (typeof IntersectionObserver === "function") {
+    gazeHub.intersectionObserver = new IntersectionObserver((records) => {
+      for (const record of records) {
+        const entry = gazeEntries.get(record.target);
+        if (entry) entry.visible = record.isIntersecting;
+      }
+    });
+  }
+  gazeHub.media = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  gazeHub.media?.addEventListener?.("change", syncGazeHub);
+  syncGazeHub();
+}
+function unmountGazeHub() {
+  if (!gazeHub.mounted) return;
+  gazeHub.mounted = false;
+  gazeHub.mutationObserver?.disconnect();
+  gazeHub.mutationObserver = null;
+  gazeHub.intersectionObserver?.disconnect();
+  gazeHub.intersectionObserver = null;
+  gazeHub.media?.removeEventListener?.("change", syncGazeHub);
+  gazeHub.media = null;
+  detachGazePointer();
+}
 function useGaze(ref, enabled) {
   (0, import_react2.useEffect)(() => {
-    if (!enabled) return void 0;
-    let frame2 = 0;
-    let point = null;
-    let active = false;
-    const clear = () => {
-      point = null;
-      if (frame2) {
-        cancelAnimationFrame(frame2);
-        frame2 = 0;
-      }
-      ref.current?.style.removeProperty("--bt-gx");
-      ref.current?.style.removeProperty("--bt-gy");
-    };
-    const place = () => {
-      frame2 = 0;
-      const node = ref.current;
-      if (!node || !point || reducedEffects()) return;
-      const box = node.getBoundingClientRect();
-      const clamp2 = (value) => Math.max(-1, Math.min(1, value));
-      node.style.setProperty("--bt-gx", clamp2((point.x - box.left - box.width / 2) / 160).toFixed(2));
-      node.style.setProperty("--bt-gy", clamp2((point.y - box.top - box.height / 2) / 160).toFixed(2));
-    };
-    const onMove = (event) => {
-      if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
-      point = { x: event.clientX, y: event.clientY };
-      if (!frame2) frame2 = requestAnimationFrame(place);
-    };
-    const onLeave = () => {
-      point = null;
-      ref.current?.style.setProperty("--bt-gx", "0");
-      ref.current?.style.setProperty("--bt-gy", "0");
-    };
-    const attach = () => {
-      if (active) return;
-      active = true;
-      window.addEventListener("pointermove", onMove, { passive: true });
-      document.documentElement.addEventListener("pointerleave", onLeave);
-    };
-    const detach = () => {
-      if (!active) return;
-      active = false;
-      window.removeEventListener("pointermove", onMove);
-      document.documentElement.removeEventListener("pointerleave", onLeave);
-      clear();
-    };
-    const sync = () => {
-      if (reducedEffects() || document.body?.dataset.btMotion === "quiet") detach();
-      else attach();
-    };
-    sync();
-    const observer = typeof MutationObserver === "function" && document.body ? new MutationObserver(sync) : null;
-    observer?.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects", "data-bt-motion"] });
-    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    media?.addEventListener?.("change", sync);
+    const node = ref.current;
+    if (!enabled || !node) return void 0;
+    const entry = { node, gx: "", gy: "", visible: true };
+    gazeEntries.set(node, entry);
+    mountGazeHub();
+    gazeHub.intersectionObserver?.observe(node);
     return () => {
-      observer?.disconnect();
-      media?.removeEventListener?.("change", sync);
-      detach();
+      gazeHub.intersectionObserver?.unobserve(node);
+      gazeEntries.delete(node);
+      node.style.removeProperty("--bt-gx");
+      node.style.removeProperty("--bt-gy");
+      if (gazeEntries.size === 0) unmountGazeHub();
     };
   }, [enabled]);
 }
+var sameLook = (a, b) => a === b || a?.shape === b?.shape && a?.color === b?.color && a?.image === b?.image;
+var sameBotLook = (a, b) => a === b || a?.id === b?.id && a?.color === b?.color && a?.avatar?.shape === b?.avatar?.shape && a?.avatar?.color === b?.avatar?.color && a?.avatar?.image === b?.avatar?.image;
 var FIDGETS = ["hop", "sway", "stretch", "look"];
-function BotMark({ bot, look: given, size = 36, state = "idle", live = false, gaze = false, pokeable = false, label }) {
+var BotMark = memo(function BotMark2({ bot, look: given, size = 36, state = "idle", live = false, gaze = false, pokeable = false, label }) {
   const look = given ?? lookOf(bot);
   const ref = (0, import_react2.useRef)(null);
   const maskId = (0, import_react2.useRef)("");
@@ -21150,7 +21399,7 @@ function BotMark({ bot, look: given, size = 36, state = "idle", live = false, ga
   if (image) return (0, import_react2.createElement)("span", common, (0, import_react2.createElement)("img", { className: "bt-mark-img", src: image, alt: "", draggable: false, onError: () => setBroken(image) }));
   const box = shapeOf(look.shape).size;
   return (0, import_react2.createElement)("span", common, (0, import_react2.createElement)("svg", { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color).replaceAll(MASK_ID, maskId.current) } }));
-}
+}, (a, b) => sameBotLook(a.bot, b.bot) && sameLook(a.look, b.look) && a.size === b.size && a.state === b.state && a.live === b.live && a.gaze === b.gaze && a.pokeable === b.pokeable && a.label === b.label, "BotMark");
 function StarIcon({ size = 8 }) {
   return (0, import_react2.createElement)(
     "svg",
@@ -21185,7 +21434,7 @@ function useSettled(state, id) {
   }, [state, id]);
   return settled;
 }
-function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
+var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
   const badgeKind = !badge ? null : state === "alert" ? "alert" : state !== "idle" && state !== "waiting" ? "working" : admin ? "admin" : main ? "main" : null;
@@ -21198,7 +21447,7 @@ function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live 
     badgeKind === "admin" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-admin", "aria-label": t("Admin"), role: "img" }, (0, import_react2.createElement)(StarIcon)) : null,
     badgeKind === "main" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-main", "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(MainStar)) : null
   );
-}
+}, (a, b) => sameBotLook(a.bot, b.bot) && a.size === b.size && a.state === b.state && a.main === b.main && a.admin === b.admin && a.badge === b.badge && a.live === b.live && a.gaze === b.gaze && a.pokeable === b.pokeable, "BotAvatar");
 function clusterSeats(count, frame2) {
   if (count === 1) return [[0, 0, frame2]];
   if (count === 2) return [[0, 0, frame2 * 2 / 3], [frame2 / 3, frame2 / 3, frame2 * 2 / 3]];
@@ -21210,7 +21459,31 @@ function clusterSeats(count, frame2) {
   const half = frame2 / 2;
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]];
 }
-function RoomAvatar({ room: room2, roster, size = 36 }) {
+function sameRoomAvatar(a, b) {
+  if (a.size !== b.size || a.room?.id !== b.room?.id || a.room?.avatar?.image !== b.room?.avatar?.image) return false;
+  const am = a.room?.members ?? [];
+  const bm = b.room?.members ?? [];
+  const aById = a.roster?.byId;
+  const bById = b.roster?.byId;
+  let ai = 0;
+  let bi = 0;
+  let visible = 0;
+  for (; ; ) {
+    let aBot;
+    while (ai < am.length && !(aBot = aById?.[am[ai]])) ai += 1;
+    let bBot;
+    while (bi < bm.length && !(bBot = bById?.[bm[bi]])) bi += 1;
+    const aDone = ai >= am.length;
+    const bDone = bi >= bm.length;
+    if (aDone !== bDone) return false;
+    if (aDone) return true;
+    if (visible < 4 && !sameBotLook(aBot, bBot)) return false;
+    visible += 1;
+    ai += 1;
+    bi += 1;
+  }
+}
+var RoomAvatar = memo(function RoomAvatar2({ room: room2, roster, size = 36 }) {
   const [broken, setBroken] = (0, import_react2.useState)("");
   const image = room2.avatar?.image;
   if (image && image !== broken) return (0, import_react2.createElement)(
@@ -21248,7 +21521,7 @@ function RoomAvatar({ room: room2, roster, size = 36 }) {
       return (0, import_react2.createElement)("span", { key: bot?.id ?? "you", style }, seat(bot, s));
     })
   );
-}
+}, sameRoomAvatar, "RoomAvatar");
 
 // src/client/dsh-primitives.js
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
@@ -27051,6 +27324,7 @@ function ownedPopups(roots) {
 var import_react20 = require("react");
 var import_react_dom = require("react-dom");
 var MENU_EXIT_MS = 120;
+var MAX_EFFORT_CACHE = 200;
 function groupModels(models) {
   const groups = /* @__PURE__ */ new Map();
   for (const model of models ?? []) {
@@ -27084,10 +27358,10 @@ function useEfforts(served, ref, actions) {
     setFetched(void 0);
     if (ref === void 0 || served?.reasoning !== void 0 || actions?.efforts === void 0) return void 0;
     let live = true;
-    if (effortCache.has(ref)) setFetched(effortCache.get(ref));
+    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref));
     else void Promise.resolve(actions.efforts(ref)).then((value) => {
       const reasoning = value?.efforts ? value : null;
-      effortCache.set(ref, reasoning);
+      lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE);
       if (live) setFetched(reasoning);
     }).catch(() => {
     });
@@ -27381,7 +27655,7 @@ function useAnchoredMenu(minWidth = 240) {
   const button = (0, import_react20.useRef)(null);
   const menu = (0, import_react20.useRef)(null);
   (0, import_react20.useLayoutEffect)(() => registerPopupOwner(button, menu), [button, menu]);
-  const tick = useViewport();
+  const tick = useViewport(anchor !== null || Boolean(shownPlace));
   const close = () => {
     setAnchor(null);
     setPlace(null);
@@ -28317,17 +28591,35 @@ function useSchedules(actions) {
   (0, import_react23.useEffect)(() => {
     listeners.add(setView);
     let stopped = false;
+    let inFlight = false;
     let timer;
-    const load = () => actions.schedules?.().then((next) => {
-      if (!stopped) publish(next);
-    }).catch(() => {
-    }).finally(() => {
-      if (!stopped) timer = setTimeout(load, POLL_MS);
-    });
+    const schedule = () => {
+      clearTimeout(timer);
+      if (stopped || typeof document !== "undefined" && document.hidden) return;
+      timer = setTimeout(load, POLL_MS);
+    };
+    const load = () => {
+      if (stopped || inFlight) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      inFlight = true;
+      Promise.resolve(actions.schedules?.()).then((next) => {
+        if (!stopped && next !== void 0) publish(next);
+      }).catch(() => {
+      }).finally(() => {
+        inFlight = false;
+        schedule();
+      });
+    };
+    const onVisibility = () => {
+      if (document.hidden) clearTimeout(timer);
+      else if (!stopped) load();
+    };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
     load();
     return () => {
       stopped = true;
       clearTimeout(timer);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
       listeners.delete(setView);
     };
   }, []);
@@ -29167,11 +29459,12 @@ var import_react26 = require("react");
 var POLL_MS2 = 1500;
 var MENU_EXIT_MS2 = 120;
 var MOVE_MENU_GAP = 12;
+var MAX_COUNTS = 200;
 var counts = /* @__PURE__ */ new Map();
 var countListeners = /* @__PURE__ */ new Set();
 function noteCount(id, count) {
   if (counts.get(id) === count) return;
-  counts.set(id, count);
+  lruSet(counts, id, count, MAX_COUNTS);
   for (const listener of countListeners) listener();
 }
 function useMenuDismiss(open, menuRef, triggerRef, close) {
@@ -30472,10 +30765,11 @@ function BrowserPanel({ connector, actions, run: run2 }) {
     ) : (0, import_react30.createElement)("button", { type: "button", className: "bt-connector-link bt-connector-aside", onClick: () => setPasting(true) }, t("Did not come back here?"))
   );
 }
+var MAX_CODE_COPIES = 50;
 var codeCopies = /* @__PURE__ */ new Map();
 var copyWatchers = /* @__PURE__ */ new Set();
 var copyCode = (code) => navigator.clipboard?.writeText(code).then(() => {
-  codeCopies.set(code, (codeCopies.get(code) ?? 0) + 1);
+  lruSet(codeCopies, code, (codeCopies.get(code) ?? 0) + 1, MAX_CODE_COPIES);
   for (const watcher of copyWatchers) watcher();
 }, () => {
 });
@@ -31540,7 +31834,16 @@ function watchSize(node, onSize) {
   if (typeof ResizeObserver !== "function") return () => {
   };
   sizes ??= new ResizeObserver((entries2) => {
-    for (const entry of entries2) sized.get(entry.target)?.forEach((listener) => listener());
+    const bands = /* @__PURE__ */ new Map();
+    const bandOf = (scroller) => {
+      let band = bands.get(scroller);
+      if (band === void 0) {
+        band = readingBand(scroller);
+        bands.set(scroller, band);
+      }
+      return band;
+    };
+    for (const entry of entries2) sized.get(entry.target)?.forEach((listener) => listener(bandOf));
   });
   const listeners3 = sized.get(node) ?? /* @__PURE__ */ new Set();
   sized.set(node, listeners3);
@@ -31601,21 +31904,24 @@ function ReplyGuide({ box, active }) {
   const [menu, setMenu] = (0, import_react32.useState)(false);
   const pop = (0, import_react32.useRef)(null);
   const trigger = (0, import_react32.useRef)(null);
+  const cachedHeadings = (0, import_react32.useRef)(null);
   (0, import_react32.useEffect)(() => {
     const node = box.current;
     const own = active && node ? node.closest("[data-conversation-scroll]") : null;
     setScroller(own);
     if (!own) {
       setLong(false);
+      cachedHeadings.current = null;
       return void 0;
     }
-    const check = () => setLong(fillsBand(node.getBoundingClientRect().height, readingBand(own)));
+    const check = (bandOf) => setLong(fillsBand(node.getBoundingClientRect().height, bandOf ? bandOf(own) : readingBand(own)));
     const stops = [watchSize(node, check), watchSize(own, check)];
     return () => stops.forEach((stop) => stop());
   }, [active]);
   (0, import_react32.useEffect)(() => {
     if (!long || !scroller) {
       setView(null);
+      cachedHeadings.current = null;
       return void 0;
     }
     return followScroll(scroller, (band, news) => {
@@ -31623,6 +31929,7 @@ function ReplyGuide({ box, active }) {
       if (!node) return;
       const place = pillPlace(node.getBoundingClientRect(), band, news);
       const headings2 = place ? headingsIn(node) : [];
+      cachedHeadings.current = place ? { node, headings: headings2, outline: outlineOf(headings2) } : null;
       const current2 = sectionAt(headings2.map((heading) => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0);
       const maxWidth = place && Number.isFinite(band.right) ? Math.max(120, Math.min(MAX_WIDTH, Math.round(band.right - place.left - GAP))) : void 0;
       const next = place && { ...place, current: current2, maxWidth };
@@ -31659,8 +31966,10 @@ function ReplyGuide({ box, active }) {
   }, [menu]);
   const [shown, leaving] = useLinger(view, 120);
   if (!shown || !scroller) return null;
-  const headings = box.current ? headingsIn(box.current) : [];
-  const outline = outlineOf(headings);
+  const cached = cachedHeadings.current;
+  const cache = cached && cached.node === box.current && cached.headings.every((el) => el.isConnected) ? cached : null;
+  const headings = cache ? cache.headings : box.current ? headingsIn(box.current) : [];
+  const outline = cache ? cache.outline : outlineOf(headings);
   const toStart = () => {
     setMenu(false);
     if (box.current) glide(scroller, box.current.getBoundingClientRect().top - readingBand(scroller).top + GAP);
@@ -31914,6 +32223,8 @@ function withBtwRows(items, cards) {
 
 // src/client/btw.js
 var import_react33 = require("react");
+var EMPTY_TURN_FACTS = { turns: void 0, openTurn: void 0 };
+var EMPTY_CARDS = [];
 function failureText(card) {
   const raw = typeof card.error === "string" ? card.error : card.error?.message;
   const text = typeof raw === "string" ? raw.trim() : "";
@@ -31992,9 +32303,13 @@ function BtwCardView({ card, compact: compact2 = false, sessionId, actions, onDe
     ) : null
   );
 }
-function useTurnFacts(sessionId, actions) {
-  const [facts, setFacts] = (0, import_react33.useState)(() => actions.turnFacts(sessionId));
+function useTurnFacts(sessionId, actions, active = true) {
+  const [facts, setFacts] = (0, import_react33.useState)(() => active ? actions.turnFacts(sessionId) : EMPTY_TURN_FACTS);
   (0, import_react33.useEffect)(() => {
+    if (!active) {
+      setFacts(EMPTY_TURN_FACTS);
+      return void 0;
+    }
     let live = true;
     const read = () => {
       if (!live) return;
@@ -32007,20 +32322,29 @@ function useTurnFacts(sessionId, actions) {
       live = false;
       off();
     };
-  }, [sessionId, actions]);
+  }, [sessionId, actions, active]);
   return facts;
 }
+function useSessionBtwCards(useRoster, sessionId) {
+  const botCards = useRoster((roster) => {
+    if (!roster?.ready || roster.roomsById?.[sessionId]) return null;
+    const bot = roster.byId?.[sessionId];
+    if (!bot) return null;
+    return roster.btwCards?.[bot.id] ?? null;
+  });
+  return (0, import_react33.useMemo)(() => Array.isArray(botCards) ? botCards.filter((card) => card?.partId === sessionId) : EMPTY_CARDS, [botCards, sessionId]);
+}
 function BtwDock({ sessionId, useRoster, actions }) {
-  const roster = useRoster((value) => value);
-  const facts = useTurnFacts(sessionId, actions);
-  const cards = dockCards(sessionCards(roster, sessionId), facts);
+  const partCards = useSessionBtwCards(useRoster, sessionId);
+  const facts = useTurnFacts(sessionId, actions, partCards.length > 0);
+  const cards = partCards.length > 0 ? dockCards(partCards, facts) : EMPTY_CARDS;
   if (cards.length === 0) return null;
   return (0, import_react33.createElement)("div", { className: "bt-btw-dock" }, cards.map((card) => (0, import_react33.createElement)(BtwCardView, { key: card.id, card, compact: true, sessionId, actions })));
 }
 function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
-  const roster = useRoster((value) => value);
-  const facts = useTurnFacts(sessionId, actions);
-  const cards = tailCards(sessionCards(roster, sessionId), turn, facts?.turns);
+  const partCards = useSessionBtwCards(useRoster, sessionId);
+  const facts = useTurnFacts(sessionId, actions, partCards.length > 0);
+  const cards = partCards.length > 0 ? tailCards(partCards, turn, facts?.turns) : EMPTY_CARDS;
   if (cards.length === 0) return null;
   return (0, import_react33.createElement)("div", { className: "bt-btw-stack" }, cards.map((card) => (0, import_react33.createElement)(BtwCardView, { key: card.id, card, sessionId, actions })));
 }
@@ -32187,8 +32511,7 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
   ) : (0, import_react34.createElement)(import_react34.Fragment, { key: index }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
-  const roster = useRoster((value) => value);
-  const bot = mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId);
+  const bot = useRoster((roster) => mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId));
   if (!bot) return raw;
   const mark2 = (0, import_react34.createElement)(BotMark, { bot, size: 16 });
   return interactive ? (0, import_react34.createElement)("button", { type: "button", className: "bt-umention", title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark2, node.data.label) : (0, import_react34.createElement)("span", { className: "bt-umention", "data-static": "", title: `@${bot.name}` }, mark2, node.data.label);
@@ -32261,14 +32584,24 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? (0, import_react34.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
   );
 }
+var USER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "imVia"];
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
-  const roster = useRoster((value) => value);
   const data = node.data ?? {};
+  const prev = (0, import_react34.useRef)(null);
+  const picked = useRoster((value) => {
+    if (!projects) return value.imVia?.[sessionId]?.[data.seq];
+    const last = prev.current;
+    if (last !== null && value !== null && value !== void 0 && USER_ROSTER_FIELDS.every((key) => last[key] === value[key])) return last;
+    prev.current = value;
+    return value;
+  });
+  const roster = projects ? picked : null;
+  const viaFromRoster = projects ? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const prepared = projects ? void 0 : hostContent(data.content, data);
   const text = prepared?.text ?? contentParts(data.content).text;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
-  const via = viaOf2(data.source) ?? roster.imVia?.[sessionId]?.[data.seq];
+  const via = viaOf2(data.source) ?? viaFromRoster;
   const { shown, folded, control } = useFold(text, { markdown: false });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
@@ -32333,7 +32666,13 @@ var USER_MESSAGE_CSS = `
 var import_react35 = require("react");
 var import_react_dom4 = require("react-dom");
 var useNullUi = () => null;
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+var EMPTY_PICKED = [];
+var ASSISTANT_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "prefs"];
+var TRIGGER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "prefs", "closedCards"];
+var TOOL_ROSTER_FIELDS = ["bots", "byId", "rooms", "roomsById", "exchangeTurns", "prefs", "closedCards", "questions", "views", "secrets", "secretRequests", "connectors", "connectorRequests", "mailRequests", "browser", "computer"];
+var sameStringList = (a, b) => a === b || Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => item === b[i]);
+var sameBubbles = (a, b) => sameStringList(a.texts, b.texts) && a.selfId === b.selfId && a.actions === b.actions && a.streaming === b.streaming && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.useUi === b.useUi && a.lead === b.lead && a.mentions === b.mentions && a.fold === b.fold && a.whole === b.whole && a.time === b.time && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
+var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -32361,7 +32700,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         mentions,
         fold,
         textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
+        picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : void 0
@@ -32369,7 +32708,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     }),
     Number.isFinite(time) ? (0, import_react35.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
   );
-}
+}, sameBubbles, "Bubbles");
 function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = (0, import_react35.useState)(false);
   const copy2 = async () => {
@@ -32396,10 +32735,16 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
   (0, import_react35.createElement)("pre", { className: "bt-fold-pre" }, (0, import_react35.createElement)("code", null, codeHead)),
   (0, import_react35.createElement)(FoldCodeCopy, { code, actions })
 );
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+var sameBubble = (a, b) => a.text === b.text && a.index === b.index && a.selfId === b.selfId && a.actions === b.actions && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.mentions === b.mentions && a.fold === b.fold && sameStringList(a.picked, b.picked) && a.live === b.live && a.lead === b.lead && a.whole === b.whole && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
+var Bubble = memo(function Bubble2({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = shown === "" ? null : (0, import_react35.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
+  const labels2 = mdLabels();
+  const linked = (0, import_react35.useMemo)(() => shown === "" ? "" : linkMentions(normalizeFileLinks(shown), roster.bots, selfId), [shown, roster.bots, selfId]);
+  const body = (0, import_react35.useMemo)(
+    () => linked === "" ? null : (0, import_react35.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linked, streaming: live, labels: labels2, variant: "compact", fileMentions: mentions }),
+    [linked, live, labels2, mentions]
+  );
   const row = (0, import_react35.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react35.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
@@ -32433,7 +32778,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
       onClick: () => actions.toggleReaction(msgKey, index, emoji)
     }, emoji))) : null
   );
-}
+}, sameBubble, "Bubble");
 var REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 var STRIP_HALF = (REACTIONS.length * 34 + 10) / 2 + 8;
 function useDismiss(open, close, refs) {
@@ -32518,34 +32863,42 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
     ), document.body) : null
   );
 }
+var MAX_THINKING_TIMES = 500;
 var thinkingTimes = /* @__PURE__ */ new Map();
 function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
-  const key = `${sessionId}:${turn}:${settledSteps}`;
-  const [ms, setMs] = (0, import_react35.useState)(() => thinkingTimes.get(key));
+  const key = `${sessionId}:${turn}`;
+  const initial = thinkingTimes.get(key);
+  const [ms, setMs] = (0, import_react35.useState)(() => initial?.steps === settledSteps ? initial.ms : void 0);
   (0, import_react35.useEffect)(() => {
-    if (skip || thinkingTimes.has(key)) {
-      setMs(thinkingTimes.get(key));
+    const cached = lruGet(thinkingTimes, key);
+    if (skip) {
+      setMs(cached?.steps === settledSteps ? cached.ms : void 0);
+      return void 0;
+    }
+    if (cached !== void 0 && cached.steps === settledSteps) {
+      setMs(cached.ms);
       return void 0;
     }
     const control = new AbortController();
     call("thinking", { sessionId, turn }, control.signal).then((value) => {
-      thinkingTimes.set(key, value?.ms);
+      lruSet(thinkingTimes, key, { steps: settledSteps, ms: value?.ms }, MAX_THINKING_TIMES);
       setMs(value?.ms);
     }).catch(() => {
     });
     return () => control.abort();
-  }, [key, skip]);
+  }, [key, settledSteps, skip]);
   return ms;
 }
+var MAX_ROW_VIEWS = 200;
 var rowViews = /* @__PURE__ */ new Map();
 function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
   const box = (0, import_react35.useRef)(null);
-  const view = (0, import_react35.useRef)(rowViews.get(viewKey));
+  const view = (0, import_react35.useRef)(lruGet(rowViews, viewKey));
   const atEnd = (0, import_react35.useRef)(view.current?.atEnd ?? true);
   const [open, setOpen] = (0, import_react35.useState)(view.current?.open ?? false);
   const [fade, setFade] = (0, import_react35.useState)(void 0);
   const remember = (patch) => {
-    if (viewKey !== void 0) rowViews.set(viewKey, { ...rowViews.get(viewKey), ...patch });
+    if (viewKey !== void 0) lruSet(rowViews, viewKey, { ...rowViews.get(viewKey), ...patch }, MAX_ROW_VIEWS);
   };
   const measure = () => {
     const el = box.current;
@@ -32594,7 +32947,7 @@ function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
   }, [fileMentions, openFile, seq, tail, turn]);
 }
 function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, useTurnData, useRoster, useUi, useTurnSteps, useTurnContext, actions }) {
-  const roster = useRoster((value) => value);
+  const roster = useRosterPick(useRoster, ASSISTANT_ROSTER_FIELDS);
   const data = node.data;
   const steps = useTurnSteps(String(data.turn));
   const contexts = useTurnContext(String(data.turn));
@@ -33041,7 +33394,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
   }
 }
 function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
-  const roster = useRoster((value) => value);
+  const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS);
   const data = node.data;
   const source = data.source !== null && typeof data.source === "object" ? data.source : {};
   const selfId = roster.byId[sessionId]?.id ?? sessionId;
@@ -33428,24 +33781,36 @@ function RelayEvent({ reply, bot, room: room2, sessionId, actions, latestPaused 
   }
   return null;
 }
+var MAX_SETTLED_ROWS = 120;
 var settledRows = /* @__PURE__ */ new Map();
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork }) {
   const [live, setLive] = (0, import_react35.useState)({ replies: [], speaking: [] });
   (0, import_react35.useEffect)(() => {
     if (done) return void 0;
     let stop = false;
     let timer;
     let seen = "";
+    let delay = 1e3;
     const tick = async () => {
-      const result = await actions.roomProgress(sessionId);
-      if (stop) return;
-      const entry = (result ?? []).find((item) => item.callId === callId) ?? (result ?? [])[0];
-      const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : "";
-      if (entry && key !== seen) {
-        seen = key;
-        setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() });
+      try {
+        const result = await actions.roomProgress(sessionId);
+        if (stop) return;
+        if (Array.isArray(result)) {
+          delay = 1e3;
+          const entry = result.find((item) => item.callId === callId) ?? result[0];
+          const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : "";
+          if (entry && key !== seen) {
+            seen = key;
+            setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() });
+          }
+        } else {
+          delay = Math.min(delay * 2, 3e4);
+        }
+      } catch {
+        if (stop) return;
+        delay = Math.min(delay * 2, 3e4);
       }
-      timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
+      timer = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
     };
     void tick();
     return () => {
@@ -33468,11 +33833,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     };
   }, [sessionId, preview]);
   const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}:${range.anchor ?? ""}`;
-  const [view, setView] = (0, import_react35.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
-  const quietKey = view?.open === true && view.active !== true ? roster.revision : void 0;
+  const [view, setView] = (0, import_react35.useState)(() => rowsKey === void 0 ? null : lruGet(settledRows, rowsKey) ?? null);
+  const quiet = view?.open === true && view.active !== true;
+  const quietRevision = useRoster?.((value) => quiet ? value.revision : void 0);
+  const quietKey = quiet ? quietRevision ?? roster.revision : void 0;
   (0, import_react35.useEffect)(() => {
     if (rowsKey === void 0) return void 0;
-    const known = settledRows.get(rowsKey);
+    const known = lruGet(settledRows, rowsKey);
     if (known !== void 0) {
       setView(known);
       return void 0;
@@ -33480,19 +33847,28 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     let stop = false;
     let timer;
     let seen = "";
+    let delay = 1e3;
     const tick = async () => {
-      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor);
-      if (stop) return;
-      if (next !== null && Array.isArray(next?.rows)) {
-        if (!next.open) settledRows.set(rowsKey, next);
-        const key = JSON.stringify(next);
-        if (key !== seen) {
-          seen = key;
-          setView(next);
+      try {
+        const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor);
+        if (stop) return;
+        if (next !== null && Array.isArray(next?.rows)) {
+          delay = 1e3;
+          if (!next.open) lruSet(settledRows, rowsKey, next, MAX_SETTLED_ROWS);
+          const key = JSON.stringify(next);
+          if (key !== seen) {
+            seen = key;
+            setView(next);
+          }
+          if (!next.open || next.active !== true) return;
+        } else {
+          delay = Math.min(delay * 2, 3e4);
         }
-        if (!next.open || next.active !== true) return;
+      } catch {
+        if (stop) return;
+        delay = Math.min(delay * 2, 3e4);
       }
-      timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
+      timer = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
     };
     void tick();
     return () => {
@@ -33597,7 +33973,7 @@ function useShownCards(actions, sessionId, callIds) {
     return () => actions.noteCards(sessionId, ids, -1);
   }, [sessionId, key]);
 }
-function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks }) {
   const tool = toolName(call2);
   const done = call2.kind === "tool-result";
   const { text: arg, value: argValue } = toolArgs(call2);
@@ -33650,7 +34026,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       return done && target ? (0, import_react35.createElement)(EventLine, { prefix: t("Updated"), bots: [target], onOpen: (bot) => actions.openSession(bot.id) }) : (0, import_react35.createElement)(CellEmpty);
     }
     case "group_relay":
-      return (0, import_react35.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useUi, useWork });
+      return (0, import_react35.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useRoster, useUi, useWork });
     case "create_group":
     case "update_group":
     case "delete_group":
@@ -33719,7 +34095,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
   }
 }
 function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
-  const roster = useRoster((value) => value);
+  const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS);
   const heldCards = useHeldCards?.((state) => state[sessionId]);
   const root = node.data.root;
   const turn = node.location?.turn?.turn ?? root.turn;
@@ -33733,7 +34109,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react35.createElement)(CellEmpty);
-  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
   return (0, import_react35.createElement)(import_react35.Fragment, null, drawn.map((call2, index) => (0, import_react35.createElement)(import_react35.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 
@@ -34117,6 +34493,8 @@ function TaskReaderView({ bot, task, actions }) {
   const actionsRef = (0, import_react36.useRef)(actions);
   actionsRef.current = actions;
   const reqGenRef = (0, import_react36.useRef)(0);
+  const inFlightRef = (0, import_react36.useRef)(false);
+  const pendingReloadRef = (0, import_react36.useRef)(false);
   const mountedRef = (0, import_react36.useRef)(true);
   const botId = bot?.id;
   const taskId = task?.id;
@@ -34127,24 +34505,49 @@ function TaskReaderView({ bot, task, actions }) {
       mountedRef.current = false;
     };
   }, []);
-  const loadLatest = (0, import_react36.useCallback)(async (quiet = false, gen = reqGenRef.current) => {
+  const loadLatest = (0, import_react36.useCallback)(async (quiet = false, gen = reqGenRef.current, { force = false } = {}) => {
     const readTask = actionsRef.current?.readTask;
     if (!botId || !taskId || typeof readTask !== "function") return;
+    if (quiet && inFlightRef.current) {
+      if (force) pendingReloadRef.current = true;
+      return;
+    }
+    inFlightRef.current = true;
     if (!quiet) setLoading(true);
     try {
-      const next = await readTask(botId, taskId, void 0, showSteps);
-      if (!mountedRef.current || gen !== reqGenRef.current) return;
-      setPage(next);
-      setError("");
-    } catch (err) {
-      if (!mountedRef.current || gen !== reqGenRef.current) return;
-      setError(hostText(err?.message ?? String(err)));
+      let keepGoing = true;
+      let isQuiet = quiet;
+      while (keepGoing) {
+        keepGoing = false;
+        try {
+          const next = await readTask(botId, taskId, void 0, showSteps);
+          if (!mountedRef.current || gen !== reqGenRef.current) return;
+          setPage(next);
+          setError("");
+        } catch (err) {
+          if (!mountedRef.current || gen !== reqGenRef.current) return;
+          setError(hostText(err?.message ?? String(err)));
+        }
+        if (mountedRef.current && !isQuiet && gen === reqGenRef.current) {
+          setLoading(false);
+          isQuiet = true;
+        }
+        if (mountedRef.current && gen === reqGenRef.current && pendingReloadRef.current) {
+          pendingReloadRef.current = false;
+          keepGoing = true;
+        }
+      }
     } finally {
-      if (mountedRef.current && !quiet && gen === reqGenRef.current) setLoading(false);
+      if (gen === reqGenRef.current) {
+        inFlightRef.current = false;
+        if (mountedRef.current && !quiet) setLoading(false);
+      }
     }
   }, [botId, taskId, showSteps]);
   (0, import_react36.useEffect)(() => {
     reqGenRef.current += 1;
+    inFlightRef.current = false;
+    pendingReloadRef.current = false;
     const gen = reqGenRef.current;
     setOlder([]);
     setOlderCursor({ active: false, cursor: null });
@@ -34155,14 +34558,33 @@ function TaskReaderView({ bot, task, actions }) {
   (0, import_react36.useEffect)(() => {
     if (active) {
       wasActiveRef.current = true;
-      const timer = setInterval(() => {
-        void loadLatest(true, reqGenRef.current);
-      }, 2500);
-      return () => clearInterval(timer);
+      let timer = 0;
+      const start = () => {
+        clearInterval(timer);
+        if (typeof document !== "undefined" && document.hidden) return;
+        timer = setInterval(() => {
+          void loadLatest(true, reqGenRef.current);
+        }, 2500);
+      };
+      const onVisibility = () => {
+        if (document.hidden) {
+          clearInterval(timer);
+          timer = 0;
+        } else {
+          void loadLatest(true, reqGenRef.current, { force: true });
+          start();
+        }
+      };
+      start();
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+      return () => {
+        clearInterval(timer);
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+      };
     }
     if (wasActiveRef.current) {
       wasActiveRef.current = false;
-      void loadLatest(true, reqGenRef.current);
+      void loadLatest(true, reqGenRef.current, { force: true });
     }
     return void 0;
   }, [active, loadLatest]);
@@ -34187,7 +34609,7 @@ function TaskReaderView({ bot, task, actions }) {
   const stop = () => {
     if (stopping || !botId || !taskId) return;
     setStopping(true);
-    void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId)).then(() => loadLatest(true, reqGenRef.current)).catch((err) => {
+    void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId)).then(() => loadLatest(true, reqGenRef.current, { force: true })).catch((err) => {
       if (mountedRef.current) setError(hostText(err?.message ?? String(err)));
     }).finally(() => {
       if (mountedRef.current) setStopping(false);
@@ -34554,7 +34976,7 @@ var mountMissed = false;
 var runningSlot = null;
 function findHost() {
   const kept = runningSlot?.slot;
-  if (kept?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
   const slot = document.querySelector("[data-chat-flow] [data-chat-running]");
   const node = slot?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
   runningSlot = slot ? { slot, host: node } : null;
@@ -34576,14 +34998,17 @@ function useRunningHost(active) {
       return void 0;
     }
     let frame2 = 0;
+    let currentHost = null;
+    let currentSlot = null;
     const find = () => {
       frame2 = 0;
-      setHost((prev) => {
-        const node = findHost();
-        return prev === node ? prev : node;
-      });
+      const node = findHost();
+      currentHost = node;
+      currentSlot = node && runningSlot?.host === node ? runningSlot.slot : null;
+      setHost((prev) => prev === node ? prev : node);
     };
     const observer = new MutationObserver(() => {
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute("data-chat-running") && currentHost.contains(currentSlot)) return;
       if (!frame2) frame2 = requestAnimationFrame(find);
     });
     observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
@@ -34612,7 +35037,7 @@ function useRowEntrances(replacing) {
     };
     const scan = () => {
       frame2 = 0;
-      const next = document.querySelector("[data-chat-flow]");
+      const next = column?.isConnected ? column : document.querySelector("[data-chat-flow]");
       if (next !== column) {
         observer.disconnect();
         column = next;
@@ -34628,17 +35053,31 @@ function useRowEntrances(replacing) {
         }
         return;
       }
-      const items = [...column.children].filter((item) => item.hasAttribute("data-chat-flow-key"));
+      const items = [];
+      for (const child of column.children) {
+        if (child.hasAttribute("data-chat-flow-key")) items.push(child);
+      }
       let last = -1;
-      items.forEach((item, index) => {
-        if (seen.has(item)) last = index;
-      });
+      for (let index = 0; index < items.length; index += 1) {
+        if (seen.has(items[index])) last = index;
+      }
       if (reducedEffects()) return;
-      const fresh = items.filter((item) => !seen.has(item) && item.offsetHeight > 0);
-      for (const item of fresh) seen.add(item);
-      if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return;
-      for (const item of fresh) {
-        if (items.indexOf(item) < last) continue;
+      if (last < 0 || Date.now() - started < 800) {
+        for (const item of items) {
+          if (!seen.has(item) && item.offsetHeight > 0) seen.add(item);
+        }
+        return;
+      }
+      const fresh = [];
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        if (seen.has(item)) continue;
+        if (item.offsetHeight > 0) fresh.push({ item, index });
+      }
+      for (const entry of fresh) seen.add(entry.item);
+      if (fresh.length > 3) return;
+      for (const { item, index } of fresh) {
+        if (index < last) continue;
         const reply = [void 0, "assistant-step", "tool-call"].includes(item.dataset.chatFlowKind);
         item.dataset.btEnter = reply && check.current() ? "after-collapse" : "new";
         item.addEventListener("animationend", settle);
@@ -34753,16 +35192,14 @@ function showsDshRow(dsh, app) {
 }
 
 // src/client/frame-watch.js
-var sidebarTrackWidth = () => {
-  const column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]');
+var sidebarTrackWidth = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
   if (!column) return null;
   const position = typeof getComputedStyle === "function" ? getComputedStyle(column).position : "";
   if (position === "absolute" || position === "fixed") return 0;
   return trackRoom(column.getBoundingClientRect());
 };
-var dshCollapsed = () => {
+var dshCollapsed = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
   if (typeof document === "undefined") return null;
-  const column = document.querySelector('[class*="_sidebarCol"]');
   return column ? column.closest("[data-sidebar-collapsed]") !== null : null;
 };
 var collapsedTrackWidth = () => document.documentElement.hasAttribute("data-windows-titlebar") || document.documentElement.dataset.platform === "darwin" ? 0 : 56;
@@ -34818,13 +35255,15 @@ function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
   const watched = /* @__PURE__ */ new Set();
+  let sidebarColumn = null;
+  let scanned = false;
   let added = false;
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
   const read = () => {
-    const column = document.querySelector('[class*="_sidebarCol"]');
+    const column = sidebarColumn?.isConnected ? sidebarColumn : sidebarColumn = document.querySelector('[class*="_sidebarCol"]');
     const animating = column?.closest("[data-animating]") != null;
-    const width = animating ? null : sidebarTrackWidth();
-    const collapsed = dshCollapsed();
+    const width = animating ? null : sidebarTrackWidth(column);
+    const collapsed = dshCollapsed(column);
     collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
     frame2.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
@@ -34832,21 +35271,24 @@ function installFrameWatch(frame2) {
     });
   };
   const measure = () => {
-    let scan = added || watched.size < 2;
+    let scan = !scanned || added;
     added = false;
     for (const column of watched) {
       if (!column.isConnected) {
         watched.delete(column);
         observer?.unobserve(column);
+        if (column === sidebarColumn) sidebarColumn = null;
         scan = true;
       }
     }
     if (scan) {
+      scanned = true;
       for (const column of document.querySelectorAll(COLUMNS)) {
         if (!watched.has(column)) {
           watched.add(column);
           observer?.observe(column);
         }
+        if (!sidebarColumn?.isConnected && column.matches?.('[class*="_sidebarCol"]')) sidebarColumn = column;
       }
     }
     read();
@@ -34857,7 +35299,7 @@ function installFrameWatch(frame2) {
       measure();
     });
   };
-  const addsColumn = (record) => [...record.addedNodes].some((node) => node instanceof Element && (node.matches(COLUMNS) || node.querySelector(COLUMNS) !== null));
+  const addsColumn = (record) => [...record.addedNodes].some((node) => node?.nodeType === 1 && (node.matches?.(COLUMNS) || node.querySelector?.(COLUMNS) !== null));
   const relevant = (records) => {
     let hit = false;
     for (const record of records) {
@@ -34866,7 +35308,7 @@ function installFrameWatch(frame2) {
         continue;
       }
       const target = record.target;
-      if (target instanceof Element && target.closest("[data-chat-flow],[data-composer-card]")) continue;
+      if (target?.nodeType === 1 && target.closest?.("[data-chat-flow],[data-composer-card]")) continue;
       hit = true;
       if (!added && addsColumn(record)) added = true;
     }
@@ -34889,6 +35331,7 @@ function installFrameWatch(frame2) {
 // src/client/sidebar.js
 var import_react38 = require("react");
 var import_react_dom6 = require("react-dom");
+var MAX_COLLAPSE_RETRIES = 3;
 function useMarkedUnread(id, active, marked2, actions) {
   (0, import_react38.useEffect)(() => {
     if (active && marked2) actions.clearUnread(id);
@@ -34933,7 +35376,8 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
+var sameBotRow = (a, b) => a.bot === b.bot && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useActivity === b.useActivity && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.mainBotId === b.roster.mainBotId && a.roster.mainBotIds === b.roster.mainBotIds && a.roster.byId === b.roster.byId && a.roster.roomsById === b.roster.roomsById && a.roster.exchangeTurns === b.roster.exchangeTurns && a.roster.learning === b.roster.learning && a.roster.secretRequests === b.roster.secretRequests && a.roster.connectorRequests === b.roster.connectorRequests && a.roster.mailRequests === b.roster.mailRequests && a.roster.questions === b.roster.questions && a.roster.views === b.roster.views;
+var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
@@ -35026,8 +35470,9 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     ) : null,
     wide && alert && !active ? (0, import_react38.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react38.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react38.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
   );
-}
-function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked: marked2, onDragStart }) {
+}, sameBotRow, "BotRow");
+var sameRoomRow = (a, b) => a.room === b.room && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.byId === b.roster.byId;
+var RoomRow = memo(function RoomRow2({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked: marked2, onDragStart }) {
   const id = room2.id;
   const sessionId = room2.sessionId ?? id;
   const fallback = useSessions((list) => previewOf(list, sessionId));
@@ -35075,7 +35520,7 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
     ) : null,
     wide && approval && !active ? (0, import_react38.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react38.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (approval || unread) ? (0, import_react38.createElement)("span", { className: `bt-dot${approval ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
   );
-}
+}, sameRoomRow, "RoomRow");
 var agentSessionTitle = (session) => session.title === "" ? t("New session") : session.title;
 function AgentSessionRow({ session, agent, actions, renaming, index }) {
   const input = (0, import_react38.useRef)(null);
@@ -35562,11 +36007,11 @@ function TeamSidebar(props) {
   useReportReady(roster.ready, roster);
   const [dragId, setDragId] = (0, import_react38.useState)(null);
   const [dropTarget, setDropTarget] = (0, import_react38.useState)(null);
-  const onDragStart = (event, id) => {
+  const onDragStart = (0, import_react38.useCallback)((event, id) => {
     setDragId(id);
     event.dataTransfer?.setData?.("text/plain", id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  };
+  }, []);
   const onDragOverSec = (event, secId) => {
     if (!dragId) return;
     event.preventDefault();
@@ -35601,6 +36046,10 @@ function TeamSidebar(props) {
   }, []);
   const settleTimer = (0, import_react38.useRef)(0);
   const springTimer = (0, import_react38.useRef)(0);
+  (0, import_react38.useEffect)(() => () => {
+    clearTimeout(settleTimer.current);
+    clearTimeout(springTimer.current);
+  }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -35690,6 +36139,8 @@ function TeamSidebar(props) {
   };
   const dsh = (0, import_react38.useRef)(null);
   const requested = (0, import_react38.useRef)(false);
+  const collapseRetries = (0, import_react38.useRef)(0);
+  const retryScope = (0, import_react38.useRef)({ wide, collapsed: frameSnap.collapsed });
   const requestLapse = (0, import_react38.useRef)(0);
   const [lapsed, setLapsed] = (0, import_react38.useState)(0);
   (0, import_react38.useEffect)(() => () => clearTimeout(requestLapse.current), []);
@@ -35708,6 +36159,11 @@ function TeamSidebar(props) {
   (0, import_react38.useEffect)(() => () => quiet(false), []);
   (0, import_react38.useLayoutEffect)(() => {
     if (typeof document === "undefined" || typeof actions.toggleSidebar !== "function") return void 0;
+    const scope = retryScope.current;
+    if (scope.wide !== wide || scope.collapsed !== frameSnap.collapsed) {
+      retryScope.current = { wide, collapsed: frameSnap.collapsed };
+      collapseRetries.current = 0;
+    }
     const collapsed = dshCollapsed() ?? !wide;
     const prev = dsh.current;
     const viewport = window.innerWidth;
@@ -35721,10 +36177,12 @@ function TeamSidebar(props) {
     if (collapsed) {
       clearTimeout(requestLapse.current);
       requested.current = false;
+      collapseRetries.current = 0;
       quiet(false);
       return void 0;
     }
-    if (requested.current) return void 0;
+    if (requested.current || collapseRetries.current >= MAX_COLLAPSE_RETRIES) return void 0;
+    collapseRetries.current += 1;
     requested.current = true;
     quiet(true);
     actions.toggleSidebar();
@@ -35748,18 +36206,22 @@ function TeamSidebar(props) {
       window.removeEventListener("mousedown", onDown);
     };
   }, [mode]);
-  const navigate = (open, id) => {
-    const result = open(id);
-    if (leftDrawer) actions.setLeftDrawer?.(false);
-    return result;
-  };
-  const rowActions = {
-    ...actions,
-    openSession: (id) => navigate(actions.openSession, id),
-    openAgent: (id) => navigate(actions.openAgent, id),
-    openAgentSession: (id) => navigate(actions.openAgentSession, id),
-    newAgentSession: (id) => navigate(actions.newAgentSession, id)
-  };
+  const leftDrawerRef = (0, import_react38.useRef)(leftDrawer);
+  leftDrawerRef.current = leftDrawer;
+  const rowActions = (0, import_react38.useMemo)(() => {
+    const navigate = (open, id) => {
+      const result = open(id);
+      if (leftDrawerRef.current) actions.setLeftDrawer?.(false);
+      return result;
+    };
+    return {
+      ...actions,
+      openSession: (id) => navigate(actions.openSession, id),
+      openAgent: (id) => navigate(actions.openAgent, id),
+      openAgentSession: (id) => navigate(actions.openAgentSession, id),
+      newAgentSession: (id) => navigate(actions.newAgentSession, id)
+    };
+  }, [actions]);
   const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
@@ -35888,7 +36350,7 @@ function UpdateButton({ useUpdate, actions }) {
   const dsh = update?.dsh;
   const dshPhase = dsh?.phase ?? "idle";
   const dshRow = showsDshRow(dsh, update?.app);
-  const tick = useViewport();
+  const tick = useViewport(open);
   (0, import_react38.useLayoutEffect)(() => {
     if (!open) return;
     const rect = button.current?.getBoundingClientRect();
@@ -36060,7 +36522,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setBusy(false);
     }
   };
-  const tick = useViewport();
+  const tick = useViewport(open);
   const anchor = () => {
     const rect = button.current?.getBoundingClientRect();
     if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 });
@@ -37603,16 +38065,19 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
     )
   );
 }
-function Heat({ view, keep, paint, index }) {
+var HEAT_LEVELS = [0.3, 0.52, 0.76, 1];
+var Heat = memo(function Heat2({ view, ownerAt, modelAt, paint, index }) {
   const [hover, setHover] = (0, import_react43.useState)(null);
-  const { today, daily, most, months, gridData, active } = (0, import_react43.useMemo)(() => {
+  const activeCell = (0, import_react43.useRef)(null);
+  const { today, daily, months, gridData, active } = (0, import_react43.useMemo)(() => {
     const day = hourMs(`${view.now.slice(0, 10)} 00`);
     const first = mondayOf(day) - (HEAT_WEEKS - 1) * 7 * DAY_MS;
     const from = dayKey(first);
     const map = /* @__PURE__ */ new Map();
     for (const row of view.rows) {
+      if (ownerAt >= 0 ? row[OWNER] !== ownerAt : modelAt >= 0 && row[MODEL] !== modelAt) continue;
       const k = row[HOUR].slice(0, 10);
-      if (k >= from && keep(row)) map.set(k, (map.get(k) ?? 0) + tokensOf(row));
+      if (k >= from) map.set(k, (map.get(k) ?? 0) + tokensOf(row));
     }
     const peak = Math.max(0, ...map.values());
     const monthLabels = [];
@@ -37630,19 +38095,35 @@ function Heat({ view, keep, paint, index }) {
       }
     }
     const count = [...map.values()].filter((value) => value > 0).length;
-    return { today: day, daily: map, most: peak, months: monthLabels, gridData: items, active: count };
-  }, [view.now, view.rows, keep]);
-  void most;
-  const levels = [0.3, 0.52, 0.76, 1];
-  const cells = gridData.map(({ ms, week, day, level }) => (0, import_react43.createElement)("span", {
+    return { today: day, daily: map, months: monthLabels, gridData: items, active: count };
+  }, [view.now, view.rows, ownerAt, modelAt]);
+  (0, import_react43.useEffect)(() => {
+    if (activeCell.current) {
+      activeCell.current.removeAttribute("data-on");
+      activeCell.current = null;
+    }
+    setHover(null);
+  }, [gridData]);
+  const cells = (0, import_react43.useMemo)(() => gridData.map(({ ms, week, level }, cellIndex) => (0, import_react43.createElement)("span", {
     key: ms,
     className: "bt-us-cell",
     style: { "--w": week },
-    "data-on": hover?.ms === ms ? "" : void 0,
+    "data-heat-i": ms > today ? void 0 : cellIndex,
     "data-future": ms > today ? "" : void 0,
-    "data-today": ms === today ? "" : void 0,
-    onMouseEnter: ms > today ? void 0 : () => setHover({ ms, week, day })
-  }, level > 0 ? (0, import_react43.createElement)("i", { style: { background: soften(paint, levels[level - 1]) } }) : null));
+    "data-today": ms === today ? "" : void 0
+  }, level > 0 ? (0, import_react43.createElement)("i", { style: { background: soften(paint, HEAT_LEVELS[level - 1]) } }) : null)), [gridData, today, paint]);
+  const setHoverCell = (node, item) => {
+    if (activeCell.current && activeCell.current !== node) activeCell.current.removeAttribute("data-on");
+    activeCell.current = node;
+    if (node) node.setAttribute("data-on", "");
+    setHover((prev) => prev?.ms === item?.ms ? prev : item);
+  };
+  const onGridOver = (event) => {
+    const cell = event.target?.closest?.("[data-heat-i]");
+    if (!cell) return;
+    const item = gridData[Number(cell.getAttribute("data-heat-i"))];
+    if (item) setHoverCell(cell, item);
+  };
   const tipSide = hover ? {
     ...hover.week >= HEAT_WEEKS / 2 ? { right: `calc(${(HEAT_WEEKS - hover.week) / HEAT_WEEKS * 100}% + 8px)` } : { left: `calc(${(hover.week + 1) / HEAT_WEEKS * 100}% + 8px)` },
     ...hover.day < 4 ? { top: `calc(${hover.day / 7 * 100}% - 2px)` } : { top: "auto", bottom: `calc(${(6 - hover.day) / 7 * 100}% - 2px)` }
@@ -37655,8 +38136,8 @@ function Heat({ view, keep, paint, index }) {
     (0, import_react43.createElement)("div", { className: "bt-us-heat-months", "aria-hidden": true }, months),
     (0, import_react43.createElement)(
       "div",
-      { className: "bt-us-heat-plot", onMouseLeave: () => setHover(null) },
-      (0, import_react43.createElement)("div", { className: "bt-us-heat-grid", role: "img", "aria-label": summary }, cells),
+      { className: "bt-us-heat-plot", onMouseLeave: () => setHoverCell(null, null) },
+      (0, import_react43.createElement)("div", { className: "bt-us-heat-grid", role: "img", "aria-label": summary, onMouseOver: onGridOver }, cells),
       hover ? (0, import_react43.createElement)(
         "div",
         { className: "bt-us-tip bt-us-heat-tip", style: tipSide },
@@ -37668,11 +38149,11 @@ function Heat({ view, keep, paint, index }) {
       "div",
       { className: "bt-us-heat-scale", "aria-hidden": true },
       t("Light"),
-      levels.map((level) => (0, import_react43.createElement)("span", { key: level, className: "bt-us-cell" }, (0, import_react43.createElement)("i", { style: { background: soften(paint, level) } }))),
+      HEAT_LEVELS.map((level) => (0, import_react43.createElement)("span", { key: level, className: "bt-us-cell" }, (0, import_react43.createElement)("i", { style: { background: soften(paint, level) } }))),
       t("Heavy")
     )
   );
-}
+}, void 0, "Heat");
 function Skeleton2() {
   return (0, import_react43.createElement)(
     "div",
@@ -37749,17 +38230,17 @@ function UsagePage({ roster, actions, focusId }) {
       return { kind: "model", name, sub: model.providerName ?? model.provider, paint, glyph: (size) => (0, import_react43.createElement)(ModelGlyph, { name, paint, size }) };
     });
     const ownerAt2 = focus?.kind === "owner" ? view.owners.findIndex((owner) => owner.key === focus.key) : -1;
-    const modelAt = focus?.kind === "model" ? view.models.findIndex((model) => model.key === focus.key) : -1;
+    const modelAt2 = focus?.kind === "model" ? view.models.findIndex((model) => model.key === focus.key) : -1;
     const isBot2 = (at) => ["bot", "agent"].includes(view.owners[at]?.kind);
     const all2 = summarize(view, range, void 0, (row) => by === "bot" ? isBot2(row[OWNER]) ? `o${row[OWNER]}` : "rest" : `m${row[MODEL]}`);
-    const keep2 = ownerAt2 >= 0 ? (row) => row[OWNER] === ownerAt2 : modelAt >= 0 ? (row) => row[MODEL] === modelAt : () => true;
-    const face2 = ownerAt2 >= 0 ? faces2[ownerAt2] : modelAt >= 0 ? models2[modelAt] : null;
-    const part2 = face2 ? summarize(view, range, keep2) : all2;
+    const keep = ownerAt2 >= 0 ? (row) => row[OWNER] === ownerAt2 : modelAt2 >= 0 ? (row) => row[MODEL] === modelAt2 : () => true;
+    const face2 = ownerAt2 >= 0 ? faces2[ownerAt2] : modelAt2 >= 0 ? models2[modelAt2] : null;
+    const part2 = face2 ? summarize(view, range, keep) : all2;
     const activeDays2 = /* @__PURE__ */ new Set();
     let first = view.now;
     for (const row of view.rows) {
       if (row[HOUR] < first) first = row[HOUR];
-      if (keep2(row) && tokensOf(row) > 0) activeDays2.add(row[HOUR].slice(0, 10));
+      if (keep(row) && tokensOf(row) > 0) activeDays2.add(row[HOUR].slice(0, 10));
     }
     const oldest2 = Math.min(monthOf(hourMs(first)), addMonths(monthOf(hourMs(view.now)), -12));
     const ranked2 = (map) => [...map].filter(([, sum]) => sum.total > 0).sort((a, b) => b[1].total - a[1].total);
@@ -37792,7 +38273,7 @@ function UsagePage({ roster, actions, focusId }) {
       const tip = face2 ? PARTS.map(([key]) => [key, bucket.sum[key]]) : parts;
       return { key: bucket.key, tick: tickOf(range, bucket), title: titleOf2(range, bucket), total: bucket.sum.total, parts, tip };
     });
-    return { faces: faces2, models: models2, ownerAt: ownerAt2, modelAt, face: face2, keep: keep2, all: all2, part: part2, series: series2, tipSeries: tipSeries2, fillOf: fillOf2, columns: columns3, ranked: ranked2, isBot: isBot2, activeDays: activeDays2, oldest: oldest2 };
+    return { faces: faces2, models: models2, ownerAt: ownerAt2, modelAt: modelAt2, face: face2, keep, all: all2, part: part2, series: series2, tipSeries: tipSeries2, fillOf: fillOf2, columns: columns3, ranked: ranked2, isBot: isBot2, activeDays: activeDays2, oldest: oldest2 };
   }, [view, rangeId, span, by, focusId, roster]);
   const root = (0, import_react43.useRef)(null);
   (0, import_react43.useEffect)(() => {
@@ -37814,7 +38295,7 @@ function UsagePage({ roster, actions, focusId }) {
       )
     );
   }
-  const { faces, models, ownerAt, face, keep, all, part, series, tipSeries, fillOf, columns: columns2, ranked, isBot, activeDays, oldest } = shaped;
+  const { faces, models, ownerAt, modelAt, face, all, part, series, tipSeries, fillOf, columns: columns2, ranked, isBot, activeDays, oldest } = shaped;
   const pick2 = (next) => actions.openSettings("usage", `${next.kind}:${next.key}`);
   const chooseRange = (id) => {
     if (id !== "custom") {
@@ -37882,7 +38363,7 @@ function UsagePage({ roster, actions, focusId }) {
             kinds.length > 0 ? kinds.map(([at, sum], index) => (0, import_react43.createElement)(Row2, { key: at, name: kindLabel(view.kinds[at], ownerAt >= 0 && isBot(ownerAt)), sum, whole, index, fill: soften(face.paint, 0.8) })) : nothing
           )
         ),
-        (0, import_react43.createElement)(Heat, { key: "heat", view, keep, paint: face.paint, index: 4 })
+        (0, import_react43.createElement)(Heat, { key: "heat", view, ownerAt, modelAt, paint: face.paint, index: 4 })
       )
     ];
   } else {
@@ -37909,7 +38390,7 @@ function UsagePage({ roster, actions, focusId }) {
           ),
           (0, import_react43.createElement)(ListCard, { title: t("Models"), count: usedModels.length, index: 3 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)
         ),
-        (0, import_react43.createElement)(Heat, { key: "heat", view, keep, paint: "var(--bt-accent)", index: 4 })
+        (0, import_react43.createElement)(Heat, { key: "heat", view, ownerAt: -1, modelAt: -1, paint: "var(--bt-accent)", index: 4 })
       )
     ];
   }
@@ -38063,7 +38544,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-cell[data-future]{visibility:hidden}
 .bt-us-heat-scale{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-heat-scale .bt-us-cell{width:10px}
-.bt-us-skel{border-radius:16px;background:linear-gradient(90deg,var(--bt-hover) 0%,var(--bt-active) 50%,var(--bt-hover) 100%);background-size:200% 100%;animation:bt-us-shine 1.4s ease-in-out infinite}
+.bt-us-skel{position:relative;overflow:hidden;border-radius:16px;background:var(--bt-hover)}
+.bt-us-skel::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,var(--bt-active) 50%,transparent 100%);transform:translateX(-100%);animation:bt-us-shine 1.4s ease-in-out infinite}
 .bt-us-skel-sheet>.bt-us-skel:first-child{border-radius:16px 16px 0 0}
 .bt-us-skel-sheet>.bt-us-skel:not(:first-child){border-radius:0}
 .bt-us-skel-sheet>.bt-us-pair>.bt-us-skel:first-child{border-radius:0 0 0 16px}
@@ -38079,8 +38561,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 @keyframes bt-us-cell{from{opacity:0;transform:scale(.5)}}
 @keyframes bt-us-ring{from{stroke-dasharray:0 ${Math.ceil(RING)}}}
 @keyframes bt-us-pulse{50%{opacity:.25}}
-@keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
-@media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
+@keyframes bt-us-shine{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before,.bt-us *::after{animation:none!important;transition:none!important}}
 /* Narrow and mid-width viewports: stats take two columns, the calendar and heat map shrink or scroll. */
 @media (max-width:780px){
   .bt-us-stats{grid-template-columns:repeat(2,1fr)}
@@ -40783,7 +41265,7 @@ function DetailView({ conn, status, roster, actions, onBack }) {
     )
   );
 }
-function BotRow2({ conn, status, roster, onOpen }) {
+function BotRow3({ conn, status, roster, onOpen }) {
   const shown = platformOf(conn.platform);
   const state = stateOf(conn, status);
   const bot = roster.bots.find((entry) => entry.id === conn.botId);
@@ -40845,7 +41327,7 @@ function ImPage({ roster, actions }) {
       "section",
       { className: "bt-set-section" },
       (0, import_react47.createElement)("h3", null, t("Your IM bots")),
-      (0, import_react47.createElement)("div", { className: "bt-set-card" }, list.map((conn) => (0, import_react47.createElement)(BotRow2, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))
+      (0, import_react47.createElement)("div", { className: "bt-set-card" }, list.map((conn) => (0, import_react47.createElement)(BotRow3, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))
     ) : null,
     (0, import_react47.createElement)(
       "section",
@@ -40914,9 +41396,10 @@ var IM_CSS = `
 .bt-im-qr-paper{fill:var(--bt-qr-paper)}
 .bt-im-qr-ink{fill:var(--bt-qr-ink)}
 .bt-im-qr{display:block;width:100%;height:100%;animation:bt-veil-in .22s ease-out}
-.bt-im-qr-blank{display:block;width:100%;height:100%;border-radius:6px;background:linear-gradient(100deg,var(--bt-hover) 30%,var(--bt-active) 50%,var(--bt-hover) 70%);background-size:300% 100%;animation:bt-im-sheen 1.4s linear infinite}
-.bt-im-qr-box[data-state=expired] .bt-im-qr-blank,.bt-im-qr-box[data-state=error] .bt-im-qr-blank{animation:none;background:var(--bt-hover)}
-@keyframes bt-im-sheen{0%{background-position:100% 0}100%{background-position:0 0}}
+.bt-im-qr-blank{position:relative;overflow:hidden;display:block;width:100%;height:100%;border-radius:6px;background:var(--bt-hover)}
+.bt-im-qr-blank::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,var(--bt-active) 50%,transparent 80%);transform:translateX(-100%);animation:bt-im-sheen 1.4s linear infinite}
+.bt-im-qr-box[data-state=expired] .bt-im-qr-blank::after,.bt-im-qr-box[data-state=error] .bt-im-qr-blank::after{animation:none;display:none}
+@keyframes bt-im-sheen{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
 .bt-im-qr-done{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;background:color-mix(in srgb,var(--bt-qr-paper) 82%,transparent);color:var(--bt-green)}
 .bt-im-qr-done svg{width:40px;height:40px}
 .bt-im-qr-caption{margin:0;font-size:13px;line-height:18px;color:var(--bt-ink-2);text-align:center}
@@ -40927,7 +41410,7 @@ var IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
-@media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank,.bt-im-qr{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `;
 
 // src/client/services-settings.js
@@ -46626,6 +47109,13 @@ var savePrefs = (next) => {
 };
 var listeners2 = /* @__PURE__ */ new Set();
 var current = prefsNow();
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== null && event.key !== NOTIFY_KEY) return;
+    current = prefsNow();
+    for (const run2 of listeners2) run2();
+  });
+}
 function useNotifyPrefs() {
   const [, bump] = (0, import_react64.useState)(0);
   (0, import_react64.useEffect)(() => {
@@ -46649,15 +47139,18 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
   const viewing = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
   const previous = (0, import_react64.useRef)(/* @__PURE__ */ new Map());
   const seeded = (0, import_react64.useRef)(false);
+  const lastBadge = (0, import_react64.useRef)(null);
   (0, import_react64.useEffect)(() => {
     const shell = bridge();
-    shell?.onOpenSession?.((sessionId) => {
+    const off = shell?.onOpenSession?.((sessionId) => {
       actions.openSession?.(sessionId);
     });
-    return void 0;
+    return () => {
+      if (typeof off === "function") off();
+    };
   }, []);
   (0, import_react64.useEffect)(() => {
-    const prefs = prefsNow();
+    const prefs = current;
     const open = document.hasFocus?.() !== false && document.visibilityState !== "hidden";
     const rows2 = notificationRows({ statuses, roster, approvals: work.approvals });
     const next = /* @__PURE__ */ new Map();
@@ -46679,7 +47172,11 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
     }
     if (roster.ready !== false) seeded.current = true;
     previous.current = next;
-    bridge()?.setBadge?.(badgeOf2(rows2));
+    const badge = badgeOf2(rows2);
+    if (badge !== lastBadge.current) {
+      lastBadge.current = badge;
+      bridge()?.setBadge?.(badge);
+    }
   }, [statuses, viewing, roster, work]);
   return null;
 }
@@ -46715,7 +47212,7 @@ function NotificationsRow() {
   );
 }
 function isMuted(id) {
-  return prefsNow().muted[id] === true;
+  return current.muted[id] === true;
 }
 function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } });
@@ -47971,11 +48468,20 @@ function useTranscriptView() {
   (0, import_react67.useEffect)(() => {
     let frame2 = 0;
     let watched = null;
+    let headerEl = null;
     const unpinned = pinWatch();
-    const observer = new MutationObserver(() => schedule());
+    const inComposer = (record) => {
+      const target = record.target;
+      const el = target?.nodeType === 1 ? target : target?.parentElement;
+      return typeof el?.closest === "function" && el.closest("[data-composer-card]") !== null;
+    };
+    const observer = new MutationObserver((records) => {
+      if (records.length > 0 && records.every(inComposer)) return;
+      schedule();
+    });
     const measure = () => {
       frame2 = 0;
-      const scroller = document.querySelector("[data-conversation-scroll]");
+      const scroller = watched?.isConnected ? watched : document.querySelector("[data-conversation-scroll]");
       if (scroller !== watched) {
         observer.disconnect();
         watched = scroller;
@@ -47986,7 +48492,8 @@ function useTranscriptView() {
         return;
       }
       const box = scroller.getBoundingClientRect();
-      const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50;
+      const header = headerEl?.isConnected ? headerEl : headerEl = document.querySelector('header[class*="_header"]');
+      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50;
       const sep = newDividerIn(scroller);
       let divider = null;
       if (sep) {
@@ -48006,7 +48513,11 @@ function useTranscriptView() {
     const schedule = () => {
       if (!frame2) frame2 = requestAnimationFrame(measure);
     };
-    document.addEventListener("scroll", schedule, true);
+    const onScroll = (event) => {
+      if (watched?.isConnected && event.target !== watched) return;
+      schedule();
+    };
+    document.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", schedule);
     window.visualViewport?.addEventListener("resize", schedule);
     window.visualViewport?.addEventListener("scroll", schedule);
@@ -48014,7 +48525,7 @@ function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame2);
       observer.disconnect();
-      document.removeEventListener("scroll", schedule, true);
+      document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("scroll", schedule);
@@ -48260,13 +48771,23 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     dictation.note ? (0, import_react68.createElement)("span", { className: "bt-mic-note", role: "status" }, dictation.note) : null
   );
 }
+var MAX_MENU_MARKS = 200;
 function menuIcons(roster) {
   const marks = /* @__PURE__ */ new Map();
   return (row) => {
     if (!row.bot) return PeopleIcon;
     const id = row.bot.id;
-    if (!marks.has(id)) marks.set(id, ({ size = 14 }) => (0, import_react68.createElement)(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size }));
-    return marks.get(id);
+    const cached = lruGet(marks, id);
+    if (cached !== void 0) return cached;
+    const byId = roster.getSnapshot().byId ?? {};
+    if (marks.size >= MAX_MENU_MARKS) {
+      for (const known of marks.keys()) {
+        if (byId[known] === void 0) marks.delete(known);
+      }
+    }
+    const Icon = ({ size = 14 }) => (0, import_react68.createElement)(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size });
+    lruSet(marks, id, Icon, MAX_MENU_MARKS);
+    return Icon;
   };
 }
 function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
@@ -48275,12 +48796,13 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react68.useRef)(null);
   const menu = (0, import_react68.useRef)(null);
-  const tick = useViewport();
+  const tick = useViewport(Boolean(shown));
   const inputNow = (0, import_react68.useRef)(void 0);
   const ready = useInput?.((state) => {
     inputNow.current = state;
     return steerable(state);
   }) === true;
+  const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   (0, import_react68.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
@@ -48303,21 +48825,24 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   (0, import_react68.useEffect)(() => {
     const card = button.current?.closest("[data-composer-card]");
     if (!ready || card === null || card === void 0) return void 0;
-    card.style.setProperty("--bt-placeholder", JSON.stringify(t("Press Enter to steer queued messages")));
-    return () => card.style.removeProperty("--bt-placeholder");
-  });
+    const next = JSON.stringify(t("Press Enter to steer queued messages"));
+    if (card.style.getPropertyValue("--bt-placeholder") !== next) card.style.setProperty("--bt-placeholder", next);
+    return () => {
+      if (card.style.getPropertyValue("--bt-placeholder") === next) card.style.removeProperty("--bt-placeholder");
+    };
+  }, [ready, sessionId, target]);
   (0, import_react68.useEffect)(() => {
     let steering = false;
     const onKey = (event) => {
       if (steering || event.defaultPrevented || open) return;
-      const target2 = event.target;
-      if (typeof target2?.closest !== "function") return;
-      const card = button.current?.closest("[data-composer-card]");
-      if (card === null || card === void 0 || target2.closest("[data-composer-card]") !== card) return;
-      if (target2.closest("[contenteditable=true]") === null) return;
-      if (target2.closest("[data-composer-composing]")) return;
-      if (target2.ownerDocument?.querySelector('[role="listbox"]')) return;
       if (!enterSteers(event, inputNow.current)) return;
+      const targetEl = event.target;
+      if (typeof targetEl?.closest !== "function") return;
+      const card = button.current?.closest("[data-composer-card]");
+      if (card === null || card === void 0 || targetEl.closest("[data-composer-card]") !== card) return;
+      if (targetEl.closest("[contenteditable=true]") === null) return;
+      if (targetEl.closest("[data-composer-composing]")) return;
+      if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
       steering = true;
@@ -48333,7 +48858,6 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     const rect = button.current.getBoundingClientRect();
     return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
   }, [shown, open, tick]);
-  const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   if (sessionId === void 0 || target === void 0) return null;
   const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
   const toggle = () => {
@@ -48394,6 +48918,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
 }
 var NO_IDS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
+var DRAFT_DEBOUNCE_MS = 300;
 var appendRescuedPreservingChips = (inputActions, base, rescued) => {
   const merged = mergeRescuedDraft(base, rescued);
   if (merged === base) return { applied: true, changed: false, nextText: base };
@@ -48431,6 +48956,27 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
   } else if (!pending.current.text || draft !== pending.current.staleDraft) {
     latestDraft.current = draft;
   }
+  (0, import_react68.useEffect)(() => {
+    const flush = () => flushDrafts();
+    const onVisibility = () => {
+      if (document.hidden === true) flush();
+    };
+    const hasWin = typeof window !== "undefined" && typeof window.addEventListener === "function";
+    const hasDoc = typeof document !== "undefined" && typeof document.addEventListener === "function";
+    if (hasWin) {
+      window.addEventListener("pagehide", flush);
+      window.addEventListener("beforeunload", flush);
+    }
+    if (hasDoc) document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      if (hasWin) {
+        window.removeEventListener("pagehide", flush);
+        window.removeEventListener("beforeunload", flush);
+      }
+      if (hasDoc) document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, [chatId, sessionId]);
   let rescuedHandled = false;
   (0, import_react68.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
@@ -48514,7 +49060,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     if (pending.current.text && draft === pending.current.staleDraft) return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, staleDraft: null, files: false };
-    keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
+    keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
   }, [current2, frozen, chatId, sessionId, draft, ids]);
   return null;
 }
@@ -48985,17 +49531,28 @@ async function openCapture() {
   } catch (error) {
     throw captureError(error?.name === "NotAllowedError" ? "blocked" : "failed", error);
   }
-  const audio = new AudioContext();
-  const analyser = audio.createAnalyser();
-  analyser.fftSize = 512;
-  audio.createMediaStreamSource(stream).connect(analyser);
-  const frame2 = new Float32Array(analyser.fftSize);
-  const recorder = new MediaRecorder(stream);
+  let audio = null;
+  let analyser;
+  let frame2;
+  let recorder;
   const chunks = [];
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data);
-  };
-  recorder.start();
+  try {
+    audio = new AudioContext();
+    analyser = audio.createAnalyser();
+    analyser.fftSize = 512;
+    audio.createMediaStreamSource(stream).connect(analyser);
+    frame2 = new Float32Array(analyser.fftSize);
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.start();
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    void audio?.close().catch(() => {
+    });
+    throw error;
+  }
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -49492,8 +50049,9 @@ function TechnicalDetails({ facts }) {
     (0, import_react72.createElement)("button", { type: "button", className: "bt-mini bt-fail-copy", onClick: copy2 }, copied ? (0, import_react72.createElement)(CheckIcon) : (0, import_react72.createElement)(CopyIcon), copied ? t("Copied") : t("Copy"))
   );
 }
+var FAILURE_ROSTER_FIELDS = ["byId", "models", "defaultModel", "exchangeTurns"];
 function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
-  const roster = useRoster((value) => value);
+  const roster = useRosterPick(useRoster, FAILURE_ROSTER_FIELDS);
   const failRow = node?.data ?? {};
   const bot = roster.byId?.[sessionId];
   const host = bot?.failures?.[sessionId];
@@ -50117,9 +50675,18 @@ function PasteCard({ text, onPutBack, onRemove }) {
     }, "×")
   );
 }
+var isEditableOnly = (records) => records.length > 0 && records.every((record) => {
+  const target = record.target;
+  const el = target?.nodeType === 1 ? target : target?.parentElement;
+  return typeof el?.closest === "function" && el.closest("[contenteditable=true]") !== null;
+});
 function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const draft = useInput?.((state) => state.draft) ?? "";
+  const draftRef = (0, import_react75.useRef)("");
+  useInput?.((state) => {
+    draftRef.current = state.draft ?? "";
+    return null;
+  });
   if (blocks.length === 0) return null;
   const drop = (block) => {
     if (block.attachmentId && typeof inputActions?.removeAttachment === "function") inputActions.removeAttachment(block.attachmentId);
@@ -50129,7 +50696,7 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
     key: block.id,
     text: block.text,
     onPutBack: () => {
-      if (putBackText({ block, inputActions, draft })) actions.removePaste(sessionId, [block.id]);
+      if (putBackText({ block, inputActions, draft: draftRef.current })) actions.removePaste(sessionId, [block.id]);
     },
     onRemove: () => drop(block)
   })));
@@ -50137,15 +50704,26 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
 function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = (0, import_react75.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS2;
-  const draft = useInput?.((state) => state.draft) ?? "";
-  const latest = (0, import_react75.useRef)({ blocks, ids, draft });
-  latest.current = { blocks, ids, draft };
+  const idsRef = (0, import_react75.useRef)(NO_IDS2);
+  const idsKey = useInput?.((state) => {
+    const list = state.attachmentIds ?? NO_IDS2;
+    idsRef.current = list;
+    return list.length === 0 ? "" : list.join("\0");
+  }) ?? "";
+  const ids = idsRef.current;
+  const draftRef = (0, import_react75.useRef)("");
+  useInput?.((state) => {
+    draftRef.current = state.draft ?? "";
+    return null;
+  });
+  const latest = (0, import_react75.useRef)({ blocks, ids });
+  latest.current = { blocks, ids };
   (0, import_react75.useEffect)(() => {
     if (!blocks.some((block) => block.attachmentId === null)) return void 0;
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
-    const sync = () => {
+    const sync = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return;
       const { blocks: now, ids: nowIds } = latest.current;
       if (!now.some((block) => block.attachmentId === null)) return;
       const links = pasteLinks(now, nowIds, composerLabels(card));
@@ -50155,22 +50733,23 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     const observer = new MutationObserver(sync);
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [ids, blocks]);
+  }, [idsKey, blocks]);
   const shown = (0, import_react75.useRef)(/* @__PURE__ */ new Set());
   (0, import_react75.useEffect)(() => {
     const stale = latest.current.blocks.filter((block) => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId));
     if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map((block) => block.id));
   }, [sessionId]);
   (0, import_react75.useEffect)(() => {
-    const gone = latest.current.blocks.filter((block) => !blockLives(block, ids) && shown.current.has(block.attachmentId));
-    for (const id of ids) shown.current.add(id);
+    const nowIds = latest.current.ids;
+    const gone = latest.current.blocks.filter((block) => !blockLives(block, nowIds) && shown.current.has(block.attachmentId));
+    for (const id of nowIds) shown.current.add(id);
     if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
-  }, [ids]);
+  }, [idsKey]);
   (0, import_react75.useEffect)(() => {
     const waiting = blocks.filter((block) => block.attachmentId === null);
     if (waiting.length === 0) return void 0;
     const timer = setTimeout(() => {
-      let currentDraft = latest.current.draft;
+      let currentDraft = draftRef.current;
       for (const block of waiting) {
         const now = latest.current.blocks.find((item) => item.id === block.id);
         if (now === void 0 || now.attachmentId !== null) continue;
@@ -50181,14 +50760,19 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     return () => clearTimeout(timer);
   }, [blocks]);
   (0, import_react75.useEffect)(() => {
-    if (!blocks.some((block) => block.attachmentId !== null)) return void 0;
+    const names = /* @__PURE__ */ new Set();
+    for (const block of blocks) {
+      if (block.attachmentId !== null && block.name) names.add(block.name);
+    }
+    if (names.size === 0) return void 0;
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
-    const mark2 = () => {
-      for (const block of blocks) {
-        if (block.attachmentId === null) continue;
-        for (const node of card.querySelectorAll("[title]")) {
-          if (node.getAttribute("title") === block.name) node.setAttribute("data-bt-paste", "");
+    const mark2 = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return;
+      const scope = card.querySelector('[data-slot="conversation.input.attachments"]') ?? card;
+      for (const node of scope.querySelectorAll("[title]")) {
+        if (names.has(node.getAttribute("title")) && !node.hasAttribute("data-bt-paste")) {
+          node.setAttribute("data-bt-paste", "");
         }
       }
     };
@@ -50196,7 +50780,7 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     const observer = new MutationObserver(mark2);
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [blocks, ids]);
+  }, [blocks, idsKey]);
   (0, import_react75.useEffect)(() => {
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
@@ -50867,8 +51451,12 @@ function useMicLevel(enabled, targetRef) {
     let audio = null;
     let frame2 = 0;
     let stopped = false;
+    let lastLevel = "";
     const write = (value) => {
-      targetRef.current?.style.setProperty("--bt-level", String(value));
+      const next = String(value);
+      if (next === lastLevel) return;
+      lastLevel = next;
+      targetRef.current?.style.setProperty("--bt-level", next);
     };
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) {
@@ -50876,21 +51464,29 @@ function useMicLevel(enabled, targetRef) {
         return;
       }
       stream = media;
-      audio = new AudioContext();
-      const analyser = audio.createAnalyser();
-      analyser.fftSize = 256;
-      audio.createMediaStreamSource(media).connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      let smooth = 0;
-      const tick = () => {
-        analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (const value of data) sum += ((value - 128) / 128) ** 2;
-        smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
-        write(Math.round(smooth * 100) / 100);
-        frame2 = requestAnimationFrame(tick);
-      };
-      tick();
+      try {
+        audio = new AudioContext();
+        const analyser = audio.createAnalyser();
+        analyser.fftSize = 256;
+        audio.createMediaStreamSource(media).connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        let smooth = 0;
+        const tick = () => {
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (const value of data) sum += ((value - 128) / 128) ** 2;
+          smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
+          write(Math.round(smooth * 100) / 100);
+          frame2 = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+        void audio?.close().catch(() => {
+        });
+        audio = null;
+      }
     }).catch(() => {
     });
     return () => {
@@ -51004,8 +51600,12 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     let smooth = 0;
     const detect = turnDetector();
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1e3;
+    let lastLevel = "";
     const writeLevel = (value) => {
-      orbRef.current?.style.setProperty("--bt-level", String(value));
+      const next = String(value);
+      if (next === lastLevel) return;
+      lastLevel = next;
+      orbRef.current?.style.setProperty("--bt-level", next);
     };
     const finish = (current2) => {
       setPhase("transcribing");
@@ -52143,7 +52743,11 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const close = () => actions.closeOverlay();
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
-  const transcript = useSessions((list) => transcriptOf(list, part, bot?.name ?? room2?.name ?? t("Bot"), roster.exchangeTurns[part]));
+  const sessionsRef = (0, import_react81.useRef)(null);
+  useSessions((list) => {
+    sessionsRef.current = list;
+    return null;
+  });
   const usage = useSessions((list) => usageOf(list, [part, ...bot?.parts ?? room2?.parts ?? []]));
   const run2 = (promise) => Promise.resolve(promise).then(() => {
     setError("");
@@ -52153,6 +52757,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     return false;
   });
   const share = () => {
+    const transcript = sessionsRef.current ? transcriptOf(sessionsRef.current, part, bot?.name ?? room2?.name ?? t("Bot"), roster.exchangeTurns[part]) : "";
     void navigator.clipboard?.writeText(transcript).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
@@ -52711,8 +53316,12 @@ function hasOverlayNode(nodes) {
 }
 function shouldCheckBrowserCover(records) {
   return records.some((record) => {
-    if (record.type === "attributes") return true;
-    if (!isElementNode(record.target) || !record.target.closest?.("[data-chat-flow]")) return true;
+    if (record.type === "attributes") {
+      if (record.attributeName === "role") return true;
+      const target = record.target;
+      return isElementNode(target) && (target.matches?.(OVERLAY_SELECTOR) || target.closest?.(OVERLAY_SELECTOR) != null || target.querySelector?.(OVERLAY_SELECTOR) != null);
+    }
+    if (!isElementNode(record.target)) return false;
     if (record.target.closest?.(OVERLAY_SELECTOR)) return true;
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
@@ -53692,19 +54301,26 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     beginSwitch(next);
     actions.setPanelView(next);
   };
-  const panelActions = { ...actions };
-  for (const name of ["openBrowser", "browserNewTab", "browserPick"]) {
-    if (actions[name]) panelActions[name] = (...args) => {
-      if (view !== "browser") beginSwitch("browser");
-      return actions[name](...args);
-    };
-  }
-  for (const name of ["openSideChat", "newSideChat"]) {
-    if (actions[name]) panelActions[name] = (...args) => {
-      if (view !== "side") beginSwitch("side");
-      return actions[name](...args);
-    };
-  }
+  const viewRef = (0, import_react82.useRef)(view);
+  viewRef.current = view;
+  const beginSwitchRef = (0, import_react82.useRef)(beginSwitch);
+  beginSwitchRef.current = beginSwitch;
+  const panelActions = (0, import_react82.useMemo)(() => {
+    const next = { ...actions };
+    for (const name of ["openBrowser", "browserNewTab", "browserPick"]) {
+      if (actions[name]) next[name] = (...args) => {
+        if (viewRef.current !== "browser") beginSwitchRef.current("browser");
+        return actions[name](...args);
+      };
+    }
+    for (const name of ["openSideChat", "newSideChat"]) {
+      if (actions[name]) next[name] = (...args) => {
+        if (viewRef.current !== "side") beginSwitchRef.current("side");
+        return actions[name](...args);
+      };
+    }
+    return next;
+  }, [actions]);
   (0, import_react82.useLayoutEffect)(() => {
     const note = intent.current;
     intent.current = null;
@@ -54599,6 +55215,7 @@ var EMPTY3 = { url: "", title: "", favicon: null, loading: false, canGoBack: fal
 function createAppViewProxy(bridge2, botId, tabId) {
   const listeners3 = /* @__PURE__ */ new Map();
   const state = { url: "", title: "", loading: false, canGoBack: false, canGoForward: false };
+  let readyOnce = false;
   const fire = (name, event = {}) => {
     for (const listener of listeners3.get(name) ?? []) listener({ type: name, ...event });
   };
@@ -54654,12 +55271,26 @@ function createAppViewProxy(bridge2, botId, tabId) {
     focus() {
       return bridge2.views.focus(botId, tabId);
     },
-    update(next) {
+    update(next, { silent = false } = {}) {
+      const wasLoading = state.loading;
+      const prevUrl = state.url;
+      const prevTitle = state.title;
       Object.assign(state, next);
-      fire("did-navigate");
-      fire("did-stop-loading");
-      fire("page-title-updated");
-      if (!state.loading) fire("dom-ready");
+      if (silent) {
+        if (!state.loading && state.live !== false) readyOnce = true;
+        return;
+      }
+      if (!state.loading && !readyOnce) {
+        readyOnce = true;
+        fire("dom-ready");
+        return;
+      }
+      if (wasLoading && !state.loading) {
+        fire("did-stop-loading");
+        return;
+      }
+      if (state.url !== prevUrl) fire("did-navigate");
+      else if (state.title !== prevTitle) fire("page-title-updated");
     }
   };
 }
@@ -54680,6 +55311,7 @@ function browserAddress(input) {
 function createBotBrowsers({ bridge: bridge2, createSource: createSource2, storage = globalThis.localStorage, document: doc = globalThis.document, guestFactory }) {
   const views = /* @__PURE__ */ new Map();
   const owner = /* @__PURE__ */ new Map();
+  const previewing = /* @__PURE__ */ new Set();
   const tabs = createSource2({});
   const pages = createSource2({});
   const holds = createSource2({});
@@ -54734,13 +55366,21 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     }
     const entry = views.get(tabId);
     if (entry?.appView) {
+      const wasLoading = entry.element.isLoading();
+      const prevUrl = entry.element.getURL();
       entry.botAttached = change.botAttached === true;
-      entry.ready = change.loading !== true;
-      entry.element.update(change);
+      entry.ready = change.live !== false && change.loading !== true;
+      entry.element.update(change, { silent: true });
       if (entry.ready) {
-        observe(entry);
-        void preview(tabId);
+        observe(entry, change);
+        const nextUrl = entry.element.getURL();
+        if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
+          void preview(tabId);
+        }
+      } else {
+        publish2(tabId, change);
       }
+      return;
     }
     publish2(tabId, change);
   });
@@ -54755,10 +55395,12 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
   const persist = (botId) => {
     const state = tabs.getSnapshot()[botId];
     const snapshot = pages.getSnapshot();
-    save(botId, state && {
+    const next = state && {
       tabs: state.ids.map((id) => ({ id, url: snapshot[id]?.url ?? "", title: snapshot[id]?.title ?? "" })),
       active: state.active
-    });
+    };
+    if (JSON.stringify(saved[botId] ?? null) === JSON.stringify(next ?? null)) return;
+    save(botId, next);
   };
   const ensureTabs = (botId) => {
     if (tabs.getSnapshot()[botId] !== void 0) return;
@@ -54804,7 +55446,9 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
   };
   async function preview(tabId) {
     const entry = views.get(tabId);
-    if (entry === void 0 || !entry.ready || !/^https?:/i.test(entry.element.getURL())) return false;
+    const url = entry?.element.getURL() ?? "";
+    if (entry === void 0 || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false;
+    previewing.add(tabId);
     let timer;
     const timeout = new Promise((resolve2) => {
       timer = setTimeout(() => resolve2(""), PREVIEW_TIMEOUT_MS);
@@ -54812,15 +55456,17 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     try {
       const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout]);
       if (typeof excerpt !== "string" || excerpt === "" || views.get(tabId) !== entry) return false;
+      entry.previewedUrl = url;
       publish2(tabId, { excerpt });
       return true;
     } catch {
       return false;
     } finally {
       clearTimeout(timer);
+      previewing.delete(tabId);
     }
   }
-  const observe = (entry) => {
+  const observe = (entry, extra) => {
     const { element } = entry;
     if (!entry.ready) return;
     const url = element.getURL();
@@ -54830,7 +55476,7 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       entry.fresh = false;
     }
     const title = element.getTitle();
-    publish2(entry.tabId, { url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: true });
+    publish2(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
     persist(entry.botId);
   };
   async function create(tabId) {
@@ -54909,7 +55555,13 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       const state = (await bridge2.views.sync(botId)).find((view) => view.tabId === tabId);
       if (state) {
         entry.botAttached = state.botAttached === true;
-        element.update(state);
+        if (state.live === false) {
+          entry.ready = false;
+          element.update(state, { silent: true });
+          publish2(tabId, state);
+        } else {
+          element.update(state);
+        }
       }
     }
     return entry;
@@ -55095,7 +55747,7 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
         const tabId = state.active;
         const entry = tabId ? views.get(tabId) : void 0;
         const page = tabId ? snapshot[tabId] : void 0;
-        if (entry?.ready && page?.url) open2[botId] = { url: page.url, title: page.title };
+        if (entry?.ready && page?.live !== false && page?.url) open2[botId] = { url: page.url, title: page.title };
       }
       return open2;
     },
@@ -56083,10 +56735,47 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   const inView = /* @__PURE__ */ new WeakMap();
   let last = now();
   let resting = doc.hidden === true;
+  let cover = null;
+  let coverIsModal = false;
   let timer = 0;
   let queued = false;
   let stopped = false;
-  const runs = (animation) => !resting && inView.get(loops.get(animation)) !== false;
+  const readCover = () => {
+    if (typeof doc.querySelectorAll !== "function") return { node: null, modal: false };
+    const modals = doc.querySelectorAll('[aria-modal="true"]');
+    if (modals.length > 0) return { node: modals[modals.length - 1], modal: true };
+    const scrims = doc.querySelectorAll(".bt-scrim");
+    if (scrims.length === 0) return { node: null, modal: false };
+    const scrim = scrims[scrims.length - 1];
+    const parent = scrim.parentElement;
+    return { node: parent && parent !== doc.body && parent !== doc.documentElement ? parent : scrim, modal: false };
+  };
+  const isCoverNode = (node) => {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.getAttribute?.("aria-modal") === "true" || node.classList?.contains?.("bt-scrim")) return true;
+    return node.firstElementChild !== null && typeof node.querySelector === "function" && node.querySelector('[aria-modal="true"],.bt-scrim') !== null;
+  };
+  const hasCoverMutation = (records) => {
+    if (cover !== null && (cover.isConnected === false || coverIsModal && cover.getAttribute?.("aria-modal") !== "true")) return true;
+    if (!Array.isArray(records)) return true;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        if (record.attributeName === "aria-modal") return true;
+        continue;
+      }
+      if (record.type === "childList") {
+        for (const node of record.addedNodes ?? []) if (isCoverNode(node)) return true;
+        for (const node of record.removedNodes ?? []) if (isCoverNode(node)) return true;
+      }
+    }
+    return false;
+  };
+  const runs = (animation) => {
+    if (resting) return false;
+    const element = loops.get(animation);
+    if (cover !== null && cover.isConnected !== false && (element === null || typeof cover.contains === "function" && !cover.contains(element))) return false;
+    return inView.get(element) !== false;
+  };
   const apply2 = () => {
     for (const animation of loops.keys()) {
       if (runs(animation)) {
@@ -56119,6 +56808,9 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   const sync = () => {
     queued = false;
     if (stopped) return;
+    const found = readCover();
+    cover = found.node;
+    coverIsModal = found.modal;
     const current2 = new Set(doc.getAnimations().filter(isLoop));
     for (const [animation, element] of loops) {
       if (current2.has(animation)) continue;
@@ -56139,6 +56831,30 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
     queued = true;
     void Promise.resolve().then(sync);
   };
+  const onAnimationChange = (event) => {
+    const target = event?.target;
+    if (target !== void 0 && target !== null) {
+      const box = boxOf2(target);
+      if (event.type === "animationstart") {
+        if (!event.pseudoElement && typeof target.getAnimations === "function") {
+          const own = target.getAnimations();
+          if (!own.some(isLoop) && !watched.has(box)) return;
+        }
+      } else if (event.type === "animationend" || event.type === "animationcancel") {
+        if (!watched.has(box)) return;
+      }
+    }
+    later();
+  };
+  const bodyObserver = typeof win.MutationObserver === "function" && doc.body ? new win.MutationObserver((records) => {
+    if (!hasCoverMutation(records)) return;
+    const next = readCover();
+    if (next.node === cover && next.modal === coverIsModal) return;
+    cover = next.node;
+    coverIsModal = next.modal;
+    apply2();
+  }) : null;
+  bodyObserver?.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
   const check = () => {
     timer = 0;
     const left = last + restMs - now();
@@ -56166,7 +56882,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   for (const type of INPUTS2) win.addEventListener(type, touch, { capture: true, passive: true });
   win.addEventListener("focus", touch);
   doc.addEventListener("visibilitychange", shown);
-  for (const type of CHANGES) doc.addEventListener(type, later, true);
+  for (const type of CHANGES) doc.addEventListener(type, onAnimationChange, true);
   timer = win.setTimeout(check, restMs);
   sync();
   return () => {
@@ -56174,9 +56890,10 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
     for (const type of INPUTS2) win.removeEventListener(type, touch, { capture: true });
     win.removeEventListener("focus", touch);
     doc.removeEventListener("visibilitychange", shown);
-    for (const type of CHANGES) doc.removeEventListener(type, later, true);
+    for (const type of CHANGES) doc.removeEventListener(type, onAnimationChange, true);
     if (timer) win.clearTimeout(timer);
     observer?.disconnect();
+    bodyObserver?.disconnect();
     for (const animation of held) if (animation.playState === "paused") animation.play();
     held.clear();
     loops.clear();
@@ -56414,16 +57131,19 @@ var readJournal = (storage) => {
   return map;
 };
 var mutateJournal = (storage, update) => {
-  if (!storage) return;
+  if (!storage) return void 0;
   try {
     const map = readJournal(storage);
     const changed = update(map);
     if (changed !== false) storage.setItem(STORAGE.agentForks, JSON.stringify([...map.values()]));
+    return map.size;
   } catch {
+    return void 0;
   }
 };
-function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready, onPendingChange }) {
   const localJournal = readJournal(storage);
+  let storagePending = localJournal.size > 0;
   const inFlight = /* @__PURE__ */ new Map();
   const forks = /* @__PURE__ */ new Set();
   let stopped = false;
@@ -56431,14 +57151,18 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
     const entry = { agentId, sessionId };
     localJournal.set(sessionId, entry);
     pending.set(sessionId, agentId);
-    mutateJournal(storage, (map) => {
+    const size = mutateJournal(storage, (map) => {
       map.set(sessionId, entry);
     });
+    if (size !== void 0) storagePending = size > 0;
+    if (!stopped) onPendingChange?.();
     return entry;
   };
   const forget = (sessionId) => {
     localJournal.delete(sessionId);
-    mutateJournal(storage, (map) => map.delete(sessionId));
+    const size = mutateJournal(storage, (map) => map.delete(sessionId));
+    if (size !== void 0) storagePending = size > 0;
+    if (!stopped) onPendingChange?.();
   };
   const persist = (entry) => {
     const running = inFlight.get(entry.sessionId);
@@ -56458,6 +57182,7 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
       if (!stopped) report(error, "agent-fork-adopt");
     }).finally(() => {
       inFlight.delete(entry.sessionId);
+      if (!stopped) onPendingChange?.();
     });
     inFlight.set(entry.sessionId, task);
     return task;
@@ -56498,8 +57223,10 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
       }
     })();
     forks.add(task);
+    if (!stopped) onPendingChange?.();
     const settle = () => {
       forks.delete(task);
+      if (!stopped) onPendingChange?.();
     };
     task.then(settle, settle);
     return task;
@@ -56507,9 +57234,12 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
   sessions.fork = wrapped;
   const reconcile = async () => {
     if (stopped) return;
+    const hadPending = storagePending;
     const listed = sessions.list.getSnapshot().byId ?? {};
-    const entries2 = storage ? readJournal(storage) : new Map(localJournal);
+    const stored = storage ? readJournal(storage) : null;
+    const entries2 = stored ? new Map(stored) : new Map(localJournal);
     for (const [id, entry] of localJournal) if (!entries2.has(id)) entries2.set(id, entry);
+    if (stored !== null) storagePending = stored.size > 0;
     for (const entry of entries2.values()) {
       if (stopped) return;
       if (!hasAgent(entry.agentId)) continue;
@@ -56520,9 +57250,16 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
       if (listed[entry.sessionId] === void 0) continue;
       await persist(entry);
     }
+    if (storage && !stopped) {
+      const nextPending = readJournal(storage).size > 0;
+      const changed = nextPending !== hadPending || nextPending !== storagePending;
+      storagePending = nextPending;
+      if (changed) onPendingChange?.();
+    }
   };
   return {
     reconcile,
+    hasPending: () => storagePending || localJournal.size > 0 || pending.size > 0 || inFlight.size > 0 || forks.size > 0,
     async dispose() {
       stopped = true;
       if (sessions.fork === wrapped) {
@@ -56530,6 +57267,141 @@ function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refres
         else Object.defineProperty(sessions, "fork", descriptor);
       }
       await Promise.allSettled([...forks, ...inFlight.values()]);
+    }
+  };
+}
+
+// src/client/avatar-refs.js
+function stripRef(avatar, image) {
+  const { imageRef: _drop, ...rest } = avatar;
+  return typeof image === "string" ? { ...rest, image } : rest;
+}
+function createAvatarRefCache(call2) {
+  const cache = /* @__PURE__ */ new Map();
+  const inflight = /* @__PURE__ */ new Map();
+  const ownerImage = /* @__PURE__ */ new Map();
+  let latestGen = 0;
+  let latestLiveRefs = /* @__PURE__ */ new Set();
+  const fetchRef = (ref, payload) => {
+    let job = inflight.get(ref);
+    if (job === void 0) {
+      job = Promise.resolve().then(() => call2("avatar", payload)).then((reply) => {
+        if (typeof reply?.image === "string") {
+          const actual = typeof reply?.ref === "string" && reply.ref !== "" ? reply.ref : ref;
+          if (latestLiveRefs.has(actual) || latestLiveRefs.has(ref)) {
+            cache.set(actual, reply.image);
+          }
+          return { status: "ok", ref: actual, image: reply.image };
+        }
+        if (reply !== null && typeof reply === "object" && reply.image === null) {
+          return { status: "empty" };
+        }
+        return { status: "error" };
+      }).catch(() => ({ status: "error" })).finally(() => {
+        inflight.delete(ref);
+      });
+      inflight.set(ref, job);
+    }
+    return job;
+  };
+  async function hydrate(value) {
+    if (value === null || typeof value !== "object") return { state: value, incomplete: false, resolved: false };
+    const bots = Array.isArray(value.bots) ? value.bots : null;
+    const rooms = Array.isArray(value.rooms) ? value.rooms : null;
+    if (bots === null && rooms === null) return { state: value, incomplete: false, resolved: false };
+    const gen = ++latestGen;
+    const liveRefs = /* @__PURE__ */ new Set();
+    const liveOwners = /* @__PURE__ */ new Set();
+    const missing = /* @__PURE__ */ new Map();
+    const collect = (entries2, key, kind) => {
+      if (entries2 === null) return;
+      for (const entry of entries2) {
+        if (entry?.id !== void 0) liveOwners.add(`${kind}:${entry.id}`);
+        const ref = entry?.avatar?.imageRef;
+        if (typeof ref !== "string" || ref === "") continue;
+        liveRefs.add(ref);
+        if (!cache.has(ref) && !missing.has(ref)) {
+          missing.set(ref, { [key]: entry.id, ref });
+        }
+      }
+    };
+    collect(bots, "botId", "bot");
+    collect(rooms, "roomId", "room");
+    latestLiveRefs = liveRefs;
+    const fetched = /* @__PURE__ */ new Set();
+    const results = /* @__PURE__ */ new Map();
+    let resolved = false;
+    if (missing.size > 0) {
+      await Promise.all([...missing.entries()].map(async ([ref, payload]) => {
+        const result = await fetchRef(ref, payload);
+        results.set(ref, result);
+        if (result.status === "ok") {
+          resolved = true;
+          if (result.ref) fetched.add(result.ref);
+        }
+      }));
+    }
+    const isLatest = gen === latestGen;
+    if (isLatest) {
+      for (const ref of cache.keys()) {
+        if (!liveRefs.has(ref) && !fetched.has(ref)) cache.delete(ref);
+      }
+      for (const key of ownerImage.keys()) {
+        if (!liveOwners.has(key)) ownerImage.delete(key);
+      }
+    }
+    let incomplete = false;
+    const restore = (kind) => (entry) => {
+      const ownerKey = `${kind}:${entry?.id ?? ""}`;
+      const avatar = entry?.avatar;
+      if (avatar === null || typeof avatar !== "object" || typeof avatar.imageRef !== "string" || avatar.imageRef === "") {
+        if (isLatest) {
+          if (typeof avatar?.image === "string") ownerImage.set(ownerKey, avatar.image);
+          else ownerImage.delete(ownerKey);
+        }
+        return entry;
+      }
+      if (typeof avatar.image === "string") {
+        if (isLatest) ownerImage.set(ownerKey, avatar.image);
+        return { ...entry, avatar: stripRef(avatar, avatar.image) };
+      }
+      const cached = cache.get(avatar.imageRef);
+      if (typeof cached === "string") {
+        if (isLatest) ownerImage.set(ownerKey, cached);
+        return { ...entry, avatar: stripRef(avatar, cached) };
+      }
+      const outcome = results.get(avatar.imageRef);
+      if (outcome?.status === "ok") {
+        if (isLatest) ownerImage.set(ownerKey, outcome.image);
+        return { ...entry, avatar: stripRef(avatar, outcome.image) };
+      }
+      if (outcome?.status === "empty") {
+        if (isLatest) ownerImage.delete(ownerKey);
+        return { ...entry, avatar: stripRef(avatar, void 0) };
+      }
+      incomplete = true;
+      return { ...entry, avatar: stripRef(avatar, ownerImage.get(ownerKey)) };
+    };
+    return {
+      state: {
+        ...value,
+        ...bots !== null ? { bots: bots.map(restore("bot")) } : {},
+        ...rooms !== null ? { rooms: rooms.map(restore("room")) } : {}
+      },
+      incomplete,
+      resolved
+    };
+  }
+  return {
+    hydrate,
+    size: () => cache.size,
+    has: (ref) => cache.has(ref),
+    clear: () => {
+      latestGen += 1;
+      latestLiveRefs = /* @__PURE__ */ new Set();
+      cache.clear();
+      inflight.clear();
+      ownerImage.clear();
     }
   };
 }
@@ -56627,13 +57499,16 @@ function apply(ctx) {
     ui.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
+  const avatarRefs = createAvatarRefCache(call);
   let pulls = 0;
   let applied = 0;
+  let avatarIncomplete = false;
   const pull = async () => {
     const order = ++pulls;
     const known = roster.getSnapshot();
-    const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language() });
-    if (order < applied) return;
+    const since = avatarIncomplete ? -1 : known.revision;
+    const value = await call("state", { since, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" });
+    if (order < applied) return false;
     applied = order;
     const prevLiveKey = liveKey;
     if (value.liveKey !== void 0) liveKey = value.liveKey;
@@ -56675,14 +57550,24 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current2.imVia ?? {})) live2.imVia = value.imVia;
     if (value.plugins !== void 0 && JSON.stringify(value.plugins) !== JSON.stringify(current2.plugins ?? null)) live2.plugins = value.plugins;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current2.readOnly ?? null)) live2.readOnly = value.readOnly;
-    if (Object.keys(live2).length > 0 && current2.ready) roster.set({ ...current2, ...live2 });
-    if (value.unchanged || value.revision === current2.revision && value.modelsKey === current2.modelsKey) {
+    if (value.unchanged || !avatarIncomplete && value.revision === current2.revision && value.modelsKey === current2.modelsKey) {
+      if (Object.keys(live2).length > 0 && current2.ready) roster.set({ ...current2, ...live2 });
       return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
     }
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
-    roster.set(indexRoster(value));
+    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value);
+    if (order < applied) return false;
+    avatarIncomplete = incomplete;
+    const latest = roster.getSnapshot();
+    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready;
+    const avatarsChanged = sameState && ((hydrated.bots ?? []).some((bot) => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image) || (hydrated.rooms ?? []).some((room2) => room2?.avatar?.image !== latest.roomsById?.[room2.id]?.avatar?.image));
+    if (sameState && !avatarsChanged) {
+      if (Object.keys(live2).length > 0) roster.set({ ...latest, ...live2 });
+      return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
+    }
+    if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map((entry) => entry.id));
+    roster.set(indexRoster(hydrated));
     try {
-      const ids = (value.agents ?? []).flatMap((agent) => agent.sessions ?? []);
+      const ids = (hydrated.agents ?? []).flatMap((agent) => agent.sessions ?? []);
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids));
       agentSessionCache = new Set(ids);
     } catch {
@@ -56694,7 +57579,11 @@ function apply(ctx) {
     for (const [agentId, sessionId] of pendingAgentSession) {
       if (listed[sessionId] !== void 0 || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId);
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
+    const activeIds = /* @__PURE__ */ new Set([...hydrated.bots.map(currentPart), ...hydrated.rooms.map((room2) => room2.sessionId ?? room2.id)]);
+    for (const id of refreshed) {
+      if (!activeIds.has(id)) refreshed.delete(id);
+    }
+    for (const id of activeIds) {
       if (refreshed.has(id)) continue;
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
@@ -56825,13 +57714,25 @@ function apply(ctx) {
   }
   ctx.effect(() => () => {
     markupCache.clear();
+    avatarRefs.clear();
+    avatarIncomplete = false;
   }, "ds-bot: character markup");
   ctx.effect(() => installMotionRest(), "ds-bot: motion rest");
   const installMentions = () => {
     const style = installStyles("", "mentions");
     let last = "";
+    let lastReg = null;
+    let lastSig = null;
     const render = () => {
-      const next = roster.getSnapshot().bots.map((bot) => {
+      const reg = registry.getSnapshot();
+      const bots = roster.getSnapshot().bots;
+      if (lastSig !== null && reg === lastReg && bots.length === lastSig.length && bots.every((b, i) => {
+        const prev = lastSig[i];
+        return prev[0] === b.id && prev[1] === b.name && prev[2] === b.color && prev[3] === b.avatar?.shape && prev[4] === b.avatar?.color && prev[5] === b.avatar?.image;
+      })) return;
+      lastReg = reg;
+      lastSig = bots.map((b) => [b.id, b.name, b.color, b.avatar?.shape, b.avatar?.color, b.avatar?.image]);
+      const next = bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`;
         const chip = /\s/.test(bot.name) ? "" : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
         const look = lookOf(bot);
@@ -56857,8 +57758,30 @@ function apply(ctx) {
     let releaseTokens = null;
     let activeTheme = null;
     const skin = writeSkinSurfaceVars(document, () => activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme));
+    let skinRaf = 0;
+    const scheduleSkin = () => {
+      if (skinRaf) return;
+      if (typeof requestAnimationFrame === "function") skinRaf = requestAnimationFrame(() => {
+        skinRaf = 0;
+        skin.apply();
+      });
+      else skin.apply();
+    };
     const offTheme = ctx.on("theme/change", () => skin.apply());
-    const observer = typeof MutationObserver === "function" ? new MutationObserver(() => skin.apply()) : null;
+    const isTitleOnly = (record) => {
+      const target = record.target;
+      const el = target?.nodeType === 1 ? target : target?.parentElement;
+      if (el?.tagName === "TITLE") return true;
+      if (record.type === "childList" && target === document.head) {
+        const nodes = [...record.addedNodes, ...record.removedNodes];
+        if (nodes.length > 0 && nodes.every((node) => node?.nodeType === 1 && node.tagName === "TITLE")) return true;
+      }
+      return false;
+    };
+    const observer = typeof MutationObserver === "function" ? new MutationObserver((records) => {
+      if (records.length > 0 && records.every(isTitleOnly)) return;
+      scheduleSkin();
+    }) : null;
     if (observer !== null) {
       observer.observe(document.body, { attributes: true, attributeFilter: ["style", "data-ds-dark-theme"] });
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
@@ -56875,15 +57798,17 @@ function apply(ctx) {
       const effects = effectsOf(prefs);
       const width = widthOf(prefs);
       const flatWidth = flatWidthOf(prefs);
-      document.body.dataset.btMotion = motion;
-      document.body.dataset.btLayout = layout;
-      document.body.dataset.btEffects = effects;
-      if (WINDOWS) document.body.dataset.btOs = "windows";
-      document.body.style.setProperty("--bt-msg-w", String(width / 100));
-      document.body.style.setProperty("--bt-flat-w", String(flatWidth / 100));
       const next = `${id}|${accent ?? ""}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`;
       if (next === key) return;
       key = next;
+      if (document.body.dataset.btMotion !== motion) document.body.dataset.btMotion = motion;
+      if (document.body.dataset.btLayout !== layout) document.body.dataset.btLayout = layout;
+      if (document.body.dataset.btEffects !== effects) document.body.dataset.btEffects = effects;
+      if (WINDOWS && document.body.dataset.btOs !== "windows") document.body.dataset.btOs = "windows";
+      const msgW = String(width / 100);
+      if (document.body.style.getPropertyValue("--bt-msg-w") !== msgW) document.body.style.setProperty("--bt-msg-w", msgW);
+      const flatW = String(flatWidth / 100);
+      if (document.body.style.getPropertyValue("--bt-flat-w") !== flatW) document.body.style.setProperty("--bt-flat-w", flatW);
       style.textContent = themeCss(themes[id], accent);
       activeTheme = themes[id];
       skin.apply();
@@ -56904,6 +57829,7 @@ function apply(ctx) {
       offRoster();
       offRegistry();
       offTheme();
+      if (skinRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(skinRaf);
       observer?.disconnect();
       skin.clear();
       try {
@@ -57389,34 +58315,73 @@ function apply(ctx) {
   if (typeof appComputer?.computerCursor === "function") {
     ctx.effect(() => {
       let dead = false;
-      const pause = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+      let wakeEnabled = null;
+      let cancelPause = null;
+      const waitEnabled = () => new Promise((resolve2) => {
+        if (dead || roster.getSnapshot().computer?.enabled === true) {
+          resolve2();
+          return;
+        }
+        wakeEnabled = resolve2;
+      });
+      const pause = (ms) => new Promise((resolve2) => {
+        if (dead) {
+          resolve2();
+          return;
+        }
+        const timer = setTimeout(() => {
+          if (cancelPause === cancel) cancelPause = null;
+          resolve2();
+        }, ms);
+        const cancel = () => {
+          clearTimeout(timer);
+          if (cancelPause === cancel) cancelPause = null;
+          resolve2();
+        };
+        cancelPause = cancel;
+      });
+      const notifyEnabled = () => {
+        if (wakeEnabled) {
+          const fn = wakeEnabled;
+          wakeEnabled = null;
+          fn();
+        }
+      };
+      const offRoster = roster.subscribe(() => {
+        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled();
+      });
       const run2 = async () => {
         let after2 = 0;
         while (!dead) {
           if (roster.getSnapshot().computer?.enabled !== true) {
-            await pause(2e3);
+            await waitEnabled();
             continue;
           }
           try {
             const reply = await call("computer-cursor-wait", { after: after2 });
+            if (dead) break;
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after2) after2 = event.seq;
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;
               appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image });
             }
           } catch {
-            await pause(2e3);
+            if (!dead) await pause(2e3);
           }
         }
       };
       void run2();
       return () => {
         dead = true;
+        offRoster();
+        notifyEnabled();
+        cancelPause?.();
       };
     }, "ds-bot: computer cursor");
   }
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {
+      let timer = 0;
       const push = () => {
         const current2 = roster.getSnapshot();
         if (current2.computer?.enabled !== true) return;
@@ -57427,18 +58392,33 @@ function apply(ctx) {
         }).catch(() => {
         });
       };
-      const timer = setInterval(push, 2e3);
+      const sync = () => {
+        const enabled = roster.getSnapshot().computer?.enabled === true;
+        if (enabled && !timer) timer = setInterval(push, 2e3);
+        else if (!enabled && timer) {
+          clearInterval(timer);
+          timer = 0;
+        }
+      };
+      sync();
+      const offRoster = roster.subscribe(sync);
       return () => {
-        clearInterval(timer);
+        offRoster();
+        if (timer) clearInterval(timer);
       };
     }, "ds-bot: computer user active");
   }
   if (typeof appComputer?.onComputerAction === "function") {
-    appComputer.onComputerAction(({ kind, botId }) => {
-      if (kind === "stop") void actions.computerStop(botId);
-      else if (kind === "stopall") void actions.computerStop(null, true);
-      else if (kind === "letgo") void actions.computerAllowForeground(botId);
-    });
+    ctx.effect(() => {
+      const off = appComputer.onComputerAction(({ kind, botId }) => {
+        if (kind === "stop") void actions.computerStop(botId);
+        else if (kind === "stopall") void actions.computerStop(null, true);
+        else if (kind === "letgo") void actions.computerAllowForeground(botId);
+      });
+      return () => {
+        if (typeof off === "function") off();
+      };
+    }, "ds-bot: computer actions");
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
@@ -57842,7 +58822,23 @@ function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
-    const forks = installAgentForks({
+    let stopped = false;
+    let timer = 0;
+    let forks = null;
+    const syncTimer = () => {
+      if (stopped) return;
+      const active = forks?.hasPending() === true;
+      if (active && !timer) timer = setInterval(reconcile, 5e3);
+      else if (!active && timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    };
+    const reconcile = () => {
+      if (stopped || !forks) return;
+      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile")).finally(syncTimer);
+    };
+    forks = installAgentForks({
       sessions: ctx.sessions,
       ownerOf: (id) => roster.getSnapshot().agentOf[id],
       hasAgent: (id) => roster.getSnapshot().agentsById[id] !== void 0,
@@ -57853,19 +58849,34 @@ function apply(ctx) {
       adopt: (agentId, sessionId) => call("agent-adopt", { agentId, sessionId }),
       refresh: pull,
       report: (error, source) => actions.reportError(error, source),
-      storage: globalThis.localStorage
+      storage: globalThis.localStorage,
+      onPendingChange: syncTimer
     });
-    const reconcile = () => {
-      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile"));
+    const onChange = () => {
+      if (stopped) return;
+      if (forks.hasPending()) reconcile();
+      else syncTimer();
     };
-    const offRoster = roster.subscribe(reconcile);
-    const offList = ctx.sessions.list.subscribe(reconcile);
-    const timer = setInterval(reconcile, 5e3);
+    const onStorage = (event) => {
+      if (!stopped && (event.key === null || event.key === STORAGE.agentForks)) reconcile();
+    };
+    const offRoster = roster.subscribe(onChange);
+    const offList = ctx.sessions.list.subscribe(onChange);
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("storage", onStorage);
+    }
     reconcile();
     return () => {
+      stopped = true;
       offRoster();
       offList();
-      clearInterval(timer);
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("storage", onStorage);
+      }
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
       return forks.dispose();
     };
   }, "ds-bot: Agent forks");

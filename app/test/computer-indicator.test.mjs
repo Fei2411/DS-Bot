@@ -159,3 +159,34 @@ test('the window resizes to the measured pill width after load', async () => {
   assert.equal(win.bounds.height, 48)
   assert.equal(win.bounds.x, Math.round((1440 - 144) / 2))
 })
+
+test('identical updates skip loadURL and async loadURL failures are caught', async () => {
+  const { windows, BrowserWindow, screen } = fakeElectron()
+  let reloads = 0
+  let failNext = false
+  const warnings = []
+  class CountingWindow extends BrowserWindow {
+    constructor(opts) {
+      super(opts)
+      this.webContents.loadURL = async () => {
+        reloads += 1
+        if (failNext) throw new Error('synthetic load failure')
+      }
+    }
+  }
+  const indicator = createComputerIndicator({
+    BrowserWindow: CountingWindow, screen, html: indicatorHtml,
+    log: { warn: line => warnings.push(line) },
+  })
+  const payload = { rows: [{ label: 'River · Notes', botId: 'w1' }], labels: { stop: 'Stop' } }
+  indicator.update(payload)
+  indicator.update({ rows: [{ label: 'River · Notes', botId: 'w1' }], labels: { stop: 'Stop' } })
+  assert.equal(reloads, 0, 'identical update must not reload the indicator page')
+  failNext = true
+  indicator.update({ rows: [{ label: 'River · Safari', botId: 'w1' }], labels: { stop: 'Stop' } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reloads, 1, 'changed update reloads once')
+  assert.equal(warnings.length, 1, 'async loadURL failure is caught and logged')
+  indicator.dispose()
+  assert.equal(windows[0].closed, true)
+})

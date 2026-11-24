@@ -335,6 +335,10 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
+  function clearSentKickoff(botId) {
+    sentKickoffs.delete(botId)
+  }
+
   // The user wrote in a Bot's own chat, so a held greeting would only interrupt. The
   // first Main Bot's stays while that Bot has no model it can run on, and a Bot that a
   // key, a sign-in or a balance blocks has none: once it has one, it answers the message
@@ -352,6 +356,7 @@ export function install(rt) {
   // A turn that answered the user in a Bot's own chat leaves nothing for a greeting held
   // for that message to answer.
   function userAnswered(botId) {
+    sentKickoffs.delete(botId)
     const bot = rt.botOf(botId)
     if (bot?.kickoff?.afterUser !== true) return
     delete bot.kickoff
@@ -883,9 +888,19 @@ export function install(rt) {
       noteCleanups.push(rt.dropGroupSession(room, botId))
     }
     const partIds = (room.parts ?? []).map(segment => segment?.sessionId).filter(Boolean)
-    for (const sid of partIds) delete state.switching[sid]
     if (partIds.length > 0) noteCleanups.push(rt.deleteSegmentNotes?.(partIds))
-    delete state.switching[rt.sessionOfRoom(room)]
+    const roomSessions = new Set([rt.sessionOfRoom(room), ...partIds].filter(Boolean))
+    for (const sid of roomSessions) {
+      delete state.switching[sid]
+      delete state.questions[sid]
+      if (state.views !== undefined) delete state.views[sid]
+      if (state.closedCards !== undefined) delete state.closedCards[sid]
+      delete state.exchangeTurns[sid]
+      rt.forgetSessionParts?.(sid)
+      rt.forgetSessionTurn?.(sid)
+      rt.forgetHeldSteps?.(sid)
+      rt.forgetSessionModel?.(sid)
+    }
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
@@ -1004,8 +1019,10 @@ export function install(rt) {
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     deleting.add(id)
     try {
+      sentKickoffs.delete(id)
       for (const hook of botDeleteHooks) await hook(id)
       rt.forgetBotTasks?.(bot)
+      rt.forgetBotPermissions?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
@@ -1036,6 +1053,10 @@ export function install(rt) {
         delete state.exchangeTurns[part]
         delete state.switching[part]
         rt.forgetSessionChanges?.(part)
+        rt.forgetSessionParts?.(part)
+        rt.forgetSessionTurn?.(part)
+        rt.forgetHeldSteps?.(part)
+        rt.forgetSessionModel?.(part)
       }
       const touched = []
       for (const room of Object.values(state.rooms)) {
@@ -1114,6 +1135,6 @@ export function install(rt) {
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,
-    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
+    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, clearSentKickoff, userWrote, userAnswered,
   })
 }

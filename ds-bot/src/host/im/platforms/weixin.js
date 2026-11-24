@@ -16,6 +16,7 @@ import {
   detectImageMediaType, discardBody, FILE_LIMIT, IMAGE_LIMIT,
   isHttpUrl, mediaSignal, readCappedBytes,
 } from './media.js'
+import { retryDelay } from './retry.js'
 
 const QR_BASE = 'https://ilinkai.weixin.qq.com/'
 const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c'
@@ -26,6 +27,7 @@ const CDN_HOSTS = new Set([
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
+const CONTEXT_TOKENS_MAX = 500
 const ILINK_APP_ID = 'bot'
 // The iLink client version, packed as 0x00MMNNPP: 2.4.6 is what the reference
 // client (dsh-im 5.10.0, the source of this port) identifies itself as.
@@ -141,7 +143,15 @@ export default {
     const contextTokens = () => runtime().contextTokens ?? {}
     const remember = (userId, token) => {
       if (token === undefined || token === '') return
-      const next = { ...contextTokens(), [userId]: token }
+      const next = {}
+      for (const [key, value] of Object.entries(contextTokens())) {
+        if (key !== userId) next[key] = value
+      }
+      next[userId] = token
+      const keys = Object.keys(next)
+      if (keys.length > CONTEXT_TOKENS_MAX) {
+        for (const oldKey of keys.slice(0, keys.length - CONTEXT_TOKENS_MAX)) delete next[oldKey]
+      }
       setRuntime({ contextTokens: next })
     }
 
@@ -198,7 +208,9 @@ export default {
       // periodic summaries, error changes, and recovery.
       const ERROR_SUMMARY_MS = 5 * 60_000
       const ERROR_SUMMARY_EVERY = 60
-      const retryMs = Number.isFinite(env.config?.pollRetryMs) && env.config.pollRetryMs >= 0 ? env.config.pollRetryMs : 3000
+      const customRetryMs = Number.isFinite(env.config?.pollRetryMs) && env.config.pollRetryMs >= 0 ? env.config.pollRetryMs : undefined
+      let pollAttempt = 0
+      const nextRetryWait = () => (customRetryMs !== undefined ? customRetryMs : retryDelay(pollAttempt++))
       let lastErrKey = ''
       let errCount = 0
       let lastLogAt = 0
@@ -231,11 +243,17 @@ export default {
       try {
         while (!stopped && generation === gen) {
           let answer
+          const startedAt = Date.now()
           try {
             answer = await call('getupdates', { get_updates_buf: runtime().cursor ?? '' }, POLL_TIMEOUT_MS + 15_000, { requireJson: true })
           } catch (error) {
             if (stopped || generation !== gen) return
-            if (error?.timeout) { continue }
+            // Only treat a timeout as a normal idle long-poll re-poll after an actual
+            // long-poll wait; fast aborts/timeouts must back off instead of spinning.
+            if (error?.timeout === true && Date.now() - startedAt >= POLL_TIMEOUT_MS / 2) {
+              pollAttempt = 0
+              continue
+            }
             const msg = String(error?.message ?? error)
             if (error.permanent) {
               env.log?.warn?.('ds-bot im: weixin poll failed: %s', msg)
@@ -244,7 +262,10 @@ export default {
             }
             handlers.onStatus({ state: error.permanent ? 'error' : 'connecting', ...(error.permanent ? { error: error.message } : {}) })
             if (error.permanent) return
-            await sleep(retryMs)
+            const wait = Number.isFinite(error.retryAfter) && error.retryAfter > 0
+              ? error.retryAfter * 1000
+              : nextRetryWait()
+            await sleep(wait, stopping.signal)
             continue
           }
           const code = answer.ret ?? answer.errcode
@@ -262,15 +283,16 @@ export default {
                 return
               }
               warnTransient(`ret:${answer.ret}`, `ds-bot im: weixin getupdates answered ${answer.ret}`)
-              await sleep(retryMs)
+              await sleep(nextRetryWait(), stopping.signal)
               continue
             }
           } else if (!isUpdatesAnswer(answer)) {
             warnTransient('unreadable', 'ds-bot im: weixin getupdates answered an unreadable response')
             handlers.onStatus({ state: 'connecting' })
-            await sleep(retryMs)
+            await sleep(nextRetryWait(), stopping.signal)
             continue
           }
+          pollAttempt = 0
           clearTransient()
           handlers.onStatus({ state: 'ready' })
           for (const msg of answer.msgs ?? []) {
@@ -294,10 +316,9 @@ export default {
     // the failure is on screen until a start succeeds.
     const startSession = async () => {
       const configuredDelays = env.config?.startRetryDelaysMs
-      const delays = Array.isArray(configuredDelays) && configuredDelays.length > 0
+      const hasCustomDelays = Array.isArray(configuredDelays) && configuredDelays.length > 0
         && configuredDelays.every(ms => Number.isFinite(ms) && ms >= 0)
-        ? configuredDelays
-        : START_RETRY_DELAYS_MS
+      const delays = hasCustomDelays ? configuredDelays : START_RETRY_DELAYS_MS
       let shown = false
       for (let attempt = 0; ; attempt += 1) {
         if (stopped) return
@@ -320,7 +341,7 @@ export default {
           } else if (wait !== undefined) {
             env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
           }
-          await sleep(wait ?? delays.at(-1))
+          await sleep(wait ?? (hasCustomDelays ? delays.at(-1) : retryDelay(attempt)), stopping.signal)
         }
       }
       if (!stopped) void poll()
@@ -428,14 +449,22 @@ export default {
           redirect: 'error',
           signal: AbortSignal.any([stopping.signal, AbortSignal.timeout(30_000)]),
         })
-        if (!response.ok) {
-          const error = fail(`WeChat image upload failed (HTTP ${response.status})`)
-          error.status = response.status
-          if (response.status === 429) error.retryAfter = Number(response.headers.get('retry-after'))
-          error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
-          throw error
+        let downloadParam
+        try {
+          if (!response.ok) {
+            const error = fail(`WeChat image upload failed (HTTP ${response.status})`)
+            error.status = response.status
+            if (response.status === 429) {
+              const retryAfter = parseRetryAfter(response.headers)
+              if (retryAfter !== undefined) error.retryAfter = retryAfter
+            }
+            error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
+            throw error
+          }
+          downloadParam = response.headers.get('x-encrypted-param')
+        } finally {
+          await discardBody(response)
         }
-        const downloadParam = response.headers.get('x-encrypted-param')
         if (!downloadParam) throw fail('WeChat upload returned no download parameter', { permanent: true })
         const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
         const contextToken = contextTokens()[chat.key]
@@ -484,7 +513,26 @@ export default {
   },
 }
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const parseRetryAfter = (headers) => {
+  const raw = headers?.get?.('retry-after')?.trim()
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
+}
+
+const sleep = (ms, signal) => new Promise((resolve) => {
+  if (signal?.aborted) { resolve(); return }
+  const onAbort = () => {
+    clearTimeout(timer)
+    resolve()
+  }
+  const timer = setTimeout(() => {
+    signal?.removeEventListener?.('abort', onAbort)
+    resolve()
+  }, ms)
+  timer.unref?.()
+  signal?.addEventListener?.('abort', onAbort, { once: true })
+})
 
 // Text chunks: paragraphs/lines first, a hard cut at the limit otherwise.
 const chunk = (text, limit) => {
@@ -601,7 +649,10 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
   let parsed
   try { parsed = text === '' ? {} : JSON.parse(text) } catch { parsed = undefined }
   const json = parsed !== null && typeof parsed === 'object' ? parsed : undefined
-  if (response.status === 429 || json?.ret === 429) throw fail('WeChat rate limited the request', { retryAfter: Number(response.headers.get('retry-after')) })
+  if (response.status === 429 || json?.ret === 429) {
+    const retryAfter = parseRetryAfter(response.headers)
+    throw fail('WeChat rate limited the request', retryAfter !== undefined ? { retryAfter } : {})
+  }
   if (response.status === 401 || response.status === 403) throw fail('WeChat refused the token', { permanent: true })
   if (!response.ok) throw fail(`WeChat answered ${response.status}`)
   // A caller that reads fields from the answer (getupdates) needs a real JSON

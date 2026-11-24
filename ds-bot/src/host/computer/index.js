@@ -84,6 +84,16 @@ export function install(rt) {
   const sessionDecisions = new Map()
   const shotMimes = new Map()
   const SHOT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+  const SHOT_MIMES_MAX = 200
+  const CURSOR_WAIT_MS = 8_000
+  const recordShotMime = (id, mime) => {
+    if (id === undefined || id === null) return
+    shotMimes.delete(id)
+    shotMimes.set(id, mime)
+    while (shotMimes.size > SHOT_MIMES_MAX) shotMimes.delete(shotMimes.keys().next().value)
+  }
+  /** @type {Map<string, Map<string, Set<string>>>} sessionId -> windowKey -> Set<`token:${t}`> */
+  const windowTokens = new Map()
   /** @type {Map<string, {by:string, reason:string, note:string, callId?:string, surface:'computer'}>} */
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
@@ -154,6 +164,7 @@ export function install(rt) {
   async function ensureProvider() {
     ensuring ??= (async () => {
       await rt.load()
+      if (stopped) return
       if (!enabled()) {
         await unmountProvider()
         setProviderStatus({ state: 'off' })
@@ -169,6 +180,7 @@ export function install(rt) {
         if (service('computerUse') === undefined) {
           // Without the registry the provider is missing too; install both at once.
           const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, [REGISTRY_PACKAGE, name]) })
+          if (stopped || !enabled()) return
           registryFiber = ctx.plugin(registry)
           await registryFiber.await?.()
         }
@@ -179,6 +191,7 @@ export function install(rt) {
           return
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
+        if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
         const { DS_BOT_RUNTIME_DIR: runtimeDir, DS_BOT_COMPUTER_HELPER_HOME: home } = process.env
         if (process.platform === 'darwin' && runtimeDir && home) {
@@ -342,6 +355,18 @@ export function install(rt) {
     if (agent !== undefined && agent !== null) disposedAgents.add(agent)
     const id = agent?.session?.id ?? agent?.id
     sessionApps.delete(id)
+    windowTokens.delete(id)
+    winGeo.delete(id)
+    if (typeof id === 'string') {
+      for (const key of sessionDecisions.keys()) {
+        if (key.endsWith(`:${id}`)) sessionDecisions.delete(key)
+      }
+      const prefix = `${id}|`
+      lastWindowOf.delete(id)
+      for (const key of lastWindowOf.keys()) {
+        if (key.startsWith(prefix)) lastWindowOf.delete(key)
+      }
+    }
     const held = applied.get(id)
     if (held?.agent === agent) {
       applied.delete(id)
@@ -498,9 +523,25 @@ export function install(rt) {
     if (stateWindow !== undefined && stateApp !== undefined) apps.set(`window:${stateWindow}`, stateApp)
     if (stateApp !== undefined) {
       const elements = [body.elements, body.interactive_elements, body.targets, body.items].find(list => Array.isArray(list)) ?? []
-      for (const element of elements) {
-        const token = [element?.element_token, element?.token, element?.element_id, element?.elementId, element?.id, element?.ref, element?.handle].find(value => value !== undefined && value !== null)
-        if (token !== undefined) apps.set(`token:${token}`, stateApp)
+      if (call.method === 'get_window_state' || elements.length > 0) {
+        let byWin = windowTokens.get(sessionId)
+        if (byWin === undefined) windowTokens.set(sessionId, byWin = new Map())
+        const winKey = stateWindow !== undefined ? `window:${stateWindow}` : `app:${stateApp.key}`
+        const prevTokens = byWin.get(winKey)
+        if (prevTokens !== undefined) {
+          for (const oldKey of prevTokens) apps.delete(oldKey)
+        }
+        const nextTokens = new Set()
+        for (const element of elements) {
+          const token = [element?.element_token, element?.token, element?.element_id, element?.elementId, element?.id, element?.ref, element?.handle].find(value => value !== undefined && value !== null)
+          if (token !== undefined) {
+            const tokenKey = `token:${token}`
+            apps.set(tokenKey, stateApp)
+            nextTokens.add(tokenKey)
+          }
+        }
+        if (nextTokens.size > 0) byWin.set(winKey, nextTokens)
+        else byWin.delete(winKey)
       }
     }
   }
@@ -715,6 +756,7 @@ export function install(rt) {
     if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
     const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
+    const onAbort = () => { entry.resolve('deny') }
     const entry = {
       id, botId, sessionId, appName: app.name, at: Date.now(),
       ...(roomId !== undefined ? { roomId } : {}),
@@ -722,6 +764,7 @@ export function install(rt) {
       ...(callId !== undefined ? { callId } : {}),
       resolve: (answer) => {
         if (!pendingAsks.delete(id)) return
+        signal?.removeEventListener?.('abort', onAbort)
         const ctl = controlOf(botId)
         const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
         if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
@@ -736,7 +779,7 @@ export function install(rt) {
       ctl.waitingFor = 'app-access'
     }
     if (roomId !== undefined) rt.yieldRoomTurn?.(sessionId)
-    signal?.addEventListener?.('abort', () => { entry.resolve('deny') }, { once: true })
+    signal?.addEventListener?.('abort', onAbort, { once: true })
   })
   const answerAppAccess = (id, answer) => {
     const entry = pendingAsks.get(String(id ?? ''))
@@ -954,7 +997,7 @@ export function install(rt) {
         controlOf(botId).lastShot = shot
         // The real provider names the field mediaType; mimeType is the older name.
         const mime = shot.mimeType ?? shot.mediaType
-        if (typeof mime === 'string') shotMimes.set(shot.attachmentId ?? shot.id, mime)
+        if (typeof mime === 'string') recordShotMime(shot.attachmentId ?? shot.id, mime)
       }
       noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: true })
       return result
@@ -1214,7 +1257,7 @@ export function install(rt) {
     }
     return true
   }
-  async function computerEndpoint(endpoint, body) {
+  async function computerEndpoint(endpoint, body, signal) {
     switch (endpoint) {
       case 'set-enabled':
         return setEnabled(body.enabled === true)
@@ -1224,21 +1267,28 @@ export function install(rt) {
         const fresh = () => [...cursors.values()].filter(event => event.seq > after)
         const now = () => ({ now: Date.now(), events: fresh() })
         if (fresh().length > 0) return now()
+        if (signal?.aborted) return { now: Date.now(), events: [] }
         return await new Promise(resolve => {
+          const finish = (value) => {
+            cursorWaiters.delete(waiter)
+            clearTimeout(timer)
+            signal?.removeEventListener?.('abort', onAbort)
+            resolve(value)
+          }
+          const onAbort = () => finish({ now: Date.now(), events: [] })
           const waiter = {
             wake: () => {
               if (fresh().length === 0) return
-              cursorWaiters.delete(waiter)
-              clearTimeout(timer)
-              resolve(now())
+              finish(now())
             },
             close: () => {
-              clearTimeout(timer)
-              resolve({ now: Date.now(), events: [] })
+              finish({ now: Date.now(), events: [] })
             },
           }
-          const timer = setTimeout(() => { cursorWaiters.delete(waiter); resolve({ now: Date.now(), events: [] }) }, 25000)
+          const timer = setTimeout(() => finish({ now: Date.now(), events: [] }), CURSOR_WAIT_MS)
+          timer.unref?.()
           cursorWaiters.add(waiter)
+          signal?.addEventListener?.('abort', onAbort, { once: true })
         })
       }
       case 'set-level':
@@ -1366,9 +1416,27 @@ export function install(rt) {
     }
   }
 
+  const offBotDelete = typeof rt.onBotDelete === 'function'
+    ? rt.onBotDelete((botId) => {
+      abortCalls(botId)
+      leases.releaseBot(botId)
+      for (const ask of pendingAsks.values()) if (ask.botId === botId) ask.resolve('deny')
+      control.delete(botId)
+      cursors.delete(botId)
+      holds.delete(botId)
+      driverSessionSeen.delete(driverSessionOf(botId))
+      driverCursorOff.delete(driverSessionOf(botId))
+      const prefix = `${botId}:`
+      for (const key of sessionDecisions.keys()) {
+        if (key.startsWith(prefix)) sessionDecisions.delete(key)
+      }
+    })
+    : undefined
+
   ctx.effect(() => () => {
     stopped = true
     offSaved?.()
+    offBotDelete?.()
     leases.dispose()
     rt.closeComputerWaiters()
     for (const { resolve } of pendingAsks.values()) resolve('deny')

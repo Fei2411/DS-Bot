@@ -63,15 +63,74 @@ async function saveShot(ctx, value) {
   return { text: `${value.text ?? ''} (The screenshot could not be attached.)` }
 }
 
+const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60_000
+const DEFAULT_MAX_SESSIONS = 4
+
 /**
  * @param {any} ctx
- * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void }} options
+ * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, idleTimeoutMs?: number, maxSessions?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void }} options
  */
-export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, downloadGraceMs, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register }) {
+export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, downloadGraceMs, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, maxSessions = DEFAULT_MAX_SESSIONS, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register }) {
   const sessions = new Map()
+  const openedSessions = new Map()
   const pendingCalls = new Map()
+  const inFlight = new Map()
+  const idleTimers = new Map()
+  const lastUsed = new Map()
+  let useSeq = 0
   let disposed = false
   const names = new Set(toolDefs.map(tool => tool.name))
+  const isBusy = botId => (inFlight.get(botId) ?? 0) > 0 || pendingCalls.has(botId)
+  const isHeld = botId => Boolean(getHold ? getHold(botId) : openedSessions.get(botId)?.hold)
+  const clearIdle = botId => {
+    const timer = idleTimers.get(botId)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      idleTimers.delete(botId)
+    }
+  }
+  const clearAllIdle = () => {
+    for (const timer of idleTimers.values()) clearTimeout(timer)
+    idleTimers.clear()
+  }
+  const evictSession = botId => {
+    clearIdle(botId)
+    lastUsed.delete(botId)
+    openedSessions.delete(botId)
+    const entry = sessions.get(botId)
+    if (entry === undefined) return
+    sessions.delete(botId)
+    void Promise.resolve(entry).then(s => s.close(), () => {}).catch(() => {})
+  }
+  const scheduleIdle = botId => {
+    clearIdle(botId)
+    if (connect || disposed || !idleTimeoutMs || idleTimeoutMs <= 0 || !sessions.has(botId)) return
+    const timer = setTimeout(() => {
+      idleTimers.delete(botId)
+      if (disposed || !sessions.has(botId)) return
+      if (isBusy(botId) || isHeld(botId)) {
+        scheduleIdle(botId)
+        return
+      }
+      evictSession(botId)
+    }, idleTimeoutMs)
+    timer.unref?.()
+    idleTimers.set(botId, timer)
+  }
+  const touch = botId => {
+    lastUsed.set(botId, ++useSeq)
+    if (!isBusy(botId)) scheduleIdle(botId)
+  }
+  const enforceSessionCap = incomingBotId => {
+    if (connect || !maxSessions || maxSessions <= 0 || sessions.size < maxSessions) return
+    const victims = [...sessions.keys()]
+      .filter(id => id !== incomingBotId && !isBusy(id) && !isHeld(id))
+      .sort((a, b) => (lastUsed.get(a) ?? 0) - (lastUsed.get(b) ?? 0))
+    for (const victimId of victims) {
+      if (sessions.size < maxSessions) break
+      evictSession(victimId)
+    }
+  }
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
   // DSH's public surface API, keeping the original log for the transcript.
@@ -151,16 +210,19 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     return next()
   }, { prepend: true })
   const unsubscribeHolds = subscribeHolds?.((botId, hold) => {
-    if (hold?.by !== 'user') return
-    const session = sessions.get(botId)
-    if (!session) return
-    sessions.delete(botId)
-    void Promise.resolve(session).then(s => s.close(), () => {}).catch(() => {})
+    if (hold?.by === 'user') {
+      evictSession(botId)
+      return
+    }
+    if (hold == null && sessions.has(botId) && !isBusy(botId)) scheduleIdle(botId)
   })
   let closing = null
   const closeAll = () => {
     if (closing) return closing
     disposed = true
+    clearAllIdle()
+    lastUsed.clear()
+    openedSessions.clear()
     closing = (async () => {
       try { offPreStep?.() } catch { /* ignore */ }
       try { unsubscribeHolds?.() } catch { /* ignore */ }
@@ -174,6 +236,9 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
 
   // Closes a Bot's browser and removes its profile directory; used when the Bot is deleted.
   async function drop(botId) {
+    clearIdle(botId)
+    lastUsed.delete(botId)
+    openedSessions.delete(botId)
     const session = sessions.get(botId)
     sessions.delete(botId)
     if (session !== undefined) await Promise.resolve(session).then(opened => opened.close(), () => {})
@@ -193,67 +258,90 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
         exec.signal?.throwIfAborted()
         if (disposed) throw new Error('The browser plugin is closed.')
         if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
-        let session = sessions.get(botId)
-        if (spec.needsBrowser && session === undefined) {
-          // Store the opening promise before resolving roots so concurrent calls share the launch.
-          const opening = Promise.resolve().then(async () => {
-            const roots = downloadRoots ? await downloadRoots(botId) : undefined
-            const opened = await openSession({
-              botId,
-              profileRoot,
-              downloadDir: roots === undefined
-                ? join(downloadRoot ?? join(profileRoot, 'browser-downloads'), botId)
-                : async () => (await downloadRoots(botId))[0],
-              headless,
-              playwrightUrl,
-              executablePath,
-              actionTimeout,
-              downloadGraceMs,
-              connect: connect ? id => connect(id, roots ?? []) : undefined,
-              getHold: () => getHold?.(botId),
-              onHold: hold => onHold?.(botId, hold),
-              uploadRoots: uploadRoots ? () => uploadRoots(botId) : undefined,
-            })
-            opened.signal?.throwIfAborted()
-            opened.signal?.addEventListener('abort', () => {
-              if (sessions.get(botId) === opening) sessions.delete(botId)
-            }, { once: true })
-            return opened
-          })
-          sessions.set(botId, opening)
-          opening.catch(() => {
-            if (sessions.get(botId) === opening) sessions.delete(botId)
-          })
-          session = opening
-        }
-        const sessionEntry = session
-        session = await session
-        const gate = authorize ? async action => {
-          exec.signal?.throwIfAborted()
-          await authorize(exec, botId, action)
-          exec.signal?.throwIfAborted()
-        } : undefined
-        // A Bot shares one browser across Sessions. Keep its action and any
-        // delayed download inside the call that owns the approval context.
-        const previous = pendingCalls.get(botId) ?? Promise.resolve()
-        const running = previous.catch(() => {}).then(async () => {
-          exec.signal?.throwIfAborted()
-          if (disposed) throw new Error('The browser plugin is closed.')
-          if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
-          if (sessionEntry !== undefined && sessions.get(botId) !== sessionEntry) throw new Error('The browser session is closed.')
-          return saveShot(ctx, await gateScope.run(gate, () => spec.execute(args ?? {}, {
-            botId,
-            profileDir: join(profileRoot, botId),
-            session,
-            complete: completeFor?.(exec),
-            origin: { ...(exec.callId !== undefined ? { callId: exec.callId } : {}), ...(exec.agent?.id !== undefined ? { sessionId: exec.agent.id } : {}) },
-          })))
-        })
-        pendingCalls.set(botId, running)
+        inFlight.set(botId, (inFlight.get(botId) ?? 0) + 1)
+        clearIdle(botId)
+        lastUsed.set(botId, ++useSeq)
         try {
-          return await running
+          let session = sessions.get(botId)
+          if (spec.needsBrowser && session === undefined) {
+            enforceSessionCap(botId)
+            // Store the opening promise before resolving roots so concurrent calls share the launch.
+            const opening = Promise.resolve().then(async () => {
+              const roots = downloadRoots ? await downloadRoots(botId) : undefined
+              const opened = await openSession({
+                botId,
+                profileRoot,
+                downloadDir: roots === undefined
+                  ? join(downloadRoot ?? join(profileRoot, 'browser-downloads'), botId)
+                  : async () => (await downloadRoots(botId))[0],
+                headless,
+                playwrightUrl,
+                executablePath,
+                actionTimeout,
+                downloadGraceMs,
+                connect: connect ? id => connect(id, roots ?? []) : undefined,
+                getHold: getHold ? () => getHold(botId) : undefined,
+                onHold: hold => onHold?.(botId, hold),
+                uploadRoots: uploadRoots ? () => uploadRoots(botId) : undefined,
+              })
+              opened.signal?.throwIfAborted()
+              if (sessions.get(botId) === opening) openedSessions.set(botId, opened)
+              opened.signal?.addEventListener('abort', () => {
+                if (sessions.get(botId) === opening) {
+                  sessions.delete(botId)
+                  openedSessions.delete(botId)
+                  clearIdle(botId)
+                  lastUsed.delete(botId)
+                }
+              }, { once: true })
+              return opened
+            })
+            sessions.set(botId, opening)
+            opening.catch(() => {
+              if (sessions.get(botId) === opening) {
+                sessions.delete(botId)
+                openedSessions.delete(botId)
+                clearIdle(botId)
+                lastUsed.delete(botId)
+              }
+            })
+            session = opening
+          }
+          const sessionEntry = session
+          session = await session
+          const gate = authorize ? async action => {
+            exec.signal?.throwIfAborted()
+            await authorize(exec, botId, action)
+            exec.signal?.throwIfAborted()
+          } : undefined
+          // A Bot shares one browser across Sessions. Keep its action and any
+          // delayed download inside the call that owns the approval context.
+          const previous = pendingCalls.get(botId) ?? Promise.resolve()
+          const running = previous.catch(() => {}).then(async () => {
+            exec.signal?.throwIfAborted()
+            if (disposed) throw new Error('The browser plugin is closed.')
+            if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
+            if (sessionEntry !== undefined && sessions.get(botId) !== sessionEntry) throw new Error('The browser session is closed.')
+            return saveShot(ctx, await gateScope.run(gate, () => spec.execute(args ?? {}, {
+              botId,
+              profileDir: join(profileRoot, botId),
+              session,
+              complete: completeFor?.(exec),
+              origin: { ...(exec.callId !== undefined ? { callId: exec.callId } : {}), ...(exec.agent?.id !== undefined ? { sessionId: exec.agent.id } : {}) },
+              signal: exec.signal,
+            })))
+          })
+          pendingCalls.set(botId, running)
+          try {
+            return await running
+          } finally {
+            if (pendingCalls.get(botId) === running) pendingCalls.delete(botId)
+          }
         } finally {
-          if (pendingCalls.get(botId) === running) pendingCalls.delete(botId)
+          const remaining = (inFlight.get(botId) ?? 1) - 1
+          if (remaining <= 0) inFlight.delete(botId)
+          else inFlight.set(botId, remaining)
+          if (sessions.has(botId)) touch(botId)
         }
       },
     }))
@@ -262,7 +350,12 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   // An object return would be collected as an effect by cordis, so the api is an out-param.
   if (api) {
     api.drop = drop
-    api.frame = async botId => (await sessions.get(botId))?.frame?.()
+    api.frame = async botId => {
+      const entry = sessions.get(botId)
+      if (!entry) return undefined
+      touch(botId)
+      return (await entry)?.frame?.()
+    }
     api.dispose = async () => {
       try { offEffect?.() } catch { /* ignore */ }
       await closeAll()

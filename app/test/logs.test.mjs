@@ -143,3 +143,15 @@ test('the console goes on as before and into the log', (t) => {
   assert.deepEqual(seen, ['hello sk-test-ok\n', 'bytes\n', 'only the console\n'])
   assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), '2026-10-28T08:00:00.000Z [main] hello sk-<hidden>\n2026-10-28T08:00:00.000Z [main] bytes\n')
 })
+
+test('write(..., { redacted: true }) skips redundant redaction and tail(0) returns empty', (t) => {
+  const dir = folder(t)
+  let redactCalls = 0
+  const spy = (text) => { redactCalls += 1; return windows(text) }
+  const log = new LogFile({ dir, redact: spy, now: at })
+  log.write('engine', 'plain line 1\nplain line 2\n', { redacted: true })
+  assert.equal(redactCalls, 0, 'pre-redacted lines skip redactor during write')
+  assert.equal(log.redact('GET /?token=secret'), 'GET /?token=<hidden>')
+  assert.deepEqual(log.tail(0), [])
+  log.close()
+})

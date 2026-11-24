@@ -18,6 +18,7 @@ import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersi
 
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
+const VERSION_FAIL_TTL_MS = 30_000
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -37,7 +38,7 @@ const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
     : new ClaudeEngine(route, spec, { findExecutable }))
 
-export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date.now } = {}) {
+export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersion: checkVersion = probeVersion, now = Date.now } = {}) {
   const { ctx, state } = rt
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
@@ -67,12 +68,29 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     applyRoutes()
     return [...found.values()]
   }
-  async function probeVersions() {
+  async function probeVersions({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
       if (entry.version !== undefined) return
-      const spec = ENGINES[entry.route]
-      const result = await probeVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})).catch(() => undefined)
-      entry.version = result?.version
+      if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
+      if (entry.versionProbe === undefined) {
+        const spec = ENGINES[entry.route]
+        const probe = Promise.resolve()
+          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})))
+          .catch(() => undefined)
+          .then((result) => {
+            if (result?.version !== undefined) {
+              entry.version = result.version
+              delete entry.versionFailedAt
+            } else {
+              entry.versionFailedAt = now()
+            }
+          })
+          .finally(() => {
+            if (entry.versionProbe === probe) delete entry.versionProbe
+          })
+        entry.versionProbe = probe
+      }
+      await entry.versionProbe
     }))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
@@ -88,13 +106,23 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
       }
       if (force || entry.signInProbe === undefined) {
-        const probe = Promise.resolve().then(() => checkSignIn(entry.path, check)).catch(() => null).then((result) => {
-          if (entry.signInProbe !== probe) return
-          entry.signedIn = result
-          entry.signedInAt = now()
-        }).finally(() => {
-          if (entry.signInProbe === probe) delete entry.signInProbe
-        })
+        entry.signInAbort?.abort()
+        const controller = new AbortController()
+        entry.signInAbort = controller
+        const probe = Promise.resolve()
+          .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
+          .catch(() => null)
+          .then((result) => {
+            if (entry.signInProbe !== probe) return
+            entry.signedIn = result
+            entry.signedInAt = now()
+          })
+          .finally(() => {
+            if (entry.signInProbe === probe) {
+              delete entry.signInProbe
+              delete entry.signInAbort
+            }
+          })
         entry.signInProbe = probe
       }
       while (entry.signInProbe !== undefined) {
@@ -104,7 +132,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
   async function freshList({ forceSignIn = false } = {}) {
-    await Promise.all([probeVersions(), probeSignIns({ force: forceSignIn })])
+    await Promise.all([probeVersions({ force: forceSignIn }), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -180,6 +208,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
     disposed = true
+    for (const entry of found.values()) entry.signInAbort?.abort()
     registration?.()
     await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
