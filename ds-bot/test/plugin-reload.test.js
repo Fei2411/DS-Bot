@@ -181,6 +181,58 @@ test('a real DSH transport failure drains the pending inbox without another send
   assert.deepEqual(plugin.rt.unreadOf('b'), [])
   await settle(() => queued()?.length === 0)
 })
+
+test('a pending subagent settlement wakes the parent after a transport failure', async (t) => {
+  const root = new Context()
+  const entered = Promise.withResolvers()
+  const fail = Promise.withResolvers()
+  const home = freshHome()
+  const dsh = dshSide()
+  let plugin
+  t.after(async () => {
+    fail.resolve()
+    await root.fiber.dispose()
+    await plugin?.ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await mountAgentLoopTestDependencies(root)
+  let calls = 0
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream() {
+      if (++calls === 1) {
+        entered.resolve()
+        await fail.promise
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'Connection error.' } } }
+      } else {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      }
+    }
+  }
+  root.llm.registerAdapter(['queue-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  const agent = await root.agentLoop.create(SessionId('b'), { provider: 'queue-test', model: 'test' })
+  dsh.agentMap.set('b', agent)
+  dsh.services.agents = root.agents
+  plugin = await loadPlugin(dsh, home)
+  await plugin.rt.load()
+  root.on('agent/status', payload => plugin.ctx.emit('agent/status', payload))
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Start the work' }] }))
+  await entered.promise
+  const result = createUserMessage({
+    source: { kind: 'subagent-settled', form: 'notice', senderSessionId: 'child', summary: 'Child finished' },
+    content: [{ type: 'text', text: 'Child finished' }],
+  })
+  agent.steer(result)
+  assert.deepEqual(agent.inbox.nextTurn, [])
+  assert.deepEqual(agent.inbox.nextStep.map(message => message.id), [result.id])
+  fail.resolve()
+  await agent.whenIdle()
+  const events = agent.session.snapshotEvents()
+  assert.deepEqual(events.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind), ['error', 'completed'])
+  assert.equal(events.filter(event => event.type === 'user/message' && event.data.id === result.id).length, 1)
+  assert.deepEqual(agent.inbox.nextStep, [])
+})
 // The plugin stops before its data goes, so nothing it still writes lands in a folder
 // that is being removed.
 const cleanup = (t, home, ctx) => t.after(async () => {

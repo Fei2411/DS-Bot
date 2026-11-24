@@ -2132,7 +2132,7 @@ export function install(rt) {
     const nextStep = agent.inbox?.nextStep ?? []
     const target = nextTurn.length > 0 ? 'next-turn' : 'next-step'
     const tail = target === 'next-turn' ? nextTurn.at(-1)
-      : nextStep.some(message => inboxTargetOf(message) === 'next-turn') ? nextStep.at(-1) : undefined
+      : nextStep.some(message => inboxTargetOf(message) === 'next-turn' || message.source?.kind === 'subagent-settled') ? nextStep.at(-1) : undefined
     // DSH preserves pending input on error but stops its driver. Reinsert one message
     // at the same position with wake enabled rather than duplicating or reordering it.
     if (tail !== undefined && removeMessageForMove(agent, tail)) agent.send(tail, target, true)
