@@ -128,6 +128,7 @@ export function install(rt) {
   const isStagedMoveOp = id => (stagedMoveOps.get(id) ?? 0) > 0
   const inFlightSaveMoveOps = new Map()
   const pendingSaveMoveOps = new Map()
+  const inputsAwaitingMoveSave = new WeakSet()
   // Bounded retry timer when `reconcilePendingHandoffInputs` defers an unreadable/unflushed session.
   let reconcileRetryTimer
   let reconcileRetryDelayMs = 1000
@@ -986,7 +987,7 @@ export function install(rt) {
 
   // Replays pending handoff transfer journal entries without re-running the one-shot
   // startup orphan-task sweeper, so deferred retry timers never disturb live tasks.
-  async function reconcilePendingHandoffInputs() {
+  async function reconcilePendingHandoffInputs(only) {
     if (rt.readOnly?.() !== undefined) return
     if (Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
       const valid = state.pendingHandoffInputs.filter(entry => entry !== null && typeof entry === 'object')
@@ -995,7 +996,7 @@ export function install(rt) {
         else state.pendingHandoffInputs = valid
         await rt.save().catch(() => {})
       }
-      const pending = [...valid]
+      const pending = only === undefined ? [...valid] : valid.filter(entry => only.has(entry))
       const stillPending = entry => state.pendingHandoffInputs?.includes(entry) === true
       let deferredAny = false
       for (const entry of pending) {
@@ -1018,6 +1019,16 @@ export function install(rt) {
           if (entry.discarded === true) {
             await clearPendingTransfers([{ key, token }])
             continue
+          }
+          if (inputsAwaitingMoveSave.has(entry)) {
+            try {
+              await rt.save({ required: true })
+            } catch {
+              deferredAny = true
+              continue
+            }
+            inputsAwaitingMoveSave.delete(entry)
+            if (!stillPending(entry)) continue
           }
           let targetSid
           let label
@@ -2292,9 +2303,11 @@ export function install(rt) {
       if (liveOld !== undefined) liveOld.steeredAt = undefined
 
       let postSaveDone = false
+      const deferredInputs = new Set()
       const finishPostSave = async () => {
         if (postSaveDone) return
         postSaveDone = true
+        record.saved = true
         await rt.moveSchedules?.(oldSid, newSid)
           .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
         await syncRoute?.().catch(error => rt.warn('ds-bot: route sync for foreground part of %s failed: %s', bot.name, error))
@@ -2367,6 +2380,11 @@ export function install(rt) {
           const batch = record.messages.splice(0)
           await forwardPulledMessages(newSid, batch, bot.name, { botId: bot.id })
         }
+        if (deferredInputs.size > 0) {
+          for (const entry of deferredInputs) inputsAwaitingMoveSave.delete(entry)
+          await reconcilePendingHandoffInputs(deferredInputs)
+          deferredInputs.clear()
+        }
       }
 
       const moveResult = { sessionId: newSid, taskId: task.id, moved: true }
@@ -2400,6 +2418,15 @@ export function install(rt) {
           await rt.save({ required: true })
         } catch (error) {
           unstagePersistedMoveOps(staged)
+          for (const item of record.messages.splice(0)) {
+            const { key, token } = transferRefOf(item)
+            const entry = pendingTransferOf(key)
+            if (entry !== undefined && entry.token === token) {
+              inputsAwaitingMoveSave.add(entry)
+              deferredInputs.add(entry)
+            }
+            releaseTransferLock(key, token)
+          }
           for (const id of record.operationIds) {
             pendingEntry.operationIds.add(id)
             rememberPendingSaveMoveOp(id, pendingEntry)
@@ -2411,7 +2438,6 @@ export function install(rt) {
             if (inFlightSaveMoveOps.get(id) === savePromise) inFlightSaveMoveOps.delete(id)
           }
         }
-        record.saved = true
         for (const id of saveOpIds) {
           pendingSaveMoveOps.delete(id)
           record.savedOperationIds.add(id)
@@ -2431,7 +2457,7 @@ export function install(rt) {
 
     record.promise = run.finally(() => {
       if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
-      if (record.committed && record.newSid !== undefined && record.messages.length > 0) {
+      if (record.saved && record.newSid !== undefined && record.messages.length > 0) {
         void forwardPulledMessages(record.newSid, record.messages.splice(0), bot.name, { botId: bot.id })
       } else if (!record.committed && record.messages.length > 0) {
         const leftover = record.messages.splice(0)

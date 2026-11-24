@@ -945,6 +945,51 @@ test('a failed journal write for input held during a fork leaves the original fo
   }
 })
 
+test('held input waits for a successful retry of the foreground commit save', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const move = { botId: 'a', expectedSessionId: 'dm-a', operationId: 'retry-foreground-commit' }
+  const moved = rig.rt.moveForegroundToBackground(move).catch(error => error)
+  await rig.forkStarted.promise
+  const prompt = userPrompt('Wait for the foreground commit', 'held-commit-retry')
+  old.steer(prompt)
+  await rig.rt.save()
+  assert.equal(old.inbox.nextStep.length, 0)
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+
+  const save = rig.rt.save
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId !== 'dm-a') {
+      throw Object.assign(new Error('Foreground commit write blocked'), { code: 'EBUSY' })
+    }
+    return save(options)
+  })
+  rig.forkGate.resolve()
+  assert.equal((await moved).code, 'EBUSY')
+  assert.equal(rig.rt.botOf('a').sessionId, 'fork-1')
+  assert.equal(JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).bots.a.sessionId, 'dm-a')
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  const fresh = rig.agents.get('fork-1')
+  const admitted = () => fresh.session.snapshotEvents().filter(event =>
+    event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
+  await new Promise(resolve => setImmediate(resolve))
+  await fresh.whenIdle()
+  assert.equal(admitted().length, 0)
+  assert.deepEqual(rig.rt.state.pendingHandoffInputs?.map(item => item.messageId), [prompt.id])
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.equal(admitted().length, 0)
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+
+  blocked.mock.restore()
+  assert.equal((await rig.rt.moveForegroundToBackground(move)).sessionId, 'fork-1')
+  await fresh.whenIdle()
+  assert.equal(admitted().length, 1)
+  assert.equal(JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).bots.a.sessionId, 'fork-1')
+  assert.deepEqual(journal(rig), [])
+})
+
 test('legacy handoff records with the same RPC ID replay independently for different Bots', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true })
   rig.rt.state.bots.b = { id: 'b', name: 'Other Bot', sessionId: 'dm-b' }
